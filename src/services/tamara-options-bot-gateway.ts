@@ -67,6 +67,7 @@ export class PrismaTamaraOptionsBotGateway implements TamaraOptionsBotGateway {
       where: {
         businessId: input.businessId,
         isBookable: true,
+        isActive: true,
         attentionMode: 'DIRECT_BOOKING',
         professionalLinks: { some: { professionalId: professional.id } }
       },
@@ -94,6 +95,7 @@ export class PrismaTamaraOptionsBotGateway implements TamaraOptionsBotGateway {
       where: {
         businessId: input.businessId,
         isBookable: true,
+        isActive: true,
         attentionMode: 'DIRECT_BOOKING',
         professionalLinks: { some: { professionalId: professional.id } },
         ...(legacyCategory

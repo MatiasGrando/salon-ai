@@ -88,7 +88,7 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || path === '/service-categories'
     || /^\/service-categories\/[^/]+$/.test(path)
     || path === '/services'
-    || /^\/services\/[^/]+$/.test(path)
+    || /^\/services\/[^/]+(?:\/status)?$/.test(path)
     || path.startsWith('/cash-register')
     || path === '/crm/cash-events'
     || path === '/appointments/finance-summaries'

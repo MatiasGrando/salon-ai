@@ -14,14 +14,23 @@ type CatalogClient = Pick<PrismaClient, 'serviceCategory' | 'service'> | Prisma.
 export const UNCATEGORIZED_CATEGORY_ID = 'uncategorized'
 const UNCATEGORIZED_CATEGORY: CatalogCategoryItem = { id: UNCATEGORIZED_CATEGORY_ID, name: 'Otros' }
 
+function eligibleBotProfessionalLinks(businessId: string) {
+  return {
+    some: {
+      professional: { businessId, isActive: true, acceptsBotBookings: true }
+    }
+  }
+}
+
 function uncategorizedRootServiceWhere(businessId: string): Prisma.ServiceWhereInput {
   return {
     businessId,
+    isActive: true,
     catalogCategoryId: null,
     parentServiceId: null,
     OR: [
-      { isBookable: true },
-      { isBookable: false, variants: { some: { businessId, catalogCategoryId: null, isBookable: true } } }
+      { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(businessId) },
+      { isBookable: false, isActive: true, variants: { some: { businessId, catalogCategoryId: null, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(businessId) } } }
     ]
   }
 }
@@ -87,8 +96,8 @@ export class PrismaCatalogRepository {
         businessId: input.businessId,
         parentServiceId: null,
         OR: [
-          { isBookable: true },
-          { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+          { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
+          { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
         ]
       } }
     }
@@ -168,7 +177,8 @@ export class PrismaCatalogRepository {
           businessId: input.businessId,
           catalogCategoryId,
           parentServiceId: null,
-          isBookable: false
+          isBookable: false,
+          isActive: true
         },
         select: { id: true }
       })
@@ -177,14 +187,15 @@ export class PrismaCatalogRepository {
     const rows = await this.#client.service.findMany({
       where: {
         businessId: input.businessId,
+        isActive: true,
         catalogCategoryId,
         parentServiceId: input.parentServiceId ?? null,
         ...(input.parentServiceId
-          ? { isBookable: true }
+          ? { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) }
           : {
               OR: [
-                { isBookable: true },
-                { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+                { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
+                { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
               ]
             })
       },
@@ -210,11 +221,14 @@ export class PrismaCatalogRepository {
         catalogCategoryId,
         parentServiceId: null,
         isBookable: false,
+        isActive: true,
         ...(uncategorized ? {} : { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }),
         variants: { some: {
           businessId: input.businessId,
           catalogCategoryId,
-          isBookable: true
+          isBookable: true,
+          isActive: true,
+          professionalLinks: eligibleBotProfessionalLinks(input.businessId)
         } }
       },
       select: { id: true, catalogCategoryId: true, name: true }
@@ -228,6 +242,8 @@ export class PrismaCatalogRepository {
         id: input.serviceId,
         businessId: input.businessId,
         isBookable: true,
+        isActive: true,
+        professionalLinks: eligibleBotProfessionalLinks(input.businessId),
         OR: [
           { catalogCategoryId: null },
           { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }

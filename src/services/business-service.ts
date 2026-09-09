@@ -18,7 +18,7 @@ const RESERVED_SLUGS = new Set([
 const publicBusinessInclude = {
   businessHours: true,
   services: {
-    where: { isBookable: true },
+    where: { isBookable: true, isActive: true },
     orderBy: [
       { category: 'asc' as const },
       { name: 'asc' as const }

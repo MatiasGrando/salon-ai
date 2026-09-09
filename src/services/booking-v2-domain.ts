@@ -131,7 +131,8 @@ export class BookingV2DomainService {
       this.db.service.findMany({
         where: {
           businessId,
-          isBookable: true
+          isBookable: true,
+          isActive: true
         },
         // El catálogo de reservas no muestra imágenes. Seleccionar sólo los
         // datos de la reserva evita transferir los data URLs de cada servicio.
@@ -230,7 +231,9 @@ export class BookingV2DomainService {
     return createBookingV2DomainCatalog({
       displayMode: normalizeCatalogDisplayMode(featureSettings?.serviceCatalogDisplayMode),
       bookingFlowOrder: normalizeBookingFlowOrder(featureSettings?.bookingFlowOrder),
-      services: services.map((service) => {
+      services: services.filter((service) =>
+        professionals.some((professional) => professional.serviceLinks.some((link) => link.serviceId === service.id))
+      ).map((service) => {
         const category = service.catalogCategory?.name ?? service.category
         return {
           id: service.id,

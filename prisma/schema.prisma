@@ -767,6 +767,12 @@ enum BusinessType {
   WORKSHOP
 }
 
+enum WorkshopVehicleUsage {
+  PARTICULAR
+  FREQUENT
+  PROFESSIONAL
+}
+
 model Business {
   businessType          BusinessType @default(SALON)
   id                     String                        @id @default(cuid())
@@ -852,6 +858,11 @@ model Business {
   cashRegisterDays        CashRegisterDay[]
   cashSessions            CashSession[]
   cashEntries             CashEntry[]
+  workshopBrands          WorkshopBrand[]
+  workshopJobs            WorkshopJob[]
+  workshopShortcuts       WorkshopShortcut[]
+  workshopPerformers      WorkshopPerformer[]
+  workshopVehicles        WorkshopVehicle[]
 
   createdAt DateTime @default(now())
 
@@ -1267,6 +1278,7 @@ model Service {
   priceMode             ServicePriceMode     @default(FIXED)
   imageUrl              String?
   isBookable            Boolean              @default(true)
+  isActive              Boolean              @default(true)
   sortOrder             Int                  @default(0)
   bookingOrderPriority  Int                  @default(20)
   attentionMode         ServiceAttentionMode @default(DIRECT_BOOKING)
@@ -1389,6 +1401,7 @@ model Customer {
   postSaleDeliveries       PostSaleDelivery[]
   communicationRecipients  CommunicationRecipient[]
   weexLinks                WeexCustomerLink[]
+  workshopVehicles         WorkshopVehicle[]
 
   createdAt DateTime @default(now())
 
@@ -1398,6 +1411,90 @@ model Customer {
   @@index([businessId, createdAt])
   @@index([phone])
   @@index([email])
+}
+
+model WorkshopBrand {
+  id             String @id @default(cuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name           String
+  normalizedName String
+  vehicles       WorkshopVehicle[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, name])
+}
+
+model WorkshopVehicle {
+  jobs           WorkshopJob[]
+  id             String @id @default(cuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  brandId        String
+  brand          WorkshopBrand @relation(fields: [businessId, brandId], references: [businessId, id], onDelete: Restrict)
+  customerId     String
+  customer       Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  plate          String
+  model          String
+  year           Int?
+  engine         String
+  currentMileage Int?
+  usage          WorkshopVehicleUsage
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([businessId, plate])
+  @@unique([businessId, id])
+  @@index([businessId, updatedAt])
+  @@index([customerId])
+}
+
+model WorkshopJob {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  vehicleId String
+  vehicle WorkshopVehicle @relation(fields: [businessId, vehicleId], references: [businessId, id], onDelete: Restrict)
+  date String
+  mileage Int
+  responsible String?
+  performerId String?
+  performer WorkshopPerformer? @relation(fields: [businessId, performerId], references: [businessId, id], onDelete: Restrict)
+  notes String @default("")
+  lines Json
+  totalCents Int
+  createdAt DateTime @default(now())
+  @@index([businessId, date])
+  @@index([businessId, vehicleId, date])
+  @@index([businessId, performerId, date])
+}
+
+model WorkshopShortcut {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name String
+  description String
+  quantity Int @default(1)
+  active Boolean @default(true)
+  position Int @default(0)
+  @@index([businessId, position])
+}
+
+model WorkshopPerformer {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name String
+  normalizedName String
+  active Boolean @default(true)
+  jobs WorkshopJob[]
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, active, name])
 }
 
 model WeexAccount {

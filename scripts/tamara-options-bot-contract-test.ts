@@ -93,14 +93,14 @@ assert.match(webhookSource, /conversationSnapshot: \{\s*supportBotState: leasedC
 assert.match(webhookSource, /conversationSnapshot: leasedConversation/)
 assert.match(webhookSource, /status: admission\.accepted\s*\? isTamaraOptionsBot && conversation\.aiEnabled\s*\? 'queued_bot'\s*: 'received'/s)
 assert.match(webhookSource, /activeInteractivePromptToken: null/)
-assert.match(webhookSource, /!isTamaraOptionsBot &&\s*!recoverStaleTamaraReply &&\s*message\.interactiveReplyId &&\s*parseVersionedInteractiveReplyId/s)
+assert.match(webhookSource, /!isTamaraOptionsBot &&\s*!recoverStaleTamaraReply &&\s*resolvedInteractivePromptToken/s)
 assert.match(webhookSource, /!automaticMessage\.interactivePromptToken && inboundMessage\.status === 'received'/)
 assert.match(gatewaySource, /findAvailabilityMany\(/)
 assert.match(gatewaySource, /professional: \{\s*businessId: input\.businessId,\s*isActive: true,\s*acceptsBotBookings: true\s*\}/s)
+assert.match(gatewaySource, /isBookable: true,\s*isActive: true,\s*attentionMode: 'DIRECT_BOOKING'/s, 'Tamara no debe ofrecer servicios desactivados')
 assert.doesNotMatch(gatewaySource, /Promise\.all\(candidates\.map\(async \(date\).*findAvailability/s)
 assert.match(crmRoute, /tamaraOptionsBotEnabled/)
-assert.match(crmUi, /id="tamara-options-bot-toggle"/)
-assert.match(crmUi, /toggleTamaraOptionsBot/)
+assert.match(crmUi, /id="bot-routing-prepare"/)
 
 const start = await bot.start({ businessId: 'business-1', phone: '5491100000000' })
 

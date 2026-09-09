@@ -974,20 +974,14 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     const serviceIds = [service.id, ...service.variants.map((variant) => variant.id)]
-    const appointmentCount = await prisma.appointment.count({
-      where: {
-        serviceId: { in: serviceIds }
-      }
-    })
-
-    if (appointmentCount > 0) {
-      return reply.status(409).send({
-        message: 'No se puede eliminar porque tiene turnos asociados'
-      })
-    }
-
-    await prisma.$transaction(async (tx) => {
+    const deleted = await prisma.$transaction(async (tx) => {
       await acquireAgendaHierarchy(tx, { businessId: service.businessId })
+      const [appointments, appointmentItems, depositLines] = await Promise.all([
+        tx.appointment.count({ where: { serviceId: { in: serviceIds } } }),
+        tx.appointmentServiceItem.count({ where: { serviceId: { in: serviceIds } } }),
+        tx.bookingDepositLine.count({ where: { serviceId: { in: serviceIds } } })
+      ])
+      if (appointments + appointmentItems + depositLines > 0) return false
       await tx.serviceAlias.deleteMany({
         where: {
           serviceId: { in: serviceIds }
@@ -1003,13 +997,46 @@ export async function serviceRoutes(app: FastifyInstance) {
           id: service.id
         }
       })
+      return true
     })
+    if (!deleted) {
+      return reply.status(409).send({
+        code: 'SERVICE_HAS_HISTORY',
+        canDeactivate: true,
+        message: 'No se puede eliminar porque tiene historial de turnos o señas. Podés desactivarlo para dejar de ofrecerlo en nuevas reservas.'
+      })
+    }
     await refreshBusinessOnboarding(service.businessId)
 
     return {
       deleted: true,
       deletedCount: serviceIds.length
     }
+  })
+
+  app.patch('/services/:id/status', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { isActive?: unknown }
+    if (typeof body.isActive !== 'boolean') {
+      return reply.status(400).send({ message: 'isActive debe ser booleano' })
+    }
+
+    const service = await prisma.service.findFirst({
+      where: authorizedServiceWhere(request.auth!.user, params.id),
+      select: { id: true, businessId: true }
+    })
+    if (!service) return sendAuthorizationFailure(reply, 'notFound')
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await acquireAgendaHierarchy(tx, { businessId: service.businessId })
+      return tx.service.update({
+        where: { id: service.id },
+        data: { isActive: body.isActive },
+        include: serviceCatalogInclude
+      })
+    }, { timeout: SERVICE_WRITE_TRANSACTION_TIMEOUT_MS })
+    await refreshBusinessOnboarding(service.businessId)
+    return updated
   })
 
   app.post('/services/:serviceId/aliases', async (request, reply) => {

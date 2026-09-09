@@ -1,0 +1,1 @@
+ALTER TABLE "WorkshopVehicle" ALTER COLUMN "year" DROP NOT NULL;

@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { parseBusinessType } from '../src/services/business-type.js'
 
 const ui = readFileSync('src/routes/crm-ui.ts', 'utf8')
+const workshopJobsUi = readFileSync('src/routes/workshop-jobs-ui.ts', 'utf8')
 const schema = readFileSync('prisma/schema.prisma', 'utf8')
 assert.match(schema, /businessType\s+BusinessType\s+@default\(SALON\)/)
 assert.match(ui, /id="account-business-type"/)
@@ -14,8 +15,9 @@ assert.match(ui, /data-mobile-section="workshop-jobs"/)
 assert.equal(parseBusinessType(undefined), 'SALON')
 assert.equal(parseBusinessType('WORKSHOP'), 'WORKSHOP')
 for (const bad of [null, '', 'OTHER', {}, ['WORKSHOP']]) assert.equal(parseBusinessType(bad), null)
-assert.match(ui, /Todav&iacute;a no hay autos registrados/)
-assert.match(ui, /Todav&iacute;a no hay trabajos registrados/)
+assert.match(ui, /id="workshop-vehicle-search"[^>]+placeholder="Buscar por patente"/)
+assert.doesNotMatch(ui, /Todav&iacute;a no hay autos registrados/)
+assert.match(workshopJobsUi, /No hay trabajos registrados para esta consulta/)
 for (const path of ['account-management', 'auth', 'business']) {
   assert.match(readFileSync('src/routes/' + path + '.ts', 'utf8'), /parseBusinessType\(body.businessType\)/)
 }
@@ -31,9 +33,9 @@ const state: any = { currentUser: { role: 'BUSINESS_ADMIN' }, businessId: 'talle
 const sandbox: any = { state }
 vm.createContext(sandbox)
 vm.runInContext(fn('isWorkshopBusiness') + fn('staffVisibleSections'), sandbox)
-assert.deepEqual(Array.from(sandbox.staffVisibleSections()), ['autos', 'workshop-jobs'])
+assert.deepEqual(Array.from(sandbox.staffVisibleSections()), ['autos', 'workshop-jobs', 'workshop-personnel'])
 state.currentUser.role = 'ACCOUNT_ADMIN'
-assert.deepEqual(Array.from(sandbox.staffVisibleSections()), ['accounts', 'autos', 'workshop-jobs'])
+assert.deepEqual(Array.from(sandbox.staffVisibleSections()), ['accounts', 'autos', 'workshop-jobs', 'workshop-personnel'])
 state.business = { businessType: 'SALON' }
 assert.ok(sandbox.staffVisibleSections().includes('services'))
 assert.ok(!sandbox.staffVisibleSections().includes('autos'))

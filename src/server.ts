@@ -32,6 +32,7 @@ import { postSaleRoutes } from './routes/post-sale.js'
 import { weexLeadAdminRoutes, weexLeadCampaignRoutes } from './routes/weex-lead-campaign.js'
 import { weexSupportBotV1Routes } from './routes/weex-support-bot-v1.js'
 import { demoProfileRoutes } from './routes/demo-profile.js'
+import { workshopRoutes } from './routes/workshop.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -130,6 +131,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await authGuard(app)
   await app.register(accountManagementRoutes)
   await app.register(businessRoutes)
+  await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
   await app.register(professionalRoutes)
   await app.register(serviceRoutes)

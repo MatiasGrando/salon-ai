@@ -6690,6 +6690,26 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'dominio no ofrece servicios sin un profesional habilitado para el bot',
+    run: async () => {
+      const domain = new BookingV2DomainService({
+        service: {
+          findMany: async () => [
+            { id: 'con-profesional', name: 'Corte', aliases: [], duration: 30, price: 10000, category: null, catalogCategory: null, parentService: null, parentServiceId: null },
+            { id: 'sin-profesional', name: 'Color', aliases: [], duration: 60, price: 20000, category: null, catalogCategory: null, parentService: null, parentServiceId: null }
+          ]
+        },
+        professional: {
+          findMany: async () => [{ id: 'pro-1', name: 'Ana', serviceLinks: [{ serviceId: 'con-profesional' }] }]
+        }
+      } as never)
+
+      const catalog = await domain.loadCatalog('business-1')
+      assert.deepEqual(catalog.services.map((service) => service.id), ['con-profesional'])
+      assert.deepEqual(catalog.professionals.map((professional) => professional.id), ['pro-1'])
+    }
+  },
+  {
     name: 'dominio incorpora la categoria como alias navegable',
     run: async () => {
       const domain = new BookingV2DomainService({
@@ -6709,7 +6729,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           ]
         },
         professional: {
-          findMany: async () => []
+          findMany: async () => [{
+            id: 'pro-color',
+            name: 'Profesional color',
+            serviceLinks: [{ serviceId: 'full-color' }]
+          }]
         }
       } as never)
 

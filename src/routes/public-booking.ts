@@ -51,6 +51,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         slug: business.slug
       },
       services: business.services
+        .filter((service) => service.isActive)
         .filter((service) => serviceCanBookFromWeb(service))
         .filter((service) => service.depositMode === 'NONE' || (
           webTransferEnabled(business) && Boolean(calculateBookingV2Deposit({
@@ -60,6 +61,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
             estimateMinimum: defaultEstimateMinimum(service)
           }))
         ))
+        .filter((service) => serviceLinks.some((link) => link.serviceId === service.id))
         .map((service) => ({
         id: service.id,
         name: service.name,
@@ -730,6 +732,7 @@ async function professionalsForService(businessId: string, serviceId: string, pr
     where: {
       id: serviceId,
       businessId,
+      isActive: true,
       depositMode: { in: ['NONE', 'FIXED', 'PERCENTAGE'] }
     },
     select: {
@@ -760,6 +763,7 @@ async function professionalsForServiceSlug(slug: string, serviceId: string, prof
     where: {
       id: serviceId,
       business: { slug },
+      isActive: true,
       depositMode: { in: ['NONE', 'FIXED', 'PERCENTAGE'] }
     },
     select: {
