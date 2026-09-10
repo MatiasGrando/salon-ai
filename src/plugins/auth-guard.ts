@@ -225,6 +225,9 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/landing-assets/')
     || isTamaraSitePublicRoute(request, path)
     || isNaturaFlowSitePublicRoute(request, path)
+    || (request.headers.host?.split(':')[0] === 'yamila-sacco.weex.com.ar'
+      && ['GET', 'HEAD'].includes(request.method)
+      && (path === '/styles.css' || path === '/main.js' || /^\/images\/[a-zA-Z0-9_-]+\.(jpg|png)$/.test(path)))
     || isLubricentroSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
     || path.startsWith('/public/workshops/')

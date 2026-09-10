@@ -7,6 +7,7 @@
     "build": "npm run build:lubricentro",
     "build:lubricentro": "npm --prefix sites/lubricentro-albarellos ci --include=dev && npm --prefix sites/lubricentro-albarellos run build",
     "test:lubricentro-site": "tsx scripts/lubricentro-custom-site-contract-test.ts && node sites/lubricentro-albarellos/scripts/plate-lookup-contract-test.mjs",
+    "test:yamila-site": "tsx scripts/yamila-site-contract-test.ts",
     "test:workshop-jobs": "tsx scripts/workshop-jobs-test.ts && tsx scripts/workshop-jobs-routes-test.ts && tsx scripts/workshop-jobs-migration-test.ts && tsx scripts/workshop-jobs-ui-test.ts",
     "dev": "tsx src/server.ts",
     "start": "prisma generate && prisma migrate deploy && tsx src/server.ts",

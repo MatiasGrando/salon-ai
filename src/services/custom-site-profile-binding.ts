@@ -6,6 +6,11 @@ export type CustomSiteProfileBinding = {
 
 const customSiteProfileBindings: CustomSiteProfileBinding[] = [
   {
+    hostname: 'yamila-sacco.weex.com.ar',
+    businessCustomerCode: 'WX-J82QB3',
+    serviceCatalogMode: 'ALL'
+  },
+  {
     hostname: 'tamaragrando.weex.com.ar',
     businessCustomerCode: 'WX-RWCEDG',
     serviceCatalogMode: 'ALL'
