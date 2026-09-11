@@ -48,6 +48,15 @@ export function bandForMinute(minute: number, settings: AvailabilitySettings): S
   return minute < morning ? 'MORNING' : minute < evening ? 'AFTERNOON' : 'EVENING'
 }
 
+export function availabilityBandLabels(settings: AvailabilitySettings): Record<SlotBand, string> {
+  validateAvailabilitySettings(settings)
+  return {
+    MORNING: `Antes de ${settings.morningCutTime}`,
+    AFTERNOON: `${settings.morningCutTime} a ${settings.eveningCutTime}`,
+    EVENING: `Desde ${settings.eveningCutTime}`
+  }
+}
+
 export function paginate<T>(items: readonly T[], cursor: number, pageSize: number): { items: T[]; hasPrevious: boolean; hasNext: boolean } {
   const safeCursor = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0
   const start = safeCursor * pageSize

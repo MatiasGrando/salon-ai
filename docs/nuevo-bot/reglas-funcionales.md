@@ -342,14 +342,15 @@ las reglas transversales de atención están especificados para el primer corte.
 - Generar inicios sobre una grilla de 30 minutos.
 - Conservar la duración real de cada servicio.
 - Si los horarios caben, mostrarlos en orden cronológico.
-- Si no caben, mostrar Mañana, Tarde, Noche y Ver todos los horarios.
+- Si no caben, mostrar los rangos concretos configurados y Ver todos los horarios.
 - Ver todos pagina cronológicamente.
 - En la selección de horarios, la acción para regresar al día se etiqueta
   “Cambiar fecha”; conserva servicios y profesional, invalida el día anterior y
   vuelve a mostrar fechas disponibles.
 - Apertura y cierre provienen de la agenda real del día.
-- Cortes predeterminados: 12:30 y 16:30, configurables y sin huecos ni
-  superposiciones.
+- Cortes predeterminados: 12:30 y 16:30. Se muestran como “Antes de 12:30”,
+  “12:30 a 16:30” y “Desde 16:30”; son editables desde los ajustes del comercio
+  y no pueden producir huecos ni superposiciones.
 - Interpretar fechas, franjas y vencimientos en la zona horaria del negocio.
 
 ## 9. Resumen y confirmación

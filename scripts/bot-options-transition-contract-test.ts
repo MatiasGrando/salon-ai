@@ -58,7 +58,7 @@ function availableSlots(count: number): NonNullable<TransitionContext['labels'][
 }
 
 // La pantalla contextualiza fecha/cantidad y ofrece cambiar de profesional con hasta cinco horarios.
-for (const count of [1, 5]) {
+for (const count of [1, 2, 3, 5]) {
   const slotContext = normalizeContext(ctx({
     businessTodayDate: '2026-09-04',
     labels: {
@@ -70,8 +70,8 @@ for (const count of [1, 5]) {
   assert.equal(
     view.interactiveBody,
     count === 1
-      ? 'Encontré un solo horario disponible para hoy con Ramiro. Podés elegirlo o buscar disponibilidad con otro profesional.'
-      : 'Estos son los horarios disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.'
+      ? 'Solo queda 1 turno disponible para hoy con Ramiro. Podés elegirlo o buscar disponibilidad con otro profesional.'
+      : `Solo quedan ${count} turnos disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.`
   )
   assert.ok(view.choices.some((choice) => choice.actionType === 'professional.change' && choice.label === 'Buscar otro profesional'))
   assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
@@ -84,15 +84,47 @@ const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normaliz
     availableSlots: availableSlots(6)
   }
 })))
-assert.equal(manySlotView.interactiveBody, 'Estos son los horarios disponibles para hoy con Ramiro:')
+assert.equal(manySlotView.interactiveBody, 'Solo quedan 6 turnos disponibles para hoy con Ramiro:')
 assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'professional.change'))
 assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
+
+const timeRangeBandView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
+  businessTodayDate: '2026-09-04',
+  labels: {
+    bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+    availabilityBandLabels: {
+      MORNING: 'Antes de 12:30',
+      AFTERNOON: '12:30 a 16:30',
+      EVENING: 'Desde 16:30'
+    },
+    availableSlots: availableSlots(8)
+  }
+})))
+assert.deepEqual(
+  timeRangeBandView.choices.filter((choice) => choice.actionType === 'slot.band').map((choice) => choice.label),
+  ['Antes de 12:30', '12:30 a 16:30']
+)
+assert.ok(!timeRangeBandView.choices.some((choice) => ['Mañana', 'Tarde', 'Noche'].includes(choice.label)))
+
+for (const count of [1, 2, 3]) {
+  const state = { ...bookingSlotState('prof_ramiro'), presentation: { kind: 'slot_band' as const, band: 'MORNING' as const } }
+  const view = renderCurrentView(state, normalizeContext(ctx({
+    businessTodayDate: '2026-09-04',
+    labels: {
+      bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+      availabilityBandLabels: { MORNING: 'Antes de 12:30', AFTERNOON: '12:30 a 16:30', EVENING: 'Desde 16:30' },
+      availableSlots: availableSlots(9).map((slot, index) => ({ ...slot, band: index < count ? 'MORNING' as const : 'AFTERNOON' as const }))
+    }
+  })))
+  assert.equal(view.interactiveBody, `${count === 1 ? 'Solo queda 1 turno disponible' : `Solo quedan ${count} turnos disponibles`} para hoy con Ramiro, en el rango Antes de 12:30:`)
+  assert.equal(view.choices.filter((choice) => choice.actionType === 'slot.select').length, count)
+}
 
 const futureAnyProfessionalView = renderCurrentView(bookingSlotState(null, true), normalizeContext(ctx({
   businessTodayDate: '2026-09-03',
   labels: { availableSlots: availableSlots(1) }
 })))
-assert.equal(futureAnyProfessionalView.interactiveBody, 'Encontré un solo horario disponible para el viernes 4 de septiembre.')
+assert.equal(futureAnyProfessionalView.interactiveBody, 'Solo queda 1 turno disponible para el viernes 4 de septiembre.')
 assert.ok(!futureAnyProfessionalView.choices.some((choice) => choice.actionType === 'professional.change'))
 
 const changeProfessional = transition(

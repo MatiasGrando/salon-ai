@@ -86,6 +86,67 @@ export async function businessRoutes(app: FastifyInstance) {
     return media
   })
 
+  app.get('/businesses/:id/availability-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (!await canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const business = await prisma.business.findUnique({
+      where: { id: params.id },
+      select: {
+        botOptionsSettings: {
+          select: { morningCutTime: true, eveningCutTime: true }
+        }
+      }
+    })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    return {
+      morningCutTime: business.botOptionsSettings?.morningCutTime ?? '12:30',
+      eveningCutTime: business.botOptionsSettings?.eveningCutTime ?? '16:30'
+    }
+  })
+
+  app.patch('/businesses/:id/availability-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (request.auth?.user.role === 'STAFF') {
+      return reply.status(403).send({ message: 'No tenes permiso para modificar los bloques horarios' })
+    }
+    if (!await canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const body = request.body as { morningCutTime?: unknown; eveningCutTime?: unknown }
+    const morningCutTime = normalizeAvailabilityCutTime(body.morningCutTime)
+    const eveningCutTime = normalizeAvailabilityCutTime(body.eveningCutTime)
+    const morningMinutes = availabilityCutMinutes(morningCutTime)
+    const eveningMinutes = availabilityCutMinutes(eveningCutTime)
+    if (!morningCutTime || !eveningCutTime || morningMinutes === null || eveningMinutes === null || morningMinutes >= eveningMinutes) {
+      return reply.status(400).send({ message: 'El primer corte debe ser anterior al segundo' })
+    }
+    const business = await prisma.business.findUnique({
+      where: { id: params.id },
+      select: { timezone: true }
+    })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    if (!business.timezone) {
+      return reply.status(409).send({ message: 'Configura primero la zona horaria del comercio' })
+    }
+    return prisma.businessBotOptionsSettings.upsert({
+      where: { businessId: params.id },
+      create: {
+        businessId: params.id,
+        timezone: business.timezone,
+        morningCutTime,
+        eveningCutTime
+      },
+      update: {
+        timezone: business.timezone,
+        morningCutTime,
+        eveningCutTime
+      },
+      select: { morningCutTime: true, eveningCutTime: true }
+    })
+  })
+
   app.get('/businesses/:id/payment-settings', async (request, reply) => {
     const params = request.params as { id: string }
     if (!await canAccessBusiness(request.auth, params.id)) {
@@ -885,6 +946,18 @@ function normalizePaymentIdentifier(value: string | null | undefined, maxLength:
   const normalized = value?.trim()
   if (!normalized) return null
   return normalized.length <= maxLength ? normalized : undefined
+}
+
+function normalizeAvailabilityCutTime(value: unknown) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalized) ? normalized : null
+}
+
+function availabilityCutMinutes(value: string | null) {
+  if (!value) return null
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours! * 60 + minutes!
 }
 
 function normalizeOptionalEmail(value?: string | null) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { buildCartSnapshot, canAddService, cartChangeInvalidatesAvailability, formatCartSummary } from '../src/bot-options/application/cart-operations.js'
 import {
-  bandForMinute, chooseBalancedProfessional, formatSlotOffset, localDateTimeToInstants, paginate,
+  availabilityBandLabels, bandForMinute, chooseBalancedProfessional, formatSlotOffset, localDateTimeToInstants, paginate,
   validateAvailabilitySettings
 } from '../src/bot-options/application/availability-queries.js'
 import { createInitialBotOptionsState } from '../src/bot-options/domain/state.js'
@@ -33,6 +33,11 @@ assert.equal(cartChangeInvalidatesAvailability(['cut'], ['cut', 'color']), true)
 assert.equal(cartChangeInvalidatesAvailability(['cut'], ['cut']), false)
 
 const settings = validateAvailabilitySettings({ timezone: 'America/New_York', horizonDays: 30, leadTimeHours: 0, morningCutTime: '12:30', eveningCutTime: '16:30' })
+assert.deepEqual(availabilityBandLabels(settings), {
+  MORNING: 'Antes de 12:30',
+  AFTERNOON: '12:30 a 16:30',
+  EVENING: 'Desde 16:30'
+})
 assert.equal(bandForMinute(12 * 60 + 29, settings), 'MORNING')
 assert.equal(bandForMinute(12 * 60 + 30, settings), 'AFTERNOON')
 assert.equal(bandForMinute(16 * 60 + 29, settings), 'AFTERNOON')

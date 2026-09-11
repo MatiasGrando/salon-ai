@@ -420,8 +420,9 @@ Presentación de horarios durante la primera etapa:
   grilla que tenga libre todo el bloque necesario, por ejemplo las 10:00.
 - Si todos los horarios y acciones de navegación entran en una única lista, se
   muestran directamente en orden cronológico.
-- Si superan la capacidad disponible, el bot muestra franjas horarias como
-  Mañana, Tarde y Noche. Las franjas sin disponibilidad no se muestran.
+- Si superan la capacidad disponible, el bot muestra rangos horarios concretos,
+  por ejemplo “Antes de 12:30”, “12:30 a 16:30” y “Desde 16:30”. Los rangos sin
+  disponibilidad no se muestran.
 - La vista por franjas siempre incluye “Ver todos los horarios”.
 - “Ver todos los horarios” muestra la disponibilidad completa en orden
   cronológico y utiliza páginas cuando sea necesario.
@@ -441,13 +442,12 @@ Franjas horarias:
 
 - La primera franja comienza en la hora real de apertura del negocio y la última
   termina en su hora real de cierre para esa fecha.
-- Los cortes predeterminados son: Mañana hasta antes de 12:30, Tarde desde 12:30
-  hasta antes de 16:30 y Noche desde 16:30 hasta el cierre.
-- Con una apertura a las 09:00, las opciones de inicio se visualizarían como
-  Mañana 09:00–12:00, Tarde 12:30–16:00 y Noche 16:30–cierre.
+- Los cortes predeterminados son 12:30 y 16:30. Las opciones se muestran como
+  “Antes de 12:30”, “12:30 a 16:30” y “Desde 16:30”.
 - Cada negocio puede modificar los cortes entre franjas, pero deben mantenerse
   alineados con la grilla de 30 minutos y no pueden producir huecos ni
   superposiciones.
+- Los cortes se editan desde Ajustes > Datos del comercio > Horarios de atención.
 - Los cortes se interpretan en la zona horaria del negocio.
 
 Para varios servicios, el sistema debe:

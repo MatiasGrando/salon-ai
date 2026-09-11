@@ -37,7 +37,7 @@ import { PrismaCartRepository, CartServicePolicyChangedError } from '../infrastr
 import { serviceConfigurationKey, resolveServiceEstimate } from '../domain/service-booking.js'
 import { formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
-import { localDateKey, projectAvailability } from './availability-queries.js'
+import { availabilityBandLabels, localDateKey, projectAvailability } from './availability-queries.js'
 import {
   classifyAppointmentManagementPolicy,
   formatManagedAppointment,
@@ -559,6 +559,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     const availabilityRepo = new PrismaAvailabilityRepository(tx)
     const settings = await availabilityRepo.loadSettings(input.businessId)
     if (settings.timezone !== input.businessTimezone) throw new Error('session timezone does not match tenant availability settings')
+    base.labels.availabilityBandLabels = availabilityBandLabels(settings)
     const professionals = await availabilityRepo.compatibleProfessionals({ businessId: input.businessId, serviceIds: bookingCartIds })
     base.professionalCommonExists = professionals.length > 0
     base.labels.bookingProfessionals = professionals.map((item) => ({ professionalId: item.id, label: item.name }))
@@ -687,6 +688,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
           const availability = new PrismaAvailabilityRepository(tx)
           const settings = await availability.loadSettings(input.businessId)
           if (settings.timezone !== page.timezone) throw new Error('appointment management timezone does not match availability settings')
+          base.labels.availabilityBandLabels = availabilityBandLabels(settings)
           const search = await availability.search({
             businessId: input.businessId, serviceIds, durationMinutes: row.durationMinutes,
             dbNow: page.dbNow, settings, professionalId: row.professionalId, excludeAppointmentId: selected.appointmentId

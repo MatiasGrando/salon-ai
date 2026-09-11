@@ -145,6 +145,7 @@ export type TransitionContext = {
     bookingProfessionals?: ReadonlyArray<{ professionalId: string; label: string }> | undefined
     availableDates?: ReadonlyArray<{ date: string; label: string }> | undefined
     availableSlots?: ReadonlyArray<{ startAt: string; label: string; band: SlotBand; professionalId: string }> | undefined
+    availabilityBandLabels?: Readonly<Record<SlotBand, string>> | undefined
     bookingSummary?: string | undefined
   }
   confirmVisitSnapshot: {
@@ -591,7 +592,13 @@ function availabilitySlotView(
   const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
   if (state.presentation.kind === 'plain' && all.length > 7) {
     const bandChoices: ViewChoice[] = [
-      ...(['MORNING', 'AFTERNOON', 'EVENING'] as const).filter((band) => all.some((slot) => slot.band === band)).map((band) => ({ actionType: 'slot.band' as const, label: band === 'MORNING' ? 'Mañana' : band === 'AFTERNOON' ? 'Tarde' : 'Noche', payload: { band } })),
+      ...(['MORNING', 'AFTERNOON', 'EVENING'] as const)
+        .filter((band) => all.some((slot) => slot.band === band))
+        .map((band) => ({
+          actionType: 'slot.band' as const,
+          label: context.labels.availabilityBandLabels?.[band] ?? concreteBandLabelFromSlots(all, band),
+          payload: { band }
+        })),
       { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
     ]
     const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
@@ -606,10 +613,23 @@ function availabilitySlotView(
   const canChangeProfessional = selectAction === 'slot.select' && Boolean(state.selections.professionalId) && all.length > 0 && all.length <= 5
   if (canChangeProfessional) choices.push({ actionType: 'professional.change', label: 'Buscar otro profesional' })
   const body = selectAction === 'slot.select'
-    ? availabilitySlotBody(state, context, all.length, canChangeProfessional)
+    ? availabilitySlotBody(state, context, filtered.length, canChangeProfessional)
     : 'Elegí el nuevo horario'
   return appendGlobals(menuView(body, choices),
     composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: backChoice }))
+}
+
+function concreteBandLabelFromSlots(
+  slots: NonNullable<TransitionContext['labels']['availableSlots']>,
+  band: SlotBand
+) {
+  const times = slots
+    .filter((slot) => slot.band === band)
+    .map((slot) => /^(?:[01]\d|2[0-3]):[0-5]\d/.exec(slot.label)?.[0] ?? null)
+    .filter((time): time is string => time !== null)
+    .sort()
+  if (!times.length) return 'Ver horarios'
+  return times[0] === times[times.length - 1] ? times[0]! : `${times[0]} a ${times[times.length - 1]}`
 }
 
 function selectedProfessionalLabel(state: BotOptionsState, context: TransitionContext): string | null {
@@ -639,11 +659,16 @@ function availabilitySlotBody(
   const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
   const professionalLabel = selectedProfessionalLabel(state, context)
   const professionalSuffix = professionalLabel ? ` con ${professionalLabel}` : ''
+  const band = state.presentation.kind === 'slot_band' ? state.presentation.band : null
+  const rangeSuffix = band
+    ? `, en el rango ${context.labels.availabilityBandLabels?.[band] ?? concreteBandLabelFromSlots(context.labels.availableSlots ?? [], band)}`
+    : ''
+  const scope = `para ${dateLabel}${professionalSuffix}${rangeSuffix}`
   if (slotCount === 1) {
     const alternative = canChangeProfessional ? ' Podés elegirlo o buscar disponibilidad con otro profesional.' : ''
-    return `Encontré un solo horario disponible para ${dateLabel}${professionalSuffix}.${alternative}`
+    return `Solo queda 1 turno disponible ${scope}${band ? ':' : '.'}${alternative}`
   }
-  const lead = `Estos son los horarios disponibles para ${dateLabel}${professionalSuffix}`
+  const lead = `Solo quedan ${slotCount} turnos disponibles ${scope}`
   return canChangeProfessional
     ? `${lead}. Si necesitás más opciones, podés buscar con otro profesional.`
     : `${lead}:`

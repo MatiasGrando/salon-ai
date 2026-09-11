@@ -8331,6 +8331,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       gap: 12px;
     }
 
+    .availability-band-cut-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 220px));
+      gap: 12px;
+    }
+
+    .availability-band-preview {
+      padding: 12px 14px;
+      border: 1px solid #dbe5f3;
+      border-radius: 10px;
+      color: #29405f;
+      background: #f7faff;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+
+    .settings-section-help {
+      margin: -4px 0 0;
+      color: #6b7892;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 640px) {
+      .availability-band-cut-grid { grid-template-columns: 1fr; }
+    }
+
     .business-hours-row {
       min-height: 48px;
       display: grid;
@@ -16782,6 +16810,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 weekendEnd: '14:00'
               })}
             </div>
+            <div class="business-hours-grid">
+              <div class="business-hours-title">Bloques horarios que muestra el bot</div>
+              <p class="settings-section-help">Defin&iacute; los dos cortes. El cliente ver&aacute; rangos concretos en lugar de &ldquo;ma&ntilde;ana, tarde y noche&rdquo;.</p>
+              <div class="availability-band-cut-grid">
+                <div class="settings-field">
+                  <label for="availability-morning-cut-time">Primer corte</label>
+                  <input class="field" id="availability-morning-cut-time" type="time" required>
+                </div>
+                <div class="settings-field">
+                  <label for="availability-evening-cut-time">Segundo corte</label>
+                  <input class="field" id="availability-evening-cut-time" type="time" required>
+                </div>
+              </div>
+              <div class="availability-band-preview" id="availability-band-preview">Antes de 12:30 &middot; 12:30 a 16:30 &middot; Desde 16:30</div>
+            </div>
               </div>
             </details>
 
@@ -18393,6 +18436,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       businessMediaBusinessId: null,
       businessMediaPromise: null,
       businessHours: [],
+      availabilitySettings: { morningCutTime: '12:30', eveningCutTime: '16:30' },
       paymentSettings: null,
       whatsappSettings: null,
       instagramSettings: null,
@@ -19161,6 +19205,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       businessName: document.getElementById('business-name'),
       businessCustomerCode: document.getElementById('business-customer-code'),
       businessTimezone: document.getElementById('business-timezone'),
+      availabilityMorningCutTime: document.getElementById('availability-morning-cut-time'),
+      availabilityEveningCutTime: document.getElementById('availability-evening-cut-time'),
+      availabilityBandPreview: document.getElementById('availability-band-preview'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
       businessEmail: document.getElementById('business-email'),
@@ -21499,9 +21546,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessMediaBusinessId = null
       state.businessMediaPromise = null
       const isSalesAdminDemo = isSalesAccountAdministrator() && state.business?.isDemo === true
-      state.businessHours = state.businessId
-        ? await getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId))
-        : []
+      const [businessHours, availabilitySettings] = state.businessId
+        ? await Promise.all([
+            getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId)),
+            getJson('/businesses/' + state.businessId + '/availability-settings')
+          ])
+        : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }]
+      state.businessHours = businessHours
+      state.availabilitySettings = availabilitySettings
       const isStaff = state.currentUser?.role === 'STAFF'
       state.paymentSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/payment-settings')
@@ -26497,6 +26549,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.businessName.value = state.business?.name || ''
       els.businessCustomerCode.value = state.business?.customerCode || ''
       els.businessTimezone.value = state.business?.timezone || ''
+      els.availabilityMorningCutTime.value = state.availabilitySettings?.morningCutTime || '12:30'
+      els.availabilityEveningCutTime.value = state.availabilitySettings?.eveningCutTime || '16:30'
+      renderAvailabilityBandPreview()
       els.businessEmail.value = state.business?.contactEmail || ''
       els.businessInstagram.value = state.business?.instagramUrl || ''
       els.businessFacebook.value = state.business?.facebookUrl || ''
@@ -26517,6 +26572,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       updateBusinessBrand()
       renderLandingSettings()
       setWeeklySchedule(businessDayInputs(), state.businessHours)
+    }
+
+    function renderAvailabilityBandPreview() {
+      const first = els.availabilityMorningCutTime.value || '12:30'
+      const second = els.availabilityEveningCutTime.value || '16:30'
+      els.availabilityBandPreview.textContent = 'Antes de ' + first + ' · ' + first + ' a ' + second + ' · Desde ' + second
     }
 
     function renderLandingSettings() {
@@ -27609,6 +27670,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const hoursChanged = businessHoursKey(requestedHours) !== businessHoursKey(state.businessHours)
       const nameChanged = name !== state.business?.name
       const timezoneChanged = timezone !== (state.business?.timezone || '')
+      const morningCutTime = els.availabilityMorningCutTime.value
+      const eveningCutTime = els.availabilityEveningCutTime.value
+      const morningCutMinutes = timeValueToMinutes(morningCutTime)
+      const eveningCutMinutes = timeValueToMinutes(eveningCutTime)
+      if (morningCutMinutes === null || eveningCutMinutes === null || morningCutMinutes >= eveningCutMinutes) {
+        showBusinessSettingsFeedback('El primer corte horario debe ser anterior al segundo.', 'error')
+        return
+      }
+      const availabilityChanged = morningCutTime !== (state.availabilitySettings?.morningCutTime || '12:30') ||
+        eveningCutTime !== (state.availabilitySettings?.eveningCutTime || '16:30')
       const logoChanged = state.businessLogoUrl !== (state.business?.logoUrl || null)
       const contactEmail = els.businessEmail.value.trim()
       const instagramUrl = els.businessInstagram.value.trim()
@@ -27675,6 +27746,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             })
           })
           state.businessMediaBusinessId = state.businessId
+        }
+        if (availabilityChanged || timezoneChanged) {
+          state.availabilitySettings = await getJson('/businesses/' + state.businessId + '/availability-settings', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ morningCutTime, eveningCutTime })
+          })
         }
         state.paymentSettings = await getJson('/businesses/' + state.businessId + '/payment-settings', {
           method: 'PATCH',
@@ -32732,6 +32810,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return hours * 60 + minutes
     }
 
+    function timeValueToMinutes(value) {
+      if (!/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(String(value || ''))) return null
+      return timeToMinutes(value)
+    }
+
     function formatMinuteLabel(minute) {
       const hours = Math.floor(minute / 60)
       const minutes = minute % 60
@@ -34158,6 +34241,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.demoChatForm?.addEventListener('submit', sendDemoChatMessage)
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.availabilityMorningCutTime.addEventListener('input', renderAvailabilityBandPreview)
+    els.availabilityEveningCutTime.addEventListener('input', renderAvailabilityBandPreview)
     els.landingSettingsForm.addEventListener('submit', saveLandingSettings)
     for (const templateInput of document.querySelectorAll('input[name="landing-template"]')) {
       templateInput.addEventListener('change', () => {
