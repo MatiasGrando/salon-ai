@@ -137,9 +137,9 @@ const approvedWelcome = [
   '¡Hola! 👋 Soy el asistente virtual de Glow.',
   '',
   'Desde este menú podés:',
-  '✨ Sacar un turno.',
+  '✨ Buscar turno.',
   '💅 Ver servicios y precios.',
-  '🕒 Consultar horarios.',
+  '🕒 Horarios de atención.',
   '📅 Ver, cambiar o cancelar un turno.',
   '💬 Hablar con alguien del equipo.',
   '',
@@ -162,7 +162,7 @@ assert.deepEqual(welcomeScreen.choiceMappings.map((choice) => choice.actionType)
 assert.equal(mainMenuView('Estética Lucía').interactiveBody, approvedWelcome.replace('Glow', 'Estética Lucía'))
 const expectedReturnMenu = [
   '¡Hola de nuevo! 👋', '', 'Desde este menú podés:',
-  '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+  '✨ Buscar turno.', '💅 Ver servicios y precios.', '🕒 Horarios de atención.',
   '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
   'Para empezar, elegí la opción que necesitás 👇'
 ].join('\n')
@@ -173,9 +173,9 @@ for (const invalidName of ['', '123', 'Martina\nOtra línea']) {
   assert.equal(mainMenuView('Glow', invalidName).interactiveBody, approvedWelcome, 'invalid names must fall back to the nameless greeting')
 }
 assert.deepEqual(welcome.choices.map(({ actionType, label }) => ({ actionType, label })), [
-  { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+  { actionType: 'menu.start_booking', label: 'Buscar turno' },
   { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
-  { actionType: 'menu.business_hours', label: 'Consultar horarios' },
+  { actionType: 'menu.business_hours', label: 'Horarios de atención' },
   { actionType: 'menu.manage_appointment', label: 'Ver o cambiar un turno' },
   { actionType: 'handoff.request', label: 'Hablar con el equipo' }
 ])

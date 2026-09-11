@@ -29,7 +29,7 @@ assert.match(worker, /CANCEL_HUMAN_HANDOFF_BY_CUSTOMER[\s\S]*?pendingConversatio
 
 const expectedGreeting = [
   '¡Hola Martina! 👋 Soy el asistente virtual de Glow.', '', 'Desde este menú podés:',
-  '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+  '✨ Buscar turno.', '💅 Ver servicios y precios.', '🕒 Horarios de atención.',
   '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
   'Para empezar, elegí la opción que necesitás 👇'
 ].join('\n')

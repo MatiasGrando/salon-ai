@@ -155,7 +155,7 @@ try {
   // ambiguity fallback without touching booking/customer persistence.
   const expectedBody = [
     '¡Hola! 👋 Soy el asistente virtual de Glow.', '', 'Desde este menú podés:',
-    '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+    '✨ Buscar turno.', '💅 Ver servicios y precios.', '🕒 Horarios de atención.',
     '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
     'Para empezar, elegí la opción que necesitás 👇'
   ].join('\n')

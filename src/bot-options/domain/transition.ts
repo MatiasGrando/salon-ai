@@ -543,18 +543,18 @@ export function mainMenuView(businessName?: string, confirmedCustomerName?: stri
     greeting,
     '',
     'Desde este menú podés:',
-    '✨ Sacar un turno.',
+    '✨ Buscar turno.',
     '💅 Ver servicios y precios.',
-    '🕒 Consultar horarios.',
+    '🕒 Horarios de atención.',
     '📅 Ver, cambiar o cancelar un turno.',
     '💬 Hablar con alguien del equipo.',
     '',
     'Para empezar, elegí la opción que necesitás 👇'
   ].join('\n')
   return menuView(body, [
-    { actionType: 'menu.start_booking', label: 'Sacar un turno' },
+    { actionType: 'menu.start_booking', label: 'Buscar turno' },
     { actionType: 'menu.browse_services', label: 'Ver servicios y precios' },
-    { actionType: 'menu.business_hours', label: 'Consultar horarios' },
+    { actionType: 'menu.business_hours', label: 'Horarios de atención' },
     { actionType: 'menu.manage_appointment', label: 'Ver o cambiar un turno' },
     HUMAN_CHOICE
   ])

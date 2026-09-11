@@ -26,9 +26,9 @@ posición dentro de una lista.
 
 La conversación comienza con un saludo y el menú principal:
 
-- Sacar un turno.
+- Buscar turno.
 - Ver servicios y precios.
-- Consultar horarios.
+- Horarios de atención.
 - Gestionar un turno.
 - Hablar con el equipo.
 
@@ -40,7 +40,7 @@ reserva.
 2. Captura del nombre
 =====================
 
-El nombre se solicita únicamente cuando el cliente elige “Sacar un turno” o
+El nombre se solicita únicamente cuando el cliente elige “Buscar turno” o
 cuando transforma una consulta en una reserva.
 
 Antes de preguntarlo, el sistema debe buscar al cliente por su teléfono dentro
@@ -610,7 +610,7 @@ Ejemplos:
 10. Flujo completo de reserva
 =============================
 
-1. Cliente selecciona “Sacar un turno”.
+1. Cliente selecciona “Buscar turno”.
 2. El sistema busca al cliente por teléfono y negocio.
 3. Si no existe un nombre guardado, pregunta el nombre.
 4. Cliente elige categoría.

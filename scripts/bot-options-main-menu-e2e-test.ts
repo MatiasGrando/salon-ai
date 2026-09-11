@@ -37,9 +37,9 @@ const expectedWelcome = [
   '¡Hola! 👋 Soy el asistente virtual de F5 main menu contract.',
   '',
   'Desde este menú podés:',
-  '✨ Sacar un turno.',
+  '✨ Buscar turno.',
   '💅 Ver servicios y precios.',
-  '🕒 Consultar horarios.',
+  '🕒 Horarios de atención.',
   '📅 Ver, cambiar o cancelar un turno.',
   '💬 Hablar con alguien del equipo.',
   '',
@@ -47,7 +47,7 @@ const expectedWelcome = [
 ].join('\n')
 const expectedReturnMenu = [
   '¡Hola de nuevo! 👋', '', 'Desde este menú podés:',
-  '✨ Sacar un turno.', '💅 Ver servicios y precios.', '🕒 Consultar horarios.',
+  '✨ Buscar turno.', '💅 Ver servicios y precios.', '🕒 Horarios de atención.',
   '📅 Ver, cambiar o cancelar un turno.', '💬 Hablar con alguien del equipo.', '',
   'Para empezar, elegí la opción que necesitás 👇'
 ].join('\n')
@@ -117,9 +117,9 @@ try {
         assert.equal(payload.item?.type, 'interactive')
         assert.equal(payload.item?.body, expectedWelcome)
         assert.deepEqual(payload.item?.rows?.map((row) => row.title), [
-          'Sacar un turno',
+          'Buscar turno',
           'Ver servicios y precios',
-          'Consultar horarios',
+          'Horarios de atención',
           'Ver o cambiar un turno',
           'Hablar con el equipo'
         ])

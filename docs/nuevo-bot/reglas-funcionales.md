@@ -54,13 +54,13 @@
 
 Opciones previstas:
 
-- Sacar un turno.
+- Buscar turno.
 - Ver servicios y precios.
-- Consultar horarios.
+- Horarios de atención.
 - Gestionar un turno.
 - Hablar con el equipo.
 
-Sacar un turno, Ver servicios y precios, Consultar horarios, Gestionar un turno y
+Buscar turno, Ver servicios y precios, Horarios de atención, Gestionar un turno y
 las reglas transversales de atención están especificados para el primer corte.
 
 ## 3. Identidad del cliente
@@ -161,7 +161,7 @@ las reglas transversales de atención están especificados para el primer corte.
 
 ## 4.1. Consulta de horarios de atención
 
-- Consultar horarios muestra primero el horario de atención del negocio; no
+- Horarios de atención muestra primero el horario de atención del negocio; no
   presenta turnos disponibles.
 - Desde esa pantalla se puede elegir Consultar horario de un profesional, Buscar
   un turno disponible, Volver, Menú principal o atención humana según la
