@@ -20,7 +20,7 @@ export const STALE_HANDOFF_TAKE_MS = 60_000
 
 export type ManualAttentionResult =
   | { kind: 'NO_DETERMINISTIC_SESSION' }
-  | { kind: 'TAKEN'; handoffId: string }
+  | { kind: 'TAKEN'; handoffId: string; alreadyTaken: boolean }
 
 type ManualAttentionPhase =
   | { kind: 'NONE' }
@@ -43,6 +43,19 @@ export async function takeConversationForManualAttention(input: {
 }): Promise<ManualAttentionResult> {
   if (!input.actorUserId.trim() || !input.operationKey.trim()) {
     throw new Error('manual attention requires authenticated actor and operation key')
+  }
+  const alreadyTaken = await input.client.$queryRaw<Array<{ handoffId: string }>>(Prisma.sql`
+    SELECT h."id" AS "handoffId"
+    FROM "BotSession" s
+    JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
+      AND h."status"='TAKEN'::"BotHandoffStatus"
+    WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId}
+      AND s."status"='HUMAN_TAKEN'::"BotSessionStatus"
+    ORDER BY s."updatedAt" DESC
+    LIMIT 2
+  `)
+  if (alreadyTaken.length === 1) {
+    return { kind: 'TAKEN', handoffId: alreadyTaken[0]!.handoffId, alreadyTaken: true }
   }
   const phase = await input.client.$transaction(async (tx): Promise<ManualAttentionPhase> => {
     const rows = await tx.$queryRaw<Array<{
@@ -114,7 +127,7 @@ export async function takeConversationForManualAttention(input: {
     return { kind: 'QUEUED' as const }
   })
   if (phase.kind === 'NONE') return { kind: 'NO_DETERMINISTIC_SESSION' }
-  if (phase.kind === 'TAKEN') return { kind: 'TAKEN', handoffId: phase.handoffId }
+  if (phase.kind === 'TAKEN') return { kind: 'TAKEN', handoffId: phase.handoffId, alreadyTaken: true }
   const taken = await takeBotHandoff({
     client: input.client,
     businessId: input.businessId,
@@ -123,7 +136,7 @@ export async function takeConversationForManualAttention(input: {
     operationKey: `${input.operationKey}:take`,
     drainMs: input.drainMs
   })
-  return { kind: 'TAKEN', handoffId: taken.handoffId }
+  return { kind: 'TAKEN', handoffId: taken.handoffId, alreadyTaken: false }
 }
 
 export function canonicalTakeOperation(input: {

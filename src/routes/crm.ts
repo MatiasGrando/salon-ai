@@ -3,7 +3,10 @@ import { reconcileManualMessageReceipts } from '../bot-options/infrastructure/pr
 import type { FunctionalSseSession, SseOpenResult, SseRecorderFacade } from '../observability/egress-baseline/types.js'
 import { prisma } from '../config/prisma.js'
 import { Prisma, type Message } from '../generated/prisma/client.js'
-import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
+import {
+  assertBusinessCanSendWhatsApp,
+  resolveBusinessWhatsAppCredentialsFromState
+} from '../services/business-whatsapp-settings.js'
 import {
   authorizedBookingDepositWhere,
   authorizedConversationWhere,
@@ -2060,43 +2063,58 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     }
     if (!conversation.businessId) return sendAuthorizationFailure(reply, 'notFound')
 
-    try {
-      const manualAttention = await takeConversationForManualAttention({
-        client: prisma,
-        businessId: conversation.businessId,
-        conversationId: conversation.id,
-        actorUserId: authUser.id,
-        operationKey: `crm-manual-reply:${conversation.id}:${randomUUID()}`
-      })
-      if (manualAttention.kind === 'NO_DETERMINISTIC_SESSION' && conversation.aiEnabled) {
+    const shouldSendWhatsApp = body.sendWhatsApp !== false
+    const manualAttentionPromise = takeConversationForManualAttention({
+      client: prisma,
+      businessId: conversation.businessId,
+      conversationId: conversation.id,
+      actorUserId: authUser.id,
+      operationKey: `crm-manual-reply:${conversation.id}:${randomUUID()}`
+    }).catch((error: unknown) => ({ kind: 'ERROR' as const, error }))
+    const whatsappPreflightPromise = shouldSendWhatsApp
+      ? Promise.all([
+          prisma.message.findFirst({
+            where: {
+              conversationId: conversation.id,
+              direction: 'INBOUND',
+              conversation: authorizedConversationWhere(authUser, conversation.id)
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true }
+          }),
+          assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+        ]).then(([latestInbound, gate]) => ({ latestInbound, gate }))
+      : Promise.resolve(null)
+    const [manualAttention, whatsappPreflight] = await Promise.all([
+      manualAttentionPromise,
+      whatsappPreflightPromise
+    ])
+    if (manualAttention.kind === 'ERROR') {
+      const error = manualAttention.error
+      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude activar la atención manual' })
+    }
+
+    let conversationChanged = manualAttention.kind === 'TAKEN' && !manualAttention.alreadyTaken
+    if (manualAttention.kind === 'NO_DETERMINISTIC_SESSION' && conversation.aiEnabled) {
+      try {
         const paused = await prisma.conversation.updateMany({
           where: { ...authorizedConversationWhere(authUser, conversation.id), updatedAt: conversation.updatedAt },
           data: takenConversationHandoffPatch({ queuedAt: conversation.humanHandoffAt })
         })
         if (!paused.count) return sendAuthorizationFailure(reply, 'conflict')
+        conversationChanged = true
+      } catch (error) {
+        return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude activar la atención manual' })
       }
+    }
+    if (conversationChanged) {
       const refreshed = await loadAuthorizedConversation(prisma, authUser, conversation.id)
       if (!refreshed) return sendAuthorizationFailure(reply, 'notFound')
       conversation = refreshed
-    } catch (error) {
-      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude activar la atención manual' })
     }
 
-    const shouldSendWhatsApp = body.sendWhatsApp !== false
     if (shouldSendWhatsApp) {
-      const latestInbound = await prisma.message.findFirst({
-        where: {
-          conversationId: conversation.id,
-          direction: 'INBOUND',
-          conversation: authorizedConversationWhere(authUser, conversation.id)
-        },
-        orderBy: {
-          createdAt: 'desc'
-        },
-        select: {
-          createdAt: true
-        }
-      })
+      const latestInbound = whatsappPreflight!.latestInbound
       const replyWindowExpiresAt = latestInbound
         ? new Date(latestInbound.createdAt.getTime() + WHATSAPP_REPLY_WINDOW_MS)
         : null
@@ -2111,9 +2129,12 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       }
     }
     if (shouldSendWhatsApp) {
-      const gate = await assertBusinessCanSendWhatsApp(conversation.businessId, 'BOT')
+      const gate = whatsappPreflight!.gate
       if (!gate.allowed) return reply.status(409).send({ message: gate.message })
     }
+    const whatsappCredentials = shouldSendWhatsApp
+      ? resolveBusinessWhatsAppCredentialsFromState(whatsappPreflight!.gate.state)
+      : undefined
     const pendingMessage = await prisma.$transaction(async (tx) => {
       const scopedConversation = await loadAuthorizedConversation(tx, authUser, conversation.id)
       if (!scopedConversation || scopedConversation.updatedAt.getTime() !== conversation.updatedAt.getTime()) {
@@ -2152,7 +2173,8 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       ? await app.authorizationProviders.whatsapp.sendTextMessage({
           businessId: conversation.businessId,
           to: conversation.phone,
-          text
+          text,
+          credentials: whatsappCredentials
         })
       : {
           sent: false,

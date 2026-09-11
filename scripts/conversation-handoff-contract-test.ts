@@ -51,8 +51,25 @@ const recoveryResult = await recoverStaleTakeOperations({
 assert.deepEqual(recoveryResult, { completed: 1, waiting: 1, blockedUnknown: 1, aborted: 1 })
 await assert.rejects(() => recoverStaleTakeOperations({ client: {} as never, staleMs: STALE_HANDOFF_TAKE_MS - 1 }), /safe window/)
 
+let alreadyTakenOpenedTransaction = false
 assert.deepEqual(await takeConversationForManualAttention({
   client: {
+    $queryRaw: async () => [{ handoffId: 'handoff-already-taken' }],
+    $transaction: async () => {
+      alreadyTakenOpenedTransaction = true
+      throw new Error('already-taken fast path must not open a transaction')
+    }
+  } as never,
+  businessId: 'business-already-taken',
+  conversationId: 'conversation-already-taken',
+  actorUserId: 'actor-a',
+  operationKey: 'manual-take-already-taken'
+}), { kind: 'TAKEN', handoffId: 'handoff-already-taken', alreadyTaken: true })
+assert.equal(alreadyTakenOpenedTransaction, false)
+
+assert.deepEqual(await takeConversationForManualAttention({
+  client: {
+    $queryRaw: async () => [],
     $transaction: async (run: (tx: unknown) => Promise<unknown>) => run({
       $queryRaw: async () => [],
       $executeRaw: async () => 0

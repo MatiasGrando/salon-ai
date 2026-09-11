@@ -12,5 +12,8 @@ assert.match(route, /serverToMetaMs/)
 assert.match(route, /clientToServerMs/)
 assert.match(route, /metaResponseMs/)
 assert.doesNotMatch(route, /text:\s*text[\s\S]{0,200}crm_manual_message_to_meta/)
+assert.match(route, /Promise\.all\(\[\s*manualAttentionPromise,\s*whatsappPreflightPromise\s*\]\)/)
+assert.match(route, /resolveBusinessWhatsAppCredentialsFromState\(whatsappPreflight!?\.gate\.state\)/)
+assert.match(route, /credentials:\s*whatsappCredentials/)
 
 console.log('CRM manual send latency: OK')
