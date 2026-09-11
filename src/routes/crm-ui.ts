@@ -18266,6 +18266,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       conversationTabLoading: false,
       selected: null,
       messages: [],
+      manualReplyQueue: [],
       messageNextCursor: null,
       appointments: [],
       conversationCache: new Map(),
@@ -23657,7 +23658,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderMessages(options = {}) {
-      if (!state.messages.length) {
+      const visibleMessages = visibleChatMessages()
+      if (!visibleMessages.length) {
         els.messages.innerHTML = '<div class="empty">Esta conversacion no tiene mensajes guardados.</div>'
         return
       }
@@ -23665,13 +23667,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const previousHeight = els.messages.scrollHeight
       const previousTop = els.messages.scrollTop
       let lastDay = ''
-      const messageHtml = state.messages.map((message) => {
+      const messageHtml = visibleMessages.map((message) => {
         const direction = message.direction === 'OUTBOUND' ? 'outbound' : 'inbound'
         const failed = direction === 'outbound' && message.status === 'failed'
         const deliveryStatus = failed
           ? '<span class="message-status-failed" title="' + escapeHtml(messageFailureText(message)) + '">No enviado</span>'
           : direction === 'outbound'
-            ? '<span class="message-checks">&#10003;&#10003;</span>'
+            ? (message.status === 'pending'
+              ? '<span class="message-checks" title="Pendiente de env&iacute;o">&#9719;</span>'
+              : message.status === 'delivered' || message.status === 'read'
+                ? '<span class="message-checks">&#10003;&#10003;</span>'
+                : message.status === 'sent'
+                  ? '<span class="message-checks">&#10003;</span>' : '')
             : ''
         const createdAt = new Date(message.createdAt)
         const dayKey = createdAt.toDateString()
@@ -25093,7 +25100,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return formatter.format(start) + ' a ' + formatter.format(end)
     }
 
-    async function sendReply(event) {
+    function visibleChatMessages() {
+      const local = state.manualReplyQueue.filter((item) =>
+        item.businessId === state.businessId && item.conversationId === state.selected?.id)
+      const serverIds = new Set(state.messages.map((message) => message.id))
+      const clientIds = new Set(state.messages.map((message) => message.metadata?.clientMessageId).filter(Boolean))
+      const reconciled = state.messages.map((message) => {
+        const item = local.find((candidate) => candidate.clientMessageId === message.metadata?.clientMessageId)
+        return item && message.status === 'pending' && item.status !== 'pending'
+          ? { ...message, status: item.status, providerErrorMessage: item.providerErrorMessage } : message
+      })
+      return reconciled.concat(local.filter((item) =>
+        !serverIds.has(item.id) && !clientIds.has(item.clientMessageId)))
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    }
+
+    function sendReply(event) {
       event.preventDefault()
       if (!state.selected) return
       if (!whatsappReplyWindowState().canReply) {
@@ -25102,34 +25124,52 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       const text = els.replyText.value.trim()
       if (!text) return
+      const clientMessageId = crypto.randomUUID()
+      const item = {
+        id: 'local-' + clientMessageId, clientMessageId,
+        conversationId: state.selected.id, businessId: state.businessId,
+        direction: 'OUTBOUND', body: text, createdAt: new Date().toISOString(),
+        status: 'pending', queued: true
+      }
+      state.manualReplyQueue.push(item)
+      els.replyText.value = ''
+      els.replyText.focus()
+      renderMessages()
+      void drainManualReplies(item.conversationId, item.businessId)
+    }
 
-      if (!setButtonLoading(els.sendButton, true, 'Enviando...')) return
-      try {
-        const result = await getJson('/crm/conversations/' + state.selected.id + '/manual-replies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            sendWhatsApp: true
+    async function drainManualReplies(conversationId, businessId) {
+      const belongs = (item) => item.conversationId === conversationId && item.businessId === businessId
+      if (state.manualReplyQueue.some((item) => belongs(item) && item.sending)) return
+      let item
+      while ((item = state.manualReplyQueue.find((candidate) => belongs(candidate) && candidate.queued))) {
+        item.queued = false
+        item.sending = true
+        try {
+          const result = await getJson('/crm/conversations/' + conversationId + '/manual-replies', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: item.body, sendWhatsApp: true, clientMessageId: item.clientMessageId })
           })
-        })
-        els.replyText.value = ''
-        await selectConversation(state.selected.id, { forceRefresh: true })
-        await loadConversations()
-        if (result.delivery && result.delivery.sent === false) {
-          showCrmToast('WhatsApp no pudo enviar el mensaje: ' + (result.delivery.errorMessage || result.delivery.reason || 'revisa la configuracion o la ventana de 24 hs.'), 'error')
+          Object.assign(item, result.message)
+          if (result.delivery?.sent === false) {
+            item.status = 'failed'
+            item.providerErrorMessage = result.delivery.errorMessage || result.delivery.reason || 'No se pudo enviar.'
+          }
+        } catch (error) {
+          item.status = 'failed'
+          item.providerErrorMessage = 'No se pudo confirmar el envio. Revisa el historial antes de reenviar. ' + error.message
+          if (state.selected?.id === conversationId && state.businessId === businessId) {
+            if (error.body?.reason === 'whatsapp_reply_window_expired') {
+              state.selected.canReplyOnWhatsApp = false
+              state.selected.whatsappReplyWindowExpiresAt = error.body.replyWindowExpiresAt
+              updateComposerAvailability()
+            }
+            showCrmToast(item.providerErrorMessage, 'error')
+          }
+        } finally {
+          item.sending = false
+          if (state.selected?.id === conversationId && state.businessId === businessId) renderMessages()
         }
-      } catch (error) {
-        if (error.body?.reason === 'whatsapp_reply_window_expired') {
-          state.selected.canReplyOnWhatsApp = false
-          state.selected.whatsappReplyWindowExpiresAt = error.body.replyWindowExpiresAt
-          updateComposerAvailability()
-        } else {
-          showCrmToast(error.message, 'error')
-        }
-      } finally {
-        setButtonLoading(els.sendButton, false)
-        updateComposerAvailability()
       }
     }
 

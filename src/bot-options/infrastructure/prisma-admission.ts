@@ -760,12 +760,22 @@ export async function applyStatusCallbackTx(
     `)
   }
   let outboundMessage: { businessId: string; conversationId: string; messageId: string } | null = null
-  if (matched > 0 && status !== 'unknown') {
+  if (status !== 'unknown') {
     const messages = await tx.$queryRaw<Array<{ conversationId: string; messageId: string }>>(Prisma.sql`
       UPDATE "Message" m SET
-        "status" = ${status},
-        "providerErrorCode" = CASE WHEN ${status} = 'failed' THEN COALESCE(${error}, 'provider_failed') ELSE NULL END,
-        "providerErrorMessage" = CASE WHEN ${status} = 'failed' THEN ${error} ELSE NULL END
+        "status" = CASE
+          WHEN m."status" = 'read' THEN 'read'
+          WHEN m."status" = 'delivered' AND ${status} <> 'read' THEN 'delivered'
+          WHEN m."status" = 'failed' AND ${status} = 'sent' THEN 'failed'
+          ELSE ${status} END,
+        "providerErrorCode" = CASE
+          WHEN m."status" IN ('delivered', 'read') OR ${status} IN ('delivered', 'read') THEN NULL
+          WHEN ${status} = 'failed' THEN COALESCE(${error}, 'provider_failed')
+          WHEN m."status" = 'failed' THEN m."providerErrorCode" ELSE NULL END,
+        "providerErrorMessage" = CASE
+          WHEN m."status" IN ('delivered', 'read') OR ${status} IN ('delivered', 'read') THEN NULL
+          WHEN ${status} = 'failed' THEN ${error}
+          WHEN m."status" = 'failed' THEN m."providerErrorMessage" ELSE NULL END
       FROM "Conversation" c
       WHERE m."conversationId" = c."id" AND c."businessId" = ${businessId}
         AND m."providerMessageId" = ${providerMessageId} AND m."direction" = 'OUTBOUND'::"MessageDirection"
@@ -774,5 +784,23 @@ export async function applyStatusCallbackTx(
     if (messages.length > 1) throw new Error('ambiguous outbound CRM message for provider callback')
     if (messages[0]) outboundMessage = { businessId, ...messages[0] }
   }
-  return { matched: matched > 0, outboundMessage }
+  return { matched: matched > 0 || outboundMessage !== null, outboundMessage }
+}
+
+// A provider callback can arrive before the manual send response has saved its id.
+export async function reconcileManualMessageReceipts(tx: Prisma.TransactionClient, businessId: string, providerMessageId: string) {
+  const events = await tx.botProviderEvent.findMany({
+    where: { businessId, providerMessageId, eventType: 'STATUS', status: 'UNMATCHED' },
+    orderBy: { admittedAt: 'asc' },
+    take: 100
+  })
+  for (const event of events) {
+    const payload = (event.payload ?? {}) as { status?: string; errorMessage?: string | null }
+    const status = payload.status
+    if (status !== 'sent' && status !== 'delivered' && status !== 'read' && status !== 'failed') continue
+    const result = await applyStatusCallbackTx(tx, businessId, providerMessageId, status, payload.errorMessage ?? null)
+    if (result.matched) await tx.botProviderEvent.updateMany({
+      where: { id: event.id, businessId, status: 'UNMATCHED' }, data: { status: 'PROCESSED' }
+    })
+  }
 }

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { reconcileManualMessageReceipts } from '../bot-options/infrastructure/prisma-admission.js'
 import type { FunctionalSseSession, SseOpenResult, SseRecorderFacade } from '../observability/egress-baseline/types.js'
 import { prisma } from '../config/prisma.js'
 import { Prisma, type Message } from '../generated/prisma/client.js'
@@ -2039,6 +2040,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const body = request.body as {
       text?: string
       sendWhatsApp?: boolean
+      clientMessageId?: string
     }
 
     const text = body.text?.trim()
@@ -2124,6 +2126,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           status: 'pending',
           metadata: {
             provider: 'crm_manual',
+            clientMessageId: typeof body.clientMessageId === 'string' ? body.clientMessageId.slice(0, 100) : null,
             delivery: { sent: false, reason: 'pending' }
           }
         }
@@ -2152,6 +2155,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
         : 'manual',
       metadata: {
         provider: 'crm_manual',
+        clientMessageId: typeof body.clientMessageId === 'string' ? body.clientMessageId.slice(0, 100) : null,
         delivery: deliveryResult
       },
       ...(providerMessageId ? { providerMessageId } : {}),
@@ -2191,6 +2195,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
         data: messageDeliveryData
       })
       if (!messageClaim.count) throw new AuthorizationStateConflictError()
+      if (providerMessageId) await reconcileManualMessageReceipts(tx, conversation.businessId!, providerMessageId)
       const message = await tx.message.findFirst({
         where: authorizedMessageWhere(authUser, pendingMessage.id)
       })
