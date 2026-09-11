@@ -25148,7 +25148,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         try {
           const result = await getJson('/crm/conversations/' + conversationId + '/manual-replies', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: item.body, sendWhatsApp: true, clientMessageId: item.clientMessageId })
+            body: JSON.stringify({
+              text: item.body,
+              sendWhatsApp: true,
+              clientMessageId: item.clientMessageId,
+              clientCreatedAt: item.createdAt
+            })
           })
           Object.assign(item, result.message)
           if (result.delivery?.sent === false) {

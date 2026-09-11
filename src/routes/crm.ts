@@ -2034,6 +2034,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
   })
 
   app.post('/crm/conversations/:id/manual-replies', async (request, reply) => {
+    const requestReceivedAt = Date.now()
     const params = request.params as {
       id: string
     }
@@ -2041,6 +2042,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       text?: string
       sendWhatsApp?: boolean
       clientMessageId?: string
+      clientCreatedAt?: string
     }
 
     const text = body.text?.trim()
@@ -2134,6 +2136,18 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     })
     if (!pendingMessage) return sendAuthorizationFailure(reply, 'conflict')
 
+    const metaSendStartedAt = Date.now()
+    const parsedClientCreatedAt = typeof body.clientCreatedAt === 'string'
+      ? Date.parse(body.clientCreatedAt)
+      : Number.NaN
+    const clientCreatedAt = Number.isFinite(parsedClientCreatedAt)
+      && parsedClientCreatedAt <= requestReceivedAt + 60_000
+      && parsedClientCreatedAt >= requestReceivedAt - 86_400_000
+      ? parsedClientCreatedAt
+      : null
+    const clientToServerMs = clientCreatedAt === null ? null : requestReceivedAt - clientCreatedAt
+    const serverToMetaMs = metaSendStartedAt - requestReceivedAt
+    const generatedToMetaMs = clientCreatedAt === null ? null : metaSendStartedAt - clientCreatedAt
     const deliveryResult = shouldSendWhatsApp
       ? await app.authorizationProviders.whatsapp.sendTextMessage({
           businessId: conversation.businessId,
@@ -2145,6 +2159,25 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           to: conversation.phone,
           reason: 'Envio por WhatsApp omitido desde CRM'
         }
+    const metaResponseMs = Date.now() - metaSendStartedAt
+    if (shouldSendWhatsApp) {
+      request.log.info({
+        event: 'crm_manual_message_to_meta',
+        businessId: conversation.businessId,
+        conversationId: conversation.id,
+        clientMessageId: typeof body.clientMessageId === 'string' ? body.clientMessageId.slice(0, 100) : null,
+        generatedToMetaMs,
+        clientToServerMs,
+        serverToMetaMs,
+        metaResponseMs,
+        metaAccepted: deliveryResult.sent
+      }, 'CRM manual message timing')
+      reply.header('Server-Timing', [
+        'client-to-server;dur=' + (clientToServerMs ?? 0),
+        'server-to-meta;dur=' + serverToMetaMs,
+        'meta-response;dur=' + metaResponseMs
+      ].join(', '))
+    }
 
     const providerMessageId = shouldSendWhatsApp
       ? getOutgoingProviderMessageId(deliveryResult)
