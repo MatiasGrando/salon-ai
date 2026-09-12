@@ -34,10 +34,8 @@ assert.equal(parseBotOptionsState(createInitialBotOptionsState()).ok, true)
 assert.equal(parseBotOptionsState(result.state).ok, true)
 
 const unknown = click(state(), 'service.book', ctx({ customerNameOnFile: null }))
-assert.equal(unknown.state.flow, 'NAME_INPUT')
-result = click({ ...unknown.state, flow: 'NAME_CONFIRM', nameCandidate: 'Ana' }, 'name.confirm', ctx({ customerNameOnFile: null }), null)
-assert.equal(result.state.flow, 'CART_REVIEW')
-assert.ok(result.outcome !== 'RECOVERED' && result.effects.some(e => e.kind === 'PERSIST_CUSTOMER_NAME'))
+assert.equal(unknown.state.flow, 'CART_REVIEW', 'el servicio se agrega sin pedir nombre antes de tiempo')
+assert.deepEqual(unknown.effects, [])
 
 const optionService = { ...service, estimateQuestion: '¿Qué largo tenés?', estimateOptions: [
   { id: 'long', label: 'Largo', priceMin: 60000, priceMax: 80000, note: 'Según cantidad.' }
@@ -79,13 +77,13 @@ const strictAfterSkip = transition(skipped.state, { actionType: 'cart.continue',
   ctx({ cartPolicyChanged: true }))
 assert.equal(strictAfterSkip.outcome, 'RECOVERED')
 // Si pide atención desde recomendaciones y la cancela, vuelve a la misma salida
-// completa; no puede perder Hablar con el equipo ni quedar sólo el botón de omitir.
+// completa; no puede perder Hablar con el equipo ni la acción de continuar.
 const queuedFromRecommendation = transition(recommendation, { actionType: 'handoff.request', entityRef: null, payload: null } as any,
   ctx({ recommendedServiceId: 'addon' }))
 const resumedRecommendation = transition(queuedFromRecommendation.state, { actionType: 'handoff.cancel', entityRef: null, payload: null } as any,
   ctx({ recommendedServiceId: 'addon' }))
 assert.equal(resumedRecommendation.state.flow, 'RECOMMENDATION_SELECT')
-assert.ok(resumedRecommendation.view.choices.some(choice => choice.actionType === 'recommendation.skip'))
+assert.ok(resumedRecommendation.view.choices.some(choice => choice.actionType === 'cart.continue'))
 assert.ok(resumedRecommendation.view.choices.some(choice => choice.actionType === 'handoff.request'))
 const photoPolicy = { ...service, attentionMode: 'QUOTE', estimateAllowsBooking: false, requiresPhoto: true }
 const photos = click(state(), 'service.book', ctx({ serviceBooking: photoPolicy, requiresConsultation: true }))

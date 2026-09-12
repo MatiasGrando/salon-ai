@@ -24,6 +24,16 @@ assert.match(recommendationQuery, /LEFT JOIN "ServiceCategory"/, 'uncategorized 
 assert.match(recommendationQuery, /s\."catalogCategoryId" IS NULL OR c\."id" IS NOT NULL/, 'only uncategorized or active-category addons are eligible')
 assert.match(worker, /const continuingRecommendation = input\.actionType === 'recommendation\.add'[\s\S]*?input\.state\.recommendationSourceServiceIds \?\? \[\]/, 'adding a complement must keep using the original manual service as recommendation source')
 assert.match(worker, /input\.actionType === 'service\.validation_accept'[\s\S]*?input\.actionType === 'recommendation\.add'[\s\S]*?refreshingRecommendations/, 'adding one complement must recalculate and offer the remaining siblings')
+assert.match(
+  worker,
+  /FROM "ServiceAddon" offered[\s\S]*?JOIN "Service" source[\s\S]*?source\."businessId" = \$\{input\.businessId\}[\s\S]*?JOIN "Service" addon[\s\S]*?addon\."businessId" = \$\{input\.businessId\}/,
+  'selected recommendations must be revalidated through tenant-scoped source and addon services'
+)
+assert.match(
+  worker,
+  /base\.recommendedServiceAvailable = input\.actionType === 'recommendation\.add'\s*\? recommendationIsOffered && base\.serviceActive && base\.serviceBookable && !base\.requiresConsultation\s*:\s*recommendations\.length > 0/,
+  'adding the only offered complement must preserve that selected complement validity after the remaining-recommendations query becomes empty'
+)
 
 assert.match(cartRepository, /LEFT JOIN "ServiceCategory"/, 'the cart must accept services exposed through virtual Otros')
 assert.match(cartRepository, /s\."catalogCategoryId" IS NULL OR c\."id" IS NOT NULL/, 'the cart must reject inactive real categories without rejecting uncategorized services')

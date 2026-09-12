@@ -6,6 +6,7 @@ const SAFE_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/salon_
 const parsed = new URL(SAFE_DATABASE_URL)
 if (parsed.protocol !== 'postgresql:' || parsed.hostname !== '127.0.0.1' || parsed.port !== '54322' || parsed.pathname !== '/salon_ai_test') throw new Error('Refusing unsafe F6 booking E2E database')
 process.env.DATABASE_URL = SAFE_DATABASE_URL
+process.env.BOT_OPTIONS_CAPABILITY_BOOKING_ENABLED = 'true'
 
 const [{ createPrismaClient }, { Prisma }, processor, stateModule, availability] = await Promise.all([
   import('../src/config/prisma-client.js'), import('../src/generated/prisma/client.js'),
@@ -80,22 +81,28 @@ try {
     const slotStartAt = `${tomorrow}T10:00:00.000Z`
     await act('slot.select', null, { startAt: slotStartAt })
 
-    const sessions = await tx.$queryRaw<Array<{ revision: bigint; state: { flow: string; cart: Array<{ serviceId: string }>; selections: { date: string; slotStartAt: string; provisionalProfessionalId: string } } }>>(Prisma.sql`
+    let sessions = await tx.$queryRaw<Array<{ revision: bigint; state: { flow: string; cart: Array<{ serviceId: string }>; selections: { date: string; slotStartAt: string; provisionalProfessionalId: string } } }>>(Prisma.sql`
       SELECT "revision", "state" FROM "BotSession" WHERE "id" = ${sessionId} AND "businessId" = ${businessId}`)
     assert.equal(sessions[0]!.revision, 6n)
-    assert.equal(sessions[0]!.state.flow, 'BOOKING_SUMMARY')
+    assert.equal(sessions[0]!.state.flow, 'NAME_INPUT')
     assert.deepEqual(sessions[0]!.state.cart, [{ serviceId }])
     assert.equal(sessions[0]!.state.selections.date, tomorrow)
     assert.equal(sessions[0]!.state.selections.slotStartAt, slotStartAt)
     assert.equal(sessions[0]!.state.selections.provisionalProfessionalId, professionalId)
     const appointmentWrites = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`SELECT count(*)::bigint AS "count" FROM public."Appointment" WHERE "professionalId" = ${professionalId}`)
-    assert.equal(appointmentWrites[0]!.count, 0n, 'F6 termina en resumen sin Appointment/hold')
+    assert.equal(appointmentWrites[0]!.count, 0n, 'elegir slot sin nombre todavía no crea Appointment/hold')
+    await act('name.submit', null, { name: 'Ana María' })
+    sessions = await tx.$queryRaw(Prisma.sql`SELECT "revision", "state" FROM "BotSession" WHERE "id" = ${sessionId} AND "businessId" = ${businessId}`)
+    assert.equal(sessions[0]!.revision, 7n)
+    assert.equal(sessions[0]!.state.flow, 'MAIN_MENU', 'el nombre confirma directamente sin NAME_CONFIRM')
+    const completedAppointments = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`SELECT count(*)::bigint AS "count" FROM public."Appointment" WHERE "professionalId" = ${professionalId}`)
+    assert.equal(completedAppointments[0]!.count, 1n)
     throw new Error(rollbackMarker)
   }), new RegExp(rollbackMarker))
 
   const persistentAfter = await prisma.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`SELECT count(*)::bigint AS "count" FROM public."Appointment"`)
   assert.equal(persistentAfter[0]!.count, persistentBefore[0]!.count)
-  console.log('OK F6.9 E2E: categoría → carrito → profesional → fecha → slot → resumen, sin agenda writes y con rollback total.')
+  console.log('OK F6.9 E2E: categoría → carrito → profesional → fecha → slot → nombre → confirmación, sin NAME_CONFIRM.')
 } finally {
   await prisma.$disconnect()
 }

@@ -4,10 +4,11 @@ import { processSessionJob } from '../src/bot-options/application/process-sessio
 import { createInitialBotOptionsState } from '../src/bot-options/domain/state.js'
 import { prismaHandoffEffectExecutor } from '../src/bot-options/infrastructure/prisma-handoff-effect-executor.js'
 
-async function scenario(mode: 'missing' | 'unknown' | 'confirmed' | 'confirmed-slot' | 'stale' | 'disabled' | 'handoff' | 'rollback') {
+async function scenario(mode: 'missing' | 'unknown' | 'confirmed' | 'confirmed-slot' | 'confirmed-name' | 'stale' | 'disabled' | 'handoff' | 'rollback') {
   const now = new Date('2026-09-11T12:00:00Z')
   const recoveringDirectSlot = mode === 'confirmed-slot'
-  const state = { ...createInitialBotOptionsState(), flow: recoveringDirectSlot ? 'SLOT_SELECT' : 'BOOKING_SUMMARY', cart: [{ serviceId: 'svc' }],
+  const recoveringName = mode === 'confirmed-name'
+  const state = { ...createInitialBotOptionsState(), flow: recoveringDirectSlot ? 'SLOT_SELECT' : recoveringName ? 'NAME_INPUT' : 'BOOKING_SUMMARY', cart: [{ serviceId: 'svc' }],
     selections: { ...createInitialBotOptionsState().selections, professionalId: 'prof', date: '2026-09-12', slotStartAt: recoveringDirectSlot ? null : '2026-09-12T12:00:00Z' } }
   let committed: Prisma.Sql[] = [], staged: Prisma.Sql[] = [], effects: unknown[] = []
   let contextCalls = 0
@@ -19,8 +20,8 @@ async function scenario(mode: 'missing' | 'unknown' | 'confirmed' | 'confirmed-s
     if (sql.includes('SELECT c."id" FROM "BotDispatchClaim"')) return [{ id: 'dispatch' }]
     if (sql.includes('s."status"::text AS "status", clock_timestamp() AS "dbNow"')) return [{ id: 's', businessId: 'b', deploymentId: 'd', deploymentGeneration: 1,
       revision: mode === 'stale' ? 11n : 10n, state, status: mode === 'handoff' ? 'HUMAN_QUEUED' : 'ACTIVE', dbNow: now, toPhone: '5491100000000', conversationId: null, businessTimezone: 'UTC' }]
-    if (sql.includes('e."payload" AS "providerPayload"')) return [{ id: 'inbox', actionType: recoveringDirectSlot ? 'slot.select' : 'booking.confirm', entityRef: null,
-      payload: recoveringDirectSlot ? { startAt: '2026-09-12T12:00:00Z' } : null,
+    if (sql.includes('e."payload" AS "providerPayload"')) return [{ id: 'inbox', actionType: recoveringDirectSlot ? 'slot.select' : recoveringName ? 'name.submit' : 'booking.confirm', entityRef: null,
+      payload: recoveringDirectSlot ? { startAt: '2026-09-12T12:00:00Z' } : recoveringName ? { name: 'Ana María' } : null,
       promptId: 'prompt', providerEventId: 'event', providerMessageId: 'wamid', providerPayload: {}, status: 'SELECTED' }]
     if (sql.includes('confirmation_recovery_enabled')) return [{ botEnabled: mode !== 'disabled' }]
     if (sql.includes('SELECT "status"::text AS "status"') && sql.includes('FROM "BotSession"')) return [{ status: 'ACTIVE' }]
@@ -31,7 +32,7 @@ async function scenario(mode: 'missing' | 'unknown' | 'confirmed' | 'confirmed-s
       assert.ok(q.values.includes('b'), 'evidence tenant-scoped')
       assert.ok(q.values.includes('transition:s:11:CONFIRM_VISIT'), 'exact operation, never phone/date heuristic')
       if (mode === 'unknown') throw new Error('database unavailable')
-      return mode === 'confirmed' || mode === 'confirmed-slot'
+      return mode === 'confirmed' || mode === 'confirmed-slot' || mode === 'confirmed-name'
         ? [{ status: 'COMPLETED', type: 'CONFIRM_VISIT', visitId: 'visit', appointmentId: 'appointment', appointmentStatus: 'CONFIRMED', professionalName: 'Profesional' }]
         : []
     }
@@ -76,5 +77,5 @@ async function scenario(mode: 'missing' | 'unknown' | 'confirmed' | 'confirmed-s
   else { assert.match(messages[0], /confirmado/); assert.equal(effects.length, 0) }
   assert.doesNotMatch(committed.map(q => q.text).join('\n'), /(?:UPDATE|INSERT INTO|DELETE FROM) "(?:Appointment|BookingVisit|BookingDeposit)"/)
 }
-for (const mode of ['missing', 'unknown', 'confirmed', 'confirmed-slot', 'stale', 'disabled', 'handoff', 'rollback'] as const) await scenario(mode)
+for (const mode of ['missing', 'unknown', 'confirmed', 'confirmed-slot', 'confirmed-name', 'stale', 'disabled', 'handoff', 'rollback'] as const) await scenario(mode)
 console.log('OK confirmation recovery runtime: missing/confirmed/uncertain, fencing and atomic outbox rollback')

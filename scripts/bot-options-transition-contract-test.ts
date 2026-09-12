@@ -12,6 +12,7 @@ import {
   type NormalizedAction,
   type TransitionContext
 } from '../src/bot-options/domain/transition.js'
+import { projectAvailability } from '../src/bot-options/application/availability-queries.js'
 
 const NOW = '2026-08-25T12:00:00Z'
 
@@ -141,6 +142,129 @@ const previousFullSlotPage = transition(
 )
 assert.deepEqual(previousFullSlotPage.state.presentation, { kind: 'slot_all_pages', cursor: 0 })
 
+// La guardia de navegación debe validar que la página destino exista, mientras
+// que el render de esa página decide por separado si todavía queda otra página.
+const eighteenSlots = twentySlots.slice(0, 18)
+const eighteenAvailabilitySlots = eighteenSlots.map((slot) => ({
+  ...slot, date: '2026-09-04', time: slot.label.slice(0, 5), occupiedMinutes: 0, professionalName: 'Ramiro'
+}))
+const showAllSlotProjection = projectAvailability({
+  slots: eighteenAvailabilitySlots,
+  presentation: bookingSlotState('prof_ramiro').presentation,
+  actionType: 'slot.show_all',
+  effectiveDate: '2026-09-04',
+  timezone: 'America/Argentina/Buenos_Aires'
+})
+const firstEighteenSlotPage = transition(bookingSlotState('prof_ramiro'), act('slot.show_all'), normalizeContext(ctx({
+  labels: {
+    bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+    availableSlots: showAllSlotProjection.availableSlots
+  },
+  slotCanNext: showAllSlotProjection.slotCanNext,
+  slotPageMoveAllowed: showAllSlotProjection.slotPageMoveAllowed
+})))
+assert.equal(firstEighteenSlotPage.view.choices.filter((choice) => choice.actionType === 'slot.select').length, 7)
+assert.ok(firstEighteenSlotPage.view.choices.some((choice) => choice.actionType === 'slot.next_page'))
+assert.ok(!firstEighteenSlotPage.view.choices.some((choice) => choice.actionType === 'slot.previous_page'))
+
+const middleSlotPageProjection = projectAvailability({
+  slots: eighteenAvailabilitySlots,
+  presentation: firstEighteenSlotPage.state.presentation,
+  actionType: 'slot.next_page',
+  effectiveDate: '2026-09-04',
+  timezone: 'America/Argentina/Buenos_Aires'
+})
+const middleEighteenSlotPage = transition(firstEighteenSlotPage.state, act('slot.next_page'), normalizeContext(ctx({
+  labels: {
+    bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+    availableSlots: middleSlotPageProjection.availableSlots
+  },
+  slotCanNext: middleSlotPageProjection.slotCanNext,
+  slotPageMoveAllowed: middleSlotPageProjection.slotPageMoveAllowed
+})))
+assert.equal(middleEighteenSlotPage.outcome, 'APPLIED')
+assert.equal(middleEighteenSlotPage.view.choices.filter((choice) => choice.actionType === 'slot.select').length, 7)
+assert.ok(middleEighteenSlotPage.view.choices.some((choice) => choice.actionType === 'slot.previous_page'))
+assert.ok(middleEighteenSlotPage.view.choices.some((choice) => choice.actionType === 'slot.next_page'))
+
+const lastSlotPageSource = middleEighteenSlotPage.state
+const lastSlotPageProjection = projectAvailability({
+  slots: eighteenAvailabilitySlots,
+  presentation: lastSlotPageSource.presentation,
+  actionType: 'slot.next_page',
+  effectiveDate: '2026-09-04',
+  timezone: 'America/Argentina/Buenos_Aires'
+})
+const lastSlotPage = transition(lastSlotPageSource, act('slot.next_page'), normalizeContext(ctx({
+  labels: {
+    bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
+    availableSlots: lastSlotPageProjection.availableSlots
+  },
+  slotCanNext: lastSlotPageProjection.slotCanNext,
+  slotPageMoveAllowed: lastSlotPageProjection.slotPageMoveAllowed
+})))
+assert.equal(lastSlotPage.outcome, 'APPLIED', 'la última página existente debe poder abrirse aunque no tenga una página posterior')
+assert.deepEqual(lastSlotPage.state.presentation, { kind: 'slot_all_pages', cursor: 2 })
+assert.equal(lastSlotPage.view.choices.filter((choice) => choice.actionType === 'slot.select').length, 4)
+assert.ok(lastSlotPage.view.choices.some((choice) => choice.actionType === 'slot.previous_page'))
+assert.ok(!lastSlotPage.view.choices.some((choice) => choice.actionType === 'slot.next_page'))
+assert.doesNotMatch(lastSlotPage.view.interactiveBody, /No hay más horarios/)
+
+const beyondLastSlotPageProjection = projectAvailability({
+  slots: eighteenAvailabilitySlots,
+  presentation: lastSlotPage.state.presentation,
+  actionType: 'slot.next_page',
+  effectiveDate: '2026-09-04',
+  timezone: 'America/Argentina/Buenos_Aires'
+})
+const beyondLastSlotPage = transition(lastSlotPage.state, act('slot.next_page'), normalizeContext(ctx({
+  slotCanNext: beyondLastSlotPageProjection.slotCanNext,
+  slotPageMoveAllowed: beyondLastSlotPageProjection.slotPageMoveAllowed
+})))
+assert.equal(beyondLastSlotPage.outcome, 'RECOVERED', 'un next forjado desde la última página debe seguir rechazándose')
+assert.match(beyondLastSlotPage.view.interactiveBody, /No hay más horarios/)
+
+// Fechas usa la misma proyección: llegar a la última página y volver a la
+// primera tampoco puede depender de que la página destino tenga otra vecina.
+const fifteenDateSlots = Array.from({ length: 15 }, (_, index) => {
+  const date = `2026-09-${String(index + 1).padStart(2, '0')}`
+  return {
+    startAt: `${date}T12:00:00.000Z`, date, time: '09:00', band: 'MORNING' as const,
+    professionalId: 'prof_ramiro', professionalName: 'Ramiro', occupiedMinutes: 0
+  }
+})
+const lastDatePageSource = stateWith({
+  flow: 'DATE_SELECT', booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }],
+  presentation: { kind: 'date_page', cursor: 1 }
+})
+const lastDatePageProjection = projectAvailability({
+  slots: fifteenDateSlots, presentation: lastDatePageSource.presentation,
+  actionType: 'date.next_page', effectiveDate: null, timezone: 'UTC'
+})
+const lastDatePage = transition(lastDatePageSource, act('date.next_page'), normalizeContext(ctx({
+  labels: { availableDates: lastDatePageProjection.availableDates },
+  dateCanNext: lastDatePageProjection.dateCanNext,
+  dateCanPrevious: lastDatePageProjection.dateCanPrevious,
+  datePageMoveAllowed: lastDatePageProjection.datePageMoveAllowed
+})))
+assert.equal(lastDatePage.outcome, 'APPLIED', 'la última página de fechas existente debe poder abrirse')
+assert.deepEqual(lastDatePage.state.presentation, { kind: 'date_page', cursor: 2 })
+assert.equal(lastDatePage.view.choices.filter((choice) => choice.actionType === 'date.select').length, 1)
+assert.ok(!lastDatePage.view.choices.some((choice) => choice.actionType === 'date.next_page'))
+
+const firstDatePageProjection = projectAvailability({
+  slots: fifteenDateSlots, presentation: lastDatePageSource.presentation,
+  actionType: 'date.previous_page', effectiveDate: null, timezone: 'UTC'
+})
+const firstDatePage = transition(lastDatePageSource, act('date.previous_page'), normalizeContext(ctx({
+  labels: { availableDates: firstDatePageProjection.availableDates },
+  dateCanNext: firstDatePageProjection.dateCanNext,
+  dateCanPrevious: firstDatePageProjection.dateCanPrevious,
+  datePageMoveAllowed: firstDatePageProjection.datePageMoveAllowed
+})))
+assert.equal(firstDatePage.outcome, 'APPLIED', 'volver a la primera página de fechas debe permitirse aunque no haya una página anterior')
+assert.deepEqual(firstDatePage.state.presentation, { kind: 'date_page', cursor: 0 })
+
 const slotNavigation = transition(bookingSlotState('prof_ramiro'), act('navigation.open'), ctx())
 assert.equal(slotNavigation.view.choices[0]?.label, 'Cambiar fecha')
 
@@ -252,8 +376,7 @@ assert.deepEqual(welcome.choices.map(({ actionType, label }) => ({ actionType, l
 
 const askName = transition(menu, act('menu.start_booking'), ctx())
 if (askName.outcome === 'RECOVERED') throw new Error('start_booking debía aplicar')
-assert.equal(askName.state.flow, 'NAME_INPUT')
-assert.equal(askName.view.interactiveBody, 'Para guardar la reserva, escribí únicamente tu nombre y apellido.\n\nEjemplo: Matías Grando')
+assert.equal(askName.state.flow, 'CATEGORY_SELECT', 'el nombre se solicita recién después de elegir horario')
 
 const knownName = transition(menu, act('menu.start_booking'), ctx({ customerNameOnFile: 'Martina' }))
 if (!(knownName.outcome === 'APPLIED' || knownName.outcome === 'HANDOFF')) throw new Error('unreachable')
@@ -330,7 +453,7 @@ if (noAppointments.outcome === 'RECOVERED') {
   )
   const bookFromEmpty = transition(noAppointments.state, act('menu.start_booking'), ctx())
   assert.equal(bookFromEmpty.outcome, 'APPLIED')
-  assert.equal(bookFromEmpty.state.flow, 'NAME_INPUT')
+  assert.equal(bookFromEmpty.state.flow, 'CATEGORY_SELECT')
   const homeFromEmpty = transition(noAppointments.state, act('navigation.home'), ctx())
   assert.equal(homeFromEmpty.outcome, 'APPLIED')
   assert.equal(homeFromEmpty.state.flow, 'MAIN_MENU')
@@ -449,8 +572,9 @@ if (compactNavigation.outcome === 'APPLIED') {
 const named = transition(stateWith({ flow: 'NAME_INPUT' }), act('name.submit', { payload: { name: 'Ana María' } }), ctx())
 assert.equal(named.outcome, 'APPLIED')
 if (named.outcome === 'APPLIED') {
-  assert.equal(named.state.flow, 'NAME_CONFIRM')
-  assert.equal(named.state.nameCandidate, 'Ana María')
+  assert.equal(named.state.flow, 'CATEGORY_SELECT', 'una sesión legacy temprana continúa sin NAME_CONFIRM')
+  assert.equal(named.state.nameCandidate, null)
+  assert.deepEqual(named.effects, [{ kind: 'PERSIST_CUSTOMER_NAME', name: 'Ana María' }])
 }
 
 const badName = transition(stateWith({ flow: 'NAME_INPUT' }), act('name.submit', { payload: {} }), ctx())
@@ -669,24 +793,17 @@ const viView = renderCurrentView(viewInactive, normalizeContext(ctx({ serviceAct
   assert.ok(!consultChoice, 'vista inactiva NO debe ofrecer service.consult')
 }
 
-// 7) service.book en servicio que requiere consulta: pide nombre primero, luego deriva.
+// 7) service.book en servicio que requiere consulta deriva sin pedir nombre prematuramente.
 const detailConsultBook = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_color' } })
 const consultBookNoName = transition(
   detailConsultBook,
   act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_color' } }),
   ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
 )
-assert.equal(consultBookNoName.outcome, 'APPLIED', 'sin nombre pide NAME_INPUT antes de handoff')
-assert.equal(consultBookNoName.state.flow, 'NAME_INPUT')
-// Now provide the name and verify handoff happens.
-const consultBookWithName = transition(
-  { ...consultBookNoName.state, flow: 'NAME_CONFIRM', nameCandidate: 'María' } as BotOptionsState,
-  act('name.confirm'),
-  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: true, labels: { serviceName: 'Coloración' } })
-)
-assert.equal(consultBookWithName.outcome, 'HANDOFF')
-if (consultBookWithName.outcome === 'HANDOFF') {
-  const handoffEffect = consultBookWithName.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
+assert.equal(consultBookNoName.outcome, 'HANDOFF')
+assert.equal(consultBookNoName.state.flow, 'HANDOFF_QUEUED')
+if (consultBookNoName.outcome === 'HANDOFF') {
+  const handoffEffect = consultBookNoName.effects.find((e) => e.kind === 'REQUEST_HUMAN_HANDOFF')
   assert.equal(handoffEffect?.kind, 'REQUEST_HUMAN_HANDOFF')
   if (handoffEffect?.kind === 'REQUEST_HUMAN_HANDOFF') {
     assert.equal(handoffEffect.reason, 'servicio_requiere_consulta_previa')
@@ -764,17 +881,17 @@ assert.deepEqual(removeLast.state.cart, [])
 assert.deepEqual(removeLast.view.informativeTexts, ['Quitamos Corte Hombre. Tu reserva quedó sin servicios. Elegí una categoría para agregar otro.'])
 assert.equal(removeLast.view.choices.find((choice) => choice.actionType === 'category.select')?.label, 'Cortes')
 
-// 8) service.book sin nombre en servicio reservable pide nombre primero.
+// 8) service.book sin nombre agrega el servicio; el nombre se pedirá al final.
 const detailNoName = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })
 const noNameResult = transition(
   detailNoName,
   act('service.book', { entityRef: { type: 'SERVICE', id: 'srv_corte' } }),
-  ctx({ serviceActive: true, serviceBookable: true, requiresConsultation: false, customerNameOnFile: null })
+  ctx({ serviceActive: true, serviceBookable: true, serviceCompatibleWithCart: true, requiresConsultation: false, customerNameOnFile: null })
 )
 assert.equal(noNameResult.outcome, 'APPLIED')
 if (noNameResult.outcome === 'APPLIED') {
-  assert.equal(noNameResult.state.flow, 'NAME_INPUT')
-  assert.deepEqual(noNameResult.state.pendingEntityRef, { type: 'SERVICE', id: 'srv_corte' })
+  assert.equal(noNameResult.state.flow, 'CART_REVIEW')
+  assert.deepEqual(noNameResult.state.cart, [{ serviceId: 'srv_corte' }])
 }
 
 // 9) Una choice stale/forged no puede cambiar el servicio que originó el detalle.
@@ -854,6 +971,7 @@ const confirmed = transition(
   s,
   act('slot.select', { payload: slotPayload }),
   ctx({
+    customerNameOnFile: 'Matías',
     slotAvailable: true,
     confirmVisitSnapshot: {
       services: [
@@ -1171,7 +1289,7 @@ ar = transition(
 if (ar.outcome === 'APPLIED') sa = ar.state
 assert.equal(sa.flow, 'APPOINTMENT_RESCHEDULE_DATE')
 
-const nextRescheduleDates = transition(sa, act('date.next_page'), ctx({ dateCanNext: true }))
+const nextRescheduleDates = transition(sa, act('date.next_page'), ctx({ dateCanNext: true, datePageMoveAllowed: true }))
 assert.equal(nextRescheduleDates.outcome, 'APPLIED')
 if (nextRescheduleDates.outcome === 'APPLIED') {
   assert.equal(nextRescheduleDates.state.flow, 'APPOINTMENT_RESCHEDULE_DATE')
@@ -1190,7 +1308,7 @@ if (ar.outcome === 'APPLIED') sa = ar.state
 assert.equal(sa.selections.date, '2026-09-03')
 assert.deepEqual(sa.presentation, { kind: 'plain' }, 'elegir fecha inicia la primera página de horarios')
 
-const nextRescheduleSlots = transition(sa, act('slot.next_page'), ctx({ slotCanNext: true }))
+const nextRescheduleSlots = transition(sa, act('slot.next_page'), ctx({ slotCanNext: true, slotPageMoveAllowed: true }))
 assert.equal(nextRescheduleSlots.outcome, 'APPLIED')
 if (nextRescheduleSlots.outcome === 'APPLIED') {
   assert.equal(nextRescheduleSlots.state.flow, 'APPOINTMENT_RESCHEDULE_SLOT')

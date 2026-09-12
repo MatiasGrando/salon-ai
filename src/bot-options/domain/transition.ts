@@ -97,7 +97,11 @@ export type TransitionContext = {
   professionalCatalogCanPrevious: boolean
   dateCanNext: boolean
   dateCanPrevious: boolean
+  /** Para next/previous: la página destino de fechas fue revalidada y existe. */
+  datePageMoveAllowed: boolean
   slotCanNext: boolean
+  /** Para next/previous: la página destino de horarios fue revalidada y existe. */
+  slotPageMoveAllowed: boolean
   noAvailabilityInHorizon: boolean
   selectedProfessionalNoAvailability: boolean
   appointmentsExist: boolean
@@ -198,7 +202,9 @@ const FALSE_DEFAULTS: readonly (
   'professionalCatalogCanPrevious',
   'dateCanNext',
   'dateCanPrevious',
+  'datePageMoveAllowed',
   'slotCanNext',
+  'slotPageMoveAllowed',
   'noAvailabilityInHorizon',
   'selectedProfessionalNoAvailability',
   'appointmentsExist',
@@ -722,16 +728,13 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         HUMAN_CHOICE
       ])
     case 'NAME_INPUT':
-      return recoveryView('Para guardar la reserva, escribí únicamente tu nombre y apellido.\n\nEjemplo: Matías Grando', [])
+      return recoveryView('Para guardar la reserva, escribí únicamente tu nombre y apellido.\n\nEjemplo: Matías Grando', [BACK_CHOICE, HOME_CHOICE, HUMAN_CHOICE])
     case 'NAME_CONFIRM':
-      return menuView(
-        `¿Tu nombre es ${state.nameCandidate ?? context.customerNameOnFile ?? ''}?`,
-        [
-          { actionType: 'name.confirm', label: 'Sí, es correcto' },
-          { actionType: 'name.edit', label: 'Corregir nombre' },
-          HUMAN_CHOICE
-        ]
-      )
+      // Compatibilidad durable: las sesiones creadas antes de mover el nombre
+      // al final pueden seguir persistidas en NAME_CONFIRM. Nunca volvemos a
+      // emitir la confirmación eliminada; el cliente puede escribir el nombre
+      // y continuar por el mismo camino autoritativo de NAME_INPUT.
+      return recoveryView('Para continuar, escribí únicamente tu nombre y apellido.\n\nEjemplo: Matías Grando', [BACK_CHOICE, HOME_CHOICE, HUMAN_CHOICE])
     case 'CATEGORY_SELECT': {
       const categories = context.labels.catalogCategories ?? []
       const body = [
@@ -1175,7 +1178,7 @@ export function transition(
     case 'MAIN_MENU':
       return fromMainMenu(state, actionType, context)
     case 'DRAFT_RESUME':
-      return fromDraftResume(state, actionType)
+      return fromDraftResume(state, actionType, context)
     case 'NAME_CONFIRM':
       return fromNameConfirm(state, actionType, context)
     case 'CATEGORY_SELECT':
@@ -1450,6 +1453,14 @@ function tryUniversal(
         const target = state.discardReturnFlow ?? 'MAIN_MENU'
         return applied(baseOf(state, { flow: target, discardReturnFlow: null, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: target }, context))
       }
+      if (state.flow === 'NAME_INPUT' && state.selections.slotStartAt) {
+        const next = baseOf(withoutSelections(state, 'slot'), {
+          flow: 'SLOT_SELECT',
+          nameCandidate: null,
+          presentation: plainPresentation()
+        })
+        return applied(next, renderCurrentView(next, context))
+      }
       const target = BACK_TARGETS[state.flow]
       if (!target || BACK_BLOCKED.has(state.flow)) {
         return recovered(
@@ -1565,7 +1576,7 @@ function handleSystemEvent(
 ): TransitionResult {
   switch (actionType) {
     case 'name.submit': {
-      if (state.flow !== 'NAME_INPUT') {
+      if (state.flow !== 'NAME_INPUT' && state.flow !== 'NAME_CONFIRM') {
         return escalateInvalid(state, 'Ahora no estoy pidiendo un nombre. Seguí con las opciones.')
       }
       const name = payload?.name
@@ -1577,10 +1588,7 @@ function handleSystemEvent(
         return escalateInvalid(state, nameValidation.reason)
       }
       const normalizedName = nameValidation.normalized
-      return applied(
-        baseOf(resetInvalidStreak(state), { flow: 'NAME_CONFIRM', nameCandidate: normalizedName }),
-        renderCurrentView({ ...state, flow: 'NAME_CONFIRM', nameCandidate: normalizedName }, context)
-      )
+      return continueAfterName(state, normalizedName, context)
     }
     case 'deposit.proof_received': {
       if (state.flow !== 'DEPOSIT_INSTRUCTIONS' || !WAITING_PROOF_DEPOSITS(state.deposit)) {
@@ -1605,7 +1613,7 @@ function handleSystemEvent(
       return enterHandoff(state, 'comprobante_tardio', null)
     }
     case 'booking.slot_conflict': {
-      if (state.flow !== 'BOOKING_SUMMARY' && state.flow !== 'SLOT_SELECT') return escalateInvalid(state, '')
+      if (state.flow !== 'BOOKING_SUMMARY' && state.flow !== 'SLOT_SELECT' && state.flow !== 'NAME_INPUT') return escalateInvalid(state, '')
       const sameDaySlots = context.labels.availableSlots ?? []
       const next = sameDaySlots.length > 0
         ? baseOf(withoutSelections(state, 'slot'), { flow: 'SLOT_SELECT', presentation: plainPresentation() })
@@ -1756,9 +1764,6 @@ function startBookingPath(state: BotOptionsState, context: TransitionContext): T
   if (context.draftExists && context.draftHasProgress) {
     return applied(baseOf(state, { flow: 'DRAFT_RESUME' }), renderCurrentView({ ...state, flow: 'DRAFT_RESUME' }, context))
   }
-  if (!context.customerNameOnFile && !state.nameCandidate) {
-    return applied(baseOf(state, { flow: 'NAME_INPUT', catalogMode: 'BOOKING' }), renderCurrentView({ ...state, flow: 'NAME_INPUT' }, context))
-  }
   const next = baseOf(state, { flow: 'CATEGORY_SELECT', catalogMode: 'BOOKING', presentation: plainPresentation() })
   return applied(next, renderCurrentView(next, context))
 }
@@ -1797,22 +1802,22 @@ function fromMainMenu(state: BotOptionsState, actionType: BotOptionsActionType, 
   return escalateInvalid(state, '')
 }
 
-function fromDraftResume(state: BotOptionsState, actionType: BotOptionsActionType): TransitionResult {
+function fromDraftResume(state: BotOptionsState, actionType: BotOptionsActionType, context: TransitionContext): TransitionResult {
   if (actionType === 'draft.restart') {
     const cleared = baseOf(clearDraft(state), { flow: 'MAIN_MENU', presentation: plainPresentation() })
     return applied(cleared, renderCurrentView(cleared, EMPTY_CONTEXT_FOR_VIEWS))
   }
   if (actionType === 'draft.continue') {
-    const target = resumeTargetFlow(state)
-    return applied(baseOf(state, { flow: target, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: target }, EMPTY_CONTEXT_FOR_VIEWS))
+    const target = resumeTargetFlow(state, context)
+    return applied(baseOf(state, { flow: target, presentation: plainPresentation() }), renderCurrentView({ ...state, flow: target }, context))
   }
   return escalateInvalid(state, '')
 }
 
-function resumeTargetFlow(state: BotOptionsState): BotOptionsFlowStep {
+function resumeTargetFlow(state: BotOptionsState, context: TransitionContext): BotOptionsFlowStep {
   if (WAITING_PROOF_DEPOSITS(state.deposit)) return 'DEPOSIT_INSTRUCTIONS'
   if (state.deposit === 'PROOF_RECEIVED') return 'DEPOSIT_REVIEW'
-  if (state.selections.slotStartAt) return 'BOOKING_SUMMARY'
+  if (state.selections.slotStartAt) return context.customerNameOnFile ? 'SLOT_SELECT' : 'NAME_INPUT'
   if (state.selections.date) return 'SLOT_SELECT'
   if (state.selections.professionalId || state.selections.anyProfessional) return 'DATE_SELECT'
   if (state.cart.length > 0) return 'PROFESSIONAL_SELECT'
@@ -1823,28 +1828,37 @@ function fromNameConfirm(state: BotOptionsState, actionType: BotOptionsActionTyp
   if (actionType === 'name.confirm') {
     const candidate = state.nameCandidate
     if (!candidate) return recovered(state, 'entity_inactive', 'Perdimos el nombre cargado. Escribilo de nuevo, por favor.', [])
-    const effects: BotOptionsEffect[] = [{ kind: 'PERSIST_CUSTOMER_NAME', name: candidate }]
-    const afterName: BotOptionsState = baseOf(resetInvalidStreak(state), { nameCandidate: null })
-
-    // Intención previa: "Reservar este servicio" pedía nombre primero.
-    // Solo pendingEntityRef de tipo SERVICE ingresa al carrito; PROFESSIONAL jamás.
-    if (afterName.pendingEntityRef?.type === 'SERVICE') {
-      const serviceId = afterName.pendingEntityRef.id
-      const result = resolveSelectedService(afterName, serviceId, { ...context, customerNameOnFile: candidate })
-      return result.outcome === 'RECOVERED' ? result : { ...result, effects: [...effects, ...result.effects] }
-    }
-    // Si había un pending de tipo PROFESSIONAL (horarios), limpiarlo y continuar al catálogo de servicios.
-    if (afterName.pendingEntityRef?.type === 'PROFESSIONAL') {
-      const cleared = baseOf(afterName, { pendingEntityRef: null, flow: 'CATEGORY_SELECT', presentation: plainPresentation() })
-      return applied(cleared, renderCurrentView(cleared, context), effects)
-    }
-    const next = baseOf(afterName, { flow: 'CATEGORY_SELECT', presentation: plainPresentation() })
-    return applied(next, renderCurrentView(next, context), effects)
+    return continueAfterName(state, candidate, context)
   }
   if (actionType === 'name.edit') {
     return applied(baseOf(state, { flow: 'NAME_INPUT', nameCandidate: null }), renderCurrentView({ ...state, flow: 'NAME_INPUT' }, context))
   }
   return escalateInvalid(state, '')
+}
+
+/**
+ * Persiste identidad y reanuda exactamente la intención que quedó pausada.
+ * En el flujo nuevo esa intención siempre es el slot final; los branches
+ * restantes conservan sesiones v1 que preguntaban el nombre antes del servicio.
+ */
+function continueAfterName(state: BotOptionsState, candidate: string, context: TransitionContext): TransitionResult {
+  const persistName: BotOptionsEffect = { kind: 'PERSIST_CUSTOMER_NAME', name: candidate }
+  const afterName = baseOf(resetInvalidStreak(state), { nameCandidate: null })
+  if (afterName.selections.slotStartAt && afterName.selections.date && afterName.cart.length > 0) {
+    if (!context.slotStillAvailableAtConfirm) {
+      const recovery = handleSystemEvent(afterName, 'booking.slot_conflict', null, null, context)
+      return recovery.outcome === 'RECOVERED' ? recovery : { ...recovery, effects: [persistName, ...recovery.effects] }
+    }
+    const result = confirmSelectedBooking(afterName, { ...context, customerNameOnFile: candidate }, true)
+    return result.outcome === 'RECOVERED' ? result : { ...result, effects: [persistName, ...result.effects] }
+  }
+  if (afterName.pendingEntityRef?.type === 'SERVICE') {
+    const serviceId = afterName.pendingEntityRef.id
+    const result = resolveSelectedService(afterName, serviceId, { ...context, customerNameOnFile: candidate })
+    return result.outcome === 'RECOVERED' ? result : { ...result, effects: [persistName, ...result.effects] }
+  }
+  const next = baseOf(afterName, { flow: 'CATEGORY_SELECT', pendingEntityRef: null, presentation: plainPresentation() })
+  return applied(next, renderCurrentView(next, { ...context, customerNameOnFile: candidate }), [persistName])
 }
 
 function fromCategorySelect(
@@ -2005,10 +2019,6 @@ function resolveSelectedService(state: BotOptionsState, serviceId: string, conte
   if (service && service.id !== serviceId) return recovered(state, 'stale_ref', 'El servicio cambió. Volvé a abrir su detalle.', [BACK_CHOICE])
   const recommendationSources = state.recommendationSourceServiceIds?.length ? state.recommendationSourceServiceIds : [serviceId]
   const pending = baseOf(state, { pendingEntityRef: { type: 'SERVICE', id: serviceId }, catalogMode: 'BOOKING', recommendationSourceServiceIds: recommendationSources })
-  if (!context.customerNameOnFile && (service || state.flow === 'SERVICE_DETAIL')) {
-    const next = baseOf(pending, { flow: 'NAME_INPUT' })
-    return applied(next, renderCurrentView(next, context))
-  }
   // Compatibility for pre-policy contexts; production always provides the live policy.
   if (!service) {
     if (context.requiresConsultation) return enterHandoff(pending, 'servicio_requiere_consulta_previa', context.labels.serviceName ?? null, { serviceId })
@@ -2317,10 +2327,14 @@ function fromDateSelect(
   context: TransitionContext
 ): TransitionResult {
   if (actionType === 'date.next_page' || actionType === 'date.previous_page') {
-    if (actionType === 'date.next_page' && !context.dateCanNext) {
-      return recovered(state, 'guard_failed', 'Llegaste al final del rango de búsqueda.', [])
+    if (!context.datePageMoveAllowed) {
+      return recovered(
+        state,
+        'guard_failed',
+        actionType === 'date.next_page' ? 'Llegaste al final del rango de búsqueda.' : 'Estás en la primera página de fechas.',
+        []
+      )
     }
-    if (actionType === 'date.previous_page' && !context.dateCanPrevious) return recovered(state, 'guard_failed', 'Estás en la primera página de fechas.', [])
     const cursor = state.presentation.kind === 'date_page' ? state.presentation.cursor + (actionType === 'date.next_page' ? 1 : -1) : actionType === 'date.next_page' ? 1 : 0
     const next = baseOf(state, { presentation: { kind: 'date_page', cursor: Math.max(0, cursor) } })
     return applied(next, renderCurrentView(next, context))
@@ -2378,7 +2392,7 @@ function fromSlotSelect(
     return applied(next, renderCurrentView(next, context))
   }
   if (actionType === 'slot.next_page') {
-    if (!context.slotCanNext) return recovered(state, 'guard_failed', 'No hay más horarios para este día.', [])
+    if (!context.slotPageMoveAllowed) return recovered(state, 'guard_failed', 'No hay más horarios para este día.', [])
     const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor + 1 : 1
     const next = baseOf(state, { presentation: { kind: 'slot_all_pages', cursor } })
     return applied(next, renderCurrentView(next, context))
@@ -2397,6 +2411,10 @@ function fromSlotSelect(
       selections: { ...state.selections, slotStartAt: payload.startAt, provisionalProfessionalId: context.confirmVisitSnapshot?.professional.professionalId ?? null },
       presentation: plainPresentation()
     })
+    if (!context.customerNameOnFile) {
+      const awaitingName = baseOf(selected, { flow: 'NAME_INPUT', nameCandidate: null })
+      return applied(awaitingName, renderCurrentView(awaitingName, context))
+    }
     return confirmSelectedBooking(selected, context, true)
   }
   return escalateInvalid(state, '')

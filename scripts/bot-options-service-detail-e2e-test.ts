@@ -188,8 +188,8 @@ try {
     SELECT "state"->>'flow' AS "flow", "state"->'pendingEntityRef' AS "pending"
     FROM "BotSession" WHERE "id" = ${reservable.sessionId}
   `)
-  assert.equal(reservableRows[0]!.flow, 'NAME_INPUT')
-  assert.deepEqual(reservableRows[0]!.pending, { type: 'SERVICE', id: reservableServiceId })
+  assert.equal(reservableRows[0]!.flow, 'CART_REVIEW')
+  assert.equal(reservableRows[0]!.pending, null)
 
   const deactivated = await processDetailClick({
     label: 'deactivated',

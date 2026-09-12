@@ -56,7 +56,7 @@ function enqueueFailedBookingRecoverySql() {
     JOIN "BotActionInbox" i ON i."id" = j."aggregateId" AND i."businessId" = j."businessId"
       AND i."deploymentId" = j."deploymentId" AND i."deploymentGeneration" = j."deploymentGeneration"
     WHERE j."status" = 'POISON'::"BotJobStatus" AND j."kind" = 'PROCESS_SESSION'
-      AND i."actionType" IN ('booking.confirm', 'slot.select') AND i."status" = 'SELECTED'::"BotInboxStatus"
+      AND i."actionType" IN ('booking.confirm', 'slot.select', 'name.submit') AND i."status" = 'SELECTED'::"BotInboxStatus"
     ON CONFLICT ("kind", "aggregateId") DO NOTHING
     RETURNING "id"
   `

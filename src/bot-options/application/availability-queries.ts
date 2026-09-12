@@ -150,6 +150,12 @@ export function projectAvailability(input: {
     })),
     dateCanNext: datePage.hasNext,
     dateCanPrevious: datePage.hasPrevious,
-    slotCanNext: slotPage.hasNext
+    /** La página destino existe; no implica que haya otra después de ella. */
+    datePageMoveAllowed: input.actionType === 'date.previous_page'
+      ? currentDateCursor > 0 && datePage.items.length > 0
+      : datePage.items.length > 0,
+    slotCanNext: slotPage.hasNext,
+    /** La página destino existe; no implica que haya otra después de ella. */
+    slotPageMoveAllowed: slotPage.items.length > 0
   }
 }

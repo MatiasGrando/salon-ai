@@ -21,7 +21,7 @@ for (const sql of statements) {
   assert.match(sql, /FROM changed j/, 'only newly changed jobs, never historical POISON sweep')
   assert.match(sql, /j\."status" = 'POISON'/)
   assert.match(sql, /j\."kind" = 'PROCESS_SESSION'/)
-  assert.match(sql, /i\."actionType" IN \('booking.confirm', 'slot.select'\)/)
+  assert.match(sql, /i\."actionType" IN \('booking.confirm', 'slot.select', 'name.submit'\)/)
   assert.match(sql, /i\."status" = 'SELECTED'/)
   assert.match(sql, /i\."businessId" = j\."businessId"/)
   assert.match(sql, /i\."deploymentId" = j\."deploymentId"/)

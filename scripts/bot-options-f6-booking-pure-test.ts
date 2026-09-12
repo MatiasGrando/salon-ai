@@ -116,7 +116,7 @@ const slotState = {
   selections: { ...recommendationState.selections, anyProfessional: true, date: '2026-08-30' }
 }
 const toSummary = transition(slotState, { actionType: 'slot.select', entityRef: null, payload: { startAt: '2026-08-30T15:00:00Z' } }, {
-  dbNowIso: '2026-08-26T12:00:00Z', slotAvailable: true,
+  dbNowIso: '2026-08-26T12:00:00Z', slotAvailable: true, customerNameOnFile: 'Ana',
   confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Uno', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 1500 }
 })
 assert.equal(toSummary.outcome, 'APPLIED')
@@ -125,8 +125,76 @@ if (toSummary.outcome === 'APPLIED') {
   assert.deepEqual(toSummary.state, createInitialBotOptionsState())
 }
 
+const unnamedSlot = transition(slotState, { actionType: 'slot.select', entityRef: null, payload: { startAt: '2026-08-30T15:00:00Z' } }, {
+  dbNowIso: '2026-08-26T12:00:00Z', slotAvailable: true, customerNameOnFile: null,
+  confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Uno', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 1500 }
+})
+assert.equal(unnamedSlot.outcome, 'APPLIED')
+if (unnamedSlot.outcome === 'APPLIED') {
+  assert.equal(unnamedSlot.state.flow, 'NAME_INPUT')
+  assert.equal(unnamedSlot.state.selections.slotStartAt, '2026-08-30T15:00:00Z', 'debe conservar exactamente el horario elegido')
+  assert.deepEqual(unnamedSlot.effects, [], 'no crea ni retiene el turno antes de recibir el nombre')
+
+  const backFromName = transition(unnamedSlot.state, { actionType: 'navigation.back', entityRef: null, payload: null }, {
+    dbNowIso: '2026-08-26T12:00:00Z', labels: { availableSlots: [] }
+  })
+  assert.equal(backFromName.state.flow, 'SLOT_SELECT')
+  assert.equal(backFromName.state.selections.slotStartAt, null, 'volver permite elegir otro horario sin perder carrito, profesional ni fecha')
+}
+
+const unnamedDepositSlot = transition(slotState, { actionType: 'slot.select', entityRef: null, payload: { startAt: '2026-08-30T15:00:00Z' } }, {
+  dbNowIso: '2026-08-26T12:00:00Z', slotAvailable: true, customerNameOnFile: null,
+  depositRequired: true, paymentConfigComplete: true,
+  confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Lucas', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 15000 }
+})
+const namedDeposit = transition(unnamedDepositSlot.state, { actionType: 'name.submit', entityRef: null, payload: { name: 'Ana María' } }, {
+  dbNowIso: '2026-08-26T12:00:00Z', slotStillAvailableAtConfirm: true,
+  depositRequired: true, paymentConfigComplete: true,
+  depositRequest: { amountMinor: 500, holdExpiresAtIso: '2026-08-26T12:30:00Z' },
+  confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Lucas', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 15000 }
+})
+assert.equal(namedDeposit.state.flow, 'DEPOSIT_INSTRUCTIONS')
+if (namedDeposit.outcome === 'APPLIED') assert.deepEqual(namedDeposit.effects.map((effect) => effect.kind), ['PERSIST_CUSTOMER_NAME', 'HOLD_VISIT_WITH_DEPOSIT'])
+
+const conflictAfterName = transition(unnamedSlot.state, { actionType: 'booking.slot_conflict', entityRef: null, payload: null }, {
+  dbNowIso: '2026-08-26T12:00:00Z', labels: { availableSlots: [{ startAt: '2026-08-30T16:00:00Z', time: '16:00', date: '2026-08-30' }] }
+})
+assert.equal(conflictAfterName.state.flow, 'SLOT_SELECT')
+assert.equal(conflictAfterName.state.selections.slotStartAt, null)
+
+const staleWhileSubmittingName = transition(unnamedSlot.state, { actionType: 'name.submit', entityRef: null, payload: { name: 'Ana María' } }, {
+  dbNowIso: '2026-08-26T12:00:00Z', slotStillAvailableAtConfirm: false,
+  labels: { availableSlots: [{ startAt: '2026-08-30T16:00:00Z', time: '16:00', date: '2026-08-30' }] }
+})
+assert.equal(staleWhileSubmittingName.state.flow, 'SLOT_SELECT')
+assert.equal(staleWhileSubmittingName.state.selections.slotStartAt, null)
+if (staleWhileSubmittingName.outcome === 'APPLIED') {
+  assert.deepEqual(staleWhileSubmittingName.effects, [{ kind: 'PERSIST_CUSTOMER_NAME', name: 'Ana María' }], 'el nombre válido se conserva aunque el slot se haya ocupado')
+}
+
+const resumedFinalName = transition(
+  { ...unnamedSlot.state, flow: 'DRAFT_RESUME' },
+  { actionType: 'draft.continue', entityRef: null, payload: null },
+  { dbNowIso: '2026-08-26T12:00:00Z' }
+)
+assert.equal(resumedFinalName.state.flow, 'NAME_INPUT', 'reanudar un borrador con slot vuelve a pedir el nombre final')
+assert.equal(resumedFinalName.state.selections.slotStartAt, '2026-08-30T15:00:00Z')
+const resumedKnownName = transition(
+  { ...unnamedSlot.state, flow: 'DRAFT_RESUME' },
+  { actionType: 'draft.continue', entityRef: null, payload: null },
+  { dbNowIso: '2026-08-26T12:00:00Z', customerNameOnFile: 'Ana' }
+)
+assert.equal(resumedKnownName.state.flow, 'SLOT_SELECT', 'un borrador con identidad conocida nunca vuelve a pedir el nombre')
+const restartedFinalName = transition(
+  { ...unnamedSlot.state, flow: 'DRAFT_RESUME' },
+  { actionType: 'draft.restart', entityRef: null, payload: null },
+  { dbNowIso: '2026-08-26T12:00:00Z' }
+)
+assert.deepEqual(restartedFinalName.state, createInitialBotOptionsState(), 'reiniciar descarta también el slot pendiente de nombre')
+
 const directDeposit = transition(slotState, { actionType: 'slot.select', entityRef: null, payload: { startAt: '2026-08-30T15:00:00Z' } }, {
   dbNowIso: '2026-08-26T12:00:00Z',
+  customerNameOnFile: 'Ana',
   slotAvailable: true,
   depositRequired: true,
   paymentConfigComplete: true,

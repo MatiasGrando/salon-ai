@@ -1,16 +1,16 @@
 /**
  * F6.1 — Contrato puro de lookup de cliente por teléfono y negocio.
  *
- * El bot busca el cliente ANTES de preguntar nombre (reglas-funcionales.md §3).
+ * El bot busca el cliente antes de cerrar la reserva.
  * Si existe un nombre válido previo, se reutiliza y NAME_INPUT se omite.
- * Si falta o el teléfono es desconocido, el flujo NAME_INPUT queda autoritativo.
+ * Si falta o el teléfono es desconocido, NAME_INPUT se abre después del slot.
  *
  * Este módulo define tipos puros y la interfaz del repositorio.
  * La implementación Prisma vive en infrastructure/.
  *
  * REGLAS CRÍTICAS:
  * - Lookup es READ-ONLY y TENANT-SCOPED.
- * - NO crea ni persiste candidatos/clientes antes de confirmación explícita.
+ * - NO crea ni persiste candidatos/clientes antes del envío de un nombre válido.
  * - NO usa advisory lock (lectura no necesita exclusión).
  * - NO usa find-or-create: si no existe, devuelve null.
  */

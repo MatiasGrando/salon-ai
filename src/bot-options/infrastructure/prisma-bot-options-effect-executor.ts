@@ -2,7 +2,9 @@ import { Prisma } from '../../generated/prisma/client.js'
 import { resolveBotOptionsConfig } from '../../config/bot-options.js'
 import {
   confirmBookingWithoutDeposit,
-  type ConfirmBookingWithoutDepositResult
+  holdBookingWithDeposit,
+  type ConfirmBookingWithoutDepositResult,
+  type HoldBookingWithDepositResult
 } from '../../services/booking-operations.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
 import { prismaHandoffEffectExecutor } from './prisma-handoff-effect-executor.js'
@@ -23,11 +25,13 @@ export type AppointmentManagementEffectExecutionResult =
 export type BotOptionsEffectExecutionResult =
   | { kind: 'APPLIED' }
   | ConfirmBookingWithoutDepositResult
+  | HoldBookingWithDepositResult
   | AppointmentManagementEffectExecutionResult
 
 /**
- * Executor compuesto del runtime. CONFIRM_VISIT mantiene su resultado tipado
- * para que el caller pueda persistir una recuperación de slot sin residuos.
+ * Executor compuesto del runtime. La identidad opcional y la escritura de
+ * reserva se ejecutan en la misma transacción; ambos tipos de booking mantienen
+ * resultado tipado para recuperar conflictos sin duplicar turnos.
  */
 export async function prismaBotOptionsEffectExecutor(
   tx: Prisma.TransactionClient,
@@ -39,13 +43,20 @@ export async function prismaBotOptionsEffectExecutor(
     pendingConversationUpdates?: Array<Omit<ConversationUpdatedEvent, 'type'>>
   }
 ): Promise<BotOptionsEffectExecutionResult> {
-  const bookingEffects = input.effects.filter((effect) => effect.kind === 'CONFIRM_VISIT')
+  const bookingEffects = input.effects.filter((effect) => effect.kind === 'CONFIRM_VISIT' || effect.kind === 'HOLD_VISIT_WITH_DEPOSIT')
   if (bookingEffects.length > 0) {
-    if (input.effects.length !== 1 || bookingEffects.length !== 1) {
-      throw new Error('CONFIRM_VISIT must be the only transition effect')
+    const identityEffects = input.effects.filter((effect) => effect.kind === 'PERSIST_CUSTOMER_NAME')
+    if (bookingEffects.length !== 1 || input.effects.length !== bookingEffects.length + identityEffects.length || identityEffects.length > 1) {
+      throw new Error('booking transition accepts only one booking effect and an optional customer identity effect')
     }
+    if (identityEffects.length === 1) await prismaHandoffEffectExecutor(tx, { ...input, effects: identityEffects })
     const effect = bookingEffects[0]!
-    const result = await confirmBookingWithoutDeposit(tx, {
+    const totalPriceMinor = effect.kind === 'CONFIRM_VISIT'
+      ? effect.totalPriceMinor
+      : effect.services.every((service) => service.priceMode === 'FIXED' && service.priceMinor !== null)
+        ? effect.services.reduce((total, service) => total + service.priceMinor!, 0)
+        : null
+    const bookingInput = {
       businessId: input.businessId,
       sessionId: input.sessionId,
       operationKey: input.operationKey,
@@ -55,8 +66,11 @@ export async function prismaBotOptionsEffectExecutor(
       date: effect.date,
       slotStartAt: effect.slotStartAt,
       totalDurationMinutes: effect.totalDurationMinutes,
-      totalPriceMinor: effect.totalPriceMinor
-    })
+      totalPriceMinor
+    }
+    const result = effect.kind === 'CONFIRM_VISIT'
+      ? await confirmBookingWithoutDeposit(tx, bookingInput)
+      : await holdBookingWithDeposit(tx, bookingInput)
     if (result.kind === 'CONFIRMED') {
       const conversations = await tx.$queryRaw<Array<{ id: string; updatedAt: Date }>>(Prisma.sql`
         UPDATE "Conversation" conversation

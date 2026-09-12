@@ -79,37 +79,68 @@ for (const name of ['Ana\tMaría', 'Ana\nMaría', 'Ana\u200dMaría', '\u0301Ana'
 const initial = createInitialBotOptionsState()
 const unknown = transition(initial, { actionType: 'menu.start_booking', entityRef: null, payload: null }, ctx())
 assert.equal(unknown.outcome, 'APPLIED')
-assert.equal(unknown.state.flow, 'NAME_INPUT')
+assert.equal(unknown.state.flow, 'CATEGORY_SELECT', 'el nombre desconocido no debe bloquear el inicio de la reserva')
 
 const known = transition(initial, { actionType: 'menu.start_booking', entityRef: null, payload: null }, ctx({ customerNameOnFile: 'Martina' }))
 assert.equal(known.outcome, 'APPLIED')
 assert.equal(known.state.flow, 'CATEGORY_SELECT')
 
+const pendingBooking = {
+  ...initial,
+  flow: 'NAME_INPUT' as const,
+  booking: 'DRAFT' as const,
+  cart: [{ serviceId: 'cut' }],
+  selections: {
+    ...initial.selections,
+    anyProfessional: true,
+    date: '2026-08-30',
+    slotStartAt: '2026-08-30T15:00:00Z',
+    provisionalProfessionalId: 'p1'
+  }
+}
 const invalidSubmit = transition(
-  { ...initial, flow: 'NAME_INPUT' },
+  pendingBooking,
   { actionType: 'name.submit', entityRef: null, payload: { name: 'Ana\tMaría' } },
   ctx()
 )
 assert.notEqual(invalidSubmit.outcome, 'APPLIED')
 assert.equal(invalidSubmit.state.flow, 'NAME_INPUT')
 assert.equal(invalidSubmit.state.nameCandidate, null)
-
+assert.equal(invalidSubmit.state.selections.slotStartAt, pendingBooking.selections.slotStartAt, 'un nombre inválido no pierde el slot')
+const bookingContext = ctx({
+  slotStillAvailableAtConfirm: true,
+  confirmVisitSnapshot: {
+    services: [{ serviceId: 'cut', name: 'Corte', durationMinutes: 30, priceMinor: 15000, priceMode: 'FIXED' }],
+    professional: { professionalId: 'p1', name: 'Lucas', assignedByBalancer: true },
+    totalDurationMinutes: 30,
+    totalPriceMinor: 15000
+  }
+})
 const validSubmit = transition(
-  { ...initial, flow: 'NAME_INPUT' },
+  pendingBooking,
   { actionType: 'name.submit', entityRef: null, payload: { name: '  ana-mari\u0301a O\u2019Connor  ' } },
-  ctx()
+  bookingContext
 )
 assert.equal(validSubmit.outcome, 'APPLIED')
-assert.equal(validSubmit.state.flow, 'NAME_CONFIRM')
-assert.equal(validSubmit.state.nameCandidate, 'ana-maría O’Connor', 'NFC debe conservar casing')
+assert.equal(validSubmit.state.flow, 'MAIN_MENU', 'un nombre válido completa la reserva sin NAME_CONFIRM')
+assert.equal(validSubmit.state.nameCandidate, null)
 if (validSubmit.outcome === 'APPLIED') {
-  assert.deepEqual(validSubmit.effects, [], 'name.submit sólo guarda candidato en estado; cero efectos persistentes')
+  assert.deepEqual(validSubmit.effects.map((effect) => effect.kind), ['PERSIST_CUSTOMER_NAME', 'CONFIRM_VISIT'])
 }
 
-const confirmed = transition(validSubmit.state, { actionType: 'name.confirm', entityRef: null, payload: null }, ctx())
-assert.equal(confirmed.outcome, 'APPLIED')
-if (confirmed.outcome === 'APPLIED') {
-  assert.deepEqual(confirmed.effects, [{ kind: 'PERSIST_CUSTOMER_NAME', name: 'ana-maría O’Connor' }])
-}
+const legacyConfirm = transition(
+  { ...pendingBooking, flow: 'NAME_CONFIRM', nameCandidate: 'Ana María' },
+  { actionType: 'name.confirm', entityRef: null, payload: null },
+  bookingContext
+)
+assert.equal(legacyConfirm.outcome, 'APPLIED', 'un prompt durable NAME_CONFIRM debe continuar de forma segura')
+if (legacyConfirm.outcome === 'APPLIED') assert.deepEqual(legacyConfirm.effects.map((effect) => effect.kind), ['PERSIST_CUSTOMER_NAME', 'CONFIRM_VISIT'])
 
-console.log('OK F6.1/F6.2 pure: Unicode/NFC, controles, compuerta de nombre y cero efectos antes de confirmar.')
+const legacyView = transition(
+  { ...initial, flow: 'NAME_CONFIRM', nameCandidate: 'Ana María' },
+  { actionType: 'system.reprompt', entityRef: null, payload: null },
+  ctx()
+)
+assert.equal(legacyView.view.choices.some((choice) => choice.actionType === 'name.confirm'), false, 'NAME_CONFIRM durable no vuelve a mostrar Sí, es correcto')
+
+console.log('OK F6.1/F6.2 pure: Unicode/NFC, nombre al final y confirmación directa compatible con sesiones legacy.')

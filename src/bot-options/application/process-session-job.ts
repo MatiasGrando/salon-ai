@@ -223,7 +223,8 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       dateAvailable: false, slotAvailable: false,
     bandHasAvailability: false, catalogCanNext: false, catalogCanPrevious: false, catalogPageMoveAllowed: false,
     professionalCatalogCanNext: false, professionalCatalogCanPrevious: false, dateCanNext: false,
-    dateCanPrevious: false, slotCanNext: false, noAvailabilityInHorizon: false, selectedProfessionalNoAvailability: false, appointmentsExist: false, appointmentsCanNext: false,
+    dateCanPrevious: false, datePageMoveAllowed: false, slotCanNext: false, slotPageMoveAllowed: false,
+    noAvailabilityInHorizon: false, selectedProfessionalNoAvailability: false, appointmentsExist: false, appointmentsCanNext: false,
     appointmentListPage: null,
     appointmentOwnedAndFuture: false, cancellationAllowed: false, rescheduleAllowed: false,
     rescheduleDateAvailable: false, rescheduleSlotAvailable: false, approvedDepositTransferable: false,
@@ -445,6 +446,10 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       if (storedName.ok) base.customerNameOnFile = storedName.normalized
     }
   }
+  if (input.actionType === 'name.submit' && input.payload?.name) {
+    const submittedName = validateCustomerName(input.payload.name)
+    if (submittedName.ok) base.customerNameOnFile = submittedName.normalized
+  }
 
   // F6.3/F6.4 — El carrito persistido sólo conserva IDs. Cada interacción que
   // puede mostrarlo o mutarlo reconstruye sus derivados desde filas tenant-safe.
@@ -453,7 +458,13 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
   let recommendationIsOffered = false
   if (input.actionType === 'recommendation.add' && contextServiceId && !input.state.rejectedRecommendationIds.includes(contextServiceId) && cartIds.length > 0) {
     const offered = await tx.$queryRaw<Array<{ present: boolean }>>(Prisma.sql`
-      SELECT EXISTS(SELECT 1 FROM "ServiceAddon" WHERE "addonServiceId" = ${contextServiceId} AND "sourceServiceId" IN (${Prisma.join(cartIds)})) AS "present"
+      SELECT EXISTS(
+        SELECT 1 FROM "ServiceAddon" offered
+        JOIN "Service" source ON source."id" = offered."sourceServiceId" AND source."businessId" = ${input.businessId}
+        JOIN "Service" addon ON addon."id" = offered."addonServiceId" AND addon."businessId" = ${input.businessId}
+        WHERE offered."addonServiceId" = ${contextServiceId}
+          AND offered."sourceServiceId" IN (${Prisma.join(cartIds)})
+      ) AS "present"
     `)
     recommendationIsOffered = offered[0]?.present === true
     base.recommendedServiceAvailable = recommendationIsOffered && base.serviceActive && base.serviceBookable && !base.requiresConsultation
@@ -543,7 +554,13 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     base.labels.recommendations = recommendations
     base.hasRecommendations = recommendations.length > 0
     base.recommendedServiceId = recommendations[0]?.serviceId ?? null
-    base.recommendedServiceAvailable = recommendations.length > 0
+    // Al agregar una recomendación, la consulta anterior lista únicamente los
+    // complementos que todavía no están en el carrito. Por eso el complemento
+    // recién elegido desaparece de `recommendations`: su validez fue revalidada
+    // por separado y no debe confundirse con que queden sugerencias hermanas.
+    base.recommendedServiceAvailable = input.actionType === 'recommendation.add'
+      ? recommendationIsOffered && base.serviceActive && base.serviceBookable && !base.requiresConsultation
+      : recommendations.length > 0
   }
 
   const bookingCartIds = targetCartIds.length > 0 ? targetCartIds : cartIds
@@ -552,7 +569,8 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     input.actionType === 'professional.next_page' || input.actionType === 'professional.previous_page' ||
     input.actionType === 'date.next_page' || input.actionType === 'date.previous_page' || input.actionType === 'date.select' ||
     input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.previous_page' || input.actionType === 'slot.next_page' ||
-    input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY' ||
+    input.actionType === 'slot.select' || input.actionType === 'name.submit' || input.actionType === 'booking.slot_conflict' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY' ||
+    (input.actionType === 'draft.continue' && Boolean(input.state.selections.date)) ||
     (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')
   )
   if (needsAvailability) {
@@ -595,10 +613,12 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       base.labels.availableDates = projected.availableDates
       base.dateCanNext = projected.dateCanNext
       base.dateCanPrevious = projected.dateCanPrevious
+      base.datePageMoveAllowed = projected.datePageMoveAllowed
       base.dateAvailable = Boolean(effectiveDate && projected.dates.includes(effectiveDate))
       base.labels.availableSlots = projected.availableSlots
       base.bandHasAvailability = projected.slotsForDate.length > 0
       base.slotCanNext = projected.slotCanNext
+      base.slotPageMoveAllowed = projected.slotPageMoveAllowed
       const slotsForDate = projected.slotsForDate
       const requestedStartAt = input.actionType === 'slot.select' ? input.payload?.startAt : input.state.selections.slotStartAt
       const selectedSlot = requestedStartAt ? search.slots.find((slot) => slot.startAt === requestedStartAt && (!effectiveDate || slot.date === effectiveDate)) : null
@@ -624,7 +644,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
           time: selectedSlot.time
         })
       }
-      if (input.actionType === 'booking.confirm' || input.actionType === 'slot.select') {
+      if (input.actionType === 'booking.confirm' || input.actionType === 'slot.select' || input.actionType === 'name.submit') {
         base.slotStillAvailableAtConfirm = selectedSlot !== null
         const depositServices = await tx.service.count({
           where: { id: { in: bookingCartIds }, businessId: input.businessId, depositMode: { not: 'NONE' } }
@@ -710,9 +730,11 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
           base.labels.availableDates = projected.availableDates
           base.dateCanNext = projected.dateCanNext
           base.dateCanPrevious = projected.dateCanPrevious
+          base.datePageMoveAllowed = projected.datePageMoveAllowed
           base.labels.availableSlots = projected.availableSlots
           base.bandHasAvailability = projected.slotsForDate.length > 0
           base.slotCanNext = projected.slotCanNext
+          base.slotPageMoveAllowed = projected.slotPageMoveAllowed
           base.rescheduleDateAvailable = Boolean(effectiveDate && projected.dates.includes(effectiveDate))
           const requestedStartAt = input.actionType === 'appointment.slot_select' ? input.payload?.startAt : input.state.selections.slotStartAt
           base.rescheduleSlotAvailable = Boolean(requestedStartAt && projected.slotsForDate.some((slot) => slot.startAt === requestedStartAt))
@@ -850,7 +872,7 @@ async function processSessionJobInternal(input: {
         }
         if (
           input.job.expectedRevision === null ||
-          (parsedState.state.flow !== 'BOOKING_SUMMARY' && parsedState.state.flow !== 'SLOT_SELECT')
+          (parsedState.state.flow !== 'BOOKING_SUMMARY' && parsedState.state.flow !== 'SLOT_SELECT' && parsedState.state.flow !== 'NAME_INPUT')
         ) {
           throw new Error('confirmation recovery missing authoritative revision or booking step')
         }
@@ -897,7 +919,7 @@ async function processSessionJobInternal(input: {
         promptId = action.promptId
         providerEventId = action.providerEventId
         if (recoveringConfirmation) {
-          if (selectedActionType !== 'booking.confirm' && selectedActionType !== 'slot.select') {
+          if (selectedActionType !== 'booking.confirm' && selectedActionType !== 'slot.select' && selectedActionType !== 'name.submit') {
             throw new Error('confirmation recovery target is not a booking confirmation action')
           }
           const operationKey = `transition:${session.id}:${session.revision + 1n}`

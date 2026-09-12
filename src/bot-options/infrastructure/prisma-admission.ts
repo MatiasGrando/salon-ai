@@ -49,7 +49,9 @@ export type ProviderEventClassificationResult = {
 }
 
 export function classifyFreeTextInput(flow: unknown, messageType: unknown, textBody: unknown) {
-  if (flow !== 'NAME_INPUT' || messageType !== 'text' || typeof textBody !== 'string') return null
+  if ((flow !== 'NAME_INPUT' && flow !== 'NAME_CONFIRM') || messageType !== 'text' || typeof textBody !== 'string') return null
+  const command = textBody.normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().toLocaleLowerCase('es-AR').replace(/\s+/g, ' ')
+  if (command === 'reiniciar' || command === '/reiniciar' || command === 'reiniciar conversacion' || command === '/reiniciar conversacion') return null
   return {
     actionType: 'name.submit' as const,
     payload: { name: textBody.trim() }

@@ -99,11 +99,11 @@ try {
 
   const unknown = await createAndClaim({ label: 'unknown', phone: '5491123456702', actionType: 'menu.start_booking' })
   assert.equal(await processor.processSessionJob({ client: prisma, job: unknown.job }), 'PROCESSED')
-  assert.deepEqual(await readState(unknown.sessionId), { revision: 1n, flow: 'NAME_INPUT', nameCandidate: null })
+  assert.deepEqual(await readState(unknown.sessionId), { revision: 1n, flow: 'CATEGORY_SELECT', nameCandidate: null })
 
   const invalidStored = await createAndClaim({ label: 'invalid_stored', phone: '5491123456703', actionType: 'menu.start_booking', customerName: 'Cliente 123' })
   assert.equal(await processor.processSessionJob({ client: prisma, job: invalidStored.job }), 'PROCESSED')
-  assert.equal((await readState(invalidStored.sessionId)).flow, 'NAME_INPUT', 'nombre persistido inválido no se reutiliza')
+  assert.equal((await readState(invalidStored.sessionId)).flow, 'CATEGORY_SELECT', 'un nombre persistido inválido no bloquea el catálogo; se pedirá al final')
 
   const customerCountBeforeName = await prisma.customer.count({ where: { businessId } })
   const invalidName = await createAndClaim({ label: 'invalid_name', phone: '5491123456704', actionType: 'name.submit', payload: { name: 'Ana\tMaría' } })
@@ -115,9 +115,9 @@ try {
   const validName = await createAndClaim({ label: 'valid_name', phone: '5491123456705', actionType: 'name.submit', payload: { name: '  ana-mari\u0301a O\u2019Connor  ' } })
   assert.equal(await processor.processSessionJob({ client: prisma, job: validName.job }), 'PROCESSED')
   const validNameState = await readState(validName.sessionId)
-  assert.equal(validNameState.flow, 'NAME_CONFIRM')
-  assert.equal(validNameState.nameCandidate, 'ana-maría O’Connor')
-  assert.equal(await prisma.customer.count({ where: { businessId } }), customerCountBeforeName, 'cero Customer writes antes de name.confirm')
+  assert.equal(validNameState.flow, 'CATEGORY_SELECT', 'una sesión legacy temprana persiste y continúa sin NAME_CONFIRM')
+  assert.equal(validNameState.nameCandidate, null)
+  assert.equal(await prisma.customer.count({ where: { businessId } }), customerCountBeforeName + 1)
 
   const confirmedName = await createAndClaim({ label: 'confirmed_name', phone: '5491123456707', actionType: 'name.confirm', nameCandidate: 'Zoë Smith' })
   assert.equal(await processor.processSessionJob({ client: prisma, job: confirmedName.job }), 'PROCESSED')
