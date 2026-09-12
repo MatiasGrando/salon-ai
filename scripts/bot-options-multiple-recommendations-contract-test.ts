@@ -18,7 +18,7 @@ assert.ok(recommendationQuery, 'the recommendation query must be present')
 assert.match(
   recommendationQuery,
   /LIMIT 6$/,
-  'the bot must load every recommendation that fits alongside skip and global navigation choices'
+  'the bot must load every recommendation that fits alongside continue, cart actions and compact global navigation'
 )
 assert.match(recommendationQuery, /LEFT JOIN "ServiceCategory"/, 'uncategorized bookable addons must not require a real category row')
 assert.match(recommendationQuery, /s\."catalogCategoryId" IS NULL OR c\."id" IS NOT NULL/, 'only uncategorized or active-category addons are eligible')

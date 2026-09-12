@@ -596,6 +596,7 @@ enum BookingVisitStatus {
 
 enum ConversationStep {
   START
+  BOOKING_IN_PROGRESS
   ASK_SERVICE
   ASK_PROFESSIONAL
   ASK_DATE

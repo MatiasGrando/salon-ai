@@ -22,7 +22,8 @@ try {
     CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED','REJECTED');
     CREATE TABLE "Business" ("id" text PRIMARY KEY, "name" text);
     CREATE TABLE "Customer" ("id" text PRIMARY KEY, "businessId" text, "name" text, "phone" text, "normalizedPhone" text);
-    CREATE TABLE "Conversation" ("id" text PRIMARY KEY, "businessId" text, "phone" text);
+    CREATE TABLE "Conversation" ("id" text PRIMARY KEY, "businessId" text, "phone" text,
+      "currentStep" text DEFAULT 'COMPLETED', "updatedAt" timestamptz DEFAULT now());
     CREATE TABLE "BotSession" ("id" text PRIMARY KEY, "businessId" text, "conversationId" text,
       "deploymentId" text, "deploymentGeneration" int, "status" "BotSessionStatus", "state" jsonb, "revision" bigint,
       "draftTouchedAt" timestamptz, "draftExpiresAt" timestamptz, "handoffClaimsPausedAt" timestamptz,
@@ -56,7 +57,7 @@ try {
     await db.exec(`TRUNCATE "Business", "Customer", "BotSession", "Conversation", "BookingVisit", "BotHandoff", "BotProviderEvent",
       "BotActionInbox", "BotJob", "BotOutbox", "BotPrompt", "BotPromptChoice", "BotTransitionLog";
       INSERT INTO "Business" VALUES ('a','Glow'),('b','Otro salón');
-      INSERT INTO "Conversation" VALUES ('c','a','5491112345678'),('other-c','b','5491112345678');
+      INSERT INTO "Conversation" ("id","businessId","phone") VALUES ('c','a','5491112345678'),('other-c','b','5491112345678');
       INSERT INTO "BotProviderEvent" ("id","businessId","payload") VALUES ('old','a','{"fromPhone":"5491112345678"}'),('new','a','{"fromPhone":"5491112345678"}');
       INSERT INTO "BotActionInbox" VALUES ('old-inbox','a',NULL,'old','ADMITTED',NULL);
       INSERT INTO "BotJob" ("id","businessId","kind","aggregateId","status") VALUES
@@ -95,6 +96,8 @@ try {
   const one = async (sql: string) => (await db.query<Record<string, unknown>>(sql)).rows[0]!
   await seed()
   assert.equal((await run()).kind, 'EXPIRED')
+  assert.equal((await one(`SELECT "currentStep" FROM "Conversation" WHERE "id"='c'`)).currentStep, 'START')
+  assert.equal((await one(`SELECT "currentStep" FROM "Conversation" WHERE "id"='other-c'`)).currentStep, 'COMPLETED')
   assert.equal((await one(`SELECT "state"->>'flow' AS flow FROM "BotSession" WHERE "id"='s'`)).flow, 'MAIN_MENU')
   assert.equal((await one(`SELECT "state"->>'flow' AS flow FROM "BotSession" WHERE "id"='other-s'`)).flow, 'BOOKING_SUMMARY')
   assert.equal((await one(`SELECT "status" FROM "BotPrompt" WHERE "id"='p'`)).status, 'INVALIDATED')

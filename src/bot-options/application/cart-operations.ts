@@ -57,12 +57,60 @@ export function canAddService(input: {
 }
 
 export function formatCartSummary(snapshot: CartSnapshot): string {
-  const money = (n: number) => `$ ${n.toLocaleString('es-AR')}`
-  const services = snapshot.services.map((service) => `• ${service.name}${service.estimate
-    ? ` — ${service.estimate.optionLabel ? service.estimate.optionLabel + ': ' : ''}${service.estimate.priceMax === null ? 'Desde ' + money(service.estimate.priceMin) : money(service.estimate.priceMin) + ' a ' + money(service.estimate.priceMax)} (estimado)`
-    : ''}`).join('\n')
+  const services = snapshot.services.map(formatCartServiceLine).join('\n')
   const price = snapshot.totalPriceMinor === null
-    ? 'Precio: pendiente de confirmación'
-    : `Precio total: $${snapshot.totalPriceMinor.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-  return `Tu reserva\n${services}\nDuración total: ${snapshot.totalDurationMinutes} min\n${price}`
+    ? '💰 Total: pendiente de confirmación'
+    : `💰 Total: ${formatMoney(snapshot.totalPriceMinor)}`
+  return `*Tu reserva*\n\n${services}\n\n⏱️ Total: ${snapshot.totalDurationMinutes} min\n${price}`
+}
+
+function formatMoney(value: number): string {
+  return `$${value.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`
+}
+
+function formatCartServicePrice(service: CartService): string | null {
+  if (service.estimate) {
+    const amount = service.estimate.priceMax === null
+      ? `Desde ${formatMoney(service.estimate.priceMin)}`
+      : `${formatMoney(service.estimate.priceMin)} a ${formatMoney(service.estimate.priceMax)}`
+    return `${service.estimate.optionLabel ? `${service.estimate.optionLabel}: ` : ''}${amount} (estimado)`
+  }
+  if (service.priceMinor === null) return null
+  const amount = formatMoney(service.priceMinor)
+  return service.priceMode === 'STARTING_AT' ? `Desde ${amount}` : amount
+}
+
+function formatCartServiceLine(service: CartService): string {
+  const details = [`${service.durationMinutes} min`, formatCartServicePrice(service)]
+    .filter((value): value is string => value !== null)
+  return `💇 ${service.name}${details.length > 0 ? ` — ${details.join(' · ')}` : ''}`
+}
+
+function formatLongDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!match) return date
+  const instant = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  const weekday = new Intl.DateTimeFormat('es-AR', { weekday: 'long', timeZone: 'UTC' }).format(instant)
+  const month = new Intl.DateTimeFormat('es-AR', { month: 'long', timeZone: 'UTC' }).format(instant)
+  const readable = `${weekday} ${Number(match[3])} de ${month}`
+  return readable.charAt(0).toLocaleUpperCase('es-AR') + readable.slice(1)
+}
+
+export function formatBookingConfirmation(input: {
+  snapshot: CartSnapshot
+  customerName: string | null
+  professionalName: string
+  date: string
+  time: string
+}): string {
+  const greeting = input.customerName?.trim()
+    ? `¡Listo, ${input.customerName.trim()}! ✨ Tu turno quedó confirmado.`
+    : '¡Listo! ✨ Tu turno quedó confirmado.'
+  const serviceLines = input.snapshot.services.map(formatCartServiceLine).join('\n')
+  const totals = input.snapshot.services.length > 1
+    ? `\n\n⏱️ Duración total: ${input.snapshot.totalDurationMinutes} min\n${input.snapshot.totalPriceMinor === null
+        ? '💰 Precio total: pendiente de confirmación'
+        : `💰 Precio total: ${formatMoney(input.snapshot.totalPriceMinor)}`}`
+    : ''
+  return `${greeting}\n\n*Detalle de tu reserva*\n\n${serviceLines}${totals}\n\n👤 Profesional: ${input.professionalName}\n📅 ${formatLongDate(input.date)}\n🕒 ${input.time}\n\n¡Te esperamos! 😊`
 }

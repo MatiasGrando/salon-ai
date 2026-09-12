@@ -134,7 +134,9 @@ export function projectAvailability(input: {
     .filter((slot, index, all) => all.some((other, otherIndex) => otherIndex !== index && other.time === slot.time))
     .map((slot) => slot.time))
   const currentSlotCursor = input.presentation.kind === 'slot_all_pages' ? input.presentation.cursor ?? 0 : 0
-  const slotCursor = input.actionType === 'slot.next_page' ? currentSlotCursor + 1 : currentSlotCursor
+  const slotCursor = input.actionType === 'slot.next_page' ? currentSlotCursor + 1
+    : input.actionType === 'slot.previous_page' ? Math.max(0, currentSlotCursor - 1)
+      : currentSlotCursor
   const slotPage = paginate(slotsForDate, slotCursor, BOOKING_SLOT_PAGE_SIZE)
   return {
     dates,

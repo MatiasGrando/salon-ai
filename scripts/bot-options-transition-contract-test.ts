@@ -74,7 +74,8 @@ for (const count of [1, 2, 3, 5]) {
       : `Solo quedan ${count} turnos disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.`
   )
   assert.ok(view.choices.some((choice) => choice.actionType === 'professional.change' && choice.label === 'Buscar otro profesional'))
-  assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
+  assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.open'))
+  assert.ok(!view.choices.some((choice) => choice.actionType === 'navigation.back'))
 }
 
 const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
@@ -86,9 +87,10 @@ const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normaliz
 })))
 assert.equal(manySlotView.interactiveBody, 'Solo quedan 6 turnos disponibles para hoy con Ramiro:')
 assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'professional.change'))
-assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
+assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.open'))
+assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'navigation.back'))
 
-const timeRangeBandView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
+const eightSlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
   businessTodayDate: '2026-09-04',
   labels: {
     bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }],
@@ -100,11 +102,47 @@ const timeRangeBandView = renderCurrentView(bookingSlotState('prof_ramiro'), nor
     availableSlots: availableSlots(8)
   }
 })))
-assert.deepEqual(
-  timeRangeBandView.choices.filter((choice) => choice.actionType === 'slot.band').map((choice) => choice.label),
-  ['Antes de 12:30', '12:30 a 16:30']
+assert.equal(eightSlotView.choices.filter(choice => choice.actionType === 'slot.select').length, 8)
+assert.ok(!eightSlotView.choices.some(choice => choice.actionType === 'slot.show_all'))
+assert.deepEqual(eightSlotView.choices.filter(choice => choice.actionType === 'slot.select').map(choice => choice.label),
+  ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'])
+assert.equal(eightSlotView.choices.at(-1)?.actionType, 'navigation.open')
+
+const twentySlots = Array.from({ length: 20 }, (_, index) => ({
+  startAt: `2026-09-04T${String(8 + Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'}:00-03:00`,
+  label: `${String(8 + Math.floor(index / 2)).padStart(2, '0')}:${index % 2 ? '30' : '00'} · Ramiro`,
+  band: index < 8 ? 'MORNING' as const : index < 16 ? 'AFTERNOON' as const : 'EVENING' as const,
+  professionalId: 'prof_ramiro'
+}))
+const representativeSlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
+  businessTodayDate: '2026-09-03',
+  labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots }
+})))
+assert.deepEqual(representativeSlotView.choices.filter(choice => choice.actionType === 'slot.select').map(choice => choice.label),
+  ['08:00', '09:30', '10:30', '12:00', '13:30', '15:00', '16:00', '17:30'])
+assert.deepEqual(representativeSlotView.choices.slice(-2).map(choice => choice.actionType), ['slot.show_all', 'navigation.open'])
+assert.ok(!representativeSlotView.choices.some(choice => choice.actionType === 'slot.band'))
+
+const firstFullSlotPage = transition(bookingSlotState('prof_ramiro'), act('slot.show_all'), normalizeContext(ctx({
+  labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots },
+  slotCanNext: true
+})))
+assert.deepEqual(firstFullSlotPage.view.choices.slice(-2).map(choice => choice.actionType), ['slot.next_page', 'navigation.open'])
+const middleFullSlotPage = renderCurrentView(
+  { ...bookingSlotState('prof_ramiro'), presentation: { kind: 'slot_all_pages', cursor: 1 } },
+  normalizeContext(ctx({ labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots }, slotCanNext: true }))
 )
-assert.ok(!timeRangeBandView.choices.some((choice) => ['Mañana', 'Tarde', 'Noche'].includes(choice.label)))
+assert.equal(middleFullSlotPage.choices.filter(choice => choice.actionType === 'slot.select').length, 7)
+assert.deepEqual(middleFullSlotPage.choices.slice(-3).map(choice => choice.actionType), ['slot.previous_page', 'slot.next_page', 'navigation.open'])
+const previousFullSlotPage = transition(
+  { ...bookingSlotState('prof_ramiro'), presentation: { kind: 'slot_all_pages', cursor: 1 } },
+  act('slot.previous_page'),
+  normalizeContext(ctx({ labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots }, slotCanNext: true }))
+)
+assert.deepEqual(previousFullSlotPage.state.presentation, { kind: 'slot_all_pages', cursor: 0 })
+
+const slotNavigation = transition(bookingSlotState('prof_ramiro'), act('navigation.open'), ctx())
+assert.equal(slotNavigation.view.choices[0]?.label, 'Cambiar fecha')
 
 for (const count of [1, 2, 3]) {
   const state = { ...bookingSlotState('prof_ramiro'), presentation: { kind: 'slot_band' as const, band: 'MORNING' as const } }
@@ -150,7 +188,7 @@ if (changeProfessional.outcome === 'APPLIED') {
     changeProfessional.view.choices.filter((choice) => choice.actionType === 'slot.select').map((choice) => choice.label),
     ['13:00 · Lucas', '13:30 · Gaspar']
   )
-  assert.ok(changeProfessional.view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
+  assert.ok(changeProfessional.view.choices.some((choice) => choice.actionType === 'navigation.open'))
 }
 
 const processSessionSource = readFileSync('src/bot-options/application/process-session-job.ts', 'utf8')
@@ -450,7 +488,8 @@ const guidedBookingSelection = transition(
     },
     labels: {
       serviceName: 'Iluminación',
-      catalogServiceDetail: { informativeTexts: [], interactiveBody: 'Iluminación\nDescripción del servicio\nDesde $ 50.000\nDuración: 45 min' }
+      catalogServiceDetail: { informativeTexts: [], interactiveBody: 'Iluminación\nDescripción del servicio\nDesde $ 50.000\nDuración: 45 min' },
+      serviceSelectionConfirmation: 'Perfecto ✨ Agregaste:\n\n*Iluminación*\n45 min · Desde $ 50.000'
     }
   })
 )
@@ -465,6 +504,57 @@ if (guidedBookingSelection.outcome === 'APPLIED') {
 }
 
 // 1) Servicio reservable (no requiere consulta): service.book agrega al carrito.
+const compactConfirmation = 'Perfecto ✨ Agregaste:\n\n*Corte Hombre*\n30 min · $15.000'
+const compactContext = ctx({
+  serviceActive: true, serviceBookable: true, serviceCompatibleWithCart: true,
+  labels: { serviceSelectionConfirmation: compactConfirmation,
+    catalogServiceDetail: { informativeTexts: [], interactiveBody: 'Detalle completo' } }
+})
+const compactSelected = transition(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }),
+  service('srv_corte'), compactContext)
+assert.deepEqual(compactSelected.view.informativeTexts, [compactConfirmation])
+assert.equal(compactSelected.state.flow, 'CART_REVIEW')
+const compactIncompatible = transition(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }),
+  service('srv_corte'), { ...compactContext, serviceCompatibleWithCart: false })
+assert.ok(!compactIncompatible.view.informativeTexts.join('\n').includes('Agregaste'))
+
+const unifiedRecommendation = transition(
+  stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }),
+  service('srv_corte'),
+  {
+    ...compactContext,
+    hasRecommendations: true,
+    labels: {
+      ...compactContext.labels,
+      recommendations: [{ serviceId: 'srv_bano', label: 'Baño de crema', compatible: true }]
+    }
+  }
+)
+assert.equal(unifiedRecommendation.state.flow, 'RECOMMENDATION_SELECT')
+assert.deepEqual(unifiedRecommendation.view.informativeTexts, [], 'la recomendación no debe generar un mensaje intermedio')
+assert.equal(unifiedRecommendation.view.interactiveBody, compactConfirmation)
+assert.deepEqual(
+  unifiedRecommendation.view.choices.slice(0, 4).map(choice => [choice.actionType, choice.label]),
+  [
+    ['cart.continue', 'Continuar con la reserva'],
+    ['recommendation.add', 'Agregar Baño de crema'],
+    ['cart.add_service', 'Agregar otro servicio'],
+    ['cart.open_remove', 'Quitar un servicio']
+  ]
+)
+const addOtherFromRecommendation = transition(
+  { ...unifiedRecommendation.state, booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }] },
+  act('cart.add_service'),
+  ctx()
+)
+assert.equal(addOtherFromRecommendation.state.flow, 'CATEGORY_SELECT', 'agregar otro servicio usa el catálogo normal')
+const continueFromRecommendation = transition(
+  { ...unifiedRecommendation.state, booking: 'DRAFT', cart: [{ serviceId: 'srv_corte' }] },
+  act('cart.continue'),
+  ctx({ professionalCommonExists: true })
+)
+assert.equal(continueFromRecommendation.state.flow, 'PROFESSIONAL_SELECT', 'continuar evita una pantalla intermedia de carrito')
+
 const detailBookable = stateWith({ flow: 'SERVICE_DETAIL', pendingEntityRef: { type: 'SERVICE', id: 'srv_corte' } })
 const bookResult = transition(
   detailBookable,
@@ -649,9 +739,9 @@ assert.equal(removeOne.outcome, 'APPLIED')
 assert.equal(removeOne.state.flow, 'CART_REVIEW')
 assert.deepEqual(removeOne.state.cart, [{ serviceId: 'srv_banio' }])
 assert.deepEqual(removeOne.view.choices.map((choice) => choice.label), [
+  'Continuar con la reserva',
   'Agregar otro servicio',
   'Quitar un servicio',
-  'Continuar con la reserva',
   'Volver',
   'Menú principal',
   'Hablar con el equipo'
@@ -759,26 +849,12 @@ assert.equal(s.selections.date, '2026-09-02')
 assert.equal(s.flow, 'SLOT_SELECT')
 
 const slotPayload = { startAt: '2026-09-02T15:00:00-03:00' }
-r = transition(s, act('slot.select', { payload: slotPayload }), ctx({ slotAvailable: true }))
-if (r.outcome === 'APPLIED') s = r.state
-assert.equal(s.flow, 'BOOKING_SUMMARY')
-assert.equal(s.selections.slotStartAt, slotPayload.startAt)
-
-// Volver desde el resumen borra el horario y regresa a horarios.
-r = transition(s, act('navigation.back'), ctx())
-assert.equal(r.outcome, 'APPLIED')
-if (r.outcome === 'APPLIED') s = r.state
-assert.equal(s.flow, 'SLOT_SELECT')
-assert.equal(s.selections.slotStartAt, null)
-
-r = transition(s, act('slot.select', { payload: slotPayload }), ctx({ slotAvailable: true }))
-if (r.outcome === 'APPLIED') s = r.state
-
+const directConfirmationCopy = '¡Listo, Matías! ✨ Tu turno quedó confirmado.\n\n*Detalle de tu reserva*\n\n💇 Corte — 45 min · $20.000\n\n👤 Profesional: Tamara\n📅 Miércoles 2 de septiembre\n🕒 15:00\n\n¡Te esperamos! 😊'
 const confirmed = transition(
   s,
-  act('booking.confirm'),
+  act('slot.select', { payload: slotPayload }),
   ctx({
-    slotStillAvailableAtConfirm: true,
+    slotAvailable: true,
     confirmVisitSnapshot: {
       services: [
         { serviceId: 'srv_corte', name: 'Corte', durationMinutes: 45, priceMinor: 2000000, priceMode: 'FIXED' }
@@ -787,13 +863,14 @@ const confirmed = transition(
       totalDurationMinutes: 45,
       totalPriceMinor: 2000000
     },
-    labels: { professionalName: 'Tamara' }
+    labels: { professionalName: 'Tamara', bookingConfirmation: directConfirmationCopy }
   })
 )
 assert.equal(confirmed.outcome, 'APPLIED')
 if (confirmed.outcome === 'APPLIED') {
   assert.deepEqual(confirmed.state, createInitialBotOptionsState(), 'una reserva directa terminada deja la sesión en estado inicial')
   assert.equal(confirmed.effects[0]?.kind, 'CONFIRM_VISIT')
+  assert.equal(confirmed.view.interactiveBody, directConfirmationCopy)
 }
 
 // ─── Servicio incompatible ────────────────────────────────────────────────────
@@ -1061,6 +1138,18 @@ assert.deepEqual(preservedConflict.state.cart, conflictPreservingCart.cart, 'un 
 assert.equal(preservedConflict.state.selections.professionalId, 'slot-conflict-professional', 'un slot ocupado conserva la preferencia profesional')
 assert.equal(preservedConflict.state.selections.date, '2026-08-27', 'un slot ocupado conserva la fecha cuando quedan opciones')
 assert.equal(preservedConflict.state.selections.slotStartAt, null, 'sólo el slot obsoleto se limpia')
+
+const directSlotConflict = transition(
+  { ...conflictPreservingCart, flow: 'SLOT_SELECT', selections: { ...conflictPreservingCart.selections, slotStartAt: null } },
+  act('booking.slot_conflict'),
+  ctx({ labels: { availableSlots: [{ startAt: '2026-08-27T13:00:00.000Z', label: '13:00', band: 'AFTERNOON', professionalId: 'slot-conflict-professional' }] } })
+)
+assert.equal(directSlotConflict.outcome, 'APPLIED', 'el flujo directo también recupera un conflicto detectado al confirmar')
+if (directSlotConflict.outcome === 'APPLIED') {
+  assert.equal(directSlotConflict.state.flow, 'SLOT_SELECT')
+  assert.deepEqual(directSlotConflict.effects, [])
+  assert.match(directSlotConflict.view.interactiveBody, /acaba de ocuparse/)
+}
 
 // ─── Reprogramación conserva turno, fecha y slot seleccionados ────────────────
 

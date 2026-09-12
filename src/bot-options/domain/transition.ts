@@ -127,6 +127,8 @@ export type TransitionContext = {
       informativeTexts: readonly string[]
       interactiveBody: string
     } | undefined
+    /** Confirmación breve tras elegir un servicio, sin repetir su descripción de catálogo. */
+    serviceSelectionConfirmation?: string | undefined
     professionalName?: string | undefined
     appointmentSummary?: string | undefined
     /** F9.1/F9.6: Turnos gestionables para el listado. Cada ítem lleva su id estable y la etiqueta a mostrar; el motor los vuelca como opciones appointment.select. */
@@ -147,6 +149,8 @@ export type TransitionContext = {
     availableSlots?: ReadonlyArray<{ startAt: string; label: string; band: SlotBand; professionalId: string }> | undefined
     availabilityBandLabels?: Readonly<Record<SlotBand, string>> | undefined
     bookingSummary?: string | undefined
+    /** Mensaje final legible que se envía sólo después de confirmar atómicamente. */
+    bookingConfirmation?: string | undefined
   }
   confirmVisitSnapshot: {
     services: Array<{
@@ -309,6 +313,9 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'recommendation.add',
     'recommendation.skip',
     'recommendation.consult',
+    'cart.continue',
+    'cart.add_service',
+    'cart.open_remove',
     'navigation.back',
     'navigation.home',
     'navigation.open',
@@ -347,6 +354,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   SLOT_SELECT: [
     'slot.band',
     'slot.show_all',
+    'slot.previous_page',
     'slot.next_page',
     'slot.select',
     'professional.change',
@@ -394,6 +402,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
     'appointment.slot_select',
     'slot.band',
     'slot.show_all',
+    'slot.previous_page',
     'slot.next_page',
     'navigation.back',
     'navigation.home',
@@ -589,26 +598,34 @@ function availabilitySlotView(
   const selectedBand = state.presentation.kind === 'slot_band' ? state.presentation.band : null
   const filtered = selectedBand ? all.filter((slot) => slot.band === selectedBand) : all
   const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
-  const page = state.presentation.kind === 'slot_all_pages' ? filtered.slice(cursor * 7, cursor * 7 + 7) : filtered
-  if (state.presentation.kind === 'plain' && all.length > 7) {
-    const bandChoices: ViewChoice[] = [
-      ...(['MORNING', 'AFTERNOON', 'EVENING'] as const)
-        .filter((band) => all.some((slot) => slot.band === band))
-        .map((band) => ({
-          actionType: 'slot.band' as const,
-          label: context.labels.availabilityBandLabels?.[band] ?? concreteBandLabelFromSlots(all, band),
-          payload: { band }
-        })),
+  const fullList = state.presentation.kind === 'slot_all_pages'
+  const page = fullList
+    ? filtered.slice(cursor * 7, cursor * 7 + 7)
+    : state.presentation.kind === 'plain' && filtered.length > 8
+      ? representativeSlots(filtered, 8)
+      : filtered
+  if (state.presentation.kind === 'plain' && all.length > 8) {
+    const representativeChoices: ViewChoice[] = [
+      ...page.map((slot) => ({
+        actionType: selectAction,
+        label: slotChoiceLabel(slot.label, state),
+        payload: { startAt: slot.startAt },
+        ...(entityRef ? { entityRef } : {})
+      })),
       { actionType: 'slot.show_all', label: 'Ver todos los horarios' }
     ]
     const dateLabel = formatAvailabilityDate(state.selections.date, context.businessTodayDate)
     const professionalLabel = selectedProfessionalLabel(state, context)
     const professionalSuffix = professionalLabel ? ` con ${professionalLabel}` : ''
-    return appendGlobals(menuView(`Hay varios horarios disponibles para ${dateLabel}${professionalSuffix}. Elegí una franja:`, bandChoices), composeGlobalNavigation({ capacity: 10, contextualCount: bandChoices.length, back: backChoice }))
+    return appendGlobals(
+      menuView(`Horarios disponibles para ${dateLabel}${professionalSuffix}.\n\nTe mostramos algunas opciones 👇`, representativeChoices),
+      slotGlobalNavigation(selectAction, representativeChoices.length, backChoice)
+    )
   }
   const choices: ViewChoice[] = page.map((slot) => ({
-    actionType: selectAction, label: slot.label, payload: { startAt: slot.startAt }, ...(entityRef ? { entityRef } : {})
+    actionType: selectAction, label: slotChoiceLabel(slot.label, state), payload: { startAt: slot.startAt }, ...(entityRef ? { entityRef } : {})
   }))
+  if (fullList && cursor > 0) choices.push({ actionType: 'slot.previous_page', label: 'Horarios anteriores' })
   if (state.presentation.kind === 'slot_all_pages' && context.slotCanNext) choices.push({ actionType: 'slot.next_page', label: 'Más horarios' })
   const canChangeProfessional = selectAction === 'slot.select' && Boolean(state.selections.professionalId) && all.length > 0 && all.length <= 5
   if (canChangeProfessional) choices.push({ actionType: 'professional.change', label: 'Buscar otro profesional' })
@@ -616,7 +633,26 @@ function availabilitySlotView(
     ? availabilitySlotBody(state, context, filtered.length, canChangeProfessional)
     : 'Elegí el nuevo horario'
   return appendGlobals(menuView(body, choices),
-    composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: backChoice }))
+    slotGlobalNavigation(selectAction, choices.length, backChoice))
+}
+
+function representativeSlots<T>(slots: readonly T[], limit: number): T[] {
+  if (slots.length <= limit) return [...slots]
+  return Array.from({ length: limit }, (_, index) => slots[Math.round(index * (slots.length - 1) / (limit - 1))]!)
+}
+
+function slotChoiceLabel(label: string, state: BotOptionsState): string {
+  return state.selections.professionalId ? label.replace(/ · .+$/, '') : label
+}
+
+function slotGlobalNavigation(
+  selectAction: 'slot.select' | 'appointment.slot_select',
+  contextualCount: number,
+  backChoice: ViewChoice
+): GlobalNavigationPlan {
+  return selectAction === 'slot.select'
+    ? { directChoices: [NAVIGATION_MENU_CHOICE], backInsideMenu: true }
+    : composeGlobalNavigation({ capacity: 10, contextualCount, back: backChoice })
 }
 
 function concreteBandLabelFromSlots(
@@ -781,12 +817,14 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     case 'RECOMMENDATION_SELECT': {
       const recommendations = context.labels.recommendations ?? []
       const choices: ViewChoice[] = [
+        { actionType: 'cart.continue', label: 'Continuar con la reserva' },
         ...recommendations.map((item) => item.compatible
-          ? { actionType: 'recommendation.add' as const, label: item.label, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }
+          ? { actionType: 'recommendation.add' as const, label: `Agregar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }
           : { actionType: 'recommendation.consult' as const, label: `Coordinar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }),
-        { actionType: 'recommendation.skip', label: 'Continuar sin agregar' }
+        { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
+        { actionType: 'cart.open_remove', label: 'Quitar un servicio' }
       ]
-      return appendGlobals(menuView('¿Querés complementarlo?', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
+      return appendGlobals(menuView(context.labels.cartSummary ?? '¿Cómo seguimos?', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
     case 'CART_REVIEW': {
       if (state.presentation.kind === 'cart_remove_select') {
@@ -801,9 +839,9 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         )
       }
       const choices: ViewChoice[] = [
+        { actionType: 'cart.continue', label: 'Continuar con la reserva' },
         { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
-        { actionType: 'cart.open_remove', label: 'Quitar un servicio' },
-        { actionType: 'cart.continue', label: 'Continuar con la reserva' }
+        { actionType: 'cart.open_remove', label: 'Quitar un servicio' }
       ]
       return appendGlobals(menuView(context.labels.cartSummary ?? 'Tu reserva', choices), composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE }))
     }
@@ -1321,7 +1359,7 @@ export function transition(
       }
       break
     case 'APPOINTMENT_RESCHEDULE_SLOT':
-      if (actionType === 'slot.band' || actionType === 'slot.show_all' || actionType === 'slot.next_page') {
+      if (actionType === 'slot.band' || actionType === 'slot.show_all' || actionType === 'slot.previous_page' || actionType === 'slot.next_page') {
         return fromSlotSelect(state, actionType, payload, context)
       }
       if (
@@ -1388,7 +1426,11 @@ function tryUniversal(
       const next = baseOf(state, { presentation: { kind: 'navigation_menu' } })
       const target = BACK_TARGETS[state.flow]
       const choices: ViewChoice[] = []
-      if (target && !BACK_BLOCKED.has(state.flow)) choices.push(BACK_CHOICE)
+      if (target && !BACK_BLOCKED.has(state.flow)) {
+        choices.push(state.flow === 'SLOT_SELECT'
+          ? { actionType: 'navigation.back', label: 'Cambiar fecha' }
+          : BACK_CHOICE)
+      }
       choices.push(HOME_CHOICE, HUMAN_CHOICE, NAVIGATION_MENU_CLOSE_CHOICE)
       return applied(next, menuView('Opciones de navegación', choices))
     }
@@ -1919,10 +1961,10 @@ function fromServiceSelect(
     if (!entityRef || !context.serviceActive || !context.serviceBookable) {
       return recovered(state, 'entity_inactive', 'Ese servicio no está disponible para reservar ahora.', [])
     }
-    return withServiceInformation(
-      resolveSelectedService(state, entityRef.id, context),
-      selectedServiceInformation(context)
-    )
+    const result = resolveSelectedService(state, entityRef.id, context)
+    const added = !state.cart.some(item => item.serviceId === entityRef.id)
+      && result.state.cart.some(item => item.serviceId === entityRef.id)
+    return withSelectedServiceInformation(result, context, added)
   }
   if (actionType === 'catalog.next_page' || actionType === 'catalog.previous_page') {
     return pageShift(state, actionType === 'catalog.next_page', context.catalogPageMoveAllowed, 'catalog_page', context)
@@ -1934,9 +1976,26 @@ function withServiceInformation(result: TransitionResult, information: string[])
   return { ...result, view: { ...result.view, informativeTexts: [...information.filter(Boolean), ...result.view.informativeTexts] } }
 }
 
-function selectedServiceInformation(context: TransitionContext): string[] {
+function selectedServiceInformation(context: TransitionContext, added: boolean): string[] {
+  const confirmation = context.labels.serviceSelectionConfirmation
+  if (confirmation && added) return [confirmation]
   const detail = context.labels.catalogServiceDetail
   return detail ? [...detail.informativeTexts, detail.interactiveBody] : []
+}
+
+function withSelectedServiceInformation(
+  result: TransitionResult,
+  context: TransitionContext,
+  added: boolean
+): TransitionResult {
+  const confirmation = added ? context.labels.serviceSelectionConfirmation : undefined
+  if (confirmation && result.state.flow === 'RECOMMENDATION_SELECT') {
+    return {
+      ...result,
+      view: { ...result.view, informativeTexts: [], interactiveBody: confirmation }
+    }
+  }
+  return withServiceInformation(result, selectedServiceInformation(context, added))
 }
 
 /** All explicit service-selection entry points converge here; browsing alone never calls it. */
@@ -2100,7 +2159,10 @@ function fromRecommendationSelect(
       const next = baseOf(state, { flow: 'INCOMPATIBLE_SERVICE_DECISION', pendingEntityRef: { type: 'SERVICE', id: entityRef.id }, presentation: plainPresentation() })
       return applied(next, renderCurrentView(next, context))
     }
-    return resolveSelectedService(state, entityRef.id, context)
+    const result = resolveSelectedService(state, entityRef.id, context)
+    const added = !state.cart.some(item => item.serviceId === entityRef.id)
+      && result.state.cart.some(item => item.serviceId === entityRef.id)
+    return withSelectedServiceInformation(result, context, added)
   }
   if (actionType === 'recommendation.skip') {
     const rejectedId = entityRef?.id ?? context.recommendedServiceId
@@ -2111,6 +2173,14 @@ function fromRecommendationSelect(
   }
   if (actionType === 'recommendation.consult') {
     return enterHandoff(state, 'complemento_requiere_coordinacion', context.labels.serviceName ?? null)
+  }
+  if (actionType === 'cart.continue' || actionType === 'cart.add_service' || actionType === 'cart.open_remove') {
+    const cartReview = baseOf(state, {
+      flow: 'CART_REVIEW',
+      recommendationSourceServiceIds: [],
+      presentation: plainPresentation()
+    })
+    return fromCartReview(cartReview, actionType, entityRef, context)
   }
   return escalateInvalid(state, '')
 }
@@ -2313,16 +2383,21 @@ function fromSlotSelect(
     const next = baseOf(state, { presentation: { kind: 'slot_all_pages', cursor } })
     return applied(next, renderCurrentView(next, context))
   }
+  if (actionType === 'slot.previous_page') {
+    const cursor = state.presentation.kind === 'slot_all_pages' ? state.presentation.cursor : 0
+    if (cursor === 0) return recovered(state, 'guard_failed', 'Estás en la primera página de horarios.', [])
+    const next = baseOf(state, { presentation: { kind: 'slot_all_pages', cursor: cursor - 1 } })
+    return applied(next, renderCurrentView(next, context))
+  }
   if (actionType === 'slot.select') {
     if (!payload?.startAt || !context.slotAvailable) {
       return recovered(state, 'guard_failed', 'Ese horario se ocupó. Elegí otro, por favor.', [])
     }
-    const next = baseOf(resetInvalidStreak(state), {
-      flow: 'BOOKING_SUMMARY',
+    const selected = baseOf(resetInvalidStreak(state), {
       selections: { ...state.selections, slotStartAt: payload.startAt, provisionalProfessionalId: context.confirmVisitSnapshot?.professional.professionalId ?? null },
       presentation: plainPresentation()
     })
-    return applied(next, renderCurrentView(next, context))
+    return confirmSelectedBooking(selected, context, true)
   }
   return escalateInvalid(state, '')
 }
@@ -2332,48 +2407,55 @@ function fromBookingSummary(state: BotOptionsState, actionType: BotOptionsAction
     if (!state.selections.slotStartAt || !state.selections.date || !context.slotStillAvailableAtConfirm) {
       return handleSystemEvent(baseOf(state, { flow: 'BOOKING_SUMMARY' }), 'booking.slot_conflict', null, null, context)
     }
-    if (context.depositRequired && !context.paymentConfigComplete) {
-      return enterHandoff(state, 'configuracion_de_pago_incompleta', null)
-    }
-    if (!context.confirmVisitSnapshot) {
-      return recovered(state, 'internal_invariant', 'Nos faltaron datos para confirmar. Probemos otra vez.', [BACK_CHOICE])
-    }
-    if (context.depositRequired) {
-      const deposit = context.depositRequest
-      if (!deposit) return recovered(state, 'internal_invariant', 'Faltó preparar el pago. Probemos otra vez.', [BACK_CHOICE])
-      const next = baseOf(resetInvalidStreak(state), {
-        flow: 'DEPOSIT_INSTRUCTIONS',
-        booking: 'HELD',
-        deposit: 'PENDING_PROOF',
-        presentation: plainPresentation()
-      })
-      return applied(next, renderCurrentView(next, context), [
-        {
-          kind: 'HOLD_VISIT_WITH_DEPOSIT',
-          services: context.confirmVisitSnapshot.services,
-          professional: context.confirmVisitSnapshot.professional,
-          date: state.selections.date!,
-          slotStartAt: state.selections.slotStartAt,
-          totalDurationMinutes: context.confirmVisitSnapshot.totalDurationMinutes,
-          depositAmountMinor: deposit.amountMinor,
-          holdExpiresAtIso: deposit.holdExpiresAtIso
-        }
-      ])
-    }
-    const next = clearDraft(resetInvalidStreak(state))
-    return applied(next, textView('Listo, tu turno quedó confirmado. Te esperamos.'), [
-      {
-        kind: 'CONFIRM_VISIT',
-        services: context.confirmVisitSnapshot.services,
-        professional: context.confirmVisitSnapshot.professional,
-        date: state.selections.date!,
-        slotStartAt: state.selections.slotStartAt,
-        totalDurationMinutes: context.confirmVisitSnapshot.totalDurationMinutes,
-        totalPriceMinor: context.confirmVisitSnapshot.totalPriceMinor
-      }
-    ])
+    return confirmSelectedBooking(state, context, true)
   }
   return escalateInvalid(state, '')
+}
+
+function confirmSelectedBooking(
+  state: BotOptionsState,
+  context: TransitionContext,
+  slotAvailable: boolean
+): TransitionResult {
+  if (!state.selections.slotStartAt || !state.selections.date || !slotAvailable) {
+    return recovered(state, 'guard_failed', 'Ese horario se ocupó. Elegí otro, por favor.', [])
+  }
+  if (context.depositRequired && !context.paymentConfigComplete) {
+    return enterHandoff(state, 'configuracion_de_pago_incompleta', null)
+  }
+  if (!context.confirmVisitSnapshot) {
+    return recovered(state, 'internal_invariant', 'Nos faltaron datos para confirmar. Probemos otra vez.', [BACK_CHOICE])
+  }
+  if (context.depositRequired) {
+    const deposit = context.depositRequest
+    if (!deposit) return recovered(state, 'internal_invariant', 'Faltó preparar el pago. Probemos otra vez.', [BACK_CHOICE])
+    const next = baseOf(resetInvalidStreak(state), {
+      flow: 'DEPOSIT_INSTRUCTIONS',
+      booking: 'HELD',
+      deposit: 'PENDING_PROOF',
+      presentation: plainPresentation()
+    })
+    return applied(next, renderCurrentView(next, context), [{
+      kind: 'HOLD_VISIT_WITH_DEPOSIT',
+      services: context.confirmVisitSnapshot.services,
+      professional: context.confirmVisitSnapshot.professional,
+      date: state.selections.date,
+      slotStartAt: state.selections.slotStartAt,
+      totalDurationMinutes: context.confirmVisitSnapshot.totalDurationMinutes,
+      depositAmountMinor: deposit.amountMinor,
+      holdExpiresAtIso: deposit.holdExpiresAtIso
+    }])
+  }
+  const next = clearDraft(resetInvalidStreak(state))
+  return applied(next, textView(context.labels.bookingConfirmation ?? 'Listo, tu turno quedó confirmado. Te esperamos.'), [{
+    kind: 'CONFIRM_VISIT',
+    services: context.confirmVisitSnapshot.services,
+    professional: context.confirmVisitSnapshot.professional,
+    date: state.selections.date,
+    slotStartAt: state.selections.slotStartAt,
+    totalDurationMinutes: context.confirmVisitSnapshot.totalDurationMinutes,
+    totalPriceMinor: context.confirmVisitSnapshot.totalPriceMinor
+  }])
 }
 
 function fromDepositCancelConfirm(state: BotOptionsState, actionType: BotOptionsActionType, context: TransitionContext): TransitionResult {

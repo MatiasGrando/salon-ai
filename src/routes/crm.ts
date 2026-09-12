@@ -1508,9 +1508,18 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     if (typeof body.operationKey !== 'string' || !body.operationKey.trim() || (body.resolution !== 'HOME' && body.resolution !== 'RESUME')) return sendAuthorizationFailure(reply, 'malformed')
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
-    const deterministic = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT h."id" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status"='TAKEN'::"BotHandoffStatus" LIMIT 1`)
-    if (!deterministic.length) return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una derivacion deterministica tomada' })
+    const deterministic = await prisma.$queryRaw<Array<{ id: string; status: 'QUEUED' | 'TAKEN' }>>(Prisma.sql`SELECT h."id",h."status"::text AS "status" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus") ORDER BY h."queuedAt" DESC LIMIT 1`)
+    if (!deterministic.length) return reply.status(404).send({ code: 'NO_DETERMINISTIC_HANDOFF', message: 'No hay una derivacion deterministica activa' })
     try {
+      if (deterministic[0].status === 'QUEUED') {
+        await takeConversationForManualAttention({
+          client: prisma,
+          businessId: conversation.businessId,
+          conversationId: conversation.id,
+          actorUserId: authUser.id,
+          operationKey: `${body.operationKey}:resolve-without-take`
+        })
+      }
       await resolveBotHandoff({ client: prisma, businessId: conversation.businessId, conversationId: conversation.id, actorUserId: authUser.id, operationKey: body.operationKey, resolution: body.resolution })
     } catch (error) { return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude resolver la derivacion' }) }
     const updated = await loadAuthorizedConversation(prisma, authUser, params.id)

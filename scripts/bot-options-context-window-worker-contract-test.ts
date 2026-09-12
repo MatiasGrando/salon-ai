@@ -58,7 +58,10 @@ for (const customerName of [null, '', '123', 'Martina\nOtra línea']) {
   assert.ok(!withoutName.statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"') && s.values.some(v => typeof v === 'string' && v.includes('Borrador'))), 'unconfirmed state name is never used')
 }
 assert.ok(statements.some(s => s.sql.includes('UPDATE "BotProviderEvent"') && s.sql.includes('PROCESSED')), 'triggering action is consumed, not confirmed')
-assert.doesNotMatch(statements.map(s => s.sql).join('\n'), /(?:DELETE FROM|UPDATE|INSERT INTO) "(?:Appointment|BookingVisit|BookingDeposit|Customer|Conversation|Message|BotHandoff)"/, 'durable entities and CRM history are not mutated')
+assert.doesNotMatch(statements.filter(s => !s.sql.includes('lazy-context:reset-conversation')).map(s => s.sql).join('\n'), /(?:DELETE FROM|UPDATE|INSERT INTO) "(?:Appointment|BookingVisit|BookingDeposit|Customer|Conversation|Message|BotHandoff)"/, 'durable entities and CRM history are not mutated')
+const projection = statements.find(s => s.sql.includes('lazy-context:reset-conversation'))
+assert.ok(projection, 'expiry projects Inicio into the CRM')
+assert.match(projection.sql, /SET "currentStep"='START', "updatedAt"=clock_timestamp\(\)/)
 
 for (const patch of [
   { status: 'HUMAN_TAKEN' }, { status: 'HUMAN_QUEUED' }, { durableProtection: true },

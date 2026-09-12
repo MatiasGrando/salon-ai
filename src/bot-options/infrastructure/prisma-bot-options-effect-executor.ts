@@ -45,7 +45,7 @@ export async function prismaBotOptionsEffectExecutor(
       throw new Error('CONFIRM_VISIT must be the only transition effect')
     }
     const effect = bookingEffects[0]!
-    return confirmBookingWithoutDeposit(tx, {
+    const result = await confirmBookingWithoutDeposit(tx, {
       businessId: input.businessId,
       sessionId: input.sessionId,
       operationKey: input.operationKey,
@@ -57,6 +57,24 @@ export async function prismaBotOptionsEffectExecutor(
       totalDurationMinutes: effect.totalDurationMinutes,
       totalPriceMinor: effect.totalPriceMinor
     })
+    if (result.kind === 'CONFIRMED') {
+      const conversations = await tx.$queryRaw<Array<{ id: string; updatedAt: Date }>>(Prisma.sql`
+        UPDATE "Conversation" conversation
+        SET "currentStep"='COMPLETED', "aiEnabled"=true, "lastAvailability"=NULL,
+          "misunderstandingCount"=0, "updatedAt"=clock_timestamp()
+        FROM "BotSession" session
+        WHERE session."id"=${input.sessionId} AND session."businessId"=${input.businessId}
+          AND conversation."id"=session."conversationId" AND conversation."businessId"=session."businessId"
+        RETURNING conversation."id", conversation."updatedAt"
+      `)
+      if (conversations.length !== 1) throw new Error('confirmed booking conversation projection failed')
+      input.pendingConversationUpdates?.push({
+        businessId: input.businessId,
+        conversationId: conversations[0]!.id,
+        updatedAt: conversations[0]!.updatedAt.toISOString()
+      })
+    }
+    return result
   }
 
   const appointmentEffects = input.effects.filter((effect) => effect.kind === 'CANCEL_BOOKING' || effect.kind === 'SWAP_APPOINTMENT_SLOT')

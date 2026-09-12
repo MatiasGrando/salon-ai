@@ -25,7 +25,7 @@ export function takenConversationHandoffPatch(input?: {
 
 export function resolvedConversationHandoffPatch(now = new Date()) {
   return {
-    currentStep: 'START' as const,
+    currentStep: 'COMPLETED' as const,
     aiEnabled: true,
     misunderstandingCount: 0,
     humanHandoffResolvedAt: now

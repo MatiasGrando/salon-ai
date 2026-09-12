@@ -113,6 +113,20 @@ export function catalogServiceRowLabel(item: CatalogServiceItem): string {
   return item.name
 }
 
+/**
+ * Confirmación breve luego de seleccionar un servicio para reservar.
+ * No reutiliza el detalle del catálogo: aquel puede incluir descripciones
+ * extensas, mientras esta confirmación sólo nombra duración y precio.
+ */
+export function catalogServiceSelectionConfirmation(item: CatalogServiceItem): string {
+  const details = [
+    formatCatalogDuration(item.durationMinutes, item.durationMinMinutes, item.durationMaxMinutes),
+    formatCatalogPrice(item.price, item.priceMode)?.replace(/\$\s+/, '$') ?? null
+  ].filter((value): value is string => value !== null)
+
+  return `Perfecto ✨ Agregaste:\n\n*${item.name}*${details.length > 0 ? `\n${details.join(' · ')}` : ''}`
+}
+
 /** Las subcategorías son navegación, no servicios reservables. */
 export function catalogEntryRowLabel(item: CatalogServiceItem): string {
   return item.kind === 'SUBCATEGORY'

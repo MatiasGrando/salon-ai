@@ -99,8 +99,8 @@ await runCommittedProcessSession({
     successPostCommitCalls += 1
   }
 })
-assert.deepEqual(success.transactionOptions, [{ maxWait: 2_000, timeout: 10_000 }])
-assert.deepEqual(PROCESS_SESSION_TRANSACTION_OPTIONS, { maxWait: 2_000, timeout: 10_000 })
+assert.deepEqual(success.transactionOptions, [{ maxWait: 2_000, timeout: 20_000 }])
+assert.deepEqual(PROCESS_SESSION_TRANSACTION_OPTIONS, { maxWait: 2_000, timeout: 20_000 })
 assert.ok(PROCESS_SESSION_TRANSACTION_OPTIONS.maxWait + PROCESS_SESSION_TRANSACTION_OPTIONS.timeout < 30_000)
 assert.equal(successPostCommitCalls, 1)
 assert.equal(success.timeline.at(-1), 'postCommit')
@@ -223,7 +223,7 @@ await assert.rejects(() => runCommittedProcessSession({
   },
   postCommit: () => { rollbackPostCommitCalls += 1 }
 }), /forced rollback after persistView/)
-assert.deepEqual(rollback.transactionOptions, [{ maxWait: 2_000, timeout: 10_000 }])
+assert.deepEqual(rollback.transactionOptions, [{ maxWait: 2_000, timeout: 20_000 }])
 assert.equal(rollback.committed.length, 0)
 assert.equal(rollbackPostCommitCalls, 0)
 assert.deepEqual(rollback.timeline.slice(-1), ['discarded'])

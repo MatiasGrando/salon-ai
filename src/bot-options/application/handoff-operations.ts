@@ -370,7 +370,7 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
     const applied: HandoffResolution = 'HOME'
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotHandoff" SET "status"='RESOLVED'::"BotHandoffStatus","resolvedAt"=clock_timestamp(),"resumePolicy"=${applied},"updatedAt"=clock_timestamp() WHERE "id"=${row.handoffId} AND "businessId"=${input.businessId} AND "status"='TAKEN'::"BotHandoffStatus"`), 'handoff resolution')
     await persistTransition(tx, row, input.businessId, row.sessionId, row.epoch, 'handoff.resolve_home', 'ACTIVE')
-    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='START',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"lastAvailability"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`), 'resolved conversation')
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='COMPLETED',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"lastAvailability"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`), 'resolved conversation')
     const suppressedJobs = await suppressPreTake(tx, input.businessId, row.sessionId)
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${effectiveOperationKey} AND "status"='STARTED'`), 'resolve completion')
     await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_COMPLETED', input.actorUserId, effectiveOperationKey, { requested: input.resolution, applied, epoch: row.epoch, suppressedJobs })

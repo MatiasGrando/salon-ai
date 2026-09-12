@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   CATALOG_CONTEXTUAL_PAGE_SIZE,
   catalogPageOffset,
+  catalogServiceSelectionConfirmation,
   catalogServiceDetailView,
   catalogServiceRowLabel,
   formatCatalogDuration,
@@ -153,6 +154,13 @@ assert.ok(simpleView.interactiveBody.includes('30 min'))
 // Duración fija sin rango → "Duración:" (no "estimada").
 assert.ok(simpleView.interactiveBody.includes('Duraci\u00f3n: 30 min'))
 assert.ok(!simpleView.interactiveBody.includes('Duraci\u00f3n estimada'))
+
+// La confirmación luego de elegir un servicio es breve: no repite la descripción
+// del catálogo ni usa el formato extendido del detalle.
+assert.equal(
+  catalogServiceSelectionConfirmation(simpleDetail),
+  'Perfecto ✨ Agregaste:\n\n*Corte clásico*\n30 min · $8.000'
+)
 
 // ─── catalogServiceDetailView — STARTING_AT con rango ─────────────────────────
 

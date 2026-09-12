@@ -98,7 +98,7 @@ assert.equal(conversationHandoffStage(taken), 'TAKEN')
 assert.equal(taken.humanHandoffAt, now)
 const resolved = resolvedConversationHandoffPatch(now)
 assert.deepEqual(resolved, {
-  currentStep: 'START',
+  currentStep: 'COMPLETED',
   aiEnabled: true,
   misunderstandingCount: 0,
   humanHandoffResolvedAt: now
@@ -182,8 +182,13 @@ const deterministicResolveRoute = crmSource.slice(
 )
 assert.match(
   deterministicResolveRoute,
-  /h\."status"='TAKEN'::"BotHandoffStatus"/,
-  'resolver solo debe entrar al flujo deterministico cuando existe un handoff tomado actualmente'
+  /h\."status"\s+IN\s*\('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus"\)/,
+  'resolver debe admitir una derivacion pendiente o tomada'
+)
+assert.match(
+  deterministicResolveRoute,
+  /deterministic\[0\]\.status === 'QUEUED'[\s\S]*?takeConversationForManualAttention[\s\S]*?resolveBotHandoff/,
+  'resolver una derivacion pendiente debe tomarla internamente y resolverla con una sola accion del usuario'
 )
 assert.doesNotMatch(
   deterministicResolveRoute,
@@ -197,8 +202,19 @@ assert.match(
   /function isPendingHandoff\(conversation\)[\s\S]*?conversation\.aiEnabled === false[\s\S]*?conversation\.currentStep === 'HUMAN_HANDOFF'/
 )
 assert.match(crmUiSource, /function conversationHandoffUiStage\(conversation\)/)
-assert.match(crmUiSource, /handoffStage === 'QUEUED'[\s\S]*?conversationAiToggle/)
-assert.match(crmUiSource, /handoffStage === 'TAKEN'[\s\S]*?resolveHandoff/)
+assert.match(crmUiSource, /const canResolveHandoff = handoffStage === 'QUEUED' \|\| handoffStage === 'TAKEN'/)
+assert.match(crmUiSource, /resolveHandoff\.hidden = !canReplyConversation \|\| !canResolveHandoff/)
+assert.match(crmUiSource, /conversationAiToggle\.hidden = !canReplyConversation/,
+  'Atender manualmente debe permanecer disponible junto a resolver')
+const conversationActionsMarkup = crmUiSource.slice(
+  crmUiSource.indexOf('<div class="chat-more-popover">'),
+  crmUiSource.indexOf('</details>', crmUiSource.indexOf('<div class="chat-more-popover">'))
+)
+assert.match(conversationActionsMarkup, /id="resolve-handoff"[^>]*>Marcar como resuelto<\/button>/)
+assert.match(conversationActionsMarkup, /id="conversation-ai-toggle"[^>]*>Atender manualmente<\/button>/)
+assert.doesNotMatch(conversationActionsMarkup, /id="define-service"/)
+assert.doesNotMatch(conversationActionsMarkup, /id="archive-conversation"/)
+assert.doesNotMatch(crmUiSource, /conversationAiToggle\.textContent = canTakeHandoff \? 'Tomar derivacion'/)
 assert.match(crmUiSource, /handoffOperationKeys: new Map\(\)/)
 assert.match(crmUiSource, /handoffOperationKeys\.get\(operationKeyId\)[\s\S]*?body: JSON\.stringify\(\{ operationKey \}\)/,
   'take retries keep one operation key until success')
@@ -213,6 +229,7 @@ assert.match(
 )
 
 const handoffOperationsSource = readFileSync('src/bot-options/application/handoff-operations.ts', 'utf8')
+assert.match(handoffOperationsSource, /UPDATE "Conversation" SET "currentStep"='COMPLETED'/)
 assert.match(handoffOperationsSource, /export async function takeConversationForManualAttention/)
 assert.match(handoffOperationsSource, /prismaHandoffEffectExecutor[\s\S]*?takeBotHandoff/)
 assert.doesNotMatch(crmUiSource, /Reanudar si es seguro|value="RESUME"/,

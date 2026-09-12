@@ -45,6 +45,23 @@ function cutoverRetargetableJobSql(column: string) {
   return Prisma.raw(`"${column}"."kind" IN (${CUTOVER_RETARGETABLE_JOB_KINDS.map((kind) => `'${kind}'`).join(', ')})`)
 }
 
+/** Consumes only rows changed by this statement; never revives historical failures. */
+function enqueueFailedBookingRecoverySql() {
+  return Prisma.sql`
+    INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId",
+      "deploymentGeneration", "expectedRevision", "availableAt", "status", "attempts", "maxAttempts", "createdAt", "updatedAt")
+    SELECT 'booking-recovery:' || j."id", 'RECOVER_BOOKING_CONFIRMATION', j."aggregateId", j."businessId", j."deploymentId",
+      j."deploymentGeneration", j."expectedRevision", clock_timestamp(), 'READY'::"BotJobStatus", 0, 5, clock_timestamp(), clock_timestamp()
+    FROM changed j
+    JOIN "BotActionInbox" i ON i."id" = j."aggregateId" AND i."businessId" = j."businessId"
+      AND i."deploymentId" = j."deploymentId" AND i."deploymentGeneration" = j."deploymentGeneration"
+    WHERE j."status" = 'POISON'::"BotJobStatus" AND j."kind" = 'PROCESS_SESSION'
+      AND i."actionType" IN ('booking.confirm', 'slot.select') AND i."status" = 'SELECTED'::"BotInboxStatus"
+    ON CONFLICT ("kind", "aggregateId") DO NOTHING
+    RETURNING "id"
+  `
+}
+
 /**
  * Session-bound automation must never acquire work after human ownership, nor
  * while TAKE's per-session fence is closed.  The latter closes the
@@ -139,19 +156,24 @@ export async function claimBotJob(
 
 export async function maintainBotJobs(client: WorkerClient, scope?: { businessId: string }): Promise<number> {
   const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
-  return client.$executeRaw(Prisma.sql`
+  const rows = await client.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+    WITH changed AS (
     UPDATE "BotJob" SET
-      "status" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus" ELSE 'POISON'::"BotJobStatus" END,
-      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 0 ELSE "attempts" END,
-      "availableAt" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN clock_timestamp() + interval '5 minutes' ELSE "availableAt" END,
+      "status" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') THEN 'RETRY'::"BotJobStatus" ELSE 'POISON'::"BotJobStatus" END,
+      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') THEN 0 ELSE "attempts" END,
+      "availableAt" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') THEN clock_timestamp() + interval '5 minutes' ELSE "availableAt" END,
       "leaseToken" = NULL, "leasedUntil" = NULL,
-      "lastError" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION')
+      "lastError" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION')
         THEN "kind" || ' recovery after exhausted stale lease: ' || COALESCE("lastError", 'claim expired after max attempts')
         ELSE COALESCE("lastError", 'claim expired after max attempts') END,
       "updatedAt" = clock_timestamp()
     WHERE "status" = 'LEASED'::"BotJobStatus" AND "leasedUntil" < clock_timestamp() AND "attempts" >= "maxAttempts"
       ${maintenanceScope}
+    RETURNING *
+    ), recovery AS (${enqueueFailedBookingRecoverySql()})
+    SELECT count(*)::integer AS "count" FROM changed
   `)
+  return rows[0]?.count ?? 0
 }
 
 export async function assertClaimedBotJobTx(
@@ -250,21 +272,24 @@ export async function retryBotJob(
   delayMs: number
 ): Promise<'RETRY' | 'POISON' | 'STALE'> {
   const rows = await client.$queryRaw<Array<{ status: 'RETRY' | 'POISON' }>>(Prisma.sql`
+    WITH changed AS (
     UPDATE "BotJob" SET
       "status" = CASE
-        WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') THEN 'RETRY'::"BotJobStatus"
+        WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') THEN 'RETRY'::"BotJobStatus"
         WHEN "attempts" >= "maxAttempts" THEN 'POISON'::"BotJobStatus"
         ELSE 'RETRY'::"BotJobStatus"
       END,
-      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') AND "attempts" >= "maxAttempts" THEN 0 ELSE "attempts" END,
+      "attempts" = CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') AND "attempts" >= "maxAttempts" THEN 0 ELSE "attempts" END,
       "availableAt" = clock_timestamp() + (
-        CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION') AND "attempts" >= "maxAttempts" THEN 300000 ELSE ${delayMs} END
+        CASE WHEN "kind" IN ('EXPIRE_DEPOSIT', 'BRIDGE_DEPOSIT_NOTIFICATION', 'RECOVER_BOOKING_CONFIRMATION') AND "attempts" >= "maxAttempts" THEN 300000 ELSE ${delayMs} END
         * interval '1 millisecond'
       ),
       "leaseToken" = NULL, "leasedUntil" = NULL, "lastError" = ${error.slice(0, 2000)},
       "updatedAt" = clock_timestamp()
     WHERE "id" = ${id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${claimToken}
-    RETURNING "status"::text AS "status"
+    RETURNING *
+    ), recovery AS (${enqueueFailedBookingRecoverySql()})
+    SELECT "status"::text AS "status" FROM changed
   `)
   return rows[0]?.status ?? 'STALE'
 }

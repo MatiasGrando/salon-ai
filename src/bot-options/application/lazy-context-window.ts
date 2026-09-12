@@ -144,6 +144,13 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     WHERE "id" = ${session.id} AND "businessId" = ${input.businessId} AND "revision" = ${session.revision}
   `)
   if (reset !== 1) throw new Error('context window reset lost revision fence')
+  await tx.$executeRaw(Prisma.sql`
+    /* lazy-context:reset-conversation */
+    UPDATE "Conversation" conversation SET "currentStep"='START', "updatedAt"=clock_timestamp()
+    FROM "BotSession" bot_session
+    WHERE bot_session."id"=${session.id} AND bot_session."businessId"=${input.businessId}
+      AND conversation."id"=bot_session."conversationId" AND conversation."businessId"=bot_session."businessId"
+  `)
   const transitionId = `context-expired:${input.providerEventId}`
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration",

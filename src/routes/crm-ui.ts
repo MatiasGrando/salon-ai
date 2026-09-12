@@ -15019,10 +15019,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <button class="primary" id="deposit-approve" type="button" hidden>Aprobar se&ntilde;a y confirmar</button>
               <button class="danger" id="deposit-reject" type="button" hidden>Rechazar se&ntilde;a</button>
               <button class="primary" id="advisor-quote" type="button" hidden>Enviar presupuesto</button>
-              <button class="secondary" id="define-service" type="button" hidden>Definir servicio</button>
               <button class="secondary" id="resolve-handoff" type="button" disabled hidden>Marcar como resuelto</button>
               <button class="secondary" id="conversation-ai-toggle" type="button" disabled>Atender manualmente</button>
-              <button class="secondary" id="archive-conversation" type="button" disabled>Archivar chat</button>
             </div>
           </details>
         </div>
@@ -18710,13 +18708,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       chatPhone: document.getElementById('chat-phone'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
-      defineService: document.getElementById('define-service'),
       resolveHandoff: document.getElementById('resolve-handoff'),
       advisorQuote: document.getElementById('advisor-quote'),
       depositApprove: document.getElementById('deposit-approve'),
       depositReject: document.getElementById('deposit-reject'),
       conversationAiToggle: document.getElementById('conversation-ai-toggle'),
-      archiveConversation: document.getElementById('archive-conversation'),
       chatMoreMenu: document.querySelector('.chat-more-menu'),
       replyForm: document.getElementById('reply-form'),
       replyText: document.getElementById('reply-text'),
@@ -22431,10 +22427,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.depositReject.hidden = !canManage
       els.depositReject.disabled = approvalPending || deposit.status !== 'PROOF_RECEIVED'
       els.advisorQuote.hidden = true
-      els.defineService.hidden = true
       els.resolveHandoff.hidden = true
       els.conversationAiToggle.hidden = true
-      els.archiveConversation.hidden = true
       els.replyForm.hidden = true
 
       const proofUrl = !deposit.visitId && deposit.source === 'WHATSAPP' && deposit.proofMessageId
@@ -22496,10 +22490,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.depositApprove.hidden = true
       els.depositReject.hidden = true
       els.advisorQuote.hidden = true
-      els.defineService.hidden = true
       els.resolveHandoff.hidden = true
       els.conversationAiToggle.hidden = true
-      els.archiveConversation.hidden = true
       els.replyForm.hidden = true
       els.appointments.innerHTML = '<div class="empty">Sin reservas pendientes.</div>'
       els.appointmentCount.textContent = '0'
@@ -23538,8 +23530,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const canReplyConversation = state.currentUser?.role !== 'STAFF' || state.currentUser?.canReplyConversations
       const canManageDeposits = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageDeposits
       const handoffStage = conversationHandoffUiStage(selected)
-      const canResolveHandoff = handoffStage === 'TAKEN'
-      const canTakeHandoff = handoffStage === 'QUEUED'
+      const canResolveHandoff = handoffStage === 'QUEUED' || handoffStage === 'TAKEN'
       const selectedService = state.services.find((service) => service.id === selected.selectedServiceId) || null
       const canSendAdvisorQuote = Boolean(
         canResolveHandoff &&
@@ -23562,14 +23553,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.depositReject.disabled = approvalPending || !activeDeposit
       els.advisorQuote.hidden = !canSendAdvisorQuote || !canReplyConversation
       els.advisorQuote.disabled = !canSendAdvisorQuote
-      els.defineService.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
-      els.defineService.disabled = !canResolveHandoff || Boolean(activeDeposit) || Boolean(selected.selectedServiceId)
       els.resolveHandoff.hidden = !canReplyConversation || !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.disabled = !canResolveHandoff || Boolean(activeDeposit)
       els.resolveHandoff.textContent = 'Marcar como resuelto'
-      els.conversationAiToggle.hidden = !canReplyConversation || canResolveHandoff
+      els.conversationAiToggle.hidden = !canReplyConversation
       els.conversationAiToggle.disabled = false
-      els.conversationAiToggle.textContent = canTakeHandoff ? 'Tomar derivacion' : 'Atender manualmente'
+      els.conversationAiToggle.textContent = 'Atender manualmente'
       els.conversationAiToggle.className = 'secondary'
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
@@ -23597,9 +23586,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
       els.customerEdit.disabled = !customer
-      els.archiveConversation.hidden = !canReplyConversation
-      els.archiveConversation.disabled = canResolveHandoff && !selected.archivedAt
-      els.archiveConversation.textContent = selected.archivedAt ? 'Restaurar chat' : 'Archivar chat'
       if (options.loading) {
         els.messages.innerHTML = '<div class="empty">Cargando conversaci&oacute;n...</div>'
       } else {
@@ -25793,26 +25779,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       } catch (error) {
         els.depositRejectionFeedback.textContent = error.message
       } finally { setButtonLoading(els.depositRejectionDialogSubmit, false) }
-    }
-
-    async function toggleArchiveConversation() {
-      if (!state.selected) return
-      const archived = !state.selected.archivedAt
-      if (!setButtonLoading(els.archiveConversation, true, archived ? 'Archivando...' : 'Restaurando...')) return
-      try {
-        await getJson('/crm/conversations/' + state.selected.id + '/archive', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived })
-        })
-        state.selected = null
-        state.conversationNextCursor = null
-        await loadConversations()
-      } catch (error) {
-        showCrmToast(error.message, 'error')
-      } finally {
-        setButtonLoading(els.archiveConversation, false)
-      }
     }
 
     function blockRepeatDayInputs() {
@@ -33705,6 +33671,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (aiEnabled === false && step !== 'HUMAN_HANDOFF') return 'Atencion manual'
       const labels = {
         START: 'Inicio',
+        BOOKING_IN_PROGRESS: 'Reservando',
         ASK_SERVICE: 'Eligiendo servicio',
         ASK_PROFESSIONAL: 'Eligiendo profesional',
         ASK_DATE: 'Preguntando fecha',
@@ -34461,7 +34428,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       field.addEventListener('change', renderAssistantPersonalityPreview)
     }
     els.conversationAiToggle.addEventListener('click', toggleConversationAi)
-    els.defineService.addEventListener('click', openServiceResolutionDialog)
     els.resolveHandoff.addEventListener('click', resolveHandoff)
     els.advisorQuote.addEventListener('click', openAdvisorQuoteDialog)
     els.advisorQuoteDialogForm.addEventListener('submit', submitAdvisorQuote)
@@ -34572,7 +34538,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     })
     els.conversationMore.addEventListener('click', () => loadConversations({ append: true }))
-    els.archiveConversation.addEventListener('click', toggleArchiveConversation)
     els.viewAgenda.addEventListener('click', () => setSection('agenda'))
     els.quickSchedule.addEventListener('click', () => {
       if (!canCreateAppointments()) {

@@ -26,16 +26,20 @@ import {
 } from '../infrastructure/prisma-bot-options-effect-executor.js'
 import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics, type BotOptionsStage } from '../observability/metrics.js'
+import { reuseCurrentPromptTx } from './reuse-current-prompt.js'
+import { measureAttemptStage, withAttemptMetrics } from '../observability/attempt-metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
 import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
 import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
-import { catalogEntryRowLabel, catalogServiceDetailView } from './catalog-queries.js'
+import { catalogEntryRowLabel, catalogServiceDetailView, catalogServiceSelectionConfirmation } from './catalog-queries.js'
 import { PrismaCustomerLookupRepository } from '../infrastructure/prisma-customer-lookup.js'
+import { conversationStepForBotOptionsState } from '../domain/conversation-status.js'
+import { projectBotOptionsConversationStepTx } from '../infrastructure/prisma-conversation-status.js'
 import { normalizePhone, phoneSearchVariants } from '../../services/phone-normalization-service.js'
 import { validateCustomerName } from '../domain/customer-name-validation.js'
 import { PrismaCartRepository, CartServicePolicyChangedError } from '../infrastructure/prisma-cart.js'
 import { serviceConfigurationKey, resolveServiceEstimate } from '../domain/service-booking.js'
-import { formatCartSummary } from './cart-operations.js'
+import { formatBookingConfirmation, formatCartSummary } from './cart-operations.js'
 import { PrismaAvailabilityRepository } from '../infrastructure/prisma-availability.js'
 import { availabilityBandLabels, localDateKey, projectAvailability } from './availability-queries.js'
 import {
@@ -48,9 +52,9 @@ import {
 
 type RuntimeClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 
-// Per-session processing only. 10s allows a bounded recovery budget while staying
-// well below the 30s job/dispatch leases; global Prisma defaults remain unchanged.
-export const PROCESS_SESSION_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 10_000 } as const
+// Temporary mitigation, scoped to sessions. 20s + 2s admission remains below
+// the 30s job/dispatch leases; global and inbox Prisma budgets are unchanged.
+export const PROCESS_SESSION_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 20_000 } as const
 export const PROCESS_INBOX_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 10_000 } as const
 
 export async function runProcessSessionTransaction<T>(
@@ -183,7 +187,7 @@ export const unavailableEffectExecutor: TransitionEffectExecutor = async (_tx, i
 async function measureSessionStage<T>(stage: Extract<BotOptionsStage, 'session_context_load' | 'session_effects' | 'session_persist_view'>, operation: () => Promise<T>): Promise<T> {
   const startedAt = performance.now()
   try {
-    const result = await operation()
+    const result = await measureAttemptStage(stage, operation)
     botOptionsMetrics.observe(stage, performance.now() - startedAt)
     return result
   } catch (error) {
@@ -242,6 +246,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
       base.serviceInCart = input.state.cart.some((item) => item.serviceId === service.id)
       base.labels.serviceName = service.name
       base.labels.catalogServiceDetail = catalogServiceDetailView(service, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
+      base.labels.serviceSelectionConfirmation = catalogServiceSelectionConfirmation(service)
     }
   }
 
@@ -546,7 +551,7 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
     input.actionType === 'cart.continue' || input.actionType === 'professional.any' || input.actionType === 'professional.select' ||
     input.actionType === 'professional.next_page' || input.actionType === 'professional.previous_page' ||
     input.actionType === 'date.next_page' || input.actionType === 'date.previous_page' || input.actionType === 'date.select' ||
-    input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.next_page' ||
+    input.actionType === 'slot.band' || input.actionType === 'slot.show_all' || input.actionType === 'slot.previous_page' || input.actionType === 'slot.next_page' ||
     input.actionType === 'slot.select' || input.state.flow === 'DATE_SELECT' || input.state.flow === 'SLOT_SELECT' || input.state.flow === 'BOOKING_SUMMARY' ||
     (refreshingCurrentView && input.state.flow === 'PROFESSIONAL_SELECT')
   )
@@ -611,8 +616,15 @@ export const defaultContextProvider: TransitionContextProvider = async (tx, inpu
           totalPriceMinor: cart.snapshot.totalPriceMinor
         }
         base.labels.bookingSummary = `${base.customerNameOnFile ?? 'Cliente'}\n${formatCartSummary(cart.snapshot)}\nProfesional: ${assigned.name}\nFecha: ${selectedSlot.date}\nHorario: ${selectedSlot.time}`
+        base.labels.bookingConfirmation = formatBookingConfirmation({
+          snapshot: cart.snapshot,
+          customerName: base.customerNameOnFile,
+          professionalName: assigned.name,
+          date: selectedSlot.date,
+          time: selectedSlot.time
+        })
       }
-      if (input.actionType === 'booking.confirm') {
+      if (input.actionType === 'booking.confirm' || input.actionType === 'slot.select') {
         base.slotStillAvailableAtConfirm = selectedSlot !== null
         const depositServices = await tx.service.count({
           where: { id: { in: bookingCartIds }, businessId: input.businessId, depositMode: { not: 'NONE' } }
@@ -740,7 +752,7 @@ export async function processSessionJob(input: {
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
   const startedAt = performance.now()
   try {
-    const result = await processSessionJobInternal(input)
+    const result = await withAttemptMetrics({ jobId: input.job.id, attempt: input.job.attempts }, () => processSessionJobInternal(input))
     botOptionsMetrics.observe('transition_execution', performance.now() - startedAt)
     return result
   } catch (error) {
@@ -757,7 +769,8 @@ async function processSessionJobInternal(input: {
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
   if (input.job.kind === 'PROCESS_INBOX') return processInitialInbox(input)
   if (input.job.kind === 'RECOVER_CUTOVER') return processCutoverRecovery(input)
-  if (input.job.kind !== 'PROCESS_SESSION') throw new Error(`unsupported session job ${input.job.kind}`)
+  const recoveringConfirmation = input.job.kind === 'RECOVER_BOOKING_CONFIRMATION'
+  if (input.job.kind !== 'PROCESS_SESSION' && !recoveringConfirmation) throw new Error(`unsupported session job ${input.job.kind}`)
 
   const target = await input.client.$queryRaw<Array<{
     sessionId: string; businessId: string; generation: number; fenceEpoch: number
@@ -786,9 +799,11 @@ async function processSessionJobInternal(input: {
     const criticalTransactionStartedAt = performance.now()
     try {
       const result = await runCommittedProcessSession({ client: input.client, operation: async (tx) => {
-        await assertClaimedBotJobTx(tx, input.job)
-        await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-      const sessions = await tx.$queryRaw<Array<{
+        await measureAttemptStage('session_claim_validation', async () => {
+          await assertClaimedBotJobTx(tx, input.job)
+          await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
+        })
+      const sessions = await measureAttemptStage('session_state_lock', () => tx.$queryRaw<Array<{
         id: string; businessId: string; deploymentId: string; deploymentGeneration: number
         revision: bigint; state: Prisma.JsonValue; status: string; dbNow: Date; toPhone: string | null; conversationId: string | null
         businessTimezone: string
@@ -803,7 +818,7 @@ async function processSessionJobInternal(input: {
           AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
           AND d."claimsPausedAt" IS NULL AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
         FOR UPDATE OF s
-      `)
+      `))
       if (sessions.length !== 1 || sessions[0]!.deploymentGeneration !== input.job.deploymentGeneration) {
         await completeDispatchClaimTx(tx, dispatchToken)
         await completeClaimedBotJobTx(tx, input.job)
@@ -818,15 +833,38 @@ async function processSessionJobInternal(input: {
       const parsedState = parseBotOptionsState(session.state)
       if (!parsedState.ok) throw new Error(`unknown/corrupt state: ${parsedState.invariant}`)
 
-      const selected = await tx.$queryRaw<Array<{
+      if (recoveringConfirmation) {
+        // An explicit customer/operator disable and human ownership always win.
+        const enabled = await tx.$queryRaw<Array<{ botEnabled: boolean }>>(Prisma.sql`
+          /* confirmation_recovery_enabled */
+          SELECT (b."botEnabled" AND COALESCE(f."botEnabled", true)) AS "botEnabled"
+          FROM "BotSession" s JOIN "Business" b ON b."id" = s."businessId"
+          LEFT JOIN "BusinessFeatureSettings" f ON f."businessId" = b."id"
+          WHERE s."id" = ${session.id} AND s."businessId" = ${session.businessId}
+          FOR SHARE OF b
+        `)
+        if (!enabled[0]?.botEnabled || session.status === 'HUMAN_QUEUED' || parsedState.state.handoff !== 'NONE') {
+          await completeDispatchClaimTx(tx, dispatchToken)
+          await completeClaimedBotJobTx(tx, input.job)
+          return 'STALE_REVISION'
+        }
+        if (
+          input.job.expectedRevision === null ||
+          (parsedState.state.flow !== 'BOOKING_SUMMARY' && parsedState.state.flow !== 'SLOT_SELECT')
+        ) {
+          throw new Error('confirmation recovery missing authoritative revision or booking step')
+        }
+      }
+
+      const selected = await measureAttemptStage('session_action_load', () => tx.$queryRaw<Array<{
         id: string; actionType: string; entityRef: Prisma.JsonValue | null; payload: Prisma.JsonValue | null
         promptId: string | null; providerEventId: string; providerMessageId: string | null; providerPayload: Prisma.JsonValue; status: string
       }>>(Prisma.sql`
         SELECT i."id", i."actionType", i."entityRef", i."payload", i."promptId", i."providerEventId", i."providerMessageId",
           e."payload" AS "providerPayload", i."status"::text AS "status"
         FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id"=i."providerEventId" AND e."businessId"=i."businessId"
-        WHERE i."id" = ${input.job.aggregateId} FOR UPDATE OF i
-      `)
+        WHERE i."id" = ${input.job.aggregateId} AND i."businessId" = ${session.businessId} AND i."sessionId" = ${session.id} FOR UPDATE OF i
+      `))
       let actionType: string
       let view: BotOptionsViewModel
       let nextState = parsedState.state
@@ -858,6 +896,56 @@ async function processSessionJobInternal(input: {
         actionType = selectedActionType
         promptId = action.promptId
         providerEventId = action.providerEventId
+        if (recoveringConfirmation) {
+          if (selectedActionType !== 'booking.confirm' && selectedActionType !== 'slot.select') {
+            throw new Error('confirmation recovery target is not a booking confirmation action')
+          }
+          const operationKey = `transition:${session.id}:${session.revision + 1n}`
+          // Booking, operation, state, inbox, outbox and original job settlement
+          // share one transaction. Absence under the session lock proves rollback;
+          // a committed original transaction instead advances revision above.
+          const evidence = await measureAttemptStage('session_recovery_reconcile', () => tx.$queryRaw<Array<{ status: string; type: string; visitId: string | null;
+            appointmentId: string | null; appointmentStatus: string | null; professionalName: string | null }>>(Prisma.sql`
+            /* confirmation_recovery_evidence */
+            SELECT o."status", o."type", v."id" AS "visitId", a."id" AS "appointmentId",
+              a."status"::text AS "appointmentStatus", p."name" AS "professionalName"
+            FROM "BotOperation" o
+            LEFT JOIN "BookingVisit" v ON v."id" = o."resultRef" AND v."businessId" = o."businessId" AND v."sessionId" = o."sessionId"
+            LEFT JOIN "Appointment" a ON a."visitId" = v."id" AND a."businessId" = o."businessId"
+            LEFT JOIN "Professional" p ON p."id" = v."professionalId" AND p."businessId" = o."businessId"
+            WHERE o."businessId" = ${session.businessId} AND o."sessionId" = ${session.id}
+              AND o."operationKey" IN (${`${operationKey}:CONFIRM_VISIT`}, ${`${operationKey}:HOLD_VISIT_WITH_DEPOSIT`})
+            FOR UPDATE OF o
+          `))
+          const confirmed = evidence.length === 1 && evidence[0]!.status === 'COMPLETED'
+            && evidence[0]!.type === 'CONFIRM_VISIT' && evidence[0]!.visitId && evidence[0]!.appointmentId
+            && evidence[0]!.appointmentStatus === 'CONFIRMED'
+          if (confirmed) {
+            const recoveredSlotStartAt = selectedActionType === 'slot.select'
+              ? selectedPayload?.startAt ?? null
+              : parsedState.state.selections.slotStartAt
+            nextState = {
+              ...parsedState.state,
+              flow: 'BOOKING_CONFIRMED',
+              booking: 'CONFIRMED',
+              selections: { ...parsedState.state.selections, slotStartAt: recoveredSlotStartAt }
+            }
+            view = textView('Tu turno quedó confirmado. Te esperamos.')
+            outcome = 'CONFIRMATION_RECOVERED'
+          } else {
+            // Partial/held evidence is never called a failure or confirmation.
+            // Hand off the uncertainty without creating/replaying any booking.
+            const handoff = transition(parsedState.state, { actionType: 'handoff.request', entityRef: null, payload: null }, { dbNowIso: session.dbNow.toISOString() })
+            nextState = handoff.state
+            effects = [{ kind: 'REQUEST_HUMAN_HANDOFF', reason: 'booking_confirmation_processing_failed',
+              detail: JSON.stringify({ result: evidence.length ? 'REQUIRES_VERIFICATION' : 'NOT_REGISTERED',
+                requestedServices: parsedState.state.cart, requestedSelections: parsedState.state.selections,
+                requestedSlotStartAt: selectedActionType === 'slot.select' ? selectedPayload?.startAt ?? null : parsedState.state.selections.slotStartAt,
+                notice: 'Requested time is not proof of reservation' }), context: null }]
+            view = textView('Tuvimos un problema al confirmar tu turno. Te paso con el equipo para que lo revisen y continúen por acá.')
+            outcome = 'CONFIRMATION_FAILURE_HANDOFF'
+          }
+        } else {
         const context = await measureSessionStage('session_context_load', () => (input.contextProvider ?? defaultContextProvider)(tx, {
           businessId: session.businessId, sessionId: session.id, state: parsedState.state, actionType: selectedActionType,
           entityRef: selectedEntityRef, payload: selectedPayload, dbNow: session.dbNow,
@@ -885,7 +973,9 @@ async function processSessionJobInternal(input: {
           // Conservamos sólo el aviso de cancelación, no los detalles del contexto anterior.
           view = { ...resumedView, informativeTexts: [...view.informativeTexts.slice(0, 1), ...resumedView.informativeTexts] }
         }
+        }
       } else {
+        if (recoveringConfirmation) throw new Error('confirmation recovery inbox missing')
         actionType = 'prompt.conflict'
         promptId = input.job.aggregateId
         const choices = await tx.$queryRaw<Array<{ actionType: string; labelSnapshot: string; entityType: string | null; entityId: string | null; payload: Prisma.JsonValue | null }>>(Prisma.sql`
@@ -928,7 +1018,8 @@ async function processSessionJobInternal(input: {
         effects = 'effects' in recovery ? recovery.effects : []
         if (effects.length) throw new Error('booking slot recovery must not emit effects')
       } else if (effectResult?.kind === 'CONFIRMED') {
-        view = textView(`Listo, tu turno quedó confirmado con ${effectResult.professional.name}. Te esperamos.`)
+        view = textView(transitionContext?.labels.bookingConfirmation
+          ?? `Listo, tu turno quedó confirmado con ${effectResult.professional.name}. Te esperamos.`)
       } else if (effectResult?.kind === 'APPOINTMENT_SLOT_CONFLICT' || effectResult?.kind === 'APPOINTMENT_STALE') {
         if (!transitionContext) throw new Error('appointment recovery has no transition context')
         const recoveryAction = effectResult.kind === 'APPOINTMENT_SLOT_CONFLICT' ? 'appointment.slot_conflict' : 'appointment.stale'
@@ -968,6 +1059,15 @@ async function processSessionJobInternal(input: {
           businessId: session.businessId, sessionId: session.id, operationKey, effects, pendingConversationUpdates
         }))
       }
+      const projectedConversationStep = conversationStepForBotOptionsState(nextState)
+      if (projectedConversationStep) {
+        const projectedConversation = await projectBotOptionsConversationStepTx(tx, {
+          businessId: session.businessId,
+          sessionId: session.id,
+          step: projectedConversationStep
+        })
+        if (projectedConversation) pendingConversationUpdates.push(projectedConversation)
+      }
       const nextRevision = session.revision + 1n
       await tx.$executeRaw(Prisma.sql`
         UPDATE "BotSession" SET "state" = ${JSON.stringify(nextState)}::jsonb, "revision" = ${nextRevision}, "updatedAt" = clock_timestamp()
@@ -985,11 +1085,16 @@ async function processSessionJobInternal(input: {
         businessId: session.businessId, sessionId: session.id, revision: nextRevision,
         transitionId: operationKey, toPhone: session.toPhone, view, dbNow: session.dbNow
       }))
+      await measureAttemptStage('session_settlement', async () => {
+      // The 20s budget is not permission to commit under an expired lease.
+      await assertClaimedBotJobTx(tx, input.job)
+      await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
       await settleProcessedSessionTx(tx, {
         inboxId: selected[0]?.id ?? null,
         operationKey,
         dispatchToken,
         job: input.job
+      })
       })
       return 'PROCESSED'
       }, onCommitted: markSettled, postCommit: () => {
@@ -1192,6 +1297,23 @@ async function processInitialInboxUnderClaim(
           dbNow: row.dbNow,
           businessTimezone: existingSession.businessTimezone
         }))
+        // Only unsolicited input/stale recovery may reuse a screen. Expected
+        // name entry and accepted service media retain their dedicated paths.
+        const expectedInput = state.state.flow === 'NAME_INPUT' ||
+          (state.state.flow === 'SERVICE_PHOTOS' && payload.messageType === 'image' &&
+            typeof payload.mediaId === 'string' && payload.mediaId.trim().length > 0)
+        if (!expectedInput && await reuseCurrentPromptTx(tx, {
+          businessId: row.businessId, sessionId: existingSession.sessionId, revision: existingSession.revision,
+          view: currentView, toPhone: payload.fromPhone, dbNow: row.dbNow
+        })) {
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "BotActionInbox" SET "error" = 'CURRENT_PROMPT_REUSED'
+            WHERE "id" = ${row.id} AND "businessId" = ${row.businessId} AND "status" = 'PROCESSED'::"BotInboxStatus"
+          `)
+          await completeDispatchClaimTx(tx, dispatchToken)
+          await completeClaimedBotJobTx(tx, input.job)
+          return 'PROCESSED'
+        }
         await persistView(tx, {
           businessId: row.businessId,
           sessionId: existingSession.sessionId,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildCartSnapshot, canAddService, cartChangeInvalidatesAvailability, formatCartSummary } from '../src/bot-options/application/cart-operations.js'
+import { buildCartSnapshot, canAddService, cartChangeInvalidatesAvailability, formatBookingConfirmation, formatCartSummary } from '../src/bot-options/application/cart-operations.js'
 import {
   availabilityBandLabels, bandForMinute, chooseBalancedProfessional, formatSlotOffset, localDateTimeToInstants, paginate,
   validateAvailabilitySettings
@@ -15,10 +15,23 @@ const one = buildCartSnapshot([cut])
 assert.deepEqual(one.commonProfessionalIds, ['p1', 'p2'])
 assert.equal(one.totalDurationMinutes, 30)
 assert.equal(one.totalPriceMinor, 1500)
-assert.match(
+assert.equal(
   formatCartSummary(buildCartSnapshot([{ ...cut, priceMinor: 40_000 }])),
-  /Precio total: \$40\.000,00/,
+  '*Tu reserva*\n\n💇 Corte — 30 min · $40.000\n\n⏱️ Total: 30 min\n💰 Total: $40.000',
   'el resumen debe formatear la unidad canónica en pesos sin dividirla por cien'
+)
+assert.equal(
+  formatCartSummary(buildCartSnapshot([{ ...cut, priceMinor: 15_000 }, { ...color, priceMinor: 40_000, priceMode: 'FIXED' }])),
+  '*Tu reserva*\n\n💇 Corte — 30 min · $15.000\n💇 Color — 45 min · $40.000\n\n⏱️ Total: 75 min\n💰 Total: $55.000',
+  'el resumen con varios servicios debe exhibir cada detalle y los totales'
+)
+assert.equal(
+  formatBookingConfirmation({ snapshot: buildCartSnapshot([{ ...cut, name: 'Corte Hombre', priceMinor: 15_000 }]), customerName: 'Matías', professionalName: 'Lucas', date: '2026-09-12', time: '12:30' }),
+  '¡Listo, Matías! ✨ Tu turno quedó confirmado.\n\n*Detalle de tu reserva*\n\n💇 Corte Hombre — 30 min · $15.000\n\n👤 Profesional: Lucas\n📅 Sábado 12 de septiembre\n🕒 12:30\n\n¡Te esperamos! 😊'
+)
+assert.equal(
+  formatBookingConfirmation({ snapshot: buildCartSnapshot([{ ...cut, name: 'Corte Hombre', priceMinor: 15_000 }, { ...color, name: 'Baño de crema', priceMinor: 20_000, priceMode: 'FIXED' }]), customerName: 'Matías', professionalName: 'Lucas', date: '2026-09-12', time: '12:30' }),
+  '¡Listo, Matías! ✨ Tu turno quedó confirmado.\n\n*Detalle de tu reserva*\n\n💇 Corte Hombre — 30 min · $15.000\n💇 Baño de crema — 45 min · $20.000\n\n⏱️ Duración total: 75 min\n💰 Precio total: $35.000\n\n👤 Profesional: Lucas\n📅 Sábado 12 de septiembre\n🕒 12:30\n\n¡Te esperamos! 😊'
 )
 const combined = canAddService({ current: one, proposed: color })
 assert.equal(combined.ok, true)
@@ -107,6 +120,25 @@ const toSummary = transition(slotState, { actionType: 'slot.select', entityRef: 
   confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Uno', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 1500 }
 })
 assert.equal(toSummary.outcome, 'APPLIED')
-if (toSummary.outcome === 'APPLIED') assert.deepEqual(toSummary.effects, [], 'llegar al resumen no crea efectos de agenda')
+if (toSummary.outcome === 'APPLIED') {
+  assert.equal(toSummary.effects[0]?.kind, 'CONFIRM_VISIT', 'elegir un horario confirma directamente sin pantalla intermedia')
+  assert.deepEqual(toSummary.state, createInitialBotOptionsState())
+}
+
+const directDeposit = transition(slotState, { actionType: 'slot.select', entityRef: null, payload: { startAt: '2026-08-30T15:00:00Z' } }, {
+  dbNowIso: '2026-08-26T12:00:00Z',
+  slotAvailable: true,
+  depositRequired: true,
+  paymentConfigComplete: true,
+  depositRequest: { amountMinor: 500, holdExpiresAtIso: '2026-08-26T12:30:00Z' },
+  confirmVisitSnapshot: { services: [], professional: { professionalId: 'p1', name: 'Uno', assignedByBalancer: true }, totalDurationMinutes: 30, totalPriceMinor: 1500 }
+})
+assert.equal(directDeposit.outcome, 'APPLIED')
+if (directDeposit.outcome === 'APPLIED') {
+  assert.equal(directDeposit.state.flow, 'DEPOSIT_INSTRUCTIONS', 'el anticipo conserva el flujo provisional y no confirma antes del pago')
+  assert.equal(directDeposit.state.booking, 'HELD')
+  assert.equal(directDeposit.effects[0]?.kind, 'HOLD_VISIT_WITH_DEPOSIT')
+  assert.doesNotMatch(directDeposit.view.informativeTexts.join('\n'), /turno qued[oó] confirmado/i)
+}
 
 console.log('OK F6.3–F6.8 pure: carrito, invalidación, configuración, cortes, DST, paginación y balance determinístico.')

@@ -241,15 +241,16 @@ async function assertProcessJobConfirmation() {
     }
   })
   assert.equal(result, 'PROCESSED')
-  const rows = await prisma.$queryRaw<Array<{ flow: string; booking: string; visits: bigint; outbox: bigint; processed: bigint }>>(Prisma.sql`
+  const rows = await prisma.$queryRaw<Array<{ flow: string; booking: string; conversationStep: string; visits: bigint; outbox: bigint; processed: bigint }>>(Prisma.sql`
     SELECT
       (SELECT "state"->>'flow' FROM "BotSession" WHERE "id" = ${e2eSessionId}) AS "flow",
       (SELECT "state"->>'booking' FROM "BotSession" WHERE "id" = ${e2eSessionId}) AS "booking",
+      (SELECT "currentStep"::text FROM "Conversation" WHERE "id" = ${e2eConversationId}) AS "conversationStep",
       (SELECT count(*) FROM "BookingVisit" WHERE "sessionId" = ${e2eSessionId})::bigint AS "visits",
       (SELECT count(*) FROM "BotOutbox" WHERE "sessionId" = ${e2eSessionId})::bigint AS "outbox",
       (SELECT count(*) FROM "BotActionInbox" WHERE "id" = ${inboxId} AND "status" = 'PROCESSED'::"BotInboxStatus")::bigint AS "processed"
   `)
-  assert.deepEqual(rows[0], { flow: 'MAIN_MENU', booking: 'NONE', visits: 1n, outbox: 1n, processed: 1n })
+  assert.deepEqual(rows[0], { flow: 'MAIN_MENU', booking: 'NONE', conversationStep: 'COMPLETED', visits: 1n, outbox: 1n, processed: 1n })
 }
 
 function tomorrowAtNoonUtc() {
