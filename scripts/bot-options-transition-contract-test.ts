@@ -75,8 +75,8 @@ for (const count of [1, 2, 3, 5]) {
       : `Solo quedan ${count} turnos disponibles para hoy con Ramiro. Si necesitás más opciones, podés buscar con otro profesional.`
   )
   assert.ok(view.choices.some((choice) => choice.actionType === 'professional.change' && choice.label === 'Buscar otro profesional'))
+  assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
   assert.ok(view.choices.some((choice) => choice.actionType === 'navigation.open'))
-  assert.ok(!view.choices.some((choice) => choice.actionType === 'navigation.back'))
 }
 
 const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
@@ -89,7 +89,7 @@ const manySlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normaliz
 assert.equal(manySlotView.interactiveBody, 'Solo quedan 6 turnos disponibles para hoy con Ramiro:')
 assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'professional.change'))
 assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.open'))
-assert.ok(!manySlotView.choices.some((choice) => choice.actionType === 'navigation.back'))
+assert.ok(manySlotView.choices.some((choice) => choice.actionType === 'navigation.back' && choice.label === 'Cambiar fecha'))
 
 const eightSlotView = renderCurrentView(bookingSlotState('prof_ramiro'), normalizeContext(ctx({
   businessTodayDate: '2026-09-04',
@@ -107,6 +107,7 @@ assert.equal(eightSlotView.choices.filter(choice => choice.actionType === 'slot.
 assert.ok(!eightSlotView.choices.some(choice => choice.actionType === 'slot.show_all'))
 assert.deepEqual(eightSlotView.choices.filter(choice => choice.actionType === 'slot.select').map(choice => choice.label),
   ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'])
+assert.equal(eightSlotView.choices.at(-2)?.label, 'Cambiar fecha')
 assert.equal(eightSlotView.choices.at(-1)?.actionType, 'navigation.open')
 
 const twentySlots = Array.from({ length: 20 }, (_, index) => ({
@@ -128,7 +129,7 @@ const firstFullSlotPage = transition(bookingSlotState('prof_ramiro'), act('slot.
   labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots },
   slotCanNext: true
 })))
-assert.deepEqual(firstFullSlotPage.view.choices.slice(-2).map(choice => choice.actionType), ['slot.next_page', 'navigation.open'])
+assert.deepEqual(firstFullSlotPage.view.choices.slice(-3).map(choice => choice.actionType), ['slot.next_page', 'navigation.back', 'navigation.open'])
 const middleFullSlotPage = renderCurrentView(
   { ...bookingSlotState('prof_ramiro'), presentation: { kind: 'slot_all_pages', cursor: 1 } },
   normalizeContext(ctx({ labels: { bookingProfessionals: [{ professionalId: 'prof_ramiro', label: 'Ramiro' }], availableSlots: twentySlots }, slotCanNext: true }))
@@ -402,7 +403,9 @@ assert.deepEqual(bookingCategories.choices.filter((choice) => choice.actionType 
 ])
 const browsingCategories = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', catalogMode: 'BROWSING' }), categoryContext)
 assert.equal(browsingCategories.interactiveBody, [
-  'Conocé nuestros servicios ✨', '', '• Peluquería', '• Uñas', '',
+  'Conocé nuestros servicios ✨',
+  'Elegí una categoría para ver los servicios disponibles.',
+  '', '• Peluquería', '• Uñas', '',
   'Tocá «Elegí una opción» para continuar 👇'
 ].join('\n'))
 assert.deepEqual(browsingCategories.choices, bookingCategories.choices)
@@ -412,6 +415,20 @@ const serviceCatalogContext = normalizeContext(ctx({ labels: { catalogEntries: [
 ] } }))
 const bookingServices = renderCurrentView(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BOOKING' }), serviceCatalogContext)
 const browsingServices = renderCurrentView(stateWith({ flow: 'SERVICE_SELECT', catalogMode: 'BROWSING' }), serviceCatalogContext)
+assert.equal(bookingServices.interactiveBody, [
+  'Elegí el servicio que querés reservar 👇',
+  '',
+  '• Iluminación',
+  '',
+  'Tocá «Elegí una opción» para continuar 👇'
+].join('\n'))
+assert.equal(browsingServices.interactiveBody, [
+  'Elegí un servicio para conocer los detalles y ver qué incluye.',
+  '',
+  '• Iluminación',
+  '',
+  'Tocá «Elegí una opción» para continuar 👇'
+].join('\n'))
 assert.equal(bookingServices.choices[0]?.actionType, 'service.select', 'booking selects the service without asking for a second confirmation')
 assert.equal(browsingServices.choices[0]?.actionType, 'service.view', 'browsing keeps the standalone service detail')
 const nextCategoryPage = renderCurrentView(stateWith({ flow: 'CATEGORY_SELECT', presentation: { kind: 'catalog_page', cursor: 1 } }), normalizeContext(ctx({
@@ -1007,14 +1024,14 @@ const coordinate = transition(si, act('recommendation.add'), ctx({ labels: { ser
 assert.equal(coordinate.outcome, 'HANDOFF')
 assert.equal(coordinate.view.interactiveBody, 'No encontramos un profesional que pueda realizar ambos servicios. Vamos a coordinar tu reserva con el equipo. Esperá un momento; alguien te va a atender por acá.')
 assert.deepEqual(coordinate.view.choices.map(({ actionType, label }) => ({ actionType, label })), [
-  { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
+  { actionType: 'handoff.cancel', label: 'Cancelar y volver' }
 ])
 const queuedScreen = renderWhatsAppScreen(coordinate.view, { promptToken: 'q'.repeat(16) })
 const queuedItem = queuedScreen.items.at(-1)!
 assert.equal(queuedItem.type, 'interactive')
 if (queuedItem.type === 'interactive') {
   assert.equal(queuedItem.mode, 'buttons')
-  assert.deepEqual(queuedItem.buttons?.map((button) => button.title), ['Cancelar solicitud'])
+  assert.deepEqual(queuedItem.buttons?.map((button) => button.title), ['Cancelar y volver'])
 }
 if (coordinate.outcome === 'HANDOFF') {
   assert.equal(coordinate.state.flow, 'HANDOFF_QUEUED')
@@ -1026,10 +1043,10 @@ if (coordinate.outcome === 'HANDOFF') {
 const queuedView = renderCurrentView(si, normalizeContext(ctx()))
 assert.equal(
   queuedView.interactiveBody,
-  'Listo, ya avisamos al equipo. No hace falta que respondas: te van a escribir por acá. Si ya no necesitás ayuda, podés cancelar la solicitud.'
+  'Listo, ya avisamos al equipo. Te van a escribir por acá.\n\nSi tocaste «Hablar con el equipo» por error, podés cancelar la solicitud y volver a donde estabas.'
 )
 assert.deepEqual(queuedView.choices.map(({ actionType, label }) => ({ actionType, label })), [
-  { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
+  { actionType: 'handoff.cancel', label: 'Cancelar y volver' }
 ])
 
 const cancelWait = transition(si, act('handoff.cancel'), ctx())

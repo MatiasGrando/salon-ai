@@ -656,9 +656,17 @@ function slotGlobalNavigation(
   contextualCount: number,
   backChoice: ViewChoice
 ): GlobalNavigationPlan {
-  return selectAction === 'slot.select'
-    ? { directChoices: [NAVIGATION_MENU_CHOICE], backInsideMenu: true }
-    : composeGlobalNavigation({ capacity: 10, contextualCount, back: backChoice })
+  if (selectAction !== 'slot.select') {
+    return composeGlobalNavigation({ capacity: 10, contextualCount, back: backChoice })
+  }
+  const remaining = 10 - contextualCount
+  if (remaining >= 2) {
+    return { directChoices: [backChoice, NAVIGATION_MENU_CHOICE], backInsideMenu: false }
+  }
+  if (remaining >= 1) {
+    return { directChoices: [NAVIGATION_MENU_CHOICE], backInsideMenu: true }
+  }
+  return { directChoices: [], backInsideMenu: true }
 }
 
 function concreteBandLabelFromSlots(
@@ -739,11 +747,14 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       const categories = context.labels.catalogCategories ?? []
       const body = [
         state.catalogMode === 'BROWSING' ? 'Conocé nuestros servicios ✨' : '¡Vamos a sacar tu turno! ✨',
-        '',
         ...(state.catalogMode === 'BOOKING' ? [
+          '',
           'Primero elegí una categoría. Después te muestro los servicios disponibles para que elijas el que querés reservar.',
           ''
-        ] : []),
+        ] : [
+          'Elegí una categoría para ver los servicios disponibles.',
+          ''
+        ]),
         ...categories.map((category) => `• ${category.label}`),
         '',
         'Tocá «Elegí una opción» para continuar 👇'
@@ -776,8 +787,16 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
       if (context.catalogCanPrevious) choices.push({ actionType: 'catalog.previous_page', label: 'Página anterior' })
       if (context.catalogCanNext) choices.push({ actionType: 'catalog.next_page', label: 'Página siguiente' })
       const nav = composeGlobalNavigation({ capacity: 10, contextualCount: choices.length, back: BACK_CHOICE })
-      const scopeName = context.labels.subcategoryName ?? context.labels.categoryName
-      return appendGlobals(menuView(scopeName ? `Servicios de ${scopeName}` : 'Elegí un servicio', choices), nav)
+      const body = [
+        state.catalogMode === 'BROWSING'
+          ? 'Elegí un servicio para conocer los detalles y ver qué incluye.'
+          : 'Elegí el servicio que querés reservar 👇',
+        '',
+        ...(context.labels.catalogEntries ?? []).map((entry) => `• ${entry.label}`),
+        '',
+        'Tocá «Elegí una opción» para continuar 👇'
+      ].join('\n')
+      return appendGlobals(menuView(body, choices), nav)
     }
     case 'SERVICE_DETAIL': {
       const detailServiceId = state.pendingEntityRef?.id
@@ -1024,8 +1043,8 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         : [])
     }
     case 'HANDOFF_QUEUED':
-      return menuView('Listo, ya avisamos al equipo. No hace falta que respondas: te van a escribir por acá. Si ya no necesitás ayuda, podés cancelar la solicitud.', [
-        { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
+      return menuView('Listo, ya avisamos al equipo. Te van a escribir por acá.\n\nSi tocaste «Hablar con el equipo» por error, podés cancelar la solicitud y volver a donde estabas.', [
+        { actionType: 'handoff.cancel', label: 'Cancelar y volver' }
       ])
     case 'HANDOFF_TAKEN':
       return textView('')
@@ -1095,9 +1114,9 @@ function enterHandoff(
     // La subcategoría/página forma parte del paso pausado; sólo cerramos el overlay.
     presentation: restoreFromNavigation(state.presentation)
   })
-  const view = queuedMessage
-    ? menuView(queuedMessage, [
-        { actionType: 'handoff.cancel', label: 'Cancelar solicitud' }
+    const view = queuedMessage
+      ? menuView(queuedMessage, [
+        { actionType: 'handoff.cancel', label: 'Cancelar y volver' }
       ])
     : renderCurrentView(nextState, EMPTY_CONTEXT_FOR_VIEWS)
   return applied(nextState, view, [
