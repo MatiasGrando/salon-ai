@@ -25,6 +25,7 @@ const assets = [
   { url: '/images/final_cta_left.jpg', file: 'images/final_cta_left.jpg', contentType: 'image/jpeg' },
   { url: '/images/final_cta_right.jpg', file: 'images/final_cta_right.jpg', contentType: 'image/jpeg' },
   { url: '/images/hero.jpg', file: 'images/hero.jpg', contentType: 'image/jpeg' },
+  { url: '/images/hermalia-logo.png', file: 'images/hermalia-logo.png', contentType: 'image/png' },
   { url: '/images/service_radiestesia_espacios.jpg', file: 'images/service_radiestesia_espacios.jpg', contentType: 'image/jpeg' },
   { url: '/images/service_radiestesia_personal.jpg', file: 'images/service_radiestesia_personal.jpg', contentType: 'image/jpeg' },
   { url: '/images/service_reiki.jpg', file: 'images/service_reiki.jpg', contentType: 'image/jpeg' },
