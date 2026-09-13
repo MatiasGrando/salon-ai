@@ -36,6 +36,7 @@ import { weexLeadAdminRoutes, weexLeadCampaignRoutes } from './routes/weex-lead-
 import { weexSupportBotV1Routes } from './routes/weex-support-bot-v1.js'
 import { demoProfileRoutes } from './routes/demo-profile.js'
 import { workshopRoutes } from './routes/workshop.js'
+import { pipelineRoutes } from './routes/pipeline.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -155,6 +156,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(postSaleRoutes)
   await app.register(reportRoutes)
   await app.register(staffUserRoutes)
+  await app.register(pipelineRoutes)
   await app.register(demoProfileRoutes)
   await app.register(weexLeadAdminRoutes)
 

@@ -9,6 +9,7 @@ import {
   cashRegisterScript,
   cashRegisterStyles
 } from './crm-ui/cash-register.js'
+import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipeline.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -4906,6 +4907,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .app[data-section="customers"] .customers-view {
       display: grid;
     }
+
+    .app[data-section="pipeline"] {
+      grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr);
+    }
+
+    .app[data-section="pipeline"] .sidebar,
+    .app[data-section="pipeline"] .chat,
+    .app[data-section="pipeline"] .details {
+      display: none;
+    }
+
+    .pl-view {
+      grid-column: 2;
+      min-width: 0;
+      min-height: 0;
+      display: none;
+      padding: 0;
+      background: #0f0e0b;
+      overflow: auto;
+    }
+
+    .app[data-section="pipeline"] .pl-view {
+      display: block;
+    }
+    ${pipelineStyles}
 
     .workshop-view { display: none; min-width: 0; padding: 32px; overflow: auto; }
     .app[data-section="autos"], .app[data-section="workshop-jobs"], .app[data-section="workshop-personnel"] { grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr); }
@@ -14905,6 +14931,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button type="button" data-mobile-section="workshop-personnel">Personal</button>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
+      <button type="button" data-mobile-section="pipeline" hidden>Pipeline</button>
       ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button>' : ''}
       <button type="button" data-mobile-section="customers">Clientes</button>
       <button type="button" data-mobile-section="professionals">Profesionales</button>
@@ -15897,6 +15924,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         </aside>
       </div>
     </section>
+
+    ${pipelineMarkup}
 
     <section class="services-view" id="services-view">
       <div class="services-shell">
@@ -19507,6 +19536,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         { section: 'accounts', label: 'Cuentas', icon: 'briefcase' },
         { section: 'conversations', label: 'Conversaciones', icon: 'message' },
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
+        { section: 'pipeline', label: 'Pipeline', icon: 'briefcase' },
         ${cashRegisterEnabled ? "{ section: 'cash', label: 'Caja', icon: 'briefcase' }," : ''}
         { section: 'customers', label: 'Clientes', icon: 'users' },
         { section: 'professionals', label: 'Profesionales', icon: 'professional' },
@@ -19990,6 +20020,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function staffVisibleSections() {
       if (!state.currentUser) return []
+      const pipelineSection = state.currentUser.role !== 'STAFF' && state.business?.featureSettings?.pipelineEnabled === true ? 'pipeline' : null
+      const pipelineSections = pipelineSection ? [pipelineSection] : []
       if (!state.businessId) {
         return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role) ? ['accounts'] : []
       }
@@ -19998,13 +20030,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ? ['accounts', 'autos', 'workshop-jobs', 'workshop-personnel'] : ['autos', 'workshop-jobs', 'workshop-personnel']
       }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
-        return state.business ? ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
+        return state.business ? ['accounts', 'conversations', 'agenda', ...pipelineSections, ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
       }
-      if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
-      if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
+      if (state.currentUser?.role === 'SUPER_ADMIN') return ['accounts', 'conversations', 'agenda', ...pipelineSections, ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
+      if (state.currentUser?.role !== 'STAFF') return ['conversations', 'agenda', ...pipelineSections, ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings']
       return [
         state.currentUser.canViewConversations ? 'conversations' : null,
         'agenda',
+        ...pipelineSections,
         ${cashRegisterEnabled ? "state.currentUser.canViewCashRegister ? 'cash' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
@@ -32619,7 +32652,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function setSection(section) {
-      if (isWorkshopBusiness() && !staffVisibleSections().includes(section)) section = 'autos'
+      if (!staffVisibleSections().includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
@@ -32636,6 +32669,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           accounts: 'Cuentas',
           conversations: 'Conversaciones',
           agenda: 'Agenda',
+          pipeline: 'Pipeline',
           cash: 'Caja',
           customers: 'Clientes',
           professionals: 'Profesionales',
@@ -32672,6 +32706,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (section === 'customers') {
         loadCustomerOverview().catch(() => {})
+      }
+
+      if (section === 'pipeline') {
+        plLoadAll(false).catch((error) => plToast(error.message, 'error'))
       }
 
       if (section === 'autos') {
@@ -34763,6 +34801,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     })
 
+    ${pipelineScript}
     ${cashRegisterEnabled ? cashRegisterScript : ''}
 
     hydrateIcons()

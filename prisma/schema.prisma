@@ -749,6 +749,49 @@ enum AccountChargeStatus {
   BONIFIED
 }
 
+enum PipelineLeadLifecycle {
+  OPEN
+  WON
+  LOST
+  NO_RESPONSE
+}
+
+enum PipelineLeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum PipelineActivityKind {
+  NOTE
+  FOLLOW_UP
+  CONTACT
+}
+
+enum PipelineTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum PipelineTaskCategory {
+  BUSINESS
+  MEETING
+  PERSONAL
+  OPERATIONS
+}
+
+enum PipelineEventType {
+  CREATED
+  UPDATED
+  MOVED
+  ASSIGNED
+  RESOLVED
+  REOPENED
+  ACTIVITY_RECORDED
+  ARCHIVED
+}
+
 model BusinessPlan {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -864,6 +907,12 @@ model Business {
   workshopShortcuts       WorkshopShortcut[]
   workshopPerformers      WorkshopPerformer[]
   workshopVehicles        WorkshopVehicle[]
+  pipeline                 Pipeline?
+  pipelineStages           PipelineStage[]
+  pipelineLeads            PipelineLead[]
+  pipelineLeadActivities   PipelineLeadActivity[]
+  pipelineLeadEvents       PipelineLeadEvent[]
+  pipelineTasks            PipelineTask[]
 
   createdAt DateTime @default(now())
 
@@ -1017,6 +1066,10 @@ model User {
   canAdjustCash              Boolean       @default(false)
   canManageCashSessions      Boolean       @default(false)
   cashSessions               CashSession[]
+  assignedPipelineLeads      PipelineLead[]         @relation("PipelineLeadAssignee")
+  authoredPipelineActivities PipelineLeadActivity[] @relation("PipelineActivityAuthor")
+  actedPipelineEvents        PipelineLeadEvent[]    @relation("PipelineEventActor")
+  assignedPipelineTasks      PipelineTask[]         @relation("PipelineTaskAssignee")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1199,6 +1252,7 @@ model BusinessFeatureSettings {
   remindersEnabled               Boolean                   @default(false)
   realWhatsappEnabled            Boolean                   @default(false)
   bookingV2Enabled               Boolean                   @default(false)
+  pipelineEnabled                Boolean                   @default(false)
   serviceCatalogDisplayMode      ServiceCatalogDisplayMode @default(ALL_SERVICES)
   bookingFlowOrder               BookingFlowOrder          @default(PROFESSIONAL_FIRST)
   conversationPauseAfterMinutes  Int                       @default(120)
@@ -2606,4 +2660,155 @@ model CommunicationEvent {
   createdAt   DateTime               @default(now())
 
   @@index([recipientId, createdAt])
+}
+
+model Pipeline {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  name       String   @default("Pipeline de leads")
+  revision   BigInt   @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  stages   PipelineStage[]
+  leads    PipelineLead[]
+  tasks    PipelineTask[]
+
+  @@unique([businessId, id])
+}
+
+model PipelineStage {
+  id         String    @id @default(cuid())
+  businessId String
+  pipelineId String
+  name       String
+  color      String
+  position   Int?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  business      Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline      Pipeline            @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  currentLeads  PipelineLead[]       @relation("PipelineLeadCurrentStage")
+  lastOpenLeads PipelineLead[]       @relation("PipelineLeadLastOpenStage")
+  eventsFrom    PipelineLeadEvent[]  @relation("PipelineEventFromStage")
+  eventsTo      PipelineLeadEvent[]  @relation("PipelineEventToStage")
+
+  @@unique([businessId, id])
+  @@index([businessId, pipelineId, archivedAt, position])
+}
+
+model PipelineLead {
+  id                String                 @id @default(cuid())
+  businessId        String
+  pipelineId        String
+  stageId           String?
+  lastOpenStageId   String?
+  lifecycle         PipelineLeadLifecycle @default(OPEN)
+  assigneeUserId    String?
+  title             String
+  contactName       String?
+  companyName       String?
+  email             String?
+  normalizedEmail   String?
+  phone             String?
+  normalizedPhone   String?
+  estimatedValue    Decimal                @default(0) @db.Decimal(12, 2)
+  priority          PipelineLeadPriority   @default(MEDIUM)
+  source            String?
+  externalReference String?
+  position          Int?
+  lastActivityAt    DateTime?
+  resolvedAt        DateTime?
+  archivedAt        DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  business      Business               @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline      Pipeline               @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  stage         PipelineStage?         @relation("PipelineLeadCurrentStage", fields: [businessId, stageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  lastOpenStage PipelineStage?         @relation("PipelineLeadLastOpenStage", fields: [businessId, lastOpenStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  assignee      User?                  @relation("PipelineLeadAssignee", fields: [businessId, assigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  activities    PipelineLeadActivity[]
+  events        PipelineLeadEvent[]
+  tasks         PipelineTask[]
+
+  @@unique([businessId, id])
+  @@index([businessId, lifecycle, archivedAt, lastActivityAt])
+  @@index([businessId, stageId, archivedAt, position])
+  @@index([businessId, assigneeUserId, archivedAt])
+  @@index([businessId, normalizedEmail])
+  @@index([businessId, normalizedPhone])
+}
+
+model PipelineLeadActivity {
+  id           String               @id @default(cuid())
+  businessId   String
+  leadId       String
+  authorUserId String
+  kind         PipelineActivityKind
+  body         String
+  occurredAt   DateTime             @default(now())
+  archivedAt   DateTime?
+  createdAt    DateTime             @default(now())
+
+  business Business     @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lead     PipelineLead @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  author   User         @relation("PipelineActivityAuthor", fields: [authorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([businessId, id])
+  @@index([businessId, leadId, occurredAt])
+}
+
+model PipelineLeadEvent {
+  id            String                 @id @default(cuid())
+  businessId    String
+  leadId        String
+  actorUserId   String
+  type          PipelineEventType
+  fromStageId   String?
+  toStageId     String?
+  fromLifecycle PipelineLeadLifecycle?
+  toLifecycle   PipelineLeadLifecycle?
+  metadata      Json?
+  createdAt     DateTime               @default(now())
+
+  business  Business       @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  lead      PipelineLead   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  actor     User           @relation("PipelineEventActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fromStage PipelineStage? @relation("PipelineEventFromStage", fields: [businessId, fromStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  toStage   PipelineStage? @relation("PipelineEventToStage", fields: [businessId, toStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([businessId, id])
+  @@index([businessId, leadId, createdAt])
+  @@index([businessId, type, createdAt])
+}
+
+model PipelineTask {
+  id             String               @id @default(cuid())
+  businessId     String
+  pipelineId     String
+  leadId         String?
+  assigneeUserId String?
+  title          String
+  category       PipelineTaskCategory @default(BUSINESS)
+  notes          String?
+  dueAt          DateTime?
+  status         PipelineTaskStatus   @default(TODO)
+  position       Int?
+  archivedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline Pipeline      @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  lead     PipelineLead? @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  assignee User?         @relation("PipelineTaskAssignee", fields: [businessId, assigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([businessId, id])
+  @@index([businessId, pipelineId, archivedAt, status, position])
+  @@index([businessId, assigneeUserId, archivedAt])
+  @@index([businessId, leadId, archivedAt])
 }

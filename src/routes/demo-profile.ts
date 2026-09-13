@@ -96,7 +96,8 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       demoType: true,
       logoUrl: true,
       slug: true,
-      landingTemplate: true
+      landingTemplate: true,
+      featureSettings: { select: { pipelineEnabled: true } }
     } as const
     if (user.role !== 'SUPER_ADMIN') {
       const profiles = await Promise.all(SHARED_SALES_DEMO_TYPES.map((demoType) => prisma.business.findFirst({
@@ -343,7 +344,8 @@ async function findAccessibleDemo(
       slug: true,
       landingTemplate: true,
       botEnabled: true,
-      aiEnabled: true
+      aiEnabled: true,
+      featureSettings: { select: { pipelineEnabled: true } }
     }
   })
 }

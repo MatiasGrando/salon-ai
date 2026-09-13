@@ -109,6 +109,7 @@ export class BusinessService {
     if (!search) {
       return prisma.business.findMany({
         ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+        include: { featureSettings: { select: { pipelineEnabled: true } } },
         orderBy: { name: 'asc' }
       })
     }
@@ -121,6 +122,7 @@ export class BusinessService {
         ]
       },
       ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+      include: { featureSettings: { select: { pipelineEnabled: true } } },
       orderBy: { name: 'asc' }
     })
   }

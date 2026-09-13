@@ -7,6 +7,7 @@ import {
   businessAccessWhere,
   resolveBusinessScope
 } from '../services/business-authorization.js'
+import { loadAuthorizedPipelineBusiness } from '../services/tenant-resource-authorization.js'
 
 const SHARED_COMMERCIAL_DEMO_TYPES = ['NAILS', 'HAIR_SALON', 'BARBERSHOP', 'PILATES'] as const
 
@@ -37,10 +38,10 @@ export async function authGuard(app: FastifyInstance) {
     }
     injectUserBusinessId(request, auth)
     injectStaffAgendaScope(request, auth)
-    if (!await canAccessRequestedBusiness(request, auth)) {
+    if (!isPipelineRoute(request) && !await canAccessRequestedBusiness(request, auth)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
-    if (!canStaffAccessRoute(auth.user, request.method, request.url)) {
+    if (!isPipelineRoute(request) && !canStaffAccessRoute(auth.user, request.method, request.url)) {
       return reply.status(403).send({ message: 'Tu perfil no tiene permiso para realizar esta accion' })
     }
   })
@@ -79,7 +80,9 @@ function isAccountAdminRoute(request: FastifyRequest, auth: AuthContext) {
 
 function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
   if (path === '/businesses') return method === 'GET'
-  return path === '/business-hours'
+  return path === '/pipeline'
+    || path.startsWith('/pipeline/')
+    || path === '/business-hours'
     || path === '/business-hours/setup'
     || path === '/crm/ai-settings'
     || path.startsWith('/crm/bot-routing')
@@ -124,6 +127,29 @@ function injectUserBusinessId(request: FastifyRequest, auth: AuthContext) {
   if (request.body && typeof request.body === 'object' && !('businessId' in request.body)) {
     ;(request.body as { businessId?: string }).businessId = businessId
   }
+}
+
+export async function requirePipelineAccess(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  businessId: string
+) {
+  const user = request.auth?.user
+  if (!user || !businessId) {
+    reply.status(404).send({ message: 'Recurso no encontrado', code: 'PIPELINE_RESOURCE_NOT_FOUND' })
+    return null
+  }
+  const business = await loadAuthorizedPipelineBusiness(prisma, user, businessId)
+  if (!business) {
+    reply.status(404).send({ message: 'Recurso no encontrado', code: 'PIPELINE_RESOURCE_NOT_FOUND' })
+    return null
+  }
+  return business
+}
+
+function isPipelineRoute(request: FastifyRequest) {
+  const path = request.url.split('?')[0] || ''
+  return path === '/pipeline' || path.startsWith('/pipeline/')
 }
 
 async function authorizeCommercialDemoWorkspace(request: FastifyRequest, auth: AuthContext) {
@@ -307,6 +333,7 @@ const internalRouteRoots = new Set([
   'professional-hours',
   'professionals',
   'post-sale',
+  'pipeline',
   'public',
   'reminder-automations',
   'reports',

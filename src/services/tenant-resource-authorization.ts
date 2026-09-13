@@ -42,6 +42,25 @@ export function authorizedBusinessWhere(
   return businessAccessWhere(resolveBusinessScope(user), id)
 }
 
+const PIPELINE_ADMIN_ROLES = new Set(['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'])
+
+export function canUsePipelineRole(user: Pick<BusinessAuthorizationUser, 'role'>) {
+  return PIPELINE_ADMIN_ROLES.has(user.role)
+}
+
+export function authorizedPipelineBusinessWhere(
+  user: BusinessAuthorizationUser,
+  businessId: string
+): Prisma.BusinessWhereInput | null {
+  if (!canUsePipelineRole(user)) return null
+  return {
+    AND: [
+      businessAccessWhere(resolveBusinessScope(user), businessId),
+      { featureSettings: { is: { pipelineEnabled: true } } }
+    ]
+  }
+}
+
 export function authorizedConversationWhere(
   user: BusinessAuthorizationUser,
   id: string
@@ -178,6 +197,16 @@ export async function loadAuthorizedBusiness(
   id: string
 ): Promise<Business | null> {
   return client.business.findFirst({ where: authorizedBusinessWhere(user, id) })
+}
+
+export async function loadAuthorizedPipelineBusiness(
+  client: TenantResourceAuthorizationClient,
+  user: BusinessAuthorizationUser,
+  businessId: string
+): Promise<Business | null> {
+  const where = authorizedPipelineBusinessWhere(user, businessId)
+  if (!where) return null
+  return client.business.findFirst({ where })
 }
 
 export async function loadAuthorizedConversation(

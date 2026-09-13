@@ -57,13 +57,15 @@ export async function businessRoutes(app: FastifyInstance) {
           ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
         },
         ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+        include: { featureSettings: { select: { pipelineEnabled: true } } },
         orderBy: { name: 'asc' }
       })
     }
     if (!request.auth.user.businessId) return []
     const business = await prisma.business.findUnique({
       where: { id: request.auth.user.businessId },
-      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } })
+      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+      include: { featureSettings: { select: { pipelineEnabled: true } } }
     })
     return business ? [business] : []
   })

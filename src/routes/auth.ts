@@ -35,7 +35,10 @@ export async function authRoutes(app: FastifyInstance) {
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
-        business: { omit: businessMediaOmit },
+        business: {
+          omit: businessMediaOmit,
+          include: { featureSettings: { select: { pipelineEnabled: true } } }
+        },
         professional: { omit: professionalMediaOmit }
       }
     })
@@ -77,7 +80,10 @@ export async function authRoutes(app: FastifyInstance) {
     const user = await prisma.user.findUnique({
       where: { id: auth.user.id },
       include: {
-        business: { omit: businessMediaOmit },
+        business: {
+          omit: businessMediaOmit,
+          include: { featureSettings: { select: { pipelineEnabled: true } } }
+        },
         professional: { omit: professionalMediaOmit }
       }
     })
