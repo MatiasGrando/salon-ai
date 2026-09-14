@@ -1193,7 +1193,8 @@ export function isDepositInformationRequest(message: string) {
   ])
   if (asksTemporalAmount && !mentionsDeposit && !hasDepositPaymentMeaning(message)) return false
   const asksReservationAmount = containsAny(normalized, ['reserva', 'reservar']) &&
-    containsAny(normalized, amountTerms)
+    containsAny(normalized, amountTerms) &&
+    hasDepositPaymentMeaning(message)
   return (mentionsDeposit || asksReservationAmount) && containsAny(normalized, amountTerms)
 }
 

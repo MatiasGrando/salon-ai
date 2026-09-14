@@ -140,6 +140,7 @@ const tests: Array<{ name: string; run: () => void }> = [
     run: () => {
       const message = 'cuanto salen las iluminaciones y quiero reservar'
       const routing = deterministicConversationRouting(message, { currentStep: 'START', catalog })
+      assert.deepEqual(routing.catalogQuery?.requestedInformation, ['price'])
       const informationReply = renderCatalogServiceQuery(knowledge, routing.catalogQuery!)
       const whatsappUrl = buildWhatsappUrl(knowledge.publicWhatsapp, 'IG-12345678', message)
       const reply = composeInstagramReply({

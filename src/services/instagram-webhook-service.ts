@@ -15,6 +15,7 @@ import {
   type ConversationRouting
 } from './conversation-router.js'
 import { isBusinessAccountUnavailable } from './business-account-access.js'
+import { parseInstagramWebhookPayload } from './instagram-webhook-parser.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -55,7 +56,7 @@ export class InstagramWebhookService {
 
   async handleWebhook(payload: InstagramWebhookPayload = {}) {
     if (payload.object && payload.object !== 'instagram') return { received: true, processed: 0 }
-    const events = extractTextEvents(payload)
+    const events = parseInstagramWebhookPayload(payload).messaging
     const results = []
 
     for (const event of events) {
@@ -277,33 +278,6 @@ export class InstagramWebhookService {
 
     return { received: true, processed: results.length, results }
   }
-}
-
-function extractTextEvents(payload: InstagramWebhookPayload) {
-  const result: Array<{
-    instagramAccountIds: string[]
-    senderId: string
-    messageId?: string
-    text: string
-    timestamp?: number
-  }> = []
-  for (const entry of payload.entry ?? []) {
-    if (!entry.id) continue
-    for (const event of entry.messaging ?? []) {
-      const message = event.message
-      if (!event.sender?.id || !message?.text || message.is_echo || message.is_deleted) continue
-      const instagramAccountIds = [...new Set([event.recipient?.id, entry.id].filter((id): id is string => Boolean(id)))]
-      if (instagramAccountIds.length === 0) continue
-      result.push({
-        instagramAccountIds,
-        senderId: event.sender.id,
-        text: message.text.trim(),
-        ...(message.mid ? { messageId: message.mid } : {}),
-        ...(event.timestamp ? { timestamp: event.timestamp } : {})
-      })
-    }
-  }
-  return result.filter((event) => event.text)
 }
 
 function createReferralCode() {

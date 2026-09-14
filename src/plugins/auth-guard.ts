@@ -98,6 +98,21 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/appointments\/[^/]+\/(?:finance|estimated-total|discount|payments)$/.test(path)
     || /^\/businesses\/[^/]+$/.test(path)
     || /^\/businesses\/[^/]+\/(?:payment-settings|whatsapp-settings|instagram-settings)$/.test(path)
+    || isInstagramPublicationWorkspaceRoute(method, path)
+}
+
+export function isInstagramPublicationWorkspaceRoute(methodValue: string, path: string) {
+  const method = methodValue.toUpperCase()
+  const base = /^\/businesses\/[^/]+\/instagram-publications$/.test(path)
+  if (base) return method === 'GET' || method === 'POST'
+  if (/^\/businesses\/[^/]+\/instagram-publications\/uploads(?:\/verify)?$/.test(path)) {
+    return method === 'POST'
+  }
+  if (/^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+$/.test(path)) {
+    return method === 'GET' || method === 'PATCH'
+  }
+  return method === 'POST'
+    && /^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/publish$/.test(path)
 }
 
 export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {

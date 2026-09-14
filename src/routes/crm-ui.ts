@@ -3841,6 +3841,111 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-weight: 750;
     }
 
+    .instagram-reels-manager {
+      display: grid;
+      gap: 18px;
+    }
+
+    .instagram-reels-toolbar {
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .instagram-reels-toolbar h3 { margin: 0 0 5px; color: #17213a; font-size: 18px; }
+    .instagram-reels-toolbar p { margin: 0; color: #687790; font-size: 13px; line-height: 1.45; }
+
+    .instagram-reels-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .instagram-reels-table {
+      width: 100%;
+      min-width: 720px;
+      border-collapse: collapse;
+    }
+
+    .instagram-reels-table th,
+    .instagram-reels-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #edf1f5;
+      text-align: left;
+      vertical-align: middle;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    .instagram-reels-table th { color: #64748b; background: #f8fafc; font-size: 11px; text-transform: uppercase; letter-spacing: .045em; }
+    .instagram-reels-table tr:last-child td { border-bottom: 0; }
+    .instagram-reel-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: #475569; background: #eef2f7; font-size: 11px; font-weight: 800; }
+    .instagram-reel-status.published { color: #087a3d; background: #eaf8ef; }
+    .instagram-reel-status.processing { color: #1d4ed8; background: #eff6ff; }
+    .instagram-reel-status.failed { color: #b42318; background: #fff1f2; }
+
+    .dialog.instagram-reel-dialog {
+      width: min(920px, calc(100vw - 32px));
+      height: min(860px, calc(100dvh - 40px));
+      max-height: calc(100dvh - 40px);
+      resize: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      border-radius: 16px;
+    }
+
+    .instagram-reel-form {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      overflow: hidden;
+    }
+
+    .instagram-reel-form-scroll { min-height: 0; padding: 20px 24px; display: grid; gap: 18px; overflow: auto; }
+    .instagram-reel-section { padding: 18px; display: grid; gap: 15px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
+    .instagram-reel-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .instagram-reel-section h4 { margin: 0 0 4px; color: #17213a; font-size: 16px; }
+    .instagram-reel-section p { margin: 0; color: #687790; font-size: 12.5px; line-height: 1.45; }
+    .instagram-reel-form-grid { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(280px, 1.25fr); gap: 16px; align-items: start; }
+    .instagram-reel-field { display: grid; gap: 7px; color: #405176; font-size: 12px; font-weight: 750; }
+    .instagram-reel-field input,
+    .instagram-reel-field textarea { width: 100%; padding: 11px 12px; border: 1px solid #d7dfec; border-radius: 9px; color: #17213a; background: #fff; font: inherit; font-weight: 500; }
+    .instagram-reel-field textarea { min-height: 108px; resize: vertical; line-height: 1.45; }
+    .instagram-reel-field:focus-within input,
+    .instagram-reel-field:focus-within textarea { border-color: #2563eb; outline: 3px solid #dbeafe; }
+    .instagram-reel-video-card { min-height: 250px; padding: 14px; display: grid; place-items: center; border: 1px dashed #bfcaDA; border-radius: 12px; color: #64748b; background: #f8fafc; text-align: center; }
+    .instagram-reel-video-card video { width: min(230px, 100%); max-height: 330px; border-radius: 10px; background: #111827; }
+    .instagram-reel-switch { display: flex; align-items: center; gap: 10px; color: #334155; font-size: 13px; font-weight: 700; }
+    .instagram-reel-keyword-entry { display: flex; gap: 8px; }
+    .instagram-reel-keyword-entry input { flex: 1; }
+    .instagram-reel-keyword-chips { min-height: 35px; display: flex; flex-wrap: wrap; gap: 7px; }
+    .instagram-reel-keyword-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 999px; color: #4338ca; background: #eef2ff; font-size: 12px; font-weight: 750; }
+    .instagram-reel-keyword-chip button { padding: 0; color: inherit; background: transparent; font-weight: 900; }
+    .instagram-reel-review { padding: 13px 15px; display: grid; gap: 6px; border-radius: 10px; color: #334155; background: #f8fafc; font-size: 13px; line-height: 1.45; }
+    .instagram-reel-progress { height: 8px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+    .instagram-reel-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: #2563eb; transition: width 180ms ease; }
+    .instagram-reel-feedback { min-height: 20px; margin: 0; color: #52617f; font-size: 13px; }
+    .instagram-reel-feedback.error { color: #b42318; }
+    .instagram-reel-feedback.success { color: #166534; }
+    .instagram-reel-actions { position: sticky; bottom: 0; padding: 14px 24px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid #e2e8f0; background: #fff; box-shadow: 0 -8px 20px rgba(15, 23, 42, .04); }
+
+    @media (max-width: 720px) {
+      .instagram-reels-toolbar { align-items: stretch; flex-direction: column; }
+      .instagram-reels-toolbar button { width: 100%; }
+      .dialog.instagram-reel-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+      .instagram-reel-form-scroll { padding: 14px; }
+      .instagram-reel-section { padding: 14px; }
+      .instagram-reel-form-grid { grid-template-columns: 1fr; }
+      .instagram-reel-actions { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+      .instagram-reel-actions button { flex: 1; }
+    }
+
     .dialog.campaign-dialog {
       width: min(820px, calc(100vw - 32px));
       height: min(900px, calc(100vh - 48px));
@@ -14967,6 +15072,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button type="button" data-nav-section="campaigns" data-marketing-nav="templates"><span>📣</span><strong>Marketing</strong></button>
       <div class="nav-subitems" aria-label="Marketing">
         <button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>
+        <button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram Reels</button>
         <button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>
         <button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campañas</button>
       </div>
@@ -16328,6 +16434,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <nav class="campaigns-main-tabs" id="marketing-main-tabs" aria-label="Tipos de comunicaci&oacute;n">
           <button type="button" data-marketing-view="templates">Plantillas de Meta</button>
           <button class="active" type="button" data-marketing-view="campaigns">Campa&ntilde;as</button>
+          <button type="button" data-marketing-view="instagram-reels">Instagram Reels</button>
           <button type="button" data-marketing-view="reminders">Recordatorios de turnos</button>
           <button type="button" data-marketing-view="post-sale">Postventa</button>
         </nav>
@@ -16642,8 +16749,64 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </aside>
           </div>
         </div>
+
+        <div class="instagram-reels-manager" id="instagram-reels-manager" hidden>
+          <section class="instagram-reels-toolbar">
+            <div>
+              <h3>Reels de Instagram</h3>
+              <p>Prepar&aacute; el Reel y activ&aacute; una respuesta privada cuando un comentario incluya tus palabras clave.</p>
+            </div>
+            <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
+          </section>
+          <p class="instagram-reel-feedback" id="instagram-reels-feedback" role="status" aria-live="polite"></p>
+          <div class="instagram-reels-table-wrap">
+            <table class="instagram-reels-table">
+              <thead><tr><th>Reel</th><th>Automatizaci&oacute;n</th><th>Palabras clave</th><th>Destino</th><th>Estado</th></tr></thead>
+              <tbody id="instagram-reels-table-body"><tr><td colspan="5">Todav&iacute;a no hay Reels preparados.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
+
+    <div class="dialog-backdrop" id="instagram-reel-dialog" hidden>
+      <section class="dialog instagram-reel-dialog" role="dialog" aria-modal="true" aria-labelledby="instagram-reel-dialog-title">
+        <header class="dialog-header">
+          <div><h3 id="instagram-reel-dialog-title">Nuevo Reel</h3><p class="hint">El video se sube directamente al almacenamiento seguro y luego se env&iacute;a a la cola de publicaci&oacute;n.</p></div>
+          <button class="icon-button" id="instagram-reel-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
+        </header>
+        <form class="instagram-reel-form" id="instagram-reel-form" novalidate>
+          <div class="instagram-reel-form-scroll">
+            <section class="instagram-reel-section" data-reel-section="content">
+              <div><h4>1. Contenido</h4><p>Eleg&iacute; un archivo MP4 o MOV y complet&aacute; el texto de la publicaci&oacute;n.</p></div>
+              <div class="instagram-reel-form-grid">
+                <div class="instagram-reel-video-card"><div id="instagram-reel-video-empty"><strong>Vista previa del Reel</strong><br><small>Seleccion&aacute; un video para verlo ac&aacute;.</small></div><video id="instagram-reel-video-preview" controls playsinline hidden></video></div>
+                <div class="instagram-reel-section">
+                  <label class="instagram-reel-field">Video MP4 o MOV<input id="instagram-reel-video" type="file" accept="video/mp4,video/quicktime,.mp4,.mov" required></label>
+                  <label class="instagram-reel-field">Descripci&oacute;n<textarea id="instagram-reel-caption" placeholder="Cont&aacute; de qu&eacute; se trata este Reel"></textarea></label>
+                  <label class="instagram-reel-switch"><input id="instagram-reel-share-to-feed" type="checkbox" checked> Compartir tambi&eacute;n en el feed</label>
+                </div>
+              </div>
+            </section>
+            <section class="instagram-reel-section" data-reel-section="automation">
+              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n</h4><p>La respuesta privada se intenta una sola vez por comentario coincidente.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox" checked> Activa</label></div>
+              <label class="instagram-reel-field">Palabras clave
+                <span class="instagram-reel-keyword-entry"><input id="instagram-reel-keyword-input" autocomplete="off" placeholder="Ej: precio"><button class="secondary" id="instagram-reel-keyword-add" type="button">Agregar</button></span>
+              </label>
+              <div class="instagram-reel-keyword-chips" id="instagram-reel-keyword-chips" aria-live="polite"></div>
+              <label class="instagram-reel-field">Primer mensaje privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+            </section>
+            <section class="instagram-reel-section" data-reel-section="review">
+              <div><h4>3. Revisi&oacute;n y estado</h4><p>Revis&aacute; el resumen. Al confirmar, el Reel queda en cola; no significa que ya est&eacute; publicado.</p></div>
+              <div class="instagram-reel-review" id="instagram-reel-review"></div>
+              <div class="instagram-reel-progress" id="instagram-reel-progress" aria-label="Progreso de preparaci&oacute;n"><span></span></div>
+              <p class="instagram-reel-feedback" id="instagram-reel-feedback" role="status" aria-live="polite"></p>
+            </section>
+          </div>
+          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cancelar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar y publicar</button></footer>
+        </form>
+      </section>
+    </div>
 
     <section class="settings-view" id="settings-view">
       <div class="settings-shell">
@@ -18509,6 +18672,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       campaignManualSearchTimer: null,
       campaignTemplateMeta: { name: null, id: null, status: 'NOT_CREATED', rejectionReason: null, lastSyncedAt: null },
       marketingView: 'templates',
+      instagramReels: [],
+      instagramReelsLoaded: false,
+      instagramReelKeywords: [],
+      instagramReelPreviewUrl: null,
       settingsView: 'commerce',
       whatsappTemplates: [],
       templatesLoaded: false,
@@ -18959,6 +19126,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       templateManager: document.getElementById('template-manager'),
       reminderManager: document.getElementById('reminder-manager'),
       postSaleManager: document.getElementById('post-sale-manager'),
+      instagramReelsManager: document.getElementById('instagram-reels-manager'),
+      instagramReelsTableBody: document.getElementById('instagram-reels-table-body'),
+      instagramReelsFeedback: document.getElementById('instagram-reels-feedback'),
+      instagramReelNew: document.getElementById('instagram-reel-new'),
+      instagramReelDialog: document.getElementById('instagram-reel-dialog'),
+      instagramReelForm: document.getElementById('instagram-reel-form'),
+      instagramReelClose: document.getElementById('instagram-reel-close'),
+      instagramReelCancel: document.getElementById('instagram-reel-cancel'),
+      instagramReelSubmit: document.getElementById('instagram-reel-submit'),
+      instagramReelVideo: document.getElementById('instagram-reel-video'),
+      instagramReelVideoPreview: document.getElementById('instagram-reel-video-preview'),
+      instagramReelVideoEmpty: document.getElementById('instagram-reel-video-empty'),
+      instagramReelCaption: document.getElementById('instagram-reel-caption'),
+      instagramReelShareToFeed: document.getElementById('instagram-reel-share-to-feed'),
+      instagramReelAutomationEnabled: document.getElementById('instagram-reel-automation-enabled'),
+      instagramReelKeywordInput: document.getElementById('instagram-reel-keyword-input'),
+      instagramReelKeywordAdd: document.getElementById('instagram-reel-keyword-add'),
+      instagramReelKeywordChips: document.getElementById('instagram-reel-keyword-chips'),
+      instagramReelPrivateReply: document.getElementById('instagram-reel-private-reply'),
+      instagramReelReview: document.getElementById('instagram-reel-review'),
+      instagramReelProgress: document.querySelector('#instagram-reel-progress span'),
+      instagramReelFeedback: document.getElementById('instagram-reel-feedback'),
       templateFilterTabs: document.getElementById('template-filter-tabs'),
       templateTableBody: document.getElementById('template-table-body'),
       templateDetailPanel: document.getElementById('template-detail-panel'),
@@ -19565,6 +19754,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           return button +
             '<div class="nav-subitems" aria-label="Marketing">' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>' +
+              '<button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram Reels</button>' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campa&ntilde;as</button>' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>' +
             '</div>'
@@ -20348,6 +20538,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const profile = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/access')
         state.business = profile
         state.businessId = profile.id
+        state.instagramReels = []
+        state.instagramReelsLoaded = false
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
         renderLandingSettings()
@@ -20366,6 +20558,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!isSalesAccountAdministrator()) return
       state.business = null
       state.businessId = null
+      state.instagramReels = []
+      state.instagramReelsLoaded = false
       hydrateWorkspaceNav()
       state.settingsView = 'admin'
       setSection('settings')
@@ -20377,6 +20571,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!isSalesAccountAdministrator() || !state.currentSessionBusiness) return
       state.business = state.currentSessionBusiness
       state.businessId = state.currentSessionBusiness.id
+      state.instagramReels = []
+      state.instagramReelsLoaded = false
       try {
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
@@ -21729,6 +21925,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaAppointments = []
       state.agendaBlocks = []
       state.campaignsLoaded = false
+      state.instagramReels = []
+      state.instagramReelsLoaded = false
       state.campaignAudiences = {}
       state.campaignDeliveries = {}
       state.campaignSimulations = {}
@@ -30865,12 +31063,261 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
     const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
 
+    function instagramReelStatusMeta(status) {
+      const statuses = {
+        DRAFT: { label: 'Borrador', tone: 'draft' },
+        READY: { label: 'En cola', tone: 'processing' },
+        CREATING_CONTAINER: { label: 'Preparando', tone: 'processing' },
+        PROCESSING: { label: 'Procesando', tone: 'processing' },
+        PUBLISHING: { label: 'Publicando', tone: 'processing' },
+        PUBLISHED: { label: 'Publicado', tone: 'published' },
+        FAILED: { label: 'Fall&oacute;', tone: 'failed' },
+        UNKNOWN: { label: 'Revisi&oacute;n necesaria', tone: 'failed' }
+      }
+      return statuses[status] || { label: 'Estado pendiente', tone: 'draft' }
+    }
+
+    function renderInstagramReels() {
+      if (!state.instagramReels.length) {
+        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Todav&iacute;a no hay Reels preparados.</td></tr>'
+        return
+      }
+      els.instagramReelsTableBody.innerHTML = state.instagramReels.map((publication) => {
+        const status = instagramReelStatusMeta(publication.status)
+        const keywords = Array.isArray(publication.automation?.keywords)
+          ? publication.automation.keywords.map((keyword) => escapeHtml(keyword.value || '')).filter(Boolean).join(', ')
+          : ''
+        const caption = publication.caption?.trim()
+        const failureTitle = publication.lastError ? ' title="' + escapeHtml(publication.lastError) + '"' : ''
+        return '<tr data-instagram-publication-id="' + escapeHtml(publication.id) + '">' +
+          '<td><strong>' + (caption ? escapeHtml(caption) : 'Reel sin descripci&oacute;n') + '</strong><small>' + (publication.shareToFeed ? 'Reel y feed' : 'Solo Reels') + '</small></td>' +
+          '<td>' + (publication.automation?.enabled ? 'Activa' : 'Pausada') + '</td>' +
+          '<td>' + (keywords || 'Sin palabras clave') + '</td>' +
+          '<td>Mensaje privado</td>' +
+          '<td><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span></td>' +
+        '</tr>'
+      }).join('')
+    }
+
+    async function loadInstagramReels() {
+      if (!state.businessId) return
+      els.instagramReelsFeedback.textContent = ''
+      els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando Reels...</td></tr>'
+      try {
+        const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
+        state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
+        state.instagramReelsLoaded = true
+        renderInstagramReels()
+      } catch (error) {
+        state.instagramReels = []
+        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">No pudimos cargar los Reels.</td></tr>'
+        els.instagramReelsFeedback.textContent = error.message
+        els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+      }
+    }
+
+    function instagramReelMimeType(file) {
+      const declared = String(file?.type || '').toLowerCase()
+      if (declared === 'video/mp4' || declared === 'video/quicktime') return declared
+      const name = String(file?.name || '').toLowerCase()
+      if (name.endsWith('.mp4')) return 'video/mp4'
+      if (name.endsWith('.mov')) return 'video/quicktime'
+      return ''
+    }
+
+    function normalizeInstagramReelKeyword(value) {
+      return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    }
+
+    function renderInstagramReelKeywords() {
+      els.instagramReelKeywordChips.innerHTML = state.instagramReelKeywords.length
+        ? state.instagramReelKeywords.map((keyword, index) => '<span class="instagram-reel-keyword-chip">' + escapeHtml(keyword) + '<button type="button" data-instagram-reel-keyword-remove="' + index + '" aria-label="Quitar ' + escapeHtml(keyword) + '">&times;</button></span>').join('')
+        : '<small>Agreg&aacute; al menos una palabra clave.</small>'
+    }
+
+    function renderInstagramReelReview() {
+      const file = els.instagramReelVideo.files?.[0]
+      const size = file ? Math.max(0.01, file.size / (1024 * 1024)).toFixed(2) + ' MB' : 'Pendiente'
+      const keywordSummary = state.instagramReelKeywords.length ? state.instagramReelKeywords.map(escapeHtml).join(', ') : 'Pendientes'
+      els.instagramReelReview.innerHTML =
+        '<div><span>Video</span><strong>' + (file ? escapeHtml(file.name) + ' &middot; ' + size : 'Seleccion&aacute; un archivo') + '</strong></div>' +
+        '<div><span>Publicaci&oacute;n</span><strong>' + (els.instagramReelShareToFeed.checked ? 'Reel y feed' : 'Solo Reels') + '</strong></div>' +
+        '<div><span>Automatizaci&oacute;n</span><strong>' + (els.instagramReelAutomationEnabled.checked ? 'Activa' : 'Pausada') + '</strong></div>' +
+        '<div><span>Palabras clave</span><strong>' + keywordSummary + '</strong></div>'
+    }
+
+    function setInstagramReelFeedback(message, tone = '') {
+      els.instagramReelFeedback.textContent = message
+      els.instagramReelFeedback.className = 'instagram-reel-feedback' + (message ? ' visible' : '') + (tone ? ' ' + tone : '')
+    }
+
+    function setInstagramReelProgress(percent) {
+      els.instagramReelProgress.style.width = Math.max(0, Math.min(100, percent)) + '%'
+    }
+
+    function resetInstagramReelForm() {
+      if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
+      state.instagramReelPreviewUrl = null
+      state.instagramReelKeywords = []
+      els.instagramReelForm.reset()
+      els.instagramReelShareToFeed.checked = true
+      els.instagramReelAutomationEnabled.checked = true
+      els.instagramReelVideoPreview.removeAttribute('src')
+      els.instagramReelVideoPreview.hidden = true
+      els.instagramReelVideoEmpty.hidden = false
+      els.instagramReelCancel.textContent = 'Cancelar'
+      els.instagramReelSubmit.disabled = false
+      els.instagramReelSubmit.textContent = 'Guardar y publicar'
+      setInstagramReelProgress(0)
+      setInstagramReelFeedback('')
+      renderInstagramReelKeywords()
+      renderInstagramReelReview()
+    }
+
+    function openInstagramReelDialog() {
+      resetInstagramReelForm()
+      els.instagramReelDialog.hidden = false
+      requestAnimationFrame(() => els.instagramReelVideo.focus())
+    }
+
+    function closeInstagramReelDialog() {
+      if (els.instagramReelSubmit.dataset.loading === 'true') return
+      els.instagramReelDialog.hidden = true
+      if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
+      state.instagramReelPreviewUrl = null
+    }
+
+    function addInstagramReelKeyword() {
+      const value = els.instagramReelKeywordInput.value.trim()
+      const normalized = normalizeInstagramReelKeyword(value)
+      if (!normalized) {
+        setInstagramReelFeedback('Escribí una palabra clave válida.', 'error')
+        els.instagramReelKeywordInput.focus()
+        return
+      }
+      if (!state.instagramReelKeywords.some((keyword) => normalizeInstagramReelKeyword(keyword) === normalized)) {
+        state.instagramReelKeywords.push(value)
+      }
+      els.instagramReelKeywordInput.value = ''
+      setInstagramReelFeedback('')
+      renderInstagramReelKeywords()
+      renderInstagramReelReview()
+      els.instagramReelKeywordInput.focus()
+    }
+
+    function readInstagramReelVideo() {
+      const file = els.instagramReelVideo.files?.[0]
+      if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
+      state.instagramReelPreviewUrl = null
+      if (!file || !instagramReelMimeType(file)) {
+        els.instagramReelVideoPreview.removeAttribute('src')
+        els.instagramReelVideoPreview.hidden = true
+        els.instagramReelVideoEmpty.hidden = false
+        if (file) setInstagramReelFeedback('Elegí un video MP4 o MOV.', 'error')
+        renderInstagramReelReview()
+        return
+      }
+      state.instagramReelPreviewUrl = URL.createObjectURL(file)
+      els.instagramReelVideoPreview.src = state.instagramReelPreviewUrl
+      els.instagramReelVideoPreview.hidden = false
+      els.instagramReelVideoEmpty.hidden = true
+      setInstagramReelFeedback('')
+      renderInstagramReelReview()
+    }
+
+    async function submitInstagramReel(event) {
+      event.preventDefault()
+      const file = els.instagramReelVideo.files?.[0]
+      const mimeType = instagramReelMimeType(file)
+      const privateReplyText = els.instagramReelPrivateReply.value.trim()
+      if (!state.businessId) return setInstagramReelFeedback('No encontramos el comercio activo.', 'error')
+      if (!file || !mimeType) {
+        setInstagramReelFeedback('Elegí un video MP4 o MOV.', 'error')
+        els.instagramReelVideo.focus()
+        return
+      }
+      if (!state.instagramReelKeywords.length) {
+        setInstagramReelFeedback('Agregá al menos una palabra clave.', 'error')
+        els.instagramReelKeywordInput.focus()
+        return
+      }
+      if (!privateReplyText) {
+        setInstagramReelFeedback('Escribí el primer mensaje privado.', 'error')
+        els.instagramReelPrivateReply.focus()
+        return
+      }
+      if (!setButtonLoading(els.instagramReelSubmit, true, 'Preparando...')) return
+      els.instagramReelCancel.disabled = true
+      let queued = false
+      try {
+        setInstagramReelFeedback('Preparando una carga segura...')
+        setInstagramReelProgress(10)
+        const basePath = '/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications'
+        const upload = await getJson(basePath + '/uploads', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mimeType, sizeBytes: file.size })
+        })
+        if (!upload?.uploadUrl || !upload?.objectPath || !upload?.uploadHeaders) throw new Error('El servidor no devolvió una carga válida.')
+        setInstagramReelFeedback('Subiendo el video...')
+        setInstagramReelProgress(35)
+        const uploaded = await fetch(upload.uploadUrl, {
+          method: 'PUT',
+          headers: upload.uploadHeaders,
+          body: file
+        })
+        if (!uploaded.ok) throw new Error('No pudimos subir el video al almacenamiento.')
+        setInstagramReelFeedback('Verificando el archivo...')
+        setInstagramReelProgress(60)
+        const verified = await getJson(basePath + '/uploads/verify', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ objectPath: upload.objectPath, mimeType, sizeBytes: file.size })
+        })
+        if (!verified?.verified) throw new Error('No pudimos verificar el video subido.')
+        setInstagramReelFeedback('Guardando el borrador...')
+        setInstagramReelProgress(80)
+        const publication = await getJson(basePath, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoObjectPath: verified.objectPath,
+            videoMimeType: verified.mimeType,
+            videoSizeBytes: verified.sizeBytes,
+            caption: els.instagramReelCaption.value.trim(),
+            shareToFeed: els.instagramReelShareToFeed.checked,
+            automation: {
+              enabled: els.instagramReelAutomationEnabled.checked,
+              privateReplyText,
+              keywords: state.instagramReelKeywords
+            }
+          })
+        })
+        await getJson(basePath + '/' + publication.id + '/publish', { method: 'POST' })
+        queued = true
+        setInstagramReelProgress(100)
+        els.instagramReelFeedback.innerHTML = '<strong>Publicaci&oacute;n en cola.</strong> Instagram la procesar&aacute; en segundo plano.'
+        els.instagramReelFeedback.className = 'instagram-reel-feedback visible success'
+        els.instagramReelsFeedback.innerHTML = '<strong>Reel en cola.</strong> Actualiz&aacute; la lista para seguir su estado.'
+        els.instagramReelsFeedback.className = 'instagram-reel-feedback visible success'
+        await loadInstagramReels()
+      } catch (error) {
+        setInstagramReelFeedback(error.message, 'error')
+      } finally {
+        setButtonLoading(els.instagramReelSubmit, false)
+        els.instagramReelCancel.disabled = false
+        if (queued) {
+          els.instagramReelSubmit.disabled = true
+          els.instagramReelSubmit.textContent = 'En cola'
+          els.instagramReelCancel.textContent = 'Cerrar'
+        }
+      }
+    }
+
     function setMarketingView(view) {
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
       els.templateManager.hidden = view !== 'templates'
       els.reminderManager.hidden = view !== 'reminders'
       els.postSaleManager.hidden = view !== 'post-sale'
+      els.instagramReelsManager.hidden = view !== 'instagram-reels'
       for (const button of els.marketingMainTabs.querySelectorAll('[data-marketing-view]')) button.classList.toggle('active', button.dataset.marketingView === view)
       for (const button of document.querySelectorAll('.workspace-nav .nav-subitems [data-marketing-nav]')) button.classList.toggle('active', els.appShell.dataset.section === 'campaigns' && button.dataset.marketingNav === view)
       document.querySelector('.campaigns-title h2').textContent = view === 'templates' ? 'Plantillas de WhatsApp' : 'Campañas'
@@ -30880,18 +31327,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.campaignNew.innerHTML = '<span class="campaign-new-plus">+</span>' + (view === 'templates' ? 'Nueva plantilla' : view === 'reminders' ? 'Nuevo recordatorio' : 'Nueva campaña')
       els.templateSyncAll.hidden = view !== 'templates'
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
-      if (view === 'reminders') {
+      if (view === 'instagram-reels') {
+        document.querySelector('.campaigns-title h2').textContent = 'Instagram Reels'
+        document.querySelector('.campaigns-title p').textContent = 'Publicá videos y convertí comentarios con palabras clave en conversaciones privadas.'
+        els.campaignSearch.hidden = true
+        els.campaignNew.hidden = true
+        if (!state.instagramReelsLoaded) loadInstagramReels()
+      } else if (view === 'reminders') {
+        els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'
         document.querySelector('.campaigns-title p').textContent = 'Prepará o automatizá recordatorios antes de cada turno.'
         els.campaignSearch.placeholder = 'Buscar recordatorio'
         els.campaignNew.hidden = false
         loadReminderSettings()
       } else if (view === 'post-sale') {
+        els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Proceso postventa'
         document.querySelector('.campaigns-title p').textContent = 'Medí la experiencia y detectá clientes que necesitan atención.'
         els.campaignNew.hidden = true
         loadPostSaleSettings()
       } else {
+        els.campaignSearch.hidden = false
         els.campaignNew.hidden = false
       }
     }
@@ -33923,7 +34379,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     document.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return
-      if (!els.confirmationDialog.hidden) closeCrmConfirmation(false)
+      if (!els.instagramReelDialog.hidden) closeInstagramReelDialog()
+      else if (!els.confirmationDialog.hidden) closeCrmConfirmation(false)
       else if (!els.demoSimulatorDialog.hidden) closeDemoSimulator()
       else if (!els.serviceCategoryDialog.hidden) closeServiceCategoryDialog()
       else if (!els.serviceFamilyDialog.hidden) closeServiceFamilyDialog()
@@ -33932,6 +34389,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.serviceImageRemove.addEventListener('click', () => setServiceImage(null))
     els.serviceSearch?.addEventListener('input', renderServices)
     els.campaignNew.addEventListener('click', () => state.marketingView === 'templates' ? openTemplateDialog() : state.marketingView === 'reminders' ? resetReminderDraft() : openCampaignDialog())
+    els.instagramReelNew.addEventListener('click', openInstagramReelDialog)
+    els.instagramReelClose.addEventListener('click', closeInstagramReelDialog)
+    els.instagramReelCancel.addEventListener('click', closeInstagramReelDialog)
+    els.instagramReelDialog.addEventListener('click', (event) => {
+      if (event.target === els.instagramReelDialog) closeInstagramReelDialog()
+    })
+    els.instagramReelForm.addEventListener('submit', submitInstagramReel)
+    els.instagramReelVideo.addEventListener('change', readInstagramReelVideo)
+    els.instagramReelKeywordAdd.addEventListener('click', addInstagramReelKeyword)
+    els.instagramReelKeywordInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return
+      event.preventDefault()
+      addInstagramReelKeyword()
+    })
+    els.instagramReelKeywordChips.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-instagram-reel-keyword-remove]')
+      if (!button) return
+      state.instagramReelKeywords.splice(Number(button.dataset.instagramReelKeywordRemove), 1)
+      renderInstagramReelKeywords()
+      renderInstagramReelReview()
+    })
+    for (const input of [els.instagramReelCaption, els.instagramReelShareToFeed, els.instagramReelAutomationEnabled, els.instagramReelPrivateReply]) {
+      input.addEventListener('input', renderInstagramReelReview)
+      input.addEventListener('change', renderInstagramReelReview)
+    }
     els.marketingMainTabs.addEventListener('click', (event) => {
       const button = event.target.closest('[data-marketing-view]')
       if (button) setMarketingView(button.dataset.marketingView)
@@ -34167,6 +34649,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (event.target === els.templateDeleteDialog) closeTemplateDeleteDialog()
     })
     els.campaignSearch.addEventListener('input', () => {
+      if (state.marketingView === 'instagram-reels') return
       if (state.marketingView === 'templates') {
         state.templateSearch = els.campaignSearch.value.trim()
         renderWhatsappTemplates()

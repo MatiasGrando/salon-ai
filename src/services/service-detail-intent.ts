@@ -50,7 +50,7 @@ export function deterministicServiceInformationRequest(
   if (!normalized) return []
 
   const requested: DeterministicServiceInformation[] = []
-  if (/\b(?:precio|precios|costo|costos|valor|valores|tarifa|tarifas|cuanto cuesta|cuanto sale|cuanto esta|cuanto saldria|cuanto estaria|cuanto me cuesta|cuanto me sale|cuanto me saldria|cuanto me estaria|cuanto vale|en cuanto estaria|que sale)\b/.test(normalized)) {
+  if (/\b(?:precio|precios|costo|costos|valor|valores|tarifa|tarifas|cuanto cuesta|cuanto cuestan|cuanto sale|cuanto salen|cuanto esta|cuanto estan|cuanto saldria|cuanto saldrian|cuanto estaria|cuanto estarian|cuanto me cuesta|cuanto me cuestan|cuanto me sale|cuanto me salen|cuanto me saldria|cuanto me saldrian|cuanto me estaria|cuanto me estarian|cuanto vale|cuanto valen|en cuanto estaria|en cuanto estarian|que sale|que salen)\b/.test(normalized)) {
     requested.push('price')
   }
   if (/\b(?:duracion|demora|cuanto dura|cuanto tiempo dura|cuanto tarda|cuanto tiempo tarda|cuanto demora|cuanto tiempo demora|que demora|tiempo lleva|tiempo tarda|tiempo demora|tiempo del servicio)\b/.test(normalized)) {

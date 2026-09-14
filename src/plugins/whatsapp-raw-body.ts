@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
+import { installMetaRawBodyParser, META_WEBHOOK_BODY_LIMIT } from './meta-raw-body.js'
 
-export const WHATSAPP_BODY_LIMIT = 5 * 1024 * 1024
+export const WHATSAPP_BODY_LIMIT = META_WEBHOOK_BODY_LIMIT
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -9,17 +10,8 @@ declare module 'fastify' {
 }
 
 export function installWhatsAppRawBodyParser(app: FastifyInstance) {
-  const parseJson = app.getDefaultJsonParser('error', 'error')
-
   app.decorateRequest('whatsappRawBody', null)
-  app.removeContentTypeParser('application/json')
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'buffer', bodyLimit: WHATSAPP_BODY_LIMIT },
-    (request, body, done) => {
-      const rawBody = Buffer.isBuffer(body) ? body : Buffer.from(body)
-      request.whatsappRawBody = rawBody
-      parseJson(request, rawBody.toString('utf8'), done)
-    }
-  )
+  installMetaRawBodyParser(app, (request, rawBody) => {
+    request.whatsappRawBody = rawBody
+  })
 }

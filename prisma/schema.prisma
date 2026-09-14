@@ -672,6 +672,28 @@ enum MessageDirection {
   OUTBOUND
 }
 
+enum InstagramPublicationStatus {
+  DRAFT
+  READY
+  CREATING_CONTAINER
+  PROCESSING
+  PUBLISHING
+  PUBLISHED
+  UNKNOWN
+  FAILED
+}
+
+enum InstagramCommentExecutionStatus {
+  READY
+  CLAIMED
+  SENDING
+  RETRY
+  SENT
+  UNKNOWN
+  FAILED
+  SKIPPED
+}
+
 enum ScheduleBlockReason {
   ABSENCE
   VACATION
@@ -853,6 +875,9 @@ model Business {
   aiEnabled              Boolean                       @default(true)
   whatsappConfig         BusinessWhatsAppConfig?
   instagramConfig        BusinessInstagramConfig?
+  instagramPublications  InstagramPublication[]
+  instagramAutomations   InstagramCommentAutomation[]
+  instagramExecutions    InstagramCommentExecution[]
   featureSettings        BusinessFeatureSettings?
   botConfigurations      BusinessBotConfiguration[]
   paymentSettings        BusinessPaymentSettings?
@@ -1191,13 +1216,130 @@ model InstagramLead {
   whatsappConversation   Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
   whatsappLinkedAt       DateTime?
 
-  messages InstagramMessage[]
+  messages          InstagramMessage[]
+  commentExecutions InstagramCommentExecution[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, instagramUserId])
+  @@unique([businessId, id])
   @@index([businessId, updatedAt])
+}
+
+model InstagramPublication {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  videoObjectPath String
+  videoMimeType   String
+  videoSizeBytes  Int
+  caption         String
+  shareToFeed     Boolean                    @default(true)
+  status          InstagramPublicationStatus @default(DRAFT)
+  metaContainerId String?
+  metaMediaId     String?
+  attempts        Int                        @default(0)
+  maxAttempts     Int                        @default(5)
+  availableAt     DateTime                   @default(now())
+  claimToken      String?
+  claimedUntil    DateTime?
+  lastError       String?
+  publishedAt     DateTime?
+
+  automation InstagramCommentAutomation?
+  executions InstagramCommentExecution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, id])
+  @@unique([businessId, metaContainerId])
+  @@unique([businessId, metaMediaId])
+  @@index([status, availableAt])
+  @@index([businessId, createdAt])
+  @@index([claimedUntil])
+}
+
+model InstagramCommentAutomation {
+  id String @id @default(cuid())
+
+  businessId    String
+  business      Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  publicationId String
+  publication   InstagramPublication @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+
+  enabled          Boolean @default(true)
+  privateReplyText String
+
+  keywords   InstagramAutomationKeyword[]
+  executions InstagramCommentExecution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, publicationId])
+  @@unique([businessId, id])
+  @@unique([businessId, publicationId, id])
+  @@index([businessId, enabled])
+}
+
+model InstagramAutomationKeyword {
+  id String @id @default(cuid())
+
+  businessId   String
+  automationId String
+  automation   InstagramCommentAutomation @relation(fields: [businessId, automationId], references: [businessId, id], onDelete: Cascade)
+
+  value           String
+  normalizedValue String
+
+  createdAt DateTime @default(now())
+
+  @@unique([businessId, automationId, normalizedValue], map: "IgAutomationKeyword_scope_normalized_key")
+  @@index([businessId, normalizedValue])
+}
+
+model InstagramCommentExecution {
+  id String @id @default(cuid())
+
+  businessId    String
+  business      Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  publicationId String
+  publication   InstagramPublication         @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  automationId  String
+  automation    InstagramCommentAutomation   @relation(fields: [businessId, publicationId, automationId], references: [businessId, publicationId, id], onDelete: Cascade, map: "IgCommentExecution_scope_automation_fkey")
+  leadId        String?
+  lead          InstagramLead?                @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+
+  providerCommentId        String
+  commenterInstagramUserId String
+  commenterUsername        String?
+  commentText              String
+  matchedKeyword           String
+  status                   InstagramCommentExecutionStatus @default(READY)
+  providerMessageId        String?
+  recipientId              String?
+  attempts                 Int                             @default(0)
+  maxAttempts              Int                             @default(5)
+  availableAt              DateTime                        @default(now())
+  claimToken               String?
+  claimedUntil             DateTime?
+  lastError                String?
+  receivedAt               DateTime                        @default(now())
+  sentAt                   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, providerCommentId])
+  @@unique([businessId, providerMessageId])
+  @@index([status, availableAt])
+  @@index([businessId, publicationId, receivedAt], map: "IgCommentExecution_publication_received_idx")
+  @@index([businessId, commenterInstagramUserId, receivedAt], map: "IgCommentExecution_commenter_received_idx")
+  @@index([claimedUntil])
 }
 
 model WeexLead {

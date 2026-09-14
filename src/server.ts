@@ -26,6 +26,7 @@ import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { instagramWebhookRoutes } from './routes/instagram-webhook.js'
 import { instagramSettingsRoutes } from './routes/instagram-settings.js'
+import { instagramPublicationRoutes } from './routes/instagram-publications.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
 import { authRoutes } from './routes/auth.js'
@@ -72,6 +73,10 @@ import { bridgeDepositNotificationJob } from './bot-options/application/bridge-d
 import { startAppointmentRealtimeListener } from './services/appointment-realtime-listener.js'
 import { startCashRealtimeListener } from './services/cash-realtime-listener.js'
 import { resolveCashRegisterConfig, type CashRegisterConfig } from './config/cash-register.js'
+import {
+  createInstagramReelsRuntime,
+  resolveInstagramReelsRuntimeConfig
+} from './services/instagram-reels-runtime.js'
 
 process.env.TZ ??= 'America/Argentina/Buenos_Aires'
 
@@ -85,6 +90,7 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
   outboxProvider?: OutboxProvider
   cashRegisterConfig?: CashRegisterConfig
+  instagramReelsRuntime?: { ready: boolean; start?(): void; stop(): Promise<void> }
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -95,6 +101,12 @@ export async function buildApp(options: BuildAppOptions = {}) {
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
   const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
+  const instagramReelsRuntime = options.instagramReelsRuntime ?? await createInstagramReelsRuntime({
+    config: resolveInstagramReelsRuntimeConfig(process.env),
+    onError: (error) => app.log.error(error, 'instagram reels runtime error')
+  })
+  app.addHook('onReady', async () => { instagramReelsRuntime.start?.() })
+  app.addHook('onClose', async () => { await instagramReelsRuntime.stop() })
   let shadowAdmission = options.shadowAdmission
   let authoritativeAdmission = options.authoritativeAdmission
 
@@ -134,12 +146,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
       ? { legacyWebhookService: options.legacyWhatsappWebhookService }
       : {})
   })
-  await app.register(instagramWebhookRoutes)
+  await app.register(instagramWebhookRoutes, { commentsRuntimeReady: instagramReelsRuntime.ready })
   await authGuard(app)
   await app.register(accountManagementRoutes)
   await app.register(businessRoutes)
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
+  await app.register(instagramPublicationRoutes, { runtimeReady: instagramReelsRuntime.ready })
   await app.register(professionalRoutes)
   await app.register(serviceRoutes)
   await app.register(customerRoutes)
