@@ -17778,6 +17778,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <input class="field" id="instagram-access-token" type="password" autocomplete="off" placeholder="Pegar solo para conectar o actualizar">
                 </div>
                 <div class="settings-field full">
+                  <label for="instagram-app-secret">Clave privada de la app de Instagram</label>
+                  <input class="field" id="instagram-app-secret" type="password" autocomplete="new-password" placeholder="Pegar solo para conectar o actualizar">
+                  <small id="instagram-app-secret-status">No configurada</small>
+                </div>
+                <div class="settings-field full">
                   <label for="instagram-webhook-url">URL de devoluci&oacute;n de llamada</label>
                   <input class="field" id="instagram-webhook-url" readonly>
                 </div>
@@ -18858,6 +18863,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       instagramUsername: document.getElementById('instagram-username'),
       instagramTokenExpires: document.getElementById('instagram-token-expires'),
       instagramAccessToken: document.getElementById('instagram-access-token'),
+      instagramAppSecret: document.getElementById('instagram-app-secret'),
+      instagramAppSecretStatus: document.getElementById('instagram-app-secret-status'),
       instagramWebhookUrl: document.getElementById('instagram-webhook-url'),
       instagramVerifyToken: document.getElementById('instagram-verify-token'),
       instagramTechnicalSubmit: document.getElementById('instagram-technical-submit'),
@@ -27119,6 +27126,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramUsername.value = connection.username || ''
       els.instagramTokenExpires.value = connection.tokenExpiresAt ? toDatetimeLocalValue(connection.tokenExpiresAt) : ''
       els.instagramAccessToken.value = ''
+      els.instagramAppSecret.value = ''
+      els.instagramAppSecretStatus.textContent = connection.hasAppSecret ? 'Configurada' : 'No configurada'
       els.instagramWebhookUrl.value = window.location.origin + (settings.webhook?.callbackPath || '/webhooks/instagram')
       els.instagramVerifyToken.value = settings.webhook?.verifyToken || ''
       els.instagramTestButton.disabled = !connected
@@ -27146,12 +27155,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       const token = els.instagramAccessToken.value.trim()
       if (token) payload.accessToken = token
+      const appSecret = els.instagramAppSecret.value.trim()
+      if (appSecret) payload.appSecret = appSecret
       if (!payload.instagramAccountId) {
         showInstagramSettingsFeedback('Completa el Instagram Account ID.', 'error')
         return
       }
       if (!token && !state.instagramSettings?.connection?.hasAccessToken) {
         showInstagramSettingsFeedback('Pega el token de acceso generado en Meta.', 'error')
+        return
+      }
+      if (!appSecret && !state.instagramSettings?.connection?.hasAppSecret) {
+        showInstagramSettingsFeedback('Pega la clave privada de la app de Instagram.', 'error')
         return
       }
       if (!setButtonLoading(els.instagramTechnicalSubmit, true, 'Validando...')) return

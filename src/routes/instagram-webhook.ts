@@ -19,10 +19,19 @@ export type InstagramCommentIngressContract = {
 
 export type InstagramWebhookRouteOptions = {
   appSecret?: string | null
+  appSecretResolver?: InstagramAppSecretResolver
   commentsRuntimeReady?: boolean
   commentIngress?: InstagramCommentIngressContract
   legacyWebhookService?: InstagramWebhookServiceContract
   allowedBusinessIds?: readonly string[]
+}
+
+export type InstagramAppSecretResolution =
+  | { status: 'resolved'; appSecret: string }
+  | { status: 'not_found' | 'missing_secret' | 'ambiguous' }
+
+export type InstagramAppSecretResolver = {
+  resolve(input: { instagramAccountIds: string[] }): Promise<InstagramAppSecretResolution>
 }
 
 async function productionDependencies(allowedBusinessIds?: readonly string[]) {
@@ -38,7 +47,37 @@ async function productionDependencies(allowedBusinessIds?: readonly string[]) {
         prisma as unknown as ConstructorParameters<typeof PrismaInstagramCommentIngressStore>[0],
         allowedBusinessIds
       )
-    ) as InstagramCommentIngressContract
+    ) as InstagramCommentIngressContract,
+    appSecretResolver: new PrismaInstagramAppSecretResolver(prisma as unknown as InstagramSecretPrisma)
+  }
+}
+
+type InstagramSecretPrisma = {
+  businessInstagramConfig: {
+    findMany(input: unknown): Promise<Array<{ appSecret: string | null }>>
+  }
+}
+
+export class PrismaInstagramAppSecretResolver implements InstagramAppSecretResolver {
+  constructor(private readonly database: InstagramSecretPrisma) {}
+
+  async resolve(input: { instagramAccountIds: string[] }): Promise<InstagramAppSecretResolution> {
+    const accountIds = [...new Set(input.instagramAccountIds.map((value) => value.trim()).filter(Boolean))]
+    if (!accountIds.length) return { status: 'not_found' }
+    const configurations = await this.database.businessInstagramConfig.findMany({
+      where: {
+        OR: [
+          { instagramAccountId: { in: accountIds } },
+          { apiAccountId: { in: accountIds } }
+        ]
+      },
+      select: { appSecret: true }
+    })
+    if (!configurations.length) return { status: 'not_found' }
+    const secrets = [...new Set(configurations.map((row) => row.appSecret?.trim()).filter((value): value is string => Boolean(value)))]
+    if (!secrets.length) return { status: 'missing_secret' }
+    if (secrets.length !== 1) return { status: 'ambiguous' }
+    return { status: 'resolved', appSecret: secrets[0]! }
   }
 }
 
@@ -52,9 +91,7 @@ export async function instagramWebhookRoutes(
     : await productionDependencies(options.allowedBusinessIds)
   const service = options.legacyWebhookService ?? production!.legacyWebhookService
   const commentIngress = options.commentIngress ?? production!.commentIngress
-  const appSecret = options.appSecret === undefined
-    ? instagramConfig.appSecret
-    : options.appSecret?.trim() || null
+  const appSecretResolver = options.appSecretResolver ?? production?.appSecretResolver
 
   app.get('/webhooks/instagram', async (request, reply) => {
     const query = request.query as Record<string, string | undefined>
@@ -74,6 +111,23 @@ export async function instagramWebhookRoutes(
     const parsed = parseInstagramWebhookPayload(request.body)
     if (parsed.comments.length > 0 && options.commentsRuntimeReady !== true) {
       return reply.status(503).send({ message: 'Automatizaciones de comentarios de Instagram no disponibles' })
+    }
+    const accountIds = [...new Set([
+      ...parsed.comments.flatMap((event) => event.instagramAccountIds),
+      ...parsed.messaging.flatMap((event) => event.instagramAccountIds)
+    ])]
+    let appSecret = options.appSecret === undefined ? null : options.appSecret?.trim() || null
+    if (options.appSecret === undefined && appSecretResolver) {
+      const resolution = await appSecretResolver.resolve({ instagramAccountIds: accountIds })
+      if (resolution.status === 'resolved') appSecret = resolution.appSecret
+      else if (
+        resolution.status === 'missing_secret'
+        && options.appSecretResolver === undefined
+        && instagramConfig.appSecret
+      ) appSecret = instagramConfig.appSecret
+      else return reply.status(503).send({ message: 'No se pudo resolver una clave privada unica para Instagram' })
+    } else if (options.appSecret === undefined) {
+      appSecret = instagramConfig.appSecret
     }
     if (appSecret) {
       const signature = verifyMetaSignature({

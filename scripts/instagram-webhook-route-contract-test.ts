@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import Fastify from 'fastify'
 import { resolveInstagramAppSecret } from '../src/config/instagram.js'
-import { instagramWebhookRoutes } from '../src/routes/instagram-webhook.js'
+import { instagramWebhookRoutes, PrismaInstagramAppSecretResolver } from '../src/routes/instagram-webhook.js'
 
 const secret = 'instagram-app-secret'
 assert.equal(resolveInstagramAppSecret({
@@ -30,8 +30,34 @@ const mixedPayload = {
   }]
 }
 
+for (const testCase of [
+  { rows: [], expected: { status: 'not_found' } },
+  { rows: [{ appSecret: null }], expected: { status: 'missing_secret' } },
+  { rows: [{ appSecret: ' tenant-secret ' }], expected: { status: 'resolved', appSecret: 'tenant-secret' } },
+  { rows: [{ appSecret: 'secret-a' }, { appSecret: 'secret-b' }], expected: { status: 'ambiguous' } }
+] as const) {
+  let query: unknown
+  const resolver = new PrismaInstagramAppSecretResolver({
+    businessInstagramConfig: {
+      async findMany(input) { query = input; return [...testCase.rows] }
+    }
+  })
+  assert.deepEqual(await resolver.resolve({ instagramAccountIds: [' ig-business-1 ', 'ig-business-1'] }), testCase.expected)
+  assert.deepEqual(query, {
+    where: { OR: [
+      { instagramAccountId: { in: ['ig-business-1'] } },
+      { apiAccountId: { in: ['ig-business-1'] } }
+    ] },
+    select: { appSecret: true }
+  })
+}
+
 async function setup(input: {
   appSecret?: string
+  appSecretResolver?: { resolve(input: { instagramAccountIds: string[] }): Promise<
+    | { status: 'resolved'; appSecret: string }
+    | { status: 'not_found' | 'missing_secret' | 'ambiguous' }
+  > }
   commentsRuntimeReady?: boolean
   ingress?: { ingest(payload: unknown): Promise<unknown> }
   legacy?: { handleWebhook(payload: unknown): Promise<unknown> }
@@ -40,6 +66,7 @@ async function setup(input: {
   const app = Fastify()
   await app.register(instagramWebhookRoutes, {
     appSecret: input.appSecret ?? null,
+    appSecretResolver: input.appSecretResolver,
     commentsRuntimeReady: input.commentsRuntimeReady ?? true,
     commentIngress: input.ingress ?? {
       async ingest(payload) { assert.deepEqual(payload, mixedPayload); calls.push('comments'); return { created: 1 } }
@@ -52,6 +79,53 @@ async function setup(input: {
     }
   })
   return { app, calls }
+}
+
+// A client-owned Meta app must select the signing secret from the account IDs
+// carried by the webhook before admitting any event.
+{
+  const calls: string[] = []
+  const resolvedIds: string[][] = []
+  const app = Fastify()
+  await app.register(instagramWebhookRoutes, {
+    appSecretResolver: {
+      async resolve(input) {
+        resolvedIds.push(input.instagramAccountIds)
+        return { status: 'resolved' as const, appSecret: 'tenant-instagram-secret' }
+      }
+    },
+    commentsRuntimeReady: true,
+    commentIngress: { async ingest() { calls.push('comments'); return { created: 1 } } },
+    legacyWebhookService: {
+      verifyWebhook: () => ({ verified: true }),
+      async handleWebhook() { calls.push('messaging'); return { received: true } }
+    }
+  })
+  const response = await app.inject(signedRequest(mixedPayload, 'tenant-instagram-secret'))
+  assert.equal(response.statusCode, 200)
+  assert.deepEqual(resolvedIds, [['ig-business-1']])
+  assert.deepEqual(calls, ['comments', 'messaging'])
+  await app.close()
+}
+
+for (const resolution of [
+  { status: 'missing_secret' as const },
+  { status: 'ambiguous' as const },
+  { status: 'not_found' as const }
+]) {
+  const app = Fastify()
+  await app.register(instagramWebhookRoutes, {
+    appSecretResolver: { async resolve() { return resolution } },
+    commentsRuntimeReady: true,
+    commentIngress: { async ingest() { throw new Error('must not ingest') } },
+    legacyWebhookService: {
+      verifyWebhook: () => ({ verified: true }),
+      async handleWebhook() { throw new Error('must not handle') }
+    }
+  })
+  const response = await app.inject(signedRequest(mixedPayload, 'unknown-secret'))
+  assert.equal(response.statusCode, 503, `tenant secret resolution must fail closed: ${resolution.status}`)
+  await app.close()
 }
 
 function signedRequest(payload: unknown, signingSecret = secret) {

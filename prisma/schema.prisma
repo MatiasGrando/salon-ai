@@ -1173,6 +1173,8 @@ model BusinessInstagramConfig {
   apiAccountId       String?   @unique
   username           String?
   accessToken        String?
+  /// App Secret de la Meta App propia del comercio. Nunca se expone al cliente.
+  appSecret          String?
   tokenExpiresAt     DateTime?
   enabled            Boolean   @default(true)
   connectedAt        DateTime?

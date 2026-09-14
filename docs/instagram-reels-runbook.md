@@ -11,9 +11,11 @@ Este procedimiento activa el flujo **Reel → comentario con palabra clave → u
   - `instagram_business_content_publish`
   - `instagram_business_manage_comments`
   - `instagram_business_manage_messages`
-- App Secret de la aplicación de Instagram disponible en el servidor mediante `INSTAGRAM_APP_SECRET`. `META_APP_SECRET` sólo queda como fallback para instalaciones donde Instagram y WhatsApp usan la misma aplicación de Meta.
+- App Secret de la aplicación de Instagram guardado en la conexión del comercio. Para Barber Demo se conserva temporalmente `INSTAGRAM_APP_SECRET` como fallback migratorio; `META_APP_SECRET` sólo aplica en instalaciones legacy donde Instagram y WhatsApp comparten la misma aplicación de Meta.
 - Webhook con objeto Instagram, callback `/webhooks/instagram` y campo `comments` suscripto.
 - La cuenta conectada también debe suscribir su aplicación al campo `comments` mediante `subscribed_apps`.
+
+Cada comercio que use una Meta App propia carga en el CRM su **Instagram Account ID**, **token de acceso** y **clave privada de la app de Instagram**. Todas las apps pueden compartir la callback `/webhooks/instagram` y el mismo token de verificación. El servidor resuelve primero la cuenta incluida en el webhook y recién entonces valida `X-Hub-Signature-256` con la clave privada de ese comercio.
 
 No mezclar este circuito con tokens o endpoints de **Instagram API with Facebook Login**. La integración implementada usa Instagram Login y `graph.instagram.com`.
 

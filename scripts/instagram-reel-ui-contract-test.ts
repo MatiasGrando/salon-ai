@@ -26,6 +26,11 @@ assert.match(ui, /id="instagram-reel-private-reply"/)
 assert.match(ui, /id="instagram-reel-review"/)
 assert.match(ui, /id="instagram-reel-progress"/)
 assert.match(ui, /id="instagram-reel-feedback"[^>]*role="status"[^>]*aria-live="polite"/)
+assert.match(ui, /id="instagram-app-secret"[^>]*type="password"/)
+assert.match(ui, /hasAppSecret/)
+assert.match(ui, /payload\.appSecret = appSecret/)
+assert.match(ui, /function saveInstagramSettings[\s\S]*?!appSecret && !state\.instagramSettings\?\.connection\?\.hasAppSecret[\s\S]*?setButtonLoading\(els\.instagramTechnicalSubmit/)
+assert.doesNotMatch(ui, /function renderInstagramReels\(\)[\s\S]{0,500}!appSecret/)
 
 assert.match(ui, /const basePath = '\/businesses\/' \+ encodeURIComponent\(state\.businessId\) \+ '\/instagram-publications'/)
 for (const endpoint of ["basePath + '/uploads'", "basePath + '/uploads/verify'", "getJson(basePath,", "basePath + '/' + publication.id + '/publish'"]) {

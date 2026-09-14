@@ -6,6 +6,14 @@ const db = new PGlite()
 try {
   await db.exec(`
     CREATE TABLE "Business" ("id" TEXT PRIMARY KEY);
+    CREATE TABLE "BusinessInstagramConfig" (
+      "id" TEXT PRIMARY KEY,
+      "businessId" TEXT NOT NULL UNIQUE,
+      "instagramAccountId" TEXT NOT NULL UNIQUE,
+      "createdAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE
+    );
     CREATE TABLE "InstagramLead" (
       "id" TEXT PRIMARY KEY,
       "businessId" TEXT NOT NULL,
@@ -16,6 +24,15 @@ try {
   `)
 
   await db.exec(readFileSync('prisma/migrations/20260913030000_add_instagram_reels_automation/migration.sql', 'utf8'))
+  await db.exec(readFileSync('prisma/migrations/20260914180000_add_instagram_client_app_secret/migration.sql', 'utf8'))
+
+  await db.exec(`INSERT INTO "BusinessInstagramConfig"
+    ("id","businessId","instagramAccountId","appSecret","updatedAt")
+    VALUES ('instagram-config-a','business-a','ig-business-a','0123456789abcdef0123456789abcdef',CURRENT_TIMESTAMP)`)
+  const secretConfig = await db.query<{ appSecret: string }>(
+    `SELECT "appSecret" FROM "BusinessInstagramConfig" WHERE "businessId"='business-a'`
+  )
+  assert.equal(secretConfig.rows[0]?.appSecret, '0123456789abcdef0123456789abcdef')
 
   await db.exec(`INSERT INTO "InstagramPublication"
     ("id","businessId","videoObjectPath","videoMimeType","videoSizeBytes","caption","updatedAt")

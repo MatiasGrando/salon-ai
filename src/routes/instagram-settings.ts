@@ -24,6 +24,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
       instagramAccountId?: string
       username?: string | null
       accessToken?: string
+      appSecret?: string
       tokenExpiresAt?: string | null
       enabled?: boolean
     }
@@ -37,6 +38,10 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
     const accessToken = normalizeText(body.accessToken) ?? business.instagramConfig?.accessToken
     if (!instagramAccountId) return reply.status(400).send({ message: 'Completa el Instagram Account ID.' })
     if (!accessToken) return reply.status(400).send({ message: 'Completa el token de acceso de Instagram.' })
+    const appSecret = body.appSecret?.trim()
+    if (appSecret !== undefined && !/^[a-fA-F0-9]{32}$/.test(appSecret)) {
+      return reply.status(400).send({ message: 'La clave privada de Instagram debe tener 32 caracteres hexadecimales.' })
+    }
 
     let account: Awaited<ReturnType<InstagramApi['getAccount']>>
     try {
@@ -57,6 +62,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
         apiAccountId: account.id,
         username,
         ...(body.accessToken ? { accessToken } : {}),
+        ...(appSecret !== undefined ? { appSecret } : {}),
         ...(body.tokenExpiresAt !== undefined ? { tokenExpiresAt: tokenExpiresAt ?? null } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
         connectedAt: new Date(),
@@ -68,6 +74,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
         apiAccountId: account.id,
         username,
         accessToken,
+        appSecret: appSecret ?? null,
         tokenExpiresAt: tokenExpiresAt ?? null,
         enabled: body.enabled ?? true,
         connectedAt: new Date(),
@@ -103,6 +110,7 @@ function presentSettings(
     apiAccountId: string | null
     username: string | null
     accessToken: string | null
+    appSecret: string | null
     tokenExpiresAt: Date | null
     enabled: boolean
     connectedAt: Date | null
@@ -117,6 +125,7 @@ function presentSettings(
           instagramAccountId: settings.instagramAccountId,
           username: settings.username,
           hasAccessToken: Boolean(settings.accessToken),
+          hasAppSecret: Boolean(settings.appSecret),
           tokenExpiresAt: settings.tokenExpiresAt,
           connectedAt: settings.connectedAt,
           lastError: settings.lastError
@@ -126,6 +135,7 @@ function presentSettings(
           instagramAccountId: null,
           username: null,
           hasAccessToken: false,
+          hasAppSecret: false,
           tokenExpiresAt: null,
           connectedAt: null,
           lastError: null
