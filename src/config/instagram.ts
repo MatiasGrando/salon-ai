@@ -3,7 +3,13 @@ import 'dotenv/config'
 export const instagramConfig = {
   verifyToken: process.env.INSTAGRAM_VERIFY_TOKEN ?? 'salon_ai_instagram_verify_95',
   apiVersion: process.env.INSTAGRAM_API_VERSION ?? 'v25.0',
-  appSecret: process.env.META_APP_SECRET?.trim() || null
+  appSecret: resolveInstagramAppSecret(process.env)
+}
+
+export function resolveInstagramAppSecret(env: Record<string, string | undefined>) {
+  return env.INSTAGRAM_APP_SECRET?.trim()
+    || env.META_APP_SECRET?.trim()
+    || null
 }
 
 const DEFAULT_REEL_BUCKET = 'instagram-reels'

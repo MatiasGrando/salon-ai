@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import Fastify from 'fastify'
+import { resolveInstagramAppSecret } from '../src/config/instagram.js'
 import { instagramWebhookRoutes } from '../src/routes/instagram-webhook.js'
 
 const secret = 'instagram-app-secret'
+assert.equal(resolveInstagramAppSecret({
+  INSTAGRAM_APP_SECRET: ' instagram-specific ',
+  META_APP_SECRET: 'whatsapp-secret'
+}), 'instagram-specific', 'Instagram debe usar el secreto de su propia aplicación')
+assert.equal(resolveInstagramAppSecret({ META_APP_SECRET: ' legacy-secret ' }), 'legacy-secret',
+  'el secreto compartido debe conservarse como fallback compatible')
 const mixedPayload = {
   object: 'instagram',
   entry: [{

@@ -9,6 +9,7 @@ for (const required of [
   'instagram_business_manage_comments',
   'instagram_business_manage_messages',
   'comments',
+  'INSTAGRAM_APP_SECRET',
   'INSTAGRAM_REELS_ENABLED',
   'SUPABASE_INSTAGRAM_REELS_BUCKET',
   '20260913030000_add_instagram_reels_automation',

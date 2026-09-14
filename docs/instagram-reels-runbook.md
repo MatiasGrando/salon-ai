@@ -11,7 +11,7 @@ Este procedimiento activa el flujo **Reel → comentario con palabra clave → u
   - `instagram_business_content_publish`
   - `instagram_business_manage_comments`
   - `instagram_business_manage_messages`
-- App Secret disponible en el servidor mediante `META_APP_SECRET`.
+- App Secret de la aplicación de Instagram disponible en el servidor mediante `INSTAGRAM_APP_SECRET`. `META_APP_SECRET` sólo queda como fallback para instalaciones donde Instagram y WhatsApp usan la misma aplicación de Meta.
 - Webhook con objeto Instagram, callback `/webhooks/instagram` y campo `comments` suscripto.
 - La cuenta conectada también debe suscribir su aplicación al campo `comments` mediante `subscribed_apps`.
 
