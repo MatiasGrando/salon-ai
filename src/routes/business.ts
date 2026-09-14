@@ -56,7 +56,7 @@ export async function businessRoutes(app: FastifyInstance) {
           ...businessAccessWhere(resolveBusinessScope(request.auth.user)),
           ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
         },
-        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
         include: { featureSettings: { select: { pipelineEnabled: true } } },
         orderBy: { name: 'asc' }
       })
@@ -64,7 +64,7 @@ export async function businessRoutes(app: FastifyInstance) {
     if (!request.auth.user.businessId) return []
     const business = await prisma.business.findUnique({
       where: { id: request.auth.user.businessId },
-      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingGalleryImages: true } }),
+      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
       include: { featureSettings: { select: { pipelineEnabled: true } } }
     })
     return business ? [business] : []
@@ -81,6 +81,7 @@ export async function businessRoutes(app: FastifyInstance) {
         id: true,
         logoUrl: true,
         coverImageUrl: true,
+        landingSocialImageUrl: true,
         landingGalleryImages: true
       }
     })
@@ -265,6 +266,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingTemplateContent?: unknown
       bookingTheme?: string | null
       coverImageUrl?: string | null
+      landingSocialImageUrl?: string | null
       landingGalleryImages?: string[] | null
       publicWhatsapp?: string | null
       contactEmail?: string | null
@@ -288,6 +290,7 @@ export async function businessRoutes(app: FastifyInstance) {
     const slug = body.slug === undefined ? undefined : normalizeOptionalText(body.slug)
     let logoUrl = normalizeLogoUrl(body.logoUrl)
     let coverImageUrl = normalizeCoverImageUrl(body.coverImageUrl)
+    let landingSocialImageUrl = normalizeLandingSocialImageUrl(body.landingSocialImageUrl)
     const landingTemplate = normalizeLandingTemplate(body.landingTemplate)
     const landingSubtitle = normalizeOptionalText(body.landingSubtitle)
     const landingFeature = normalizeOptionalText(body.landingFeature)
@@ -326,6 +329,12 @@ export async function businessRoutes(app: FastifyInstance) {
     if (body.coverImageUrl !== undefined && coverImageUrl === undefined) {
       return reply.status(400).send({
         message: 'La portada debe ser una imagen valida de hasta 3 MB'
+      })
+    }
+
+    if (body.landingSocialImageUrl !== undefined && landingSocialImageUrl === undefined) {
+      return reply.status(400).send({
+        message: 'La imagen para compartir debe ser una imagen válida de hasta 3 MB'
       })
     }
 
@@ -403,6 +412,7 @@ export async function businessRoutes(app: FastifyInstance) {
       landingTemplateContent === undefined &&
       bookingTheme === undefined &&
       coverImageUrl === undefined &&
+      landingSocialImageUrl === undefined &&
       landingGalleryImages === undefined &&
       publicWhatsapp === undefined &&
       contactEmail === undefined &&
@@ -432,6 +442,14 @@ export async function businessRoutes(app: FastifyInstance) {
           businessId: params.id,
           kind: 'covers',
           value: coverImageUrl,
+          maxBytes: 3 * 1024 * 1024
+        })
+      }
+      if (landingSocialImageUrl) {
+        landingSocialImageUrl = await storeBusinessImage({
+          businessId: params.id,
+          kind: 'social',
+          value: landingSocialImageUrl,
           maxBytes: 3 * 1024 * 1024
         })
       }
@@ -468,6 +486,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(landingTemplateContent !== undefined ? { landingTemplateContent } : {}),
         ...(bookingTheme !== undefined ? { bookingTheme: bookingTheme } : {}),
         ...(coverImageUrl !== undefined ? { coverImageUrl } : {}),
+        ...(landingSocialImageUrl !== undefined ? { landingSocialImageUrl } : {}),
         ...(landingGalleryImages !== undefined ? { landingGalleryImages } : {}),
         ...(publicWhatsapp !== undefined ? { publicWhatsapp } : {}),
         ...(contactEmail !== undefined ? { contactEmail } : {}),
@@ -884,6 +903,10 @@ function normalizeLogoUrl(logoUrl?: string | null) {
 
 function normalizeCoverImageUrl(coverImageUrl?: string | null) {
   return normalizeImageUrl(coverImageUrl, 3)
+}
+
+function normalizeLandingSocialImageUrl(imageUrl?: string | null) {
+  return normalizeImageUrl(imageUrl, 3)
 }
 
 function normalizeGalleryImages(images?: string[] | null) {

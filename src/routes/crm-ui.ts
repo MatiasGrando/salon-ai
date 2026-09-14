@@ -8286,6 +8286,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       gap: 10px;
     }
 
+    .landing-social-preview-field {
+      padding: clamp(14px, 2vw, 20px);
+      border: 1px solid #dbe3f0;
+      border-radius: 12px;
+      background: #f8faff;
+    }
+
+    .landing-social-preview-field .landing-cover-preview {
+      width: min(100%, 720px);
+      min-height: clamp(150px, 24vw, 260px);
+      aspect-ratio: 1200 / 630;
+    }
+
+    .landing-social-preview-field .landing-cover-preview img {
+      min-height: 0;
+      aspect-ratio: 1200 / 630;
+      object-fit: cover;
+    }
+
     .landing-cover-preview {
       min-height: 160px;
       border: 1px dashed #b8c5da;
@@ -17292,6 +17311,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <small id="landing-cover-help">Formato recomendado para Vintage y Editorial: 1600 &times; 700 px. M&aacute;ximo 3 MB. La portada se adapta para mostrarse completa en cualquier pantalla.</small>
             </div>
 
+            <div class="landing-cover-field landing-social-preview-field">
+              <div class="business-hours-title">Vista previa al compartir (1200 &times; 630)</div>
+              <div class="landing-cover-preview" id="landing-social-image-preview">
+                <img id="landing-social-image-preview-image" alt="Imagen para compartir la landing">
+                <span id="landing-social-image-preview-empty">Usaremos la portada autom&aacute;ticamente</span>
+              </div>
+              <div class="landing-cover-actions">
+                <label for="landing-social-image">Subir imagen para WhatsApp
+                  <input id="landing-social-image" type="file" accept="image/png,image/jpeg,image/webp">
+                </label>
+                <button class="business-logo-remove" id="landing-social-image-remove" type="button">Usar portada autom&aacute;tica</button>
+              </div>
+              <small>Esta imagen aparecer&aacute; al compartir la p&aacute;gina en WhatsApp y redes sociales. Si no carg&aacute;s una, WEEEX usar&aacute; la portada y luego el logo como respaldo. M&aacute;ximo 3 MB.</small>
+            </div>
+
             <div class="landing-cover-field">
               <div class="business-hours-title">Galer&iacute;a</div>
               <div class="landing-gallery-grid" id="landing-gallery-list"></div>
@@ -18666,6 +18700,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       campaignTake: 8,
       campaignImageUrl: null,
       landingCoverUrl: null,
+      landingSocialImageUrl: null,
       landingGalleryImages: [],
       bookingThemeDirty: false,
       campaignEmojiCategory: 'recent',
@@ -19495,6 +19530,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       landingCoverPreview: document.getElementById('landing-cover-preview'),
       landingCoverImage: document.getElementById('landing-cover-image'),
       landingCoverRemove: document.getElementById('landing-cover-remove'),
+      landingSocialImage: document.getElementById('landing-social-image'),
+      landingSocialImagePreview: document.getElementById('landing-social-image-preview'),
+      landingSocialImagePreviewImage: document.getElementById('landing-social-image-preview-image'),
+      landingSocialImagePreviewEmpty: document.getElementById('landing-social-image-preview-empty'),
+      landingSocialImageRemove: document.getElementById('landing-social-image-remove'),
       landingGallery: document.getElementById('landing-gallery'),
       landingGalleryList: document.getElementById('landing-gallery-list'),
       landingSettingsSubmit: document.getElementById('landing-settings-submit'),
@@ -26800,6 +26840,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.landingFeature.value = state.business?.landingFeature || ''
       loadLandingTemplateForm(landingTemplate)
       setLandingCover(state.business?.coverImageUrl || null)
+      setLandingSocialImage(state.business?.landingSocialImageUrl || null)
       setLandingGallery(parseLandingGalleryImages(state.business?.landingGalleryImages))
       renderLandingLinks(slug)
     }
@@ -27520,6 +27561,45 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!coverUrl) {
         els.landingCover.value = ''
       }
+      renderLandingSocialImagePreview()
+    }
+
+    function setLandingSocialImage(imageUrl) {
+      state.landingSocialImageUrl = imageUrl
+      if (!imageUrl) els.landingSocialImage.value = ''
+      renderLandingSocialImagePreview()
+    }
+
+    function renderLandingSocialImagePreview() {
+      const effectiveUrl = state.landingSocialImageUrl || state.landingCoverUrl || state.business?.logoUrl || ''
+      els.landingSocialImagePreviewImage.src = effectiveUrl
+      els.landingSocialImagePreview.classList.toggle('has-image', Boolean(effectiveUrl))
+      els.landingSocialImageRemove.hidden = !state.landingSocialImageUrl
+      els.landingSocialImagePreviewEmpty.textContent = effectiveUrl
+        ? ''
+        : 'Sin imagen de portada ni logo disponible'
+    }
+
+    function readLandingSocialImage(event) {
+      const file = event.target.files?.[0]
+      if (!file) return
+
+      const supportedTypes = ['image/png', 'image/jpeg', 'image/webp']
+      if (!supportedTypes.includes(file.type)) {
+        showLandingSettingsFeedback('Eleg&iacute; una imagen PNG, JPG o WEBP.', 'error')
+        setLandingSocialImage(state.business?.landingSocialImageUrl || null)
+        return
+      }
+      if (file.size > 3 * 1024 * 1024) {
+        showLandingSettingsFeedback('La imagen para compartir no puede superar los 3 MB.', 'error')
+        setLandingSocialImage(state.business?.landingSocialImageUrl || null)
+        return
+      }
+
+      clearLandingSettingsFeedback()
+      optimizeImageFile(file, 1200)
+        .then(setLandingSocialImage)
+        .catch(() => showLandingSettingsFeedback('No pude optimizar la imagen para compartir.', 'error'))
     }
 
     function readLandingCover(event) {
@@ -27847,6 +27927,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               ...(selectedTemplate === 'luxe-nails' ? { 'luxe-nails': luxeNailsContent } : {})
             },
             coverImageUrl: state.landingCoverUrl,
+            landingSocialImageUrl: state.landingSocialImageUrl,
             landingGalleryImages: state.landingGalleryImages
           })
         })
@@ -34773,6 +34854,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.landingCoverRemove.addEventListener('click', () => {
       clearLandingSettingsFeedback()
       setLandingCover(null)
+    })
+    els.landingSocialImage.addEventListener('change', readLandingSocialImage)
+    els.landingSocialImageRemove.addEventListener('click', () => {
+      clearLandingSettingsFeedback()
+      setLandingSocialImage(null)
     })
     els.landingGallery?.addEventListener('change', readLandingGallery)
     els.landingGalleryList?.addEventListener('click', (event) => {

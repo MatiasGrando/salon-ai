@@ -18,6 +18,7 @@ const businessService = new BusinessService()
 const businessMediaOmit = {
   logoUrl: true,
   coverImageUrl: true,
+  landingSocialImageUrl: true,
   landingGalleryImages: true
 } as const
 const professionalMediaOmit = { avatarUrl: true } as const

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import sharp from 'sharp'
 import { storeBusinessImage } from '../src/services/media-storage-service.js'
 
 const originalFetch = globalThis.fetch
@@ -49,6 +50,21 @@ try {
   }), existingUrl)
   assert.equal(requests.length, 2, 'una URL existente no debe volver a subirse')
 
+  const socialUrl = await storeBusinessImage({
+    businessId: 'business-1',
+    kind: 'social',
+    value: onePixelPng,
+    maxBytes: 3 * 1024 * 1024
+  })
+  assert.match(socialUrl, /^https:\/\/example\.supabase\.co\/storage\/v1\/object\/public\/business-media\/business-1\/social\/[a-f0-9]{24}\.jpg$/)
+  assert.equal(requests.length, 4, 'la imagen social debe subirse y verificarse')
+  assert.equal(requests[2]?.headers.get('content-type'), 'image/jpeg')
+  assert.deepEqual(Array.from(Buffer.from(requests[2]?.body || []).subarray(0, 2)), [0xff, 0xd8])
+  const socialMetadata = await sharp(requests[2]?.body || new Uint8Array()).metadata()
+  assert.equal(socialMetadata.width, 1200)
+  assert.equal(socialMetadata.height, 630)
+  assert.equal(requests[3]?.method, 'HEAD')
+
   const serviceRoute = readFileSync(new URL('../src/routes/service.ts', import.meta.url), 'utf8')
   const professionalRoute = readFileSync(new URL('../src/routes/professional.ts', import.meta.url), 'utf8')
   const businessRoute = readFileSync(new URL('../src/routes/business.ts', import.meta.url), 'utf8')
@@ -58,6 +74,7 @@ try {
   assert.match(businessRoute, /kind: 'logos'/)
   assert.match(businessRoute, /kind: 'covers'/)
   assert.match(businessRoute, /kind: 'gallery'/)
+  assert.match(businessRoute, /kind: 'social'/)
   assert.match(crmUiRoute, /async function optimizeImageFile\(file, maxDimension\)/)
 } finally {
   globalThis.fetch = originalFetch

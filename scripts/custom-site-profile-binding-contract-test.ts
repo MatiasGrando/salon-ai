@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { findCustomSiteProfileBinding } from '../src/services/custom-site-profile-binding.js'
 
-const [landingUi, businessService, tamaraSite, naturaFlowRoute, authGuard, server] = await Promise.all([
+const [landingUi, businessService, tamaraSite, yamilaSite, naturaFlowRoute, authGuard, server] = await Promise.all([
   readFile('src/routes/landing-ui.ts', 'utf8'),
   readFile('src/services/business-service.ts', 'utf8'),
   readFile('src/assets/tamara-site/index.html', 'utf8'),
+  readFile('src/assets/yamila-site/index.html', 'utf8'),
   readFile('src/routes/natura-flow-site.ts', 'utf8'),
   readFile('src/plugins/auth-guard.ts', 'utf8'),
   readFile('src/server.ts', 'utf8')
@@ -49,6 +50,12 @@ assert.match(tamaraSite, /href="\/reservar" class="btn btn-outline" style="width
 assert.match(tamaraSite, /<a class="radio-opt" href="\/reservar">Agendar consulta<\/a>/)
 
 assert.match(naturaFlowSite, /<title>Natura Flow \| Natalia Baez Riquelme<\/title>/)
+assert.match(yamilaSite, /<meta property="og:image" content="https:\/\/yamila-sacco\.weex\.com\.ar\/images\/hero\.jpg">/)
+assert.match(yamilaSite, /<meta property="og:url" content="https:\/\/yamila-sacco\.weex\.com\.ar\/">/)
+assert.match(yamilaSite, /<meta name="twitter:card" content="summary_large_image">/)
+assert.match(naturaFlowSite, /<meta property="og:image" content="https:\/\/images\.unsplash\.com\/photo-1544161515-4ab6ce6db874\?auto=format&amp;fit=crop&amp;w=1200&amp;h=630&amp;q=85">/)
+assert.match(naturaFlowSite, /<meta property="og:url" content="https:\/\/naturalflow\.weex\.com\.ar\/">/)
+assert.match(naturaFlowSite, /<meta name="twitter:card" content="summary_large_image">/)
 assert.match(naturaFlowSite, /storage\/v1\/object\/public\/custom-sites\/natura-flow\/hero\.mp4/)
 assert.match(naturaFlowSite, /href="\/reservar"/)
 assert.doesNotMatch(naturaFlowSite, /5491112345678|contacto@nataliabaez\.com|Pedro de Valdivia/)

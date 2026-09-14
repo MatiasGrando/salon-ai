@@ -4,11 +4,13 @@ import { join } from 'node:path'
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { injectSocialPreviewImage, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 
 const yamilaHost = 'yamila-sacco.weex.com.ar'
 const yamilaSiteDir = join(process.cwd(), 'src', 'assets', 'yamila-site')
 const businessService = new BusinessService()
 const yamilaBinding = findCustomSiteProfileBinding(yamilaHost)
+const yamilaDefaultSocialImage = `https://${yamilaHost}/images/hero.jpg`
 
 const assets = [
   { url: '/styles.css', file: 'styles.css', contentType: 'text/css; charset=utf-8' },
@@ -37,10 +39,19 @@ const assets = [
 
 export async function yamilaSiteRoutes(app: FastifyInstance) {
   app.get('/', { constraints: { host: yamilaHost } }, async (_request, reply) => {
-    if (await customSiteIsUnavailable()) {
+    const business = yamilaBinding
+      ? await businessService.findPublicByCustomerCode(yamilaBinding.businessCustomerCode)
+      : null
+    if (!business || !business.landingEnabled || isBusinessAccountUnavailable(business.accountStatus)) {
       return reply.status(503).type('text/html; charset=utf-8').send(renderUnavailableSite())
     }
-    const html = await readFile(join(yamilaSiteDir, 'index.html'))
+    const socialImageUrl = resolveSocialPreviewImage({
+      landingSocialImageUrl: business.landingSocialImageUrl,
+      coverImageUrl: business.coverImageUrl,
+      logoUrl: null
+    }, yamilaDefaultSocialImage)
+    const source = await readFile(join(yamilaSiteDir, 'index.html'), 'utf8')
+    const html = injectSocialPreviewImage(source, socialImageUrl)
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })
@@ -53,12 +64,6 @@ export async function yamilaSiteRoutes(app: FastifyInstance) {
       return reply.type(asset.contentType).send(content)
     })
   }
-}
-
-async function customSiteIsUnavailable() {
-  if (!yamilaBinding) return true
-  const business = await businessService.findPublicByCustomerCode(yamilaBinding.businessCustomerCode)
-  return !business || !business.landingEnabled || isBusinessAccountUnavailable(business.accountStatus)
 }
 
 function renderUnavailableSite() {

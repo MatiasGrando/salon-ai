@@ -860,6 +860,7 @@ model Business {
   landingTemplateContent Json?
   bookingTheme          String?
   coverImageUrl          String?
+  landingSocialImageUrl  String?
   landingGalleryImages   String?
   publicWhatsapp         String?
   contactName            String?

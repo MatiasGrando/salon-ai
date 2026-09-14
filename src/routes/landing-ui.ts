@@ -8,6 +8,7 @@ import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../se
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 import { formatCustomerDuration } from '../services/service-duration.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -490,6 +491,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
 
   return htmlPage({
     title: `${business.name} | Reservas online`,
+    socialPreview: landingSocialPreview(business, description),
     bodyClass: `landing-template-${landingTemplate}`,
     body: `
       <header class="navbar">
@@ -783,6 +785,7 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPr
 
   return htmlPage({
     title: `${business.name} | Reservas online`,
+    socialPreview: landingSocialPreview(business, description),
     bodyClass: 'landing-template-luxe-nails',
     body: `
       <style>
@@ -1009,6 +1012,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
 
   return htmlPage({
     title: `${business.name} | Reservas online`,
+    socialPreview: landingSocialPreview(business, description),
     bodyClass: 'landing-template-salon-white',
     body: `
       <style>
@@ -3794,13 +3798,32 @@ function renderBusinessUnavailable() {
   })
 }
 
-function htmlPage(input: { title: string; body: string; bodyClass?: string }) {
+function landingSocialPreview(business: LandingBusiness, description: string) {
+  const canonicalUrl = business.slug
+    ? `https://${business.slug}.${baseDomain}/`
+    : `https://${baseDomain}/`
+  return {
+    title: `${business.name} | Reservas online`,
+    description,
+    canonicalUrl,
+    imageUrl: resolveSocialPreviewImage(business, `https://${baseDomain}/branding/logo`),
+    imageAlt: `${business.name} - vista previa de la landing`
+  }
+}
+
+function htmlPage(input: {
+  title: string
+  body: string
+  bodyClass?: string
+  socialPreview?: ReturnType<typeof landingSocialPreview>
+}) {
   return `<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(input.title)}</title>
+  ${input.socialPreview ? renderSocialPreviewMetadata(input.socialPreview) : ''}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jost:wght@400;500;600&family=Playfair+Display:wght@500;600;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">

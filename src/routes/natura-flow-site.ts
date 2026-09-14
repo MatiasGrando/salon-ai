@@ -4,11 +4,13 @@ import { join } from 'node:path'
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { injectSocialPreviewImage, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 
 const naturaFlowHost = 'naturalflow.weex.com.ar'
 const naturaFlowSiteDir = join(process.cwd(), 'src', 'assets', 'natura-flow-site')
 const businessService = new BusinessService()
 const naturaFlowBinding = findCustomSiteProfileBinding(naturaFlowHost)
+const naturaFlowDefaultSocialImage = 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&h=630&q=85'
 
 const assets = [
   { url: '/styles/custom.css', file: join('styles', 'custom.css'), contentType: 'text/css; charset=utf-8' },
@@ -17,10 +19,19 @@ const assets = [
 
 export async function naturaFlowSiteRoutes(app: FastifyInstance) {
   app.get('/', { constraints: { host: naturaFlowHost } }, async (_request, reply) => {
-    if (await customSiteIsUnavailable()) {
+    const business = naturaFlowBinding
+      ? await businessService.findPublicByCustomerCode(naturaFlowBinding.businessCustomerCode)
+      : null
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) {
       return reply.status(503).type('text/html; charset=utf-8').send(renderUnavailableSite())
     }
-    const html = await readFile(join(naturaFlowSiteDir, 'index.html'))
+    const socialImageUrl = resolveSocialPreviewImage({
+      landingSocialImageUrl: business?.landingSocialImageUrl,
+      coverImageUrl: business?.coverImageUrl,
+      logoUrl: null
+    }, naturaFlowDefaultSocialImage)
+    const source = await readFile(join(naturaFlowSiteDir, 'index.html'), 'utf8')
+    const html = injectSocialPreviewImage(source, socialImageUrl)
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })
@@ -33,12 +44,6 @@ export async function naturaFlowSiteRoutes(app: FastifyInstance) {
       return reply.type(asset.contentType).send(content)
     })
   }
-}
-
-async function customSiteIsUnavailable() {
-  if (!naturaFlowBinding) return false
-  const business = await businessService.findPublicByCustomerCode(naturaFlowBinding.businessCustomerCode)
-  return Boolean(business && isBusinessAccountUnavailable(business.accountStatus))
 }
 
 function renderUnavailableSite() {
