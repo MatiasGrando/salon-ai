@@ -107,6 +107,9 @@ export async function deleteInstagramReelVideo(input: { businessId: string; obje
 }
 
 type StorageObjectInfo = {
+  size?: number | string
+  content_type?: string
+  contentType?: string
   metadata?: {
     size?: number | string
     mimetype?: string
@@ -155,7 +158,7 @@ function validateSize(sizeBytes: number, maxBytes: number) {
 }
 
 function metadataSize(info: StorageObjectInfo) {
-  const size = Number(info.metadata?.size)
+  const size = Number(info.size ?? info.metadata?.size)
   if (!Number.isSafeInteger(size) || size <= 0) {
     throw new Error('Supabase Storage no devolvió un tamaño válido para el video.')
   }
@@ -163,7 +166,13 @@ function metadataSize(info: StorageObjectInfo) {
 }
 
 function metadataMimeType(info: StorageObjectInfo) {
-  const mimeType = normalizeMimeType(info.metadata?.mimetype || info.metadata?.contentType || '')
+  const mimeType = normalizeMimeType(
+    info.content_type
+      || info.contentType
+      || info.metadata?.mimetype
+      || info.metadata?.contentType
+      || ''
+  )
   if (!mimeType) throw new Error('Supabase Storage no devolvió el tipo de contenido del video.')
   return mimeType
 }

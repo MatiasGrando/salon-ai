@@ -35,7 +35,11 @@ try {
       return Response.json({ url: `${signedPath}?token=upload-token` })
     }
     if (method === 'GET' && url.includes('/object/info/')) {
-      return Response.json({ metadata: { size: 345678, mimetype: 'video/mp4' } })
+      return Response.json({
+        size: 345678,
+        content_type: 'video/mp4',
+        metadata: {}
+      })
     }
     if (method === 'POST' && url.includes('/object/sign/')) {
       const signedPath = new URL(url).pathname.replace('/storage/v1', '').replace('/object/sign/', '/object/sign/')
