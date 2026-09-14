@@ -43,7 +43,15 @@ export type CashChangedEvent = {
   updatedAt: string
 }
 
-export type CrmRealtimeEvent = IncomingConversationMessageEvent | OutgoingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent | AppointmentChangedEvent | CashChangedEvent
+export type InstagramPublicationChangedEvent = {
+  type: 'instagram_publication_changed'
+  businessId: string
+  publicationId: string
+  status: string
+  updatedAt: string
+}
+
+export type CrmRealtimeEvent = IncomingConversationMessageEvent | OutgoingConversationMessageEvent | ConversationUpdatedEvent | DepositUpdatedEvent | AppointmentChangedEvent | CashChangedEvent | InstagramPublicationChangedEvent
 
 type CrmRealtimeSubscriber = {
   businessId: string
@@ -185,6 +193,10 @@ export function publishCashChanged(input: Omit<CashChangedEvent, 'type'>) {
   }
 
   publishCrmRealtimeEvent(event)
+}
+
+export function publishInstagramPublicationChanged(input: Omit<InstagramPublicationChangedEvent, 'type'>) {
+  publishCrmRealtimeEvent({ type: 'instagram_publication_changed', ...input })
 }
 
 function publishCrmRealtimeEvent(event: CrmRealtimeEvent) {

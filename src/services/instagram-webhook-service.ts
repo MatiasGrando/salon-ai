@@ -16,6 +16,8 @@ import {
 } from './conversation-router.js'
 import { isBusinessAccountUnavailable } from './business-account-access.js'
 import { parseInstagramWebhookPayload } from './instagram-webhook-parser.js'
+import { publishIncomingConversationMessage, publishOutgoingConversationMessage } from './crm-realtime-events.js'
+import { channelConversationId, channelMessageId } from './conversation-channel-service.js'
 
 type VerifyWebhookInput = {
   mode: string | undefined
@@ -163,7 +165,7 @@ export class InstagramWebhookService {
         }
       })
 
-      await prisma.instagramMessage.create({
+      const inboundMessage = await prisma.instagramMessage.create({
         data: {
           leadId: lead.id,
           ...(event.messageId ? { providerMessageId: event.messageId } : {}),
@@ -176,6 +178,12 @@ export class InstagramWebhookService {
             ...(event.timestamp ? { timestamp: event.timestamp } : {})
           }
         }
+      })
+      publishIncomingConversationMessage({
+        businessId: config.businessId,
+        conversationId: channelConversationId('INSTAGRAM', lead.id),
+        messageId: channelMessageId('INSTAGRAM', inboundMessage.id),
+        receivedAt: new Date().toISOString()
       })
 
       if (!config.enabled || !config.accessToken) {
@@ -239,7 +247,7 @@ export class InstagramWebhookService {
             recipientId: event.senderId,
             text: outboundMessage
           })
-          await prisma.instagramMessage.create({
+          const savedOutbound = await prisma.instagramMessage.create({
             data: {
               leadId: lead.id,
               providerMessageId: delivery.messageId,
@@ -248,6 +256,12 @@ export class InstagramWebhookService {
               status: 'sent',
               metadata: { provider: 'instagram', recipientId: delivery.recipientId }
             }
+          })
+          publishOutgoingConversationMessage({
+            businessId: config.businessId,
+            conversationId: channelConversationId('INSTAGRAM', lead.id),
+            messageId: channelMessageId('INSTAGRAM', savedOutbound.id),
+            sentAt: new Date().toISOString()
           })
         }
         await prisma.instagramLead.update({ where: { id: lead.id }, data: { lastAutoReplyAt: new Date() } })

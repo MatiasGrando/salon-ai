@@ -128,6 +128,8 @@ assert.equal(isInstagramPublicationWorkspaceRoute('POST', '/businesses/business-
 assert.equal(isInstagramPublicationWorkspaceRoute('GET', '/businesses/business-a/instagram-publications/uploads'), false)
 assert.equal(isInstagramPublicationWorkspaceRoute('POST', '/businesses/business-a/instagram-publications/uploads/verify/extra'), false)
 assert.equal(isInstagramPublicationWorkspaceRoute('POST', '/businesses/business-a/instagram-publications/not-a-route/verify'), false)
+assert.equal(isInstagramPublicationWorkspaceRoute('DELETE', '/businesses/business-a/instagram-publications/publication-1/video'), true)
+assert.equal(isInstagramPublicationWorkspaceRoute('POST', '/businesses/business-a/instagram-publications/publication-1/video'), false)
 
 await app.close()
 console.log('Instagram Reel upload routes contract: OK')

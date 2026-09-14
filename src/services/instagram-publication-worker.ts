@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { InstagramApi, InstagramApiRequestError } from '../integrations/instagram-api.js'
 import type { InstagramPublicationStatus } from './instagram-automation-domain.js'
+import { publishInstagramPublicationChanged } from './crm-realtime-events.js'
 
 export type InstagramPublicationJob = {
   id: string
@@ -68,6 +69,7 @@ export class InstagramPublicationWorker {
   private readonly clock: { now(): Date }
   private readonly randomToken: () => string
   private readonly leaseMs: number
+  private readonly onStatusChanged: (input: { businessId: string; publicationId: string; status: InstagramPublicationStatus; updatedAt: string }) => void
 
   constructor(input: {
     repository?: InstagramPublicationWorkerRepository
@@ -76,6 +78,7 @@ export class InstagramPublicationWorker {
     clock?: { now(): Date }
     randomToken?: () => string
     leaseMs?: number
+    onStatusChanged?: (input: { businessId: string; publicationId: string; status: InstagramPublicationStatus; updatedAt: string }) => void
   }) {
     this.repository = input.repository ?? new PrismaInstagramPublicationWorkerRepository()
     this.api = input.api ?? new InstagramApi()
@@ -83,6 +86,7 @@ export class InstagramPublicationWorker {
     this.clock = input.clock ?? { now: () => new Date() }
     this.randomToken = input.randomToken ?? randomUUID
     this.leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS
+    this.onStatusChanged = input.onStatusChanged ?? publishInstagramPublicationChanged
   }
 
   async runOnce(): Promise<InstagramPublicationWorkerResult> {
@@ -123,6 +127,7 @@ export class InstagramPublicationWorker {
       id: job.id, claimToken, from: job.status, to: 'CREATING_CONTAINER', keepLease: true,
       patch: { attempts: job.attempts + 1, lastError: null }
     })) return { outcome: 'lost-lease', publicationId: job.id }
+    this.notifyStatus(job, 'CREATING_CONTAINER')
 
     try {
       const created = await this.api.createReelContainer({
@@ -175,6 +180,7 @@ export class InstagramPublicationWorker {
       id: job.id, claimToken, from: 'PROCESSING', to: 'PUBLISHING', keepLease: true,
       patch: { attempts: job.attempts + 1, lastError: null }
     })) return { outcome: 'lost-lease', publicationId: job.id }
+    this.notifyStatus(job, 'PUBLISHING')
 
     return this.publishPrepared({ ...job, status: 'PUBLISHING', attempts: job.attempts + 1 }, claimToken, true)
   }
@@ -192,6 +198,7 @@ export class InstagramPublicationWorker {
       id: job.id, claimToken, from: 'PUBLISHING', to: 'PUBLISHING', keepLease: true,
       patch: { attempts, lastError: null }
     })) return { outcome: 'lost-lease', publicationId: job.id }
+    if (!attemptAlreadyRecorded) this.notifyStatus(job, 'PUBLISHING')
     try {
       const published = await this.api.publishContainer({
         accountId: job.instagramAccountId!, accessToken: job.accessToken!, containerId: job.metaContainerId
@@ -235,9 +242,19 @@ export class InstagramPublicationWorker {
     patch: Partial<InstagramPublicationJob> & { publishedAt?: Date | null }
   ): Promise<InstagramPublicationWorkerResult> {
     const updated = await this.repository.transition({ id: job.id, claimToken, from, to, patch })
+    if (updated) this.notifyStatus(job, to)
     return updated
       ? { outcome: 'processed', publicationId: job.id, status: to }
       : { outcome: 'lost-lease', publicationId: job.id }
+  }
+
+  private notifyStatus(job: InstagramPublicationJob, status: InstagramPublicationStatus) {
+    this.onStatusChanged({
+      businessId: job.businessId,
+      publicationId: job.id,
+      status,
+      updatedAt: this.clock.now().toISOString()
+    })
   }
 }
 

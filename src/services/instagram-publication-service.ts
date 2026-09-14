@@ -23,6 +23,8 @@ export type InstagramPublicationRecord = {
   metaContainerId: string | null
   metaMediaId: string | null
   lastError: string | null
+  videoDeletedAt: Date | null
+  videoAvailable: boolean
   automation: InstagramPublicationAutomation
 }
 
@@ -52,6 +54,7 @@ export interface InstagramPublicationRepository {
     automation?: InstagramPublicationAutomation
   }): Promise<InstagramPublicationRecord | null>
   enqueue(input: { businessId: string; id: string; availableAt: Date }): Promise<InstagramPublicationRecord | null>
+  markVideoDeleted(input: { businessId: string; id: string; deletedAt: Date }): Promise<InstagramPublicationRecord | null>
 }
 
 export class InstagramPublicationValidationError extends Error {
@@ -167,6 +170,19 @@ export class InstagramPublicationService {
     if (!queued) throw new InstagramPublicationNotFoundError()
     return queued
   }
+
+  async markVideoDeleted(businessId: string, id: string) {
+    const current = await this.get(businessId, id)
+    if (current.videoDeletedAt) {
+      throw new InstagramPublicationConflictError('El video ya fue eliminado del almacenamiento.')
+    }
+    if (!['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(current.status)) {
+      throw new InstagramPublicationConflictError('Esperá a que finalice la publicación antes de borrar el video almacenado.')
+    }
+    const updated = await this.repository.markVideoDeleted({ businessId, id, deletedAt: this.now() })
+    if (!updated) throw new InstagramPublicationConflictError('El estado del Reel cambió. Actualizá la lista e intentá nuevamente.')
+    return updated
+  }
 }
 
 type PrismaLike = Record<string, any>
@@ -244,6 +260,22 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
     const row = await this.client.instagramPublication.findFirst({ where: { businessId: input.businessId, id: input.id }, include: publicationInclude })
     return row ? mapPublication(row) : null
   }
+
+  async markVideoDeleted(input: Parameters<InstagramPublicationRepository['markVideoDeleted']>[0]) {
+    const guarded = await this.client.instagramPublication.updateMany({
+      where: {
+        businessId: input.businessId,
+        id: input.id,
+        videoDeletedAt: null,
+        status: { in: ['PUBLISHED', 'FAILED', 'UNKNOWN'] }
+      },
+      data: { videoDeletedAt: input.deletedAt }
+    })
+    if (guarded.count !== 1) return null
+    return mapPublication(await this.client.instagramPublication.findFirstOrThrow({
+      where: { businessId: input.businessId, id: input.id }, include: publicationInclude
+    }))
+  }
 }
 
 function mapPublication(row: any): InstagramPublicationRecord {
@@ -259,6 +291,8 @@ function mapPublication(row: any): InstagramPublicationRecord {
     metaContainerId: row.metaContainerId,
     metaMediaId: row.metaMediaId,
     lastError: row.lastError,
+    videoDeletedAt: row.videoDeletedAt ?? null,
+    videoAvailable: !row.videoDeletedAt,
     automation: {
       enabled: row.automation.enabled,
       privateReplyText: row.automation.privateReplyText,

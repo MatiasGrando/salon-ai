@@ -9,12 +9,14 @@ import {
 } from '../services/instagram-publication-service.js'
 import {
   createInstagramReelUpload,
+  deleteInstagramReelVideo,
   verifyAndSignInstagramReelVideo
 } from '../services/instagram-video-storage-service.js'
+import { publishInstagramPublicationChanged } from '../services/crm-realtime-events.js'
 
 type PublicationServiceContract = Pick<
   InstagramPublicationService,
-  'createDraft' | 'list' | 'get' | 'updateDraft' | 'publish'
+  'createDraft' | 'list' | 'get' | 'updateDraft' | 'publish' | 'markVideoDeleted'
 >
 
 type ReelStorageContract = {
@@ -25,6 +27,7 @@ type ReelStorageContract = {
     expectedMimeType: string
     expectedSizeBytes: number
   }): Promise<unknown>
+  deleteVideo(input: { businessId: string; objectPath: string }): Promise<void>
 }
 
 export async function instagramPublicationRoutes(
@@ -39,7 +42,8 @@ export async function instagramPublicationRoutes(
   const service = options.service ?? new InstagramPublicationService()
   const storage = options.storage ?? {
     createUpload: createInstagramReelUpload,
-    verifyUpload: verifyAndSignInstagramReelVideo
+    verifyUpload: verifyAndSignInstagramReelVideo,
+    deleteVideo: deleteInstagramReelVideo
   }
   const runtimeReady = options.runtimeReady ?? Boolean(options.service)
   const verifyDraftVideos = options.storage !== undefined || options.runtimeReady === true
@@ -150,8 +154,43 @@ export async function instagramPublicationRoutes(
     const { businessId, publicationId } = request.params as { businessId: string; publicationId: string }
     try {
       const publication = await service.publish(businessId, publicationId)
+      publishInstagramPublicationChanged({
+        businessId,
+        publicationId,
+        status: publication.status,
+        updatedAt: new Date().toISOString()
+      })
       return reply.status(202).send(publication)
     } catch (error) {
+      return sendPublicationError(reply, error)
+    }
+  })
+
+  app.delete('/businesses/:businessId/instagram-publications/:publicationId/video', async (request, reply) => {
+    const { businessId, publicationId } = request.params as { businessId: string; publicationId: string }
+    try {
+      const current = await service.get(businessId, publicationId)
+      if (current.videoAvailable === false) {
+        throw new InstagramPublicationConflictError('El video ya fue eliminado del almacenamiento.')
+      }
+      if (!['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(current.status)) {
+        throw new InstagramPublicationConflictError('Esperá a que finalice la publicación antes de borrar el video almacenado.')
+      }
+      try {
+        await storage.deleteVideo({ businessId, objectPath: current.videoObjectPath })
+      } catch (error) {
+        return sendUploadError(reply, error)
+      }
+      const publication = await service.markVideoDeleted(businessId, publicationId)
+      publishInstagramPublicationChanged({
+        businessId,
+        publicationId,
+        status: publication.status,
+        updatedAt: new Date().toISOString()
+      })
+      return publication
+    } catch (error) {
+      if (isUploadValidationError(error)) return sendUploadError(reply, error)
       return sendPublicationError(reply, error)
     }
   })

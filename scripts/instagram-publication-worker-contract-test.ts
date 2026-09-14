@@ -66,7 +66,11 @@ const signer = {
   }
 }
 const repository = new MemoryWorkerRepository(baseJob('READY'))
-const worker = new InstagramPublicationWorker({ repository, api, videoUrls: signer, clock, randomToken: () => 'claim-1' })
+const changedStatuses: string[] = []
+const worker = new InstagramPublicationWorker({
+  repository, api, videoUrls: signer, clock, randomToken: () => 'claim-1',
+  onStatusChanged: (event) => changedStatuses.push(event.status)
+})
 
 assert.deepEqual(await worker.runOnce(), { outcome: 'processed', publicationId: 'publication-1', status: 'PROCESSING' })
 assert.equal(repository.job?.metaContainerId, 'container-1')
@@ -80,6 +84,7 @@ assert.deepEqual(signedInputs[0], {
 assert.deepEqual(await worker.runOnce(), { outcome: 'processed', publicationId: 'publication-1', status: 'PUBLISHED' })
 assert.equal(repository.job?.metaMediaId, 'media-1')
 assert.deepEqual(apiCalls, ['create', 'status', 'publish'])
+assert.deepEqual(changedStatuses, ['CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING', 'PUBLISHED'])
 
 const ambiguousRepository = new MemoryWorkerRepository(baseJob('READY'))
 const ambiguousWorker = new InstagramPublicationWorker({

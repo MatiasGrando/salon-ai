@@ -1251,6 +1251,7 @@ model InstagramPublication {
   claimedUntil    DateTime?
   lastError       String?
   publishedAt     DateTime?
+  videoDeletedAt  DateTime?
 
   automation InstagramCommentAutomation?
   executions InstagramCommentExecution[]

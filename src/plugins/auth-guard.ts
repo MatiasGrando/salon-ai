@@ -108,6 +108,9 @@ export function isInstagramPublicationWorkspaceRoute(methodValue: string, path: 
   if (/^\/businesses\/[^/]+\/instagram-publications\/uploads(?:\/verify)?$/.test(path)) {
     return method === 'POST'
   }
+  if (/^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/video$/.test(path)) {
+    return method === 'DELETE'
+  }
   if (/^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+$/.test(path)) {
     return method === 'GET' || method === 'PATCH'
   }

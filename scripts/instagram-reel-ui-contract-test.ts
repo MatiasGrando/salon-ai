@@ -37,9 +37,10 @@ for (const endpoint of ["basePath + '/uploads'", "basePath + '/uploads/verify'",
   assert.ok(ui.includes(endpoint), `missing endpoint flow: ${endpoint}`)
 }
 
-assert.match(ui, /fetch\(upload\.uploadUrl,\s*\{/)
-assert.match(ui, /headers:\s*upload\.uploadHeaders/)
-assert.doesNotMatch(ui, /fetch\(upload\.uploadUrl[\s\S]{0,400}(?:credentials|Authorization|SUPABASE_SERVICE_ROLE_KEY)/)
+assert.match(ui, /function uploadInstagramReelFile\(upload, file\)[\s\S]*?new XMLHttpRequest\(\)/)
+assert.match(ui, /request\.upload\.addEventListener\('progress'/)
+assert.match(ui, /Object\.entries\(upload\.uploadHeaders \|\| \{\}\)/)
+assert.doesNotMatch(ui, /uploadInstagramReelFile[\s\S]{0,900}(?:credentials|Authorization|SUPABASE_SERVICE_ROLE_KEY)/)
 assert.match(ui, /Publicaci&oacute;n en cola|Publicacion en cola/)
 assert.doesNotMatch(ui, /Reel publicado con [ée]xito/)
 

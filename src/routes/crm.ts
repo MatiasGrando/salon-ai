@@ -76,6 +76,16 @@ import { createCashTransactionRepository, projectApprovedDepositPaymentInTransac
 import { ensureAppointmentAccountForPayment } from '../services/cash-service.js'
 import { randomUUID } from 'node:crypto'
 import { resolveBotHandoff, takeConversationForManualAttention } from '../bot-options/application/handoff-operations.js'
+import {
+  countChannelConversations,
+  latestChannelConversationActivityAt,
+  listChannelConversations,
+  loadChannelConversation,
+  loadChannelConversationMessages,
+  loadChannelMessage,
+  parseChannelResourceId,
+  sendChannelConversationReply
+} from '../services/conversation-channel-service.js'
 
 const bookingV2Engine = new BookingV2Engine()
 const WHATSAPP_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -85,6 +95,25 @@ class QaMaintenanceStateConflictError extends Error {}
 
 const QA_MAINTENANCE_CONFIRMATION = 'delete-all-qa-cami-data'
 const QA_PHONE_PREFIX = 'qa-cami-'
+
+function newestDateValue(left: Date | string | null, right: Date | string | null) {
+  if (!left) return right
+  if (!right) return left
+  return new Date(left).getTime() >= new Date(right).getTime() ? left : right
+}
+
+async function authorizedChannelBusinessId(user: BusinessAuthorizationUser, resourceId: string) {
+  if (user.businessId) return user.businessId
+  const parsed = parseChannelResourceId(resourceId)
+  if (!parsed || parsed.channel !== 'INSTAGRAM') return null
+  const businessId = parsed.resourceType === 'conversation'
+    ? (await prisma.instagramLead.findUnique({ where: { id: parsed.resourceId }, select: { businessId: true } }))?.businessId
+    : (await prisma.instagramMessage.findUnique({
+        where: { id: parsed.resourceId }, select: { lead: { select: { businessId: true } } }
+      }))?.lead.businessId
+  if (!businessId) return null
+  return await loadAuthorizedBusiness(prisma, user, businessId) ? businessId : null
+}
 
 // Las listas del CRM sólo necesitan el estado de la seña. El archivo binario
 // se descarga exclusivamente desde /crm/deposits/:id/proof cuando se lo abre.
@@ -583,21 +612,35 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
     const itemsWithReplyWindow = await attachConversationReplyWindow(items)
+    const channelBusinessId = query.businessId || request.auth?.user.businessId || null
+    const channelConversations = channelBusinessId && archiveView !== 'archived' && query.filter !== 'handoff' && !query.cursor
+      ? await listChannelConversations({
+          businessId: channelBusinessId,
+          take,
+          since,
+          search: query.phone,
+          client: prisma
+        })
+      : []
+    const combinedItems = [...itemsWithReplyWindow, ...channelConversations]
+      .sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
 
     if (query.paginated !== 'true') {
-      return itemsWithReplyWindow
+      return combinedItems
     }
 
-    const [counts, latestActivityAt] = await Promise.all([
+    const [counts, latestActivityAt, channelCount, channelLatestActivityAt] = await Promise.all([
       conversationCounts(query.businessId),
-      latestConversationActivityAtForBusiness(query.businessId)
+      latestConversationActivityAtForBusiness(query.businessId),
+      channelBusinessId ? countChannelConversations(channelBusinessId, prisma) : 0,
+      channelBusinessId ? latestChannelConversationActivityAt(channelBusinessId, prisma) : null
     ])
 
     return {
-      items: itemsWithReplyWindow,
+      items: combinedItems,
       nextCursor: since ? null : hasMore ? itemsWithReplyWindow[itemsWithReplyWindow.length - 1]?.id ?? null : null,
-      counts,
-      latestActivityAt
+      counts: { ...counts, active: counts.active + channelCount },
+      latestActivityAt: newestDateValue(latestActivityAt, channelLatestActivityAt)
     }
   })
 
@@ -605,14 +648,17 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const query = request.query as {
       businessId?: string
     }
-    const [counts, latestActivityAt] = await Promise.all([
+    const channelBusinessId = query.businessId || request.auth?.user.businessId || null
+    const [counts, latestActivityAt, channelCount, channelLatestActivityAt] = await Promise.all([
       conversationCounts(query.businessId),
-      latestConversationActivityAtForBusiness(query.businessId)
+      latestConversationActivityAtForBusiness(query.businessId),
+      channelBusinessId ? countChannelConversations(channelBusinessId, prisma) : 0,
+      channelBusinessId ? latestChannelConversationActivityAt(channelBusinessId, prisma) : null
     ])
 
     return {
-      counts,
-      latestActivityAt
+      counts: { ...counts, active: counts.active + channelCount },
+      latestActivityAt: newestDateValue(latestActivityAt, channelLatestActivityAt)
     }
   })
 
@@ -620,6 +666,13 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const params = request.params as { id: string }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const channelResource = parseChannelResourceId(params.id)
+    if (channelResource?.resourceType === 'conversation') {
+      const businessId = await authorizedChannelBusinessId(authUser, params.id)
+      if (!businessId) return sendAuthorizationFailure(reply, 'notFound')
+      const conversation = await loadChannelConversation({ businessId, id: params.id, client: prisma })
+      return conversation ?? sendAuthorizationFailure(reply, 'notFound')
+    }
     const conversation = await conversationListItemById(params.id, authUser)
     if (!conversation) {
       return sendAuthorizationFailure(reply, 'notFound')
@@ -631,6 +684,13 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const params = request.params as { id: string }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const channelResource = parseChannelResourceId(params.id)
+    if (channelResource?.resourceType === 'message') {
+      const businessId = await authorizedChannelBusinessId(authUser, params.id)
+      if (!businessId) return sendAuthorizationFailure(reply, 'notFound')
+      const message = await loadChannelMessage({ businessId, id: params.id, client: prisma })
+      return message ?? sendAuthorizationFailure(reply, 'notFound')
+    }
     const message = await prisma.message.findFirst({
       where: authorizedMessageWhere(authUser, params.id)
     })
@@ -886,6 +946,21 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const channelResource = parseChannelResourceId(params.id)
+    if (channelResource?.resourceType === 'conversation') {
+      const businessId = await authorizedChannelBusinessId(authUser, params.id)
+      if (!businessId) return sendAuthorizationFailure(reply, 'notFound')
+      const take = Math.min(Math.max(Number(query.take ?? 100) || 100, 1), 200)
+      const page = await loadChannelConversationMessages({
+        businessId,
+        conversationId: params.id,
+        take,
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+        client: prisma
+      })
+      if (!page) return sendAuthorizationFailure(reply, 'notFound')
+      return query.paginated === 'true' ? page : page.items
+    }
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
@@ -2065,6 +2140,24 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const channelResource = parseChannelResourceId(params.id)
+    if (channelResource?.resourceType === 'conversation') {
+      const businessId = await authorizedChannelBusinessId(authUser, params.id)
+      if (!businessId) return sendAuthorizationFailure(reply, 'notFound')
+      try {
+        const message = await sendChannelConversationReply({
+          businessId,
+          conversationId: params.id,
+          text,
+          clientMessageId: typeof body.clientMessageId === 'string' ? body.clientMessageId.slice(0, 100) : undefined,
+          client: prisma
+        })
+        if (!message) return sendAuthorizationFailure(reply, 'notFound')
+        return { message, delivery: { sent: true } }
+      } catch (error) {
+        return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude responder por este canal.' })
+      }
+    }
     let conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {

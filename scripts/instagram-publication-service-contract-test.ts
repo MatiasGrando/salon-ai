@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   InstagramPublicationConflictError,
   InstagramPublicationNotFoundError,
@@ -25,6 +26,8 @@ class MemoryRepository implements InstagramPublicationRepository {
       metaContainerId: null,
       metaMediaId: null,
       lastError: null,
+      videoDeletedAt: null,
+      videoAvailable: true,
       automation: {
         enabled: input.automation.enabled,
         privateReplyText: input.automation.privateReplyText,
@@ -55,6 +58,14 @@ class MemoryRepository implements InstagramPublicationRepository {
     const record = await this.findByBusinessAndId(input.businessId, input.id)
     if (!record) return null
     if (record.status === 'DRAFT') record.status = 'READY'
+    return record
+  }
+
+  async markVideoDeleted(input: Parameters<InstagramPublicationRepository['markVideoDeleted']>[0]) {
+    const record = await this.findByBusinessAndId(input.businessId, input.id)
+    if (!record || record.videoDeletedAt || !['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(record.status)) return null
+    record.videoDeletedAt = input.deletedAt
+    record.videoAvailable = false
     return record
   }
 }
@@ -114,6 +125,9 @@ await assert.rejects(() => service.updateDraft('business-a', draft.id, { caption
 
 repository.records[0]!.status = 'UNKNOWN'
 await assert.rejects(() => service.publish('business-a', draft.id), InstagramPublicationConflictError)
+const released = await service.markVideoDeleted('business-a', draft.id)
+assert.equal(released.videoAvailable, false)
+await assert.rejects(() => service.markVideoDeleted('business-a', draft.id), InstagramPublicationConflictError)
 
 let prismaCreateInput: any
 const prismaRepository = new PrismaInstagramPublicationRepository({
@@ -158,5 +172,11 @@ assert.equal('businessId' in prismaCreateInput.data.automation.create, false,
   'la relación anidada hereda businessId desde la publicación')
 assert.equal('businessId' in prismaCreateInput.data.automation.create.keywords.create[0], false,
   'las keywords anidadas heredan businessId desde la automatización')
+
+const retentionMigration = readFileSync(
+  new URL('../prisma/migrations/20260914230000_add_instagram_video_deleted_at/migration.sql', import.meta.url),
+  'utf8'
+)
+assert.match(retentionMigration, /ADD COLUMN "videoDeletedAt" TIMESTAMP\(3\)/)
 
 console.log('Instagram publication service contract: OK')

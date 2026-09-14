@@ -5,6 +5,7 @@ import {
   publishConversationUpdated,
   publishDepositUpdated,
   publishIncomingConversationMessage,
+  publishInstagramPublicationChanged,
   publishOutgoingConversationMessage,
   subscribeToCrmRealtimeEvents
 } from '../src/services/crm-realtime-events.js'
@@ -16,6 +17,7 @@ const sentByOtherBusiness: string[] = []
 const receivedTypesByGlow: string[] = []
 const changedAppointmentsByGlow: string[] = []
 const changedAppointmentsByOtherBusiness: string[] = []
+const changedPublicationsByGlow: string[] = []
 const unsubscribeGlow = subscribeToCrmRealtimeEvents({
   businessId: 'glow',
   send: (event) => {
@@ -23,6 +25,7 @@ const unsubscribeGlow = subscribeToCrmRealtimeEvents({
     if (event.type === 'conversation_message_received') receivedByGlow.push(event.messageId)
     if (event.type === 'conversation_message_sent') sentByGlow.push(event.messageId)
     if (event.type === 'appointment_changed') changedAppointmentsByGlow.push(event.appointmentId)
+    if (event.type === 'instagram_publication_changed') changedPublicationsByGlow.push(event.publicationId)
   }
 })
 const unsubscribeOtherBusiness = subscribeToCrmRealtimeEvents({
@@ -72,15 +75,24 @@ publishAppointmentChanged({
   updatedAt: '2026-08-19T15:30:03.000Z'
 })
 
+publishInstagramPublicationChanged({
+  businessId: 'glow',
+  publicationId: 'publication-1',
+  status: 'PROCESSING',
+  updatedAt: '2026-09-14T15:30:04.000Z'
+})
+
 assert.deepEqual(changedAppointmentsByGlow, ['appointment-1'])
 assert.deepEqual(changedAppointmentsByOtherBusiness, [])
+assert.deepEqual(changedPublicationsByGlow, ['publication-1'])
 
 assert.deepEqual(receivedTypesByGlow, [
   'conversation_message_received',
   'conversation_message_sent',
   'conversation_updated',
   'deposit_updated',
-  'appointment_changed'
+  'appointment_changed',
+  'instagram_publication_changed'
 ])
 
 unsubscribeGlow()
@@ -159,6 +171,11 @@ assert.match(
   crmUiSource,
   /source\.addEventListener\('appointment_changed',[\s\S]*?queueAgendaRealtimeRefresh\(\)/,
   'los cambios de turnos deben solicitar una actualización de la Agenda por SSE'
+)
+assert.match(
+  crmUiSource,
+  /source\.addEventListener\('instagram_publication_changed',[\s\S]*?refreshInstagramPublication\(payload\.publicationId\)/,
+  'los estados del Reel deben actualizarse por SSE sin salir y volver a entrar'
 )
 assert.match(
   crmUiSource,

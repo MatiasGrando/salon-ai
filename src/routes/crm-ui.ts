@@ -3841,6 +3841,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-weight: 750;
     }
 
+    .conversation-channel {
+      display: inline-flex;
+      margin-left: 5px;
+      border-radius: 999px;
+      padding: 2px 6px;
+      font-size: 8px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      background: #ecfdf5;
+      color: #047857;
+    }
+
+    .conversation-channel.instagram { background: #fdf2f8; color: #be185d; }
+
     .instagram-reels-manager {
       display: grid;
       gap: 18px;
@@ -3885,6 +3900,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .instagram-reels-table th { color: #64748b; background: #f8fafc; font-size: 11px; text-transform: uppercase; letter-spacing: .045em; }
     .instagram-reels-table tr:last-child td { border-bottom: 0; }
+    .instagram-reel-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .instagram-reel-delete { border: 0; background: transparent; color: #b91c1c; font-weight: 800; cursor: pointer; padding: 5px 0; }
+    .instagram-reel-delete:hover { text-decoration: underline; }
+    .instagram-reel-delete:disabled { color: #94a3b8; cursor: not-allowed; text-decoration: none; }
     .instagram-reel-status { display: inline-flex; padding: 5px 9px; border-radius: 999px; color: #475569; background: #eef2f7; font-size: 11px; font-weight: 800; }
     .instagram-reel-status.published { color: #087a3d; background: #eaf8ef; }
     .instagram-reel-status.processing { color: #1d4ed8; background: #eff6ff; }
@@ -22994,6 +23013,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (payload.businessId !== state.businessId || !payload.appointmentId) return
         queueAgendaRealtimeRefresh()
       })
+      source.addEventListener('instagram_publication_changed', (event) => {
+        let payload
+        try {
+          payload = JSON.parse(event.data)
+        } catch {
+          return
+        }
+        if (payload.businessId !== state.businessId || !payload.publicationId) return
+        refreshInstagramPublication(payload.publicationId).catch((error) => console.error(error))
+      })
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         stopCrmRealtimeFallback()
@@ -23207,6 +23236,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (document.body.dataset.auth !== 'ready') return
         refreshConversationSummary({ requestContext: FALLBACK_REQUEST_CONTEXT }).catch(() => null)
         if (document.body.dataset.currentSection === 'agenda') queueAgendaRealtimeRefresh()
+        if (document.body.dataset.currentSection === 'campaigns' && state.marketingView === 'instagram-reels') {
+          loadInstagramReels({ silent: true }).catch(() => null)
+        }
       }
       refresh()
       state.realtimeFallbackTimer = setInterval(refresh, intervalMs)
@@ -23426,7 +23458,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '</div>' +
           '<div class="conversation-main">' +
             '<div class="row">' +
-              '<div class="conversation-name">' + escapeHtml(name) + '</div>' +
+              '<div class="conversation-name">' + escapeHtml(name) + '<span class="conversation-channel ' + String(conversation.channel || 'WHATSAPP').toLowerCase() + '">' + escapeHtml(conversationChannelLabel(conversation.channel)) + '</span></div>' +
               '<span class="conversation-time">' + escapeHtml(formatConversationTime(latestConversationActivityValue(conversation))) + '</span>' +
             '</div>' +
             '<p class="preview">' + escapeHtml(last?.body || conversation.lastMessage || 'Sin mensajes') + '</p>' +
@@ -23614,6 +23646,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function fetchConversationAppointments(conversation, options = {}) {
+      if (conversation.channel && conversation.channel !== 'WHATSAPP') return []
       const params = new URLSearchParams({
         customerPhone: conversation.phone,
         from: new Date().toISOString()
@@ -23638,6 +23671,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function fetchConversationCustomerNotes(conversation, options = {}) {
+      if (conversation.channel && conversation.channel !== 'WHATSAPP') return []
       const customer = customerForPhone(conversation.phone)
       if (!customer) return []
       return getJson('/customers/' + customer.id + '/notes', { signal: options.signal, requestContext: options.requestContext })
@@ -23787,6 +23821,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderSelected(options = {}) {
       const selected = state.selected
       if (!selected) return
+      if (selected.channel && selected.channel !== 'WHATSAPP') {
+        renderExternalChannelSelected(selected, options)
+        return
+      }
       state.selectedDeposit = null
       els.replyForm.hidden = false
 
@@ -23846,6 +23884,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.detailEmail.href = customer?.email ? 'mailto:' + customer.email : '#'
       els.detailEmail.hidden = !customer?.email
       els.detailWhatsapp.href = whatsappAppUrl(selected.phone)
+      els.detailWhatsapp.hidden = false
       els.detailStep.textContent = conversationStepLabel(selected.currentStep, selected.aiEnabled, selected)
       els.detailStep.className = conversationStepChipClass(selected.currentStep, selected.aiEnabled)
       const cachedMarketing = state.conversationMarketingCache.get(selected.id)
@@ -23871,6 +23910,41 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       updateComposerAvailability()
       renderAppointments({ loading: options.loading })
+    }
+
+    function renderExternalChannelSelected(selected, options = {}) {
+      state.selectedDeposit = null
+      const name = conversationDisplayName(selected)
+      const avatar = contactInitials(name, selected.phone)
+      els.chatAvatar.textContent = avatar
+      els.chatPhone.textContent = name
+      els.chatStatus.textContent = conversationChannelLabel(selected.channel) + ' · ' + selected.phone
+      els.stepChip.textContent = conversationChannelLabel(selected.channel)
+      els.stepChip.className = 'chip step-progress'
+      els.depositApprove.hidden = true
+      els.depositReject.hidden = true
+      els.advisorQuote.hidden = true
+      els.resolveHandoff.hidden = true
+      els.conversationAiToggle.hidden = true
+      els.replyForm.hidden = false
+      els.detailAvatar.textContent = avatar
+      els.detailName.textContent = name
+      els.detailPhone.textContent = selected.phone
+      els.detailPhone.removeAttribute('href')
+      els.detailEmail.hidden = true
+      els.detailWhatsapp.hidden = true
+      els.detailStep.textContent = conversationChannelLabel(selected.channel)
+      els.detailStep.className = 'chip step-progress'
+      els.detailMarketingStatus.textContent = 'Canal ' + conversationChannelLabel(selected.channel)
+      els.detailMarketingStatus.className = 'chip'
+      els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
+      els.customerEdit.disabled = true
+      if (options.loading) els.messages.innerHTML = '<div class="empty">Cargando conversaci&oacute;n...</div>'
+      else renderMessages(options.messageScroll || {})
+      updateComposerAvailability()
+      state.appointments = []
+      renderAppointments()
+      renderCustomerNotes()
     }
 
     async function loadConversationMarketingStatus(customer, conversationId) {
@@ -23945,6 +24019,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function updateComposerAvailability() {
       const windowState = whatsappReplyWindowState()
+      const externalChannel = state.selected?.channel && state.selected.channel !== 'WHATSAPP'
       const lacksPermission = state.currentUser?.role === 'STAFF' && !state.currentUser?.canReplyConversations
       const isLocked = lacksPermission || !windowState.canReply
       els.replyForm.classList.toggle('is-locked', isLocked)
@@ -23954,6 +24029,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.composerWindowWhatsapp.href = state.selected
         ? whatsappAppUrl(state.selected.phone)
         : '#'
+      els.composerWindowWhatsapp.hidden = Boolean(externalChannel)
 
       for (const button of els.replyForm.querySelectorAll('.composer-icon')) {
         button.disabled = isLocked
@@ -23964,7 +24040,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.replyText.placeholder = lacksPermission ? 'Tu perfil es de solo lectura.' : 'Respuesta deshabilitada: pasaron mas de 24 hs.'
         els.composerWindowText.textContent = lacksPermission
           ? 'Podés consultar esta conversación, pero tu perfil no permite responderla.'
-          : 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente. Espera que vuelva a escribir para responder desde el CRM.'
+          : 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente en ' + conversationChannelLabel(state.selected?.channel) + '. Espera que vuelva a escribir para responder desde el CRM.'
       } else {
         els.replyText.placeholder = 'Escribir mensaje...'
         els.composerWindowText.textContent = windowState.expiresAt
@@ -24047,7 +24123,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function messageFailureText(message) {
-      return message.providerErrorMessage || message.providerErrorCode || 'WhatsApp rechazo el envio.'
+      return message.providerErrorMessage || message.providerErrorCode || 'El canal rechazó el envío.'
     }
 
     function renderMessageInteractive(message) {
@@ -31185,30 +31261,66 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           : ''
         const caption = publication.caption?.trim()
         const failureTitle = publication.lastError ? ' title="' + escapeHtml(publication.lastError) + '"' : ''
+        const canDeleteVideo = publication.videoAvailable !== false && ['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(publication.status)
+        const deleteLabel = publication.videoAvailable === false
+          ? '<small>Video eliminado</small>'
+          : '<button class="instagram-reel-delete" type="button" data-instagram-reel-delete="' + escapeHtml(publication.id) + '"' + (canDeleteVideo ? '' : ' disabled title="Disponible cuando finalice el proceso"') + '>Borrar video</button>'
         return '<tr data-instagram-publication-id="' + escapeHtml(publication.id) + '">' +
           '<td><strong>' + (caption ? escapeHtml(caption) : 'Reel sin descripci&oacute;n') + '</strong><small>' + (publication.shareToFeed ? 'Reel y feed' : 'Solo Reels') + '</small></td>' +
           '<td>' + (publication.automation?.enabled ? 'Activa' : 'Pausada') + '</td>' +
           '<td>' + (keywords || 'Sin palabras clave') + '</td>' +
           '<td>Mensaje privado</td>' +
-          '<td><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span></td>' +
+          '<td><div class="instagram-reel-row-actions"><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span>' + deleteLabel + '</div></td>' +
         '</tr>'
       }).join('')
     }
 
-    async function loadInstagramReels() {
+    async function refreshInstagramPublication(publicationId) {
+      if (!state.businessId || !state.instagramReelsLoaded) return
+      const publication = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications/' + encodeURIComponent(publicationId))
+      const index = state.instagramReels.findIndex((item) => item.id === publicationId)
+      if (index >= 0) state.instagramReels.splice(index, 1, publication)
+      else state.instagramReels.unshift(publication)
+      renderInstagramReels()
+    }
+
+    async function deleteInstagramReelVideo(publicationId) {
+      const publication = state.instagramReels.find((item) => item.id === publicationId)
+      if (!publication || publication.videoAvailable === false) return
+      const accepted = await requestCrmConfirmation(
+        'Se eliminará el archivo del almacenamiento de Weex. El Reel ya publicado seguirá visible en Instagram y conservaremos su historial y automatización.',
+        { title: '¿Borrar el video almacenado?', confirmLabel: 'Sí, borrar video' }
+      )
+      if (!accepted) return
+      try {
+        const updated = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications/' + encodeURIComponent(publicationId) + '/video', { method: 'DELETE' })
+        const index = state.instagramReels.findIndex((item) => item.id === publicationId)
+        if (index >= 0) state.instagramReels.splice(index, 1, updated)
+        renderInstagramReels()
+        showCrmToast('Video eliminado del almacenamiento. El Reel de Instagram no fue borrado.', 'success')
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      }
+    }
+
+    async function loadInstagramReels(options = {}) {
       if (!state.businessId) return
-      els.instagramReelsFeedback.textContent = ''
-      els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando Reels...</td></tr>'
+      if (!options.silent) {
+        els.instagramReelsFeedback.textContent = ''
+        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando Reels...</td></tr>'
+      }
       try {
         const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
         state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
         state.instagramReelsLoaded = true
         renderInstagramReels()
       } catch (error) {
-        state.instagramReels = []
-        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">No pudimos cargar los Reels.</td></tr>'
-        els.instagramReelsFeedback.textContent = error.message
-        els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+        if (!options.silent) {
+          state.instagramReels = []
+          els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">No pudimos cargar los Reels.</td></tr>'
+          els.instagramReelsFeedback.textContent = error.message
+          els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+        }
       }
     }
 
@@ -31249,6 +31361,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function setInstagramReelProgress(percent) {
       els.instagramReelProgress.style.width = Math.max(0, Math.min(100, percent)) + '%'
+    }
+
+    function uploadInstagramReelFile(upload, file) {
+      return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest()
+        request.open('PUT', upload.uploadUrl)
+        for (const [name, value] of Object.entries(upload.uploadHeaders || {})) request.setRequestHeader(name, value)
+        request.upload.addEventListener('progress', (event) => {
+          if (!event.lengthComputable) return
+          const uploadedPercent = Math.round((event.loaded / event.total) * 100)
+          setInstagramReelProgress(15 + Math.round(uploadedPercent * 0.4))
+          setInstagramReelFeedback('Subiendo el video... ' + uploadedPercent + '%')
+        })
+        request.addEventListener('load', () => request.status >= 200 && request.status < 300
+          ? resolve()
+          : reject(new Error('No pudimos subir el video al almacenamiento.')))
+        request.addEventListener('error', () => reject(new Error('Se interrumpió la carga del video.')))
+        request.send(file)
+      })
     }
 
     function resetInstagramReelForm() {
@@ -31355,13 +31486,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
         if (!upload?.uploadUrl || !upload?.objectPath || !upload?.uploadHeaders) throw new Error('El servidor no devolvió una carga válida.')
         setInstagramReelFeedback('Subiendo el video...')
-        setInstagramReelProgress(35)
-        const uploaded = await fetch(upload.uploadUrl, {
-          method: 'PUT',
-          headers: upload.uploadHeaders,
-          body: file
-        })
-        if (!uploaded.ok) throw new Error('No pudimos subir el video al almacenamiento.')
+        setInstagramReelProgress(15)
+        await uploadInstagramReelFile(upload, file)
         setInstagramReelFeedback('Verificando el archivo...')
         setInstagramReelProgress(60)
         const verified = await getJson(basePath + '/uploads/verify', {
@@ -31391,7 +31517,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         setInstagramReelProgress(100)
         els.instagramReelFeedback.innerHTML = '<strong>Publicaci&oacute;n en cola.</strong> Instagram la procesar&aacute; en segundo plano.'
         els.instagramReelFeedback.className = 'instagram-reel-feedback visible success'
-        els.instagramReelsFeedback.innerHTML = '<strong>Reel en cola.</strong> Actualiz&aacute; la lista para seguir su estado.'
+        els.instagramReelsFeedback.innerHTML = '<strong>Reel en cola.</strong> El estado se actualizar&aacute; autom&aacute;ticamente.'
         els.instagramReelsFeedback.className = 'instagram-reel-feedback visible success'
         await loadInstagramReels()
       } catch (error) {
@@ -34149,7 +34275,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationDisplayName(conversation) {
-      return customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+      return conversation.displayName || customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+    }
+
+    function conversationChannelLabel(channel) {
+      const labels = { WHATSAPP: 'WhatsApp', INSTAGRAM: 'Instagram', FACEBOOK: 'Facebook', TIKTOK: 'TikTok', LANDING: 'Web' }
+      return labels[channel || 'WHATSAPP'] || 'Otro canal'
     }
 
     function contactInitials(name, phone) {
@@ -34252,6 +34383,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationStepLabel(step, aiEnabled, conversation = null) {
+      if (conversation?.channel && conversation.channel !== 'WHATSAPP') return conversationChannelLabel(conversation.channel)
       if (conversation?.bookingV2State?.advisorQuote?.status === 'awaiting_acceptance') {
         return 'Esperando aceptaci\u00f3n'
       }
@@ -34505,6 +34637,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.instagramReelKeywords.splice(Number(button.dataset.instagramReelKeywordRemove), 1)
       renderInstagramReelKeywords()
       renderInstagramReelReview()
+    })
+    els.instagramReelsTableBody.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-instagram-reel-delete]')
+      if (!button || button.disabled) return
+      deleteInstagramReelVideo(button.dataset.instagramReelDelete)
     })
     for (const input of [els.instagramReelCaption, els.instagramReelShareToFeed, els.instagramReelAutomationEnabled, els.instagramReelPrivateReply]) {
       input.addEventListener('input', renderInstagramReelReview)
