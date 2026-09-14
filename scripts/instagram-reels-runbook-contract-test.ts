@@ -24,6 +24,8 @@ assert.match(runbook, /una sola respuesta privada por comentario/i)
 assert.match(runbook, /no reintentar.*UNKNOWN/i)
 assert.match(runbook, /bucket privado/i)
 assert.match(runbook, /activar.*despu[eé]s/i)
+assert.match(runbook, /24 horas.*publishedAt/i)
+assert.match(runbook, /no elimina.*Reel.*Instagram/i)
 assert.doesNotMatch(runbook, /META_APP_SECRET\s*=\s*[^<\s]/)
 assert.doesNotMatch(runbook, /SUPABASE_SERVICE_ROLE_KEY\s*=\s*[^<\s]/)
 

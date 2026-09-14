@@ -1,7 +1,7 @@
 import { prisma } from '../config/prisma.js'
 import { instagramReelStorageConfig } from '../config/instagram.js'
 import { InstagramApi } from '../integrations/instagram-api.js'
-import { verifyAndSignInstagramReelVideo } from './instagram-video-storage-service.js'
+import { deleteInstagramReelVideo, verifyAndSignInstagramReelVideo } from './instagram-video-storage-service.js'
 import {
   InstagramCommentWorker,
   PrismaInstagramCommentWorkerStore
@@ -10,11 +10,16 @@ import {
   InstagramPublicationWorker,
   PrismaInstagramPublicationWorkerRepository
 } from './instagram-publication-worker.js'
+import {
+  InstagramVideoRetentionWorker,
+  PrismaInstagramVideoRetentionRepository
+} from './instagram-video-retention-worker.js'
 
 const DEFAULT_INTERVAL_MS = 5000
 
 type PublicationWorker = { runOnce(): Promise<unknown> }
 type CommentWorker = { processOne(): Promise<unknown> }
+type RetentionWorker = { runOnce(): Promise<unknown> }
 
 export function resolveInstagramReelsRuntimeConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
   return {
@@ -28,6 +33,7 @@ export function startInstagramReelsWorkerRuntime(input: {
   intervalMs: number
   publicationWorker: PublicationWorker
   commentWorker: CommentWorker
+  retentionWorker: RetentionWorker
   onError(error: Error): void
 }) {
   let stopped = false
@@ -37,11 +43,12 @@ export function startInstagramReelsWorkerRuntime(input: {
   const tick = async () => {
     const outcomes = await Promise.allSettled([
       input.publicationWorker.runOnce(),
-      input.commentWorker.processOne()
+      input.commentWorker.processOne(),
+      input.retentionWorker.runOnce()
     ])
     for (const [index, outcome] of outcomes.entries()) {
       if (outcome.status === 'rejected') {
-        const worker = index === 0 ? 'publicaciones' : 'comentarios'
+        const worker = index === 0 ? 'publicaciones' : index === 1 ? 'comentarios' : 'retención de videos'
         input.onError(new Error(`Falló el worker de Instagram (${worker}).`))
       }
     }
@@ -127,6 +134,14 @@ export async function createInstagramReelsRuntime(input: {
     new PrismaInstagramCommentWorkerStore(client as any, businessIds),
     api
   )
+  const retentionWorker = new InstagramVideoRetentionWorker({
+    repository: new PrismaInstagramVideoRetentionRepository(client, businessIds),
+    storage: {
+      delete(video) {
+        return deleteInstagramReelVideo({ businessId: video.businessId, objectPath: video.objectPath })
+      }
+    }
+  })
   let loop: ReturnType<typeof startInstagramReelsWorkerRuntime> | null = null
   return {
     ready: true as const,
@@ -136,6 +151,7 @@ export async function createInstagramReelsRuntime(input: {
         intervalMs: config.intervalMs,
         publicationWorker,
         commentWorker,
+        retentionWorker,
         onError: input.onError
       })
     },

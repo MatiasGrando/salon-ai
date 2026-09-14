@@ -31,6 +31,8 @@ INSTAGRAM_REEL_SIGNED_READ_TTL_SECONDS=21600
 
 El bucket debe admitir `video/mp4` y `video/quicktime`. Para el piloto se usa un límite de 50 MiB, alineado con el límite global actual del proyecto Supabase. El navegador recibe únicamente una URL temporal de subida; `SUPABASE_SERVICE_ROLE_KEY` nunca se entrega al cliente. Meta descarga el video mediante otra URL temporal generada exclusivamente en el servidor.
 
+El archivo fuente se elimina automáticamente del bucket cuando pasaron **24 horas desde `publishedAt`**. Esta limpieza no elimina el Reel de Instagram ni borra la publicación, su automatización o su historial en Weex. Si Supabase falla, el trabajo libera su reserva y se reintenta en un ciclo posterior; nunca se registra el archivo como eliminado antes de confirmar el borrado.
+
 Verificar CORS del proyecto de Supabase para el origen HTTPS del CRM antes de la prueba operativa.
 
 ## 3. Base de datos

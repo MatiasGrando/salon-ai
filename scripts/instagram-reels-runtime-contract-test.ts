@@ -37,6 +37,7 @@ assert.match(readinessErrors[0]?.message || '', /base de datos no está lista/i)
 let publicationActive = 0
 let publicationMaxActive = 0
 let publicationCalls = 0
+let retentionCalls = 0
 let releaseFirst!: () => void
 const firstRun = new Promise<void>((resolve) => { releaseFirst = resolve })
 const errors: unknown[] = []
@@ -53,6 +54,7 @@ const runtime = startInstagramReelsWorkerRuntime({
     }
   },
   commentWorker: { async processOne() { throw new Error('access-token-secret-value') } },
+  retentionWorker: { async runOnce() { retentionCalls += 1; return { outcome: 'idle' as const } } },
   onError(error) { errors.push(error) }
 })
 
@@ -66,6 +68,7 @@ assert.equal(stopped, false, 'stop debe esperar el trabajo en curso')
 releaseFirst()
 await stopping
 assert.equal(publicationMaxActive, 1)
+assert.equal(retentionCalls, 1)
 assert.equal(runtime.isRunning(), false)
 assert.equal(errors.length >= 1, true)
 assert.doesNotMatch(String(errors[0]), /access-token-secret-value/, 'el runtime debe sanitizar errores antes de reportarlos')
