@@ -123,12 +123,16 @@ type PrismaLike = {
 }
 
 export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorkerStore {
-  constructor(private readonly client: PrismaLike) {}
+  constructor(
+    private readonly client: PrismaLike,
+    private readonly businessIds?: readonly string[]
+  ) {}
 
   async claim(now: Date, leaseMs: number): Promise<ClaimedInstagramComment | null> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const candidates = await this.client.instagramCommentExecution.findMany({
         where: {
+          ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
           availableAt: { lte: now },
           OR: [
             { status: { in: ['READY', 'RETRY'] } },
@@ -313,7 +317,10 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
 
   async expireSendingLeases(now: Date) {
     return (await this.client.instagramCommentExecution.updateMany({
-      where: { status: 'SENDING', claimedUntil: { lte: now } },
+      where: {
+        ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
+        status: 'SENDING', claimedUntil: { lte: now }
+      },
       data: { status: 'UNKNOWN', lastError: 'El lease venció durante un envío; el resultado es ambiguo.', claimedUntil: null }
     })).count
   }

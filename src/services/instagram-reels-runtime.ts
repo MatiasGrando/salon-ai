@@ -19,7 +19,8 @@ type CommentWorker = { processOne(): Promise<unknown> }
 export function resolveInstagramReelsRuntimeConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
   return {
     enabled: env.INSTAGRAM_REELS_ENABLED?.trim().toLowerCase() === 'true',
-    intervalMs: positiveInteger(env.INSTAGRAM_REELS_WORKER_INTERVAL_MS, DEFAULT_INTERVAL_MS)
+    intervalMs: positiveInteger(env.INSTAGRAM_REELS_WORKER_INTERVAL_MS, DEFAULT_INTERVAL_MS),
+    businessIds: uniqueCsv(env.INSTAGRAM_REELS_BUSINESS_IDS)
   }
 }
 
@@ -70,7 +71,7 @@ export function startInstagramReelsWorkerRuntime(input: {
 }
 
 export async function createInstagramReelsRuntime(input: {
-  config?: ReturnType<typeof resolveInstagramReelsRuntimeConfig>
+  config?: { enabled: boolean; intervalMs: number; businessIds?: string[] }
   client?: Record<string, any>
   api?: InstagramApi
   storageReady?: boolean
@@ -78,12 +79,18 @@ export async function createInstagramReelsRuntime(input: {
 }) {
   const config = input.config ?? resolveInstagramReelsRuntimeConfig(process.env)
   if (!config.enabled) {
-    return { ready: false as const, start: () => undefined, stop: async () => undefined }
+    return { ready: false as const, businessIds: [] as string[], start: () => undefined, stop: async () => undefined }
+  }
+
+  const businessIds = config.businessIds ?? []
+  if (!businessIds.length) {
+    input.onError(new Error('Instagram Reels está habilitado, pero no tiene comercios autorizados.'))
+    return { ready: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
 
   if (!(input.storageReady ?? Boolean(instagramReelStorageConfig()))) {
     input.onError(new Error('Instagram Reels está habilitado, pero su almacenamiento no está listo.'))
-    return { ready: false as const, start: () => undefined, stop: async () => undefined }
+    return { ready: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
 
   const client = input.client ?? prisma as unknown as Record<string, any>
@@ -97,12 +104,12 @@ export async function createInstagramReelsRuntime(input: {
     ])
   } catch {
     input.onError(new Error('Instagram Reels está habilitado, pero su base de datos no está lista.'))
-    return { ready: false as const, start: () => undefined, stop: async () => undefined }
+    return { ready: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
 
   const api = input.api ?? new InstagramApi()
   const publicationWorker = new InstagramPublicationWorker({
-    repository: new PrismaInstagramPublicationWorkerRepository(client),
+    repository: new PrismaInstagramPublicationWorkerRepository(client, businessIds),
     api,
     videoUrls: {
       async createTemporaryHttpsUrl(video) {
@@ -117,12 +124,13 @@ export async function createInstagramReelsRuntime(input: {
     }
   })
   const commentWorker = new InstagramCommentWorker(
-    new PrismaInstagramCommentWorkerStore(client as any),
+    new PrismaInstagramCommentWorkerStore(client as any, businessIds),
     api
   )
   let loop: ReturnType<typeof startInstagramReelsWorkerRuntime> | null = null
   return {
     ready: true as const,
+    businessIds,
     start() {
       loop ??= startInstagramReelsWorkerRuntime({
         intervalMs: config.intervalMs,
@@ -138,4 +146,8 @@ export async function createInstagramReelsRuntime(input: {
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function uniqueCsv(value: string | undefined) {
+  return [...new Set((value ?? '').split(',').map((item) => item.trim()).filter(Boolean))]
 }

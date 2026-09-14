@@ -9,7 +9,8 @@ import {
 
 assert.deepEqual(resolveInstagramReelsRuntimeConfig({}), {
   enabled: false,
-  intervalMs: 5000
+  intervalMs: 5000,
+  businessIds: []
 })
 assert.equal(resolveInstagramReelsRuntimeConfig({ INSTAGRAM_REELS_ENABLED: 'true' }).enabled, true)
 
@@ -25,7 +26,7 @@ await disabledApp.close()
 
 const readinessErrors: Error[] = []
 const notReady = await createInstagramReelsRuntime({
-  config: { enabled: true, intervalMs: 5 },
+  config: { enabled: true, intervalMs: 5, businessIds: ['business-a'] },
   client: {},
   storageReady: true,
   onError(error) { readinessErrors.push(error) }

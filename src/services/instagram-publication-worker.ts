@@ -244,11 +244,17 @@ export class InstagramPublicationWorker {
 type PrismaLike = Record<string, any>
 
 export class PrismaInstagramPublicationWorkerRepository implements InstagramPublicationWorkerRepository {
-  constructor(private readonly client: PrismaLike = prisma as unknown as PrismaLike) {}
+  constructor(
+    private readonly client: PrismaLike = prisma as unknown as PrismaLike,
+    private readonly businessIds?: readonly string[]
+  ) {}
 
   async recoverExpiredAmbiguousPhases(now: Date) {
     const result = await this.client.instagramPublication.updateMany({
-      where: { status: { in: ['CREATING_CONTAINER', 'PUBLISHING'] }, claimedUntil: { lte: now } },
+      where: {
+        ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
+        status: { in: ['CREATING_CONTAINER', 'PUBLISHING'] }, claimedUntil: { lte: now }
+      },
       data: {
         status: 'UNKNOWN', claimToken: null, claimedUntil: null,
         lastError: 'Lease vencido durante una operación externa ambigua.'
@@ -261,6 +267,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
     return this.client.$transaction(async (tx: PrismaLike) => {
       const candidate = await tx.instagramPublication.findFirst({
         where: {
+          ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
           status: { in: ['READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING'] },
           availableAt: { lte: input.now },
           OR: [{ claimedUntil: null }, { claimedUntil: { lte: input.now } }]

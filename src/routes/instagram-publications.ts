@@ -33,6 +33,7 @@ export async function instagramPublicationRoutes(
     service?: PublicationServiceContract
     storage?: ReelStorageContract
     runtimeReady?: boolean
+    allowedBusinessIds?: readonly string[]
   } = {}
 ) {
   const service = options.service ?? new InstagramPublicationService()
@@ -43,11 +44,16 @@ export async function instagramPublicationRoutes(
   const runtimeReady = options.runtimeReady ?? Boolean(options.service)
   const verifyDraftVideos = options.storage !== undefined || options.runtimeReady === true
 
-  app.addHook('preHandler', async (_request, reply) => {
+  const allowedBusinessIds = options.allowedBusinessIds ? new Set(options.allowedBusinessIds) : null
+  app.addHook('preHandler', async (request, reply) => {
     if (!runtimeReady) {
       return reply.status(503).send({
         message: 'Las publicaciones de Instagram no están habilitadas o su almacenamiento todavía no está disponible.'
       })
+    }
+    const businessId = (request.params as { businessId?: string }).businessId
+    if (businessId && allowedBusinessIds && !allowedBusinessIds.has(businessId)) {
+      return reply.status(404).send({ message: 'Publicaciones de Instagram no disponibles para este comercio.' })
     }
   })
 

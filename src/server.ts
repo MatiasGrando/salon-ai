@@ -90,7 +90,7 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
   outboxProvider?: OutboxProvider
   cashRegisterConfig?: CashRegisterConfig
-  instagramReelsRuntime?: { ready: boolean; start?(): void; stop(): Promise<void> }
+  instagramReelsRuntime?: { ready: boolean; businessIds?: string[]; start?(): void; stop(): Promise<void> }
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -146,13 +146,19 @@ export async function buildApp(options: BuildAppOptions = {}) {
       ? { legacyWebhookService: options.legacyWhatsappWebhookService }
       : {})
   })
-  await app.register(instagramWebhookRoutes, { commentsRuntimeReady: instagramReelsRuntime.ready })
+  await app.register(instagramWebhookRoutes, {
+    commentsRuntimeReady: instagramReelsRuntime.ready,
+    allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
+  })
   await authGuard(app)
   await app.register(accountManagementRoutes)
   await app.register(businessRoutes)
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
-  await app.register(instagramPublicationRoutes, { runtimeReady: instagramReelsRuntime.ready })
+  await app.register(instagramPublicationRoutes, {
+    runtimeReady: instagramReelsRuntime.ready,
+    allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
+  })
   await app.register(professionalRoutes)
   await app.register(serviceRoutes)
   await app.register(customerRoutes)

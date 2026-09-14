@@ -23,11 +23,11 @@ Crear un **bucket privado** en Supabase Storage. El nombre recomendado es `insta
 
 ```dotenv
 SUPABASE_INSTAGRAM_REELS_BUCKET=<nombre-del-bucket-privado>
-INSTAGRAM_REEL_MAX_BYTES=314572800
+INSTAGRAM_REEL_MAX_BYTES=52428800
 INSTAGRAM_REEL_SIGNED_READ_TTL_SECONDS=21600
 ```
 
-El bucket debe admitir `video/mp4` y `video/quicktime`. El navegador recibe únicamente una URL temporal de subida; `SUPABASE_SERVICE_ROLE_KEY` nunca se entrega al cliente. Meta descarga el video mediante otra URL temporal generada exclusivamente en el servidor.
+El bucket debe admitir `video/mp4` y `video/quicktime`. Para el piloto se usa un límite de 50 MiB, alineado con el límite global actual del proyecto Supabase. El navegador recibe únicamente una URL temporal de subida; `SUPABASE_SERVICE_ROLE_KEY` nunca se entrega al cliente. Meta descarga el video mediante otra URL temporal generada exclusivamente en el servidor.
 
 Verificar CORS del proyecto de Supabase para el origen HTTPS del CRM antes de la prueba operativa.
 
@@ -47,6 +47,7 @@ Mantener inicialmente:
 
 ```dotenv
 INSTAGRAM_REELS_ENABLED=false
+INSTAGRAM_REELS_BUSINESS_IDS=
 INSTAGRAM_REELS_WORKER_INTERVAL_MS=5000
 ```
 
@@ -56,7 +57,7 @@ Ejecutar primero:
 npm run test:instagram-reels
 ```
 
-Activar `INSTAGRAM_REELS_ENABLED=true` **después** de confirmar permisos, firma, bucket, migración y token. Al iniciar, el runtime verifica storage y tablas. Si algo falta, las rutas permanecen indisponibles y los comentarios reciben una respuesta reintentable en lugar de perderse.
+Configurar `INSTAGRAM_REELS_BUSINESS_IDS` con los identificadores internos separados por coma de los comercios habilitados. No usar nombres ni códigos de cliente. Activar `INSTAGRAM_REELS_ENABLED=true` **después** de confirmar permisos, firma, bucket, migración y token. Si la allowlist está vacía, el runtime falla cerrado. Al iniciar, verifica storage y tablas. Si algo falta, las rutas permanecen indisponibles y los comentarios reciben una respuesta reintentable en lugar de perderse.
 
 ## 5. Prueba controlada
 

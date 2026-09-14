@@ -71,12 +71,16 @@ type PrismaLike = {
 }
 
 export class PrismaInstagramCommentIngressStore implements InstagramCommentIngressStore {
-  constructor(private readonly client: PrismaLike) {}
+  constructor(
+    private readonly client: PrismaLike,
+    private readonly businessIds?: readonly string[]
+  ) {}
 
   async resolveTarget(input: { instagramAccountIds: string[]; mediaId: string }): Promise<InstagramCommentTarget | null> {
     if (!input.instagramAccountIds.length) return null
     const config = await this.client.businessInstagramConfig.findFirst({
       where: {
+        ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
         enabled: true,
         accessToken: { not: null },
         business: { accountStatus: 'ACTIVE' },

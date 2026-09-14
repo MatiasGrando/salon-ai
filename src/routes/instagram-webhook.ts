@@ -22,9 +22,10 @@ export type InstagramWebhookRouteOptions = {
   commentsRuntimeReady?: boolean
   commentIngress?: InstagramCommentIngressContract
   legacyWebhookService?: InstagramWebhookServiceContract
+  allowedBusinessIds?: readonly string[]
 }
 
-async function productionDependencies() {
+async function productionDependencies(allowedBusinessIds?: readonly string[]) {
   const [{ InstagramWebhookService }, { InstagramCommentIngressService, PrismaInstagramCommentIngressStore }, { prisma }] = await Promise.all([
     import('../services/instagram-webhook-service.js'),
     import('../services/instagram-comment-ingress-service.js'),
@@ -34,7 +35,8 @@ async function productionDependencies() {
     legacyWebhookService: new InstagramWebhookService() as InstagramWebhookServiceContract,
     commentIngress: new InstagramCommentIngressService(
       new PrismaInstagramCommentIngressStore(
-        prisma as unknown as ConstructorParameters<typeof PrismaInstagramCommentIngressStore>[0]
+        prisma as unknown as ConstructorParameters<typeof PrismaInstagramCommentIngressStore>[0],
+        allowedBusinessIds
       )
     ) as InstagramCommentIngressContract
   }
@@ -47,7 +49,7 @@ export async function instagramWebhookRoutes(
   installInstagramRawBodyParser(app)
   const production = options.legacyWebhookService && options.commentIngress
     ? null
-    : await productionDependencies()
+    : await productionDependencies(options.allowedBusinessIds)
   const service = options.legacyWebhookService ?? production!.legacyWebhookService
   const commentIngress = options.commentIngress ?? production!.commentIngress
   const appSecret = options.appSecret === undefined
