@@ -186,10 +186,9 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
         shareToFeed: input.shareToFeed,
         automation: {
           create: {
-            businessId: input.businessId,
             enabled: input.automation.enabled,
             privateReplyText: input.automation.privateReplyText,
-            keywords: { create: input.automation.keywords.map((keyword) => ({ businessId: input.businessId, ...keyword })) }
+            keywords: { create: input.automation.keywords }
           }
         }
       },

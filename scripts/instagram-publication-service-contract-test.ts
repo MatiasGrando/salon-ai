@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   InstagramPublicationConflictError,
   InstagramPublicationNotFoundError,
+  PrismaInstagramPublicationRepository,
   InstagramPublicationValidationError,
   InstagramPublicationService,
   type InstagramPublicationRecord,
@@ -113,5 +114,49 @@ await assert.rejects(() => service.updateDraft('business-a', draft.id, { caption
 
 repository.records[0]!.status = 'UNKNOWN'
 await assert.rejects(() => service.publish('business-a', draft.id), InstagramPublicationConflictError)
+
+let prismaCreateInput: any
+const prismaRepository = new PrismaInstagramPublicationRepository({
+  instagramPublication: {
+    create: async (args: any) => {
+      prismaCreateInput = args
+      return {
+        id: 'publication-prisma',
+        businessId: args.data.businessId,
+        videoObjectPath: args.data.videoObjectPath,
+        videoMimeType: args.data.videoMimeType,
+        videoSizeBytes: args.data.videoSizeBytes,
+        caption: args.data.caption,
+        shareToFeed: args.data.shareToFeed,
+        status: 'DRAFT',
+        metaContainerId: null,
+        metaMediaId: null,
+        lastError: null,
+        automation: {
+          enabled: args.data.automation.create.enabled,
+          privateReplyText: args.data.automation.create.privateReplyText,
+          keywords: args.data.automation.create.keywords.create
+        }
+      }
+    }
+  }
+})
+await prismaRepository.createDraft({
+  businessId: 'business-prisma',
+  videoObjectPath: 'business-prisma/instagram/reels/reel.mp4',
+  videoMimeType: 'video/mp4',
+  videoSizeBytes: 123,
+  caption: 'Promo',
+  shareToFeed: true,
+  automation: {
+    enabled: true,
+    privateReplyText: 'Te cuento por privado.',
+    keywords: [{ value: 'Info', normalizedValue: 'info' }]
+  }
+})
+assert.equal('businessId' in prismaCreateInput.data.automation.create, false,
+  'la relación anidada hereda businessId desde la publicación')
+assert.equal('businessId' in prismaCreateInput.data.automation.create.keywords.create[0], false,
+  'las keywords anidadas heredan businessId desde la automatización')
 
 console.log('Instagram publication service contract: OK')
