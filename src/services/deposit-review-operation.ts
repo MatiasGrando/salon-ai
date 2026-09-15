@@ -11,6 +11,8 @@ import { ensureAppointmentAccountForPayment } from './cash-service.js'
 type ReviewClient = Pick<PrismaClient, '$transaction'>
 type ReviewTx = Prisma.TransactionClient
 
+export const DEPOSIT_APPROVAL_TRANSACTION_OPTIONS = { timeout: 20_000 } as const
+
 export const DEPOSIT_REJECTION_MODES = ['RESUBMISSION_ALLOWED', 'FINAL'] as const
 export type DepositRejectionMode = typeof DEPOSIT_REJECTION_MODES[number]
 
@@ -122,7 +124,7 @@ export async function approveCurrentDepositProof(client: ReviewClient, input: {
   path: string
   projectCashPayment?: boolean
 }): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
-  return client.$transaction((tx) => approveCurrentDepositProofInTransaction(tx, input))
+  return client.$transaction((tx) => approveCurrentDepositProofInTransaction(tx, input), DEPOSIT_APPROVAL_TRANSACTION_OPTIONS)
 }
 
 /** Exported for PG rollback and approval-vs-expiry contracts. */

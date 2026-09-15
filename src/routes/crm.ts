@@ -71,7 +71,7 @@ import {
 import { setTamaraOptionsBotEnabled } from '../services/business-bot-activation-service.js'
 import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
 import { revalidateAppointmentsForConfirmation } from '../services/booking-operations.js'
-import { approveCurrentDepositProof, rejectCurrentDepositProof, DepositReviewError, DepositReviewStateError } from '../services/deposit-review-operation.js'
+import { approveCurrentDepositProof, rejectCurrentDepositProof, DepositReviewError, DepositReviewStateError, DEPOSIT_APPROVAL_TRANSACTION_OPTIONS } from '../services/deposit-review-operation.js'
 import { createCashTransactionRepository, projectApprovedDepositPaymentInTransaction } from '../repositories/prisma-cash-repository.js'
 import { ensureAppointmentAccountForPayment } from '../services/cash-service.js'
 import { randomUUID } from 'node:crypto'
@@ -1286,7 +1286,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
         })
       }
       return { approved: true as const, heldAppointmentIds }
-    }).catch((error: unknown) => {
+    }, DEPOSIT_APPROVAL_TRANSACTION_OPTIONS).catch((error: unknown) => {
       if (error instanceof AuthorizationStateConflictError) {
         return { approved: false as const, heldAppointmentIds: [] }
       }
@@ -1966,7 +1966,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       })
       if (conversationClaim.count !== 1) throw new AuthorizationStateConflictError()
       return true
-    }).catch((error: unknown) => {
+    }, DEPOSIT_APPROVAL_TRANSACTION_OPTIONS).catch((error: unknown) => {
       if (error instanceof AuthorizationStateConflictError) return false
       throw error
     })
