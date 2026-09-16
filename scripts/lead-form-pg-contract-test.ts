@@ -29,6 +29,8 @@ assert.match(schema, /customDataSchemaVersion\s+Int\s+@default\(1\)/)
 assert.match(schema, /actorKind\s+PipelineActorKind\s+@default\(USER\)/)
 assert.match(schema, /actorUserId\s+String\?/)
 assert.match(migration, /ADD COLUMN "leadCaptureFormsEnabled" BOOLEAN NOT NULL DEFAULT false/)
+assert.match(migration, /ADD COLUMN "actorKind" "PipelineActorKind" NOT NULL DEFAULT 'USER'/)
+assert.doesNotMatch(migration, /UPDATE "PipelineLeadEvent"/)
 assert.match(migration, /"FormSubmission_accepted_requires_lead_check"/)
 assert.match(migration, /"PipelineLeadEvent_actor_shape_check"/)
 assert.match(migration, /"FormSubmission_businessId_formId_idempotencyKey_key"/)
@@ -62,7 +64,19 @@ try {
     INSERT INTO "PipelineStage" VALUES ('stage-a', 'business-a', 'pipeline-a'), ('stage-b', 'business-b', 'pipeline-b');
     INSERT INTO "PipelineLead" VALUES ('lead-a', 'business-a', 'pipeline-a');
     INSERT INTO "PipelineLeadEvent" VALUES ('event-existing', 'business-a', 'lead-a', 'user-a', 'CREATED', CURRENT_TIMESTAMP);
+    CREATE FUNCTION pipeline_event_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'PipelineLeadEvent is append-only';
+    END;
+    $$;
+    CREATE TRIGGER "PipelineLeadEvent_append_only_trigger"
+    BEFORE UPDATE OR DELETE ON "PipelineLeadEvent"
+    FOR EACH ROW EXECUTE FUNCTION pipeline_event_append_only();
   `)
+  await assert.rejects(
+    db.query(`UPDATE "PipelineLeadEvent" SET "actorUserId" = 'user-a' WHERE "id" = 'event-existing'`),
+    /append-only/i
+  )
   await db.exec(migration)
   await db.exec(rewardModeMigration)
   const settings = await db.query<{ leadCaptureFormsEnabled: boolean }>('SELECT "leadCaptureFormsEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = $1', ['business-a'])

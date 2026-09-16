@@ -11,15 +11,9 @@ ADD COLUMN "customData" JSONB NOT NULL DEFAULT '{}',
 ADD COLUMN "customDataSchemaVersion" INTEGER NOT NULL DEFAULT 1;
 
 ALTER TABLE "PipelineLeadEvent"
-ADD COLUMN "actorKind" "PipelineActorKind";
-
-UPDATE "PipelineLeadEvent"
-SET "actorKind" = 'USER'
-WHERE "actorKind" IS NULL;
+ADD COLUMN "actorKind" "PipelineActorKind" NOT NULL DEFAULT 'USER';
 
 ALTER TABLE "PipelineLeadEvent"
-ALTER COLUMN "actorKind" SET DEFAULT 'USER',
-ALTER COLUMN "actorKind" SET NOT NULL,
 ALTER COLUMN "actorUserId" DROP NOT NULL;
 
 ALTER TABLE "PipelineLeadEvent"
