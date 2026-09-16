@@ -29,6 +29,7 @@ import {
   type PipelineLeadLifecycle,
   type PipelineTaskStatus
 } from './pipeline-domain.js'
+import { createPipelineLeadInTransaction } from './pipeline-lead-command.js'
 
 type PipelineClient = PrismaClient | Prisma.TransactionClient
 
@@ -458,57 +459,23 @@ export class PipelineService {
   }) {
     const businessId = parseRequiredId(input.businessId, 'INVALID_BUSINESS_ID')
     const actorUserId = parseRequiredId(input.actorUserId, 'INVALID_ACTOR_ID')
-    const stageId = parseRequiredId(input.stageId)
-    const title = parseLeadTitle(input.title)
-    const contactName = parseOptionalText(input.contactName, 160, 'INVALID_CONTACT_NAME')
-    const companyName = parseOptionalText(input.companyName, 160, 'INVALID_COMPANY_NAME')
-    const email = normalizeEmail(input.email)
-    const phone = normalizePhone(input.phone)
-    const estimatedValue = input.estimatedValue === undefined ? 0 : parseEstimatedValue(input.estimatedValue)
-    const priority = input.priority === undefined ? 'MEDIUM' : parseLeadPriority(input.priority)
-    const source = parseOptionalText(input.source, 120, 'INVALID_LEAD_SOURCE')
-    const externalReference = parseOptionalText(input.externalReference, 200, 'INVALID_EXTERNAL_REFERENCE')
-    const assigneeUserId = parseOptionalId(input.assigneeUserId, 'INVALID_ASSIGNEE')
-
-    return this.prisma.$transaction(async (transaction) => {
-      const pipeline = await requirePipeline(transaction, businessId)
-      await requireStage(transaction, businessId, pipeline.id, stageId)
-      await requireAssignee(transaction, businessId, assigneeUserId)
-      const aggregate = await transaction.pipelineLead.aggregate({
-        where: { businessId, pipelineId: pipeline.id, stageId, lifecycle: 'OPEN', archivedAt: null },
-        _max: { position: true }
-      })
-      const lead = await transaction.pipelineLead.create({
-        data: {
-          businessId,
-          pipelineId: pipeline.id,
-          stageId,
-          lastOpenStageId: stageId,
-          title,
-          contactName,
-          companyName,
-          ...email,
-          ...phone,
-          estimatedValue,
-          priority,
-          source,
-          externalReference,
-          assigneeUserId,
-          position: (aggregate._max.position ?? -1) + 1,
-          lastActivityAt: new Date()
-        }
-      })
-      await appendLeadEvent(transaction, {
+    return this.prisma.$transaction((transaction) =>
+      createPipelineLeadInTransaction(transaction, {
         businessId,
-        leadId: lead.id,
-        actorUserId,
-        type: 'CREATED',
-        toStageId: stageId,
-        toLifecycle: 'OPEN'
+        actor: { kind: 'USER', userId: actorUserId },
+        stageId: input.stageId,
+        title: input.title,
+        contactName: input.contactName,
+        companyName: input.companyName,
+        email: input.email,
+        phone: input.phone,
+        estimatedValue: input.estimatedValue,
+        priority: input.priority,
+        source: input.source,
+        externalReference: input.externalReference,
+        assigneeUserId: input.assigneeUserId
       })
-      const revised = await bumpRevision(transaction, businessId, pipeline.id)
-      return { lead, revision: revised.revision }
-    })
+    )
   }
 
   async assignLead(input: { businessId: string; actorUserId: string; leadId: string; assigneeUserId: unknown }) {

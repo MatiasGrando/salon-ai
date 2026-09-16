@@ -6,6 +6,11 @@ export type CustomSiteProfileBinding = {
 
 const customSiteProfileBindings: CustomSiteProfileBinding[] = [
   {
+    hostname: 'demo-barber.weex.com.ar',
+    businessCustomerCode: 'WX-38N6UG',
+    serviceCatalogMode: 'ALL'
+  },
+  {
     hostname: 'yamila-sacco.weex.com.ar',
     businessCustomerCode: 'WX-J82QB3',
     serviceCatalogMode: 'ALL'
@@ -31,6 +36,10 @@ export function findCustomSiteProfileBinding(host: string | string[] | undefined
   const hostname = normalizeHostname(host)
   if (!hostname) return null
   return customSiteProfileBindings.find(binding => binding.hostname === hostname) || null
+}
+
+export function findCustomSiteProfileBindingByCustomerCode(customerCode: string) {
+  return customSiteProfileBindings.find(binding => binding.businessCustomerCode === customerCode.trim().toUpperCase()) || null
 }
 
 export function normalizeHostname(host: string | string[] | undefined) {

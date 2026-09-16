@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DEMO CURSOS — Marketing Digital, Redes Sociales, Ventas Online y Asesoría Personalizada</title>
+  <meta name="description" content="Impulsá tu carrera y negocio con cursos prácticos y asesoría 1 a 1. Aprendé marketing digital, crecé en redes sociales y escalá tus ventas online.">
+  <link rel="canonical" href="https://demo-barber.weex.com.ar/">
+
+  <!-- ============================================== -->
+  <!-- ETIQUETAS OPEN GRAPH / WHATSAPP / REDES SOCIALES -->
+  <!-- ============================================== -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DEMO CURSOS">
+  <meta property="og:title" content="DEMO CURSOS — Formación Práctica en Marketing, Redes y Ventas Online">
+  <meta property="og:description" content="Aprendé habilidades de alta demanda y multiplicá tus resultados. Cursos online prácticos y asesoría personalizada 1 a 1.">
+  <meta property="og:url" content="https://demo-barber.weex.com.ar/">
+  <meta property="og:image" content="https://demo-barber.weex.com.ar/assets/og-preview.jpg">
+  <meta property="og:image:secure_url" content="https://demo-barber.weex.com.ar/assets/og-preview.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="DEMO CURSOS — Programas y Asesoría Personalizada">
+  <meta property="og:locale" content="es_LA">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DEMO CURSOS — Formación Práctica en Marketing, Redes y Ventas Online">
+  <meta name="twitter:description" content="Aprendé habilidades de alta demanda y multiplicá tus resultados con nuestros cursos y asesoría personalizada.">
+  <meta name="twitter:image" content="https://demo-barber.weex.com.ar/assets/og-preview.jpg">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #0F172A;
+      --primary-soft: #1E293B;
+      --accent: #2563EB;
+      --accent-hover: #1D4ED8;
+      --accent-light: #EFF6FF;
+      --gold: #F59E0B;
+      --gold-dark: #D97706;
+      --gold-soft: #FEF3C7;
+      --emerald: #10B981;
+      --emerald-soft: #D1FAE5;
+      --purple: #8B5CF6;
+      --purple-soft: #EDE9FE;
+      --bg: #F8FAFC;
+      --surface: #FFFFFF;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 12px -1px rgba(15,23,42,0.08), 0 2px 4px -2px rgba(15,23,42,0.04);
+      --shadow-xl: 0 20px 25px -5px rgba(15,23,42,0.1), 0 10px 10px -5px rgba(15,23,42,0.04);
+      --radius: 16px;
+      --radius-sm: 8px;
+      --transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3, h4, .brand-font {
+      font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+      letter-spacing: -0.02em;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navbar */
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      transition: var(--transition);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 76px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 20px;
+    }
+
+    .brand-logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #38BDF8, #2563EB);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+
+    .brand span {
+      color: #38BDF8;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      text-decoration: none;
+      color: #94A3B8;
+      font-size: 14.5px;
+      font-weight: 500;
+      transition: var(--transition);
+    }
+
+    .nav-links a:hover {
+      color: #FFFFFF;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: var(--transition);
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2563EB, #1D4ED8);
+      color: #FFFFFF;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+      background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #F59E0B, #D97706);
+      color: #0F172A;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-gold:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.45);
+      filter: brightness(1.05);
+    }
+
+    .btn-outline-light {
+      background: rgba(255, 255, 255, 0.05);
+      color: #F8FAFC;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-outline-light:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    /* Hero Section */
+    .hero {
+      position: relative;
+      background: radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.18), transparent 45%),
+                  radial-gradient(circle at 90% 80%, rgba(245, 158, 11, 0.12), transparent 40%),
+                  linear-gradient(180deg, #0F172A 0%, #172554 60%, #0F172A 100%);
+      color: #FFFFFF;
+      padding: 70px 0 90px;
+      overflow: hidden;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 56px;
+      align-items: center;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(37, 99, 235, 0.18);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #7DD3FC;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 24px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #38BDF8;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #38BDF8;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+
+    .hero h1 {
+      font-size: 48px;
+      line-height: 1.14;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, #38BDF8, #818CF8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-lead {
+      font-size: 17.5px;
+      color: #CBD5E1;
+      line-height: 1.6;
+      margin-bottom: 34px;
+      max-width: 540px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .metric-item strong {
+      display: block;
+      font-size: 26px;
+      font-weight: 700;
+      color: #FFFFFF;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .metric-item span {
+      font-size: 13px;
+      color: #94A3B8;
+    }
+
+    .hero-preview-card {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(12px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .preview-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #EF4444; }
+    .dot-yellow { background: #F59E0B; }
+    .dot-green { background: #10B981; }
+
+    .preview-image-container {
+      position: relative;
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 4 / 3;
+    }
+
+    .preview-image-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.6s ease;
+    }
+
+    .hero-preview-card:hover .preview-image-container img {
+      transform: scale(1.03);
+    }
+
+    .floating-tag {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #FFFFFF;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+    }
+
+    .tag-icon { font-size: 24px; }
+    .tag-text strong { display: block; font-size: 14px; font-weight: 700; }
+    .tag-text span { font-size: 12px; color: #94A3B8; }
+
+    /* Benefits Strip */
+    .benefits-strip {
+      background: #FFFFFF;
+      border-bottom: 1px solid var(--border);
+      padding: 30px 0;
+    }
+
+    .benefits-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+    }
+
+    .benefit-box {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .benefit-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .benefit-icon.purple { background: var(--purple-soft); color: var(--purple); }
+    .benefit-icon.blue { background: var(--accent-light); color: var(--accent); }
+    .benefit-icon.gold { background: var(--gold-soft); color: var(--gold-dark); }
+    .benefit-icon.emerald { background: var(--emerald-soft); color: var(--emerald); }
+
+    .benefit-info h4 { font-size: 15px; font-weight: 700; color: var(--primary); }
+    .benefit-info p { font-size: 13px; color: var(--text-muted); }
+
+    /* Courses Section */
+    .courses-section {
+      padding: 92px 0 80px;
+    }
+
+    .section-header {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 52px;
+    }
+
+    .section-eyebrow {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      background: var(--accent-light);
+      padding: 4px 12px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-size: 38px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 14px;
+    }
+
+    .section-subtitle {
+      font-size: 17px;
+      color: var(--text-muted);
+    }
+
+    .courses-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+
+    .course-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      transition: var(--transition);
+      position: relative;
+    }
+
+    .course-card:hover {
+      transform: translateY(-8px);
+      box-shadow: var(--shadow-xl);
+      border-color: #CBD5E1;
+    }
+
+    .course-badge-top {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 10;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 9999px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      backdrop-filter: blur(8px);
+    }
+
+    .badge-c1 { background: rgba(139, 92, 246, 0.9); color: #fff; }
+    .badge-c2 { background: rgba(236, 72, 153, 0.9); color: #fff; }
+    .badge-c3 { background: rgba(16, 185, 129, 0.9); color: #fff; }
+
+    .card-media {
+      position: relative;
+      height: 250px;
+      overflow: hidden;
+      background: #0F172A;
+    }
+
+    .card-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.5s ease;
+    }
+
+    .course-card:hover .card-media img {
+      transform: scale(1.05);
+    }
+
+    .card-body {
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+
+    .course-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .card-title {
+      font-size: 21px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    .card-desc {
+      font-size: 14.5px;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+
+    .card-features {
+      background: #F8FAFC;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 24px;
+      border: 1px solid #F1F5F9;
+    }
+
+    .card-features h5 {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .card-features ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-features li {
+      font-size: 13.5px;
+      color: #334155;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .check-icon {
+      color: var(--emerald);
+      font-weight: 800;
+      font-size: 14px;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+
+    .price-box strong {
+      display: block;
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--primary);
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .price-box small {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .btn-select-course {
+      padding: 10px 18px;
+      font-size: 14px;
+    }
+
+    /* ============================================== */
+    /* NUEVA SECCIÓN: ASESORÍA PERSONALIZADA */
+    /* ============================================== */
+    .advisory-section {
+      padding: 90px 0;
+      background: #FFFFFF;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .advisory-card-container {
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: var(--shadow-xl);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      align-items: center;
+    }
+
+    .advisory-content {
+      padding: 48px 44px;
+      color: #FFFFFF;
+    }
+
+    .advisory-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #FCD34D;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 20px;
+    }
+
+    .advisory-content h2 {
+      font-size: 36px;
+      line-height: 1.2;
+      color: #FFFFFF;
+      margin-bottom: 16px;
+    }
+
+    .advisory-desc {
+      font-size: 16.5px;
+      color: #CBD5E1;
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+
+    .advisory-bullets {
+      list-style: none;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-bottom: 34px;
+    }
+
+    .advisory-bullets li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 15px;
+      color: #E2E8F0;
+    }
+
+    .advisory-bullet-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.18);
+      color: #38BDF8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .advisory-media {
+      height: 100%;
+      min-height: 420px;
+      position: relative;
+      background: #111827;
+      overflow: hidden;
+    }
+
+    .advisory-media img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Methodology Section */
+    .methodology-section {
+      background: var(--bg);
+      padding: 88px 0;
+    }
+
+    .method-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 36px;
+    }
+
+    .method-card {
+      padding: 32px 28px;
+      border-radius: var(--radius);
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      transition: var(--transition);
+    }
+
+    .method-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-4px);
+    }
+
+    .method-number {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 36px;
+      font-weight: 800;
+      color: #CBD5E1;
+      margin-bottom: 12px;
+    }
+
+    .method-card h3 { font-size: 20px; font-weight: 700; color: var(--primary); margin-bottom: 10px; }
+    .method-card p { font-size: 15px; color: var(--text-muted); }
+
+    /* FAQ Section */
+    .faq-section {
+      padding: 88px 0;
+      background: #FFFFFF;
+      border-top: 1px solid var(--border);
+    }
+
+    .faq-accordion {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .faq-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+
+    .faq-question {
+      width: 100%;
+      text-align: left;
+      padding: 20px 24px;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: inherit;
+    }
+
+    .faq-icon {
+      font-size: 20px;
+      color: var(--text-muted);
+      transition: transform 0.25s ease;
+    }
+
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+      padding: 0 24px;
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .faq-item.active {
+      border-color: #93C5FD;
+      box-shadow: var(--shadow-sm);
+      background: #FFFFFF;
+    }
+
+    .faq-item.active .faq-icon {
+      transform: rotate(45deg);
+      color: var(--accent);
+    }
+
+    .faq-item.active .faq-answer {
+      max-height: 200px;
+      padding: 0 24px 20px;
+    }
+
+    /* Contact Section & Form */
+    .contact-section {
+      background: linear-gradient(180deg, #0F172A 0%, #111827 100%);
+      color: #FFFFFF;
+      padding: 96px 0;
+      position: relative;
+    }
+
+    .contact-container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    .contact-wrapper {
+      display: grid;
+      grid-template-columns: 0.95fr 1.25fr;
+      gap: 52px;
+      align-items: start;
+    }
+
+    .contact-info .section-eyebrow {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38BDF8;
+    }
+
+    .contact-info h2 {
+      font-size: 36px;
+      line-height: 1.15;
+      margin-bottom: 18px;
+    }
+
+    .contact-info p.lead {
+      color: #94A3B8;
+      font-size: 15.5px;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .contact-methods {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .contact-method-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .c-icon {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #38BDF8;
+      flex-shrink: 0;
+    }
+
+    .c-details strong { display: block; font-size: 15px; color: #FFFFFF; }
+    .c-details span { font-size: 13px; color: #94A3B8; }
+
+    /* Form Card */
+    .form-card {
+      background: #1E293B;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius);
+      padding: 36px 32px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+      transition: var(--transition);
+    }
+
+    .form-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #FFFFFF;
+    }
+
+    .form-subtitle {
+      font-size: 14px;
+      color: #94A3B8;
+      margin-bottom: 24px;
+    }
+
+    .contact-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .input-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+
+    .input-group input,
+    .input-group select,
+    .input-group textarea {
+      width: 100%;
+      background: #0F172A;
+      border: 1px solid #334155;
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: 14.5px;
+      color: #FFFFFF;
+      font-family: inherit;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    .input-group select {
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 36px;
+    }
+
+    .input-group input:focus,
+    .input-group select:focus,
+    .input-group textarea:focus {
+      border-color: #38BDF8;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+    }
+
+    .input-group textarea {
+      resize: vertical;
+      min-height: 85px;
+    }
+
+    /* Schedule Box / Agendar Entrevista */
+    .schedule-box {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-top: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .schedule-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .schedule-header label {
+      font-size: 14px;
+      font-weight: 700;
+      color: #FCD34D;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .schedule-toggle {
+      width: 20px;
+      height: 20px;
+      accent-color: #F59E0B;
+      cursor: pointer;
+    }
+
+    .schedule-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.12);
+    }
+
+    .schedule-fields.hidden {
+      display: none;
+    }
+
+    .form-check {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 12.5px;
+      color: #94A3B8;
+      margin-top: 4px;
+    }
+
+    .form-check input {
+      margin-top: 3px;
+      accent-color: #2563EB;
+    }
+
+    .form-alert-success {
+      display: none;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34D399;
+      padding: 14px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 10px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Footer */
+    footer {
+      background: #0B1120;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      color: #94A3B8;
+      padding: 48px 0 28px;
+    }
+
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      color: #94A3B8;
+      text-decoration: none;
+      font-size: 14px;
+      transition: var(--transition);
+    }
+
+    .footer-links a:hover {
+      color: #FFFFFF;
+    }
+
+    .footer-bottom {
+      text-align: center;
+      padding-top: 24px;
+      font-size: 13px;
+      color: #64748B;
+    }
+
+    /* Responsive */
+    @media (max-width: 992px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+      .courses-grid { grid-template-columns: 1fr; max-width: 520px; margin: 0 auto; }
+      .advisory-card-container { grid-template-columns: 1fr; }
+      .advisory-media { min-height: 280px; }
+      .contact-wrapper { grid-template-columns: 1fr; gap: 40px; }
+      .benefits-grid { grid-template-columns: repeat(2, 1fr); }
+      .method-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 34px; }
+      .hero-metrics { grid-template-columns: 1fr; gap: 16px; }
+      .form-row, .schedule-fields { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+      .benefits-grid { grid-template-columns: 1fr; }
+      .advisory-content { padding: 32px 24px; }
+      .footer-content { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="container nav-inner">
+      <a href="#" class="brand">
+        <div class="brand-logo-icon">C</div>
+        <span>DEMO</span>CURSOS
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#cursos">Cursos</a></li>
+        <li><a href="#asesoria">Asesoría Personalizada</a></li>
+        <li><a href="#metodologia">Metodología</a></li>
+        <li><a href="#faq">Preguntas</a></li>
+        <li><a href="#contacto">Contacto</a></li>
+      </ul>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button onclick="agendarEntrevista()" class="btn btn-gold" style="padding: 9px 18px; font-size: 14px;">
+          Agendar Entrevista
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero">
+    <div class="container hero-grid">
+      <div class="hero-content">
+        <div class="badge-pill">
+          <span class="pulse-dot"></span>
+          Convocatoria 2026 — Cupos Bonificados
+        </div>
+        <h1>
+          Aprendé habilidades de alta demanda y <span class="highlight">multiplicá tus ventas</span>.
+        </h1>
+        <p class="hero-lead">
+          Programas 100% prácticos pensados para emprendedores, creadores y profesionales que buscan dominar el marketing digital, escalar sus redes sociales y convertir más clientes.
+        </p>
+
+        <div class="hero-actions">
+          <a href="#cursos" class="btn btn-gold">
+            Ver los 3 cursos disponibles ↓
+          </a>
+          <button onclick="agendarEntrevista()" class="btn btn-outline-light">
+            Agendar entrevista gratuita →
+          </button>
+        </div>
+
+        <div class="hero-metrics">
+          <div class="metric-item">
+            <strong>+1.850</strong>
+            <span>Alumnos certificados</span>
+          </div>
+          <div class="metric-item">
+            <strong>4.9 / 5</strong>
+            <span>Calificación promedio</span>
+          </div>
+          <div class="metric-item">
+            <strong>100%</strong>
+            <span>Práctico y con soporte</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Interactive Preview Card -->
+      <div class="hero-preview-wrapper">
+        <div class="hero-preview-card">
+          <div class="preview-header">
+            <span class="preview-dot dot-red"></span>
+            <span class="preview-dot dot-yellow"></span>
+            <span class="preview-dot dot-green"></span>
+            <span style="font-size: 12px; color: #94A3B8; margin-left: 8px;">Plataforma de formación online</span>
+          </div>
+          <div class="preview-image-container">
+            <img src="assets/marketing-digital.jpg" alt="Marketing Digital Estratégico">
+            <div class="floating-tag">
+              <div class="tag-icon">⚡</div>
+              <div class="tag-text">
+                <strong>Clases en video HD</strong>
+                <span>+ Material descargable y ejercicios</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Value Propositions / Benefits Strip -->
+  <section class="benefits-strip">
+    <div class="container benefits-grid">
+      <div class="benefit-box">
+        <div class="benefit-icon purple">🎓</div>
+        <div class="benefit-info">
+          <h4>Acceso Inmediato</h4>
+          <p>Estudiá a tu propio ritmo y horario</p>
+        </div>
+      </div>
+      <div class="benefit-box">
+        <div class="benefit-icon blue">💼</div>
+        <div class="benefit-info">
+          <h4>Enfoque 100% Real</h4>
+          <p>Casos prácticos aplicados a tu negocio</p>
+        </div>
+      </div>
+      <div class="benefit-box">
+        <div class="benefit-icon gold">🏆</div>
+        <div class="benefit-info">
+          <h4>Certificado Oficial</h4>
+          <p>Acreditá tus nuevos conocimientos</p>
+        </div>
+      </div>
+      <div class="benefit-box">
+        <div class="benefit-icon emerald">💬</div>
+        <div class="benefit-info">
+          <h4>Comunidad y Soporte</h4>
+          <p>Resolución de dudas con tutores</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Courses Section -->
+  <section class="courses-section" id="cursos">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Programas Especializados</span>
+        <h2 class="section-title">Elegí el curso ideal para tu objetivo</h2>
+        <p class="section-subtitle">Tres formaciones diseñadas para resolver las tres necesidades clave de cualquier negocio en el entorno digital.</p>
+      </div>
+
+      <div class="courses-grid">
+
+        <!-- Curso 1: Marketing Digital -->
+        <article class="course-card">
+          <span class="course-badge-top badge-c1">Más Completo</span>
+          <div class="card-media">
+            <img src="assets/marketing-digital.jpg" alt="Curso Demo 1 — Marketing Digital" loading="lazy">
+          </div>
+          <div class="card-body">
+            <div class="course-meta">
+              <span>⏱️ 4 semanas</span>
+              <span>•</span>
+              <span>Nivel Inicial</span>
+            </div>
+            <h3 class="card-title">Curso Demo 1 — Marketing Digital</h3>
+            <p class="card-desc">
+              Aprendé las bases del marketing digital y descubrí cómo crear contenido, atraer clientes y mejorar la presencia de tu negocio en redes sociales.
+            </p>
+
+            <div class="card-features">
+              <h5>Incluye:</h5>
+              <ul>
+                <li><span class="check-icon">✓</span> Clases prácticas</li>
+                <li><span class="check-icon">✓</span> Material de apoyo</li>
+                <li><span class="check-icon">✓</span> Ejercicios aplicados</li>
+                <li><span class="check-icon">✓</span> Certificado oficial</li>
+              </ul>
+            </div>
+
+            <div class="card-footer">
+              <div class="price-box">
+                <strong>$29.999</strong>
+                <small>Pago único • Acceso total</small>
+              </div>
+              <button class="btn btn-primary btn-select-course" onclick="seleccionarCurso('Curso Demo 1 — Marketing Digital')">
+                Consultar
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <!-- Curso 2: Redes Sociales -->
+        <article class="course-card">
+          <span class="course-badge-top badge-c2">Tendencia & Alcance</span>
+          <div class="card-media">
+            <img src="assets/redes-sociales.jpg" alt="Curso Demo 2 — Redes Sociales" loading="lazy">
+          </div>
+          <div class="card-body">
+            <div class="course-meta">
+              <span>⏱️ 4 semanas</span>
+              <span>•</span>
+              <span>Nivel Intermedio</span>
+            </div>
+            <h3 class="card-title">Curso Demo 2 — Redes Sociales</h3>
+            <p class="card-desc">
+              Descubrí cómo crear contenido atractivo para Instagram y otras redes, aumentar tu alcance y conectar mejor con tu audiencia.
+            </p>
+
+            <div class="card-features">
+              <h5>Incluye:</h5>
+              <ul>
+                <li><span class="check-icon">✓</span> Estrategias</li>
+                <li><span class="check-icon">✓</span> Ejemplos prácticos</li>
+                <li><span class="check-icon">✓</span> Recursos descargables</li>
+                <li><span class="check-icon">✓</span> Certificado oficial</li>
+              </ul>
+            </div>
+
+            <div class="card-footer">
+              <div class="price-box">
+                <strong>$34.999</strong>
+                <small>Pago único • Acceso total</small>
+              </div>
+              <button class="btn btn-primary btn-select-course" onclick="seleccionarCurso('Curso Demo 2 — Redes Sociales')">
+                Consultar
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <!-- Curso 3: Ventas Online -->
+        <article class="course-card">
+          <span class="course-badge-top badge-c3">Alto Impacto en Ingresos</span>
+          <div class="card-media">
+            <img src="assets/ventas-online.jpg" alt="Curso Demo 3 — Ventas Online" loading="lazy">
+          </div>
+          <div class="card-body">
+            <div class="course-meta">
+              <span>⏱️ 5 semanas</span>
+              <span>•</span>
+              <span>Nivel Práctico</span>
+            </div>
+            <h3 class="card-title">Curso Demo 3 — Ventas Online</h3>
+            <p class="card-desc">
+              Aprendé estrategias simples para conseguir nuevos clientes, mejorar tus conversaciones de venta y convertir más oportunidades en ventas.
+            </p>
+
+            <div class="card-features">
+              <h5>Incluye:</h5>
+              <ul>
+                <li><span class="check-icon">✓</span> Técnicas de venta</li>
+                <li><span class="check-icon">✓</span> Ejemplos reales</li>
+                <li><span class="check-icon">✓</span> Ejercicios prácticos</li>
+                <li><span class="check-icon">✓</span> Certificado oficial</li>
+              </ul>
+            </div>
+
+            <div class="card-footer">
+              <div class="price-box">
+                <strong>$39.999</strong>
+                <small>Pago único • Acceso total</small>
+              </div>
+              <button class="btn btn-primary btn-select-course" onclick="seleccionarCurso('Curso Demo 3 — Ventas Online')">
+                Consultar
+              </button>
+            </div>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- SECCIÓN ASESORÍA PERSONALIZADA -->
+  <!-- ============================================== -->
+  <section class="advisory-section" id="asesoria">
+    <div class="container">
+      <div class="advisory-card-container">
+        <div class="advisory-content">
+          <div class="advisory-badge">
+            <span>✨</span> Orientación 1 a 1 sin costo
+          </div>
+          <h2>Asesoría personalizada</h2>
+          <p class="advisory-desc">
+            ¿Tenés dudas o querés conocer mejor nuestros cursos? Agendá una llamada con nuestro equipo y te ayudamos a encontrar la opción ideal para vos.
+          </p>
+
+          <ul class="advisory-bullets">
+            <li>
+              <div class="advisory-bullet-icon">💬</div>
+              <span><strong>Asesoramiento personalizado:</strong> Analizamos el estado de tu marca o emprendimiento.</span>
+            </li>
+            <li>
+              <div class="advisory-bullet-icon">💡</div>
+              <span><strong>Soluciones a tus necesidades:</strong> Te orientamos en qué programa se ajusta a tus metas.</span>
+            </li>
+            <li>
+              <div class="advisory-bullet-icon">📈</div>
+              <span><strong>Plan de acción concreto:</strong> Definir, planificar y avanzar con pasos claros.</span>
+            </li>
+          </ul>
+
+          <button onclick="agendarEntrevista()" class="btn btn-gold">
+            📅 Agendá tu entrevista personalizada
+          </button>
+        </div>
+
+        <div class="advisory-media">
+          <img src="assets/asesoria-personalizada.jpg" alt="Asesoría personalizada — Videollamada con nuestro equipo" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Methodology Section -->
+  <section class="methodology-section" id="metodologia">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Nuestro Método</span>
+        <h2 class="section-title">Aprender haciendo, sin rodeos</h2>
+        <p class="section-subtitle">Olvidate de horas de teoría abstracta. Diseñamos un formato directo al grano.</p>
+      </div>
+
+      <div class="method-grid">
+        <div class="method-card">
+          <div class="method-number">01</div>
+          <h3>Clases cortas y al grano</h3>
+          <p>Módulos en video de 10 a 15 minutos con conceptos claros para que puedas aplicar lo aprendido el mismo día.</p>
+        </div>
+        <div class="method-card">
+          <div class="method-number">02</div>
+          <h3>Plantillas listas para usar</h3>
+          <p>Accedé a copys, grillas de contenido, guiones de ventas y hojas de cálculo listas para descargar y adaptar.</p>
+        </div>
+        <div class="method-card">
+          <div class="method-number">03</div>
+          <h3>Acompañamiento cercano</h3>
+          <p>Canal exclusivo de consultas para que nunca te quedes con dudas durante el avance de tu proyecto.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Dudas Frecuentes</span>
+        <h2 class="section-title">Preguntas Frecuentes</h2>
+        <p class="section-subtitle">Respuestas rápidas a las consultas más comunes de nuestros estudiantes.</p>
+      </div>
+
+      <div class="faq-accordion">
+        <div class="faq-item active">
+          <button class="faq-question" onclick="toggleFaq(this)">
+            ¿Cómo funciona la asesoría personalizada?
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            Es una videollamada de 15 a 20 minutos con uno de nuestros tutores. Conversamos sobre tu negocio, tus metas y te recomendamos la ruta de aprendizaje más eficiente.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFaq(this)">
+            ¿Necesito conocimientos previos para los cursos?
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            No, todos los programas parten desde los fundamentos esenciales y avanzan de manera progresiva con ejercicios prácticos guiados paso a paso.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFaq(this)">
+            ¿Por cuánto tiempo tendré acceso a los cursos?
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            El acceso es de por vida. Podés ingresar a la plataforma cuantas veces quieras, en el horario que prefieras y volver a ver las clases actualizadas.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" onclick="toggleFaq(this)">
+            ¿Cuáles son los medios de pago disponibles?
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            Aceptamos tarjetas de crédito y débito, transferencias bancarias y plataformas de pago con opciones de cuotas.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact & Interview Booking Section -->
+  <section class="contact-section" id="contacto">
+    <div class="contact-container">
+      <div class="contact-wrapper">
+        <div class="contact-info">
+          <span class="section-eyebrow">Contacto & Entrevista</span>
+          <h2>Hablemos de tu próximo paso</h2>
+          <p class="lead">
+            Dejanos tus datos completando el formulario. Podés consultar por un curso o directamente agendar una entrevista personalizada para que te asesoremos 1 a 1.
+          </p>
+
+          <div class="contact-methods">
+            <div class="contact-method-item">
+              <div class="c-icon">📅</div>
+              <div class="c-details">
+                <strong>Entrevista Personalizada</strong>
+                <span>Llamada de orientación de 15 minutos</span>
+              </div>
+            </div>
+            <div class="contact-method-item">
+              <div class="c-icon">💬</div>
+              <div class="c-details">
+                <strong>Atención por WhatsApp</strong>
+                <span>Lunes a Viernes de 9:00 a 19:00 hs</span>
+              </div>
+            </div>
+            <div class="contact-method-item">
+              <div class="c-icon">✉️</div>
+              <div class="c-details">
+                <strong>Email directo</strong>
+                <span>contacto@democursos.com</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Form Card with Custom Interview Booking Option -->
+        <div class="form-card" id="formCard">
+          <h3 class="form-title" id="formMainTitle">Formulario de Contacto & Entrevista</h3>
+          <p class="form-subtitle">Completá tus datos y te responderemos a la brevedad.</p>
+
+          <form id="leadContactForm" class="contact-form">
+            <div class="form-row">
+              <div class="input-group">
+                <label for="nombre">Nombre y Apellido *</label>
+                <input type="text" id="nombre" name="nombre" placeholder="Ej. Florencia Gómez" required>
+              </div>
+              <div class="input-group">
+                <label for="telefono">WhatsApp / Teléfono *</label>
+                <input type="tel" id="telefono" name="telefono" placeholder="Ej. +54 9 11 1234-5678" required>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="email">Correo Electrónico *</label>
+              <input type="email" id="email" name="email" placeholder="nombre@correo.com" required>
+            </div>
+
+            <div class="input-group">
+              <label for="cursoInteres">Motivo de Consulta / Curso de Interés *</label>
+              <select id="cursoInteres" name="cursoInteres" onchange="actualizarModoEntrevista()" required>
+                <option value="">Seleccioná una opción...</option>
+                <option value="Asesoría personalizada (Entrevista 1 a 1)">✨ Asesoría personalizada (Entrevista 1 a 1 gratuita)</option>
+                <option value="Curso Demo 1 — Marketing Digital">Curso Demo 1 — Marketing Digital</option>
+                <option value="Curso Demo 2 — Redes Sociales">Curso Demo 2 — Redes Sociales</option>
+                <option value="Curso Demo 3 — Ventas Online">Curso Demo 3 — Ventas Online</option>
+                <option value="Pack Completo (3 Cursos)">Pack Completo (Los 3 Cursos con descuento)</option>
+              </select>
+            </div>
+
+            <!-- Caja desplegable para agendar entrevista personalizada -->
+            <div class="schedule-box">
+              <div class="schedule-header">
+                <label for="agendarCheck">
+                  <span>📅</span> Agendá una entrevista personalizada (Llamada 1 a 1)
+                </label>
+                <input type="checkbox" id="agendarCheck" class="schedule-toggle" onchange="toggleScheduleFields(this.checked)">
+              </div>
+
+              <div id="scheduleFields" class="schedule-fields hidden">
+                <div class="input-group">
+                  <label for="fechaEntrevista">Día preferido</label>
+                  <input type="date" id="fechaEntrevista" name="fechaEntrevista">
+                </div>
+                <div class="input-group">
+                  <label for="horarioEntrevista">Horario de preferencia</label>
+                  <select id="horarioEntrevista" name="horarioEntrevista">
+                    <option value="Mañana (09:00 a 13:00 hs)">Mañana (09:00 a 13:00 hs)</option>
+                    <option value="Tarde (14:00 a 18:00 hs)">Tarde (14:00 a 18:00 hs)</option>
+                    <option value="Noche (18:00 a 20:30 hs)">Noche (18:00 a 20:30 hs)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="mensaje">¿Qué te gustaría lograr o consultar? (Opcional)</label>
+              <textarea id="mensaje" name="mensaje" placeholder="Contanos brevemente sobre tus metas o tu emprendimiento actual..."></textarea>
+            </div>
+
+            <div class="form-check">
+              <input type="checkbox" id="acepto" checked required>
+              <label for="acepto">Acepto recibir la confirmación de la consulta o entrevista por WhatsApp/Email.</label>
+            </div>
+
+            <button type="submit" class="btn btn-gold" id="submitBtn" style="width: 100%; padding: 14px; font-size: 16px;">
+              Enviar solicitud
+            </button>
+
+            <div id="formSuccessAlert" class="form-alert-success">
+              ✅ <strong>¡Solicitud recibida con éxito!</strong> Nos contactaremos para coordinar tu entrevista o enviarte el temario completo.
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <a href="#" class="brand">
+          <div class="brand-logo-icon">C</div>
+          <span>DEMO</span>CURSOS
+        </a>
+
+        <ul class="footer-links">
+          <li><a href="#cursos">Cursos</a></li>
+          <li><a href="#asesoria">Asesoría</a></li>
+          <li><a href="#metodologia">Metodología</a></li>
+          <li><a href="#faq">Preguntas</a></li>
+          <li><a href="#contacto">Contacto</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-bottom">
+        <p>© 2026 DEMO CURSOS. Todos los derechos reservados. Página de demostración y presentación comercial.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script>
+    // Selector de cursos
+    function seleccionarCurso(nombreCurso) {
+      const select = document.getElementById('cursoInteres');
+      if (select) {
+        select.value = nombreCurso;
+      }
+      const contactoSection = document.getElementById('contacto');
+      if (contactoSection) {
+        contactoSection.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      setTimeout(() => {
+        select.focus();
+        select.style.boxShadow = '0 0 0 4px rgba(245, 158, 11, 0.4)';
+        setTimeout(() => {
+          select.style.boxShadow = '';
+        }, 1200);
+      }, 600);
+    }
+
+    // Activar modo "Agendar entrevista personalizada"
+    function agendarEntrevista() {
+      const select = document.getElementById('cursoInteres');
+      const check = document.getElementById('agendarCheck');
+      const fields = document.getElementById('scheduleFields');
+      const submitBtn = document.getElementById('submitBtn');
+      const formTitle = document.getElementById('formMainTitle');
+
+      if (select) select.value = "Asesoría personalizada (Entrevista 1 a 1)";
+      if (check) check.checked = true;
+      if (fields) fields.classList.remove('hidden');
+      if (submitBtn) submitBtn.innerText = "📅 Confirmar y agendar entrevista personalizada";
+      if (formTitle) formTitle.innerText = "Agendá tu Entrevista Personalizada";
+
+      // Establecer fecha mínima en el selector de fecha (mañana)
+      const dateInput = document.getElementById('fechaEntrevista');
+      if (dateInput && !dateInput.value) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        dateInput.min = tomorrow.toISOString().split('T')[0];
+        dateInput.value = tomorrow.toISOString().split('T')[0];
+      }
+
+      const contactoSection = document.getElementById('contacto');
+      if (contactoSection) {
+        contactoSection.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      const formCard = document.getElementById('formCard');
+      setTimeout(() => {
+        formCard.style.boxShadow = '0 0 0 4px rgba(245, 158, 11, 0.4), 0 20px 40px rgba(0,0,0,0.5)';
+        setTimeout(() => {
+          formCard.style.boxShadow = '';
+        }, 1500);
+      }, 600);
+    }
+
+    // Toggle manual del checkbox de agenda
+    function toggleScheduleFields(checked) {
+      const fields = document.getElementById('scheduleFields');
+      const submitBtn = document.getElementById('submitBtn');
+      if (checked) {
+        fields.classList.remove('hidden');
+        submitBtn.innerText = "📅 Confirmar y agendar entrevista personalizada";
+
+        const dateInput = document.getElementById('fechaEntrevista');
+        if (dateInput && !dateInput.value) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          dateInput.min = tomorrow.toISOString().split('T')[0];
+          dateInput.value = tomorrow.toISOString().split('T')[0];
+        }
+      } else {
+        fields.classList.add('hidden');
+        submitBtn.innerText = "Enviar solicitud";
+      }
+    }
+
+    // Al cambiar el desplegable principal
+    function actualizarModoEntrevista() {
+      const select = document.getElementById('cursoInteres');
+      const check = document.getElementById('agendarCheck');
+      if (select.value.includes("Asesoría")) {
+        check.checked = true;
+        toggleScheduleFields(true);
+      }
+    }
+
+    // Acordeón FAQ
+    function toggleFaq(btn) {
+      const item = btn.parentElement;
+      const isActive = item.classList.contains('active');
+      document.querySelectorAll('.faq-item').forEach(el => el.classList.remove('active'));
+      if (!isActive) {
+        item.classList.add('active');
+      }
+    }
+
+    // Manejo del formulario de contacto
+    const contactForm = document.getElementById('leadContactForm');
+    const successAlert = document.getElementById('formSuccessAlert');
+    const submitBtn = document.getElementById('submitBtn');
+
+    const leadFormStartedAt = new Date().toISOString();
+    let leadFormRequestKey = crypto.randomUUID();
+    contactForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      if (!contactForm.reportValidity()) return;
+      const prevText = submitBtn.innerText;
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Procesando solicitud...';
+      successAlert.style.display = 'none';
+      let errorNotice = document.getElementById('leadFormErrorNotice');
+      if (!errorNotice) {
+        errorNotice = document.createElement('p');
+        errorNotice.id = 'leadFormErrorNotice';
+        errorNotice.setAttribute('role', 'alert');
+        submitBtn.insertAdjacentElement('afterend', errorNotice);
+      }
+      errorNotice.textContent = '';
+      const data = new FormData(contactForm);
+      const answers = {
+        nombre: String(data.get('nombre') || ''),
+        telefono: String(data.get('telefono') || ''),
+        email: String(data.get('email') || ''),
+        curso_interes: String(data.get('cursoInteres') || ''),
+        agendar_entrevista: document.getElementById('agendarCheck').checked,
+        fecha_entrevista: String(data.get('fechaEntrevista') || ''),
+        horario_entrevista: String(data.get('horarioEntrevista') || ''),
+        mensaje: String(data.get('mensaje') || '')
+      };
+      try {
+        const params = new URLSearchParams(location.search);
+        const response = await fetch('/public/forms/barber-demo-course-lead/submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': leadFormRequestKey },
+          body: JSON.stringify({
+            answers,
+            ref: params.get('ref') || undefined,
+            antiSpam: { honeypot: '', startedAt: leadFormStartedAt },
+            attribution: { utmSource: params.get('utm_source') || '', utmMedium: params.get('utm_medium') || '', utmCampaign: params.get('utm_campaign') || '' }
+          })
+        });
+        const result = await response.json();
+        if (!response.ok || result.status !== 'ACCEPTED') {
+          errorNotice.textContent = result.message || 'No pudimos recibir tu solicitud. Probá nuevamente.';
+          return;
+        }
+        successAlert.style.display = 'block';
+        contactForm.reset();
+        toggleScheduleFields(false);
+        leadFormRequestKey = crypto.randomUUID();
+        if (result.rewardClaim) {
+          const rewardResponse = await fetch('/public/reward-claims/' + encodeURIComponent(result.rewardClaim.id) + '/access', {
+            method: 'POST', headers: { Authorization: 'Bearer ' + result.rewardClaim.accessToken }, cache: 'no-store', referrerPolicy: 'no-referrer'
+          });
+          if (rewardResponse.ok) {
+            const reward = await rewardResponse.json();
+            const benefit = document.createElement(reward.type === 'LINK' || reward.type === 'FILE' ? 'a' : 'p');
+            if (benefit instanceof HTMLAnchorElement) {
+              benefit.href = reward.url || reward.value;
+              benefit.rel = 'noopener noreferrer';
+              benefit.referrerPolicy = 'no-referrer';
+              benefit.textContent = reward.type === 'FILE' ? 'Descargar regalo' : 'Abrir regalo';
+            } else benefit.textContent = reward.value;
+            successAlert.append(document.createElement('br'), benefit);
+          } else errorNotice.textContent = 'Tu solicitud se recibió, pero el beneficio no está disponible por ahora.';
+        }
+      } catch {
+        errorNotice.textContent = 'Error de conexión. Probá nuevamente.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = prevText;
+      }
+    });
+  </script>
+</body>
+</html>

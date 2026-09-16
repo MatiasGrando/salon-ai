@@ -269,11 +269,16 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/landing-assets/')
     || isTamaraSitePublicRoute(request, path)
     || isNaturaFlowSitePublicRoute(request, path)
+    || isBarberDemoCoursesSitePublicRoute(request, path)
     || (request.headers.host?.split(':')[0] === 'yamila-sacco.weex.com.ar'
       && ['GET', 'HEAD'].includes(request.method)
       && (path === '/styles.css' || path === '/main.js' || /^\/images\/[a-zA-Z0-9_-]+\.(jpg|png)$/.test(path)))
     || isLubricentroSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
+    || (request.method === 'GET' && /^\/f\/[a-z0-9-]{1,120}$/.test(path))
+    || (request.method === 'GET' && /^\/public\/forms\/[a-z0-9-]{1,120}\/schema$/.test(path))
+    || (request.method === 'POST' && /^\/public\/forms\/[a-z0-9-]{1,120}\/submissions$/.test(path))
+    || (request.method === 'POST' && /^\/public\/reward-claims\/[a-zA-Z0-9_-]{1,128}\/access$/.test(path))
     || path.startsWith('/public/workshops/')
     || path.startsWith('/public/weex/')
     || isWeexLeadCampaignPublicRoute(request.method, path)
@@ -281,6 +286,16 @@ function isPublicRoute(request: FastifyRequest) {
     || path.startsWith('/auth/')
     || path.startsWith('/webhooks/whatsapp')
     || path.startsWith('/webhooks/instagram')
+}
+
+function isBarberDemoCoursesSitePublicRoute(request: FastifyRequest, path: string) {
+  const rawHost = request.headers['x-forwarded-host'] || request.headers.host
+  const host = Array.isArray(rawHost) ? rawHost[0] : rawHost
+  const hostname = host?.split(',')[0]?.trim().split(':')[0]?.toLowerCase()
+  if (hostname !== 'demo-barber.weex.com.ar') return false
+  if (!['GET', 'HEAD'].includes(request.method.toUpperCase())) return false
+
+  return /^\/assets\/(?:asesoria-personalizada|marketing-digital|og-preview|redes-sociales|ventas-online)\.jpg$/.test(path)
 }
 
 function isNaturaFlowSitePublicRoute(request: FastifyRequest, path: string) {

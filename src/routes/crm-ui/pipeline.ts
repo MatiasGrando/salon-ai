@@ -154,7 +154,7 @@ export const pipelineMarkup = String.raw`
           <section class="pl-pane" id="pl-leads-pane">
             <div class="pl-toolbar">
               <div class="pl-section-title"><h2>📥 Pipeline de Prospectos</h2><p>Los contactos que envían el formulario de la landing ingresan automáticamente en la primera etapa.</p></div>
-              <div class="pl-actions"><div class="pl-stats" id="pl-stats"></div><button class="pl-button" id="pl-refresh" type="button">↻ Actualizar</button><button class="pl-button" id="pl-settings-open" type="button">⚙ Configurar etapas</button><button class="pl-button" id="pl-simulate" type="button" disabled title="Se habilitará con el formulario público">➤ Simular Formulario</button><button class="pl-button pl-primary" id="pl-new-lead" type="button">＋ Nuevo Lead</button></div>
+              <div class="pl-actions"><div class="pl-stats" id="pl-stats"></div><button class="pl-button" id="pl-refresh" type="button">↻ Actualizar</button><button class="pl-button" id="pl-settings-open" type="button">⚙ Configurar etapas</button><button class="pl-button" id="pl-forms-open" type="button">✉ Formularios</button><button class="pl-button" id="pl-simulate" type="button" disabled title="Se habilitará con el formulario público">➤ Simular Formulario</button><button class="pl-button pl-primary" id="pl-new-lead" type="button">＋ Nuevo Lead</button></div>
             </div>
             <div class="pl-filters">
               <label class="pl-search-box">⌕<input class="pl-input" id="pl-search" type="search" placeholder="Buscar por nombre, empresa o contacto..." aria-label="Buscar leads"></label>
@@ -185,6 +185,7 @@ export const pipelineMarkup = String.raw`
         <div class="pl-overlay" id="pl-detail-dialog" hidden><div class="pl-modal" role="dialog" aria-modal="true" aria-labelledby="pl-detail-title"><div class="pl-modal-head"><h2 id="pl-detail-title">Detalle del lead</h2><button class="pl-close" type="button" data-pl-close="detail" aria-label="Cerrar">×</button></div><div class="pl-form" id="pl-detail-content"></div></div></div>
         <div class="pl-overlay" id="pl-task-dialog" hidden><div class="pl-modal" role="dialog" aria-modal="true" aria-labelledby="pl-task-dialog-title"><div class="pl-modal-head"><h2 id="pl-task-dialog-title">Nueva tarea</h2><button class="pl-close" type="button" data-pl-close="task" aria-label="Cerrar">×</button></div><form class="pl-form" id="pl-task-form"><input id="pl-task-id" type="hidden"><label class="pl-field">Tarea<input class="pl-input" id="pl-task-title" required maxlength="160"></label><div class="pl-grid"><label class="pl-field">Categoría<select class="pl-select" id="pl-task-category"><option value="BUSINESS">Negocio</option><option value="MEETING">Reunión</option><option value="PERSONAL">Personal</option><option value="OPERATIONS">Operaciones</option></select></label><label class="pl-field">Estado<select class="pl-select" id="pl-task-status"><option value="TODO">Por hacer</option><option value="IN_PROGRESS">En proceso</option><option value="DONE">Terminado</option></select></label><label class="pl-field">Vencimiento<input class="pl-input" id="pl-task-due" type="datetime-local"></label><label class="pl-field">Responsable<select class="pl-select" id="pl-task-assignee"><option value="">Sin asignar</option></select></label><label class="pl-field">Lead<select class="pl-select" id="pl-task-lead"><option value="">Sin vincular</option></select></label></div><label class="pl-field">Notas<textarea class="pl-textarea" id="pl-task-notes" rows="3" maxlength="4000"></textarea></label><p class="pl-feedback" id="pl-task-feedback"></p><div class="pl-modal-actions"><button class="pl-button pl-danger" id="pl-task-archive" type="button" hidden>Archivar</button><button class="pl-button" type="button" data-pl-close="task">Cancelar</button><button class="pl-button pl-primary" type="submit">Guardar tarea</button></div></form></div></div>
         <div class="pl-overlay" id="pl-settings-dialog" hidden><div class="pl-modal" role="dialog" aria-modal="true" aria-labelledby="pl-settings-title"><div class="pl-modal-head"><h2 id="pl-settings-title">Configurar pipeline</h2><button class="pl-close" type="button" data-pl-close="settings" aria-label="Cerrar">×</button></div><form class="pl-form" id="pl-pipeline-form"><label class="pl-field">Nombre del pipeline<input class="pl-input" id="pl-pipeline-name-input" required maxlength="100"></label><button class="pl-button pl-primary" type="submit">Guardar nombre</button></form><div class="pl-form"><div class="pl-stage-list" id="pl-stage-list"></div><form class="pl-stage-row" id="pl-stage-create-form"><input class="pl-input" id="pl-new-stage-color" type="color" value="#0EA5E9" aria-label="Color"><input class="pl-input" id="pl-new-stage-name" required maxlength="80" placeholder="Nueva etapa"><button class="pl-button" type="submit">Agregar</button></form><p class="pl-feedback" id="pl-settings-feedback"></p></div></div></div>
+        <div class="pl-overlay" id="pl-forms-dialog" hidden><div class="pl-modal" role="dialog" aria-modal="true" aria-labelledby="pl-forms-title"><div class="pl-modal-head"><h2 id="pl-forms-title">Formularios de entrada</h2><button class="pl-close" type="button" data-pl-close="forms" aria-label="Cerrar">×</button></div><p class="pl-subtitle">Cada página conserva su diseño; acá elegís las preguntas, etapa y beneficio.</p><div id="pl-forms-list" class="pl-stage-list"></div><form id="pl-form-editor" class="pl-form"><input id="pl-form-id" type="hidden"><label class="pl-field">Nombre interno<input class="pl-input" id="pl-form-name" maxlength="160" required></label><label class="pl-field">Clave pública (slug)<input class="pl-input" id="pl-form-slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="120" required></label><label class="pl-field">Etapa inicial<select class="pl-select" id="pl-form-stage" required></select></label><label class="pl-field">Responsable inicial<select class="pl-select" id="pl-form-assignee"></select></label><label class="pl-field">Modo de beneficio<select class="pl-select" id="pl-form-reward-mode" required><option value="NONE">Sin beneficio</option><option value="BENEFIT">Con beneficio</option></select></label><p class="pl-feedback" id="pl-form-reward-help">Sin beneficio: el envío crea el lead sin entregar un regalo.</p><label class="pl-field">Título de éxito<input class="pl-input" id="pl-form-success-title" maxlength="160"></label><label class="pl-field">Mensaje de éxito<textarea class="pl-textarea" id="pl-form-success-message" maxlength="1000"></textarea></label><h3>Preguntas</h3><div id="pl-form-field-rows" class="pl-stage-list"></div><button class="pl-button" id="pl-form-add-field" type="button">＋ Agregar pregunta</button><div class="pl-modal-actions"><button class="pl-button pl-primary" type="submit">Guardar borrador</button><button class="pl-button" id="pl-form-publish" type="button" hidden>Publicar</button><button class="pl-button pl-danger" id="pl-form-disable" type="button" hidden>Deshabilitar</button></div></form><form id="pl-form-reward-form" class="pl-form" hidden><h3>Beneficio</h3><label class="pl-field">Tipo<select class="pl-select" id="pl-form-reward-type"><option value="LINK">Enlace HTTPS</option><option value="DISCOUNT">Descuento</option><option value="TEXT">Texto</option></select></label><label class="pl-field">Nombre<input class="pl-input" id="pl-form-reward-name" maxlength="160" required></label><label class="pl-field">Valor (no se mostrará al público hasta enviar)<input class="pl-input" id="pl-form-reward-value" required></label><button class="pl-button" type="submit">Configurar beneficio</button></form><p class="pl-feedback" id="pl-forms-feedback" role="status" aria-live="polite"></p></div></div>
         <div class="pl-toast" id="pl-toast" role="status" aria-live="polite" hidden></div>
       </div>
     </section>
@@ -687,6 +688,117 @@ export const pipelineScript = String.raw`
       plRenderTasks()
     }
 
+    let plForms = []
+    const plFormTargets = ['NONE','TITLE','CONTACT_NAME','COMPANY_NAME','EMAIL','PHONE','ESTIMATED_VALUE','PRIORITY','SOURCE','EXTERNAL_REFERENCE','CUSTOM_DATA']
+    function plFormRow(field) {
+      const row = document.createElement('div')
+      row.className = 'pl-stage-row pl-form-field-row'
+      row.innerHTML = '<input class="pl-input" data-pl-field="key" placeholder="clave_interna" pattern="[a-z][a-z0-9_]*" maxlength="64" required value="' + escapeHtml(field?.key || '') + '">' +
+        '<input class="pl-input" data-pl-field="label" placeholder="Pregunta" maxlength="160" required value="' + escapeHtml(field?.label || '') + '">' +
+        '<select class="pl-select" data-pl-field="type">' + ['TEXT','TEXTAREA','EMAIL','PHONE','NUMBER','SELECT','RADIO','CHECKBOX'].map(type => '<option value="' + type + '"' + (type === (field?.type || 'TEXT') ? ' selected' : '') + '>' + type + '</option>').join('') + '</select>' +
+        '<label><input type="checkbox" data-pl-field="required"' + (field?.required ? ' checked' : '') + '> Obligatoria</label>' +
+        '<select class="pl-select" data-pl-field="mapping">' + plFormTargets.map(target => '<option value="' + target + '"' + (target === (field?.mapping?.target || 'NONE') ? ' selected' : '') + '>' + target + '</option>').join('') + '</select>' +
+        '<input class="pl-input" data-pl-field="customKey" placeholder="clave extra" value="' + escapeHtml(field?.mapping?.customKey || '') + '">' +
+        '<input class="pl-input" data-pl-field="options" placeholder="Opciones: valor=Etiqueta, ..." value="' + escapeHtml((field?.options || []).map(option => option.value + '=' + option.label).join(', ')) + '">' +
+        '<button class="pl-button" type="button" data-pl-field-up aria-label="Subir">↑</button><button class="pl-button" type="button" data-pl-field-down aria-label="Bajar">↓</button><button class="pl-button pl-danger" type="button" data-pl-field-remove aria-label="Eliminar pregunta">×</button>'
+      plEl('pl-form-field-rows').append(row)
+    }
+    function plFormFields() {
+      return Array.from(plEl('pl-form-field-rows').children).map((row, order) => {
+        const value = key => row.querySelector('[data-pl-field="' + key + '"]').value.trim()
+        const type = value('type'), target = value('mapping')
+        const field = { key: value('key'), label: value('label'), type, required: row.querySelector('[data-pl-field="required"]').checked, order }
+        if (target !== 'NONE') field.mapping = target === 'CUSTOM_DATA' ? { target, customKey: value('customKey') } : { target }
+        if (type === 'SELECT' || type === 'RADIO') field.options = value('options').split(',').map(part => {
+          const [rawValue, ...labels] = part.trim().split('=')
+          return { value: rawValue?.trim() || '', label: labels.join('=').trim() || rawValue?.trim() || '' }
+        })
+        return field
+      })
+    }
+    function plRenderFormsList() {
+      plEl('pl-forms-list').innerHTML = plForms.map(form => '<button class="pl-button" type="button" data-pl-open-form="' + escapeHtml(form.id) + '">' + escapeHtml(form.name) + ' · ' + escapeHtml(form.status) + ' · v' + escapeHtml(String(form.version)) + '</button>').join('') || '<p>No hay formularios configurados.</p>'
+    }
+    async function plLoadForms() {
+      plForms = await plRequest('/pipeline/forms')
+      plRenderFormsList()
+    }
+    function plEditForm(form) {
+      plEl('pl-form-editor').reset()
+      plEl('pl-form-id').value = form?.id || ''
+      plEl('pl-form-name').value = form?.name || ''
+      plEl('pl-form-slug').value = form?.publicSlug || ''
+      plEl('pl-form-slug').disabled = Boolean(form)
+      plEl('pl-form-stage').innerHTML = plOptions(plState.pipeline?.stages || [], form?.initialStageId || '', null)
+      plEl('pl-form-assignee').innerHTML = plOptions(plState.responsibles, form?.defaultAssigneeUserId || '', 'Sin asignar')
+      plEl('pl-form-success-title').value = form?.successTitle || ''
+      plEl('pl-form-success-message').value = form?.successMessage || ''
+      plEl('pl-form-reward-mode').value = form?.rewardMode || 'NONE'
+      plEl('pl-form-field-rows').replaceChildren()
+      for (const field of form?.fields || []) plFormRow(field)
+      if (!form) plFormRow({ key: 'nombre', label: 'Nombre', type: 'TEXT', required: true, mapping: { target: 'CONTACT_NAME' } })
+      plEl('pl-form-publish').hidden = !form || form.status !== 'DRAFT'
+      plEl('pl-form-disable').hidden = !form || form.status === 'DISABLED'
+      plSyncRewardMode()
+      plEl('pl-form-editor').querySelector('button[type="submit"]').hidden = Boolean(form && form.status === 'DISABLED')
+      plEl('pl-forms-feedback').textContent = ''
+    }
+    function plSyncRewardMode() {
+      const benefit = plEl('pl-form-reward-mode').value === 'BENEFIT'
+      const form = plForms.find(item => item.id === plEl('pl-form-id').value)
+      plEl('pl-form-reward-form').hidden = !benefit || !form || form.status !== 'DRAFT'
+      plEl('pl-form-reward-help').textContent = benefit
+        ? 'Configurá un enlace, descuento o texto antes de publicar.'
+        : 'Sin beneficio: el envío crea el lead sin entregar un regalo.'
+    }
+    plEl('pl-forms-open').addEventListener('click', async () => {
+      plEl('pl-forms-dialog').hidden = false
+      plEditForm(null)
+      try { await plLoadForms() } catch (error) { plEl('pl-forms-feedback').textContent = error.message }
+    })
+    plEl('pl-form-add-field').addEventListener('click', () => plFormRow(null))
+    plEl('pl-form-reward-mode').addEventListener('change', plSyncRewardMode)
+    plEl('pl-forms-list').addEventListener('click', event => {
+      const button = event.target.closest('[data-pl-open-form]')
+      if (button) plEditForm(plForms.find(form => form.id === button.dataset.plOpenForm))
+    })
+    plEl('pl-form-field-rows').addEventListener('click', event => {
+      const row = event.target.closest('.pl-form-field-row')
+      if (!row) return
+      if (event.target.closest('[data-pl-field-remove]')) row.remove()
+      else if (event.target.closest('[data-pl-field-up]') && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling)
+      else if (event.target.closest('[data-pl-field-down]') && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row)
+    })
+    plEl('pl-form-editor').addEventListener('submit', async event => {
+      event.preventDefault()
+      const id = plEl('pl-form-id').value
+      const body = { name: plEl('pl-form-name').value, publicSlug: plEl('pl-form-slug').value, initialStageId: plEl('pl-form-stage').value,
+        defaultAssigneeUserId: plEl('pl-form-assignee').value || null, successTitle: plEl('pl-form-success-title').value,
+        successMessage: plEl('pl-form-success-message').value, rewardMode: plEl('pl-form-reward-mode').value, fields: plFormFields() }
+      try {
+        const result = await plRequest(id ? '/pipeline/forms/' + encodeURIComponent(id) : '/pipeline/forms', { method: id ? 'PATCH' : 'POST', body })
+        await plLoadForms(); plEditForm(result)
+        plEl('pl-forms-feedback').textContent = 'Borrador guardado. El beneficio se configura antes de publicar.'
+      } catch (error) { plEl('pl-forms-feedback').textContent = error.message }
+    })
+    plEl('pl-form-reward-form').addEventListener('submit', async event => {
+      event.preventDefault()
+      try {
+        await plRequest('/pipeline/forms/' + encodeURIComponent(plEl('pl-form-id').value) + '/reward', { method: 'POST', body: {
+          type: plEl('pl-form-reward-type').value, name: plEl('pl-form-reward-name').value, value: plEl('pl-form-reward-value').value } })
+        plEl('pl-form-reward-value').value = ''
+        plEl('pl-forms-feedback').textContent = 'Beneficio protegido. Ya podés publicar cuando se habilite el módulo.'
+      } catch (error) { plEl('pl-forms-feedback').textContent = error.message }
+    })
+    plEl('pl-form-publish').addEventListener('click', async () => {
+      try { const form = await plRequest('/pipeline/forms/' + encodeURIComponent(plEl('pl-form-id').value) + '/publish', { method: 'POST', body: {} }); await plLoadForms(); plEditForm(form); plEl('pl-forms-feedback').textContent = 'Publicado. Usá ' + form.publicPath + ' en el dominio personalizado del negocio.' }
+      catch (error) { plEl('pl-forms-feedback').textContent = error.message }
+    })
+    plEl('pl-form-disable').addEventListener('click', async () => {
+      try { await plRequest('/pipeline/forms/' + encodeURIComponent(plEl('pl-form-id').value) + '/disable', { method: 'POST', body: {} }); await plLoadForms(); plEditForm(null); plEl('pl-forms-feedback').textContent = 'Formulario deshabilitado.' }
+      catch (error) { plEl('pl-forms-feedback').textContent = error.message }
+    })
+
     let plSearchTimer = null
     plEl('pl-tab-leads').addEventListener('click', () => plSwitchTab('leads'))
     plEl('pl-tab-tasks').addEventListener('click', () => plSwitchTab('tasks'))
@@ -722,7 +834,7 @@ export const pipelineScript = String.raw`
       if (retry) { await plLoadAll(true); return }
       const close = event.target.closest('[data-pl-close]')
       if (close) {
-        const dialogs = { lead: 'pl-lead-dialog', detail: 'pl-detail-dialog', task: 'pl-task-dialog', settings: 'pl-settings-dialog' }
+        const dialogs = { lead: 'pl-lead-dialog', detail: 'pl-detail-dialog', task: 'pl-task-dialog', settings: 'pl-settings-dialog', forms: 'pl-forms-dialog' }
         plEl(dialogs[close.dataset.plClose]).hidden = true
         return
       }

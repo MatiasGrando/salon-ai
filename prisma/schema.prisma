@@ -814,6 +814,35 @@ enum PipelineEventType {
   ARCHIVED
 }
 
+enum PipelineActorKind {
+  USER
+  SYSTEM
+}
+
+enum LeadCaptureFormStatus {
+  DRAFT
+  PUBLISHED
+  DISABLED
+}
+
+enum LeadFormRewardMode {
+  NONE
+  BENEFIT
+}
+
+enum FormSubmissionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum LeadRewardType {
+  FILE
+  LINK
+  DISCOUNT
+  TEXT
+}
+
 model BusinessPlan {
   id          String   @id @default(cuid())
   name        String   @unique
@@ -939,6 +968,11 @@ model Business {
   pipelineLeadActivities   PipelineLeadActivity[]
   pipelineLeadEvents       PipelineLeadEvent[]
   pipelineTasks            PipelineTask[]
+  leadCaptureForms         LeadCaptureForm[]
+  formSubmissions          FormSubmission[]
+  formRewards              FormReward[]
+  rewardClaims             RewardClaim[]
+  publicFormRateLimitBuckets PublicFormRateLimitBucket[]
 
   createdAt DateTime @default(now())
 
@@ -1096,6 +1130,7 @@ model User {
   authoredPipelineActivities PipelineLeadActivity[] @relation("PipelineActivityAuthor")
   actedPipelineEvents        PipelineLeadEvent[]    @relation("PipelineEventActor")
   assignedPipelineTasks      PipelineTask[]         @relation("PipelineTaskAssignee")
+  assignedLeadCaptureForms   LeadCaptureForm[]       @relation("LeadCaptureFormDefaultAssignee")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1399,6 +1434,7 @@ model BusinessFeatureSettings {
   realWhatsappEnabled            Boolean                   @default(false)
   bookingV2Enabled               Boolean                   @default(false)
   pipelineEnabled                Boolean                   @default(false)
+  leadCaptureFormsEnabled        Boolean                   @default(false)
   serviceCatalogDisplayMode      ServiceCatalogDisplayMode @default(ALL_SERVICES)
   bookingFlowOrder               BookingFlowOrder          @default(PROFESSIONAL_FIRST)
   conversationPauseAfterMinutes  Int                       @default(120)
@@ -2820,6 +2856,7 @@ model Pipeline {
   stages   PipelineStage[]
   leads    PipelineLead[]
   tasks    PipelineTask[]
+  leadCaptureForms LeadCaptureForm[]
 
   @@unique([businessId, id])
 }
@@ -2841,8 +2878,10 @@ model PipelineStage {
   lastOpenLeads PipelineLead[]       @relation("PipelineLeadLastOpenStage")
   eventsFrom    PipelineLeadEvent[]  @relation("PipelineEventFromStage")
   eventsTo      PipelineLeadEvent[]  @relation("PipelineEventToStage")
+  leadCaptureForms LeadCaptureForm[]
 
   @@unique([businessId, id])
+  @@unique([businessId, pipelineId, id])
   @@index([businessId, pipelineId, archivedAt, position])
 }
 
@@ -2865,6 +2904,8 @@ model PipelineLead {
   priority          PipelineLeadPriority   @default(MEDIUM)
   source            String?
   externalReference String?
+  customData        Json                   @default("{}")
+  customDataSchemaVersion Int              @default(1)
   position          Int?
   lastActivityAt    DateTime?
   resolvedAt        DateTime?
@@ -2880,6 +2921,7 @@ model PipelineLead {
   activities    PipelineLeadActivity[]
   events        PipelineLeadEvent[]
   tasks         PipelineTask[]
+  formSubmissions FormSubmission[]
 
   @@unique([businessId, id])
   @@index([businessId, lifecycle, archivedAt, lastActivityAt])
@@ -2912,7 +2954,8 @@ model PipelineLeadEvent {
   id            String                 @id @default(cuid())
   businessId    String
   leadId        String
-  actorUserId   String
+  actorKind     PipelineActorKind      @default(USER)
+  actorUserId   String?
   type          PipelineEventType
   fromStageId   String?
   toStageId     String?
@@ -2923,7 +2966,7 @@ model PipelineLeadEvent {
 
   business  Business       @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   lead      PipelineLead   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  actor     User           @relation("PipelineEventActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actor     User?          @relation("PipelineEventActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   fromStage PipelineStage? @relation("PipelineEventFromStage", fields: [businessId, fromStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   toStage   PipelineStage? @relation("PipelineEventToStage", fields: [businessId, toStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
 
@@ -2957,4 +3000,134 @@ model PipelineTask {
   @@index([businessId, pipelineId, archivedAt, status, position])
   @@index([businessId, assigneeUserId, archivedAt])
   @@index([businessId, leadId, archivedAt])
+}
+
+model LeadCaptureForm {
+  id                    String                @id @default(cuid())
+  businessId            String
+  pipelineId            String
+  initialStageId        String
+  defaultAssigneeUserId String?
+  publicSlug            String
+  name                  String
+  status                LeadCaptureFormStatus @default(DRAFT)
+  rewardMode            LeadFormRewardMode     @default(NONE)
+  schemaVersion         Int                   @default(1)
+  version               Int                   @default(1)
+  fields                Json                  @default("[]")
+  successTitle          String?
+  successMessage        String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  business        Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline        Pipeline                    @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  initialStage    PipelineStage               @relation(fields: [businessId, pipelineId, initialStageId], references: [businessId, pipelineId, id], onDelete: Restrict, onUpdate: Cascade)
+  defaultAssignee User?                       @relation("LeadCaptureFormDefaultAssignee", fields: [businessId, defaultAssigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  submissions     FormSubmission[]
+  rewards         FormReward[]
+  rateLimitBuckets PublicFormRateLimitBucket[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, publicSlug, version])
+  @@index([businessId, status, publicSlug])
+  @@index([businessId, pipelineId, initialStageId])
+}
+
+model FormSubmission {
+  id                  String               @id @default(cuid())
+  businessId          String
+  formId              String
+  leadId              String?
+  idempotencyKey      String
+  payloadFingerprint  String
+  status              FormSubmissionStatus @default(PENDING)
+  rewardMode          LeadFormRewardMode    @default(NONE)
+  schemaVersion       Int                  @default(1)
+  answers             Json
+  attribution         Json?
+  contactName         String?
+  normalizedEmail     String?
+  normalizedPhone     String?
+  acceptedAt          DateTime?
+  rejectedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  form     LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  lead     PipelineLead?   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  rewardClaims RewardClaim[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, formId, id])
+  @@unique([businessId, formId, idempotencyKey])
+  @@index([businessId, formId, status, createdAt])
+  @@index([businessId, leadId])
+}
+
+model FormReward {
+  id                String         @id @default(cuid())
+  businessId        String
+  formId            String
+  name              String
+  type              LeadRewardType
+  version           Int            @default(1)
+  enabled           Boolean        @default(true)
+  payloadEncrypted  String?
+  objectPath        String?
+  expiresInMinutes  Int?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  form     LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  claims   RewardClaim[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, formId, id])
+  @@unique([businessId, formId, version])
+  @@index([businessId, formId, enabled])
+}
+
+model RewardClaim {
+  id            String    @id @default(cuid())
+  businessId    String
+  formId        String
+  submissionId  String
+  rewardId      String
+  accessVersion Int       @default(1)
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+  firstAccessAt DateTime?
+  accessCount   Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  business   Business       @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  submission FormSubmission @relation(fields: [businessId, formId, submissionId], references: [businessId, formId, id], onDelete: Restrict, onUpdate: Cascade)
+  reward     FormReward     @relation(fields: [businessId, formId, rewardId], references: [businessId, formId, id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([businessId, id])
+  @@unique([businessId, submissionId])
+  @@index([businessId, rewardId, createdAt])
+  @@index([expiresAt])
+}
+
+model PublicFormRateLimitBucket {
+  id          String   @id @default(cuid())
+  businessId  String
+  formId      String
+  scopeHash   String
+  windowStart DateTime
+  count       Int      @default(0)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business Business        @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  form     LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([businessId, formId, scopeHash, windowStart])
+  @@index([expiresAt])
 }

@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { InstagramApiRequestError } from '../integrations/instagram-api.js'
 import { matchInstagramKeywords } from './instagram-automation-domain.js'
+import { createInstagramFormRef } from './instagram-form-ref.js'
+import { findCustomSiteProfileBindingByCustomerCode } from './custom-site-profile-binding.js'
 
 const DEFAULT_LEASE_MS = 30_000
 const DEFAULT_RETRY_MS = 60_000
@@ -117,6 +119,8 @@ type PrismaLike = {
     updateMany(input: unknown): Promise<{ count: number }>
   }
   businessInstagramConfig: { findFirst(input: unknown): Promise<any> }
+  leadCaptureForm?: { findFirst(input: unknown): Promise<any> }
+  businessFeatureSettings?: { findUnique(input: unknown): Promise<any> }
   instagramLead: { upsert(input: unknown): Promise<any> }
   instagramMessage: { create(input: unknown): Promise<unknown> }
   $transaction<T>(callback: (tx: PrismaLike) => Promise<T>): Promise<T>
@@ -227,8 +231,34 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       select: { instagramAccountId: true, apiAccountId: true, accessToken: true }
     })
     if (!config?.accessToken) return null
+    let privateReplyText = row.automation.privateReplyText
+    const placeholder = /\{\{weex_form:([a-z0-9-]{1,120})\}\}/.exec(privateReplyText)
+    if (privateReplyText.includes('{{weex_form:') && (!placeholder || privateReplyText.indexOf('{{weex_form:', placeholder.index + placeholder[0].length) !== -1)) return null
+    if (placeholder) {
+      const secret = process.env.INSTAGRAM_FORM_REF_SECRET ?? ''
+      if (secret.length < 32 || !this.client.leadCaptureForm || !this.client.businessFeatureSettings) return null
+      const settings = await this.client.businessFeatureSettings.findUnique({
+        where: { businessId: execution.businessId },
+        select: { pipelineEnabled: true, leadCaptureFormsEnabled: true }
+      })
+      if (!settings?.pipelineEnabled || !settings?.leadCaptureFormsEnabled) return null
+      const form = await this.client.leadCaptureForm.findFirst({
+        where: { businessId: execution.businessId, publicSlug: placeholder[1], status: 'PUBLISHED' },
+        select: { id: true, business: { select: { customerCode: true } } },
+        orderBy: { version: 'desc' }
+      })
+      const binding = form ? findCustomSiteProfileBindingByCustomerCode(form.business.customerCode) : null
+      if (!form || !binding) return null
+      const ref = createInstagramFormRef(secret, {
+        businessId: execution.businessId,
+        formId: form.id,
+        executionId: execution.id,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000
+      })
+      privateReplyText = privateReplyText.replace(placeholder[0], `https://${binding.hostname}/f/${placeholder[1]}?ref=${ref}`)
+    }
     return {
-      privateReplyText: row.automation.privateReplyText,
+      privateReplyText,
       accountId: config.apiAccountId ?? config.instagramAccountId,
       accessToken: config.accessToken,
       publicationId: row.publicationId,

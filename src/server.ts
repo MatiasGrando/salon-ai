@@ -19,8 +19,10 @@ import { tamaraSiteRoutes } from './routes/tamara-site.js'
 import { naturaFlowSiteRoutes } from './routes/natura-flow-site.js'
 import { yamilaSiteRoutes } from './routes/yamila-site.js'
 import { lubricentroSiteRoutes } from './routes/lubricentro-site.js'
+import { barberDemoCoursesSiteRoutes } from './routes/barber-demo-courses-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
 import { publicWorkshopRoutes } from './routes/public-workshop.js'
+import { publicLeadFormsRoutes } from './routes/public-lead-forms.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
 import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
@@ -38,6 +40,8 @@ import { weexSupportBotV1Routes } from './routes/weex-support-bot-v1.js'
 import { demoProfileRoutes } from './routes/demo-profile.js'
 import { workshopRoutes } from './routes/workshop.js'
 import { pipelineRoutes } from './routes/pipeline.js'
+import { pipelineFormsRoutes } from './routes/pipeline-forms.js'
+import { resolveLeadFormTrustedProxyIps } from './services/lead-form-edge-ip-policy.js'
 import { authGuard } from './plugins/auth-guard.js'
 import { ensureBootstrapSuperAdmin } from './services/auth-service.js'
 import { startMarketingScheduler } from './services/marketing-scheduler.js'
@@ -95,7 +99,8 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
 
 export async function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({
-    bodyLimit: 5 * 1024 * 1024
+    bodyLimit: 5 * 1024 * 1024,
+    trustProxy: resolveLeadFormTrustedProxyIps(process.env.LEAD_FORM_TRUSTED_PROXY_IPS) || false
   })
   const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
@@ -132,9 +137,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(naturaFlowSiteRoutes)
   await app.register(yamilaSiteRoutes)
   await app.register(lubricentroSiteRoutes)
+  await app.register(barberDemoCoursesSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
   await app.register(publicWorkshopRoutes)
+  await app.register(publicLeadFormsRoutes)
   await app.register(weexAccountRoutes)
   await app.register(weexLeadCampaignRoutes)
   await app.register(weexSupportBotV1Routes)
@@ -176,6 +183,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(reportRoutes)
   await app.register(staffUserRoutes)
   await app.register(pipelineRoutes)
+  await app.register(pipelineFormsRoutes)
   await app.register(demoProfileRoutes)
   await app.register(weexLeadAdminRoutes)
 
