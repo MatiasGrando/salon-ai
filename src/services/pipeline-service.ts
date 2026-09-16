@@ -33,6 +33,75 @@ import { createPipelineLeadInTransaction } from './pipeline-lead-command.js'
 
 type PipelineClient = PrismaClient | Prisma.TransactionClient
 
+type PipelineFormAnswer = Readonly<{ key: string; label: string; value: string }>
+
+const INTERNAL_CUSTOM_DATA_KEYS = new Set([
+  'businessid', 'pipelineid', 'formid', 'submissionid', 'leadid', 'schemaversion',
+  'normalizedemail', 'normalizedphone', 'externalreference', 'idempotencykey',
+  'payloadfingerprint', 'password', 'token', 'apitoken', 'authorization', 'cookie', 'secret'
+])
+
+function jsonRecord(value: unknown): Readonly<Record<string, unknown>> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : null
+}
+
+function displayAnswerValue(value: unknown, field?: Readonly<Record<string, unknown>>): string | null {
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No'
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value !== 'string' || !value.trim()) return null
+  const options = Array.isArray(field?.options) ? field.options : []
+  const option = options.map(jsonRecord).find((item) => item?.value === value)
+  return typeof option?.label === 'string' && option.label.trim() ? option.label.trim() : value.trim()
+}
+
+function customDataLabel(key: string) {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_.-]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1).toLowerCase() : key
+}
+
+function isSafeCustomDataKey(key: string) {
+  const normalized = key.replace(/[^a-z0-9]/gi, '').toLowerCase()
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(key) &&
+    !key.startsWith('_') &&
+    !INTERNAL_CUSTOM_DATA_KEYS.has(normalized) &&
+    !/(?:password|secret|token|authorization|cookie|fingerprint|idempotency)/i.test(key)
+}
+
+export function toPipelineLeadFormAnswers(input: {
+  customData: unknown
+  formSubmissions?: ReadonlyArray<{
+    answers: unknown
+    form?: { fields: unknown } | null
+  }>
+}): PipelineFormAnswer[] {
+  const latest = input.formSubmissions?.[0]
+  const answers = jsonRecord(latest?.answers)
+  const fields = Array.isArray(latest?.form?.fields)
+    ? latest.form.fields.map(jsonRecord).filter((field): field is Readonly<Record<string, unknown>> => field !== null)
+    : []
+
+  const schemaAnswers = fields
+    .filter((field) => typeof field.key === 'string' && typeof field.label === 'string')
+    .sort((left, right) => Number(left.order ?? 0) - Number(right.order ?? 0))
+    .flatMap((field): PipelineFormAnswer[] => {
+      const key = field.key as string
+      if (!Object.prototype.hasOwnProperty.call(answers ?? {}, key)) return []
+      const value = displayAnswerValue(answers?.[key], field)
+      if (value === null) return []
+      return [{ key, label: (field.label as string).trim() || customDataLabel(key), value }]
+    })
+  if (schemaAnswers.length > 0) return schemaAnswers
+
+  const customData = jsonRecord(input.customData) ?? {}
+  return Object.entries(customData).flatMap(([key, rawValue]): PipelineFormAnswer[] => {
+    if (!isSafeCustomDataKey(key)) return []
+    const value = displayAnswerValue(rawValue)
+    return value === null ? [] : [{ key, label: customDataLabel(key), value }]
+  })
+}
+
 export class PipelineServiceError extends PipelineError {
   constructor(code: string, statusCode = 422, details?: Readonly<Record<string, unknown>>) {
     super(code, statusCode, details)
@@ -375,10 +444,24 @@ export class PipelineService {
           where: { archivedAt: null },
           orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }]
         },
-        events: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }
+        events: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+        formSubmissions: {
+          where: { status: 'ACCEPTED' },
+          orderBy: [{ acceptedAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: {
+            answers: true,
+            form: { select: { fields: true } }
+          }
+        }
       }
     })
-    return lead ?? notFound()
+    if (!lead) return notFound()
+    const { formSubmissions, customData, ...leadDetail } = lead
+    return {
+      ...leadDetail,
+      formAnswers: toPipelineLeadFormAnswers({ customData, formSubmissions })
+    }
   }
 
   async updateLead(input: {

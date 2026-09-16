@@ -127,13 +127,17 @@ export const pipelineStyles = String.raw`
     #pipeline-shell .pl-stage-actions { display:flex; gap:5px; }
     #pipeline-shell .pl-note-list { max-height:180px; display:grid; gap:7px; overflow:auto; }
     #pipeline-shell .pl-note { padding:8px 10px; border:1px solid var(--pl-border); border-radius:7px; color:var(--pl-ink-2); background:var(--pl-surface-2); font-size:11.5px; }
+    #pipeline-shell .pl-form-answers { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    #pipeline-shell .pl-form-answer { min-width:0; padding:10px 12px; border:1px solid var(--pl-border); border-radius:8px; background:var(--pl-surface-2); }
+    #pipeline-shell .pl-form-answer-label { display:block; margin-bottom:4px; color:var(--pl-muted); font-size:10.5px; font-weight:600; }
+    #pipeline-shell .pl-form-answer-value { color:var(--pl-ink); font-size:12.5px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
     #pipeline-shell .pl-toast { position:fixed; right:24px; bottom:24px; z-index:110; padding:10px 16px; border:1px solid var(--pl-cyan); border-radius:9px; color:var(--pl-ink); background:var(--pl-surface); box-shadow:0 8px 24px rgba(0,0,0,.6); }
     #pipeline-shell .pl-toast.pl-error { color:var(--pl-red-bright); border-color:var(--pl-red); }
     #pipeline-shell .pl-tab:focus-visible, #pipeline-shell .pl-button:focus-visible, #pipeline-shell .pl-card:focus-visible, #pipeline-shell .pl-task-card:focus-visible, #pipeline-shell .pl-task-filter:focus-visible { outline:3px solid rgba(56,189,248,.7); outline-offset:2px; }
     @keyframes pl-fade { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:1100px) { #pipeline-shell .pl-tables { grid-template-columns:1fr; } #pipeline-shell .pl-task-board { grid-template-columns:repeat(3,minmax(260px,1fr)); } }
     @media (max-width:980px) { #pipeline-shell .pl-task-layout { grid-template-columns:1fr; } }
-    @media (max-width:700px) { #pipeline-shell .pl-shell { padding:16px 12px 40px; } #pipeline-shell .pl-header { align-items:flex-start; } #pipeline-shell .pl-tabs { width:100%; overflow-x:auto; } #pipeline-shell .pl-tab { flex:1; white-space:nowrap; } #pipeline-shell .pl-grid { grid-template-columns:1fr; } }
+    @media (max-width:700px) { #pipeline-shell .pl-shell { padding:16px 12px 40px; } #pipeline-shell .pl-header { align-items:flex-start; } #pipeline-shell .pl-tabs { width:100%; overflow-x:auto; } #pipeline-shell .pl-tab { flex:1; white-space:nowrap; } #pipeline-shell .pl-grid, #pipeline-shell .pl-form-answers { grid-template-columns:1fr; } }
 `
 
 export const pipelineMarkup = String.raw`
@@ -543,11 +547,18 @@ export const pipelineScript = String.raw`
         const lifecycleButtons = lead.lifecycle === 'OPEN'
           ? '<button class="pl-button pl-primary" type="button" data-pl-outcome="WON">Ganado</button><button class="pl-button" type="button" data-pl-outcome="NO_RESPONSE">Sin respuesta</button><button class="pl-button pl-danger" type="button" data-pl-outcome="LOST">Perdido</button>'
           : '<button class="pl-button" type="button" data-pl-outcome="OPEN">Reabrir</button>'
+        const formAnswers = (lead.formAnswers || []).map((answer) =>
+          '<div class="pl-form-answer"><span class="pl-form-answer-label">' + escapeHtml(answer.label) + '</span><div class="pl-form-answer-value">' + escapeHtml(answer.value) + '</div></div>'
+        ).join('')
+        const formAnswersSection = formAnswers
+          ? '<h3 class="pl-card-title">Respuestas del formulario</h3><div class="pl-form-answers">' + formAnswers + '</div>'
+          : ''
         plEl('pl-detail-title').textContent = lead.title
         plEl('pl-detail-content').innerHTML =
           '<div class="pl-card-contact">' + escapeHtml(lead.contactName || lead.companyName || lead.email || lead.phone || 'Sin contacto') + '</div>' +
           '<div class="pl-stats"><div class="pl-stat"><strong>' + plMoney(lead.estimatedValue) + '</strong><span>Valor</span></div><div class="pl-stat"><strong>' + escapeHtml(lead.lifecycle) + '</strong><span>Estado</span></div></div>' +
           '<div class="pl-actions">' + lifecycleButtons + '<button class="pl-button" type="button" data-pl-edit-lead="' + escapeHtml(lead.id) + '">Editar</button><button class="pl-button pl-danger" type="button" data-pl-archive-lead="' + escapeHtml(lead.id) + '">Archivar</button></div>' +
+          formAnswersSection +
           '<h3 class="pl-card-title">Notas y seguimientos</h3><div class="pl-note-list">' +
             ((lead.activities || []).length ? lead.activities.map((activity) => '<div class="pl-note">' + escapeHtml(activity.body) + '<br>' + escapeHtml(plDate(activity.occurredAt)) + '</div>').join('') : '<div class="pl-empty">Sin actividad registrada</div>') +
           '</div><form class="pl-form" id="pl-note-form"><textarea class="pl-textarea" id="pl-note-body" rows="3" required maxlength="4000" placeholder="Registrar una nota o seguimiento..."></textarea><div class="pl-modal-actions"><button class="pl-button pl-primary" type="submit">Agregar nota</button></div></form>'

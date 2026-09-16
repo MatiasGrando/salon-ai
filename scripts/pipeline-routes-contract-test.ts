@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { pipelineRoutes } from '../src/routes/pipeline.js'
+import { toPipelineLeadFormAnswers } from '../src/services/pipeline-service.js'
 import {
   authorizedPipelineBusinessWhere,
   canUsePipelineRole
@@ -32,6 +33,40 @@ assert.deepEqual(authorizedPipelineBusinessWhere(superAdmin, 'business-a'), {
   ]
 })
 
+assert.deepEqual(toPipelineLeadFormAnswers({
+  customData: {
+    mensaje: '<script>alert("x")</script>',
+    cantidad_sucursales: 2,
+    _internal: 'hidden',
+    apiToken: 'hidden-too'
+  },
+  formSubmissions: [{
+    answers: {
+      comentario: '<script>alert("x")</script>',
+      locales: 2,
+      acepta_contacto: true
+    },
+    form: {
+      fields: [
+        { key: 'locales', label: 'Cantidad de locales', type: 'NUMBER', order: 2, mapping: { target: 'CUSTOM_DATA', customKey: 'cantidad_sucursales' } },
+        { key: 'comentario', label: '¿En qué podemos ayudarte?', type: 'TEXTAREA', order: 1, mapping: { target: 'CUSTOM_DATA', customKey: 'mensaje' } },
+        { key: 'acepta_contacto', label: 'Acepta contacto', type: 'CHECKBOX', order: 3 }
+      ]
+    }
+  }]
+}), [
+  { key: 'comentario', label: '¿En qué podemos ayudarte?', value: '<script>alert("x")</script>' },
+  { key: 'locales', label: 'Cantidad de locales', value: '2' },
+  { key: 'acepta_contacto', label: 'Acepta contacto', value: 'Sí' }
+])
+
+assert.deepEqual(toPipelineLeadFormAnswers({
+  customData: { mensaje_cliente: 'Quiero más información', businessId: 'must-not-leak', password: 'must-not-leak' },
+  formSubmissions: []
+}), [
+  { key: 'mensaje_cliente', label: 'Mensaje cliente', value: 'Quiero más información' }
+])
+
 const app = Fastify()
 app.addHook('preHandler', async (request) => {
   request.auth = { user: superAdmin } as never
@@ -45,7 +80,7 @@ const fakeService = {
   updateStage: async () => ({ stage: { id: 'stage-a' }, revision: 3n }),
   archiveStage: async () => ({ archivedAt: new Date('2026-09-13T15:00:00.000Z'), revision: 3n }),
   listLeads: async () => ({ items: [{ id: 'lead-a' }], nextCursor: null, metrics: { count: 1, estimatedValue: 25000 }, revision: 3n }),
-  getLead: async () => ({ id: 'lead-a', activities: [], events: [] }),
+  getLead: async () => ({ id: 'lead-a', formAnswers: [{ key: 'mensaje', label: 'Mensaje', value: 'Hola' }], activities: [], events: [] }),
   createLead: async () => ({ lead: { id: 'lead-a' }, revision: 3n }),
   updateLead: async () => ({ lead: { id: 'lead-a' }, revision: 4n }),
   assignLead: async () => ({ lead: { id: 'lead-a' }, revision: 4n }),
@@ -75,6 +110,7 @@ assert.equal(leads.json().metrics.count, 1)
 const leadDetail = await app.inject({ method: 'GET', url: '/pipeline/leads/lead-a?businessId=business-a' })
 assert.equal(leadDetail.statusCode, 200)
 assert.deepEqual(leadDetail.json().events, [])
+assert.deepEqual(leadDetail.json().formAnswers, [{ key: 'mensaje', label: 'Mensaje', value: 'Hola' }])
 const disabled = await app.inject({ method: 'GET', url: '/pipeline?businessId=disabled' })
 assert.equal(disabled.statusCode, 404)
 assert.equal(disabled.json().code, 'PIPELINE_RESOURCE_NOT_FOUND')
@@ -121,6 +157,8 @@ assert.match(service, /parseExpectedRevision/)
 assert.match(service, /PIPELINE_REVISION_CONFLICT/)
 assert.match(service, /listLeads/)
 assert.match(service, /getLead/)
+assert.match(service, /formSubmissions:\s*\{/)
+assert.match(service, /toPipelineLeadFormAnswers/)
 assert.match(service, /updateLead/)
 assert.match(service, /events:\s*\{\s*orderBy/)
 assert.match(service, /lastActivityAt:\s*now/)
