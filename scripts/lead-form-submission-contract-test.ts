@@ -24,6 +24,7 @@ function createHarness(options: {
   rewardCount?: number
   failClaim?: boolean
   sourceMapping?: boolean
+  conservativeSharedPeer?: boolean
 } = {}) {
   const now = new Date('2026-09-15T18:00:00.000Z')
   const state = {
@@ -183,6 +184,7 @@ function createHarness(options: {
     rateLimitMax: 2,
     rateLimitWindowMs: 60_000,
     minimumCompletionMs: 1_500,
+    conservativeSharedPeer: options.conservativeSharedPeer,
     now: () => now
   })
   const valid = {
@@ -192,6 +194,28 @@ function createHarness(options: {
     antiSpam: { honeypot: '', startedAt: '2026-09-15T17:59:57.000Z', ipAddress: '203.0.113.10' }
   }
   return { service, state, valid, client, form }
+}
+
+{
+  const { service, state, valid } = createHarness({ rewardMode: 'NONE', rewardEnabled: false, conservativeSharedPeer: true })
+  const first = await service.submit(valid)
+  assert.equal(first.benefitAvailable, false)
+  assert.equal(state.buckets.size, 3)
+  await service.submit({ ...valid, idempotencyKey: 'submission-key-0002', answers: { ...valid.answers, email: 'other@example.com' }, antiSpam: { ...valid.antiSpam, ipAddress: '203.0.113.11' } })
+  await assert.rejects(
+    () => service.submit({ ...valid, idempotencyKey: 'submission-key-0003', answers: { ...valid.answers, email: 'third@example.com' }, antiSpam: { ...valid.antiSpam, ipAddress: '203.0.113.12' } }),
+    (error) => isSubmissionError(error, 'RATE_LIMITED', 429)
+  )
+  assert.equal(state.submissions.length, 2)
+  assert.equal(state.leads.length, 2)
+  assert.equal(state.events.length, 2)
+}
+
+{
+  const { service, state, valid } = createHarness({ rewardMode: 'BENEFIT', conservativeSharedPeer: true })
+  await assert.rejects(() => service.submit(valid), (error) => isSubmissionError(error, 'FORM_NOT_AVAILABLE', 404))
+  assert.equal(state.submissions.length, 0)
+  assert.equal(state.leads.length, 0)
 }
 
 {

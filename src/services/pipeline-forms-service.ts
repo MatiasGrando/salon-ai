@@ -114,7 +114,7 @@ export class PipelineFormsService {
       const selectedRewardMode = rewardMode(form.rewardMode)
       const flags = await tx.businessFeatureSettings.findUnique({ where: { businessId }, select: { leadCaptureFormsEnabled: true } })
       if (!flags?.leadCaptureFormsEnabled) throw new PipelineFormsError('FORM_FEATURE_DISABLED', 409)
-      if (!leadFormPublicationReady(process.env, selectedRewardMode === 'BENEFIT')) throw new PipelineFormsError('FORM_INGRESS_NOT_READY', 503)
+      if (!leadFormPublicationReady(process.env, selectedRewardMode === 'BENEFIT', businessId)) throw new PipelineFormsError('FORM_INGRESS_NOT_READY', 503)
       schemaFields(form.fields)
       await this.validateDestination(tx, businessId, form.initialStageId, form.defaultAssigneeUserId)
       if (selectedRewardMode === 'BENEFIT') {

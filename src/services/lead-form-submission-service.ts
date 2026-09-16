@@ -48,6 +48,8 @@ type Options = {
   rateLimitWindowMs?: number
   minimumCompletionMs?: number
   retryLimit?: number
+  conservativeSharedPeer?: boolean
+  conservativeIdentityMax?: number
   now?: () => Date
 }
 
@@ -135,6 +137,7 @@ export class LeadFormSubmissionService {
           if (form.rewardMode !== 'NONE' && form.rewardMode !== 'BENEFIT') {
             reject('FORM_NOT_AVAILABLE', 404)
           }
+          if (this.options.conservativeSharedPeer && form.rewardMode !== 'NONE') reject('FORM_NOT_AVAILABLE', 404)
 
           const stage = await tx.pipelineStage.findFirst({
             where: {
@@ -234,22 +237,29 @@ export class LeadFormSubmissionService {
           }
 
           const windowStart = new Date(Math.floor(now.getTime() / windowMs) * windowMs)
-          const bucket = await tx.publicFormRateLimitBucket.upsert({
-            where: {
-              businessId_formId_scopeHash_windowStart: {
-                businessId: input.businessId,
-                formId: form.id,
-                scopeHash,
-                windowStart
-              }
-            },
-            create: {
-              businessId: input.businessId, formId: form.id, scopeHash, windowStart,
-              count: 1, expiresAt: new Date(windowStart.getTime() + 2 * windowMs)
-            },
-            update: { count: { increment: 1 } }
-          })
-          if (bucket.count > max) reject('RATE_LIMITED', 429)
+          const incrementBucket = async (bucketScopeHash: string, bucketMax: number) => {
+            const bucket = await tx.publicFormRateLimitBucket.upsert({
+              where: { businessId_formId_scopeHash_windowStart: {
+                businessId: input.businessId, formId: form.id, scopeHash: bucketScopeHash, windowStart
+              } },
+              create: {
+                businessId: input.businessId, formId: form.id, scopeHash: bucketScopeHash, windowStart,
+                count: 1, expiresAt: new Date(windowStart.getTime() + 2 * windowMs)
+              },
+              update: { count: { increment: 1 } }
+            })
+            if (bucket.count > bucketMax) reject('RATE_LIMITED', 429)
+          }
+          await incrementBucket(scopeHash, max)
+          if (this.options.conservativeSharedPeer) {
+            const identity = typeof normalized.leadFields.normalizedEmail === 'string'
+              ? `email:${normalized.leadFields.normalizedEmail}`
+              : typeof normalized.leadFields.normalizedPhone === 'string'
+                ? `phone:${normalized.leadFields.normalizedPhone}` : null
+            if (!identity) reject('INVALID_FORM_ANSWERS', 422)
+            await incrementBucket(createRateLimitScopeHash(this.options.rateLimitSecret, `global:${input.businessId}:${form.id}`), max)
+            await incrementBucket(createRateLimitScopeHash(this.options.rateLimitSecret, `identity:${identity}`), this.options.conservativeIdentityMax ?? 3)
+          }
 
           const leadFields = normalized.leadFields
           const title = leadFields.title ?? form.name

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
-import { appendConfiguredLeadForm } from '../services/custom-site-lead-form.js'
+import { appendConfiguredLeadForm, isConfiguredLeadFormPublished } from '../services/custom-site-lead-form.js'
 
 const barberDemoHost = 'demo-barber.weex.com.ar'
 const barberDemoSiteDir = join(process.cwd(), 'src', 'assets', 'barber-demo-courses-site')
@@ -29,7 +29,13 @@ export async function barberDemoCoursesSiteRoutes(app: FastifyInstance) {
     }
 
     const source = await readFile(join(barberDemoSiteDir, 'index.html'), 'utf8')
-    const html = await appendConfiguredLeadForm(source, business.id, 'barber-demo-course-lead')
+    const slug = 'barber-demo-course-lead'
+    const formPublished = await isConfiguredLeadFormPublished(business.id, slug).catch(() => false)
+    const gatedSource = formPublished ? source : source.replace(
+      /<form id="leadContactForm"[\s\S]*?<\/form>/,
+      '<div id="leadContactFormUnavailable" class="contact-form" role="status"><p><strong>Formulario no disponible temporalmente.</strong></p><p>Volv&eacute; a intentar en unos minutos.</p></div>'
+    )
+    const html = await appendConfiguredLeadForm(gatedSource, business.id, slug)
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })

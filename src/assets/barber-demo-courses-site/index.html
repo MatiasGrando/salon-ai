@@ -1733,7 +1733,7 @@
 
     const leadFormStartedAt = new Date().toISOString();
     let leadFormRequestKey = crypto.randomUUID();
-    contactForm.addEventListener('submit', async function(e) {
+    contactForm?.addEventListener('submit', async function(e) {
       e.preventDefault();
       if (!contactForm.reportValidity()) return;
       const prevText = submitBtn.innerText;

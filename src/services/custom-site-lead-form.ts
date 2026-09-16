@@ -4,6 +4,17 @@ import { renderPublicLeadFormHtml, publicLeadFormClientScript } from '../routes/
 
 const slugPattern = /^[a-z0-9-]{1,120}$/
 
+export async function isConfiguredLeadFormPublished(businessId: string, slug: string) {
+  if (!slugPattern.test(slug)) return false
+  const flags = await prisma.businessFeatureSettings.findUnique({
+    where: { businessId }, select: { pipelineEnabled: true, leadCaptureFormsEnabled: true }
+  })
+  if (!flags?.pipelineEnabled || !flags?.leadCaptureFormsEnabled) return false
+  return Boolean(await prisma.leadCaptureForm.findFirst({
+    where: { businessId, publicSlug: slug, status: 'PUBLISHED' }, select: { id: true }
+  }))
+}
+
 export async function appendConfiguredLeadForm(html: string, businessId: string, slug: string) {
   if (!slugPattern.test(slug) || !html.includes('</body>')) return html
   // A handcrafted page can bind its existing form to the same public endpoint.

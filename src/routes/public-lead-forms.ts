@@ -6,6 +6,7 @@ import { isBusinessAccountUnavailable } from '../services/business-account-acces
 import { parsePublishedLeadFormSchema } from '../services/lead-form-domain.js'
 import { LeadFormSubmissionError, LeadFormSubmissionService } from '../services/lead-form-submission-service.js'
 import { createRewardAccessToken, createSupabaseRewardStorageFromEnv, LeadRewardError, LeadRewardService } from '../services/lead-reward-service.js'
+import { usesConservativeSharedPeerMode } from '../services/lead-form-edge-ip-policy.js'
 
 const businessService = new BusinessService()
 const slugPattern = /^[a-z0-9-]{1,120}$/
@@ -114,7 +115,8 @@ export async function publicLeadFormsRoutes(app: FastifyInstance) {
     const secret = process.env.LEAD_FORM_RATE_LIMIT_SECRET ?? ''
     const service = new LeadFormSubmissionService(prisma, {
       rateLimitSecret: secret,
-      instagramFormRefSecret: process.env.INSTAGRAM_FORM_REF_SECRET ?? ''
+      instagramFormRefSecret: process.env.INSTAGRAM_FORM_REF_SECRET ?? '',
+      conservativeSharedPeer: usesConservativeSharedPeerMode(process.env, resolved.business.id)
     })
     try {
       const result = await service.submit({ businessId: resolved.business.id, publicSlug: slug, idempotencyKey: key, answers: body.answers, attribution: body.attribution, instagramRef: body.ref, antiSpam: { honeypot: antiSpam?.honeypot, startedAt: antiSpam?.startedAt, ipAddress: request.ip } })

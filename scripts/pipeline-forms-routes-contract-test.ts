@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import Fastify from 'fastify'
 import { readFile } from 'node:fs/promises'
 import { pipelineMarkup, pipelineScript } from '../src/routes/crm-ui/pipeline.js'
-import { resolveLeadFormTrustedProxyIps } from '../src/services/lead-form-edge-ip-policy.js'
+import { leadFormPublicationReady, resolveLeadFormTrustedProxyIps, usesConservativeSharedPeerMode } from '../src/services/lead-form-edge-ip-policy.js'
 import { BARBER_DEMO_FORM_PILOT } from '../src/services/barber-demo-lead-form-pilot.js'
 import { validateLeadFormSchema } from '../src/services/lead-form-domain.js'
 import { pipelineFormsRoutes } from '../src/routes/pipeline-forms.js'
@@ -53,6 +53,10 @@ assert.equal(validateLeadFormSchema({ schemaVersion: 1, fields: BARBER_DEMO_FORM
 assert.equal(resolveLeadFormTrustedProxyIps(undefined), null)
 assert.equal(resolveLeadFormTrustedProxyIps('0.0.0.0/0'), null)
 assert.equal(resolveLeadFormTrustedProxyIps('203.0.113.10'), '203.0.113.10')
+assert.equal(usesConservativeSharedPeerMode({ LEAD_FORM_INGRESS_MODE: 'SHARED_PEER_CONSERVATIVE', LEAD_FORM_CONSERVATIVE_BUSINESS_IDS: 'business-a' } as NodeJS.ProcessEnv, 'business-a'), true)
+assert.equal(usesConservativeSharedPeerMode({ LEAD_FORM_INGRESS_MODE: 'SHARED_PEER_CONSERVATIVE', LEAD_FORM_CONSERVATIVE_BUSINESS_IDS: 'business-a' } as NodeJS.ProcessEnv, 'business-b'), false)
+assert.equal(leadFormPublicationReady({ LEAD_FORM_INGRESS_MODE: 'SHARED_PEER_CONSERVATIVE', LEAD_FORM_CONSERVATIVE_BUSINESS_IDS: 'business-a', LEAD_FORM_RATE_LIMIT_SECRET: 'r'.repeat(32) } as NodeJS.ProcessEnv, false, 'business-a'), true)
+assert.equal(leadFormPublicationReady({ LEAD_FORM_INGRESS_MODE: 'SHARED_PEER_CONSERVATIVE', LEAD_FORM_CONSERVATIVE_BUSINESS_IDS: 'business-a', LEAD_FORM_RATE_LIMIT_SECRET: 'r'.repeat(32), LEAD_REWARD_TOKEN_SECRET: 't'.repeat(32) } as NodeJS.ProcessEnv, true, 'business-a'), false)
 const edge = Fastify({ trustProxy: resolveLeadFormTrustedProxyIps('203.0.113.10') || false })
 edge.get('/ip', request => ({ ip: request.ip }))
 const spoofedIp = await edge.inject({ method: 'GET', url: '/ip', headers: { 'x-forwarded-for': '1.2.3.4' }, remoteAddress: '198.51.100.20' })
