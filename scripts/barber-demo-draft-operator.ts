@@ -23,7 +23,8 @@ export async function prepareBarberDemoDraft(client: ReadClient, service: Create
     rewardMode: BARBER_DEMO_FORM_PILOT.rewardMode,
     fields: BARBER_DEMO_FORM_PILOT.fields
   }
-  if (!validateLeadFormSchema({ schemaVersion: BARBER_DEMO_FORM_PILOT.schemaVersion, fields: payload.fields }).ok) throw new Error('PILOT_SCHEMA_INVALID')
+  const expectedSchema = validateLeadFormSchema({ schemaVersion: BARBER_DEMO_FORM_PILOT.schemaVersion, fields: payload.fields })
+  if (!expectedSchema.ok) throw new Error('PILOT_SCHEMA_INVALID')
   const [business, flags, pipeline] = await Promise.all([
     client.business.findFirst({ where: { id: businessId, customerCode: BARBER_DEMO_FORM_PILOT.businessCustomerCode }, select: { id: true, customerCode: true } }),
     client.businessFeatureSettings.findUnique({ where: { businessId }, select: { pipelineEnabled: true, leadCaptureFormsEnabled: true } }),
@@ -38,7 +39,8 @@ export async function prepareBarberDemoDraft(client: ReadClient, service: Create
     if (forms.length === 0) return null
     if (forms.length !== 1) throw new Error('EXISTING_FORM_CONFLICT')
     const form = forms[0]
-    if (form.businessId !== businessId || form.publicSlug !== payload.publicSlug || form.status !== 'DRAFT' || form.rewardMode !== 'NONE' || form.version !== 1 || (form.schemaVersion !== undefined && form.schemaVersion !== 1) || form.initialStageId !== initialStageId || JSON.stringify(form.fields) !== JSON.stringify(payload.fields)) throw new Error('EXISTING_FORM_CONFLICT')
+    const persistedSchema = validateLeadFormSchema({ schemaVersion: form.schemaVersion, fields: form.fields })
+    if (form.businessId !== businessId || form.publicSlug !== payload.publicSlug || form.status !== 'DRAFT' || form.rewardMode !== 'NONE' || form.version !== 1 || form.schemaVersion !== BARBER_DEMO_FORM_PILOT.schemaVersion || form.initialStageId !== initialStageId || !persistedSchema.ok || JSON.stringify(persistedSchema.schema.fields) !== JSON.stringify(expectedSchema.schema.fields)) throw new Error('EXISTING_FORM_CONFLICT')
     return form.id as string
   }
   const existingId = await inspectExisting()
