@@ -275,6 +275,7 @@ function isPublicRoute(request: FastifyRequest) {
       && (path === '/styles.css' || path === '/main.js' || /^\/images\/[a-zA-Z0-9_-]+\.(jpg|png)$/.test(path)))
     || isLubricentroSitePublicRoute(request, path)
     || path.startsWith('/public/booking/')
+    || (['GET', 'HEAD'].includes(request.method) && /^\/public\/glow\/branches\/(urquiza|canitas)\/catalog$/.test(path))
     || (request.method === 'GET' && /^\/f\/[a-z0-9-]{1,120}$/.test(path))
     || (request.method === 'GET' && /^\/public\/forms\/[a-z0-9-]{1,120}\/schema$/.test(path))
     || (request.method === 'POST' && /^\/public\/forms\/[a-z0-9-]{1,120}\/submissions$/.test(path))

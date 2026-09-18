@@ -21,6 +21,7 @@ import { yamilaSiteRoutes } from './routes/yamila-site.js'
 import { lubricentroSiteRoutes } from './routes/lubricentro-site.js'
 import { barberDemoCoursesSiteRoutes } from './routes/barber-demo-courses-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
+import { glowPublicCatalogRoutes } from './routes/glow-public-catalog.js'
 import { publicWorkshopRoutes } from './routes/public-workshop.js'
 import { publicLeadFormsRoutes } from './routes/public-lead-forms.js'
 import { weexAccountRoutes } from './routes/weex-account.js'
@@ -140,6 +141,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(barberDemoCoursesSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
+  await app.register(glowPublicCatalogRoutes)
   await app.register(publicWorkshopRoutes)
   await app.register(publicLeadFormsRoutes)
   await app.register(weexAccountRoutes)
