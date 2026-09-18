@@ -1,0 +1,435 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, sans-serif;
+  
+  --color-glow-gold: #cba258;
+  --color-glow-gold-light: #e7cb92;
+  --color-glow-gold-dark: #a67c33;
+  --color-glow-dark: #0e0e10;
+  --color-glow-surface: #141418;
+  --color-glow-card: #1a1a20;
+  --color-glow-border: #282832;
+  --color-glow-text: #f3f1ec;
+  --color-glow-muted: #9e9aa8;
+}
+
+/* ── Navbar height token ── */
+/* Nav row: h-16 mobile (64px) / h-20 desktop (80px)           */
+/* Use --navbar-height or --navbar-h wherever we need offset   */
+:root {
+  --navbar-height: 80px;
+  --navbar-h: 80px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --navbar-height: 64px;
+    --navbar-h: 64px;
+  }
+}
+
+/* Base custom styles */
+html {
+  font-family: var(--font-sans);
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+  background-color: #0e0e10;
+  color: #f3f1ec;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow-x: clip;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-serif);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0e0e10;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a2a35;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #cba258;
+}
+
+/* Glow effects */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #f7e6c4 0%, #cba258 50%, #9e742e 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-gradient-bg {
+  background: linear-gradient(135deg, #e2c286 0%, #cba258 60%, #9e742e 100%);
+}
+
+.gold-glow {
+  box-shadow: 0 0 25px rgba(203, 162, 88, 0.25);
+}
+
+.gold-border-glow {
+  border-color: rgba(203, 162, 88, 0.35);
+  box-shadow: 0 0 15px rgba(203, 162, 88, 0.15);
+}
+
+
+
+/* Lenis smooth scrolling rules */
+html.lenis, html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+
+.lenis.lenis-scrolling iframe {
+  pointer-events: none;
+}
+
+/* ── Carrusel scroll infinito suave ── */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes scroll-left {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-scroll-left {
+  animation: scroll-left 40s linear infinite;
+}
+.animate-scroll-left:hover {
+  animation-play-state: paused;
+}
+
+/* ── Animate fadeIn para modal ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.glow-story {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46% 54%;
+  min-height: 760px;
+  overflow: hidden;
+  background: #fffdfa;
+  color: #1b1a1c;
+  border-top: 1px solid #dfc69f;
+}
+
+.glow-story__visual {
+  position: relative;
+  min-height: 760px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 23% 58%, #f9efdd 0, #e9ddcc 43%, #e5d8c7 73%, #f9f5ef 100%);
+}
+
+.glow-story__visual::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 0 auto;
+  width: 13%;
+  background: linear-gradient(90deg, transparent, #fffdfa);
+  pointer-events: none;
+}
+
+.glow-story__light {
+  position: absolute;
+  z-index: 1;
+  width: 330px;
+  height: 330px;
+  left: -180px;
+  top: -120px;
+  border: 20px solid rgba(255, 250, 231, .92);
+  border-radius: 50%;
+  filter: blur(6px);
+  box-shadow: 0 0 50px #fff8e6;
+}
+
+.glow-story__model {
+  position: absolute;
+  z-index: 1;
+  height: 109%;
+  width: auto;
+  max-width: none;
+  left: 50%;
+  bottom: -10%;
+  transform: translateX(-48%);
+  object-fit: contain;
+  filter: drop-shadow(8px 14px 22px rgba(57, 42, 29, .14));
+}
+
+.glow-story__side-note {
+  position: absolute;
+  z-index: 3;
+  left: 7.5%;
+  top: 7%;
+  margin: 0;
+  padding: 24px 0 65px 16px;
+  border-left: 1px solid #ad8547;
+  color: #756b60;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 2;
+  letter-spacing: .32em;
+}
+
+.glow-story__quote {
+  position: absolute;
+  z-index: 3;
+  bottom: 6%;
+  left: 6%;
+  margin: 0;
+  text-shadow: 0 1px 12px rgba(255, 253, 250, .9);
+}
+
+.glow-story__quote p {
+  margin: 0 0 12px;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-style: italic;
+  line-height: 1.3;
+}
+
+.glow-story__quote cite {
+  color: #875e24;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+.glow-story__content {
+  position: relative;
+  z-index: 3;
+  align-self: center;
+  width: min(100%, 780px);
+  padding: 50px 54px 30px 20px;
+}
+
+.glow-story__eyebrow {
+  margin: 0 0 18px;
+  color: #986d34;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .38em;
+}
+
+.glow-story h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(34px, 3.35vw, 53px);
+  font-weight: 700;
+  line-height: 1.07;
+  letter-spacing: -.04em;
+}
+
+.glow-story h2 em {
+  color: #956b33;
+  font-weight: 600;
+}
+
+.glow-story__intro {
+  max-width: 690px;
+  margin: 25px 0 24px;
+  color: #62616a;
+  font-size: clamp(14px, 1.08vw, 17px);
+  line-height: 1.55;
+}
+
+.glow-story__reasons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 26px;
+}
+
+.glow-story__reason {
+  display: grid;
+  grid-template-columns: 65px minmax(0, 1fr);
+  gap: 14px;
+  min-height: 144px;
+  padding: 0 0 18px;
+}
+
+.glow-story__reason:nth-child(-n+2) {
+  border-bottom: 1px solid #e8dfd3;
+  margin-bottom: 16px;
+}
+
+.glow-story__reason:nth-child(odd) {
+  border-right: 1px solid #e8dfd3;
+  padding-right: 18px;
+}
+
+.glow-story__icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #f8f2e9;
+  color: #a17635;
+}
+
+.glow-story__number {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 6px 0 12px;
+  color: #926b34;
+  font-size: 11px;
+  letter-spacing: .18em;
+}
+
+.glow-story__number i {
+  width: 60px;
+  height: 1px;
+  background: #c9a675;
+}
+
+.glow-story__reason h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.glow-story__reason p {
+  margin: 0;
+  color: #68656b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.glow-story__closing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-top: 1px solid #cfb387;
+  padding: 16px 16px 0;
+}
+
+.glow-story__signature {
+  color: #866144;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.glow-story__closing-label {
+  color: #5c5960;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .27em;
+  white-space: nowrap;
+}
+
+.glow-story__top-note {
+  position: absolute;
+  top: 6%;
+  right: 3.5%;
+  margin: 0;
+  padding-left: 18px;
+  border-left: 1px solid #c49d68;
+  color: #8c8179;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 2;
+  letter-spacing: .32em;
+}
+
+@media (max-width: 1200px) {
+  .glow-story__top-note { display: none; }
+  .glow-story__content { padding-right: 28px; }
+  .glow-story__reason { grid-template-columns: 48px minmax(0, 1fr); gap: 9px; }
+  .glow-story__icon { width: 46px; height: 46px; }
+  .glow-story__reason h3 { font-size: 15px; }
+}
+
+@media (max-width: 900px) {
+  .glow-story { grid-template-columns: 1fr; }
+  .glow-story__visual { min-height: 540px; }
+  .glow-story__visual::after { inset: auto 0 0; width: auto; height: 12%; background: linear-gradient(transparent, #fffdfa); }
+  .glow-story__model { height: 112%; bottom: -17%; }
+  .glow-story__content { width: 100%; max-width: 740px; padding: 20px 28px 55px; margin: auto; }
+}
+
+@media (max-width: 600px) {
+  .glow-story__visual { min-height: 420px; }
+  .glow-story__model { height: 108%; bottom: -14%; }
+  .glow-story__side-note { top: 5%; left: 5%; font-size: 8px; }
+  .glow-story__quote { left: 5%; bottom: 6%; }
+  .glow-story__quote p { font-size: 14px; }
+  .glow-story__quote cite { font-size: 10px; }
+  .glow-story__content { padding: 24px 20px 45px; }
+  .glow-story h2 { font-size: clamp(30px, 8vw, 42px); }
+  .glow-story__desktop-break { display: none; }
+  .glow-story__reasons { grid-template-columns: 1fr; }
+  .glow-story__reason { min-height: 0; padding: 15px 0; border-bottom: 1px solid #e8dfd3; }
+  .glow-story__reason:nth-child(-n+2) { margin: 0; }
+  .glow-story__reason:nth-child(odd) { border-right: 0; padding-right: 0; }
+  .glow-story__closing { align-items: flex-start; flex-direction: column; padding: 18px 0 0; }
+  .glow-story__signature { font-size: 17px; white-space: normal; }
+}
+/* Glow-only reservation entrance: its own responsive visual hierarchy. */
+.glow-booking-gateway { min-height:100dvh; background:radial-gradient(ellipse at top right,#33271b 0,transparent 55%),#0e0e10; color:#f2f0eb; padding:clamp(20px,5vw,64px) 20px; }
+.booking-container { width:100%; max-width:960px; margin:auto; }
+.booking-brand { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:32px; color:#aaa4b0; font-size:14px; }
+.booking-brand a { color:white; font-family:Georgia,serif; font-size:32px; letter-spacing:3px; text-decoration:none; }
+.booking-brand a span { display:block; font-family:Arial,sans-serif; font-size:9px; letter-spacing:4px; }
+.booking-panel { background:#141419; border:1px solid #cba25840; border-radius:28px; padding:clamp(22px,5vw,56px); box-shadow:0 24px 80px #0006; }
+.booking-back { display:inline-flex; align-items:center; gap:8px; color:#cba258; font-size:14px; text-decoration:none; }
+.booking-step { color:#a9a1ae; font-size:10px; letter-spacing:1px; line-height:2; margin:32px 0 16px; }
+.booking-panel h1 { font-family:Georgia,serif; font-size:clamp(32px,6vw,52px); line-height:1.15; margin:0 0 16px; }
+.booking-intro { color:#beb7c4; line-height:1.65; max-width:620px; }
+.booking-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin:32px 0 24px; }
+.booking-sede { display:flex; flex-direction:column; gap:16px; text-align:left; border:1px solid #49404e; border-radius:18px; background:#1b1b23; padding:24px; color:white; cursor:pointer; min-height:154px; }
+.booking-sede:hover { border-color:#cba258; }
+.booking-sede-active { border:2px solid #cba258; background:#cba25812; padding:23px; }
+.booking-sede-heading { display:flex; align-items:center; gap:10px; font-size:20px; }
+.booking-sede-heading svg { color:#cba258; flex-shrink:0; }
+.booking-address { color:#beb7c4; font-size:14px; line-height:1.6; }
+.booking-selected-label { color:#e4bf7b; font-size:12px; font-weight:600; }
+.booking-context { min-height:84px; padding:18px 20px; border-radius:14px; background:#0e0e10; color:#cec7d1; line-height:1.6; font-size:14px; }
+.booking-context span { display:block; color:#a9a1ae; }
+.booking-context button { color:#e4bf7b; text-decoration:underline; padding:8px; cursor:pointer; }
+.booking-continue { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; border-radius:14px; padding:18px 24px; margin-top:24px; background:linear-gradient(120deg,#e4bf7b,#a67b30); color:#0e0e10; font-weight:700; cursor:pointer; }
+.booking-continue:disabled { background:#343139; color:#a59eac; cursor:not-allowed; }
+.booking-note { font-size:12px; color:#a9a1ae; line-height:1.6; margin:16px 0 0; text-align:center; }
+.glow-booking-gateway :is(button,a):focus-visible { outline:3px solid #e4bf7b; outline-offset:5px; }
+@media(max-width:600px) { .booking-options { grid-template-columns:1fr; } .booking-sede { min-height:140px; padding:20px; } .booking-sede-active { padding:19px; } .booking-brand { margin-bottom:24px; } .booking-step { margin-top:24px; } }

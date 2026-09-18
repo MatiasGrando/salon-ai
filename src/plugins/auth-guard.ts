@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { isGlowSitePublicResource } from '../routes/glow-site.js'
 import { getAuthFromRequest, type AuthContext } from '../services/auth-service.js'
 import { prisma } from '../config/prisma.js'
 import { canStaffAccessRoute, staffAuditAction } from '../services/staff-permission-service.js'
@@ -274,6 +275,7 @@ function isPublicRoute(request: FastifyRequest) {
       && ['GET', 'HEAD'].includes(request.method)
       && (path === '/styles.css' || path === '/main.js' || /^\/images\/[a-zA-Z0-9_-]+\.(jpg|png)$/.test(path)))
     || isLubricentroSitePublicRoute(request, path)
+    || isGlowSitePublicResource(request.method, request.headers.host, path)
     || path.startsWith('/public/booking/')
     || (['GET', 'HEAD'].includes(request.method) && /^\/public\/glow\/branches\/(urquiza|canitas)\/catalog$/.test(path))
     || (request.method === 'GET' && /^\/f\/[a-z0-9-]{1,120}$/.test(path))

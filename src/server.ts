@@ -19,6 +19,7 @@ import { tamaraSiteRoutes } from './routes/tamara-site.js'
 import { naturaFlowSiteRoutes } from './routes/natura-flow-site.js'
 import { yamilaSiteRoutes } from './routes/yamila-site.js'
 import { lubricentroSiteRoutes } from './routes/lubricentro-site.js'
+import { glowSiteRoutes } from './routes/glow-site.js'
 import { barberDemoCoursesSiteRoutes } from './routes/barber-demo-courses-site.js'
 import { publicBookingRoutes } from './routes/public-booking.js'
 import { glowPublicCatalogRoutes } from './routes/glow-public-catalog.js'
@@ -138,6 +139,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(naturaFlowSiteRoutes)
   await app.register(yamilaSiteRoutes)
   await app.register(lubricentroSiteRoutes)
+  await app.register(glowSiteRoutes)
   await app.register(barberDemoCoursesSiteRoutes)
   await app.register(landingUiRoutes)
   await app.register(publicBookingRoutes)
