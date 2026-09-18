@@ -1,4 +1,5 @@
 import { openBooking } from '../data/glowBooking';
+import './ServicesMobile.css';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Clock, 
@@ -25,6 +26,7 @@ const FEATURED_BANNERS = [
     duration: '3h 30m',
     priceRange: 'Desde $55.000',
     image: '/banner-iluminacion.jpg',
+    mobileImage: '/featured-balayage-mobile-v1.png',
     category: 'Color & Balayage',
     objectPosition: 'center 40%',
   },
@@ -37,6 +39,7 @@ const FEATURED_BANNERS = [
     duration: '40 min',
     priceRange: 'Desde $14.000',
     image: '/banner-corte-hombre.jpg',
+    mobileImage: '/featured-corte-mobile-v1.png',
     category: 'Barbería Masculina',
     objectPosition: 'center 35%',
   }
@@ -47,6 +50,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
   const [primaryIndex, setPrimaryIndex] = useState(0);
   const [isAutoplay, setIsAutoplay] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches);
   const [isVisible, setIsVisible] = useState(false);
   const [expandedCardId, setExpandedCardId] = useState(null);
 
@@ -55,6 +59,14 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
   const autoplayTimer = useRef(null);
 
   const branch = BRANCHES[selectedBranch] || BRANCHES['urquiza'];
+
+  useEffect(() => {
+    const mobileQuery = window.matchMedia('(max-width: 639px)');
+    const updateMobile = (event) => setIsMobile(event.matches);
+    setIsMobile(mobileQuery.matches);
+    mobileQuery.addEventListener('change', updateMobile);
+    return () => mobileQuery.removeEventListener('change', updateMobile);
+  }, []);
 
   // Scroll reveal observer
   useEffect(() => {
@@ -82,7 +94,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
     ? SERVICES
     : SERVICES.filter(s => s.category === activeTab);
 
-  const initialCardsCount = 6;
+  const initialCardsCount = isMobile ? 4 : 6;
   const displayedMiniCards = showAll 
     ? categoryServices 
     : categoryServices.slice(0, initialCardsCount);
@@ -166,7 +178,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
     <section 
       ref={sectionRef}
       id="servicios" 
-      className="pt-16 sm:pt-24 pb-20 sm:pb-28 bg-[#08090b] relative overflow-x-clip select-none"
+      className="glow-services pt-16 sm:pt-24 pb-20 sm:pb-28 bg-[#08090b] relative overflow-x-clip select-none"
       style={{ scrollMarginTop: 'calc(var(--navbar-height, 80px) + 24px)' }}
     >
       {/* ─── 1. FONDO DE ESTUDIO PREMIUM ENRIQUECIDO ─── */}
@@ -220,7 +232,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
         
         {/* ─── ENTRADA ESCALONADA 1: Encabezado ─── */}
         <div 
-          className="text-center max-w-2xl mx-auto mb-7 sm:mb-9 space-y-2.5 transition-all duration-700 ease-out"
+          className="glow-services__heading text-center max-w-2xl mx-auto mb-7 sm:mb-9 space-y-2.5 transition-all duration-700 ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(20px)',
@@ -242,9 +254,12 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
           </p>
         </div>
 
+        <div className="glow-services__mobile-selector sm:hidden">
+          <CatalogBranchSelector selectedBranch={selectedBranch} setSelectedBranch={setSelectedBranch} label="Sede de servicios" />
+        </div>
         {/* ─── ENTRADA ESCALONADA 2: Filtros de Categorías ─── */}
         <div 
-          className="flex items-center gap-2 overflow-x-auto pb-3 mb-9 sm:mb-11 no-scrollbar scroll-smooth justify-start sm:justify-center transition-all duration-700 ease-out"
+          className="glow-services__filters flex items-center gap-2 overflow-x-auto pb-3 mb-9 sm:mb-11 no-scrollbar scroll-smooth justify-start sm:justify-center transition-all duration-700 ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(20px)',
@@ -255,6 +270,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
             <button
               key={cat.id}
               onClick={() => handleTabChange(cat.id)}
+              aria-pressed={activeTab === cat.id}
               className={`whitespace-nowrap px-4 sm:px-5 py-2 rounded-full text-xs font-semibold tracking-wide transition-all cursor-pointer border ${
                 activeTab === cat.id
                   ? 'gold-gradient-bg text-black font-bold border-transparent shadow-lg shadow-[#cba258]/20'
@@ -268,7 +284,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
 
         {/* ─── ENTRADA ESCALONADA 3: Bloque Editorial de 2 Banners Destacados ─── */}
         <div 
-          className="mb-14 sm:mb-18 transition-all duration-700 ease-out"
+          className="glow-services__editorial mb-14 sm:mb-18 transition-all duration-700 ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(20px)',
@@ -285,14 +301,17 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
               
               {/* ── BANNER 1 (Principal: 60% del ancho) ── */}
               <div 
-                className="w-full lg:w-[60%] shrink-0 relative rounded-3xl overflow-hidden h-[370px] sm:h-[400px] md:h-[420px] bg-[#12131a] border border-[#303042] shadow-[0_22px_55px_rgba(0,0,0,0.85)] group transition-all duration-500"
+                className="glow-services__featured w-full lg:w-[60%] shrink-0 relative rounded-3xl overflow-hidden h-[370px] sm:h-[400px] md:h-[420px] bg-[#12131a] border border-[#303042] shadow-[0_22px_55px_rgba(0,0,0,0.85)] group transition-all duration-500"
               >
-                <img 
-                  src={banner1.image} 
-                  alt={banner1.name}
-                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-                  style={{ objectPosition: banner1.objectPosition }}
-                />
+                <picture>
+                  <source media="(max-width: 639px)" srcSet={banner1.mobileImage} />
+                  <img
+                    src={banner1.image}
+                    alt={banner1.name}
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                    style={{ objectPosition: banner1.objectPosition }}
+                  />
+                </picture>
 
                 <div 
                   className="absolute inset-0 pointer-events-none"
@@ -302,8 +321,8 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                 />
                 <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-[#08090b]/85 via-[#08090b]/40 to-transparent pointer-events-none" />
 
-                <div className="relative z-10 h-full p-6 sm:p-8 flex flex-col justify-between">
-                  <div className="flex items-center justify-between gap-3">
+                <div className="glow-services__featured-content relative z-10 h-full p-6 sm:p-8 flex flex-col justify-between">
+                  <div className="glow-services__featured-badges flex items-center justify-between gap-3">
                     <span className="px-3 py-1 rounded-full bg-black/65 backdrop-blur-md border border-[#cba258]/70 text-[#cba258] text-[10px] sm:text-xs font-bold uppercase tracking-wider shadow-md">
                       {banner1.badge}
                     </span>
@@ -313,7 +332,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                     </div>
                   </div>
 
-                  <div className="mt-auto space-y-3 pt-4">
+                  <div className="glow-services__featured-copy mt-auto space-y-3 pt-4">
                     <div>
                       <h3 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold text-white tracking-wide leading-tight group-hover:text-[#cba258] transition-colors">
                         {banner1.name}
@@ -412,14 +431,14 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
             {/* Flechas de navegación */}
             <button
               onClick={() => { toggleBanners(); restartAutoplay(); }}
-              className="absolute -left-3 sm:-left-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/80 border border-[#cba258]/60 text-[#cba258] hover:scale-110 flex items-center justify-center shadow-2xl transition-all cursor-pointer backdrop-blur-sm"
+              className="glow-services__arrow glow-services__arrow--previous absolute -left-3 sm:-left-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/80 border border-[#cba258]/60 text-[#cba258] hover:scale-110 flex items-center justify-center shadow-2xl transition-all cursor-pointer backdrop-blur-sm"
               aria-label="Alternar banner"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button
               onClick={() => { toggleBanners(); restartAutoplay(); }}
-              className="absolute -right-3 sm:-right-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/80 border border-[#cba258]/60 text-[#cba258] hover:scale-110 flex items-center justify-center shadow-2xl transition-all cursor-pointer backdrop-blur-sm"
+              className="glow-services__arrow glow-services__arrow--next absolute -right-3 sm:-right-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/80 border border-[#cba258]/60 text-[#cba258] hover:scale-110 flex items-center justify-center shadow-2xl transition-all cursor-pointer backdrop-blur-sm"
               aria-label="Alternar banner"
             >
               <ChevronRight className="w-5 h-5" />
@@ -427,11 +446,12 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
           </div>
 
           {/* Dots indicadores inferiores */}
-          <div className="flex items-center justify-center gap-2.5 mt-5 sm:mt-6">
+          <div className="glow-services__dots flex items-center justify-center gap-2.5 mt-5 sm:mt-6">
             {FEATURED_BANNERS.map((_, i) => (
               <button
                 key={i}
                 onClick={() => { setPrimaryIndex(i); restartAutoplay(); }}
+                aria-pressed={i === primaryIndex}
                 className={`h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
                   i === primaryIndex
                     ? 'w-8 bg-[#cba258] shadow-[0_0_10px_rgba(203,162,88,0.8)]'
@@ -444,15 +464,15 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
         </div>
 
         {/* ─── 55–70px DE SEPARACIÓN VISUAL ENTRE BLOQUES ─── */}
-        <div className="h-14 sm:h-16" />
+        <div className="glow-services__spacer h-14 sm:h-16" />
 
-        <CatalogBranchSelector selectedBranch={selectedBranch} setSelectedBranch={setSelectedBranch} label="Sede de servicios" />
+        <div className="hidden sm:block"><CatalogBranchSelector selectedBranch={selectedBranch} setSelectedBranch={setSelectedBranch} label="Sede de servicios" /></div>
 
         {/* ─── ENTRADA ESCALONADA 4: Grilla de Cards Cuadradas 1:1 Ampliadas (1360px max width) ─── */}
         <div className="space-y-5 sm:space-y-6">
           
           {/* Encabezado reforzado para "Todos los servicios" */}
-          <div className="flex items-center justify-between border-b border-[#282838] pb-4">
+          <div className="glow-services__catalog-heading flex items-center justify-between border-b border-[#282838] pb-4">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-full bg-[#1e1e2c] border border-[#cba258]/40 flex items-center justify-center">
                 <Sparkles className="w-3.5 h-3.5 text-[#cba258]" />
@@ -497,10 +517,10 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                   }}
                 >
                   {/* FILA PRINCIPAL: [ Foto 1:1 Cuadrada | Contenido Espacioso ] */}
-                  <div className="flex items-stretch min-h-[145px] sm:min-h-[155px]">
+                  <div className="glow-services__card-row flex items-stretch min-h-[145px] sm:min-h-[155px]">
                     
                     {/* ── COLUMNA 1: FOTO CUADRADA 1:1 REAL (Sin bordes inset) ── */}
-                    <div className="w-[135px] sm:w-[150px] aspect-square shrink-0 relative overflow-hidden bg-black border-r border-white/10 self-stretch">
+                    <div className="glow-services__card-image w-[135px] sm:w-[150px] aspect-square shrink-0 relative overflow-hidden bg-black border-r border-white/10 self-stretch">
                       <CatalogImage key={service.image || service.id}
                         src={service.image}
                         alt={service.name}
@@ -511,7 +531,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                     </div>
 
                     {/* ── COLUMNA 2: CONTENIDO LIMPIO Y PROTAGONISTA ── */}
-                    <div className="flex-1 min-w-0 p-4 sm:p-5 flex flex-col justify-between">
+                    <div className="glow-services__card-content flex-1 min-w-0 p-4 sm:p-5 flex flex-col justify-between">
                       {/* Título del servicio protagonista en grande y centrado */}
                       <div className="my-auto py-1 text-center">
                         <h4 className="font-serif font-bold text-[19px] sm:text-[21px] lg:text-[22px] text-white group-hover:text-[#cba258] transition-colors leading-snug text-center mx-auto">
@@ -520,7 +540,7 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                       </div>
 
                       {/* Fila inferior: Precio — Duración a la izquierda, Flecha y Detalle a la derecha */}
-                      <div className="flex items-center justify-between pt-2.5 border-t border-white/5">
+                      <div className="glow-services__card-meta flex items-center justify-between pt-2.5 border-t border-white/5">
                         <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
                           <div>
                             {renderPrice(service.priceRange)}
@@ -533,6 +553,9 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <button type="button" onClick={(e) => toggleCardExpansion(service.id, e)} className="glow-services__details sm:hidden" aria-expanded={isExpanded} aria-label={`Detalles de ${service.name}`}>
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
                           <span className="text-[10px] uppercase font-semibold text-[#cba258] hidden sm:inline-block tracking-wider opacity-80 group-hover:opacity-100">
                             {isExpanded ? 'Cerrar' : 'Detalles'}
                           </span>

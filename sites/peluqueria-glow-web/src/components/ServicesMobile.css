@@ -1,0 +1,43 @@
+/* Keep the editorial banners shared while giving the phone catalog its own rhythm. */
+@media (max-width: 639px) {
+  .glow-services :is(button) { min-height: 44px; }
+  .glow-services { padding-top: 32px; padding-bottom: 96px; }
+  .glow-services__heading { margin-bottom: 16px; }
+  .glow-services__heading h2 { font-size: clamp(27px, 8vw, 34px); line-height: 1.12; }
+  .glow-services__heading p { font-size: 13px; line-height: 1.5; }
+  .glow-services__mobile-selector { margin: 0 0 16px; }
+  .glow-services__filters { gap: 8px; margin-bottom: 16px; padding-bottom: 8px; overscroll-behavior-x: contain; }
+  .glow-services__filters button { flex: 0 0 auto; min-height: 44px; }
+  .glow-services__editorial { margin-bottom: 20px; }
+  .glow-services__featured { height: auto; min-height: 440px; }
+  .glow-services__featured picture img { object-position: center 35% !important; }
+  .glow-services__featured-content { min-height: 440px; padding: 18px 20px 20px; }
+  .glow-services__featured-badges { align-items: flex-start; gap: 8px; }
+  .glow-services__featured-badges > * { flex-shrink: 0; }
+  .glow-services__featured-copy { padding-top: 128px; }
+  .glow-services__featured-copy h3 { font-size: clamp(23px, 6.4vw, 29px); line-height: 1.1; }
+  .glow-services__featured-copy p { display: block; -webkit-line-clamp: unset; overflow: visible; line-height: 1.4; max-width: 31ch; }
+  .glow-services__featured-copy > div:last-child { align-items: stretch; gap: 12px; }
+  .glow-services__featured-copy > div:last-child button { min-height: 44px; justify-content: center; }
+  .glow-services__arrow { width: 44px; height: 44px; top: 72px; }
+  .glow-services__arrow--previous { left: -12px; }
+  .glow-services__arrow--next { right: -12px; }
+  .glow-services__dots { margin-top: 12px; }
+  .glow-services__dots button { min-width: 44px; min-height: 44px; background-clip: content-box; padding: 16px 5px; }
+  .glow-services__spacer { height: 8px; }
+  .glow-services__catalog-heading { align-items: flex-start; gap: 8px; }
+  .glow-services__catalog-heading h3 { letter-spacing: .1em; line-height: 1.25; }
+  .glow-services__catalog-heading > div:last-child { flex: 0 0 auto; }
+  .glow-services__card-row { min-height: 140px; }
+  .glow-services__card-image { width: clamp(78px, 24vw, 104px); aspect-ratio: auto; }
+  .glow-services__card-content { padding: 12px; gap: 8px; }
+  .glow-services__card-content h4 { font-size: clamp(15px, 4.2vw, 19px); text-align: left; }
+  .glow-services__card-content > div:first-child { text-align: left; margin: 0; }
+  .glow-services__card-meta { gap: 8px; align-items: flex-end; }
+  .glow-services__card-meta > div:first-child { gap: 4px 7px; }
+  .glow-services__card-meta > div:first-child > span:nth-child(2) { display: none; }
+  .glow-services__card-meta > div:last-child { gap: 2px; margin-left: 0; }
+  .glow-services__card-meta button { width: 44px; height: 44px; }
+  .glow-services__details { display: inline-flex; align-items: center; justify-content: center; color: #cba258; }
+  .glow-services :is(button):focus-visible { outline: 2px solid #e4bf7b; outline-offset: 2px; }
+}

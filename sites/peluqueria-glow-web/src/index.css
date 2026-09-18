@@ -150,6 +150,56 @@ html.lenis, html.lenis body {
   border-top: 1px solid #dfc69f;
 }
 
+/* Portrait art direction keeps branding legible without changing desktop framing.
+   One fluid composition keeps the desktop parallax and scroll-over untouched. */
+@media (max-width: 639px) {
+  .glow-hero {
+    background: radial-gradient(ellipse at 75% 35%, #2c2118 0, #0e0e10 65%);
+  }
+
+  .glow-hero__visual {
+    top: calc(104px + env(safe-area-inset-top, 0px));
+    bottom: 0;
+    height: auto;
+  }
+
+  .glow-hero__image {
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  .glow-hero__overlay {
+    opacity: .8;
+  }
+
+  .glow-hero__controls {
+    max-width: 480px;
+    padding-inline: clamp(16px, 4.1vw, 24px);
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .glow-hero__selector {
+    display: flex;
+    width: 100%;
+  }
+
+  .glow-hero__selector button {
+    flex: 1;
+    justify-content: center;
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+
+  .glow-hero__actions > * {
+    min-height: 48px;
+  }
+
+  .glow-hero :is(button, a):focus-visible {
+    outline: 2px solid #e7cb92;
+    outline-offset: 4px;
+  }
+}
+
 .glow-story__visual {
   position: relative;
   min-height: 760px;
@@ -407,6 +457,81 @@ html.lenis, html.lenis body {
   .glow-story__signature { font-size: 17px; white-space: normal; }
 }
 /* Glow-only reservation entrance: its own responsive visual hierarchy. */
+/* One fluid mobile lookbook; the desktop 3D geometry stays untouched. */
+@media (max-width: 639px) {
+  .glow-looks {
+    --look-media-height: clamp(260px, calc(100svh - 430px), 420px);
+    padding-top: 22px;
+    padding-bottom: 28px;
+  }
+  .glow-looks__heading { margin-bottom: 12px; }
+  .glow-looks__title { font-size: clamp(24px, 7.2vw, 32px); line-height: 1.2; }
+  .glow-looks__filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 100%;
+    gap: 7px;
+    margin-top: 12px;
+    padding: 2px;
+    scrollbar-width: none;
+  }
+  .glow-looks__filters button { flex: 0 0 auto; min-height: 44px; padding-inline: 14px; }
+  .glow-looks__stage {
+    height: calc(var(--look-media-height) + 88px);
+    touch-action: pan-y;
+  }
+  .glow-looks__card[data-active="false"] { display: none; }
+  .glow-looks__card[data-active="true"] {
+    top: 0;
+    width: 100%;
+    transform: translateX(-50%) !important;
+  }
+  .glow-looks__frame {
+    height: var(--look-media-height);
+    width: auto;
+    max-width: calc(100% - 60px);
+    aspect-ratio: 9 / 16;
+    flex-shrink: 0;
+  }
+  .glow-looks__comparison { touch-action: pan-y; }
+  .glow-looks__arrow {
+    top: calc(var(--look-media-height) / 2 - 22px);
+    width: 44px;
+    height: 44px;
+  }
+  .glow-looks__caption { margin-top: 10px; width: 100%; }
+  .glow-looks__caption h3 { font-size: 22px; line-height: 1.2; }
+  .glow-looks__caption button { margin-top: 8px; min-height: 44px; padding: 10px 28px; }
+  .glow-looks__playback { gap: 12px; margin: 8px 0 12px; min-height: 44px; }
+  .glow-looks__pause { width: 44px; height: 44px; flex-shrink: 0; }
+  .glow-looks__playback > div:nth-child(2) { width: clamp(60px, 25vw, 128px); }
+  .glow-looks__autoplay { width: 44px; height: 44px; background: transparent; }
+  .glow-looks__autoplay::before {
+    content: '';
+    position: absolute;
+    width: 36px;
+    height: 20px;
+    top: 12px;
+    left: 4px;
+    border-radius: 999px;
+    background: #252536;
+  }
+  .glow-looks__autoplay[aria-pressed="true"]::before { background: #cba258; }
+  .glow-looks__autoplay span { top: 14px; left: 6px; }
+  .glow-looks__autoplay[aria-pressed="true"] span { left: 22px; }
+  .glow-looks__thumbnails {
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 5px 4px 8px;
+    max-width: 100%;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .glow-looks__thumbnails button { width: 48px; flex-shrink: 0; }
+  .glow-looks :is(button):focus-visible { outline: 2px solid #e4bf7b; outline-offset: 2px; }
+}
 .glow-booking-gateway { min-height:100dvh; background:radial-gradient(ellipse at top right,#33271b 0,transparent 55%),#0e0e10; color:#f2f0eb; padding:clamp(20px,5vw,64px) 20px; }
 .booking-container { width:100%; max-width:960px; margin:auto; }
 .booking-brand { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:32px; color:#aaa4b0; font-size:14px; }

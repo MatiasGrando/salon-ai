@@ -1,4 +1,5 @@
 import { openBooking } from '../data/glowBooking';
+import { lookSwipeDirection } from '../data/glowLooks';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   MoveHorizontal, 
@@ -131,7 +132,7 @@ function BeforeAfterMedia({ item, onStartInteraction, onEndInteraction }) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full select-none cursor-ew-resize overflow-hidden touch-none"
+      className="glow-looks__comparison relative w-full h-full select-none cursor-ew-resize overflow-hidden touch-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -186,7 +187,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
   const [isVisible, setIsVisible] = useState(false);
   const sectionRef = useRef(null);
   const isInteractingWithSlider = useRef(false);
-  const touchStartX = useRef(null);
+  const touchStart = useRef(null);
   const branch = BRANCHES[selectedBranch] || BRANCHES['urquiza'];
 
   // Filtrado de items
@@ -260,25 +261,27 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
   // Touch swipe en mobile
   const handleTouchStart = (e) => {
-    touchStartX.current = e.touches[0].clientX;
+    // The comparison owns its drag, not the parent carousel swipe.
+    if (e.target.closest('.glow-looks__comparison')) {
+      touchStart.current = null;
+      return;
+    }
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
 
   const handleTouchEnd = (e) => {
-    if (touchStartX.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-    if (deltaX > 45) {
-      goTo(safeIndex - 1);
-    } else if (deltaX < -45) {
-      goTo(safeIndex + 1);
-    }
-    touchStartX.current = null;
+    const direction = lookSwipeDirection(touchStart.current, {
+      x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY,
+    });
+    if (direction) goTo(safeIndex + direction);
+    touchStart.current = null;
   };
 
   return (
     <section 
       ref={sectionRef}
       id="transformaciones" 
-      className="pt-6 pb-16 sm:pt-10 sm:pb-24 bg-[#09090b] relative overflow-x-clip select-none"
+      className="glow-looks pt-6 pb-16 sm:pt-10 sm:pb-24 bg-[#09090b] relative overflow-x-clip select-none"
       style={{ scrollMarginTop: 'calc(var(--navbar-height, 80px) + 24px)' }}
     >
       {/* Anchor alias para compatibilidad con #antes-despues */}
@@ -432,7 +435,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
         
         {/* ─── ENTRADA ESCALONADA 1: Encabezado ─── */}
         <div 
-          className="relative flex flex-col items-center text-center mb-6 sm:mb-10 transition-all duration-[1400ms] ease-out"
+          className="glow-looks__heading relative flex flex-col items-center text-center mb-6 sm:mb-10 transition-all duration-[1400ms] ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(60px)',
@@ -447,7 +450,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
           </div>
 
           {/* Título central */}
-          <h2 className="text-3xl sm:text-5xl lg:text-6xl font-serif font-bold text-white tracking-tight">
+          <h2 className="glow-looks__title text-3xl sm:text-5xl lg:text-6xl font-serif font-bold text-white tracking-tight">
             Tu pelo. Su mejor versión.
           </h2>
 
@@ -463,7 +466,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
           {/* ─── ENTRADA ESCALONADA 2: Filtros de Categorías ─── */}
           <div 
-            className="flex items-center gap-2 justify-center flex-wrap mt-5 transition-all duration-[1400ms] ease-out"
+            className="glow-looks__filters flex items-center gap-2 justify-center flex-wrap mt-5 transition-all duration-[1400ms] ease-out"
             style={{
               opacity: isVisible ? 1 : 0,
               transform: isVisible ? 'translateY(0)' : 'translateY(50px)',
@@ -474,6 +477,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
               <button
                 key={cat}
                 onClick={() => handleCategoryChange(cat)}
+                aria-pressed={activeCategory === cat}
                 className={`px-4 sm:px-5 py-1.5 rounded-full text-xs font-semibold tracking-wide border transition-all duration-200 cursor-pointer ${
                   activeCategory === cat
                     ? 'gold-gradient-bg text-black border-transparent shadow-lg font-bold'
@@ -488,7 +492,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
         {/* ─── ENTRADA ESCALONADA 3: Escenario Carrusel 3D Infinito (Sin Huecos) ─── */}
         <div 
-          className="relative w-full h-[680px] sm:h-[800px] md:h-[890px] lg:h-[950px] flex items-center justify-center overflow-x-clip transition-all duration-[1400ms] ease-out"
+          className="glow-looks__stage relative w-full h-[680px] sm:h-[800px] md:h-[890px] lg:h-[950px] flex items-center justify-center overflow-x-clip transition-all duration-[1400ms] ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(55px)',
@@ -498,11 +502,12 @@ export default function BeforeAfterSlider({ selectedBranch }) {
           }}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
+          onTouchCancel={() => { touchStart.current = null; }}
         >
           {/* Flecha Lateral Izquierda */}
           <button
             onClick={() => goTo(safeIndex - 1)}
-            className="absolute left-2 sm:left-6 lg:left-10 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/80 border border-[#cba258]/70 flex items-center justify-center text-[#cba258] hover:scale-110 shadow-2xl transition-transform cursor-pointer"
+            className="glow-looks__arrow absolute left-2 sm:left-6 lg:left-10 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/80 border border-[#cba258]/70 flex items-center justify-center text-[#cba258] hover:scale-110 shadow-2xl transition-transform cursor-pointer"
             aria-label="Anterior"
           >
             <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -511,7 +516,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
           {/* Flecha Lateral Derecha */}
           <button
             onClick={() => goTo(safeIndex + 1)}
-            className="absolute right-2 sm:right-6 lg:right-10 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/80 border border-[#cba258]/70 flex items-center justify-center text-[#cba258] hover:scale-110 shadow-2xl transition-transform cursor-pointer"
+            className="glow-looks__arrow absolute right-2 sm:right-6 lg:right-10 z-40 w-11 h-11 sm:w-13 sm:h-13 rounded-full bg-black/80 border border-[#cba258]/70 flex items-center justify-center text-[#cba258] hover:scale-110 shadow-2xl transition-transform cursor-pointer"
             aria-label="Siguiente"
           >
             <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
@@ -576,8 +581,9 @@ export default function BeforeAfterSlider({ selectedBranch }) {
             return (
               <div
                 key={item.id}
+                data-active={isCenter}
                 onClick={() => !isCenter && goTo(idx)}
-                className={`absolute top-1/2 left-1/2 flex flex-col items-center transition-all duration-500 ease-out ${
+                className={`glow-looks__card absolute top-1/2 left-1/2 flex flex-col items-center transition-all duration-500 ease-out ${
                   isCenter ? 'cursor-default' : 'cursor-pointer hover:opacity-100'
                 } ${isOutOfView ? 'pointer-events-none' : ''}`}
                 style={{
@@ -588,7 +594,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
               >
                 {/* ── FRAME DEL MEDIA EXCLUSIVO 9:16 (400-440px en Desktop) ── */}
                 <div 
-                  className={`relative w-[280px] sm:w-[350px] md:w-[400px] lg:w-[430px] aspect-[9/16] rounded-2xl sm:rounded-3xl overflow-hidden bg-black transition-all duration-500 ${
+                  className={`glow-looks__frame relative w-[280px] sm:w-[350px] md:w-[400px] lg:w-[430px] aspect-[9/16] rounded-2xl sm:rounded-3xl overflow-hidden bg-black transition-all duration-500 ${
                     isCenter 
                       ? 'border-2 border-[#cba258]/80 shadow-[0_0_60px_rgba(203,162,88,0.35)] ring-1 ring-[#cba258]/50' 
                       : 'border border-[#2a2a38] shadow-2xl'
@@ -621,7 +627,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
                 {/* ── CONTENIDO FUERA DEL FRAME 9:16 (LIMPIO) ── */}
                 {isCenter ? (
-                  <div className="mt-4 sm:mt-5 text-center flex flex-col items-center">
+                  <div className="glow-looks__caption mt-4 sm:mt-5 text-center flex flex-col items-center">
                     <h3 className="text-2xl sm:text-3xl font-serif font-bold text-white tracking-wide">
                       {item.title}
                     </h3>
@@ -647,7 +653,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
         {/* ─── ENTRADA ESCALONADA 4: Barra de Autoplay & Contador ─── */}
         <div 
-          className="flex items-center justify-center gap-4 sm:gap-6 mt-1 mb-8 transition-all duration-[1400ms] ease-out"
+          className="glow-looks__playback flex items-center justify-center gap-4 sm:gap-6 mt-1 mb-8 transition-all duration-[1400ms] ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(40px)',
@@ -657,7 +663,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
           {/* Botón Play / Pause */}
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="w-8 h-8 rounded-full bg-[#161620] border border-[#2b2b3c] flex items-center justify-center text-white/80 hover:text-[#cba258] transition-colors cursor-pointer"
+            className="glow-looks__pause w-8 h-8 rounded-full bg-[#161620] border border-[#2b2b3c] flex items-center justify-center text-white/80 hover:text-[#cba258] transition-colors cursor-pointer"
             aria-label={isPlaying ? "Pausar carrusel" : "Reanudar carrusel"}
           >
             {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5 text-[#cba258]" />}
@@ -681,10 +687,11 @@ export default function BeforeAfterSlider({ selectedBranch }) {
             <span className="text-xs text-[#8c889a] hidden sm:inline">Autoplay</span>
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className={`w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
+              className={`glow-looks__autoplay w-9 h-5 rounded-full transition-colors relative cursor-pointer ${
                 isPlaying ? 'bg-[#cba258]' : 'bg-[#252536]'
               }`}
               aria-label="Toggle Autoplay"
+              aria-pressed={isPlaying}
             >
               <span
                 className={`absolute top-0.5 w-4 h-4 rounded-full bg-black transition-transform ${
@@ -697,7 +704,7 @@ export default function BeforeAfterSlider({ selectedBranch }) {
 
         {/* ─── ENTRADA ESCALONADA 5: Tira de Miniaturas Inferiores (9:16) ─── */}
         <div 
-          className="flex items-center justify-center gap-3 sm:gap-4 overflow-x-auto pb-4 scrollbar-hide px-2 transition-all duration-[1400ms] ease-out"
+          className="glow-looks__thumbnails flex items-center justify-center gap-3 sm:gap-4 overflow-x-auto pb-4 scrollbar-hide px-2 transition-all duration-[1400ms] ease-out"
           style={{
             opacity: isVisible ? 1 : 0,
             transform: isVisible ? 'translateY(0)' : 'translateY(35px)',
@@ -710,6 +717,8 @@ export default function BeforeAfterSlider({ selectedBranch }) {
               <button
                 key={item.id}
                 onClick={() => goTo(idx)}
+                aria-label={`Ver ${item.title}`}
+                aria-pressed={isSelected}
                 className={`relative flex-shrink-0 w-16 sm:w-20 md:w-22 aspect-[9/16] rounded-xl overflow-hidden border-2 transition-all duration-300 cursor-pointer ${
                   isSelected
                     ? 'border-[#cba258] shadow-[0_0_16px_rgba(203,162,88,0.5)] ring-2 ring-[#cba258]/50 scale-105'

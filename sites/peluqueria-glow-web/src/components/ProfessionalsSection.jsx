@@ -1,11 +1,13 @@
 import { openBooking } from '../data/glowBooking';
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, MessageCircle, Sparkles, Maximize2, MapPin } from 'lucide-react';
 import { BRANCHES } from '../data/glowData';
 import { CatalogBranchSelector, CatalogStatus, CatalogImage } from './BranchCatalog';
 
 export default function ProfessionalsSection({ selectedBranch, setSelectedBranch, catalog }) {
   const [selectedPro, setSelectedPro] = useState(null);
+  const [modalImageFailed, setModalImageFailed] = useState(false);
 
   // Cerrar modal con tecla Escape
   useEffect(() => {
@@ -29,6 +31,7 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
   }, [selectedPro]);
 
   const filtered = catalog.professionals;
+  const showModalImage = Boolean(selectedPro?.image && !modalImageFailed);
 
   const handleBookWithPro = (pro, e) => { e?.stopPropagation(); openBooking(selectedBranch); };
 
@@ -75,15 +78,15 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
         <CatalogStatus catalog={catalog} count={filtered.length} noun="profesionales" />
 
         {/* ─── GRILLA DE PROFESIONALES (FORMATO IMAGEN 2: FOTOS GRANDES CON DESCRIPCIÓN) ─── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 sm:gap-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-10">
           {filtered.map((pro) => (
             <div
               key={pro.id}
-              onClick={() => setSelectedPro(pro)}
-              className="group flex flex-col cursor-pointer transition-all duration-300"
+              onClick={() => { setModalImageFailed(false); setSelectedPro(pro); }}
+              className="glow-professionals__card group flex flex-row sm:flex-col cursor-pointer transition-all duration-300 rounded-2xl border border-white/10 bg-[#121319] overflow-hidden sm:rounded-none sm:border-0 sm:bg-transparent sm:overflow-visible"
             >
               {/* Tarjeta de Foto Grande con Relación de Aspecto Generosa */}
-              <div className="relative aspect-[4/5] rounded-[24px] sm:rounded-[28px] overflow-hidden bg-[#151620] border border-white/10 group-hover:border-[#cba258]/70 shadow-lg group-hover:shadow-[0_16px_45px_rgba(203,162,88,0.2)] transition-all duration-500">
+              <div className="glow-professionals__portrait relative w-[clamp(112px,36vw,140px)] min-h-[168px] shrink-0 sm:w-full sm:min-h-0 sm:aspect-[4/5] sm:rounded-[28px] overflow-hidden bg-[#151620] border-r sm:border border-white/10 group-hover:border-[#cba258]/70 shadow-lg group-hover:shadow-[0_16px_45px_rgba(203,162,88,0.2)] transition-all duration-500">
                 <CatalogImage key={pro.image || pro.id}
                   src={pro.image}
                   alt={pro.name}
@@ -95,32 +98,32 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-40 group-hover:opacity-60 transition-opacity duration-300" />
 
                 {/* Badge de Sede en esquina superior */}
-                <div className="absolute top-3.5 right-3.5 bg-black/70 backdrop-blur-md border border-white/10 text-[#dedad4] text-[10px] px-2.5 py-1 rounded-full font-medium">
+                <div className="hidden sm:block absolute top-3.5 right-3.5 bg-black/70 backdrop-blur-md border border-white/10 text-[#dedad4] text-[10px] px-2.5 py-1 rounded-full font-medium">
                   {pro.branchName}
                 </div>
 
                 {/* Indicador flotante para agrandar en hover */}
-                <div className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-black/75 backdrop-blur-md border border-[#cba258]/50 text-[#cba258] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 shadow-md">
+                <div className="hidden sm:flex absolute bottom-4 right-4 w-9 h-9 rounded-full bg-black/75 backdrop-blur-md border border-[#cba258]/50 text-[#cba258] items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 shadow-md">
                   <Maximize2 className="w-4 h-4" />
                 </div>
               </div>
 
               {/* Textos inferiores alineados como en la referencia */}
-              <div className="pt-4 text-center space-y-1.5 px-2">
-                <h3 className="font-serif font-bold text-2xl sm:text-[25px] text-white group-hover:text-[#cba258] transition-colors leading-tight">
+              <div className="glow-professionals__summary min-w-0 flex-1 flex flex-col justify-center py-3 px-3 text-left space-y-1.5 sm:block sm:pt-4 sm:pb-0 sm:text-center sm:px-2">
+                <h3 className="font-serif font-bold text-[18px] sm:text-[25px] text-white group-hover:text-[#cba258] transition-colors leading-tight">
                   {pro.name}
                 </h3>
 
-                <p className="text-[11px] uppercase tracking-[0.25em] font-semibold text-[#cba258]">
+                <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.12em] sm:tracking-[0.25em] font-semibold text-[#cba258]">
                   {pro.taglineRole}
                 </p>
 
-                <p className="text-xs sm:text-[13px] text-[#9b97a6] group-hover:text-[#dedad4] transition-colors line-clamp-2 max-w-sm mx-auto leading-relaxed pt-0.5">
+                <p className="text-[11px] sm:text-[13px] text-[#9b97a6] group-hover:text-[#dedad4] transition-colors line-clamp-2 max-w-sm sm:mx-auto leading-relaxed pt-0.5">
                   {pro.shortDescription || 'Perfil del equipo de esta sede.'}
                 </p>
                 
                 <span className="inline-block text-[10px] text-[#7d7988] font-medium pt-1 group-hover:text-[#cba258]/80 transition-colors">
-                  Click para ver perfil completo →
+                  Ver perfil completo →
                 </span>
               </div>
             </div>
@@ -130,32 +133,33 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
       </div>
 
       {/* ─── MODAL AMPLIADO (casi pantalla completa en mobile, 900px en desktop) ─── */}
-      {selectedPro && (
+      {selectedPro && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 bg-black/85 backdrop-blur-md animate-fadeIn"
+          role="dialog" aria-modal="true" aria-labelledby="glow-professional-name"
+          className="fixed inset-0 z-[100] flex items-center justify-center sm:p-6 bg-black/90 backdrop-blur-md animate-fadeIn"
           onClick={() => setSelectedPro(null)}
         >
-          {/* Contenedor del modal: full-width en mobile, max-w-3xl en desktop */}
+          {/* En móvil, el perfil ocupa la pantalla y queda por encima de la navegación fija. */}
           <div
-            className="relative w-full sm:max-w-3xl bg-[#0f1018] border border-[#cba258]/40 rounded-t-[28px] sm:rounded-[28px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.95)] flex flex-col sm:flex-row"
-            style={{ maxHeight: '95dvh' }}
+            className={`relative w-full ${showModalImage ? 'h-[100dvh]' : 'h-auto max-h-[calc(100dvh-32px)] mx-4 rounded-[24px]'} sm:h-auto sm:max-h-[95dvh] sm:mx-0 sm:max-w-3xl bg-[#0f1018] border border-[#cba258]/40 sm:rounded-[28px] overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.95)] flex flex-col sm:flex-row`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Botón cerrar */}
             <button
               onClick={() => setSelectedPro(null)}
-              className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-black/70 border border-white/20 text-white/80 hover:text-white hover:border-[#cba258] flex items-center justify-center transition-all cursor-pointer"
+              className="absolute top-[calc(16px+env(safe-area-inset-top,0px))] right-4 z-20 w-11 h-11 rounded-full bg-black/70 border border-white/20 text-white/80 hover:text-white hover:border-[#cba258] flex items-center justify-center transition-all cursor-pointer"
               aria-label="Cerrar"
             >
               <X className="w-4 h-4" />
             </button>
 
-            {/* FOTO — 45% en desktop, altura fija 260px en mobile */}
-            <div className="w-full sm:w-[42%] h-[260px] sm:h-auto relative shrink-0 bg-black">
-              <CatalogImage key={selectedPro.image || selectedPro.id}
+            {/* No reservar un bloque de foto si el perfil no tiene imagen o falla la carga. */}
+            {showModalImage && <div className="w-full sm:w-[42%] h-[34dvh] min-h-[200px] max-h-[300px] sm:h-auto sm:min-h-0 sm:max-h-none relative shrink-0 bg-black">
+              <img
                 src={selectedPro.image}
                 alt={selectedPro.name}
                 className="w-full h-full object-cover object-center"
+                onError={() => setModalImageFailed(true)}
               />
               {/* Degradé que funde hacia el panel de texto */}
               <div className="absolute inset-0 bg-gradient-to-t sm:bg-gradient-to-r from-[#0f1018]/90 via-[#0f1018]/20 to-transparent" />
@@ -164,7 +168,7 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
                 <p className="text-[11px] uppercase tracking-[0.25em] text-[#cba258] font-bold">
                   {selectedPro.role}
                 </p>
-                <h3 className="text-3xl font-serif font-bold text-white leading-tight mt-0.5">
+                <h3 id="glow-professional-name" className="text-3xl font-serif font-bold text-white leading-tight mt-0.5">
                   {selectedPro.name}
                 </h3>
                 <div className="flex items-center gap-1.5 text-[12px] text-[#a09ca8] mt-1">
@@ -172,17 +176,17 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
                   <span>{selectedPro.branchName}</span>
                 </div>
               </div>
-            </div>
+            </div>}
 
             {/* CONTENIDO — scrolleable en mobile */}
-            <div className="flex-1 overflow-y-auto px-7 sm:px-9 py-7 sm:py-8 flex flex-col justify-between gap-6">
+            <div className={`min-h-0 flex-1 overflow-y-auto px-6 sm:px-9 ${showModalImage ? 'pt-6' : 'pt-[calc(80px+env(safe-area-inset-top,0px))]'} pb-[calc(24px+env(safe-area-inset-bottom,0px))] sm:py-8 flex flex-col gap-6`}>
               
-              {/* Encabezado visible solo en desktop */}
-              <div className="hidden sm:block space-y-1.5">
+              {/* Sin foto, el nombre pasa al encabezado del contenido. */}
+              <div className={`${showModalImage ? 'hidden sm:block' : 'block'} space-y-1.5`}>
                 <p className="text-[11px] uppercase tracking-[0.3em] text-[#cba258] font-bold">
                   {selectedPro.role}
                 </p>
-                <h3 className="text-4xl font-serif font-bold text-white leading-tight">
+                <h3 id={showModalImage ? undefined : 'glow-professional-name'} className="text-3xl sm:text-4xl font-serif font-bold text-white leading-tight">
                   {selectedPro.name}
                 </h3>
                 <div className="flex items-center gap-1.5 text-sm text-[#a09ca8] pt-0.5">
@@ -205,7 +209,7 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
               </div>
 
               {/* CTA */}
-              <div className="pt-2">
+              <div className="mt-auto pt-2">
                 <button
                   onClick={(e) => handleBookWithPro(selectedPro, e)}
                   className="w-full py-4 px-5 rounded-xl gold-gradient-bg text-black font-bold text-sm sm:text-base flex items-center justify-center gap-2.5 hover:opacity-95 transition-all shadow-[0_8px_25px_rgba(203,162,88,0.35)] cursor-pointer"
@@ -217,7 +221,7 @@ export default function ProfessionalsSection({ selectedBranch, setSelectedBranch
 
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
 
     </section>

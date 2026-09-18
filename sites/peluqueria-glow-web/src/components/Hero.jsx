@@ -30,34 +30,38 @@ export default function Hero({ selectedBranch, setSelectedBranch }) {
   const parallaxOffset = scrollY * 0.2;
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col justify-end select-none">
+    <div className="glow-hero relative w-full h-[100dvh] overflow-hidden flex flex-col justify-end select-none">
       {/* Parallax Background Image - Natural unzoomed framing */}
       <div 
-        className="absolute inset-0 w-full h-full will-change-transform pointer-events-none"
+        className="glow-hero__visual absolute inset-0 w-full h-full will-change-transform pointer-events-none"
         style={{
           transform: `translate3d(0, -${parallaxOffset}px, 0)`,
         }}
       >
-        <img
-          src="/hero-glow.jpg"
-          alt="Peluquería Glow"
-          className="w-full h-full object-cover object-[center_top] brightness-[0.95] contrast-[1.05]"
-          loading="eager"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20" />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/50 via-transparent to-transparent sm:from-black/30" />
+        <picture className="glow-hero__picture block w-full h-full">
+          <source media="(max-width: 639px)" srcSet="/hero-glow-mobile-v1.png" />
+          <img
+            src="/hero-glow.jpg"
+            alt="Peluquería Glow"
+            className="glow-hero__image w-full h-full object-cover object-[center_top] brightness-[0.95] contrast-[1.05]"
+            loading="eager"
+          />
+        </picture>
+        <div className="glow-hero__overlay absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20" />
+        <div className="glow-hero__overlay absolute inset-0 bg-gradient-to-r from-black/50 via-transparent to-transparent sm:from-black/30" />
       </div>
 
       {/* Hero Bottom Action Controls */}
-      <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 lg:px-12 pb-6 sm:pb-8 lg:pb-10">
+      <div className="glow-hero__controls relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 lg:px-12 pb-6 sm:pb-8 lg:pb-10">
         <div className="max-w-xl space-y-3 sm:space-y-3.5">
           
           {/* Sede Selector */}
-          <div className="p-1 rounded-2xl bg-black/65 backdrop-blur-md border border-white/20 inline-flex items-center gap-1 shadow-2xl">
+          <div className="glow-hero__selector p-1 rounded-2xl bg-black/65 backdrop-blur-md border border-white/20 inline-flex items-center gap-1 shadow-2xl" role="group" aria-label="Elegí tu sede">
             <span className="text-[11px] text-[#b4afbf] font-medium pl-2.5 pr-1 hidden sm:inline">
               Sede:
             </span>
             <button
+              aria-pressed={selectedBranch === 'urquiza'}
               onClick={() => setSelectedBranch('urquiza')}
               className={`py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 selectedBranch === 'urquiza'
@@ -70,6 +74,7 @@ export default function Hero({ selectedBranch, setSelectedBranch }) {
             </button>
 
             <button
+              aria-pressed={selectedBranch === 'canitas'}
               onClick={() => setSelectedBranch('canitas')}
               className={`py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 selectedBranch === 'canitas'
@@ -83,7 +88,7 @@ export default function Hero({ selectedBranch, setSelectedBranch }) {
           </div>
 
           {/* 2 Main Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3">
+          <div className="glow-hero__actions flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3">
             <button
               onClick={handleBooking}
               className="px-6 py-3 rounded-full gold-gradient-bg text-black font-bold text-xs sm:text-sm tracking-wider uppercase flex items-center justify-center gap-2 shadow-2xl hover:scale-105 active:scale-95 transition-all cursor-pointer"

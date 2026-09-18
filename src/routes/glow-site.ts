@@ -9,7 +9,8 @@ const publicFiles = new Set([
   'ba-balayage-before.jpg', 'ba-balayage-split-after.jpg', 'ba-balayage-split-before.jpg',
   'ba-color-split.jpg', 'balayage-9-16-after.jpg', 'balayage-9-16-before.jpg',
   'balayage-after-916.jpg', 'balayage-before-916.jpg', 'banner-corte-hombre.jpg',
-  'banner-iluminacion.jpg', 'favicon.svg', 'filosofia-model.jpg', 'hero-glow.jpg', 'icons.svg',
+  'banner-iluminacion.jpg', 'favicon.svg', 'featured-balayage-mobile-v1.png', 'featured-corte-mobile-v1.png',
+  'filosofia-model.jpg', 'hero-glow.jpg', 'hero-glow-mobile-v1.png', 'icons.svg',
   'look-balayage-ref.jpg', 'look-cobrizo.jpg', 'look-corte-masculino.jpg',
   'look-morena-iluminada.jpg', 'look-rubio-premium.jpg', 'modelo-recortada.png',
   'modelo-recortada.webp', 'pro-gaspar.jpg', 'pro-lucas.jpg', 'pro-tamara.jpg'
