@@ -10,6 +10,14 @@ test('entry carries only explicit allowed branch, never old service or redirect'
  assert.equal(branchFromSearch('?sede=__proto__'),null);
  assert.equal(branchFromSearch(''),null);
 });
+
+test('landing restores the allowed returning reservation branch and falls back to Urquiza',()=>{
+ const app=readFileSync(new URL('../../src/App.jsx',import.meta.url),'utf8');
+ assert.match(app,/import \{ branchFromSearch \} from '\.\/data\/glowBooking';/);
+ assert.match(app,/useState\(\(\) => branchFromSearch\(window.location.search\) \|\| 'urquiza'\)/);
+ for (const branch of ['urquiza','canitas']) assert.equal(branchFromSearch(`?sede=${branch}`) || 'urquiza',branch);
+ for (const search of ['', '?sede=unknown', '?sede=__proto__']) assert.equal(branchFromSearch(search) || 'urquiza','urquiza');
+});
 test('destination rejects unready mismatched branches and arbitrary redirects',()=>{
  const state={branchId:'urquiza',status:'ready',address:'Monroe 5252',bookingUrl:'https://weex.com.ar/glowurquiza/reservar?template=salon-white'};
  assert.equal(safeBookingDestination(state,'urquiza'),state.bookingUrl);

@@ -12,9 +12,10 @@ import BranchSelector from './components/BranchSelector';
 import Footer from './components/Footer';
 import MobileBottomNav from './components/MobileBottomNav';
 import { useBranchCatalog } from './components/BranchCatalog';
+import { branchFromSearch } from './data/glowBooking';
 
 function Landing() {
-  const [selectedBranch, setSelectedBranch] = useState('urquiza');
+  const [selectedBranch, setSelectedBranch] = useState(() => branchFromSearch(window.location.search) || 'urquiza');
   const catalog = useBranchCatalog(selectedBranch);
 
   // Smooth scroll con Lenis (20% más lento para sensación de resistencia y lujo)
@@ -72,7 +73,7 @@ function Landing() {
 
           {/* 3. SERVICIOS */}
           <ServicesSection
-            key={selectedBranch}
+            key={`services-${selectedBranch}`}
             catalog={catalog}
             setSelectedBranch={setSelectedBranch}
             selectedBranch={selectedBranch}
@@ -83,7 +84,7 @@ function Landing() {
 
           {/* 5. PROFESIONALES */}
           <ProfessionalsSection
-            key={selectedBranch}
+            key={`professionals-${selectedBranch}`}
             catalog={catalog}
             setSelectedBranch={setSelectedBranch}
             selectedBranch={selectedBranch}

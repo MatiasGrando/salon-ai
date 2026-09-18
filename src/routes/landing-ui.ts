@@ -1583,6 +1583,12 @@ function inferAddressArea(value?: string | null) {
 
 function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string, demoPreview = false) {
   const slug = business.slug || ''
+  // Branded landings are shared, but account/profile routes remain tenant-specific.
+  const landingReturnPath = business.customerCode === 'WX-NPP7HE'
+    ? 'https://glow.weex.com.ar/?sede=canitas'
+    : business.customerCode === 'WX-QG5FQA'
+      ? 'https://glow.weex.com.ar/?sede=urquiza'
+      : backPath
   const requestedTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   const bookingTheme = resolveBookingTheme(business.bookingTheme, requestedTemplate)
   const subtitle = templateSpecificContent(business, requestedTemplate).subtitle || business.landingSubtitle || 'Oficio de navaja y tijera'
@@ -1598,7 +1604,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
     body: `
       <main class="fresha-booking" data-booking-slug="${escapeAttribute(slug)}">
         <div class="booking-brand-rail">
-          <a class="booking-brand" href="${escapeAttribute(backPath)}">
+          <a class="booking-brand" href="${escapeAttribute(landingReturnPath)}">
             <span class="booking-brand-name">
               <strong>${escapeHtml(business.name)}</strong>
               <span>${escapeHtml(subtitle)}</span>
@@ -1616,7 +1622,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               <a class="fresha-icon-btn" href="${escapeAttribute(accountPath)}" aria-label="Mi perfil">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
               </a>
-              <a class="fresha-icon-btn" href="${escapeAttribute(backPath)}" aria-label="Cerrar reserva">
+              <a class="fresha-icon-btn" href="${escapeAttribute(landingReturnPath)}" aria-label="Cerrar reserva">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
               </a>
             </div>
@@ -1704,7 +1710,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
       <script>
         (() => {
           const slug = ${JSON.stringify(slug)}
-          const backPath = ${JSON.stringify(backPath)}
+          const backPath = ${JSON.stringify(landingReturnPath)}
           const accountPath = ${JSON.stringify(accountPath)}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
