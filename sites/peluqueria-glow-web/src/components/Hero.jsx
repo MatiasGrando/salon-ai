@@ -39,12 +39,14 @@ export default function Hero({ selectedBranch, setSelectedBranch }) {
         }}
       >
         <picture className="glow-hero__picture block w-full h-full">
-          <source media="(max-width: 639px)" srcSet="/hero-glow-mobile-v1.png" />
+          <source media="(max-width: 639px)" srcSet="/hero-glow-mobile-v2.webp" type="image/webp" />
           <img
             src="/hero-glow.jpg"
             alt="Peluquería Glow"
             className="glow-hero__image w-full h-full object-cover object-[center_top] brightness-[0.95] contrast-[1.05]"
             loading="eager"
+            fetchPriority="high"
+            decoding="async"
           />
         </picture>
         <div className="glow-hero__overlay absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/20" />

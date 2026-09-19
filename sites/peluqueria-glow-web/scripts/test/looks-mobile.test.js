@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 const source = file => readFileSync(new URL(`../../src/${file}`, import.meta.url), 'utf8');
 
@@ -31,4 +31,13 @@ test('comparison and carousel distinguish horizontal intent from page scrolling'
   const component = source('components/BeforeAfterSlider.jsx');
   assert.match(component, /closest\('\.glow-looks__comparison'\)/);
   assert.match(component, /onTouchCancel=\{\(\) => \{ touchStart\.current = null; \}\}/);
+});
+
+test('the initial comparison uses compressed webp assets', () => {
+  const component = source('components/BeforeAfterSlider.jsx');
+  assert.match(component, /beforeImg: '\/alisado-before-v2\.webp'/);
+  assert.match(component, /afterImg: '\/alisado-after-v2\.webp'/);
+  for (const file of ['alisado-before-v2.webp', 'alisado-after-v2.webp']) {
+    assert.ok(statSync(new URL(`../../public/${file}`, import.meta.url)).size < 80 * 1024);
+  }
 });

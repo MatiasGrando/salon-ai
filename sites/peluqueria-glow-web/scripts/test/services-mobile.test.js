@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 const section = readFileSync(new URL('../../src/components/ServicesSection.jsx', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../../src/components/ServicesMobile.css', import.meta.url), 'utf8');
@@ -25,11 +25,15 @@ test('mobile service navigation and reservation targets are touch sized', () => 
 });
 
 test('featured editorial cards use portrait art on phones without replacing desktop art', () => {
-  assert.match(section, /mobileImage: '\/featured-balayage-mobile-v1\.png'/);
-  assert.match(section, /mobileImage: '\/featured-corte-mobile-v1\.png'/);
+  assert.match(section, /mobileImage: '\/featured-balayage-mobile-v2\.webp'/);
+  assert.match(section, /mobileImage: '\/featured-corte-mobile-v2\.webp'/);
   assert.match(section, /<picture>[\s\S]*?<source media="\(max-width: 639px\)" srcSet=\{banner1\.mobileImage\}/);
+  assert.match(section, /loading="lazy"/);
   assert.match(section, /src=\{banner2\.image\}/);
   assert.match(css, /\.glow-services__featured \{[^}]*min-height: 440px/);
+  for (const file of ['featured-balayage-mobile-v2.webp', 'featured-corte-mobile-v2.webp']) {
+    assert.ok(statSync(new URL(`../../public/${file}`, import.meta.url)).size < 80 * 1024);
+  }
 });
 
 test('catalog previews four services on phones and retains six on desktop', () => {

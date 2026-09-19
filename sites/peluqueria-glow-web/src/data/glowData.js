@@ -78,7 +78,7 @@ export const SERVICES = [
     featured: true,
     badge: "Recuperación",
     bannerTag: "EXCLUSIVO GLOW",
-    image: "/alisado-after.png",
+    image: "/alisado-after-v2.webp",
     description: "Tratamiento de choque que reconstruye los enlaces de queratina rotos por decoloraciones o calor extremo. Devuelve elasticidad y brillo espejo.",
     includes: ["Lavado purificante", "Inyección de péptidos y aminoácidos", "Sellado térmico y ampolla de brillo"]
   },

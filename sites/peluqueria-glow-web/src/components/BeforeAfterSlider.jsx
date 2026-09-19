@@ -40,9 +40,9 @@ const ALL_LOOKS = [
     category: 'Alisados',
     type: 'image',
     hasBeforeAfter: true,
-    beforeImg: '/alisado-before.png',
-    afterImg: '/alisado-after.png',
-    thumb: '/alisado-after.png',
+    beforeImg: '/alisado-before-v2.webp',
+    afterImg: '/alisado-after-v2.webp',
+    thumb: '/alisado-after-v2.webp',
     isVideo: false,
   },
   {
@@ -144,6 +144,8 @@ function BeforeAfterMedia({ item, onStartInteraction, onEndInteraction }) {
         alt="Después"
         className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
         draggable="false"
+        loading="lazy"
+        decoding="async"
       />
       <div className="absolute top-3.5 right-3.5 z-20 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-emerald-500/50 text-emerald-400 text-[10px] font-bold uppercase tracking-wider pointer-events-none shadow-md">
         DESPUÉS
@@ -159,6 +161,8 @@ function BeforeAfterMedia({ item, onStartInteraction, onEndInteraction }) {
           alt="Antes"
           className="w-full h-full object-cover select-none"
           draggable="false"
+          loading="lazy"
+          decoding="async"
         />
         <div className="absolute top-3.5 left-3.5 z-20 px-2.5 py-1 rounded-full bg-black/75 backdrop-blur-md border border-white/20 text-white/90 text-[10px] font-bold uppercase tracking-wider shadow-md">
           ANTES
@@ -613,6 +617,8 @@ export default function BeforeAfterSlider({ selectedBranch }) {
                         alt={item.title}
                         className="w-full h-full object-cover select-none pointer-events-none"
                         draggable="false"
+                        loading="lazy"
+                        decoding="async"
                       />
                       {/* Icono sutil divisor en laterales si tiene antes/después */}
                       {item.hasBeforeAfter && (
@@ -729,6 +735,8 @@ export default function BeforeAfterSlider({ selectedBranch }) {
                   src={item.thumb}
                   alt={item.title}
                   className="w-full h-full object-cover select-none pointer-events-none"
+                  loading="lazy"
+                  decoding="async"
                 />
                 
                 {/* Indicador de Video */}

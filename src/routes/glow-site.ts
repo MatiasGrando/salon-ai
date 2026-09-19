@@ -5,12 +5,13 @@ import { extname, join } from 'node:path'
 const glowHost = 'glow.weex.com.ar'
 // Only reviewed public media, never arbitrary files from the source directory.
 const publicFiles = new Set([
-  'alisado-after.png', 'alisado-before.png', 'ba-alisado-after.png', 'ba-alisado-before.png',
+  'alisado-after.png', 'alisado-before.png', 'alisado-after-v2.webp', 'alisado-before-v2.webp', 'ba-alisado-after.png', 'ba-alisado-before.png',
   'ba-balayage-before.jpg', 'ba-balayage-split-after.jpg', 'ba-balayage-split-before.jpg',
   'ba-color-split.jpg', 'balayage-9-16-after.jpg', 'balayage-9-16-before.jpg',
   'balayage-after-916.jpg', 'balayage-before-916.jpg', 'banner-corte-hombre.jpg',
   'banner-iluminacion.jpg', 'favicon.svg', 'featured-balayage-mobile-v1.png', 'featured-corte-mobile-v1.png',
-  'filosofia-model.jpg', 'hero-glow.jpg', 'hero-glow-mobile-v1.png', 'icons.svg',
+  'featured-balayage-mobile-v2.webp', 'featured-corte-mobile-v2.webp',
+  'filosofia-model.jpg', 'hero-glow.jpg', 'hero-glow-mobile-v1.png', 'hero-glow-mobile-v2.webp', 'icons.svg',
   'look-balayage-ref.jpg', 'look-cobrizo.jpg', 'look-corte-masculino.jpg',
   'look-morena-iluminada.jpg', 'look-rubio-premium.jpg', 'modelo-recortada.png',
   'modelo-recortada.webp', 'pro-gaspar.jpg', 'pro-lucas.jpg', 'pro-tamara.jpg'
@@ -55,7 +56,8 @@ export async function glowSiteRoutes(app: FastifyInstance, options: { siteDir?: 
     return serve(reply, join('assets', asset), false, true)
   })
   for (const file of publicFiles) {
-    app.get(`/${file}`, { constraints: { host: glowHost } }, async (_request, reply) => serve(reply, file))
+    const versioned = /-v\d+\.[a-z0-9]+$/i.test(file)
+    app.get(`/${file}`, { constraints: { host: glowHost } }, async (_request, reply) => serve(reply, file, false, versioned))
   }
 }
 

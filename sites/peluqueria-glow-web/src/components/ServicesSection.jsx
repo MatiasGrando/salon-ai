@@ -26,7 +26,7 @@ const FEATURED_BANNERS = [
     duration: '3h 30m',
     priceRange: 'Desde $55.000',
     image: '/banner-iluminacion.jpg',
-    mobileImage: '/featured-balayage-mobile-v1.png',
+    mobileImage: '/featured-balayage-mobile-v2.webp',
     category: 'Color & Balayage',
     objectPosition: 'center 40%',
   },
@@ -39,7 +39,7 @@ const FEATURED_BANNERS = [
     duration: '40 min',
     priceRange: 'Desde $14.000',
     image: '/banner-corte-hombre.jpg',
-    mobileImage: '/featured-corte-mobile-v1.png',
+    mobileImage: '/featured-corte-mobile-v2.webp',
     category: 'Barbería Masculina',
     objectPosition: 'center 35%',
   }
@@ -310,6 +310,8 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                     alt={banner1.name}
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
                     style={{ objectPosition: banner1.objectPosition }}
+                    loading="lazy"
+                    decoding="async"
                   />
                 </picture>
 
@@ -372,6 +374,8 @@ export default function ServicesSection({ selectedBranch, setSelectedBranch, cat
                   alt={banner2.name}
                   className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
                   style={{ objectPosition: banner2.objectPosition }}
+                  loading="lazy"
+                  decoding="async"
                 />
 
                 <div 
