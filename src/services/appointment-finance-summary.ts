@@ -5,6 +5,8 @@ type PriceMode = 'FIXED' | 'STARTING_AT'
 export type AppointmentFinanceSummary = {
   accountId: string | null
   pricingMode: 'FIXED' | 'ESTIMATED'
+  originalAmount: number | null
+  minimumAmount: number
   agreedAmount: number
   discountAmount: number
   finalAmount: number
@@ -63,6 +65,8 @@ export function buildAppointmentFinanceSummaries(
     const summary: AppointmentFinanceSummary = {
       accountId: null,
       pricingMode,
+      originalAmount: agreedAmount,
+      minimumAmount: pricingMode === 'ESTIMATED' ? fallbackGroupMinimum(group) : 0,
       ...calculateAccountTotals({
         agreedAmount,
         discountAmount: 0,
@@ -75,6 +79,13 @@ export function buildAppointmentFinanceSummaries(
   }
 
   return summaries
+}
+
+function fallbackGroupMinimum(group: AppointmentFinanceSummarySource[]) {
+  const prices = group.flatMap((appointment) => appointment.serviceItems.length > 0
+    ? appointment.serviceItems.map((item) => item.service.price ?? 0)
+    : [appointment.service.price ?? 0])
+  return prices.reduce((total, price) => total + price, 0)
 }
 
 function fallbackGroupKey(appointment: AppointmentFinanceSummarySource) {

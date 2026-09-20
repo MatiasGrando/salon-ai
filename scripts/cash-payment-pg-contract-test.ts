@@ -256,9 +256,9 @@ async function cleanupPaymentsPg() {
 }
 
 async function assertPaymentsInMemory() {
-  const account = { id: 'account-a', businessId: 'business-a', pricingMode: 'FIXED' as const, agreedAmount: 18_000, discountAmount: 0 }
+  const account = { id: 'account-a', businessId: 'business-a', pricingMode: 'FIXED' as const, agreedAmount: 18_000, originalAmount: 18_000, minimumAmount: 0, discountAmount: 0 }
   const entries: Array<{ type: 'PAYMENT'; direction: 'INFLOW'; amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }> = []
-  let estimatedAccount = { ...account, id: 'estimated', pricingMode: 'ESTIMATED' as const, agreedAmount: null as number | null }
+  let estimatedAccount = { ...account, id: 'estimated', pricingMode: 'ESTIMATED' as const, agreedAmount: null as number | null, originalAmount: null, minimumAmount: 0 }
   const deposits = new Set<string>()
   const approvedDeposits = [
     { id: 'approved-a', origin: 'WEB_DEPOSIT' as const },
@@ -273,10 +273,12 @@ async function assertPaymentsInMemory() {
       ? null
       : appointmentId === 'estimated' ? estimatedAccount : account,
     listAccountEntries: async (_businessId: string, accountId: string) => accountId === 'estimated' ? [] : [...entries],
-    updateEstimatedTotal: async (_businessId: string, _accountId: string, agreedAmount: number) => {
+    insertTotalAdjustment: async (input: Record<string, unknown>) => ({ ...input, id: 'adjustment', createdAt: new Date() }),
+    updateAdjustedTotal: async (_businessId: string, _accountId: string, agreedAmount: number) => {
       estimatedAccount = { ...estimatedAccount, agreedAmount }
       return estimatedAccount
     },
+    listTotalAdjustments: async () => [],
     updateDiscount: async (_businessId: string, accountId: string, discountAmount: number) => {
       if (accountId === 'estimated') estimatedAccount = { ...estimatedAccount, discountAmount }
       return { ...(accountId === 'estimated' ? estimatedAccount : account), discountAmount }

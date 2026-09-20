@@ -84,6 +84,7 @@ import {
   loadChannelConversationMessages,
   loadChannelMessage,
   parseChannelResourceId,
+  resolveLinkedCustomerConversationSearch,
   sendChannelConversationReply
 } from '../services/conversation-channel-service.js'
 
@@ -336,6 +337,100 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
   registerRealtimeRoute('/crm/events', false)
   if (options.cashRegisterEnabled !== false) registerRealtimeRoute('/crm/cash-events', true)
 
+  app.get('/crm/quick-replies', async (request, reply) => {
+    const query = request.query as { businessId?: string; activeOnly?: string }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const businessId = quickReplyBusinessId(authUser, query.businessId)
+    if (!businessId) return sendAuthorizationFailure(reply, 'malformed')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+    const activeOnly = query.activeOnly === 'true' || !canManageConversationQuickReplies(authUser)
+    return prisma.conversationQuickReply.findMany({
+      where: { businessId, ...(activeOnly ? { isActive: true } : {}) },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]
+    })
+  })
+
+  app.post('/crm/quick-replies', async (request, reply) => {
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!canManageConversationQuickReplies(authUser)) return sendAuthorizationFailure(reply, 'forbidden')
+    const body = (request.body ?? {}) as { businessId?: unknown; title?: unknown; shortcut?: unknown; message?: unknown; isActive?: unknown }
+    if (hasInvalidQuickReplyActiveValue(body.isActive)) {
+      return reply.status(400).send({ message: 'El estado de la respuesta rápida debe ser válido.' })
+    }
+    const businessId = quickReplyBusinessId(authUser, body.businessId)
+    if (!businessId) return sendAuthorizationFailure(reply, 'malformed')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+    const values = quickReplyValues(body)
+    if (!values) return reply.status(400).send({ message: 'Completá nombre, atajo y mensaje con valores válidos.' })
+    const aggregate = await prisma.conversationQuickReply.aggregate({ where: { businessId }, _max: { position: true } })
+    try {
+      return await prisma.conversationQuickReply.create({
+        data: { businessId, ...values, isActive: body.isActive !== false, position: (aggregate._max.position ?? -1) + 1 }
+      })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return reply.status(409).send({ message: 'Ese atajo ya existe en este negocio.' })
+      }
+      throw error
+    }
+  })
+
+  app.post('/crm/quick-replies/reorder', async (request, reply) => {
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!canManageConversationQuickReplies(authUser)) return sendAuthorizationFailure(reply, 'forbidden')
+    const body = (request.body ?? {}) as { businessId?: unknown; ids?: unknown }
+    const businessId = quickReplyBusinessId(authUser, body.businessId)
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())) : []
+    if (!businessId || !ids.length || ids.length > 100 || new Set(ids).size !== ids.length) return sendAuthorizationFailure(reply, 'malformed')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+    const existing = await prisma.conversationQuickReply.findMany({ where: { businessId }, select: { id: true } })
+    if (existing.length !== ids.length || existing.some(({ id }) => !ids.includes(id))) return sendAuthorizationFailure(reply, 'notFound')
+    await prisma.$transaction(ids.map((id, position) => prisma.conversationQuickReply.updateMany({
+      where: { id, businessId }, data: { position }
+    })))
+    return prisma.conversationQuickReply.findMany({
+      where: { businessId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]
+    })
+  })
+
+  app.patch('/crm/quick-replies/:id', async (request, reply) => {
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    if (!canManageConversationQuickReplies(authUser)) return sendAuthorizationFailure(reply, 'forbidden')
+    const params = request.params as { id: string }
+    const body = (request.body ?? {}) as { businessId?: unknown; title?: unknown; shortcut?: unknown; message?: unknown; isActive?: unknown }
+    if (hasInvalidQuickReplyActiveValue(body.isActive)) {
+      return reply.status(400).send({ message: 'El estado de la respuesta rápida debe ser válido.' })
+    }
+    const businessId = quickReplyBusinessId(authUser, body.businessId)
+    if (!businessId) return sendAuthorizationFailure(reply, 'malformed')
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+    const existing = await prisma.conversationQuickReply.findFirst({ where: { id: params.id, businessId } })
+    if (!existing) return sendAuthorizationFailure(reply, 'notFound')
+    const hasContentFields = body.title !== undefined || body.shortcut !== undefined || body.message !== undefined
+    const values = hasContentFields ? quickReplyValues({
+      title: body.title !== undefined ? body.title : existing.title,
+      shortcut: body.shortcut !== undefined ? body.shortcut : existing.shortcut,
+      message: body.message !== undefined ? body.message : existing.message
+    }) : null
+    if (hasContentFields && !values) return reply.status(400).send({ message: 'Completá nombre, atajo y mensaje con valores válidos.' })
+    if (!hasContentFields && typeof body.isActive !== 'boolean') return sendAuthorizationFailure(reply, 'malformed')
+    try {
+      return await prisma.conversationQuickReply.update({
+        where: { id: existing.id },
+        data: { ...(values ?? {}), ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}) }
+      })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        return reply.status(409).send({ message: 'Ese atajo ya existe en este negocio.' })
+      }
+      throw error
+    }
+  })
+
   app.post('/crm/maintenance/delete-qa-data', async (request, reply) => {
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
@@ -568,13 +663,27 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     await archiveOldCompletedConversations(query.businessId)
 
     const since = parseOptionalDate(query.since)
+    const channelBusinessId = query.businessId || request.auth?.user.businessId || null
+    const linkedSearch = channelBusinessId && query.phone
+      ? await resolveLinkedCustomerConversationSearch({
+          businessId: channelBusinessId,
+          search: query.phone,
+          client: prisma
+        })
+      : { whatsappPhones: [], instagramUserIds: [] }
     const where: Prisma.ConversationWhereInput = {
       ...conversationListWhere({
         ...(query.businessId ? { businessId: query.businessId } : {}),
-        ...(query.phone ? { phone: query.phone } : {}),
         archiveView,
         ...(query.filter ? { filter: query.filter } : {})
       }),
+      ...(query.phone ? {
+        OR: [
+          { phone: { contains: query.phone } },
+          ...(linkedSearch.whatsappPhones.length ? [{ phone: { in: linkedSearch.whatsappPhones } }] : []),
+          { messages: { some: { body: { contains: query.phone, mode: 'insensitive' } } } }
+        ]
+      } : {}),
       ...(since ? { updatedAt: { gt: since } } : {})
     }
 
@@ -612,17 +721,18 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
     const itemsWithReplyWindow = await attachConversationReplyWindow(items)
-    const channelBusinessId = query.businessId || request.auth?.user.businessId || null
     const channelConversations = channelBusinessId && archiveView !== 'archived' && query.filter !== 'handoff' && !query.cursor
       ? await listChannelConversations({
           businessId: channelBusinessId,
           take,
           since,
           search: query.phone,
+          linkedInstagramUserIds: linkedSearch.instagramUserIds,
           client: prisma
         })
       : []
-    const combinedItems = [...itemsWithReplyWindow, ...channelConversations]
+    const combinedItems = [...new Map([...itemsWithReplyWindow, ...channelConversations]
+      .map((conversation) => [conversation.id, conversation])).values()]
       .sort((left, right) => latestConversationActivityAt(right) - latestConversationActivityAt(left))
 
     if (query.paginated !== 'true') {
@@ -2406,6 +2516,28 @@ async function findCrmBusiness(businessId?: string) {
     },
     select: { id: true, botEnabled: true, aiEnabled: true }
   })
+}
+
+function quickReplyBusinessId(user: BusinessAuthorizationUser, requestedBusinessId?: unknown) {
+  if (requestedBusinessId !== undefined && typeof requestedBusinessId !== 'string') return null
+  return requestedBusinessId?.trim() || user.businessId?.trim() || null
+}
+
+function canManageConversationQuickReplies(user: BusinessAuthorizationUser) {
+  return user.role === 'BUSINESS_ADMIN' || user.role === 'ACCOUNT_ADMIN' || user.role === 'SUPER_ADMIN'
+}
+
+function hasInvalidQuickReplyActiveValue(value: unknown) {
+  return value !== undefined && typeof value !== 'boolean'
+}
+
+function quickReplyValues(input: { title?: unknown; shortcut?: unknown; message?: unknown }) {
+  if (typeof input.title !== 'string' || typeof input.shortcut !== 'string' || typeof input.message !== 'string') return null
+  const title = input.title.trim()
+  const shortcut = input.shortcut.trim().replace(/^\/+/, '').toLocaleLowerCase('es-AR')
+  const message = input.message.trim()
+  if (!title || title.length > 80 || !/^[a-z0-9_-]{1,40}$/.test(shortcut) || !message || message.length > 2000) return null
+  return { title, shortcut, message }
 }
 
 async function coordinatedAppointmentIds(

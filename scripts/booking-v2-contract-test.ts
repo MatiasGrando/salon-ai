@@ -61,6 +61,7 @@ import {
 } from '../src/services/business-knowledge-service.js'
 import {
   acceptedAdvisorQuoteAmount,
+  bookingQuotedPriceAmount,
   businessInformationTopicsOutsideCatalogCategory,
   businessInformationTopicsForPendingSelection,
   bookingCoordinationMessageFromInteractiveReply,
@@ -1791,6 +1792,50 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ? { ...restored.advisorQuote, status: 'accepted' }
         : null
       assert.equal(acceptedAdvisorQuoteAmount(restored, 'illumination'), 160000)
+    }
+  },
+  {
+    name: 'usa el minimo de la opcion guiada elegida como precio cotizado del turno',
+    run: () => {
+      const state: BookingV2State = {
+        ...createEmptyBookingV2State(),
+        guidedEstimate: {
+          serviceId: 'illumination',
+          stage: 'completed',
+          optionId: 'premium',
+          optionLabel: 'Premium',
+          priceMin: 40000,
+          priceMax: 50000
+        }
+      }
+
+      assert.equal(bookingQuotedPriceAmount(state, 'illumination'), 40000)
+      assert.equal(bookingQuotedPriceAmount(state, 'different-service'), null)
+    }
+  },
+  {
+    name: 'prioriza la cotizacion aceptada del asesor sobre la estimacion guiada',
+    run: () => {
+      const state: BookingV2State = {
+        ...createEmptyBookingV2State(),
+        guidedEstimate: {
+          serviceId: 'illumination',
+          stage: 'completed',
+          optionId: 'premium',
+          optionLabel: 'Premium',
+          priceMin: 40000,
+          priceMax: 50000
+        },
+        advisorQuote: {
+          serviceId: 'illumination',
+          amount: 47000,
+          note: null,
+          status: 'accepted',
+          quotedAt: '2026-09-19T18:00:00.000Z'
+        }
+      }
+
+      assert.equal(bookingQuotedPriceAmount(state, 'illumination'), 47000)
     }
   },
   {

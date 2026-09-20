@@ -8,7 +8,7 @@ const [cashRouteSource, appointmentSource, serverSource] = await Promise.all([
   readFile(path.join(process.cwd(), 'src', 'routes', 'appointment.ts'), 'utf8'),
   readFile(path.join(process.cwd(), 'src', 'server.ts'), 'utf8')
 ])
-for (const route of ['/cash-register/current', '/cash-register/payment-context', '/cash-register/days', '/cash-register/open', '/cash-register/new-session', '/cash-register/close', '/cash-register/entries']) {
+for (const route of ['/cash-register/current', '/cash-register/payment-context', '/cash-register/period/summary', '/cash-register/period/expenses', '/cash-register/days', '/cash-register/open', '/cash-register/new-session', '/cash-register/close', '/cash-register/entries']) {
   assert.ok(cashRouteSource.includes(`'${route}'`), `falta ruta ${route}`)
 }
 for (const suffix of ['/finance', '/estimated-total', '/discount', '/payments']) assert.ok(appointmentSource.includes(suffix), `falta endpoint Agenda ${suffix}`)
@@ -29,6 +29,7 @@ const fakeService = new Proxy({}, {
     if (input.businessId === 'missing') throw new CashServiceError('BUSINESS_NOT_FOUND')
     if (property === 'recordCashOperation' && input.description === 'closed') throw new CashServiceError('CASH_CLOSED')
     if (property === 'listCashEntries') return { entries: [{ id: 'entry-1' }], nextCursor: 'cursor-2' }
+    if (property === 'listCashPeriodExpenses') return { entries: [], page: 2, pageSize: 10, total: 0, totalPages: 1 }
     return { ok: true }
   }
 })
@@ -53,9 +54,15 @@ assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', 
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-adjust': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'x' } })).statusCode, 403)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { businessId: 'foreign-business', cashSessionId: 'session', type: 'CASH_IN', amount: 10, description: 'x' } })).statusCode, 200)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/days/day/entries?type=UNKNOWN', headers: { 'x-view': 'yes' } })).statusCode, 400)
-const page = await app.inject({ method: 'GET', url: '/cash-register/days/day/entries?cursor=abc&type=EXPENSE&method=CASH&q=cliente', headers: { 'x-view': 'yes' } })
+const page = await app.inject({ method: 'GET', url: '/cash-register/days/day/entries?cursor=abc&type=EXPENSE&method=CASH&sessionId=session-1&q=cliente', headers: { 'x-view': 'yes' } })
 assert.equal(page.statusCode, 200)
 assert.equal(page.json().nextCursor, 'cursor-2')
+assert.equal(callInputs.findLast((call) => call.property === 'listCashEntries')?.input.cashSessionId, 'session-1')
+assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/summary', headers: { 'x-view': 'yes' } })).statusCode, 400)
+assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/summary?from=2026-09-01&to=2026-09-30', headers: { 'x-view': 'yes' } })).statusCode, 200)
+assert.deepEqual(callInputs.findLast((call) => call.property === 'getCashPeriodSummary')?.input, { businessId: 'business-a', from: '2026-09-01', to: '2026-09-30' })
+assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/expenses?from=2026-09-01&to=2026-09-30&page=2&pageSize=10&method=CASH&categoryId=category-1&q=luz', headers: { 'x-view': 'yes' } })).statusCode, 200)
+assert.deepEqual(callInputs.findLast((call) => call.property === 'listCashPeriodExpenses')?.input, { businessId: 'business-a', from: '2026-09-01', to: '2026-09-30', page: 2, pageSize: 10, method: 'CASH', expenseCategoryId: 'category-1', query: 'luz' })
 assert.equal(calls.some((call) => call.endsWith(':foreign-business')), false, 'ninguna operación debe usar un tenant arbitrario')
 await app.close()
 

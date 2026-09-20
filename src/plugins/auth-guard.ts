@@ -86,6 +86,8 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || path === '/business-hours'
     || path === '/business-hours/setup'
     || path === '/crm/ai-settings'
+    || path === '/crm/quick-replies'
+    || path.startsWith('/crm/quick-replies/')
     || path.startsWith('/crm/bot-routing')
     || path === '/professionals'
     || /^\/professionals\/[^/]+(?:\/status|\/appointments-impact)?$/.test(path)

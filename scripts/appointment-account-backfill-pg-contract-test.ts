@@ -34,6 +34,8 @@ assert.deepEqual(fixedSimple, {
   sourceKey: 'appointment:simple',
   pricingMode: 'FIXED',
   agreedAmount: 12_000,
+  originalAmount: 12_000,
+  minimumAmount: 0,
   appointmentIds: ['simple'],
   legacyPayments: []
 })
@@ -60,6 +62,8 @@ assert.deepEqual(coordinated, {
   sourceKey: 'coordination:group-1',
   pricingMode: 'ESTIMATED',
   agreedAmount: 30_000,
+  originalAmount: 30_000,
+  minimumAmount: 20_000,
   appointmentIds: ['web-1', 'web-2'],
   legacyPayments: []
 })

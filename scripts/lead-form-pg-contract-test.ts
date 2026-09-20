@@ -14,6 +14,13 @@ const rewardModeMigrationNames = (await readdir(path.join(root, 'prisma', 'migra
   .filter((name) => name.endsWith('_add_lead_form_reward_mode'))
 assert.equal(rewardModeMigrationNames.length, 1, 'debe existir exactamente una migración add_lead_form_reward_mode')
 const rewardModeMigration = await readFile(path.join(root, 'prisma', 'migrations', rewardModeMigrationNames[0]!, 'migration.sql'), 'utf8')
+const customerLinkMigrationNames = (await readdir(path.join(root, 'prisma', 'migrations')))
+  .filter((name) => name.endsWith('_link_form_customers'))
+assert.equal(customerLinkMigrationNames.length, 1, 'debe existir exactamente una migración link_form_customers')
+const customerLinkMigration = await readFile(
+  path.join(root, 'prisma', 'migrations', customerLinkMigrationNames[0]!, 'migration.sql'),
+  'utf8'
+)
 
 for (const name of ['LeadCaptureFormStatus', 'FormSubmissionStatus', 'LeadRewardType', 'PipelineActorKind']) {
   assert.match(schema, new RegExp(`enum ${name} \\{`), `Prisma debe declarar ${name}`)
@@ -45,6 +52,10 @@ assert.match(rewardModeMigration, /ALTER TABLE "FormSubmission"[\s\S]*ADD COLUMN
 assert.match(rewardModeMigration, /UPDATE "FormSubmission" SET "rewardMode" = 'BENEFIT'/)
 assert.match(rewardModeMigration, /ALTER COLUMN "rewardMode" SET NOT NULL/)
 assert.match(rewardModeMigration, /CREATE UNIQUE INDEX "FormReward_one_enabled_per_form_key"[\s\S]*WHERE "enabled" = true/)
+assert.match(schema, /model Customer \{[\s\S]*instagramUserId\s+String\?[\s\S]*instagramUsername\s+String\?/)
+assert.match(schema, /model PipelineLead \{[\s\S]*customerId\s+String\?/)
+assert.match(customerLinkMigration, /Customer_businessId_instagramUserId_key/)
+assert.match(customerLinkMigration, /PipelineLead_businessId_customerId_fkey/)
 
 const db = new PGlite()
 try {
@@ -101,6 +112,39 @@ try {
   await assert.rejects(db.query(`INSERT INTO "PipelineLeadEvent" ("id", "businessId", "leadId", "actorKind", "actorUserId", "type") VALUES ('event-invalid', 'business-a', 'lead-a', 'USER', NULL, 'CREATED')`), /actor_shape|check constraint/i)
 } finally {
   await db.close()
+}
+
+const customerDb = new PGlite()
+try {
+  await customerDb.exec(`
+    CREATE TABLE "Customer" (
+      "id" text PRIMARY KEY,
+      "businessId" text,
+      "name" text NOT NULL,
+      "phone" text NOT NULL,
+      "normalizedPhone" text,
+      UNIQUE ("businessId", "id"),
+      UNIQUE ("businessId", "normalizedPhone")
+    );
+    CREATE TABLE "PipelineLead" (
+      "id" text PRIMARY KEY,
+      "businessId" text NOT NULL,
+      UNIQUE ("businessId", "id")
+    );
+  `)
+  await customerDb.exec(customerLinkMigration)
+  await customerDb.query(`INSERT INTO "Customer" ("id", "businessId", "name", "phone", "normalizedPhone", "instagramUserId") VALUES ('customer-a', 'business-a', 'Ana', '1111111', '1111111', 'ig-stable'), ('customer-b', 'business-b', 'Ana B', '2222222', '2222222', 'ig-stable')`)
+  await assert.rejects(
+    customerDb.query(`INSERT INTO "Customer" ("id", "businessId", "name", "phone", "normalizedPhone", "instagramUserId") VALUES ('customer-duplicate', 'business-a', 'Otra', '3333333', '3333333', 'ig-stable')`),
+    /instagramUserId|unique constraint/i
+  )
+  await customerDb.query(`INSERT INTO "PipelineLead" ("id", "businessId", "customerId") VALUES ('lead-a', 'business-a', 'customer-a')`)
+  await assert.rejects(
+    customerDb.query(`INSERT INTO "PipelineLead" ("id", "businessId", "customerId") VALUES ('lead-cross', 'business-a', 'customer-b')`),
+    /foreign key|violates/i
+  )
+} finally {
+  await customerDb.close()
 }
 
 console.log('lead-form-pg-contract-test: ok')

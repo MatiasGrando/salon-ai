@@ -129,7 +129,10 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
             await transactionalCashService.setEstimatedAppointmentTotal({
               businessId,
               appointmentId: appointment.id,
-              agreedAmount: payment.agreedAmount
+              agreedAmount: payment.agreedAmount,
+              actorUserId: authUser.id,
+              actorName: authUser.name,
+              reason: 'Total acordado al crear el turno'
             })
           }
           if (hasDiscount) {
@@ -171,6 +174,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
   app.get('/appointments', async (request, reply) => {
     const query = request.query as {
       businessId?: string
+      customerId?: string
       customerPhone?: string
       from?: string
       to?: string
@@ -188,6 +192,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       && hasAnyCashPermission(authUser, ['canRecordAppointmentPayments', 'canApplyDiscounts'])
     const appointments = await service.findAll({
       businessId: query.businessId,
+      ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
       ...(query.from ? { from: query.from } : {}),
       ...(query.to ? { to: query.to } : {}),
@@ -246,10 +251,6 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
   })
 
   app.patch('/appointments/:id/status', async (request, reply) => {
-    if (!hasAgendaPermission(request.auth, 'canCancelAppointments')) {
-      return reply.status(403).send({ message: 'No tenes permiso para cancelar o cambiar el estado de turnos' })
-    }
-
     const params = request.params as {
       id: string
     }
@@ -264,6 +265,12 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       return reply.status(400).send({
         message: 'Estado de turno invalido'
       })
+    }
+    const permission = body.status === 'CANCELLED' || body.status === 'NO_SHOW'
+      ? 'canCancelAppointments'
+      : 'canEditAppointments'
+    if (!hasAgendaPermission(request.auth, permission)) {
+      return reply.status(403).send({ message: 'No tenes permiso para cambiar el estado del turno' })
     }
 
     const authUser = request.auth?.user
@@ -362,14 +369,47 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
   if (options.cashRegisterEnabled !== false) app.patch('/appointments/:id/estimated-total', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { businessId?: string; agreedAmount?: number }
+    const body = request.body as { businessId?: string; agreedAmount?: number; reason?: string }
+    const authUser = request.auth?.user
     const businessId = financeBusinessId(request.auth?.user, body.businessId)
-    if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments'])) {
+    if (!businessId || !authUser || !hasCashPermission(authUser, 'canRecordAppointmentPayments')) {
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para definir el total del turno' })
     }
     if (body.agreedAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Total requerido' })
+    if (!body.reason?.trim()) return reply.status(400).send({ code: 'VALIDATION', message: 'Motivo del ajuste requerido' })
     try {
-      return await cashService.setEstimatedAppointmentTotal({ businessId, appointmentId: params.id, agreedAmount: body.agreedAmount })
+      return await cashService.setEstimatedAppointmentTotal({
+        businessId,
+        appointmentId: params.id,
+        agreedAmount: body.agreedAmount,
+        actorUserId: authUser.id,
+        actorName: authUser.name,
+        reason: body.reason
+      })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  if (options.cashRegisterEnabled !== false) app.patch('/appointments/:id/adjust-total', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { businessId?: string; newAmount?: number; reason?: string }
+    const authUser = request.auth?.user
+    const businessId = financeBusinessId(authUser, body.businessId)
+    if (!businessId || !authUser || !hasCashPermission(authUser, 'canRecordAppointmentPayments')) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para ajustar el total del turno' })
+    }
+    if (body.newAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Total final requerido' })
+    if (!body.reason?.trim()) return reply.status(400).send({ code: 'VALIDATION', message: 'Motivo del ajuste requerido' })
+    try {
+      return await cashService.adjustAppointmentTotal({
+        businessId,
+        appointmentId: params.id,
+        newAmount: body.newAmount,
+        reason: body.reason,
+        actorUserId: authUser.id,
+        actorName: authUser.name
+      })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -426,6 +466,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       cashSessionId?: string
       lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
       observation?: string | null
+      completeAppointment?: boolean
     }
     const businessId = financeBusinessId(request.auth?.user, body.businessId)
     if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments'])) {
@@ -434,6 +475,12 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     if (!body.cashSessionId?.trim() || !Array.isArray(body.lines)) {
       return reply.status(400).send({ code: 'VALIDATION', message: 'Sesión y líneas de pago son requeridas' })
     }
+    if (body.completeAppointment !== undefined && typeof body.completeAppointment !== 'boolean') {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'La confirmación de servicio realizado es inválida' })
+    }
+    if (body.completeAppointment && !hasAgendaPermission(request.auth, 'canEditAppointments')) {
+      return reply.status(403).send({ code: 'AGENDA_PERMISSION_REQUIRED', message: 'No tenés permiso para marcar el turno como realizado' })
+    }
     try {
       return await cashService.recordAppointmentPayment({
         businessId,
@@ -441,7 +488,12 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         cashSessionId: body.cashSessionId.trim(),
         origin: 'AGENDA',
         lines: body.lines,
-        ...(body.observation === undefined ? {} : { observation: body.observation })
+        ...(body.observation === undefined ? {} : { observation: body.observation }),
+        ...(body.completeAppointment ? {
+          completeAppointment: true,
+          actorUserId: request.auth!.user.id,
+          actorName: request.auth!.user.name
+        } : {})
       })
     } catch (error) {
       return sendCashError(reply, error)

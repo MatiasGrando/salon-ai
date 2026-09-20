@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+const migration = readFileSync(new URL('../prisma/migrations/20260919223000_add_product_catalog_and_sales/migration.sql', import.meta.url), 'utf8')
+const routes = readFileSync(new URL('../src/routes/product-sales.ts', import.meta.url), 'utf8')
+const service = readFileSync(new URL('../src/services/product-sales-service.ts', import.meta.url), 'utf8')
+const ui = readFileSync(new URL('../src/routes/crm-ui/cash-register.ts', import.meta.url), 'utf8')
+
+assert.match(schema, /model Product\s*\{[\s\S]*salePrice\s+Int[\s\S]*cost\s+Int\?[\s\S]*isActive\s+Boolean/)
+assert.match(schema, /model ProductSale\s*\{[\s\S]*appointmentId\s+String\?[\s\S]*status\s+ProductSaleStatus[\s\S]*productSubtotal\s+Int/)
+assert.match(schema, /model ProductSaleLine\s*\{[\s\S]*productNameSnapshot\s+String[\s\S]*unitPrice\s+Int[\s\S]*quantity\s+Int[\s\S]*lineTotal\s+Int/)
+assert.match(schema, /model ProductSaleAudit\s*\{/)
+assert.match(migration, /ALTER TYPE "CashEntryOrigin" ADD VALUE IF NOT EXISTS 'PRODUCT_SALE'/)
+assert.match(migration, /ProductSaleLine_values_check/)
+assert.match(migration, /CashEntry_businessId_productSaleId_fkey/)
+assert.match(routes, /\/appointments\/:id\/product-items/)
+assert.match(routes, /canSellProducts/)
+assert.match(routes, /idempotency-key/)
+assert.match(service, /snapshotProductLines/)
+assert.match(service, /isolationLevel: 'Serializable'/)
+assert.match(service, /appointmentTotalAdjustment\.create/)
+assert.match(service, /Actualización de productos del turno/)
+assert.match(service, /calculateAccountTotals\(\{ agreedAmount: newAgreedAmount/)
+assert.match(service, /origin: 'PRODUCT_SALE'/)
+assert.match(service, /productSaleId: sale\.id/)
+assert.match(ui, /Productos comprados/)
+assert.match(ui, /appointment-finance-service-subtotal/)
+assert.match(ui, /appointment-finance-product-subtotal/)
+assert.match(ui, /Pendiente/)
+
+console.log('OK productos en turnos: snapshots, total consolidado, auditoría, límite pagado y venta trazable')

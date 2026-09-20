@@ -29,6 +29,9 @@ export type StaffPermissions = {
   canManageCashOperations: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
+  canViewProducts?: boolean
+  canManageProducts?: boolean
+  canSellProducts?: boolean
 }
 
 export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CUSTOM'>, {
@@ -57,7 +60,8 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
       agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
       canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
-      canViewConversations: true, canReplyConversations: true
+      canViewConversations: true, canReplyConversations: true,
+      canViewProducts: true, canSellProducts: true
     })
   },
   SECRETARY_OPERATIONS: {
@@ -68,7 +72,8 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
       agendaScope: 'ALL', canCreateAppointments: true, canEditAppointments: true, canCancelAppointments: true,
       canManageScheduleBlocks: true, canViewCustomers: true, canCreateCustomers: true, canEditCustomers: true,
       canManageCustomerNotes: true, canManageCustomerMarketing: true,
-      canViewConversations: true, canReplyConversations: true, canViewOperationalReports: true
+      canViewConversations: true, canReplyConversations: true, canViewOperationalReports: true,
+      canViewProducts: true, canSellProducts: true
     })
   },
   SECRETARY_CASHIER: {
@@ -82,7 +87,8 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
       canViewConversations: true, canReplyConversations: true, canManageDeposits: true,
       canViewOperationalReports: true, canViewFinancialAmounts: true,
       canViewCashRegister: true, canRecordAppointmentPayments: true, canApplyDiscounts: true,
-      canManageCashOperations: true, canAdjustCash: true, canManageCashSessions: true
+      canManageCashOperations: true, canAdjustCash: true, canManageCashSessions: true,
+      canViewProducts: true, canSellProducts: true
     })
   }
 }
@@ -111,6 +117,9 @@ function permissions(overrides: Partial<StaffPermissions>): StaffPermissions {
     canManageCashOperations: false,
     canAdjustCash: false,
     canManageCashSessions: false,
+    canViewProducts: false,
+    canManageProducts: false,
+    canSellProducts: false,
     ...overrides
   }
 }
@@ -174,6 +183,13 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   const path = rawPath.split('?')[0] || '/'
   const verb = method.toUpperCase()
 
+  if (path.startsWith('/product-categories')) return verb === 'GET' ? user.canViewProducts : user.canManageProducts
+  if (path.startsWith('/products')) return verb === 'GET' ? user.canViewProducts : user.canManageProducts
+  if (path.startsWith('/product-sales')) return verb === 'POST' && user.canSellProducts && user.canRecordAppointmentPayments
+  if (/^\/appointments\/[^/]+\/product-items(?:\/[^/]+)?$/.test(path)) {
+    return verb === 'GET' ? user.canViewProducts : user.canSellProducts
+  }
+
   if (path.startsWith('/cash-register')) {
     if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
     if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
@@ -187,6 +203,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     return verb === 'GET' && (user.canRecordAppointmentPayments || user.canApplyDiscounts)
   }
   if (/^\/appointments\/[^/]+\/estimated-total$/.test(path)) return user.canRecordAppointmentPayments
+  if (/^\/appointments\/[^/]+\/adjust-total$/.test(path)) return user.canRecordAppointmentPayments
   if (/^\/appointments\/[^/]+\/discount$/.test(path)) return user.canApplyDiscounts
   if (/^\/appointments\/[^/]+\/payments$/.test(path)) return user.canRecordAppointmentPayments
 
@@ -197,13 +214,19 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     return verb === 'GET'
   }
   if (path.startsWith('/customers')) {
+    if (path === '/customers/from-conversation') {
+      return verb === 'POST' && user.canCreateCustomers && user.canEditCustomers
+    }
     if (path.endsWith('/marketing-preference')) return verb === 'GET' ? user.canViewCustomers : user.canManageCustomerMarketing
+    if (path.endsWith('/technical-profile')) return verb === 'GET' ? user.canViewCustomers : user.canManageCustomerNotes
     if (path.endsWith('/notes')) return verb === 'GET' ? user.canViewCustomers : user.canManageCustomerNotes
     if (verb === 'GET') return user.canViewCustomers
     if (verb === 'POST') return user.canCreateCustomers
     if (verb === 'PATCH') return user.canEditCustomers
     return false
   }
+  if (path === '/crm/quick-replies') return verb === 'GET' && user.canReplyConversations
+  if (path.startsWith('/crm/quick-replies/')) return false
   if (path.startsWith('/crm/conversations') || path.startsWith('/crm/messages')) {
     if (/\/deposit\/(?:approve|reject)$/.test(path)) return user.canManageDeposits
     return verb === 'GET' ? user.canViewConversations : user.canReplyConversations

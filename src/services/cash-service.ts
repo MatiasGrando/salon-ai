@@ -6,6 +6,7 @@ import {
   calculateAppointmentDiscountAmount,
   calculateAccountTotals,
   resolveRegisterOpeningCash,
+  signedAmount,
   summarizeCashRegister
 } from './cash-domain.js'
 import type {
@@ -22,6 +23,24 @@ export class CashServiceError extends Error {
     super(code)
     this.name = 'CashServiceError'
   }
+}
+
+export function normalizeCashPeriodRange(from: string, to: string) {
+  const parse = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new CashServiceError('INVALID_CASH_PERIOD')
+    const [year, month, day] = value.split('-').map(Number)
+    const instant = new Date(Date.UTC(year!, month! - 1, day!))
+    if (instant.getUTCFullYear() !== year || instant.getUTCMonth() !== month! - 1 || instant.getUTCDate() !== day) {
+      throw new CashServiceError('INVALID_CASH_PERIOD')
+    }
+    return instant.getTime()
+  }
+  const fromMs = parse(from)
+  const toMs = parse(to)
+  const days = Math.floor((toMs - fromMs) / 86_400_000) + 1
+  if (days < 1) throw new CashServiceError('INVALID_CASH_PERIOD')
+  if (days > 31) throw new CashServiceError('CASH_PERIOD_TOO_LONG')
+  return { from, to, days }
 }
 
 export class CashService {
@@ -190,11 +209,15 @@ export class CashService {
           id: accountId,
           businessId: input.businessId,
           pricingMode: plan.pricingMode,
-          agreedAmount: plan.agreedAmount
+          agreedAmount: plan.agreedAmount,
+          originalAmount: plan.originalAmount,
+          minimumAmount: plan.minimumAmount
         })
         if (
           ensured.account.pricingMode !== plan.pricingMode
           || ensured.account.agreedAmount !== plan.agreedAmount
+          || ensured.account.originalAmount !== plan.originalAmount
+          || ensured.account.minimumAmount !== plan.minimumAmount
         ) {
           report.conflicts.push({ code: 'ACCOUNT_SNAPSHOT_CONFLICT', appointmentIds: plan.appointmentIds })
           continue
@@ -300,6 +323,8 @@ export class CashService {
           appointmentId: row.appointmentId,
           accountId: row.accountId,
           pricingMode: row.pricingMode,
+          originalAmount: row.originalAmount,
+          minimumAmount: row.minimumAmount,
           ...totals
         }]
       })
@@ -314,15 +339,50 @@ export class CashService {
     })
   }
 
-  async setEstimatedAppointmentTotal(input: { businessId: string; appointmentId: string; agreedAmount: number }) {
+  async setEstimatedAppointmentTotal(input: {
+    businessId: string
+    appointmentId: string
+    agreedAmount: number
+    actorUserId?: string | null
+    actorName?: string
+    reason?: string
+  }) {
     const agreedAmount = assertMoney(input.agreedAmount)
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.pricingMode !== 'ESTIMATED') throw new CashServiceError('FIXED_PRICE_IMMUTABLE')
-      const entries = await transaction.listAccountEntries(input.businessId, account.id)
-      calculateAccountTotals({ agreedAmount, discountAmount: account.discountAmount, entries })
-      return transaction.updateEstimatedTotal(input.businessId, account.id, agreedAmount)
+      if (account.agreedAmount === agreedAmount) return account
+      return adjustAppointmentTotalInTransaction(transaction, account, {
+        businessId: input.businessId,
+        newAmount: agreedAmount,
+        actorUserId: input.actorUserId ?? null,
+        actorName: input.actorName?.trim() || 'Sistema',
+        reason: input.reason?.trim() || 'Definición del total estimado'
+      })
+    })
+  }
+
+  async adjustAppointmentTotal(input: {
+    businessId: string
+    appointmentId: string
+    newAmount: number
+    reason: string
+    actorUserId: string
+    actorName: string
+  }) {
+    const reason = input.reason.trim()
+    if (!reason || reason.length > 300) throw new CashServiceError('TOTAL_ADJUSTMENT_REASON_REQUIRED')
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
+      return adjustAppointmentTotalInTransaction(transaction, account, {
+        businessId: input.businessId,
+        newAmount: input.newAmount,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName.trim() || 'Usuario',
+        reason
+      })
     })
   }
 
@@ -357,8 +417,14 @@ export class CashService {
     origin: 'AGENDA' | 'CASH_REGISTER'
     lines: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
     observation?: string | null
+    completeAppointment?: boolean
+    actorUserId?: string
+    actorName?: string
   }) {
     if (!input.lines.length) throw new CashServiceError('PAYMENT_LINES_REQUIRED')
+    if (input.completeAppointment && (!input.actorUserId?.trim() || !input.actorName?.trim())) {
+      throw new CashServiceError('APPOINTMENT_COMPLETION_ACTOR_REQUIRED')
+    }
     const lines = input.lines.map((line) => ({ amount: assertEntryAmount(line.amount), method: line.method }))
     if (lines.some((line) => !['CASH', 'TRANSFER', 'CARD'].includes(line.method))) {
       throw new CashServiceError('INVALID_PAYMENT_METHOD')
@@ -373,6 +439,9 @@ export class CashService {
       const paymentTotal = lines.reduce((total, line) => total + line.amount, 0)
       const current = calculateAccountTotals({ agreedAmount: account.agreedAmount, discountAmount: account.discountAmount, entries: currentEntries })
       if (paymentTotal > current.balanceAmount) throw new CashServiceError('OVERPAYMENT')
+      if (input.completeAppointment && paymentTotal !== current.balanceAmount) {
+        throw new CashServiceError('APPOINTMENT_COMPLETION_REQUIRES_FULL_PAYMENT')
+      }
       const entries = await transaction.insertManualPayments({
         ids: lines.map(() => randomUUID()),
         businessId: input.businessId,
@@ -384,8 +453,19 @@ export class CashService {
         effectiveAt: context.dbNow,
         lines
       })
+      const completion = input.completeAppointment
+        ? await transaction.completeAppointmentFromPayment({
+            businessId: input.businessId,
+            appointmentId: input.appointmentId,
+            completedAt: context.dbNow,
+            actorUserId: input.actorUserId!.trim(),
+            actorName: input.actorName!.trim()
+          })
+        : null
+      if (input.completeAppointment && !completion) throw new CashServiceError('APPOINTMENT_COMPLETION_NOT_ALLOWED')
       return {
         entries,
+        completion,
         finance: calculateAccountTotals({
           agreedAmount: account.agreedAmount,
           discountAmount: account.discountAmount,
@@ -412,14 +492,66 @@ export class CashService {
       const context = await transaction.lockBusiness(input.businessId)
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
+      let expenseCategoryId: string | null = null
+      if (input.type === 'EXPENSE') {
+        const fallback = await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
+        const category = input.categoryId
+          ? await transaction.findExpenseCategory(input.businessId, requiredText(input.categoryId, 'EXPENSE_CATEGORY_REQUIRED'))
+          : fallback
+        if (!category) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+        if (!category.isActive) throw new CashServiceError('EXPENSE_CATEGORY_INACTIVE')
+        expenseCategoryId = category.id
+      }
       return transaction.insertCashOperation({
         id: randomUUID(),
         businessId: input.businessId,
         registerDayId: day.id,
         cashSessionId: session.id,
         effectiveAt: context.dbNow,
+        expenseCategoryId,
         ...normalized
       })
+    })
+  }
+
+  async listExpenseCategories(input: { businessId: string; includeInactive?: boolean }) {
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
+      return transaction.listExpenseCategories(input.businessId, input.includeInactive === true)
+    })
+  }
+
+  async createExpenseCategory(input: { businessId: string; name: string; position?: number }) {
+    const name = normalizeExpenseCategoryName(input.name)
+    const normalizedName = expenseCategoryKey(name)
+    const position = normalizeCategoryPosition(input.position)
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
+      const category = await transaction.createExpenseCategory({ id: randomUUID(), businessId: input.businessId, name, normalizedName, position })
+      if (!category) throw new CashServiceError('EXPENSE_CATEGORY_DUPLICATE')
+      return category
+    })
+  }
+
+  async updateExpenseCategory(input: { businessId: string; categoryId: string; name: string; position?: number; isActive?: boolean }) {
+    const categoryId = requiredText(input.categoryId, 'EXPENSE_CATEGORY_REQUIRED')
+    const name = normalizeExpenseCategoryName(input.name)
+    const normalizedName = expenseCategoryKey(name)
+    const position = normalizeCategoryPosition(input.position)
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
+      const current = await transaction.findExpenseCategory(input.businessId, categoryId)
+      if (!current) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+      const isActive = input.isActive ?? current.isActive
+      if (current.isDefault && (name !== 'Otros' || !isActive)) {
+        throw new CashServiceError('DEFAULT_EXPENSE_CATEGORY_PROTECTED')
+      }
+      const updated = await transaction.updateExpenseCategory({ businessId: input.businessId, categoryId, name, normalizedName, position, isActive })
+      if (!updated) throw new CashServiceError('EXPENSE_CATEGORY_DUPLICATE')
+      return updated
     })
   }
 
@@ -517,6 +649,8 @@ export class CashService {
     limit?: number
     type?: CashEntryForSummary['type'] | null
     method?: CashEntryForSummary['method'] | null
+    expenseCategoryId?: string | null
+    cashSessionId?: string | null
     query?: string | null
   }) {
     const limit = input.limit ?? 50
@@ -527,6 +661,10 @@ export class CashService {
       if (!await transaction.findRegisterDay(input.businessId, input.registerDayId)) {
         throw new CashServiceError('REGISTER_DAY_NOT_FOUND')
       }
+      const expenseCategoryId = input.expenseCategoryId?.trim() || null
+      if (expenseCategoryId && !await transaction.findExpenseCategory(input.businessId, expenseCategoryId)) {
+        throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+      }
       const rows = await transaction.listCashEntries({
         businessId: input.businessId,
         registerDayId: input.registerDayId,
@@ -534,6 +672,8 @@ export class CashService {
         limit: limit + 1,
         type: input.type ?? null,
         method: input.method ?? null,
+        expenseCategoryId,
+        cashSessionId: input.cashSessionId?.trim() || null,
         query: input.query?.trim() || null
       })
       const hasMore = rows.length > limit
@@ -545,13 +685,92 @@ export class CashService {
       }
     })
   }
+
+  async getCashPeriodSummary(input: { businessId: string; from: string; to: string }) {
+    const period = normalizeCashPeriodRange(input.from, input.to)
+    return this.repository.transaction(async (transaction) => {
+      const context = await requireBusinessContext(transaction, input.businessId)
+      const timezone = assertIanaTimezone(context.timezone)
+      const entries = await transaction.listPeriodEntries(input.businessId, { ...period, timezone })
+      const base = summarizeCashRegister({ openingCash: 0, entries })
+      const expenseByCategory = new Map<string, number>()
+      for (const entry of entries) {
+        const effectiveType = entry.type === 'REVERSAL' ? entry.reversedEntryType : entry.type
+        if (effectiveType !== 'EXPENSE') continue
+        const name = entry.expenseCategoryName?.trim() || 'Otros'
+        expenseByCategory.set(name, (expenseByCategory.get(name) ?? 0) - signedAmount(entry))
+      }
+      const netSales = base.grossCollected - base.refunds
+      return {
+        period,
+        summary: {
+          grossCollected: base.grossCollected,
+          collectedByMethod: base.collectedByMethod,
+          refunds: base.refunds,
+          netSales,
+          expenses: base.expenses,
+          operatingResult: netSales - base.expenses,
+          withdrawals: base.withdrawals,
+          cashIn: base.cashIn,
+          adjustments: base.adjustments,
+          expenseByCategory: Array.from(expenseByCategory, ([name, amount]) => ({ name, amount }))
+            .filter((item) => item.amount !== 0)
+            .sort((left, right) => right.amount - left.amount || left.name.localeCompare(right.name))
+        }
+      }
+    })
+  }
+
+  async listCashPeriodExpenses(input: {
+    businessId: string
+    from: string
+    to: string
+    page?: number
+    pageSize?: number
+    method?: CashEntryForSummary['method'] | null
+    expenseCategoryId?: string | null
+    query?: string | null
+  }) {
+    const period = normalizeCashPeriodRange(input.from, input.to)
+    const page = input.page ?? 1
+    const pageSize = input.pageSize ?? 10
+    if (!Number.isInteger(page) || page < 1) throw new CashServiceError('INVALID_PAGE')
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) throw new CashServiceError('INVALID_PAGE_SIZE')
+    return this.repository.transaction(async (transaction) => {
+      const context = await requireBusinessContext(transaction, input.businessId)
+      const timezone = assertIanaTimezone(context.timezone)
+      const expenseCategoryId = input.expenseCategoryId?.trim() || null
+      if (expenseCategoryId && !await transaction.findExpenseCategory(input.businessId, expenseCategoryId)) {
+        throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+      }
+      const rows = await transaction.listPeriodExpenses({
+        businessId: input.businessId,
+        ...period,
+        timezone,
+        offset: (page - 1) * pageSize,
+        limit: pageSize,
+        method: input.method ?? null,
+        expenseCategoryId,
+        query: input.query?.trim() || null
+      })
+      const total = rows[0]?.totalCount ?? 0
+      return {
+        period,
+        entries: rows.map(({ totalCount: _totalCount, ...entry }) => entry),
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize))
+      }
+    })
+  }
 }
 
 export type CashOperationInput = {
   businessId: string
   cashSessionId: string
 } & (
-  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; description: string; observation?: string | null }
+  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; description: string; categoryId?: string | null; observation?: string | null }
   | { type: 'WITHDRAWAL'; amount: number; counterparty: string; observation?: string | null }
   | { type: 'CASH_IN'; amount: number; description: string; observation?: string | null }
   | { type: 'ADJUSTMENT'; delta: number; observation: string }
@@ -619,6 +838,24 @@ function optionalText(value: string | null | undefined) {
   return value?.trim() || null
 }
 
+function normalizeExpenseCategoryName(value: string) {
+  const normalized = value?.normalize('NFKC').trim().replace(/\s+/g, ' ')
+  if (!normalized || normalized.length > 60) throw new CashServiceError('INVALID_EXPENSE_CATEGORY_NAME')
+  return normalized
+}
+
+function expenseCategoryKey(name: string) {
+  return name.toLocaleLowerCase('es-AR')
+}
+
+function normalizeCategoryPosition(value: number | undefined) {
+  const position = value ?? 0
+  if (!Number.isSafeInteger(position) || position < 0 || position > 10_000) {
+    throw new CashServiceError('INVALID_EXPENSE_CATEGORY_POSITION')
+  }
+  return position
+}
+
 function encodeCashCursor(effectiveAt: Date, id: string) {
   return Buffer.from(JSON.stringify([effectiveAt.toISOString(), id]), 'utf8').toString('base64url')
 }
@@ -642,6 +879,8 @@ export type AppointmentAccountBackfillPlan = {
   sourceKey: string
   pricingMode: 'FIXED' | 'ESTIMATED'
   agreedAmount: number | null
+  originalAmount: number | null
+  minimumAmount: number
   appointmentIds: string[]
   legacyPayments: Array<{ appointmentId: string; amount: number }>
 } | {
@@ -686,6 +925,12 @@ export function buildAppointmentAccountBackfillPlan(
       ? amounts.reduce((total, amount) => total + amount, 0)
       : null
   const pricingMode = rows.some((row) => row.estimated) || agreedAmount === null ? 'ESTIMATED' : 'FIXED'
+  const minimumAmounts = rows.map((row) => row.minimumPrice ?? row.primaryPrice)
+  const estimatedMinimum = minimumAmounts.every((amount): amount is number => amount !== null)
+    ? minimumAmounts.reduce((total, amount) => total + amount, 0)
+    : agreedAmount ?? 0
+  const originalAmount = agreedAmount
+  const minimumAmount = pricingMode === 'ESTIMATED' ? estimatedMinimum : 0
   const legacyPayments: Array<{ appointmentId: string; amount: number }> = []
   for (const row of rows) {
     if (!row.manualDepositPaid) continue
@@ -698,7 +943,7 @@ export function buildAppointmentAccountBackfillPlan(
     return { ok: false, code: 'INVALID_LEGACY_PAYMENT', appointmentIds }
   }
 
-  return { ok: true, sourceKey, pricingMode, agreedAmount, appointmentIds, legacyPayments }
+  return { ok: true, sourceKey, pricingMode, agreedAmount, originalAmount, minimumAmount, appointmentIds, legacyPayments }
 }
 
 function resolveBackfillAmount(row: AppointmentBackfillEvidence) {
@@ -788,7 +1033,9 @@ export async function ensureAppointmentAccountForPayment(
     id: accountId,
     businessId,
     pricingMode: plan.pricingMode,
-    agreedAmount: plan.agreedAmount
+    agreedAmount: plan.agreedAmount,
+    originalAmount: plan.originalAmount,
+    minimumAmount: plan.minimumAmount
   })
   for (const id of plan.appointmentIds) {
     const link = await transaction.ensureAppointmentAccountLink({ businessId, appointmentId: id, accountId })
@@ -799,16 +1046,58 @@ export async function ensureAppointmentAccountForPayment(
 
 async function accountFinance(
   transaction: CashTransactionRepository,
-  account: { id: string; businessId: string; pricingMode: 'FIXED' | 'ESTIMATED'; agreedAmount: number | null; discountAmount: number }
+  account: { id: string; businessId: string; pricingMode: 'FIXED' | 'ESTIMATED'; agreedAmount: number | null; originalAmount: number | null; minimumAmount: number; discountAmount: number }
 ) {
   if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
-  const entries = await transaction.listAccountEntries(account.businessId, account.id)
+  const [entries, totalAdjustments, productSubtotal] = await Promise.all([
+    transaction.listAccountEntries(account.businessId, account.id),
+    transaction.listTotalAdjustments(account.businessId, account.id),
+    transaction.resolveAccountProductSubtotal(account.businessId, account.id)
+  ])
   return {
     accountId: account.id,
     pricingMode: account.pricingMode,
+    originalAmount: account.originalAmount,
+    minimumAmount: account.minimumAmount,
+    serviceSubtotal: account.agreedAmount - productSubtotal,
+    productSubtotal,
     ...calculateAccountTotals({ agreedAmount: account.agreedAmount, discountAmount: account.discountAmount, entries }),
-    entries
+    entries,
+    totalAdjustments
   }
+}
+
+async function adjustAppointmentTotalInTransaction(
+  transaction: CashTransactionRepository,
+  account: { id: string; businessId: string; pricingMode: 'FIXED' | 'ESTIMATED'; agreedAmount: number | null; originalAmount: number | null; minimumAmount: number; discountAmount: number },
+  input: { businessId: string; newAmount: number; reason: string; actorUserId: string | null; actorName: string }
+) {
+  const newAmount = assertMoney(input.newAmount)
+  if (newAmount === account.agreedAmount) throw new CashServiceError('TOTAL_UNCHANGED')
+  if (newAmount < account.minimumAmount) {
+    throw new CashServiceError('TOTAL_BELOW_MINIMUM')
+  }
+  const entries = await transaction.listAccountEntries(input.businessId, account.id)
+  const totals = account.agreedAmount === null
+    ? { paidAmount: 0 }
+    : calculateAccountTotals({
+        agreedAmount: account.agreedAmount,
+        discountAmount: account.discountAmount,
+        entries
+      })
+  if (newAmount < totals.paidAmount) throw new CashServiceError('TOTAL_BELOW_PAID')
+  calculateAccountTotals({ agreedAmount: newAmount, discountAmount: account.discountAmount, entries })
+  await transaction.insertTotalAdjustment({
+    id: randomUUID(),
+    businessId: input.businessId,
+    accountId: account.id,
+    actorUserId: input.actorUserId,
+    actorName: input.actorName,
+    reason: input.reason,
+    previousAmount: account.agreedAmount,
+    newAmount
+  })
+  return transaction.updateAdjustedTotal(input.businessId, account.id, newAmount)
 }
 
 export type CashRegisterState = {

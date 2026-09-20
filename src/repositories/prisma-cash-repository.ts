@@ -11,6 +11,16 @@ export type CashResponsible = {
   name: string
 }
 
+export type AppointmentCompletionRecord = {
+  appointmentId: string
+  previousStatus: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW'
+  status: 'COMPLETED'
+  completedAt: Date
+  completedByUserId: string | null
+  completedByName: string
+  completionSource: 'FULL_PAYMENT'
+}
+
 export type CashRegisterDayRecord = {
   id: string
   businessId: string
@@ -42,6 +52,7 @@ export type CashEntryForSummary = {
   method: 'CASH' | 'TRANSFER' | 'CARD' | 'UNSPECIFIED'
   cashSessionId?: string | null
   reversedEntryType?: CashEntryForSummary['type']
+  expenseCategoryName?: string | null
 }
 
 export type AppointmentBackfillEvidence = {
@@ -57,6 +68,7 @@ export type AppointmentBackfillEvidence = {
   itemCount: number
   pricedItemCount: number
   itemTotal: number | null
+  minimumPrice?: number | null
   estimated: boolean
   tenantConsistent: boolean
   manualDepositPaid: boolean
@@ -68,7 +80,19 @@ export type AppointmentAccountRecord = {
   businessId: string
   pricingMode: 'FIXED' | 'ESTIMATED'
   agreedAmount: number | null
+  originalAmount: number | null
+  minimumAmount: number
   discountAmount: number
+}
+
+export type AppointmentTotalAdjustmentRecord = {
+  id: string
+  previousAmount: number | null
+  newAmount: number
+  reason: string
+  actorUserId: string | null
+  actorName: string
+  createdAt: Date
 }
 
 export type AppointmentFinanceSummaryRow = AppointmentAccountRecord & {
@@ -97,8 +121,26 @@ export type CashEntryRecord = AppointmentAccountEntryRecord & {
   reversedById?: string | null
   effectiveAt: Date | null
   customerNames?: string[]
+  expenseCategoryId?: string | null
+  expenseCategoryName?: string | null
 }
 export type CashEntryCursor = { effectiveAt: Date; id: string }
+export type CashPeriodExpenseRecord = CashEntryRecord & {
+  totalCount: number
+  reversedEntryType?: CashEntryForSummary['type'] | null
+}
+
+export type CashExpenseCategoryRecord = {
+  id: string
+  businessId: string
+  name: string
+  normalizedName: string
+  position: number
+  isDefault: boolean
+  isActive: boolean
+  createdAt: Date
+  updatedAt: Date
+}
 
 export interface CashTransactionRepository {
   lockBusiness(businessId: string): Promise<CashBusinessContext | null>
@@ -145,6 +187,8 @@ export interface CashTransactionRepository {
     businessId: string
     pricingMode: 'FIXED' | 'ESTIMATED'
     agreedAmount: number | null
+    originalAmount: number | null
+    minimumAmount: number
   }): Promise<{ account: AppointmentAccountRecord; created: boolean }>
   ensureAppointmentAccountLink(input: {
     businessId: string
@@ -162,7 +206,19 @@ export interface CashTransactionRepository {
   listAppointmentFinanceSummaryRows(businessId: string, appointmentIds: string[]): Promise<AppointmentFinanceSummaryRow[]>
   lockAppointmentAccount(businessId: string, appointmentId: string): Promise<AppointmentAccountRecord | null>
   listAccountEntries(businessId: string, accountId: string): Promise<AppointmentAccountEntryRecord[]>
-  updateEstimatedTotal(businessId: string, accountId: string, agreedAmount: number): Promise<AppointmentAccountRecord>
+  resolveAccountProductSubtotal(businessId: string, accountId: string): Promise<number>
+  insertTotalAdjustment(input: {
+    id: string
+    businessId: string
+    accountId: string
+    actorUserId: string | null
+    actorName: string
+    reason: string
+    previousAmount: number | null
+    newAmount: number
+  }): Promise<AppointmentTotalAdjustmentRecord>
+  updateAdjustedTotal(businessId: string, accountId: string, agreedAmount: number): Promise<AppointmentAccountRecord>
+  listTotalAdjustments(businessId: string, accountId: string): Promise<AppointmentTotalAdjustmentRecord[]>
   updateDiscount(businessId: string, accountId: string, discountAmount: number): Promise<AppointmentAccountRecord>
   insertManualPayments(input: {
     ids: string[]
@@ -175,6 +231,13 @@ export interface CashTransactionRepository {
     effectiveAt: Date
     lines: Array<{ amount: number; method: ManualPaymentMethod }>
   }): Promise<Array<{ id: string; amount: number; method: ManualPaymentMethod }>>
+  completeAppointmentFromPayment(input: {
+    businessId: string
+    appointmentId: string
+    completedAt: Date
+    actorUserId: string
+    actorName: string
+  }): Promise<AppointmentCompletionRecord | null>
   projectApprovedDeposit(input: {
     businessId: string
     bookingDepositId: string
@@ -192,8 +255,14 @@ export interface CashTransactionRepository {
     description: string | null
     counterparty: string | null
     observation: string | null
+    expenseCategoryId: string | null
     effectiveAt: Date
   }): Promise<CashEntryRecord>
+  ensureDefaultExpenseCategory(input: { id: string; businessId: string }): Promise<CashExpenseCategoryRecord>
+  listExpenseCategories(businessId: string, includeInactive: boolean): Promise<CashExpenseCategoryRecord[]>
+  findExpenseCategory(businessId: string, categoryId: string): Promise<CashExpenseCategoryRecord | null>
+  createExpenseCategory(input: { id: string; businessId: string; name: string; normalizedName: string; position: number }): Promise<CashExpenseCategoryRecord | null>
+  updateExpenseCategory(input: { businessId: string; categoryId: string; name: string; normalizedName: string; position: number; isActive: boolean }): Promise<CashExpenseCategoryRecord | null>
   lockCashEntry(businessId: string, entryId: string): Promise<CashEntryRecord | null>
   insertCashReversal(input: {
     id: string
@@ -213,8 +282,23 @@ export interface CashTransactionRepository {
     limit: number
     type: CashEntryForSummary['type'] | null
     method: CashEntryForSummary['method'] | null
+    expenseCategoryId: string | null
+    cashSessionId: string | null
     query: string | null
   }): Promise<CashEntryRecord[]>
+  listPeriodEntries(businessId: string, input: { from: string; to: string; days: number; timezone: string }): Promise<CashEntryForSummary[]>
+  listPeriodExpenses(input: {
+    businessId: string
+    from: string
+    to: string
+    days: number
+    timezone: string
+    offset: number
+    limit: number
+    method: CashEntryForSummary['method'] | null
+    expenseCategoryId: string | null
+    query: string | null
+  }): Promise<CashPeriodExpenseRecord[]>
 }
 
 type PrismaTransactionRunner = {
@@ -393,7 +477,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         appointment."coordinationGroupId", appointment."visitId", visit."businessId" AS "visitBusinessId",
         visit."totalPrice" AS "visitTotalPrice", appointment."quotedPrice", primary_service."price" AS "primaryPrice",
         coalesce(items."itemCount", 0)::int AS "itemCount", coalesce(items."pricedItemCount", 0)::int AS "pricedItemCount",
-        items."itemTotal", (
+        items."itemTotal", coalesce(items."minimumPrice", primary_service."price") AS "minimumPrice", (
           primary_service."priceMode" = 'STARTING_AT'::"ServicePriceMode"
           OR coalesce(items."hasEstimated", false)
         ) AS "estimated",
@@ -410,7 +494,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       LEFT JOIN "BookingVisit" AS visit ON visit."id" = appointment."visitId"
       LEFT JOIN LATERAL (
         SELECT count(*)::int AS "itemCount", count(item."price")::int AS "pricedItemCount",
-          sum(item."price")::int AS "itemTotal",
+          sum(item."price")::int AS "itemTotal", sum(service."price")::int AS "minimumPrice",
           bool_or(service."priceMode" = 'STARTING_AT'::"ServicePriceMode") AS "hasEstimated",
           bool_or(service."id" IS NULL) AS "hasForeignService"
         FROM "AppointmentServiceItem" AS item
@@ -428,15 +512,17 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     businessId: string
     pricingMode: 'FIXED' | 'ESTIMATED'
     agreedAmount: number | null
+    originalAmount: number | null
+    minimumAmount: number
   }) {
     const inserted = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      INSERT INTO "AppointmentAccount" ("id", "businessId", "pricingMode", "agreedAmount", "updatedAt")
-      VALUES (${input.id}, ${input.businessId}, ${input.pricingMode}::"AppointmentPricingMode", ${input.agreedAmount}, clock_timestamp())
+      INSERT INTO "AppointmentAccount" ("id", "businessId", "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "updatedAt")
+      VALUES (${input.id}, ${input.businessId}, ${input.pricingMode}::"AppointmentPricingMode", ${input.agreedAmount}, ${input.originalAmount}, ${input.minimumAmount}, clock_timestamp())
       ON CONFLICT ("id") DO NOTHING
       RETURNING "id"
     `)
     const rows = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
-      SELECT "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "discountAmount"
+      SELECT "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "discountAmount"
       FROM "AppointmentAccount"
       WHERE "businessId" = ${input.businessId} AND "id" = ${input.id}
       FOR SHARE
@@ -488,7 +574,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
   async resolveAppointmentAccount(businessId: string, appointmentId: string) {
     const rows = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
       SELECT account."id", account."businessId", account."pricingMode"::text AS "pricingMode",
-        account."agreedAmount", account."discountAmount"
+        account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount"
       FROM "AppointmentAccountLink" AS link
       JOIN "AppointmentAccount" AS account
         ON account."businessId" = link."businessId" AND account."id" = link."accountId"
@@ -502,7 +588,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     if (!appointmentIds.length) return []
     return this.transaction.$queryRaw<AppointmentFinanceSummaryRow[]>(Prisma.sql`
       SELECT link."appointmentId", account."id" AS "accountId", account."id", account."businessId",
-        account."pricingMode"::text AS "pricingMode", account."agreedAmount", account."discountAmount",
+        account."pricingMode"::text AS "pricingMode", account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount",
         coalesce(sum(
           CASE
             WHEN entry."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType")
@@ -522,14 +608,14 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       WHERE link."businessId" = ${businessId}
         AND link."appointmentId" IN (${Prisma.join(appointmentIds)})
       GROUP BY link."appointmentId", account."id", account."businessId", account."pricingMode",
-        account."agreedAmount", account."discountAmount"
+        account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount"
     `)
   }
 
   async lockAppointmentAccount(businessId: string, appointmentId: string) {
     const rows = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
       SELECT account."id", account."businessId", account."pricingMode"::text AS "pricingMode",
-        account."agreedAmount", account."discountAmount"
+        account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount"
       FROM "AppointmentAccountLink" AS link
       JOIN "AppointmentAccount" AS account
         ON account."businessId" = link."businessId" AND account."id" = link."accountId"
@@ -553,16 +639,60 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     return rows.map((row) => ({ ...row, ...(row.reversedEntryType ? { reversedEntryType: row.reversedEntryType } : {}) }))
   }
 
-  async updateEstimatedTotal(businessId: string, accountId: string, agreedAmount: number) {
+  async resolveAccountProductSubtotal(businessId: string, accountId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ subtotal: number }>>(Prisma.sql`
+      SELECT COALESCE(SUM(sale."productSubtotal"), 0)::integer AS "subtotal"
+      FROM "ProductSale" AS sale
+      INNER JOIN "AppointmentAccountLink" AS link
+        ON link."businessId" = sale."businessId" AND link."appointmentId" = sale."appointmentId"
+      WHERE sale."businessId" = ${businessId}
+        AND link."accountId" = ${accountId}
+        AND sale."status" IN ('DRAFT', 'COMPLETED')
+    `)
+    return rows[0]?.subtotal ?? 0
+  }
+
+  async insertTotalAdjustment(input: {
+    id: string
+    businessId: string
+    accountId: string
+    actorUserId: string | null
+    actorName: string
+    reason: string
+    previousAmount: number | null
+    newAmount: number
+  }) {
+    const rows = await this.transaction.$queryRaw<AppointmentTotalAdjustmentRecord[]>(Prisma.sql`
+      INSERT INTO "AppointmentTotalAdjustment" (
+        "id", "businessId", "accountId", "actorUserId", "actorName", "reason", "previousAmount", "newAmount", "createdAt"
+      ) VALUES (
+        ${input.id}, ${input.businessId}, ${input.accountId}, ${input.actorUserId}, ${input.actorName}, ${input.reason},
+        ${input.previousAmount}, ${input.newAmount}, clock_timestamp()
+      )
+      RETURNING "id", "previousAmount", "newAmount", "reason", "actorUserId", "actorName", "createdAt"
+    `)
+    if (!rows[0]) throw new Error('appointment total adjustment audit was not created')
+    return rows[0]
+  }
+
+  async updateAdjustedTotal(businessId: string, accountId: string, agreedAmount: number) {
     const rows = await this.transaction.$queryRaw<AppointmentAccountRecord[]>(Prisma.sql`
       UPDATE "AppointmentAccount"
       SET "agreedAmount" = ${agreedAmount}, "updatedAt" = clock_timestamp()
       WHERE "businessId" = ${businessId} AND "id" = ${accountId}
-        AND "pricingMode" = 'ESTIMATED'::"AppointmentPricingMode"
-      RETURNING "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "discountAmount"
+      RETURNING "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "discountAmount"
     `)
-    if (!rows[0]) throw new Error('estimated appointment account disappeared while locked')
+    if (!rows[0]) throw new Error('appointment account disappeared while locked')
     return rows[0]
+  }
+
+  async listTotalAdjustments(businessId: string, accountId: string) {
+    return this.transaction.$queryRaw<AppointmentTotalAdjustmentRecord[]>(Prisma.sql`
+      SELECT "id", "previousAmount", "newAmount", "reason", "actorUserId", "actorName", "createdAt"
+      FROM "AppointmentTotalAdjustment"
+      WHERE "businessId" = ${businessId} AND "accountId" = ${accountId}
+      ORDER BY "createdAt" ASC, "id" ASC
+    `)
   }
 
   async updateDiscount(businessId: string, accountId: string, discountAmount: number) {
@@ -570,7 +700,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       UPDATE "AppointmentAccount"
       SET "discountAmount" = ${discountAmount}, "updatedAt" = clock_timestamp()
       WHERE "businessId" = ${businessId} AND "id" = ${accountId}
-      RETURNING "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "discountAmount"
+      RETURNING "id", "businessId", "pricingMode"::text AS "pricingMode", "agreedAmount", "originalAmount", "minimumAmount", "discountAmount"
     `)
     if (!rows[0]) throw new Error('appointment account disappeared while locked')
     return rows[0]
@@ -603,6 +733,39 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       created.push({ id, amount: line.amount, method: line.method })
     }
     return created
+  }
+
+  async completeAppointmentFromPayment(input: {
+    businessId: string
+    appointmentId: string
+    completedAt: Date
+    actorUserId: string
+    actorName: string
+  }) {
+    const rows = await this.transaction.$queryRaw<AppointmentCompletionRecord[]>(Prisma.sql`
+      WITH locked AS (
+        SELECT appointment."status", appointment."startAt"
+        FROM "Appointment" appointment
+        WHERE appointment."businessId" = ${input.businessId} AND appointment."id" = ${input.appointmentId}
+        FOR UPDATE
+      ), updated AS (
+        UPDATE "Appointment" appointment
+        SET "status" = 'COMPLETED'::"AppointmentStatus",
+          "completedAt" = COALESCE(appointment."completedAt", ${input.completedAt}),
+          "completedByUserId" = COALESCE(appointment."completedByUserId", ${input.actorUserId}),
+          "completedByName" = COALESCE(appointment."completedByName", ${input.actorName}),
+          "completionSource" = COALESCE(appointment."completionSource", 'FULL_PAYMENT'::"AppointmentCompletionSource")
+        FROM locked
+        WHERE appointment."businessId" = ${input.businessId} AND appointment."id" = ${input.appointmentId}
+          AND locked."startAt" <= ${input.completedAt}
+          AND locked."status" IN ('PENDING'::"AppointmentStatus", 'CONFIRMED'::"AppointmentStatus", 'COMPLETED'::"AppointmentStatus")
+        RETURNING appointment."id" AS "appointmentId", locked."status"::text AS "previousStatus",
+          appointment."status"::text AS "status", appointment."completedAt", appointment."completedByUserId",
+          appointment."completedByName", appointment."completionSource"::text AS "completionSource"
+      )
+      SELECT * FROM updated
+    `)
+    return rows[0] ?? null
   }
 
   async projectApprovedDeposit(input: {
@@ -688,24 +851,85 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     description: string | null
     counterparty: string | null
     observation: string | null
+    expenseCategoryId: string | null
     effectiveAt: Date
   }) {
     const rows = await this.transaction.$queryRaw<CashEntryRecord[]>(Prisma.sql`
       INSERT INTO "CashEntry" (
         "id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount",
-        "paymentMethod", "origin", "description", "counterparty", "observation", "effectiveAt"
+        "paymentMethod", "origin", "description", "counterparty", "observation", "expenseCategoryId", "effectiveAt"
       ) VALUES (
         ${input.id}, ${input.businessId}, ${input.registerDayId}, ${input.cashSessionId},
         ${input.type}::"CashEntryType", ${input.direction}::"CashDirection", ${input.amount},
         ${input.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", ${input.description},
-        ${input.counterparty}, ${input.observation}, ${input.effectiveAt}
+        ${input.counterparty}, ${input.observation}, ${input.expenseCategoryId}, ${input.effectiveAt}
       )
       RETURNING "id", "businessId", "accountId", "registerDayId", "cashSessionId",
         "type"::text AS "type", "direction"::text AS "direction", "amount",
         "paymentMethod"::text AS "method", "origin"::text AS "origin", "description",
-        "counterparty", "observation", "reversesEntryId", "effectiveAt"
+        "counterparty", "observation", "expenseCategoryId", "reversesEntryId", "effectiveAt"
     `)
     return rows[0]!
+  }
+
+  async ensureDefaultExpenseCategory(input: { id: string; businessId: string }) {
+    const rows = await this.transaction.$queryRaw<CashExpenseCategoryRecord[]>(Prisma.sql`
+      INSERT INTO "CashExpenseCategory" (
+        "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+      ) VALUES (${input.id}, ${input.businessId}, 'Otros', 'otros', 0, true, true, clock_timestamp(), clock_timestamp())
+      ON CONFLICT ("businessId", "normalizedName") DO UPDATE
+      SET "name" = 'Otros', "isDefault" = true, "isActive" = true, "updatedAt" = clock_timestamp()
+      RETURNING "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+    `)
+    return rows[0]!
+  }
+
+  async listExpenseCategories(businessId: string, includeInactive: boolean) {
+    const active = includeInactive ? Prisma.empty : Prisma.sql`AND "isActive" = true`
+    return this.transaction.$queryRaw<CashExpenseCategoryRecord[]>(Prisma.sql`
+      SELECT "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+      FROM "CashExpenseCategory"
+      WHERE "businessId" = ${businessId} ${active}
+      ORDER BY "isDefault" DESC, "position" ASC, "name" ASC, "id" ASC
+    `)
+  }
+
+  async findExpenseCategory(businessId: string, categoryId: string) {
+    const rows = await this.transaction.$queryRaw<CashExpenseCategoryRecord[]>(Prisma.sql`
+      SELECT "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+      FROM "CashExpenseCategory"
+      WHERE "businessId" = ${businessId} AND "id" = ${categoryId}
+      FOR KEY SHARE
+    `)
+    return rows[0] ?? null
+  }
+
+  async createExpenseCategory(input: { id: string; businessId: string; name: string; normalizedName: string; position: number }) {
+    const rows = await this.transaction.$queryRaw<CashExpenseCategoryRecord[]>(Prisma.sql`
+      INSERT INTO "CashExpenseCategory" (
+        "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+      ) VALUES (${input.id}, ${input.businessId}, ${input.name}, ${input.normalizedName}, ${input.position}, false, true, clock_timestamp(), clock_timestamp())
+      ON CONFLICT ("businessId", "normalizedName") DO NOTHING
+      RETURNING "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+    `)
+    return rows[0] ?? null
+  }
+
+  async updateExpenseCategory(input: { businessId: string; categoryId: string; name: string; normalizedName: string; position: number; isActive: boolean }) {
+    const rows = await this.transaction.$queryRaw<CashExpenseCategoryRecord[]>(Prisma.sql`
+      UPDATE "CashExpenseCategory"
+      SET "name" = ${input.name}, "normalizedName" = ${input.normalizedName}, "position" = ${input.position},
+        "isActive" = ${input.isActive}, "updatedAt" = clock_timestamp()
+      WHERE "businessId" = ${input.businessId} AND "id" = ${input.categoryId}
+        AND NOT EXISTS (
+          SELECT 1 FROM "CashExpenseCategory" duplicate
+          WHERE duplicate."businessId" = ${input.businessId}
+            AND duplicate."normalizedName" = ${input.normalizedName}
+            AND duplicate."id" <> ${input.categoryId}
+        )
+      RETURNING "id", "businessId", "name", "normalizedName", "position", "isDefault", "isActive", "createdAt", "updatedAt"
+    `)
+    return rows[0] ?? null
   }
 
   async lockCashEntry(businessId: string, entryId: string) {
@@ -780,6 +1004,8 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     limit: number
     type: CashEntryForSummary['type'] | null
     method: CashEntryForSummary['method'] | null
+    expenseCategoryId: string | null
+    cashSessionId: string | null
     query: string | null
   }) {
     const cursor = input.cursor
@@ -787,6 +1013,8 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       : Prisma.empty
     const type = input.type ? Prisma.sql`AND entry."type" = ${input.type}::"CashEntryType"` : Prisma.empty
     const method = input.method ? Prisma.sql`AND entry."paymentMethod" = ${input.method}::"CashPaymentMethod"` : Prisma.empty
+    const category = input.expenseCategoryId ? Prisma.sql`AND entry."expenseCategoryId" = ${input.expenseCategoryId}` : Prisma.empty
+    const session = input.cashSessionId ? Prisma.sql`AND entry."cashSessionId" = ${input.cashSessionId}` : Prisma.empty
     const query = input.query ? Prisma.sql`AND (
       entry."description" ILIKE ${`%${input.query}%`}
       OR entry."counterparty" ILIKE ${`%${input.query}%`}
@@ -805,9 +1033,12 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       SELECT entry."id", entry."businessId", entry."accountId", entry."registerDayId", entry."cashSessionId",
         entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
         entry."paymentMethod"::text AS "method", entry."origin"::text AS "origin", entry."description",
-        entry."counterparty", entry."observation", entry."reversesEntryId", entry."effectiveAt",
+        entry."counterparty", entry."observation", entry."expenseCategoryId", category."name" AS "expenseCategoryName",
+        entry."reversesEntryId", entry."effectiveAt",
         coalesce(customers.names, ARRAY[]::text[]) AS "customerNames"
       FROM "CashEntry" entry
+      LEFT JOIN "CashExpenseCategory" category
+        ON category."businessId" = entry."businessId" AND category."id" = entry."expenseCategoryId"
       LEFT JOIN LATERAL (
         SELECT array_agg(DISTINCT customer."name" ORDER BY customer."name") AS names
         FROM "AppointmentAccountLink" account_link
@@ -818,8 +1049,82 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         WHERE account_link."businessId" = entry."businessId" AND account_link."accountId" = entry."accountId"
       ) customers ON true
       WHERE entry."businessId" = ${input.businessId} AND entry."registerDayId" = ${input.registerDayId}
-        ${cursor} ${type} ${method} ${query}
+        ${cursor} ${type} ${method} ${category} ${session} ${query}
       ORDER BY entry."effectiveAt" DESC, entry."id" DESC
+      LIMIT ${input.limit}
+    `)
+  }
+
+  async listPeriodEntries(businessId: string, input: { from: string; to: string; days: number; timezone: string }) {
+    const rows = await this.transaction.$queryRaw<Array<CashEntryForSummary & { reversedEntryType: CashEntryForSummary['type'] | null }>>(Prisma.sql`
+      SELECT entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
+        entry."paymentMethod"::text AS "method", entry."cashSessionId",
+        original."type"::text AS "reversedEntryType",
+        COALESCE(category."name", original_category."name") AS "expenseCategoryName"
+      FROM "CashEntry" entry
+      LEFT JOIN "CashEntry" original
+        ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
+      LEFT JOIN "CashExpenseCategory" category
+        ON category."businessId" = entry."businessId" AND category."id" = entry."expenseCategoryId"
+      LEFT JOIN "CashExpenseCategory" original_category
+        ON original_category."businessId" = original."businessId" AND original_category."id" = original."expenseCategoryId"
+      WHERE entry."businessId" = ${businessId}
+        AND COALESCE(entry."effectiveAt", entry."createdAt") >= (${input.from}::date::timestamp AT TIME ZONE ${input.timezone})
+        AND COALESCE(entry."effectiveAt", entry."createdAt") < ((${input.to}::date + 1)::timestamp AT TIME ZONE ${input.timezone})
+      ORDER BY COALESCE(entry."effectiveAt", entry."createdAt"), entry."id"
+    `)
+    return rows.map((row) => ({
+      type: row.type,
+      direction: row.direction,
+      amount: row.amount,
+      method: row.method,
+      cashSessionId: row.cashSessionId,
+      expenseCategoryName: row.expenseCategoryName ?? null,
+      ...(row.reversedEntryType ? { reversedEntryType: row.reversedEntryType } : {})
+    }))
+  }
+
+  async listPeriodExpenses(input: {
+    businessId: string
+    from: string
+    to: string
+    days: number
+    timezone: string
+    offset: number
+    limit: number
+    method: CashEntryForSummary['method'] | null
+    expenseCategoryId: string | null
+    query: string | null
+  }) {
+    const method = input.method ? Prisma.sql`AND entry."paymentMethod" = ${input.method}::"CashPaymentMethod"` : Prisma.empty
+    const category = input.expenseCategoryId ? Prisma.sql`AND COALESCE(entry."expenseCategoryId", original."expenseCategoryId") = ${input.expenseCategoryId}` : Prisma.empty
+    const query = input.query ? Prisma.sql`AND (
+      entry."description" ILIKE ${`%${input.query}%`}
+      OR entry."observation" ILIKE ${`%${input.query}%`}
+      OR COALESCE(category."name", original_category."name") ILIKE ${`%${input.query}%`}
+    )` : Prisma.empty
+    return this.transaction.$queryRaw<CashPeriodExpenseRecord[]>(Prisma.sql`
+      SELECT entry."id", entry."businessId", entry."accountId", entry."registerDayId", entry."cashSessionId",
+        entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
+        entry."paymentMethod"::text AS "method", entry."origin"::text AS "origin", entry."description",
+        entry."counterparty", entry."observation", COALESCE(entry."expenseCategoryId", original."expenseCategoryId") AS "expenseCategoryId",
+        COALESCE(category."name", original_category."name") AS "expenseCategoryName", entry."reversesEntryId",
+        original."type"::text AS "reversedEntryType", entry."effectiveAt",
+        ARRAY[]::text[] AS "customerNames", count(*) OVER()::integer AS "totalCount"
+      FROM "CashEntry" entry
+      LEFT JOIN "CashEntry" original
+        ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
+      LEFT JOIN "CashExpenseCategory" category
+        ON category."businessId" = entry."businessId" AND category."id" = entry."expenseCategoryId"
+      LEFT JOIN "CashExpenseCategory" original_category
+        ON original_category."businessId" = original."businessId" AND original_category."id" = original."expenseCategoryId"
+      WHERE entry."businessId" = ${input.businessId}
+        AND (entry."type" = 'EXPENSE'::"CashEntryType" OR (entry."type" = 'REVERSAL'::"CashEntryType" AND original."type" = 'EXPENSE'::"CashEntryType"))
+        AND COALESCE(entry."effectiveAt", entry."createdAt") >= (${input.from}::date::timestamp AT TIME ZONE ${input.timezone})
+        AND COALESCE(entry."effectiveAt", entry."createdAt") < ((${input.to}::date + 1)::timestamp AT TIME ZONE ${input.timezone})
+        ${method} ${category} ${query}
+      ORDER BY COALESCE(entry."effectiveAt", entry."createdAt") DESC, entry."id" DESC
+      OFFSET ${input.offset}
       LIMIT ${input.limit}
     `)
   }

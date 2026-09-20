@@ -29,6 +29,7 @@ export type CreatePipelineLeadCommand = {
   source?: unknown
   externalReference?: unknown
   assigneeUserId?: unknown
+  customerId?: unknown
   customData?: unknown
   customDataSchemaVersion?: unknown
   eventMetadata?: Prisma.InputJsonValue
@@ -106,6 +107,19 @@ async function assertAssignee(
   }
 }
 
+async function assertCustomer(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  customerId: string | null
+) {
+  if (!customerId) return
+  const customer = await tx.customer.findFirst({
+    where: { id: customerId, businessId },
+    select: { id: true }
+  })
+  if (!customer) resourceNotFound()
+}
+
 /**
  * Creates a lead using the transaction owned by the caller. This function never
  * opens or commits a transaction, so submissions can atomically create their
@@ -128,6 +142,7 @@ export async function createPipelineLeadInTransaction(
   const source = parseOptionalText(command.source, 120, 'INVALID_LEAD_SOURCE')
   const externalReference = parseOptionalText(command.externalReference, 200, 'INVALID_EXTERNAL_REFERENCE')
   const assigneeUserId = parseOptionalId(command.assigneeUserId, 'INVALID_ASSIGNEE')
+  const customerId = parseOptionalId(command.customerId, 'PIPELINE_RESOURCE_NOT_FOUND')
   const customData = parseCustomData(command.customData)
   const customDataSchemaVersion = parseCustomDataSchemaVersion(command.customDataSchemaVersion)
 
@@ -148,6 +163,7 @@ export async function createPipelineLeadInTransaction(
 
   await assertActor(tx, businessId, actor)
   await assertAssignee(tx, businessId, assigneeUserId)
+  await assertCustomer(tx, businessId, customerId)
 
   // Updating the aggregate first locks the Pipeline row. All concurrent lead
   // insertions for this Pipeline therefore calculate their tail position in order.
@@ -177,6 +193,7 @@ export async function createPipelineLeadInTransaction(
       source,
       externalReference,
       assigneeUserId,
+      customerId,
       customData,
       customDataSchemaVersion,
       position: (aggregate._max.position ?? -1) + 1,

@@ -95,6 +95,9 @@ export function appendPreferredEmoji(
 
 export function renderCrmHtml(options: CrmUiRoutesOptions) {
   const cashRegisterEnabled = options.cashRegisterEnabled !== false
+  const agendaStatusLegendHtml = cashRegisterEnabled
+    ? '<div class="agenda-status-legend"><strong>Estados del turno</strong><div class="agenda-status-legend-items"><span class="agenda-status-badge agenda-service-status completed">Realizado</span><span class="agenda-status-badge agenda-service-status pending">Pendiente</span><span class="agenda-status-badge agenda-payment-status paid">Pagado</span><span class="agenda-status-badge agenda-payment-status deposit">Se&ntilde;a</span><span class="agenda-status-badge agenda-payment-status due">Debe</span></div></div>'
+    : ''
   const markerEffective = options.pollingMarker.effective ? 'true' : 'false'
   const markerHeader = options.pollingMarker.headerName
   const markerValue = options.pollingMarker.headerValue
@@ -2251,6 +2254,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .app[data-section="conversations"] .composer {
+      position: relative;
       margin: 0 14px 14px;
       padding: 10px 12px 9px;
       border-color: #dfe6f1;
@@ -2353,6 +2357,127 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .composer-tools .primary .ti {
       width: 14px;
       height: 14px;
+    }
+
+    .quick-replies-button {
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      color: #334155;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .quick-replies-button:hover:not(:disabled) {
+      border-color: #93b4ff;
+      color: #1d4ed8;
+      background: #f4f7ff;
+    }
+
+    .quick-replies-picker {
+      position: absolute;
+      z-index: 35;
+      right: 12px;
+      bottom: 52px;
+      width: min(420px, calc(100% - 24px));
+      max-height: min(430px, 58vh);
+      overflow: hidden;
+      border: 1px solid #dbe3ef;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 18px 46px rgba(15, 23, 42, .18);
+    }
+
+    .quick-replies-picker[hidden] { display: none; }
+
+    .quick-replies-picker-head,
+    .quick-replies-picker-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 13px;
+      border-bottom: 1px solid #e7edf5;
+    }
+
+    .quick-replies-picker-foot {
+      justify-content: flex-end;
+      border-top: 1px solid #e7edf5;
+      border-bottom: 0;
+    }
+
+    .quick-replies-picker-head strong { color: #17213c; font-size: 13px; }
+    .quick-replies-picker-head button,
+    .quick-replies-picker-foot button { color: #2563eb; background: transparent; font-size: 12px; font-weight: 750; }
+
+    .quick-replies-picker-list {
+      display: grid;
+      gap: 5px;
+      max-height: 320px;
+      padding: 8px;
+      overflow: auto;
+    }
+
+    .quick-reply-choice {
+      display: grid;
+      gap: 3px;
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: #1e293b;
+      background: #fff;
+      text-align: left;
+    }
+
+    .quick-reply-choice:hover { border-color: #c7d7ff; background: #f5f8ff; }
+    .quick-reply-choice strong { font-size: 12px; }
+    .quick-reply-choice small { color: #2563eb; font-size: 11px; }
+    .quick-reply-choice span { overflow: hidden; color: #64748b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .quick-replies-admin-dialog {
+      width: min(920px, calc(100vw - 32px));
+      max-height: min(820px, calc(100vh - 32px));
+      overflow: auto;
+    }
+
+    .quick-replies-admin-body { display: grid; gap: 16px; padding: 18px; }
+    .quick-replies-admin-intro { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+    .quick-replies-admin-intro p { margin: 4px 0 0; color: #64748b; font-size: 13px; line-height: 1.45; }
+    .quick-reply-form-shell { padding: 16px; border: 1px solid #dbe3ef; border-radius: 12px; background: #f8fafc; }
+    .quick-reply-form-shell[hidden] { display: none; }
+    .quick-reply-form { display: grid; grid-template-columns: 1.2fr 1fr; gap: 13px; }
+    .quick-reply-form .customer-dialog-field:last-of-type { grid-column: 1 / -1; }
+    .quick-reply-form textarea { min-height: 110px; resize: vertical; }
+    .quick-reply-active { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+    .quick-reply-active input { width: 17px; height: 17px; accent-color: #2563eb; }
+    .quick-reply-form-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+    .quick-replies-list { display: grid; gap: 7px; }
+    .quick-reply-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+    .quick-reply-row-copy { min-width: 0; }
+    .quick-reply-row-copy strong { display: inline; color: #17213c; font-size: 13px; }
+    .quick-reply-row-copy code { margin-left: 7px; padding: 2px 6px; border-radius: 5px; color: #1d4ed8; background: #eef3ff; font-family: inherit; font-size: 11px; }
+    .quick-reply-row-copy p { margin: 6px 0 0; overflow: hidden; color: #64748b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .quick-reply-row.inactive { background: #f8fafc; opacity: .72; }
+    .quick-reply-row-actions { display: flex; align-items: center; gap: 5px; }
+    .quick-reply-row-actions button { min-width: 34px; min-height: 32px; padding: 0 9px; font-size: 11px; }
+    .quick-replies-empty { padding: 24px 14px; border: 1px dashed #cbd5e1; border-radius: 10px; color: #64748b; text-align: center; }
+
+    .quick-replies-settings-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px; border: 1px solid #dbe3ef; border-radius: 12px; background: #fff; }
+    .quick-replies-settings-card p { margin: 5px 0 0; color: #64748b; font-size: 13px; }
+
+    @media (max-width: 680px) {
+      .quick-replies-picker { position: fixed; right: 10px; bottom: 74px; left: 10px; width: auto; }
+      .quick-replies-admin-dialog { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+      .quick-replies-admin-body { padding: 12px; }
+      .quick-replies-admin-intro, .quick-replies-settings-card { align-items: stretch; flex-direction: column; }
+      .quick-reply-form { grid-template-columns: 1fr; }
+      .quick-reply-form .customer-dialog-field:last-of-type { grid-column: auto; }
+      .quick-reply-form-actions { grid-column: auto; }
+      .quick-reply-row { grid-template-columns: 1fr; }
+      .quick-reply-row-actions { flex-wrap: wrap; }
     }
 
     .app[data-section="conversations"] .details {
@@ -8052,6 +8177,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       pointer-events: none;
     }
 
+    .landing-template-preview-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+    }
+
+    .landing-template-preview-actions .landing-template-preview:first-child {
+      padding: 8px 11px;
+      border: 1px solid #c8d8f4;
+      border-radius: 9px;
+      background: #fff;
+    }
+
     .landing-template-grid .landing-template-preview {
       display: none;
     }
@@ -11250,6 +11389,99 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       padding-left: 23px;
     }
 
+    .agenda-status-row {
+      display: flex !important;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 3px;
+      min-width: 0;
+      margin-top: 3px !important;
+      overflow: visible !important;
+      white-space: normal !important;
+    }
+
+    .agenda-status-badge {
+      min-width: 0;
+      min-height: 17px;
+      padding: 1px 6px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      display: inline-flex !important;
+      align-items: center;
+      gap: 3px;
+      margin: 0 !important;
+      overflow: hidden !important;
+      font-size: 9px !important;
+      line-height: 1.2 !important;
+      font-weight: 800;
+      text-overflow: ellipsis;
+      white-space: nowrap !important;
+    }
+
+    .agenda-status-badge::before {
+      flex: 0 0 auto;
+      font-weight: 950;
+    }
+
+    .agenda-service-status.completed,
+    .agenda-payment-status.paid {
+      color: #166534;
+      border-color: #86efac;
+      background: #f0fdf4;
+    }
+
+    .agenda-service-status.completed::before { content: "✓"; }
+    .agenda-payment-status.paid::before { content: "$"; }
+
+    .agenda-service-status.pending {
+      color: #334155;
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+
+    .agenda-service-status.pending::before { content: "◷"; }
+
+    .agenda-payment-status.deposit {
+      color: #92400e;
+      border-color: #fcd34d;
+      background: #fffbeb;
+    }
+
+    .agenda-payment-status.deposit::before { content: "$"; }
+
+    .agenda-payment-status.due {
+      color: #b91c1c;
+      border-color: #fca5a5;
+      background: #fff1f2;
+    }
+
+    .agenda-payment-status.due::before { content: "$"; }
+
+    .agenda-payment-status.free {
+      color: #475569;
+      border-color: #cbd5e1;
+      background: #f8fafc;
+    }
+
+    .agenda-payment-status.free::before { content: "—"; }
+
+    .agenda-status-legend {
+      padding-top: 10px;
+      border-top: 1px solid #eef2f7;
+      display: grid;
+      gap: 7px;
+    }
+
+    .agenda-status-legend-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .agenda-status-legend .agenda-status-badge {
+      font-size: 9px !important;
+    }
+
     .agenda-block {
       position: absolute;
       left: 5px;
@@ -11972,6 +12204,90 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .appointment-customer-results button span,
     .appointment-customer-result-empty { color: #667085; font-size: 12px; }
 
+    .appointment-customer-technical-profile {
+      container-type: inline-size;
+      padding: 12px 14px;
+      border: 1px solid #f2c94c;
+      border-radius: 10px;
+      display: grid;
+      gap: 10px;
+      background: #fffbea;
+      color: #44340a;
+      font-size: clamp(13px, 1.3cqi, 15px);
+    }
+
+    .appointment-customer-technical-profile[hidden] { display: none; }
+
+    .appointment-technical-profile-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px 14px;
+    }
+
+    .appointment-technical-profile-header h4 {
+      margin: 0;
+      color: #3f330d;
+      font-size: 1em;
+      font-weight: 850;
+    }
+
+    .appointment-technical-profile-action {
+      min-height: 30px;
+      padding: 4px 8px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #9a6700;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .appointment-technical-profile-action:hover { background: #fff2bc; }
+    .appointment-technical-profile-action:focus-visible { outline: 3px solid #facc15; outline-offset: 1px; }
+
+    .appointment-technical-profile-display {
+      min-width: 0;
+      color: #59430b;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .appointment-technical-profile-display.is-empty { color: #7c6b3b; }
+
+    .appointment-technical-profile-editor {
+      display: grid;
+      gap: 9px;
+    }
+
+    .appointment-technical-profile-editor[hidden] { display: none; }
+
+    .appointment-technical-profile-editor textarea {
+      width: 100%;
+      min-height: 82px;
+      resize: vertical;
+      background: #fff;
+    }
+
+    .appointment-technical-profile-editor-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .appointment-technical-profile-feedback {
+      min-height: 0;
+      margin: 0;
+      color: #9a3412;
+      font-size: .86em;
+    }
+
+    .appointment-technical-profile-feedback:empty { display: none; }
+
     .appointment-attention-picker { position: relative; }
     .appointment-attention-picker[hidden], .appointment-attention-menu[hidden] { display: none; }
 
@@ -12346,6 +12662,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     @media (max-width: 620px) {
       .appointment-form .split-row {
         grid-template-columns: 1fr;
+      }
+
+      .appointment-customer-technical-profile {
+        padding: 11px 12px;
+        font-size: 14px;
+      }
+
+      .appointment-technical-profile-header {
+        align-items: flex-start;
+      }
+
+      .appointment-technical-profile-editor-actions > button {
+        flex: 1 1 120px;
       }
     }
 
@@ -15205,9 +15534,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <a id="composer-window-whatsapp" href="#">Abrir WhatsApp</a>
         </div>
         <textarea id="reply-text" placeholder="Escribir mensaje..." disabled></textarea>
+        <section class="quick-replies-picker" id="quick-replies-selector" aria-label="Respuestas r&aacute;pidas" hidden>
+          <div class="quick-replies-picker-head"><strong>Respuestas r&aacute;pidas</strong><button id="quick-replies-selector-close" type="button">Cerrar</button></div>
+          <div class="quick-replies-picker-list" id="quick-replies-selector-list"><div class="quick-replies-empty">Cargando respuestas...</div></div>
+          <div class="quick-replies-picker-foot"><button id="quick-replies-manage" type="button">Administrar</button></div>
+        </section>
         <div class="composer-tools">
           <button class="composer-icon" type="button" title="Emoji" data-icon="smile"></button>
           <button class="composer-icon" type="button" title="Adjuntar archivo" data-icon="paperclip"></button>
+          <button class="quick-replies-button" id="quick-replies-trigger" type="button" disabled>Respuestas r&aacute;pidas</button>
           <button class="primary" id="send-button" type="submit" disabled><span data-icon="send"></span>Enviar</button>
         </div>
       </form>
@@ -15644,6 +15979,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input class="field" id="appointment-customer-phone">
             </div>
           </div>
+          <section class="appointment-customer-technical-profile" id="appointment-customer-technical-profile" aria-labelledby="appointment-customer-technical-profile-title" hidden>
+            <div class="appointment-technical-profile-header">
+              <h4 id="appointment-customer-technical-profile-title">Ficha t&eacute;cnica del cliente</h4>
+              <button class="appointment-technical-profile-action" id="appointment-customer-technical-profile-edit" type="button" hidden>Editar</button>
+              <button class="appointment-technical-profile-action" id="appointment-customer-technical-profile-add" type="button" hidden>+ Agregar dato importante</button>
+            </div>
+            <div class="appointment-technical-profile-display" id="appointment-customer-technical-profile-display"></div>
+            <div class="appointment-technical-profile-editor" id="appointment-customer-technical-profile-editor" hidden>
+              <label for="appointment-customer-technical-profile-input">Dato t&eacute;cnico permanente</label>
+              <textarea class="field" id="appointment-customer-technical-profile-input" maxlength="1000" rows="3"></textarea>
+              <div class="appointment-technical-profile-editor-actions">
+                <button class="secondary" id="appointment-customer-technical-profile-cancel" type="button">Cancelar</button>
+                <button class="primary" id="appointment-customer-technical-profile-save" type="button">Guardar ficha</button>
+              </div>
+            </div>
+            <p class="appointment-technical-profile-feedback" id="appointment-customer-technical-profile-feedback" role="status"></p>
+          </section>
           <div class="appointment-origin-summary" id="appointment-origin-row" hidden>
             <span id="appointment-origin-badge" aria-hidden="true"></span>
             <span>Origen: <strong id="appointment-origin-label"></strong></span>
@@ -15652,7 +16004,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <summary>Informaci&oacute;n adicional</summary>
             <div class="appointment-additional-content">
               <div class="form-row">
-                <label for="appointment-notes">Comentarios adicionales</label>
+                <label for="appointment-notes">Observaci&oacute;n de este turno</label>
                 <textarea class="field" id="appointment-notes" maxlength="2000" rows="3"></textarea>
               </div>
               <div class="appointment-deposit-option" ${cashRegisterEnabled ? 'hidden' : ''}>
@@ -15671,6 +16023,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <p class="hint" id="appointment-feedback"></p>
           </div>
           <div class="dialog-actions">
+            <button class="secondary" id="appointment-complete" type="button" hidden>Marcar realizado</button>
             <button class="danger" id="appointment-no-show" type="button" hidden>Marcar ausente</button>
             <button class="danger" id="appointment-delete" type="button" hidden>Eliminar</button>
             <button class="secondary" id="appointment-cancel" type="button">Cancelar</button>
@@ -16846,6 +17199,32 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="quick-replies-admin" hidden>
+      <section class="dialog quick-replies-admin-dialog" role="dialog" aria-modal="true" aria-labelledby="quick-replies-admin-title">
+        <header class="dialog-header">
+          <div><h3 id="quick-replies-admin-title">Respuestas r&aacute;pidas</h3><p>Prepar&aacute; mensajes frecuentes para WhatsApp e Instagram.</p></div>
+          <button class="icon-button" id="quick-replies-admin-close" type="button" title="Cerrar">X</button>
+        </header>
+        <div class="quick-replies-admin-body">
+          <div class="quick-replies-admin-intro">
+            <div><strong>Mensajes del negocio</strong><p>Al elegir una respuesta se copia al editor. Siempre pod&eacute;s revisarla antes de enviarla.</p></div>
+            <button class="primary" id="quick-reply-new" type="button">Nueva respuesta</button>
+          </div>
+          <div class="quick-reply-form-shell" id="quick-reply-form-shell" hidden>
+            <form class="quick-reply-form" id="quick-reply-form">
+              <div class="customer-dialog-field"><label for="quick-reply-title">Nombre</label><input id="quick-reply-title" maxlength="80" placeholder="Ej: Horarios del local" required></div>
+              <div class="customer-dialog-field"><label for="quick-reply-shortcut">Atajo</label><input id="quick-reply-shortcut" maxlength="40" placeholder="Ej: horarios" pattern="[a-zA-Z0-9_-]+" required><small>Se mostrar&aacute; como /horarios.</small></div>
+              <div class="customer-dialog-field"><label for="quick-reply-message">Mensaje</label><textarea id="quick-reply-message" maxlength="2000" placeholder="Escrib&iacute; el mensaje que quer&eacute;s reutilizar" required></textarea></div>
+              <label class="quick-reply-active"><input id="quick-reply-active" type="checkbox" checked> Respuesta activa</label>
+              <p class="customer-dialog-feedback" id="quick-reply-feedback" role="status"></p>
+              <div class="quick-reply-form-actions"><button class="secondary" id="quick-reply-cancel" type="button">Cancelar</button><button class="primary" id="quick-reply-save" type="submit">Guardar respuesta</button></div>
+            </form>
+          </div>
+          <div class="quick-replies-list" id="quick-replies-admin-list"><div class="quick-replies-empty">Cargando respuestas...</div></div>
+        </div>
+      </section>
+    </div>
+
     <section class="settings-view" id="settings-view">
       <div class="settings-shell">
         <div class="commercial-demo-workspace-banner" id="commercial-demo-workspace-banner" hidden>
@@ -16866,11 +17245,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <nav class="settings-main-tabs" id="settings-main-tabs" aria-label="Secciones de ajustes">
           <button class="active" type="button" data-settings-view="commerce">Datos del Comercio</button>
           <button type="button" data-settings-view="assistant">Bot y personalidad</button>
+          <button type="button" data-settings-view="conversations">Conversaciones</button>
           <button type="button" data-settings-view="landing">Landing</button>
           <button type="button" data-settings-view="staff">Staff</button>
           <button type="button" data-settings-view="meta">Meta y WhatsApp</button>
           <button type="button" id="settings-admin-tab" data-settings-view="admin" hidden>Administraci&oacute;n</button>
         </nav>
+
+        <section class="settings-panel" data-settings-panel="conversations" hidden>
+          <h3>Conversaciones</h3>
+          <p>Configur&aacute; herramientas para responder m&aacute;s r&aacute;pido sin perder el control del mensaje.</p>
+          <div class="quick-replies-settings-card">
+            <div><strong>Respuestas r&aacute;pidas</strong><p>Cre&aacute;, orden&aacute; y desactiv&aacute; mensajes frecuentes para WhatsApp e Instagram.</p></div>
+            <button class="primary" id="quick-replies-settings-open" type="button">Administrar respuestas r&aacute;pidas</button>
+          </div>
+        </section>
 
         <section class="settings-panel" id="business-commerce-panel" data-settings-panel="commerce">
           <h3>Datos del comercio</h3>
@@ -17093,7 +17482,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                     <strong>Vintage</strong>
                     <small>Directa, contrastada y compacta.</small>
                   </span>
-                  <a class="landing-template-preview" data-template-preview="classic" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <a class="landing-template-preview" data-template-preview="classic" data-preview-mode="model" href="#" target="_blank" rel="noopener">Ver modelo</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
                 <label class="landing-template-card">
@@ -17103,7 +17492,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                     <strong>Editorial</strong>
                     <small>Luminosa, elegante y visual.</small>
                   </span>
-                  <a class="landing-template-preview" data-template-preview="editorial" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <a class="landing-template-preview" data-template-preview="editorial" data-preview-mode="model" href="#" target="_blank" rel="noopener">Ver modelo</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
                 <label class="landing-template-card">
@@ -17113,7 +17502,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                     <strong>Studio claro</strong>
                     <small>Blanco, blush y secciones amplias.</small>
                   </span>
-                  <a class="landing-template-preview" data-template-preview="salon-white" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <a class="landing-template-preview" data-template-preview="salon-white" data-preview-mode="model" href="#" target="_blank" rel="noopener">Ver modelo</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
                 <label class="landing-template-card">
@@ -17123,7 +17512,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                     <strong>Luxe Nails</strong>
                     <small>Oscura, sofisticada y pensada para estudios de u&ntilde;as.</small>
                   </span>
-                  <a class="landing-template-preview" data-template-preview="luxe-nails" href="#" target="_blank" rel="noopener">Vista previa</a>
+                  <a class="landing-template-preview" data-template-preview="luxe-nails" data-preview-mode="model" href="#" target="_blank" rel="noopener">Ver modelo</a>
                   <span class="landing-template-check" aria-hidden="true">&#10003;</span>
                 </label>
                 </div>
@@ -17133,7 +17522,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                     <strong id="landing-template-selected-name">Vintage</strong>
                     <p id="landing-template-selected-description">Directa, contrastada y compacta.</p>
                     <div class="landing-template-requirements" id="landing-template-requirements"></div>
-                    <a class="landing-template-preview" id="landing-template-selected-preview" data-template-preview="classic" href="#" target="_blank" rel="noopener">Abrir vista previa</a>
+                    <div class="landing-template-preview-actions">
+                      <a class="landing-template-preview" id="landing-template-selected-preview" data-selected-template-preview data-template-preview="classic" data-preview-mode="current" href="#" target="_blank" rel="noopener">Vista previa de mi p&aacute;gina</a>
+                      <a class="landing-template-preview" data-selected-template-preview data-template-preview="classic" data-preview-mode="model" href="#" target="_blank" rel="noopener">Ver plantilla modelo</a>
+                    </div>
                   </div>
                 </aside>
               </div>
@@ -17502,6 +17894,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
                 </div>
                 <small id="staff-permissions-help">El profesional solo accede a su propia agenda.</small>
               </div>
@@ -18558,6 +18954,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       selected: null,
       messages: [],
       manualReplyQueue: [],
+      quickReplies: [],
+      quickRepliesLoadedForBusinessId: null,
+      editingQuickReplyId: null,
       messageNextCursor: null,
       appointments: [],
       conversationCache: new Map(),
@@ -18578,6 +18977,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentCustomerSearchTimer: null,
       appointmentCustomerSearchRequest: 0,
       appointmentCustomerResultsData: [],
+      appointmentCustomerTechnicalProfileRequest: 0,
       businesses: [],
       demoProfiles: [],
       demoChatMessages: [],
@@ -18698,6 +19098,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       readConversationIds: new Set(),
       customerDialogMode: 'edit',
       customerDialogCustomerId: null,
+      customerDialogConversationId: null,
       customerDeleteCustomerId: null,
       pendingMarketingChange: null,
       pendingCampaignDeleteId: null,
@@ -18778,6 +19179,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       confirmationDialog: document.getElementById('confirmation-dialog'),
       confirmationTitle: document.getElementById('confirmation-dialog-title'),
       confirmationMessage: document.getElementById('confirmation-dialog-message'),
+      quickRepliesTrigger: document.getElementById('quick-replies-trigger'),
+      quickRepliesSelector: document.getElementById('quick-replies-selector'),
+      quickRepliesSelectorClose: document.getElementById('quick-replies-selector-close'),
+      quickRepliesSelectorList: document.getElementById('quick-replies-selector-list'),
+      quickRepliesManage: document.getElementById('quick-replies-manage'),
+      quickRepliesAdmin: document.getElementById('quick-replies-admin'),
+      quickRepliesAdminClose: document.getElementById('quick-replies-admin-close'),
+      quickRepliesAdminList: document.getElementById('quick-replies-admin-list'),
+      quickRepliesSettingsOpen: document.getElementById('quick-replies-settings-open'),
+      quickReplyNew: document.getElementById('quick-reply-new'),
+      quickReplyFormShell: document.getElementById('quick-reply-form-shell'),
+      quickReplyForm: document.getElementById('quick-reply-form'),
+      quickReplyTitle: document.getElementById('quick-reply-title'),
+      quickReplyShortcut: document.getElementById('quick-reply-shortcut'),
+      quickReplyMessage: document.getElementById('quick-reply-message'),
+      quickReplyActive: document.getElementById('quick-reply-active'),
+      quickReplyFeedback: document.getElementById('quick-reply-feedback'),
+      quickReplyCancel: document.getElementById('quick-reply-cancel'),
+      quickReplySave: document.getElementById('quick-reply-save'),
       advisorQuoteDialog: document.getElementById('advisor-quote-dialog'),
       advisorQuoteDialogForm: document.getElementById('advisor-quote-dialog-form'),
       advisorQuoteDialogCopy: document.getElementById('advisor-quote-dialog-copy'),
@@ -18952,6 +19372,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanManageDeposits: document.getElementById('staff-can-manage-deposits'),
       staffCanViewReports: document.getElementById('staff-can-view-reports'),
       staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
+      staffCanRecordAppointmentPayments: document.getElementById('staff-can-record-appointment-payments'),
+      staffCanViewProducts: document.getElementById('staff-can-view-products'),
+      staffCanSellProducts: document.getElementById('staff-can-sell-products'),
+      staffCanManageProducts: document.getElementById('staff-can-manage-products'),
       staffPresetTitle: document.getElementById('staff-preset-title'),
       staffPresetDescription: document.getElementById('staff-preset-description'),
       staffPermissionsTitle: document.getElementById('staff-permissions-title'),
@@ -19447,6 +19871,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentClose: document.getElementById('appointment-close'),
       appointmentCancel: document.getElementById('appointment-cancel'),
       appointmentDelete: document.getElementById('appointment-delete'),
+      appointmentComplete: document.getElementById('appointment-complete'),
       appointmentNoShow: document.getElementById('appointment-no-show'),
       appointmentSubmit: document.getElementById('appointment-submit'),
       appointmentStart: document.getElementById('appointment-start'),
@@ -19457,6 +19882,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentCustomerResults: document.getElementById('appointment-customer-results'),
       appointmentCustomerName: document.getElementById('appointment-customer-name'),
       appointmentCustomerPhone: document.getElementById('appointment-customer-phone'),
+      appointmentCustomerTechnicalProfile: document.getElementById('appointment-customer-technical-profile'),
+      appointmentCustomerTechnicalProfileDisplay: document.getElementById('appointment-customer-technical-profile-display'),
+      appointmentCustomerTechnicalProfileEdit: document.getElementById('appointment-customer-technical-profile-edit'),
+      appointmentCustomerTechnicalProfileAdd: document.getElementById('appointment-customer-technical-profile-add'),
+      appointmentCustomerTechnicalProfileEditor: document.getElementById('appointment-customer-technical-profile-editor'),
+      appointmentCustomerTechnicalProfileInput: document.getElementById('appointment-customer-technical-profile-input'),
+      appointmentCustomerTechnicalProfileCancel: document.getElementById('appointment-customer-technical-profile-cancel'),
+      appointmentCustomerTechnicalProfileSave: document.getElementById('appointment-customer-technical-profile-save'),
+      appointmentCustomerTechnicalProfileFeedback: document.getElementById('appointment-customer-technical-profile-feedback'),
       appointmentWhatsapp: document.getElementById('appointment-whatsapp'),
       appointmentOpenChat: document.getElementById('appointment-open-chat'),
       appointmentAttentionPicker: document.getElementById('appointment-attention-picker'),
@@ -19679,8 +20113,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function isAttendedAppointment(appointment) {
-      return isActiveAppointment(appointment) &&
-        (appointment.status === 'COMPLETED' || new Date(appointment.startAt) < new Date())
+      return appointment.status === 'COMPLETED'
     }
 
     function formatDateTime(value) {
@@ -20487,6 +20920,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.staffAccountsPanel) {
         els.staffAccountsPanel.hidden = state.settingsView !== 'staff' || !canManageStaffUsers()
       }
+      if (els.quickRepliesSettingsOpen) els.quickRepliesSettingsOpen.hidden = !canManageQuickReplies()
+      if (els.quickRepliesManage) els.quickRepliesManage.hidden = !canManageQuickReplies()
       applyAgendaPermissions()
       const isStaff = state.currentUser?.role === 'STAFF'
       if (els.customerNewButton) els.customerNewButton.hidden = isStaff && !state.currentUser?.canCreateCustomers
@@ -20778,6 +21213,196 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         (state.currentUser?.role === 'ACCOUNT_ADMIN' && Boolean(state.business) && !state.business?.isDemo)
     }
 
+    function canManageQuickReplies() {
+      return ['SUPER_ADMIN', 'ACCOUNT_ADMIN', 'BUSINESS_ADMIN'].includes(state.currentUser?.role)
+    }
+
+    async function loadQuickReplies(options = {}) {
+      if (!state.businessId) {
+        state.quickReplies = []
+        state.quickRepliesLoadedForBusinessId = null
+        return []
+      }
+      const includeInactive = options.includeInactive === true && canManageQuickReplies()
+      const params = new URLSearchParams({ businessId: state.businessId })
+      if (!includeInactive) params.set('activeOnly', 'true')
+      const replies = await getJson('/crm/quick-replies?' + params.toString())
+      if (state.businessId === params.get('businessId')) {
+        state.quickReplies = replies
+        state.quickRepliesLoadedForBusinessId = state.businessId
+      }
+      return replies
+    }
+
+    function renderQuickReplySelector() {
+      const activeReplies = state.quickReplies.filter((reply) => reply.isActive)
+      els.quickRepliesManage.hidden = !canManageQuickReplies()
+      els.quickRepliesSelectorList.innerHTML = activeReplies.length
+        ? activeReplies.map((reply) => {
+            return '<button class="quick-reply-choice" type="button" data-insert-quick-reply="' + reply.id + '">' +
+              '<strong>' + escapeHtml(reply.title) + '</strong>' +
+              '<small>/' + escapeHtml(reply.shortcut) + '</small>' +
+              '<span>' + escapeHtml(reply.message) + '</span>' +
+            '</button>'
+          }).join('')
+        : '<div class="quick-replies-empty">Todav&iacute;a no hay respuestas activas.</div>'
+    }
+
+    async function openQuickReplySelector() {
+      if (!state.selected || state.currentUser?.role === 'STAFF' && !state.currentUser?.canReplyConversations) return
+      els.quickRepliesSelector.hidden = false
+      els.quickRepliesSelectorList.innerHTML = '<div class="quick-replies-empty">Cargando respuestas...</div>'
+      try {
+        await loadQuickReplies()
+        renderQuickReplySelector()
+      } catch (error) {
+        els.quickRepliesSelectorList.innerHTML = '<div class="quick-replies-empty">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function closeQuickReplySelector() {
+      els.quickRepliesSelector.hidden = true
+    }
+
+    function insertQuickReply(replyId) {
+      const reply = state.quickReplies.find((item) => item.id === replyId && item.isActive)
+      if (!reply || els.replyText.disabled) return
+      const start = Number.isInteger(els.replyText.selectionStart) ? els.replyText.selectionStart : els.replyText.value.length
+      const end = Number.isInteger(els.replyText.selectionEnd) ? els.replyText.selectionEnd : start
+      els.replyText.setRangeText(reply.message, start, end, 'end')
+      closeQuickReplySelector()
+      els.replyText.focus()
+    }
+
+    function resetQuickReplyForm() {
+      state.editingQuickReplyId = null
+      els.quickReplyForm.reset()
+      els.quickReplyActive.checked = true
+      els.quickReplyFeedback.textContent = ''
+      els.quickReplyFeedback.className = 'customer-dialog-feedback'
+      els.quickReplySave.textContent = 'Guardar respuesta'
+      els.quickReplyFormShell.hidden = true
+    }
+
+    function openQuickReplyForm(reply = null) {
+      state.editingQuickReplyId = reply?.id || null
+      els.quickReplyTitle.value = reply?.title || ''
+      els.quickReplyShortcut.value = reply?.shortcut || ''
+      els.quickReplyMessage.value = reply?.message || ''
+      els.quickReplyActive.checked = reply?.isActive !== false
+      els.quickReplyFeedback.textContent = ''
+      els.quickReplyFeedback.className = 'customer-dialog-feedback'
+      els.quickReplySave.textContent = reply ? 'Guardar cambios' : 'Guardar respuesta'
+      els.quickReplyFormShell.hidden = false
+      window.setTimeout(() => els.quickReplyTitle.focus(), 0)
+    }
+
+    function renderQuickReplyAdmin() {
+      els.quickRepliesAdminList.innerHTML = state.quickReplies.length
+        ? state.quickReplies.map((reply, index) => {
+            const toggleLabel = reply.isActive ? 'Desactivar' : 'Activar'
+            return '<article class="quick-reply-row' + (reply.isActive ? '' : ' inactive') + '">' +
+              '<div class="quick-reply-row-copy"><strong>' + escapeHtml(reply.title) + '</strong><code>/' + escapeHtml(reply.shortcut) + '</code><p>' + escapeHtml(reply.message) + '</p></div>' +
+              '<div class="quick-reply-row-actions">' +
+                '<button class="secondary" type="button" data-move-quick-reply="up" data-quick-reply-id="' + reply.id + '"' + (index === 0 ? ' disabled' : '') + ' title="Subir">&uarr;</button>' +
+                '<button class="secondary" type="button" data-move-quick-reply="down" data-quick-reply-id="' + reply.id + '"' + (index === state.quickReplies.length - 1 ? ' disabled' : '') + ' title="Bajar">&darr;</button>' +
+                '<button class="secondary" type="button" data-edit-quick-reply="' + reply.id + '">Editar</button>' +
+                '<button class="secondary" type="button" data-toggle-quick-reply="' + reply.id + '">' + toggleLabel + '</button>' +
+              '</div>' +
+            '</article>'
+          }).join('')
+        : '<div class="quick-replies-empty">No hay respuestas r&aacute;pidas. Cre&aacute; la primera para empezar.</div>'
+    }
+
+    async function openQuickReplyAdmin() {
+      if (!canManageQuickReplies()) return
+      closeQuickReplySelector()
+      resetQuickReplyForm()
+      els.quickRepliesAdmin.hidden = false
+      els.quickRepliesAdminList.innerHTML = '<div class="quick-replies-empty">Cargando respuestas...</div>'
+      try {
+        await loadQuickReplies({ includeInactive: true })
+        renderQuickReplyAdmin()
+      } catch (error) {
+        els.quickRepliesAdminList.innerHTML = '<div class="quick-replies-empty">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function closeQuickReplyAdmin() {
+      resetQuickReplyForm()
+      els.quickRepliesAdmin.hidden = true
+    }
+
+    async function saveQuickReply(event) {
+      event.preventDefault()
+      if (!state.businessId || !canManageQuickReplies()) return
+      const title = els.quickReplyTitle.value.trim()
+      const shortcut = els.quickReplyShortcut.value.trim().replace(/^[/]+/, '').toLocaleLowerCase('es-AR')
+      const message = els.quickReplyMessage.value.trim()
+      if (!title || !shortcut || !message) {
+        els.quickReplyFeedback.textContent = 'Completá nombre, atajo y mensaje.'
+        els.quickReplyFeedback.className = 'customer-dialog-feedback visible error'
+        return
+      }
+      const id = state.editingQuickReplyId
+      els.quickReplySave.disabled = true
+      try {
+        await getJson(id ? '/crm/quick-replies/' + encodeURIComponent(id) : '/crm/quick-replies', {
+          method: id ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, title, shortcut, message, isActive: els.quickReplyActive.checked })
+        })
+        await loadQuickReplies({ includeInactive: true })
+        renderQuickReplyAdmin()
+        resetQuickReplyForm()
+        showCrmToast(id ? 'Respuesta rápida actualizada.' : 'Respuesta rápida creada.', 'success')
+      } catch (error) {
+        els.quickReplyFeedback.textContent = error.message
+        els.quickReplyFeedback.className = 'customer-dialog-feedback visible error'
+      } finally {
+        els.quickReplySave.disabled = false
+      }
+    }
+
+    async function toggleQuickReply(replyId) {
+      const reply = state.quickReplies.find((item) => item.id === replyId)
+      if (!reply) return
+      if (reply.isActive) {
+        const accepted = await requestCrmConfirmation(
+          'La respuesta /' + reply.shortcut + ' dejará de aparecer en el chat. Podrás volver a activarla cuando quieras.',
+          { title: '¿Desactivar respuesta rápida?', confirmLabel: 'Sí, desactivar' }
+        )
+        if (!accepted) return
+      }
+      try {
+        await getJson('/crm/quick-replies/' + encodeURIComponent(reply.id), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, isActive: !reply.isActive })
+        })
+        await loadQuickReplies({ includeInactive: true })
+        renderQuickReplyAdmin()
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      }
+    }
+
+    async function moveQuickReply(replyId, direction) {
+      const index = state.quickReplies.findIndex((reply) => reply.id === replyId)
+      const target = direction === 'up' ? index - 1 : index + 1
+      if (index < 0 || target < 0 || target >= state.quickReplies.length) return
+      const ordered = [...state.quickReplies]
+      ;[ordered[index], ordered[target]] = [ordered[target], ordered[index]]
+      try {
+        state.quickReplies = await getJson('/crm/quick-replies/reorder', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ businessId: state.businessId, ids: ordered.map((reply) => reply.id) })
+        })
+        renderQuickReplyAdmin()
+      } catch (error) {
+        showCrmToast(error.message, 'error')
+      }
+    }
+
     function hasAgendaPermission(permission) {
       if (state.currentUser?.role !== 'STAFF') return true
       return state.currentUser?.[permission] !== false
@@ -20825,6 +21450,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
       if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
+      if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
       if (els.appointmentNoShow) els.appointmentNoShow.disabled = !canCancelAppointments()
       if (els.blockForm) {
         for (const control of els.blockForm.querySelectorAll('input, select, button')) {
@@ -21518,7 +22144,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canReplyConversations: els.staffCanReplyConversations,
         canManageDeposits: els.staffCanManageDeposits,
         canViewOperationalReports: els.staffCanViewReports,
-        canViewFinancialAmounts: els.staffCanViewFinancial
+        canViewFinancialAmounts: els.staffCanViewFinancial,
+        canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments,
+        canViewProducts: els.staffCanViewProducts,
+        canSellProducts: els.staffCanSellProducts,
+        canManageProducts: els.staffCanManageProducts
       }
     }
 
@@ -21621,6 +22251,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canViewConversations) labels.push('Conversaciones')
       if (user.canManageDeposits) labels.push('Señas')
       if (user.canViewOperationalReports) labels.push('Reportes')
+      if (user.canRecordAppointmentPayments) labels.push('Pagos de turnos')
+      if (user.canViewProducts) labels.push('Productos')
+      if (user.canSellProducts) labels.push('Venta de productos')
+      if (user.canManageProducts) labels.push('Administra catálogo')
       return labels.length ? labels : ['Solo consulta']
     }
 
@@ -21975,6 +22609,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.conversationViewCache.clear()
       state.selected = null
       state.messages = []
+      state.quickReplies = []
+      state.quickRepliesLoadedForBusinessId = null
+      state.editingQuickReplyId = null
       state.messageNextCursor = null
       state.conversations = []
       state.deposits = []
@@ -23646,16 +24283,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function fetchConversationAppointments(conversation, options = {}) {
-      if (conversation.channel && conversation.channel !== 'WHATSAPP') return []
-      const params = new URLSearchParams({
-        customerPhone: conversation.phone,
-        from: new Date().toISOString()
-      })
+      const customer = customerForConversation(conversation)
+      const customerPhone = customer?.phone || (
+        !conversation.channel || conversation.channel === 'WHATSAPP' ? conversation.phone : ''
+      )
+      if (!customer && !customerPhone) return []
+      const params = new URLSearchParams({ from: new Date().toISOString() })
+      if (customer) params.set('customerId', customer.id)
+      else params.set('customerPhone', customerPhone)
       if (state.businessId) params.set('businessId', state.businessId)
       const all = await getJson('/appointments?' + params.toString(), { signal: options.signal, requestContext: options.requestContext })
       const now = Date.now()
       return all
-        .filter((appointment) => appointment.customer?.phone === conversation.phone)
+        .filter((appointment) => customer
+          ? appointment.customerId === customer.id
+          : normalizePhone(appointment.customer?.phone) === normalizePhone(customerPhone))
         .filter(isActiveAppointment)
         .filter((appointment) => new Date(appointment.startAt).getTime() >= now)
         .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
@@ -23671,8 +24313,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function fetchConversationCustomerNotes(conversation, options = {}) {
-      if (conversation.channel && conversation.channel !== 'WHATSAPP') return []
-      const customer = customerForPhone(conversation.phone)
+      const customer = customerForConversation(conversation)
       if (!customer) return []
       return getJson('/customers/' + customer.id + '/notes', { signal: options.signal, requestContext: options.requestContext })
     }
@@ -23709,9 +24350,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function openCustomerDialog(mode, explicitCustomer = null) {
-      const customer = explicitCustomer || (state.selected ? customerForPhone(state.selected.phone) : null)
+      const customer = explicitCustomer || (state.selected ? customerForConversation(state.selected) : null)
       if (mode !== 'create' && !customer) {
-        showCrmToast('Primero crea el cliente desde un turno para poder guardar informacion.', 'error')
+        showCrmToast('Primero creá la ficha del cliente desde este chat.', 'error')
         return
       }
 
@@ -23719,6 +24360,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.customerDialogCustomerId = customer?.id || null
       const isNote = mode === 'note'
       const isCreate = mode === 'create'
+      const conversation = isCreate && els.appShell.dataset.section === 'conversations' ? state.selected : null
+      state.customerDialogConversationId = conversation?.id || null
       els.customerDialogTitle.textContent = isNote ? 'Agregar nota' : isCreate ? 'Nuevo cliente' : 'Editar cliente'
       els.customerDialogCopy.textContent = isNote
         ? 'Guarda informacion util para la proxima atencion de ' + customer.name + '.'
@@ -23727,8 +24370,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.customerPhoneField.hidden = isNote
       els.customerEmailField.hidden = isNote
       els.customerNoteField.hidden = !isNote
-      els.customerDialogName.value = customer?.name || ''
-      els.customerDialogPhone.value = isCreate ? '' : customer?.phone || ''
+      const conversationName = conversation?.channel === 'INSTAGRAM'
+        ? conversation.instagramDisplayName || (conversation.instagramUsername ? '@' + conversation.instagramUsername : '')
+        : conversation?.selectedCustomerName || ''
+      els.customerDialogName.value = customer?.name || conversationName
+      els.customerDialogPhone.value = isCreate
+        ? conversation?.channel === 'WHATSAPP' || !conversation?.channel ? conversation?.phone || '' : ''
+        : customer?.phone || ''
       els.customerDialogEmail.value = isCreate ? '' : customer?.email || ''
       els.customerDialogNote.value = ''
       els.customerDialogFeedback.textContent = ''
@@ -23743,6 +24391,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function closeCustomerDialog() {
       els.customerDialog.hidden = true
+      state.customerDialogConversationId = null
       els.customerDialogFeedback.textContent = ''
       els.customerDialogSubmit.disabled = false
     }
@@ -23751,7 +24400,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       event.preventDefault()
       const isNote = state.customerDialogMode === 'note'
       const isCreate = state.customerDialogMode === 'create'
-      const customer = state.customers.find((item) => item.id === state.customerDialogCustomerId) || selectedOverviewCustomer()
+      const customer = isCreate
+        ? null
+        : state.customers.find((item) => item.id === state.customerDialogCustomerId) || selectedOverviewCustomer()
       if (!isCreate && !customer) return
       const value = (isNote ? els.customerDialogNote.value : els.customerDialogName.value).trim()
       if (!value) {
@@ -23761,7 +24412,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       const phone = els.customerDialogPhone.value.trim()
       const email = els.customerDialogEmail.value.trim()
-      if (!isNote && !phone) {
+      const conversationCreate = isCreate && state.customerDialogConversationId
+      const instagramCreate = conversationCreate && state.selected?.channel === 'INSTAGRAM'
+      if (!isNote && !phone && !instagramCreate && !customer?.instagramUserId) {
         els.customerDialogFeedback.textContent = 'El telefono es requerido.'
         return
       }
@@ -23779,16 +24432,26 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.customerDialogFeedback.textContent = ''
       try {
         if (isCreate) {
-          const created = await getJson('/customers', {
+          const created = await getJson(conversationCreate ? '/customers/from-conversation' : '/customers', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: value, phone, email, businessId: state.businessId })
+            body: JSON.stringify({
+              name: value,
+              phone,
+              email,
+              businessId: state.businessId,
+              ...(conversationCreate ? { conversationId: state.customerDialogConversationId } : {})
+            })
           })
           state.customers = await getJson(businessScopedPath('/customers'))
           state.selectedCustomerId = created.id
-          await loadCustomerOverview({ page: 1 })
+          if (els.appShell.dataset.section === 'customers') await loadCustomerOverview({ page: 1 })
+          else {
+            await loadCustomerNotes()
+            renderSelected()
+          }
           renderAppointmentFormOptions()
-          if (created.wasExisting) showCrmToast('Ese teléfono ya pertenecía a ' + created.name + '. Reutilizamos su ficha existente.', 'success')
+          if (created.wasExisting) showCrmToast('La conversación ya estaba vinculada a ' + created.name + '. Reutilizamos su ficha.', 'success')
         } else if (isNote) {
           await getJson('/customers/' + customer.id + '/notes', {
             method: 'POST',
@@ -23803,11 +24466,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: value, phone, email, businessId: state.businessId })
           })
-          state.customers = state.customers.map((item) => item.id === updated.id ? updated : item)
+          state.customers = state.customers.map((item) => item.id === updated.id ? { ...item, ...updated } : item)
           if (els.appShell.dataset.section === 'customers') await loadCustomerOverview()
           else {
             renderSelected()
             renderConversations()
+            await loadAppointments()
           }
         }
         closeCustomerDialog()
@@ -23829,7 +24493,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.replyForm.hidden = false
 
       const name = conversationDisplayName(selected)
-      const customer = customerForPhone(selected.phone)
+      const customer = customerForConversation(selected)
       const avatar = contactInitials(name, selected.phone)
       els.chatAvatar.textContent = avatar
       els.chatPhone.textContent = name
@@ -23902,7 +24566,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         loadConversationMarketingStatus(customer, selected.id)
       }
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
-      els.customerEdit.disabled = !customer
+      configureConversationCustomerActions(customer)
       if (options.loading) {
         els.messages.innerHTML = '<div class="empty">Cargando conversaci&oacute;n...</div>'
       } else {
@@ -23915,10 +24579,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderExternalChannelSelected(selected, options = {}) {
       state.selectedDeposit = null
       const name = conversationDisplayName(selected)
+      const customer = customerForConversation(selected)
+      const channelAddress = selected.channelAddress || (selected.instagramUsername ? '@' + selected.instagramUsername : '')
       const avatar = contactInitials(name, selected.phone)
       els.chatAvatar.textContent = avatar
       els.chatPhone.textContent = name
-      els.chatStatus.textContent = conversationChannelLabel(selected.channel) + ' · ' + selected.phone
+      els.chatStatus.textContent = conversationChannelLabel(selected.channel) + (channelAddress ? ' · ' + channelAddress : '')
       els.stepChip.textContent = conversationChannelLabel(selected.channel)
       els.stepChip.className = 'chip step-progress'
       els.depositApprove.hidden = true
@@ -23929,22 +24595,36 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.replyForm.hidden = false
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
-      els.detailPhone.textContent = selected.phone
-      els.detailPhone.removeAttribute('href')
-      els.detailEmail.hidden = true
-      els.detailWhatsapp.hidden = true
+      els.detailPhone.textContent = customer?.phone || channelAddress || 'Sin teléfono'
+      if (customer?.phone) els.detailPhone.href = 'tel:' + customer.phone
+      else els.detailPhone.removeAttribute('href')
+      els.detailEmail.textContent = customer?.email || ''
+      els.detailEmail.href = customer?.email ? 'mailto:' + customer.email : '#'
+      els.detailEmail.hidden = !customer?.email
+      els.detailWhatsapp.href = customer?.phone ? whatsappAppUrl(customer.phone) : '#'
+      els.detailWhatsapp.hidden = !customer?.phone
       els.detailStep.textContent = conversationChannelLabel(selected.channel)
       els.detailStep.className = 'chip step-progress'
-      els.detailMarketingStatus.textContent = 'Canal ' + conversationChannelLabel(selected.channel)
+      els.detailMarketingStatus.textContent = customer ? 'Cliente vinculado' : 'Sin ficha de cliente'
       els.detailMarketingStatus.className = 'chip'
       els.detailUpdated.textContent = formatDateTime(latestConversationActivityValue(selected))
-      els.customerEdit.disabled = true
+      configureConversationCustomerActions(customer)
       if (options.loading) els.messages.innerHTML = '<div class="empty">Cargando conversaci&oacute;n...</div>'
       else renderMessages(options.messageScroll || {})
       updateComposerAvailability()
-      state.appointments = []
       renderAppointments()
       renderCustomerNotes()
+    }
+
+    function configureConversationCustomerActions(customer) {
+      const canCreate = state.currentUser?.role !== 'STAFF' || state.currentUser?.canCreateCustomers === true
+      const canEdit = state.currentUser?.role !== 'STAFF' || state.currentUser?.canEditCustomers === true
+      const canManageNotes = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerNotes === true
+      els.customerEdit.textContent = customer ? 'Editar' : 'Agregar cliente'
+      els.customerEdit.hidden = customer ? !canEdit : !canCreate
+      els.customerEdit.disabled = customer ? !canEdit : !canCreate
+      els.customerAddNote.hidden = !customer || !canManageNotes
+      els.customerAddNote.disabled = !customer || !canManageNotes
     }
 
     async function loadConversationMarketingStatus(customer, conversationId) {
@@ -24023,8 +24703,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const lacksPermission = state.currentUser?.role === 'STAFF' && !state.currentUser?.canReplyConversations
       const isLocked = lacksPermission || !windowState.canReply
       els.replyForm.classList.toggle('is-locked', isLocked)
-      els.replyText.disabled = isLocked
+      els.replyText.disabled = lacksPermission || !state.selected
       els.sendButton.disabled = isLocked
+      els.quickRepliesTrigger.disabled = lacksPermission || !state.selected
       els.composerWindowNotice.hidden = !isLocked
       els.composerWindowWhatsapp.href = state.selected
         ? whatsappAppUrl(state.selected.phone)
@@ -24036,8 +24717,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       if (isLocked) {
-        els.replyText.value = ''
-        els.replyText.placeholder = lacksPermission ? 'Tu perfil es de solo lectura.' : 'Respuesta deshabilitada: pasaron mas de 24 hs.'
+        if (lacksPermission) els.replyText.value = ''
+        els.replyText.placeholder = lacksPermission ? 'Tu perfil es de solo lectura.' : 'Podés preparar una respuesta, pero no enviarla desde el CRM.'
         els.composerWindowText.textContent = lacksPermission
           ? 'Podés consultar esta conversación, pero tu perfil no permite responderla.'
           : 'Pasaron mas de 24 hs desde el ultimo mensaje del cliente en ' + conversationChannelLabel(state.selected?.channel) + '. Espera que vuelva a escribir para responder desde el CRM.'
@@ -25239,7 +25920,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       els.reportUnconvertedChats.innerHTML = chats.map((conversation) => {
-        const name = conversation.name || customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+        const name = conversation.name || customerForConversation(conversation)?.name || conversation.phone || 'Cliente'
         const preview = conversation.lastMessage || 'Sin mensajes'
         return '<div class="risk-row">' +
           '<div class="risk-main">' +
@@ -27038,7 +27719,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.landingTemplateSelectedThumb.className = 'landing-template-thumb ' + templateId
       els.landingTemplateSelectedName.textContent = definition.name
       els.landingTemplateSelectedDescription.textContent = definition.description
-      els.landingTemplateSelectedPreview.dataset.templatePreview = templateId
+      for (const link of document.querySelectorAll('[data-selected-template-preview]')) {
+        link.dataset.templatePreview = templateId
+      }
       els.landingTemplateContentHelp.textContent = definition.contentHelp
       els.landingTemplateRequirements.replaceChildren(...definition.requirements.map((requirement) => {
         const chip = document.createElement('span')
@@ -27083,7 +27766,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.landingDomainLink.textContent = domainUrl
       els.landingDomainLink.href = domainUrl
       for (const link of document.querySelectorAll('[data-template-preview]')) {
-        link.href = localUrl + '?template=' + encodeURIComponent(link.dataset.templatePreview || 'classic') + '&preview=1'
+        link.href = localUrl + '?template=' + encodeURIComponent(link.dataset.templatePreview || 'classic') + '&preview=' + encodeURIComponent(link.dataset.previewMode || 'current')
         link.removeAttribute('aria-disabled')
       }
     }
@@ -28443,6 +29126,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
       }
 
+      const statusLegend = ${JSON.stringify(agendaStatusLegendHtml)}
       els.agendaLegend.innerHTML = '<strong>Profesionales</strong>' + professionals.map((professional, index) => {
         const color = agendaProfessionalColor(professional.id, index)
         return '<div class="agenda-legend-item">' +
@@ -28450,7 +29134,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<span>' + escapeHtml(professional.name) + '</span>' +
         '</div>'
       }).join('') +
-        '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#64748b"></span><span>No disponible</span></div>'
+        '<div class="agenda-legend-item"><span class="agenda-dot" style="--agenda-color:#64748b"></span><span>No disponible</span></div>' +
+        statusLegend
     }
 
     function appointmentServicesForProfessional(professionalId) {
@@ -28552,6 +29237,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentCustomer.value = ''
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
+        resetAppointmentCustomerTechnicalProfile()
       }
       clearTimeout(state.appointmentCustomerSearchTimer)
       state.appointmentCustomerSearchTimer = setTimeout(() => loadAppointmentCustomerResults(query), 250)
@@ -29069,20 +29755,62 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const depositClass = depositIndicator ? ' has-deposit' : ''
       const depositStyle = depositIndicator ? ';--agenda-deposit-color:' + depositIndicator.color : ''
       const depositTitle = depositIndicator ? ' - ' + depositIndicator.label : ''
+      const statusSummary = ${cashRegisterEnabled ? 'agendaAppointmentStatusSummaryText(appointment)' : "''"}
       const origin = appointmentOriginMeta(appointment.origin)
-      return '<article class="agenda-gcal-event' + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (attention ? ' - ' + attention.label : '')) + '">' +
+      return '<article class="agenda-gcal-event' + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '')) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(service) + '</strong>' +
           '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
+          ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"} +
         '</button>' +
         agendaAttentionBadgeHtml(attention) +
         (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
       '</article>'
     }
 
+    function agendaAppointmentStatusBadgesHtml(appointment) {
+      if (!appointment || ['CANCELLED', 'NO_SHOW'].includes(appointment.status)) return ''
+      const serviceCompleted = appointment.status === 'COMPLETED'
+      const serviceBadge = '<span class="agenda-status-badge agenda-service-status ' + (serviceCompleted ? 'completed' : 'pending') + '" title="' + (serviceCompleted ? 'Servicio realizado' : 'Servicio pendiente') + '">' + (serviceCompleted ? 'Realizado' : 'Pendiente') + '</span>'
+      const financeSummary = appointment.financeSummary
+      if (!financeSummary) return '<span class="agenda-status-row">' + serviceBadge + '</span>'
+
+      const finalAmount = Math.max(0, Number(financeSummary.finalAmount) || 0)
+      const paidAmount = Math.max(0, Number(financeSummary.paidAmount) || 0)
+      const balanceAmount = Math.max(0, Number(financeSummary.balanceAmount) || 0)
+      let paymentBadge
+      if (finalAmount === 0) {
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status free" title="Turno sin cargo">Sin cargo</span>'
+      } else if (balanceAmount === 0 && paidAmount >= finalAmount) {
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status paid" title="Pago completo">Pagado</span>'
+      } else if (paidAmount > 0) {
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status deposit" title="Seña registrada">Se&ntilde;a ' + escapeHtml(formatCurrency(paidAmount)) + '</span>'
+      } else {
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status due" title="Saldo pendiente">Debe ' + escapeHtml(formatCurrency(balanceAmount)) + '</span>'
+      }
+      return '<span class="agenda-status-row">' + serviceBadge + paymentBadge + '</span>'
+    }
+
+    function agendaAppointmentStatusSummaryText(appointment) {
+      if (!appointment || ['CANCELLED', 'NO_SHOW'].includes(appointment.status)) return ''
+      const parts = [appointment.status === 'COMPLETED' ? 'Servicio realizado' : 'Servicio pendiente']
+      const financeSummary = appointment.financeSummary
+      if (!financeSummary) return parts.join(' - ')
+      const finalAmount = Math.max(0, Number(financeSummary.finalAmount) || 0)
+      const paidAmount = Math.max(0, Number(financeSummary.paidAmount) || 0)
+      const balanceAmount = Math.max(0, Number(financeSummary.balanceAmount) || 0)
+      if (finalAmount === 0) parts.push('Sin cargo')
+      else if (balanceAmount === 0 && paidAmount >= finalAmount) parts.push('Pago completo')
+      else if (paidAmount > 0) parts.push('Seña ' + formatCurrency(paidAmount))
+      else parts.push('Debe ' + formatCurrency(balanceAmount))
+      return parts.join(' - ')
+    }
+
     function agendaDepositIndicator(appointment) {
       const status = appointment.bookingDeposit?.status
+      const financeSummary = appointment.financeSummary
+      const paymentAlreadyRepresented = ${cashRegisterEnabled ? 'true' : 'false'} && Number(financeSummary?.paidAmount || 0) > 0
       if (status === 'PENDING_PROOF') {
         return { color: '#dc2626', label: 'Esperando comprobante' }
       }
@@ -29090,9 +29818,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return { color: '#eab308', label: 'Comprobante pendiente del staff' }
       }
       if (status === 'APPROVED') {
-        return { color: '#16a34a', label: 'Comprobante verificado' }
+        return paymentAlreadyRepresented ? null : { color: '#16a34a', label: 'Comprobante verificado' }
       }
       if (appointment.manualDepositPaid === true) {
+        if (paymentAlreadyRepresented) return null
         return {
           color: '#16a34a',
           label: appointment.manualDepositAmount
@@ -29896,7 +30625,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           const origin = appointmentOriginMeta(appointment.origin)
           return '<button class="agenda-mobile-item' + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + '" type="button" data-appointment-id="' + appointment.id + '" style="--agenda-event-color:' + color + '">' +
             '<span class="agenda-mobile-time">' + escapeHtml(formatTimeOnly(start)) + '<small>' + escapeHtml(formatTimeOnly(addMinutes(start, duration))) + '</small></span>' +
-            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointmentServiceLabel(appointment)) + '</strong><span>' + escapeHtml((appointment.customer?.name || 'Cliente') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span></span>' +
+            '<span class="agenda-mobile-copy"><strong>' + escapeHtml(appointmentServiceLabel(appointment)) + '</strong><span>' + escapeHtml((appointment.customer?.name || 'Cliente') + ' · ' + (appointment.professional?.name || 'Profesional')) + '</span>' + ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"} + '</span>' +
             '<span class="agenda-mobile-status">' + appointmentOriginBadgeHtml(origin) + (noShow ? ' Ausente' : '') + '</span>' + agendaAttentionBadgeHtml(attention) +
           '</button>'
         })
@@ -30103,10 +30832,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         event.style.width = 'calc(' + (100 / placement.columns) + '% - ' + widthOffset + 'px)'
         event.style.setProperty('--agenda-event-color', eventColor)
         if (depositIndicator) event.style.setProperty('--agenda-deposit-color', depositIndicator.color)
-        event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (attention ? ' - ' + attention.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
+        const statusSummary = ${cashRegisterEnabled ? 'agendaAppointmentStatusSummaryText(appointment)' : "''"}
+        event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
         event.innerHTML = agendaAttentionBadgeHtml(attention) + '<strong>' + escapeHtml(service) + '</strong>' +
           '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
-          '<span>' + escapeHtml(professional) + '</span>'
+          '<span>' + escapeHtml(professional) + '</span>' +
+          ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"}
         event.dataset.appointmentId = appointment.id
         event.draggable = false
         event.addEventListener('click', (clickEvent) => {
@@ -30621,7 +31352,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
-      els.appointmentNoShow.hidden = !appointment || appointment.status === 'CANCELLED'
+      const canMarkCompleted = Boolean(
+        appointment &&
+        canEditAppointments() &&
+        !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
+        new Date(appointment.startAt).getTime() <= Date.now()
+      )
+      els.appointmentComplete.hidden = !canMarkCompleted
+      els.appointmentNoShow.hidden = !appointment || ['CANCELLED', 'COMPLETED'].includes(appointment.status)
 
       if (appointment) {
         if (appointment.customer && !state.customers.some((customer) => customer.id === appointment.customerId)) {
@@ -30647,7 +31385,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentOriginLabel.textContent = origin.label
         els.appointmentNoShow.textContent = appointment.status === 'NO_SHOW' ? 'Quitar ausente' : 'Marcar ausente'
         els.appointmentNoShow.className = appointment.status === 'NO_SHOW' ? 'secondary' : 'danger'
-        els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW' ? 'Este turno esta marcado como ausente.' : ''
+        els.appointmentFeedback.textContent = appointment.status === 'NO_SHOW'
+          ? 'Este turno está marcado como ausente.'
+          : appointment.status === 'COMPLETED'
+            ? 'Este turno está marcado como realizado.'
+            : ''
       } else {
         const date = input.date || state.agendaSelectedDate || new Date()
         const minute = Number.isFinite(input.minute) ? input.minute : 9 * 60
@@ -30696,14 +31438,117 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentFeedback.textContent = ''
       state.editingAppointmentId = null
       els.appointmentDelete.hidden = true
+      els.appointmentComplete.hidden = true
       els.appointmentNoShow.hidden = true
       closeAppointmentCustomerResults()
+      resetAppointmentCustomerTechnicalProfile()
       updateAppointmentContactActions(null)
       closeAppointmentAttentionMenu()
     }
 
     function editingAgendaAppointment() {
-      return state.agendaAppointments.find((item) => item.id === state.editingAppointmentId) || null
+      return state.agendaAppointments.find((item) => item.id === state.editingAppointmentId) ||
+        state.appointments.find((item) => item.id === state.editingAppointmentId) ||
+        null
+    }
+
+    function canManageAppointmentCustomerTechnicalProfile() {
+      return state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerNotes === true
+    }
+
+    function resetAppointmentCustomerTechnicalProfile() {
+      state.appointmentCustomerTechnicalProfileRequest += 1
+      els.appointmentCustomerTechnicalProfile.hidden = true
+      els.appointmentCustomerTechnicalProfileDisplay.textContent = ''
+      els.appointmentCustomerTechnicalProfileDisplay.classList.remove('is-empty')
+      els.appointmentCustomerTechnicalProfileEdit.hidden = true
+      els.appointmentCustomerTechnicalProfileAdd.hidden = true
+      els.appointmentCustomerTechnicalProfileEditor.hidden = true
+      els.appointmentCustomerTechnicalProfileInput.value = ''
+      els.appointmentCustomerTechnicalProfileFeedback.textContent = ''
+    }
+
+    function renderAppointmentCustomerTechnicalProfile(customer) {
+      const profile = (customer?.technicalProfile || '').trim()
+      const canManage = canManageAppointmentCustomerTechnicalProfile()
+      els.appointmentCustomerTechnicalProfile.hidden = false
+      els.appointmentCustomerTechnicalProfileDisplay.textContent = profile || 'Todavía no hay datos técnicos guardados.'
+      els.appointmentCustomerTechnicalProfileDisplay.classList.toggle('is-empty', !profile)
+      els.appointmentCustomerTechnicalProfileDisplay.hidden = false
+      els.appointmentCustomerTechnicalProfileEdit.hidden = !canManage || !profile
+      els.appointmentCustomerTechnicalProfileAdd.hidden = !canManage || Boolean(profile)
+      els.appointmentCustomerTechnicalProfileEditor.hidden = true
+      els.appointmentCustomerTechnicalProfileFeedback.textContent = ''
+    }
+
+    async function loadAppointmentCustomerTechnicalProfile() {
+      const customerId = els.appointmentCustomer.value
+      resetAppointmentCustomerTechnicalProfile()
+      if (!customerId || !canViewAppointmentCustomerData()) return
+
+      const customer = state.customers.find((item) => item.id === customerId)
+      els.appointmentCustomerTechnicalProfile.hidden = false
+      els.appointmentCustomerTechnicalProfileDisplay.textContent = 'Cargando ficha técnica...'
+      els.appointmentCustomerTechnicalProfileDisplay.classList.add('is-empty')
+      const requestId = ++state.appointmentCustomerTechnicalProfileRequest
+      try {
+        const result = await getJson('/customers/' + customerId + '/technical-profile')
+        if (requestId !== state.appointmentCustomerTechnicalProfileRequest || els.appointmentCustomer.value !== customerId) return
+        if (customer) customer.technicalProfile = result.technicalProfile || ''
+        renderAppointmentCustomerTechnicalProfile(customer || { id: customerId, technicalProfile: result.technicalProfile || '' })
+      } catch (error) {
+        if (requestId !== state.appointmentCustomerTechnicalProfileRequest || els.appointmentCustomer.value !== customerId) return
+        els.appointmentCustomerTechnicalProfileDisplay.textContent = 'No pudimos cargar la ficha técnica.'
+        els.appointmentCustomerTechnicalProfileFeedback.textContent = error.message
+      }
+    }
+
+    function editAppointmentCustomerTechnicalProfile() {
+      if (!canManageAppointmentCustomerTechnicalProfile()) return
+      const customer = state.customers.find((item) => item.id === els.appointmentCustomer.value)
+      if (!customer) return
+      els.appointmentCustomerTechnicalProfileInput.value = customer.technicalProfile || ''
+      els.appointmentCustomerTechnicalProfileDisplay.hidden = true
+      els.appointmentCustomerTechnicalProfileEdit.hidden = true
+      els.appointmentCustomerTechnicalProfileAdd.hidden = true
+      els.appointmentCustomerTechnicalProfileEditor.hidden = false
+      els.appointmentCustomerTechnicalProfileFeedback.textContent = ''
+      els.appointmentCustomerTechnicalProfileInput.focus()
+    }
+
+    function cancelAppointmentCustomerTechnicalProfileEdit() {
+      const customer = state.customers.find((item) => item.id === els.appointmentCustomer.value)
+      if (customer) renderAppointmentCustomerTechnicalProfile(customer)
+      else resetAppointmentCustomerTechnicalProfile()
+    }
+
+    async function saveAppointmentCustomerTechnicalProfile() {
+      const customerId = els.appointmentCustomer.value
+      if (!customerId || !canManageAppointmentCustomerTechnicalProfile()) return
+      const technicalProfile = els.appointmentCustomerTechnicalProfileInput.value.trim()
+      if (technicalProfile.length > 1000) {
+        els.appointmentCustomerTechnicalProfileFeedback.textContent = 'La ficha técnica no puede superar los 1000 caracteres.'
+        return
+      }
+
+      if (!setButtonLoading(els.appointmentCustomerTechnicalProfileSave, true, 'Guardando...')) return
+      els.appointmentCustomerTechnicalProfileFeedback.textContent = ''
+      try {
+        const result = await getJson('/customers/' + customerId + '/technical-profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ technicalProfile })
+        })
+        if (els.appointmentCustomer.value !== customerId) return
+        const customer = state.customers.find((item) => item.id === customerId)
+        if (customer) customer.technicalProfile = result.technicalProfile || ''
+        renderAppointmentCustomerTechnicalProfile(customer || { id: customerId, technicalProfile: result.technicalProfile || '' })
+        showCrmToast('Ficha técnica actualizada.', 'success')
+      } catch (error) {
+        els.appointmentCustomerTechnicalProfileFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.appointmentCustomerTechnicalProfileSave, false)
+      }
     }
 
     function syncAppointmentCustomerFields() {
@@ -30716,6 +31561,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.appointmentCustomerName.value = ''
         els.appointmentCustomerPhone.value = ''
       }
+      loadAppointmentCustomerTechnicalProfile()
       updateAppointmentContactActions(editingAgendaAppointment())
     }
 
@@ -30757,7 +31603,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function applyUpdatedCustomerLocally(updatedCustomer) {
-      const replaceCustomer = (customer) => customer.id === updatedCustomer.id ? updatedCustomer : customer
+      const replaceCustomer = (customer) => customer.id === updatedCustomer.id ? { ...customer, ...updatedCustomer } : customer
       const replaceAppointmentCustomer = (appointment) => appointment.customerId === updatedCustomer.id
         ? { ...appointment, customer: { ...(appointment.customer || {}), ...updatedCustomer } }
         : appointment
@@ -31140,6 +31986,46 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           renderAppointments()
         }
         showCrmToast('No se pudo eliminar el turno. Lo restauramos. ' + error.message, 'error')
+      }
+    }
+
+    async function completeManualAppointment() {
+      const appointmentId = state.editingAppointmentId
+      if (!appointmentId) return
+      if (!canEditAppointments()) {
+        els.appointmentFeedback.textContent = 'No tenés permiso para marcar turnos como realizados.'
+        return
+      }
+      const appointment = editingAgendaAppointment()
+      if (!appointment || appointment.status === 'COMPLETED') return
+      if (new Date(appointment.startAt).getTime() > Date.now()) {
+        els.appointmentFeedback.textContent = 'El turno todavía no comenzó.'
+        return
+      }
+      if (!await requestCrmConfirmation(
+        '¿Querés marcar este turno como realizado?',
+        { title: 'Servicio realizado', confirmLabel: 'Sí, marcar realizado', danger: false }
+      )) return
+
+      if (!setButtonLoading(els.appointmentComplete, true, 'Marcando...')) return
+      try {
+        await getJson('/appointments/' + appointmentId + '/status', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'COMPLETED' })
+        })
+        closeAppointmentDialog()
+        await loadAgenda()
+        if (state.selected) {
+          await loadAppointments()
+          renderAppointments()
+        }
+        if (els.appShell.dataset.section === 'reports') await loadReports()
+        showCrmToast('Turno marcado como realizado.', 'success')
+      } catch (error) {
+        els.appointmentFeedback.textContent = error.message
+      } finally {
+        setButtonLoading(els.appointmentComplete, false)
       }
     }
 
@@ -31576,7 +32462,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function setSettingsView(view) {
       const canSeeAdministration = canSeeSalesAdministration()
-      const requestedView = ['commerce', 'assistant', 'landing', 'staff', 'meta', 'admin'].includes(view) ? view : 'commerce'
+      const requestedView = ['commerce', 'assistant', 'conversations', 'landing', 'staff', 'meta', 'admin'].includes(view) ? view : 'commerce'
       state.settingsView = requestedView === 'admin' && !canSeeAdministration ? 'commerce' : requestedView
       const isAccountAdmin = state.currentUser?.role === 'ACCOUNT_ADMIN'
       for (const button of els.settingsMainTabs.querySelectorAll('[data-settings-view]')) {
@@ -34274,8 +35160,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return state.customers.find((customer) => normalizePhone(customer.phone) === normalized) || null
     }
 
+    function customerForConversation(conversation) {
+      if (!conversation) return null
+      if (conversation.channel === 'INSTAGRAM') {
+        return state.customers.find((customer) => (
+          (customer.channelIdentities || []).some((identity) => (
+            identity.channel === 'INSTAGRAM' && identity.externalUserId === conversation.instagramUserId
+          )) || (
+            customer.instagramUserId && customer.instagramUserId === conversation.instagramUserId
+          )
+        )) || null
+      }
+      return customerForPhone(conversation.phone)
+    }
+
     function conversationDisplayName(conversation) {
-      return conversation.displayName || customerForPhone(conversation.phone)?.name || conversation.phone || 'Cliente'
+      return customerForConversation(conversation)?.name || conversation.displayName || conversation.phone || 'Cliente'
     }
 
     function conversationChannelLabel(channel) {
@@ -34309,15 +35209,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function filteredConversations() {
       const query = els.search.value.trim().toLowerCase()
+      const queryDigits = normalizePhone(query)
       return state.conversations.filter((conversation) => {
         if (state.conversationFilter === 'unread' && !isConversationUnread(conversation)) return false
         if (state.conversationFilter === 'handoff' && !isPendingHandoff(conversation)) return false
         if (!query) return true
 
+        const customer = customerForConversation(conversation)
         const name = conversationDisplayName(conversation).toLowerCase()
         const phone = String(conversation.phone || '').toLowerCase()
+        const phoneDigits = normalizePhone(conversation.phone)
+        const customerName = String(customer?.name || '').toLowerCase()
+        const customerPhone = String(customer?.phone || '').toLowerCase()
+        const customerPhoneDigits = normalizePhone(customer?.phone)
+        const customerEmail = String(customer?.email || '').toLowerCase()
+        const channelAddress = String(conversation.channelAddress || '').toLowerCase()
+        const channelIdentities = (customer?.channelIdentities || []).flatMap((identity) => [
+          identity.username,
+          identity.displayName,
+          identity.externalUserId
+        ]).filter(Boolean).join(' ').toLowerCase()
         const message = String(conversation.messages?.[0]?.body || '').toLowerCase()
-        return name.includes(query) || phone.includes(query) || message.includes(query)
+        return name.includes(query) || phone.includes(query) || message.includes(query) ||
+          customerName.includes(query) || customerPhone.includes(query) || customerEmail.includes(query) ||
+          channelAddress.includes(query) || channelIdentities.includes(query) ||
+          Boolean(queryDigits && (phoneDigits.includes(queryDigits) || customerPhoneDigits.includes(queryDigits)))
       })
     }
 
@@ -34486,6 +35402,39 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
 
     els.replyForm.addEventListener('submit', sendReply)
+    els.quickRepliesTrigger.addEventListener('click', () => {
+      if (els.quickRepliesSelector.hidden) void openQuickReplySelector()
+      else closeQuickReplySelector()
+    })
+    els.quickRepliesSelectorClose.addEventListener('click', closeQuickReplySelector)
+    els.quickRepliesSelectorList.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-insert-quick-reply]')
+      if (button) insertQuickReply(button.dataset.insertQuickReply)
+    })
+    els.quickRepliesManage.addEventListener('click', () => void openQuickReplyAdmin())
+    els.quickRepliesSettingsOpen.addEventListener('click', () => void openQuickReplyAdmin())
+    els.quickRepliesAdminClose.addEventListener('click', closeQuickReplyAdmin)
+    els.quickRepliesAdmin.addEventListener('click', (event) => {
+      if (event.target === els.quickRepliesAdmin) closeQuickReplyAdmin()
+    })
+    els.quickReplyNew.addEventListener('click', () => openQuickReplyForm())
+    els.quickReplyCancel.addEventListener('click', resetQuickReplyForm)
+    els.quickReplyForm.addEventListener('submit', saveQuickReply)
+    els.quickRepliesAdminList.addEventListener('click', (event) => {
+      const edit = event.target.closest('[data-edit-quick-reply]')
+      if (edit) {
+        const reply = state.quickReplies.find((item) => item.id === edit.dataset.editQuickReply)
+        if (reply) openQuickReplyForm(reply)
+        return
+      }
+      const toggle = event.target.closest('[data-toggle-quick-reply]')
+      if (toggle) {
+        void toggleQuickReply(toggle.dataset.toggleQuickReply)
+        return
+      }
+      const move = event.target.closest('[data-move-quick-reply]')
+      if (move) void moveQuickReply(move.dataset.quickReplyId, move.dataset.moveQuickReply)
+    })
     els.replyText.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
       event.preventDefault()
@@ -35303,7 +36252,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         showCrmToast('No tenes permiso para cargar turnos.', 'error')
         return
       }
-      const customer = state.selected ? customerForPhone(state.selected.phone) : null
+      const customer = state.selected ? customerForConversation(state.selected) : null
       openAppointmentDialog()
       if (customer) {
         els.appointmentCustomer.value = customer.id
@@ -35332,7 +36281,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.replyText.focus()
     })
     els.quickHistory.addEventListener('click', () => setSection('agenda'))
-    els.customerEdit.addEventListener('click', () => openCustomerDialog('edit'))
+    els.customerEdit.addEventListener('click', () => {
+      const customer = state.selected ? customerForConversation(state.selected) : null
+      openCustomerDialog(customer ? 'edit' : 'create')
+    })
     els.customerAddNote.addEventListener('click', () => openCustomerDialog('note'))
     els.customerDialogForm.addEventListener('submit', saveCustomerDialog)
     els.customerDialogClose.addEventListener('click', closeCustomerDialog)
@@ -35456,8 +36408,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.appointmentClose.addEventListener('click', closeAppointmentDialog)
     els.appointmentCancel.addEventListener('click', closeAppointmentDialog)
     els.appointmentDelete.addEventListener('click', deleteManualAppointment)
+    els.appointmentComplete.addEventListener('click', completeManualAppointment)
     els.appointmentNoShow.addEventListener('click', toggleManualAppointmentNoShow)
     els.appointmentCustomer.addEventListener('change', syncAppointmentCustomerFields)
+    els.appointmentCustomerTechnicalProfileEdit.addEventListener('click', editAppointmentCustomerTechnicalProfile)
+    els.appointmentCustomerTechnicalProfileAdd.addEventListener('click', editAppointmentCustomerTechnicalProfile)
+    els.appointmentCustomerTechnicalProfileCancel.addEventListener('click', cancelAppointmentCustomerTechnicalProfileEdit)
+    els.appointmentCustomerTechnicalProfileSave.addEventListener('click', saveAppointmentCustomerTechnicalProfile)
     els.appointmentCustomerSearch.addEventListener('input', scheduleAppointmentCustomerSearch)
     els.appointmentCustomerSearch.addEventListener('focus', () => {
       if (!els.appointmentCustomer.value) loadAppointmentCustomerResults(els.appointmentCustomerSearch.value.trim())

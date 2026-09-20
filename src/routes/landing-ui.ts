@@ -12,7 +12,39 @@ import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../servi
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
-const landingAssetNames = new Set(['barber-hero-interior.png', 'barber-hero-service.png'])
+const landingAssetNames = new Set([
+  'barber-gallery-tools.png',
+  'barber-hero-interior.png',
+  'barber-hero-service.png',
+  'barber-professional-facu.png',
+  'barber-professional-matias.png',
+  'barber-professional-nico.png',
+  'barber-service-beard.png',
+  'barber-service-fade.png',
+  'luxe-nails-gallery-1.png',
+  'luxe-nails-gallery-2.png',
+  'luxe-nails-gallery-3.png',
+  'luxe-nails-gallery-4.png',
+  'luxe-nails-gallery-5.png',
+  'luxe-nails-hero.png',
+  'luxe-nails-service-kapping.png',
+  'luxe-nails-service-manicure.png',
+  'luxe-nails-service-nail-art.png',
+  'luxe-nails-service-semipermanent.png',
+  'salon-white-gallery-1.png',
+  'salon-white-gallery-2.png',
+  'salon-white-gallery-3.png',
+  'salon-white-gallery-4.png',
+  'salon-white-gallery-5.png',
+  'salon-white-gallery-6.png',
+  'salon-white-hero.png',
+  'salon-white-professional-camila.png',
+  'salon-white-professional-sofia.png',
+  'salon-white-professional-valentina.png',
+  'salon-white-service-color.png',
+  'salon-white-service-cut.png',
+  'salon-white-service-style.png'
+])
 const landingAssetsDir = join(process.cwd(), 'src', 'assets', 'landing')
 const weexHomePath = join(process.cwd(), 'src', 'assets', 'weex-home', 'index.html')
 
@@ -28,11 +60,12 @@ export async function landingUiRoutes(app: FastifyInstance) {
 
   app.get('/', async (request, reply) => {
     const business = await findPublicBusinessFromHost(request)
+    const modelPreview = isLandingDemoPreview(request)
     if (!business) return serveWeexHome(reply)
     if (isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
-    if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
+    if (!business.landingEnabled && !modelPreview) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), isLandingDemoPreview(request)))
+    return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), modelPreview))
   })
 
   app.get('/privacidad', async (_request, reply) => {
@@ -74,10 +107,11 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const slug = normalizeBusinessSlug(params.slug)
     const business = await businessService.findPublicBySlug(slug)
+    const modelPreview = isLandingDemoPreview(request)
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
-    if (!business || !business.landingEnabled) return reply.status(404).type('text/html').send(renderNotFound())
+    if (!business || (!business.landingEnabled && !modelPreview)) return reply.status(404).type('text/html').send(renderNotFound())
 
-    return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), isLandingDemoPreview(request)))
+    return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), modelPreview))
   })
 
   app.get('/:slug/reservar', async (request, reply) => {
@@ -184,7 +218,7 @@ function previewLandingTemplate(request: FastifyRequest) {
 
 function isLandingDemoPreview(request: FastifyRequest) {
   const query = request.query as { preview?: string }
-  return query.preview === '1'
+  return query.preview === 'model' || query.preview === '1'
 }
 
 function isLocalDemoPreview(request: FastifyRequest, business: { isDemo: boolean }) {
@@ -195,7 +229,7 @@ function isLocalDemoPreview(request: FastifyRequest, business: { isDemo: boolean
 
 function appendDemoPreview(url: string, demoPreview: boolean) {
   if (!demoPreview) return url
-  return `${url}${url.includes('?') ? '&' : '?'}preview=1`
+  return '#plantilla-modelo'
 }
 
 function normalizeLandingTemplate(value?: string | null) {
@@ -240,37 +274,180 @@ function renderClassicBrandIcon(iconName: string, className: 'brand-icon' | 'foo
 type PublicBusiness = Awaited<ReturnType<BusinessService['findPublicBySlug']>>
 type LandingBusiness = NonNullable<PublicBusiness>
 
-const landingPreviewImageUrls = [
-  'https://images.unsplash.com/photo-1519014816548-bf5fe059798b?w=900&h=700&fit=crop&q=82&auto=format',
-  'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?w=900&h=700&fit=crop&q=82&auto=format',
-  'https://images.unsplash.com/photo-1604902396830-aca29e19b067?w=900&h=700&fit=crop&q=82&auto=format',
-  'https://images.unsplash.com/photo-1571290274554-6a2eaa771e5f?w=900&h=700&fit=crop&q=82&auto=format',
-  'https://images.unsplash.com/photo-1632345031435-8727f6897d53?w=900&h=700&fit=crop&q=82&auto=format'
-]
+const landingModelMedia = {
+  classic: {
+    cover: '/landing-assets/barber-hero-service.png',
+    services: ['/landing-assets/barber-service-fade.png', '/landing-assets/barber-service-beard.png', '/landing-assets/barber-hero-service.png'],
+    professionals: ['/landing-assets/barber-professional-matias.png', '/landing-assets/barber-professional-nico.png', '/landing-assets/barber-professional-facu.png'],
+    gallery: ['/landing-assets/barber-hero-interior.png', '/landing-assets/barber-gallery-tools.png', '/landing-assets/barber-service-fade.png', '/landing-assets/barber-service-beard.png', '/landing-assets/barber-hero-service.png']
+  },
+  editorial: {
+    cover: '/landing-assets/barber-hero-interior.png',
+    services: ['/landing-assets/barber-service-fade.png', '/landing-assets/barber-service-beard.png', '/landing-assets/barber-hero-service.png'],
+    professionals: ['/landing-assets/barber-professional-matias.png', '/landing-assets/barber-professional-nico.png', '/landing-assets/barber-professional-facu.png'],
+    gallery: ['/landing-assets/barber-hero-interior.png', '/landing-assets/barber-gallery-tools.png', '/landing-assets/barber-service-fade.png', '/landing-assets/barber-service-beard.png', '/landing-assets/barber-hero-service.png']
+  },
+  'salon-white': {
+    cover: '/landing-assets/salon-white-hero.png',
+    services: ['/landing-assets/salon-white-service-color.png', '/landing-assets/salon-white-service-cut.png', '/landing-assets/salon-white-service-style.png'],
+    professionals: ['/landing-assets/salon-white-professional-sofia.png', '/landing-assets/salon-white-professional-camila.png', '/landing-assets/salon-white-professional-valentina.png'],
+    gallery: Array.from({ length: 6 }, (_, index) => `/landing-assets/salon-white-gallery-${index + 1}.png`)
+  },
+  'luxe-nails': {
+    cover: '/landing-assets/luxe-nails-hero.png',
+    services: ['/landing-assets/luxe-nails-service-manicure.png', '/landing-assets/luxe-nails-service-kapping.png', '/landing-assets/luxe-nails-service-nail-art.png', '/landing-assets/luxe-nails-service-semipermanent.png'],
+    professionals: ['/landing-assets/luxe-nails-service-manicure.png', '/landing-assets/luxe-nails-service-nail-art.png', '/landing-assets/luxe-nails-service-semipermanent.png'],
+    gallery: Array.from({ length: 5 }, (_, index) => `/landing-assets/luxe-nails-gallery-${index + 1}.png`)
+  }
+} as const
+
+const landingModelIdentity = {
+  classic: {
+    name: 'Casa Barber',
+    coverImageUrl: landingModelMedia.classic.cover
+  },
+  editorial: {
+    name: 'Atelier Belleza',
+    coverImageUrl: landingModelMedia.editorial.cover
+  },
+  'salon-white': {
+    name: 'Studio Aura',
+    coverImageUrl: landingModelMedia['salon-white'].cover
+  },
+  'luxe-nails': {
+    name: 'Luxe Nails',
+    coverImageUrl: landingModelMedia['luxe-nails'].cover
+  }
+} as const
+
+function landingBusinessForModel(business: LandingBusiness, templateId: string): LandingBusiness {
+  const normalizedTemplate = normalizeLandingTemplate(templateId)
+  const modelIdentity = landingModelIdentity[normalizedTemplate]
+  const businessHours = [1, 2, 3, 4, 5].map((dayOfWeek, index) => ({
+    id: `preview-hours-${index}`,
+    businessId: business.id,
+    dayOfWeek,
+    startTime: '09:00',
+    endTime: '19:00'
+  })) as LandingBusiness['businessHours']
+
+  return {
+    ...business,
+    name: modelIdentity.name,
+    landingTemplate: normalizedTemplate,
+    landingSubtitle: null,
+    landingFeature: null,
+    landingOpeningYear: null,
+    landingDescription: null,
+    landingTemplateContent: {},
+    coverImageUrl: modelIdentity.coverImageUrl,
+    landingSocialImageUrl: null,
+    landingGalleryImages: null,
+    publicWhatsapp: null,
+    publicAddress: 'Av. Ejemplo 123',
+    publicAddressArea: 'Buenos Aires',
+    publicMapsUrl: null,
+    contactEmail: 'hola@estudiomodelo.com',
+    instagramUrl: null,
+    facebookUrl: null,
+    tiktokUrl: null,
+    whatsappConfig: null,
+    services: [],
+    professionals: [],
+    businessHours
+  }
+}
 
 function landingServicesForPreview(business: LandingBusiness, enabled: boolean) {
-  if (!enabled || business.services.length) return business.services
-  return [
-    { id: 'preview-service-1', name: 'Manicuría completa', description: 'Preparación, cuidado y esmaltado.', durationMinutes: 60, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 28000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[0] },
-    { id: 'preview-service-2', name: 'Kapping gel', description: 'Refuerzo y terminación natural.', durationMinutes: 75, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 35000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[1] },
-    { id: 'preview-service-3', name: 'Nail art', description: 'Diseño personalizado por uña.', durationMinutes: 90, customerDurationMin: null, customerDurationMax: null, category: 'Diseño', price: 42000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[2] },
-    { id: 'preview-service-4', name: 'Esmaltado semipermanente', description: 'Color y brillo de larga duración.', durationMinutes: 60, customerDurationMin: null, customerDurationMax: null, category: 'Manos', price: 30000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[3] },
-    { id: 'preview-service-5', name: 'Soft gel', description: 'Extensión liviana y resistente.', durationMinutes: 100, customerDurationMin: null, customerDurationMax: null, category: 'Extensiones', price: 48000, priceMode: 'STARTING_AT', imageUrl: landingPreviewImageUrls[4] },
-    { id: 'preview-service-6', name: 'Belleza de pies', description: 'Cuidado completo y esmaltado.', durationMinutes: 70, customerDurationMin: null, customerDurationMax: null, category: 'Pies', price: 34000, priceMode: 'FIXED', imageUrl: landingPreviewImageUrls[0] }
-  ] as unknown as LandingBusiness['services']
+  if (!enabled) return business.services
+  const template = normalizeLandingTemplate(business.landingTemplate)
+  const images = landingModelMedia[template].services
+  const catalogs = {
+    classic: [
+      ['Corte clásico', 'Corte a tijera y máquina con terminación personalizada.', 45, 16000],
+      ['Corte + barba', 'Perfilado, afeitado y cuidado integral.', 60, 20000],
+      ['Corte + lavado', 'Corte completo con lavado y peinado.', 60, 18000],
+      ['Perfilado de barba', 'Diseño de contornos y terminación con navaja.', 30, 12000]
+    ],
+    editorial: [
+      ['Corte clásico', 'Corte a tijera y máquina con terminación personalizada.', 45, 16000],
+      ['Corte + barba', 'Perfilado, afeitado y cuidado integral.', 60, 20000],
+      ['Corte + lavado', 'Corte completo con lavado y peinado.', 60, 18000],
+      ['Perfilado de barba', 'Diseño de contornos y terminación con navaja.', 30, 12000]
+    ],
+    'salon-white': [
+      ['Corte y color', 'Diagnóstico, coloración y terminación profesional.', 90, 42000],
+      ['Corte personalizado', 'Diseño pensado para tu estilo y tipo de cabello.', 60, 28000],
+      ['Peinado y brushing', 'Movimiento, brillo y acabado duradero.', 45, 24000],
+      ['Nutrición profunda', 'Tratamiento intensivo para recuperar suavidad y brillo.', 60, 30000],
+      ['Balayage', 'Iluminación artesanal con efecto natural.', 150, 65000],
+      ['Tratamiento de brillo', 'Sellado y luminosidad para todo tipo de cabello.', 50, 26000]
+    ],
+    'luxe-nails': [
+      ['Manicuría completa', 'Preparación, cuidado y esmaltado.', 60, 28000],
+      ['Kapping gel', 'Refuerzo y terminación natural.', 75, 35000],
+      ['Nail art', 'Diseño personalizado por uña.', 90, 42000],
+      ['Esmaltado semipermanente', 'Color y brillo de larga duración.', 60, 30000],
+      ['Soft gel', 'Extensión liviana y resistente.', 100, 48000],
+      ['Belleza de pies', 'Cuidado completo y esmaltado.', 70, 34000]
+    ]
+  } as const
+
+  return catalogs[template].map(([name, description, duration, price], index) => ({
+    id: `preview-service-${index + 1}`,
+    name,
+    description,
+    duration,
+    customerDurationMin: null,
+    customerDurationMax: null,
+    category: null,
+    price,
+    priceMode: index % 2 ? 'STARTING_AT' : 'FIXED',
+    imageUrl: images[index % images.length]
+  })) as unknown as LandingBusiness['services']
 }
 
 function landingProfessionalsForPreview(business: LandingBusiness, enabled: boolean) {
-  if (!enabled || business.professionals.length) return business.professionals
-  return [
-    { id: 'preview-professional-1', name: 'Sofía', description: 'Especialista en manicuría y diseños delicados.', avatarUrl: landingPreviewImageUrls[1] },
-    { id: 'preview-professional-2', name: 'Camila', description: 'Especialista en soft gel y nail art.', avatarUrl: landingPreviewImageUrls[2] },
-    { id: 'preview-professional-3', name: 'Valentina', description: 'Especialista en cuidado integral de manos.', avatarUrl: landingPreviewImageUrls[3] }
-  ] as unknown as LandingBusiness['professionals']
+  if (!enabled) return business.professionals
+  const template = normalizeLandingTemplate(business.landingTemplate)
+  const images = landingModelMedia[template].professionals
+  const teams = template === 'classic' || template === 'editorial'
+    ? [
+        ['Matías', 'Especialista en cortes clásicos y degradados.'],
+        ['Nico', 'Especialista en textura y estilo moderno.'],
+        ['Facu', 'Especialista en barba y afeitado al ras.']
+      ]
+    : template === 'salon-white'
+      ? [
+          ['Sofía', 'Colorista y especialista en iluminación.'],
+          ['Camila', 'Especialista en corte y cuidado capilar.'],
+          ['Valentina', 'Estilista y especialista en peinados.']
+        ]
+      : [
+          ['Sofía', 'Especialista en manicuría y diseños delicados.'],
+          ['Camila', 'Especialista en soft gel y nail art.'],
+          ['Valentina', 'Especialista en cuidado integral de manos.']
+        ]
+  return teams.map(([name, description], index) => ({ id: `preview-professional-${index + 1}`, name, description, avatarUrl: images[index] })) as unknown as LandingBusiness['professionals']
 }
 
-function landingGalleryForPreview(configured: string[], enabled: boolean) {
-  return enabled && !configured.length ? landingPreviewImageUrls : configured
+function landingGalleryForPreview(business: LandingBusiness, configured: string[], enabled: boolean) {
+  return enabled ? [...landingModelMedia[normalizeLandingTemplate(business.landingTemplate)].gallery] : configured
+}
+
+function renderModelPreviewBanner(enabled: boolean) {
+  if (!enabled) return ''
+  return `
+    <style>
+      .landing-model-banner { position:sticky; top:0; z-index:1000; padding:10px clamp(16px,4vw,44px); display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 14px; color:#fff; background:#173b72; box-shadow:0 6px 22px rgba(15,23,42,.18); font:600 13px/1.4 "Segoe UI",Arial,sans-serif; text-align:center; }
+      .landing-model-banner strong { font-size:14px; }
+      .landing-model-banner span { opacity:.88; }
+    </style>
+    <aside class="landing-model-banner" id="plantilla-modelo" role="status">
+      <strong>Plantilla modelo</strong>
+      <span>Contenido de ejemplo. No genera reservas reales.</span>
+    </aside>
+  `
 }
 
 function renderWeexRegistration() {
@@ -449,6 +626,7 @@ function renderWeexRegistration() {
 
 export function renderLanding(business: LandingBusiness, basePath = '', templateOverride?: string, demoPreview = false) {
   const landingTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
+  business = demoPreview ? landingBusinessForModel(business, landingTemplate) : business
   if (landingTemplate === 'salon-white') {
     return renderSalonWhiteLanding(business, basePath, demoPreview)
   }
@@ -468,7 +646,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
   const openingLabel = business.landingOpeningYear ? `Desde ${business.landingOpeningYear}` : ''
   const services = business.services
   const professionals = landingProfessionalsForPreview(business, demoPreview).slice(0, 4)
-  const galleryImages = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
+  const galleryImages = landingGalleryForPreview(business, parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
   const visibleServices = demoPreview ? landingServicesForPreview(business, true) : services
   const carouselServices = [...visibleServices, ...visibleServices]
   const visibleProfessionals = professionals.slice(0, 3)
@@ -476,7 +654,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
   const serviceCarouselItems = Math.max(visibleServices.length, 1)
   const professionalCarouselItems = Math.max(visibleProfessionals.length, 1)
   const bookingUrl = appendDemoPreview(`${basePath}/reservar`, demoPreview)
-  const accountUrl = `${basePath}/cuenta`
+  const accountUrl = demoPreview ? '#plantilla-modelo' : `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
   const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
@@ -494,6 +672,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
     socialPreview: landingSocialPreview(business, description),
     bodyClass: `landing-template-${landingTemplate}`,
     body: `
+      ${renderModelPreviewBanner(demoPreview)}
       <header class="navbar">
         <div class="wrap">
           <a class="brand" href="${escapeAttribute(basePath || '/')}">
@@ -773,7 +952,7 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPr
     'https://images.unsplash.com/photo-1720343409646-960f6dcccae3?w=600&h=600&fit=crop&q=80&auto=format',
     'https://images.unsplash.com/photo-1587729927069-ef3b7a5ab9b4?w=600&h=600&fit=crop&q=80&auto=format'
   ]
-  const configuredGallery = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
+  const configuredGallery = landingGalleryForPreview(business, parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
   const galleryImages = configuredGallery.length ? configuredGallery.slice(0, 5) : galleryDefaults
   const services = business.services
   const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
@@ -788,6 +967,7 @@ function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPr
     socialPreview: landingSocialPreview(business, description),
     bodyClass: 'landing-template-luxe-nails',
     body: `
+      ${renderModelPreviewBanner(demoPreview)}
       <style>
         .luxe-page { --lx-ink:#0e0d0c; --lx-soft:#1a1816; --lx-cream:#f4ece6; --lx-cream-2:#efe3db; --lx-rose:#c98a9a; --lx-deep:#b56d80; --lx-pale:#e7c9d0; --lx-muted:#c9bdb6; min-height:100vh; color:var(--lx-ink); background:var(--lx-cream); font-family:"Segoe UI",Arial,sans-serif; }
         .luxe-page * { box-sizing:border-box; }
@@ -999,9 +1179,9 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
   const services = business.services
   const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
   const professionals = landingProfessionalsForPreview(business, demoPreview)
-  const galleryImages = landingGalleryForPreview(parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
+  const galleryImages = landingGalleryForPreview(business, parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
   const bookingUrl = appendDemoPreview(`${basePath}/reservar?template=salon-white`, demoPreview)
-  const accountUrl = `${basePath}/cuenta`
+  const accountUrl = demoPreview ? '#plantilla-modelo' : `${basePath}/cuenta`
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
   const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
@@ -1015,6 +1195,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
     socialPreview: landingSocialPreview(business, description),
     bodyClass: 'landing-template-salon-white',
     body: `
+      ${renderModelPreviewBanner(demoPreview)}
       <style>
         .salon-white-page {
           --sw-white: #fff;
@@ -1094,10 +1275,10 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
         .sw-section-head .sw-underline { margin: 16px auto 0; }
         .sw-section-head p { margin-top: 14px; font-size: 15px; }
         .sw-services,
-        .sw-team { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; }
-        .sw-testimonials { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+        .sw-team { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+        .sw-testimonials { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
         .sw-service-card,
-        .sw-team-card { width: calc((100% - 48px) / 3); min-width: 0; }
+        .sw-team-card { min-width: 0; }
         .sw-services:not(.is-expanded) .sw-service-extra { display: none; }
         .sw-service-card { overflow: hidden; background: #fff; border: 1px solid var(--sw-line); border-radius: 16px; }
         .sw-services-toggle { min-width: 150px; margin: 32px auto 0; display: flex; cursor: pointer; }
@@ -1123,7 +1304,7 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
         .sw-testimonial-name { font-size: 14px; font-weight: 500; }
         .sw-testimonial-stars { color: var(--sw-blush-dark); font-size: 12px; }
         .sw-testimonial p { color: var(--sw-ink); font-size: 14px; line-height: 1.6; }
-        .sw-gallery { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 150px; gap: 14px; }
+        .sw-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: 150px; gap: 14px; }
         .sw-gallery button { grid-row: span 2; padding: 0; overflow: hidden; border: 0; border-radius: 14px; cursor: zoom-in; }
         .sw-gallery button:nth-child(2),
         .sw-gallery button:nth-child(5) { grid-row: span 1; }
@@ -1157,8 +1338,8 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
           .sw-hero h1 { font-size: 40px; }
           .sw-hero-photo { min-height: 560px; }
           .sw-section { padding: 64px 24px; }
-          .sw-service-card,
-          .sw-team-card { width: 100%; }
+          .sw-services,
+          .sw-team,
           .sw-testimonials { grid-template-columns: 1fr; }
           .sw-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
           .sw-contact { padding: 64px 24px; grid-template-columns: 1fr; }
@@ -7524,6 +7705,7 @@ function serviceImageUrl(value?: string | null) {
   if (!imageUrl) return null
   if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(imageUrl)) return imageUrl
   if (/^https?:\/\//i.test(imageUrl)) return imageUrl
+  if (/^\/landing-assets\/[a-z0-9-]+\.png$/i.test(imageUrl)) return imageUrl
   return null
 }
 
@@ -7744,7 +7926,8 @@ function renderLandingLightboxScript() {
 
 function professionalAvatarUrl(value?: string | null) {
   const avatarUrl = value?.trim()
-  if (!avatarUrl || avatarUrl.startsWith('/landing-assets/')) return null
+  if (!avatarUrl) return null
+  if (/^\/landing-assets\/[a-z0-9-]+\.png$/i.test(avatarUrl)) return avatarUrl
   if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(avatarUrl)) return avatarUrl
   if (/^https?:\/\//i.test(avatarUrl)) return avatarUrl
   return null

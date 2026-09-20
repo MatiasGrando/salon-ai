@@ -33,15 +33,21 @@ export async function listChannelConversations(input: {
   take?: number
   since?: Date | null
   search?: string | null
+  linkedInstagramUserIds?: string[]
   client?: PrismaLike
 }) {
   const client = input.client ?? prisma as unknown as PrismaLike
   const take = Math.min(Math.max(input.take ?? 30, 1), 100)
   const search = input.search?.trim()
-  const leads = await client.instagramLead.findMany({
+  const baseWhere = {
+    businessId: input.businessId,
+    ...(input.since ? { updatedAt: { gt: input.since } } : {})
+  }
+  const linkedInstagramUserIds = [...new Set(input.linkedInstagramUserIds || [])]
+  const include = { messages: { orderBy: { createdAt: 'desc' }, take: 1 } }
+  const directSearch = client.instagramLead.findMany({
     where: {
-      businessId: input.businessId,
-      ...(input.since ? { updatedAt: { gt: input.since } } : {}),
+      ...baseWhere,
       ...(search ? {
         OR: [
           { username: { contains: search, mode: 'insensitive' } },
@@ -50,11 +56,75 @@ export async function listChannelConversations(input: {
         ]
       } : {})
     },
-    include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    include,
     orderBy: { updatedAt: 'desc' },
     take
   })
-  return leads.map(projectInstagramConversation)
+  const linkedSearch = linkedInstagramUserIds.length
+    ? client.instagramLead.findMany({
+        where: {
+          ...baseWhere,
+          instagramUserId: { in: linkedInstagramUserIds }
+        },
+        include,
+        orderBy: { updatedAt: 'desc' }
+      })
+    : Promise.resolve([])
+  const [directLeads, linkedLeads] = await Promise.all([directSearch, linkedSearch])
+  const leadsById = new Map<string, any>()
+  for (const lead of [...directLeads, ...linkedLeads]) leadsById.set(lead.id, lead)
+  return [...leadsById.values()]
+    .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+    .map(projectInstagramConversation)
+}
+
+export async function resolveLinkedCustomerConversationSearch(input: {
+  businessId: string
+  search?: string | null
+  client?: PrismaLike
+}) {
+  const search = input.search?.trim()
+  if (!search) return { whatsappPhones: [], instagramUserIds: [] }
+  const client = input.client ?? prisma as unknown as PrismaLike
+  const digits = search.replace(/\D/g, '')
+  const customers = await client.customer.findMany({
+    where: {
+      businessId: input.businessId,
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: digits || search } },
+        ...(digits ? [{ normalizedPhone: { contains: digits } }] : []),
+        {
+          channelIdentities: {
+            some: {
+              OR: [
+                { username: { contains: search.replace(/^@/, ''), mode: 'insensitive' } },
+                { displayName: { contains: search, mode: 'insensitive' } }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    select: {
+      phone: true,
+      normalizedPhone: true,
+      channelIdentities: {
+        where: { channel: 'INSTAGRAM' },
+        select: { externalUserId: true }
+      }
+    }
+  })
+  return {
+    whatsappPhones: [...new Set(customers.flatMap((customer: any) => [
+      customer.normalizedPhone,
+      customer.phone
+    ]).filter(Boolean))] as string[],
+    instagramUserIds: [...new Set(customers.flatMap((customer: any) => (
+      customer.channelIdentities || []
+    ).map((identity: any) => identity.externalUserId).filter(Boolean)))] as string[]
+  }
 }
 
 export async function countChannelConversations(businessId: string, client: PrismaLike = prisma as unknown as PrismaLike) {
@@ -188,7 +258,11 @@ function projectInstagramConversation(lead: any) {
     businessId: lead.businessId,
     channel: 'INSTAGRAM' as const,
     displayName: label,
-    phone: lead.username ? `@${lead.username.replace(/^@/, '')}` : lead.instagramUserId,
+    instagramDisplayName: lead.displayName || null,
+    phone: '',
+    channelAddress: lead.username ? `@${lead.username.replace(/^@/, '')}` : label,
+    instagramUserId: lead.instagramUserId,
+    instagramUsername: lead.username?.replace(/^@/, '') || null,
     currentStep: 'START',
     aiEnabled: true,
     lastMessage: lead.lastMessage,

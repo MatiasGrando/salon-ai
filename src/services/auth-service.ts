@@ -39,6 +39,9 @@ export type AuthUser = {
   canManageCashOperations: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
+  canViewProducts?: boolean
+  canManageProducts?: boolean
+  canSellProducts?: boolean
   canCreateBusinesses: boolean
   businessAccountStatus: 'ONBOARDING' | 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null
 }
@@ -97,7 +100,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
   }
   const cashUser = session.user as typeof session.user & Pick<AuthUser,
     'canViewCashRegister' | 'canRecordAppointmentPayments' | 'canApplyDiscounts'
-    | 'canManageCashOperations' | 'canAdjustCash' | 'canManageCashSessions'>
+    | 'canManageCashOperations' | 'canAdjustCash' | 'canManageCashSessions'
+    | 'canViewProducts' | 'canManageProducts' | 'canSellProducts'>
 
   return {
     user: {
@@ -131,6 +135,9 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canManageCashOperations: cashUser.canManageCashOperations,
       canAdjustCash: cashUser.canAdjustCash,
       canManageCashSessions: cashUser.canManageCashSessions,
+      canViewProducts: cashUser.canViewProducts ?? false,
+      canManageProducts: cashUser.canManageProducts ?? false,
+      canSellProducts: cashUser.canSellProducts ?? false,
       canCreateBusinesses: session.user.role === 'SUPER_ADMIN' || session.user.canCreateBusinesses,
       businessAccountStatus: session.user.business?.accountStatus ?? null
     }

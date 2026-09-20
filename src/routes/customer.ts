@@ -19,6 +19,10 @@ import {
 } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { acquireAppointmentWriteHierarchy } from '../services/agenda-locks.js'
+import {
+  createOrLinkCustomerFromConversation,
+  ConversationCustomerLinkError
+} from '../services/conversation-customer-link-service.js'
 
 class CustomerAuthorizationStateConflictError extends Error {}
 
@@ -414,6 +418,48 @@ export async function customerRoutes(app: FastifyInstance) {
     }
   })
 
+  app.post('/customers/from-conversation', async (request, reply) => {
+    const body = request.body as {
+      conversationId?: string
+      businessId?: string
+      name?: string
+      phone?: string
+      email?: string | null
+    }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const businessId = body.businessId?.trim() || authUser.businessId?.trim()
+    if (!businessId || !body.conversationId?.trim()) {
+      return reply.status(400).send({ message: 'La conversación y el comercio son requeridos' })
+    }
+    if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
+
+    try {
+      const result = await createOrLinkCustomerFromConversation({
+        conversationId: body.conversationId,
+        businessId,
+        requestedName: body.name,
+        requestedPhone: body.phone,
+        email: body.email,
+        user: authUser,
+        client: prisma
+      })
+      return { ...result.customer, wasExisting: result.wasExisting, nameConflict: result.nameConflict }
+    } catch (error) {
+      if (error instanceof ConversationCustomerLinkError) {
+        return error.code === 'NOT_FOUND'
+          ? sendAuthorizationFailure(reply, 'notFound')
+          : reply.status(400).send({ message: error.message })
+      }
+      if (error instanceof CustomerPhoneValidationError || error instanceof CustomerEmailValidationError) {
+        return reply.status(400).send({ message: error.message })
+      }
+      throw error
+    }
+  })
+
   app.get('/customers', async (request, reply) => {
     const query = request.query as {
       businessId?: string
@@ -425,7 +471,10 @@ export async function customerRoutes(app: FastifyInstance) {
     if (!await loadAuthorizedBusiness(prisma, authUser, businessId)) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
-    const customers = await prisma.customer.findMany({ where: { businessId } })
+    const customers = await prisma.customer.findMany({
+      where: { businessId },
+      include: { channelIdentities: true }
+    })
     return customers.map((customer) => ({
       ...customer,
       isProvisional: !customerHasContactIdentity(customer.phone)
@@ -549,6 +598,41 @@ export async function customerRoutes(app: FastifyInstance) {
       },
       orderBy: { createdAt: 'desc' }
     })
+  })
+
+  app.get('/customers/:id/technical-profile', async (request, reply) => {
+    const params = request.params as { id: string }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const customer = await loadAuthorizedCustomer(prisma, authUser, params.id)
+    if (!customer) return sendAuthorizationFailure(reply, 'notFound')
+    return { technicalProfile: customer.technicalProfile || '' }
+  })
+
+  app.patch('/customers/:id/technical-profile', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as { technicalProfile?: string }
+    if (typeof body.technicalProfile !== 'string') {
+      return reply.status(400).send({ message: 'La ficha técnica es requerida' })
+    }
+    const profile = body.technicalProfile.trim()
+    if (profile.length > 1000) {
+      return reply.status(400).send({ message: 'La ficha técnica no puede superar los 1000 caracteres' })
+    }
+
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const updated = await prisma.$transaction(async (transaction) => {
+      const customer = await loadAuthorizedCustomer(transaction, authUser, params.id)
+      if (!customer) return null
+      return transaction.customer.update({
+        where: { id: customer.id },
+        data: { technicalProfile: profile || null },
+        select: { technicalProfile: true }
+      })
+    })
+    if (!updated) return sendAuthorizationFailure(reply, 'notFound')
+    return { technicalProfile: updated.technicalProfile || '' }
   })
 
   app.post('/customers/:id/notes', async (request, reply) => {

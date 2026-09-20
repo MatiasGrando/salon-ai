@@ -25,12 +25,14 @@ function createHarness(options: {
   failClaim?: boolean
   sourceMapping?: boolean
   conservativeSharedPeer?: boolean
+  includePhone?: boolean
 } = {}) {
   const now = new Date('2026-09-15T18:00:00.000Z')
   const state = {
     submissions: [] as Row[],
     leads: [] as Row[],
     events: [] as Row[],
+    customers: [] as Row[],
     claims: [] as Row[],
     buckets: new Map<string, Row>(),
     revision: 1n,
@@ -46,8 +48,9 @@ function createHarness(options: {
     fields: [
       { key: 'name', label: 'Nombre', type: 'TEXT', required: true, order: 0, mapping: { target: 'CONTACT_NAME' } },
       { key: 'email', label: 'Email', type: 'EMAIL', required: true, order: 1, mapping: { target: 'EMAIL' } },
-      { key: 'goal', label: 'Objetivo', type: 'TEXTAREA', required: false, order: 2, mapping: { target: 'CUSTOM_DATA', customKey: 'goal' } },
-      ...(options.sourceMapping ? [{ key: 'source', label: 'Origen', type: 'TEXT', required: false, order: 3, mapping: { target: 'SOURCE' } }] : [])
+      ...(options.includePhone ? [{ key: 'phone', label: 'Teléfono', type: 'PHONE', required: true, order: 2, mapping: { target: 'PHONE' } }] : []),
+      { key: 'goal', label: 'Objetivo', type: 'TEXTAREA', required: false, order: options.includePhone ? 3 : 2, mapping: { target: 'CUSTOM_DATA', customKey: 'goal' } },
+      ...(options.sourceMapping ? [{ key: 'source', label: 'Origen', type: 'TEXT', required: false, order: options.includePhone ? 4 : 3, mapping: { target: 'SOURCE' } }] : [])
     ]
   }
   const reward = {
@@ -100,8 +103,31 @@ function createHarness(options: {
     instagramCommentExecution: {
       findFirst: async ({ where }: { where: Record<string, unknown> }) =>
         where.id === 'execution-a' && where.businessId === 'business-a'
-          ? { id: 'execution-a', matchedKeyword: 'INFO', publicationId: 'publication-a', commenterInstagramUserId: 'instagram-user-a' }
+          ? { id: 'execution-a', matchedKeyword: 'INFO', publicationId: 'publication-a', commenterInstagramUserId: 'instagram-user-a', commenterUsername: 'ana.instagram' }
           : null
+    },
+    customer: {
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        cloneRows(state.customers.find((row) => row.id === where.id && row.businessId === where.businessId) ?? null),
+      findUnique: async ({ where }: { where: Record<string, Record<string, unknown>> }) => {
+        const phoneIdentity = where.businessId_normalizedPhone
+        if (phoneIdentity) {
+          return cloneRows(state.customers.find((row) => row.businessId === phoneIdentity.businessId && row.normalizedPhone === phoneIdentity.normalizedPhone) ?? null)
+        }
+        const instagramIdentity = where.businessId_instagramUserId
+        return cloneRows(state.customers.find((row) => row.businessId === instagramIdentity.businessId && row.instagramUserId === instagramIdentity.instagramUserId) ?? null)
+      },
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const row = { id: nextId('customer'), ...cloneRows(data) }
+        state.customers.push(row)
+        return cloneRows(row)
+      },
+      update: async ({ where, data }: { where: { businessId_id: { businessId: string; id: string } }; data: Record<string, unknown> }) => {
+        const row = state.customers.find((item) => item.id === where.businessId_id.id && item.businessId === where.businessId_id.businessId)
+        if (!row) throw new Error('customer missing')
+        Object.assign(row, cloneRows(data))
+        return cloneRows(row)
+      }
     },
     rewardClaim: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -162,7 +188,7 @@ function createHarness(options: {
       state.transactions.push(config?.isolationLevel ?? 'default')
       const snapshot = {
         submissions: cloneRows(state.submissions), leads: cloneRows(state.leads), events: cloneRows(state.events),
-        claims: cloneRows(state.claims), buckets: cloneRows(state.buckets), revision: state.revision
+        claims: cloneRows(state.claims), customers: cloneRows(state.customers), buckets: cloneRows(state.buckets), revision: state.revision
       }
       try {
         return await callback(tx)
@@ -171,6 +197,7 @@ function createHarness(options: {
         state.leads = snapshot.leads
         state.events = snapshot.events
         state.claims = snapshot.claims
+        state.customers = snapshot.customers
         state.buckets = snapshot.buckets
         state.revision = snapshot.revision
         throw error
@@ -189,7 +216,7 @@ function createHarness(options: {
   })
   const valid = {
     businessId: 'business-a', publicSlug: 'diagnostico', idempotencyKey: 'submission-key-0001',
-    answers: { name: ' Ana ', email: 'ANA@EXAMPLE.COM', goal: 'Quiero vender más' },
+    answers: { name: ' Ana ', email: 'ANA@EXAMPLE.COM', ...(options.includePhone ? { phone: '+54 9 11 5555-2222' } : {}), goal: 'Quiero vender más' },
     attribution: { utmSource: 'instagram', utmCampaign: 'reel-septiembre' },
     antiSpam: { honeypot: '', startedAt: '2026-09-15T17:59:57.000Z', ipAddress: '203.0.113.10' }
   }
@@ -251,7 +278,34 @@ assert.doesNotMatch(createRateLimitScopeHash('secret', '203.0.113.10'), /203\.0\
   assert.deepEqual(state.leads[0]?.customData, { goal: 'Quiero vender más' })
   assert.deepEqual(state.submissions[0]?.answers, { name: 'Ana', email: 'ana@example.com', goal: 'Quiero vender más' })
   assert.deepEqual(state.submissions[0]?.attribution, { utmSource: 'instagram', utmCampaign: 'reel-septiembre' })
+  assert.equal(state.customers.length, 0)
+  assert.equal(state.leads[0]?.customerId, null)
   assert.ok(state.transactions.every((level) => level === 'Serializable'))
+}
+
+{
+  const { service, state, valid } = createHarness({ includePhone: true, rewardMode: 'NONE', rewardEnabled: false })
+  const first = await service.submit(valid)
+  assert.equal(state.customers.length, 1)
+  assert.deepEqual(state.customers[0], {
+    id: state.customers[0]?.id,
+    businessId: 'business-a',
+    name: 'Ana',
+    email: 'ana@example.com',
+    phone: '5491155552222',
+    normalizedPhone: '5491155552222'
+  })
+  assert.equal(first.lead.customerId, state.customers[0]?.id)
+
+  await service.submit({
+    ...valid,
+    idempotencyKey: 'submission-key-0002',
+    answers: { ...valid.answers, name: 'Ana Actualizada', email: 'ANA.NUEVA@EXAMPLE.COM' }
+  })
+  assert.equal(state.customers.length, 1)
+  assert.equal(state.customers[0]?.name, 'Ana Actualizada')
+  assert.equal(state.customers[0]?.email, 'ana.nueva@example.com')
+  assert.equal(state.leads[1]?.customerId, state.customers[0]?.id)
 }
 
 {
@@ -356,21 +410,23 @@ for (const options of [
 }
 
 {
-  const { service, state, valid } = createHarness({ failEvent: true })
+  const { service, state, valid } = createHarness({ failEvent: true, includePhone: true })
   await assert.rejects(() => service.submit(valid), /event failed/)
   assert.equal(state.submissions.length, 0)
   assert.equal(state.leads.length, 0)
   assert.equal(state.events.length, 0)
   assert.equal(state.claims.length, 0)
+  assert.equal(state.customers.length, 0)
 }
 
 {
-  const { service, state, valid } = createHarness({ failClaim: true })
+  const { service, state, valid } = createHarness({ failClaim: true, includePhone: true })
   await assert.rejects(() => service.submit(valid), /claim failed/)
   assert.equal(state.submissions.length, 0)
   assert.equal(state.leads.length, 0)
   assert.equal(state.events.length, 0)
   assert.equal(state.claims.length, 0)
+  assert.equal(state.customers.length, 0)
 }
 
 {
@@ -453,7 +509,7 @@ for (const attribution of [
 }
 
 {
-  const { client, state, valid } = createHarness()
+  const { client, state, valid } = createHarness({ includePhone: true })
   const secret = 'instagram-form-ref-secret-32-characters-minimum'
   const service = new LeadFormSubmissionService(client as never, {
     rateLimitSecret: '0123456789abcdef0123456789abcdef',
@@ -471,6 +527,9 @@ for (const attribution of [
   const result = await service.submit({ ...input, instagramRef: ref })
   assert.equal(result.submission.status, 'ACCEPTED')
   assert.equal(state.leads[0]?.source, 'INSTAGRAM_COMMENT')
+  assert.equal(state.customers[0]?.instagramUserId, 'instagram-user-a')
+  assert.equal(state.customers[0]?.instagramUsername, 'ana.instagram')
+  assert.equal(state.leads[0]?.customerId, state.customers[0]?.id)
   assert.deepEqual(state.submissions[0]?.attribution, {
     utmSource: 'instagram', utmCampaign: 'reel-septiembre',
     source: 'INSTAGRAM_COMMENT', campaign: 'INFO', instagramExecutionId: 'execution-a',
@@ -479,6 +538,30 @@ for (const attribution of [
   const replay = await service.submit({ ...input, instagramRef: ref })
   assert.equal(replay.replayed, true)
   assert.equal(state.leads.length, 1)
+  assert.equal(state.customers.length, 1)
+  const changedPhone = await service.submit({
+    ...input,
+    idempotencyKey: 'submission-key-0002',
+    answers: { ...input.answers, phone: '+54 9 11 5555-3333' },
+    instagramRef: ref
+  })
+  assert.equal(state.customers.length, 1)
+  assert.equal(state.customers[0]?.normalizedPhone, '5491155553333')
+  assert.equal(changedPhone.lead.customerId, state.customers[0]?.id)
+  state.customers.push({
+    id: 'customer-conflict', businessId: 'business-a', name: 'Otra persona',
+    phone: '5491155554444', normalizedPhone: '5491155554444'
+  })
+  await assert.rejects(
+    () => service.submit({
+      ...input,
+      idempotencyKey: 'submission-key-0003',
+      answers: { ...input.answers, phone: '+54 9 11 5555-4444' },
+      instagramRef: ref
+    }),
+    (error) => isSubmissionError(error, 'CUSTOMER_IDENTITY_CONFLICT', 409)
+  )
+  assert.equal(state.leads.length, 2)
 }
 
 {

@@ -61,6 +61,7 @@ try {
   await prisma.$executeRawUnsafe('ALTER TABLE "CashEntry" ENABLE TRIGGER "CashEntry_append_only_trigger"').catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "CashSession" WHERE "businessId" IN (${ids.business}, ${ids.otherBusiness})`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "CashRegisterDay" WHERE "businessId" IN (${ids.business}, ${ids.otherBusiness})`).catch(() => undefined)
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM "CashExpenseCategory" WHERE "businessId" IN (${ids.business}, ${ids.otherBusiness})`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "User" WHERE "businessId" IN (${ids.business}, ${ids.otherBusiness})`).catch(() => undefined)
   await prisma.$executeRaw(Prisma.sql`DELETE FROM "Business" WHERE "id" IN (${ids.business}, ${ids.otherBusiness})`).catch(() => undefined)
   await prisma.$disconnect()
@@ -68,10 +69,23 @@ try {
 
 async function assertOperationsInMemory() {
   const entries: Array<Record<string, unknown> & { id: string }> = []
+  const defaultExpenseCategory = {
+    id: 'expense-category-other',
+    businessId: 'business-a',
+    name: 'Otros',
+    normalizedName: 'otros',
+    position: 0,
+    isDefault: true,
+    isActive: true,
+    createdAt: new Date(0),
+    updatedAt: new Date(0)
+  }
   const tx = {
     lockBusiness: async (businessId: string) => businessId === 'business-a' ? { businessId, timezone: 'UTC', dbNow: new Date('2026-09-06T12:00:00Z') } : null,
     findOpenDay: async () => ({ id: 'day', businessId: 'business-a', openedAt: new Date(0), closedAt: null, openingCash: 0, expectedClosingCash: null, countedClosingCash: null, closingDifference: null }),
     findOpenSession: async () => ({ id: 'session', businessId: 'business-a', registerDayId: 'day', responsibleUserId: 'user', responsibleName: 'Operador', openedAt: new Date(0), closedAt: null, expectedCash: null, countedCash: null, cashDifference: null }),
+    ensureDefaultExpenseCategory: async () => defaultExpenseCategory,
+    findExpenseCategory: async (businessId: string, categoryId: string) => businessId === 'business-a' && categoryId === defaultExpenseCategory.id ? defaultExpenseCategory : null,
     insertCashOperation: async (input: Record<string, unknown>) => {
       const entry = { id: `entry-${entries.length + 1}`, ...input }
       entries.push(entry)
@@ -98,6 +112,7 @@ async function assertOperationsInMemory() {
 
   const expense = await service.recordCashOperation({ businessId: 'business-a', cashSessionId: 'session', type: 'EXPENSE', amount: 500, method: 'TRANSFER', description: 'Insumos' })
   assert.deepEqual(pick(expense, ['type', 'direction', 'method', 'description']), { type: 'EXPENSE', direction: 'OUTFLOW', method: 'TRANSFER', description: 'Insumos' })
+  assert.equal(expense.expenseCategoryId, defaultExpenseCategory.id)
   const withdrawal = await service.recordCashOperation({ businessId: 'business-a', cashSessionId: 'session', type: 'WITHDRAWAL', amount: 300, counterparty: 'María' })
   assert.deepEqual(pick(withdrawal, ['type', 'direction', 'method', 'counterparty']), { type: 'WITHDRAWAL', direction: 'OUTFLOW', method: 'CASH', counterparty: 'María' })
   const cashIn = await service.recordCashOperation({ businessId: 'business-a', cashSessionId: 'session', type: 'CASH_IN', amount: 200, description: 'Cambio inicial' })

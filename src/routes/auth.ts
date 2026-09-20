@@ -344,6 +344,9 @@ function publicUser(user: {
   canManageCashOperations?: boolean
   canAdjustCash?: boolean
   canManageCashSessions?: boolean
+  canViewProducts?: boolean
+  canManageProducts?: boolean
+  canSellProducts?: boolean
   canCreateBusinesses?: boolean
 }) {
   const isCashAdmin = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)
@@ -379,6 +382,9 @@ function publicUser(user: {
     canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : isCashAdmin,
     canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : isCashAdmin,
     canManageCashSessions: user.role === 'STAFF' ? user.canManageCashSessions === true : isCashAdmin,
+    canViewProducts: user.role === 'STAFF' ? user.canViewProducts === true : isCashAdmin,
+    canManageProducts: user.role === 'STAFF' ? user.canManageProducts === true : isCashAdmin,
+    canSellProducts: user.role === 'STAFF' ? user.canSellProducts === true : isCashAdmin,
     canCreateBusinesses: user.role === 'SUPER_ADMIN' || user.canCreateBusinesses === true
   }
 }

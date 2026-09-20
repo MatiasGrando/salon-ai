@@ -3519,7 +3519,7 @@ export class ConversationService {
           startAt: `${input.selected.date}T${segment.startTime}:00`,
           origin: 'BOT',
           status: 'PENDING',
-          quotedPrice: acceptedAdvisorQuoteAmount(input.state, segment.serviceId)
+          quotedPrice: bookingQuotedPriceAmount(input.state, segment.serviceId)
         })
         if (!created.ok) {
           await Promise.allSettled(appointmentIds.map((appointmentId) => appointmentService.cancel(appointmentId)))
@@ -3656,7 +3656,7 @@ export class ConversationService {
       misunderstandingCount: 0,
       bookingV2State: input.conversation.bookingV2State
     })
-    const quotedPrice = acceptedAdvisorQuoteAmount(state, input.conversation.selectedServiceId)
+    const quotedPrice = bookingQuotedPriceAmount(state, input.conversation.selectedServiceId)
     const appointment = await bookingProvider.createAppointment({
       customerId: customer.id,
       professionalId: input.conversation.selectedProfessionalId,
@@ -3775,10 +3775,7 @@ export class ConversationService {
       }
     })
     if (!service || service.depositMode === 'NONE') return null
-    const estimateMinimum = acceptedAdvisorQuoteAmount(input.state, service.id) ??
-      (input.state.guidedEstimate?.serviceId === service.id
-        ? input.state.guidedEstimate.priceMin
-        : null)
+    const estimateMinimum = bookingQuotedPriceAmount(input.state, service.id)
     const calculation = calculateBookingV2Deposit({
       mode: service.depositMode,
       value: service.depositValue,
@@ -3892,10 +3889,7 @@ export class ConversationService {
     const selectedServiceNames = selectedServiceIds.map((serviceId) =>
       selectedServices.find((selected) => selected.id === serviceId)?.name ?? serviceId
     )
-    const estimateMinimum = acceptedAdvisorQuoteAmount(state, service.id) ??
-      (state.guidedEstimate?.serviceId === service.id
-        ? state.guidedEstimate.priceMin
-        : null)
+    const estimateMinimum = bookingQuotedPriceAmount(state, service.id)
     const calculation = calculateBookingV2Deposit({
       mode: service.depositMode,
       value: service.depositValue,
@@ -3917,7 +3911,7 @@ export class ConversationService {
       startAt: `${input.conversation.selectedDate}T${input.conversation.selectedTime}:00`,
       origin: 'BOT',
       status: 'PENDING',
-      quotedPrice: acceptedAdvisorQuoteAmount(state, service.id)
+      quotedPrice: bookingQuotedPriceAmount(state, service.id)
     })
     if (!appointment.ok) {
       return this.recoverBookingAvailabilityFailure({
@@ -4938,6 +4932,16 @@ export function acceptedAdvisorQuoteAmount(state: ReturnType<typeof stateFromCon
   return state.advisorQuote?.serviceId === serviceId && state.advisorQuote.status === 'accepted'
     ? state.advisorQuote.amount
     : null
+}
+
+export function bookingQuotedPriceAmount(
+  state: ReturnType<typeof stateFromConversation>,
+  serviceId: string
+) {
+  return acceptedAdvisorQuoteAmount(state, serviceId) ??
+    (state.guidedEstimate?.serviceId === serviceId
+      ? state.guidedEstimate.priceMin
+      : null)
 }
 
 export function freshBookingV2State(customerName: string | null): BookingV2State {

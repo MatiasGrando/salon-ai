@@ -171,26 +171,26 @@ model BotDeploymentAudit {
 }
 
 model BotSession {
-  id                   String               @id @default(cuid())
-  businessId           String
-  conversationId       String?
-  deploymentId         String
-  deployment           BotChannelDeployment @relation("BotSessionDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  deploymentGeneration Int
-  channel              BotChannel           @default(WHATSAPP)
-  engineVersion        String               @default("v1")
-  businessTimezone     String
-  stateSchemaVersion   Int                  @default(1)
-  state                Json
-  revision             BigInt               @default(0)
-  status               BotSessionStatus     @default(ACTIVE)
+  id                    String               @id @default(cuid())
+  businessId            String
+  conversationId        String?
+  deploymentId          String
+  deployment            BotChannelDeployment @relation("BotSessionDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  deploymentGeneration  Int
+  channel               BotChannel           @default(WHATSAPP)
+  engineVersion         String               @default("v1")
+  businessTimezone      String
+  stateSchemaVersion    Int                  @default(1)
+  state                 Json
+  revision              BigInt               @default(0)
+  status                BotSessionStatus     @default(ACTIVE)
   handoffClaimsPausedAt DateTime?
-  handoffFenceEpoch    Int                   @default(0)
-  fenceToken           String?
-  draftTouchedAt       DateTime?
-  draftExpiresAt       DateTime?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  handoffFenceEpoch     Int                  @default(0)
+  fenceToken            String?
+  draftTouchedAt        DateTime?
+  draftExpiresAt        DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   prompts        BotPrompt[]
   inbox          BotActionInbox[]   @relation("BotInboxSession")
@@ -207,27 +207,27 @@ model BotSession {
 }
 
 model BotHandoff {
-  id           String           @id @default(cuid())
-  businessId   String
-  sessionId    String
-  session      BotSession       @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  status       BotHandoffStatus @default(QUEUED)
-  reason       String
-  detail       String?
-  context      Json?
-  queuedAt     DateTime         @default(now())
-  cancelledAt  DateTime?
+  id             String           @id @default(cuid())
+  businessId     String
+  sessionId      String
+  session        BotSession       @relation(fields: [businessId, sessionId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  status         BotHandoffStatus @default(QUEUED)
+  reason         String
+  detail         String?
+  context        Json?
+  queuedAt       DateTime         @default(now())
+  cancelledAt    DateTime?
   /// Reserved for F10.2+ ownership; F10.1 never writes these columns.
-  ownerUserId  String?
-  takenAt      DateTime?
-  resolvedAt   DateTime?
-  resumePolicy String?
+  ownerUserId    String?
+  takenAt        DateTime?
+  resolvedAt     DateTime?
+  resumePolicy   String?
   /// F10.4 immutable TAKE baseline; absence deliberately fails RESUME closed.
   resumeSnapshot Json?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  audits       BotHandoffAudit[]
+  audits BotHandoffAudit[]
 
   @@unique([businessId, id])
   @@index([businessId, sessionId, queuedAt])
@@ -462,10 +462,10 @@ model BotDispatchClaim {
 }
 
 model LegacyWhatsAppCutoverInbound {
-  id                   String                            @id @default(cuid())
-  receiptKey           String                            @unique
+  id                   String                             @id @default(cuid())
+  receiptKey           String                             @unique
   businessId           String
-  business             Business                          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business             Business                           @relation(fields: [businessId], references: [id], onDelete: Restrict)
   deploymentId         String
   deploymentGeneration Int
   dispatchFenceEpoch   Int
@@ -482,8 +482,8 @@ model LegacyWhatsAppCutoverInbound {
   replayedAt           DateTime?
   staleAt              DateTime?
   providerEventId      String?
-  createdAt            DateTime                          @default(now())
-  updatedAt            DateTime                          @updatedAt
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
 
   @@unique([businessId, providerMessageId])
   @@index([businessId, deploymentId, deploymentGeneration, dispatchFenceEpoch, pausedAt, status, createdAt])
@@ -536,6 +536,12 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum AppointmentCompletionSource {
+  LEGACY
+  MANUAL
+  FULL_PAYMENT
+}
+
 enum AppointmentOrigin {
   BOT
   WEB
@@ -580,9 +586,16 @@ enum CashPaymentMethod {
 enum CashEntryOrigin {
   AGENDA
   CASH_REGISTER
+  PRODUCT_SALE
   WEB_DEPOSIT
   BOT_DEPOSIT
   MIGRATION
+}
+
+enum ProductSaleStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
 }
 
 enum BookingVisitStatus {
@@ -869,7 +882,7 @@ enum WorkshopVehicleUsage {
 }
 
 model Business {
-  businessType          BusinessType @default(SALON)
+  businessType           BusinessType                  @default(SALON)
   id                     String                        @id @default(cuid())
   customerCode           String                        @unique
   name                   String
@@ -887,7 +900,7 @@ model Business {
   landingOpeningYear     Int?
   landingDescription     String?
   landingTemplateContent Json?
-  bookingTheme          String?
+  bookingTheme           String?
   coverImageUrl          String?
   landingSocialImageUrl  String?
   landingGalleryImages   String?
@@ -923,56 +936,64 @@ model Business {
   accountCharges         BusinessAccountCharge[]
   accountStatusChanges   BusinessAccountStatusChange[]
 
-  professionals           Professional[]
-  customers               Customer[]
-  serviceCategories       ServiceCategory[]
-  services                Service[]
-  serviceCombinationRules ServiceCombinationRule[]
-  businessHours           BusinessHours[]
-  scheduleBlocks          ScheduleBlock[]
-  conversations           Conversation[]
-  instagramLeads          InstagramLead[]
-  campaigns               Campaign[]
-  whatsappTemplates       WhatsAppTemplate[]
-  marketingPreferences    CustomerMarketingPreference[]
-  campaignDeliveries      CampaignDelivery[]
-  campaignRuns            CampaignRun[]
-  campaignJobs            CampaignJob[]
-  reminderAutomations     ReminderAutomation[]
-  reminderDeliveries      ReminderDelivery[]
-  postSaleAutomation      PostSaleAutomation?
-  postSaleDeliveries      PostSaleDelivery[]
-  communicationExecutions CommunicationExecution[]
-  communicationRecipients CommunicationRecipient[]
-  users                   User[]
-  weexCustomerLinks       WeexCustomerLink[]
-  bookingDeposits         BookingDeposit[]
-  bookingDepositProofs    BookingDepositProof[]
-  bookingVisits           BookingVisit[]
-  botOptionsSettings      BusinessBotOptionsSettings?
-  legacyCutoverInbounds   LegacyWhatsAppCutoverInbound[]
-  appointmentAccounts     AppointmentAccount[]
-  appointmentAccountLinks AppointmentAccountLink[]
-  appointments            Appointment[]
-  cashRegisterDays        CashRegisterDay[]
-  cashSessions            CashSession[]
-  cashEntries             CashEntry[]
-  workshopBrands          WorkshopBrand[]
-  workshopJobs            WorkshopJob[]
-  workshopShortcuts       WorkshopShortcut[]
-  workshopPerformers      WorkshopPerformer[]
-  workshopVehicles        WorkshopVehicle[]
-  pipeline                 Pipeline?
-  pipelineStages           PipelineStage[]
-  pipelineLeads            PipelineLead[]
-  pipelineLeadActivities   PipelineLeadActivity[]
-  pipelineLeadEvents       PipelineLeadEvent[]
-  pipelineTasks            PipelineTask[]
-  leadCaptureForms         LeadCaptureForm[]
-  formSubmissions          FormSubmission[]
-  formRewards              FormReward[]
-  rewardClaims             RewardClaim[]
-  publicFormRateLimitBuckets PublicFormRateLimitBucket[]
+  professionals               Professional[]
+  customers                   Customer[]
+  serviceCategories           ServiceCategory[]
+  services                    Service[]
+  serviceCombinationRules     ServiceCombinationRule[]
+  businessHours               BusinessHours[]
+  scheduleBlocks              ScheduleBlock[]
+  conversations               Conversation[]
+  conversationQuickReplies    ConversationQuickReply[]
+  instagramLeads              InstagramLead[]
+  campaigns                   Campaign[]
+  whatsappTemplates           WhatsAppTemplate[]
+  marketingPreferences        CustomerMarketingPreference[]
+  campaignDeliveries          CampaignDelivery[]
+  campaignRuns                CampaignRun[]
+  campaignJobs                CampaignJob[]
+  reminderAutomations         ReminderAutomation[]
+  reminderDeliveries          ReminderDelivery[]
+  postSaleAutomation          PostSaleAutomation?
+  postSaleDeliveries          PostSaleDelivery[]
+  communicationExecutions     CommunicationExecution[]
+  communicationRecipients     CommunicationRecipient[]
+  users                       User[]
+  weexCustomerLinks           WeexCustomerLink[]
+  bookingDeposits             BookingDeposit[]
+  bookingDepositProofs        BookingDepositProof[]
+  bookingVisits               BookingVisit[]
+  botOptionsSettings          BusinessBotOptionsSettings?
+  legacyCutoverInbounds       LegacyWhatsAppCutoverInbound[]
+  appointmentAccounts         AppointmentAccount[]
+  appointmentTotalAdjustments AppointmentTotalAdjustment[]
+  appointmentAccountLinks     AppointmentAccountLink[]
+  appointments                Appointment[]
+  cashRegisterDays            CashRegisterDay[]
+  cashSessions                CashSession[]
+  cashEntries                 CashEntry[]
+  cashExpenseCategories       CashExpenseCategory[]
+  productCategories           ProductCategory[]
+  products                    Product[]
+  productSales                ProductSale[]
+  productSaleLines            ProductSaleLine[]
+  productSaleAudits           ProductSaleAudit[]
+  workshopBrands              WorkshopBrand[]
+  workshopJobs                WorkshopJob[]
+  workshopShortcuts           WorkshopShortcut[]
+  workshopPerformers          WorkshopPerformer[]
+  workshopVehicles            WorkshopVehicle[]
+  pipeline                    Pipeline?
+  pipelineStages              PipelineStage[]
+  pipelineLeads               PipelineLead[]
+  pipelineLeadActivities      PipelineLeadActivity[]
+  pipelineLeadEvents          PipelineLeadEvent[]
+  pipelineTasks               PipelineTask[]
+  leadCaptureForms            LeadCaptureForm[]
+  formSubmissions             FormSubmission[]
+  formRewards                 FormReward[]
+  rewardClaims                RewardClaim[]
+  publicFormRateLimitBuckets  PublicFormRateLimitBucket[]
 
   createdAt DateTime @default(now())
 
@@ -981,6 +1002,26 @@ model Business {
   @@index([planId])
   @@index([accountStatus])
   @@index([isDemo, createdByUserId])
+}
+
+model CustomerChannelIdentity {
+  id String @id @default(cuid())
+
+  businessId     String
+  customerId     String
+  customer       Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Cascade)
+  channel        String
+  externalUserId String
+  username       String?
+  displayName    String?
+  metadata       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, channel, externalUserId])
+  @@index([businessId, customerId, channel])
+  @@index([businessId, channel, username])
 }
 
 /// Configuración reservable del motor determinístico. No se crea una fila por
@@ -1094,49 +1135,52 @@ model User {
   canCreateBusinesses Boolean   @default(false)
   firstLoginAt        DateTime?
 
-  businessId                 String?
-  business                   Business?     @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  professionalId             String?
-  professional               Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
-  sessions                   UserSession[]
-  managedBusinesses          Business[]    @relation("AccountAdminBusinesses")
-  createdBusinesses          Business[]    @relation("CreatedBusinesses")
-  canCreateAppointments      Boolean       @default(true)
-  canEditAppointments        Boolean       @default(true)
-  canCancelAppointments      Boolean       @default(true)
-  canManageScheduleBlocks    Boolean       @default(true)
-  staffProfile               String        @default("PROFESSIONAL")
-  permissionPreset           String        @default("PROFESSIONAL_DEFAULT")
-  agendaScope                String        @default("OWN")
-  canForceAppointments       Boolean       @default(false)
-  canViewCustomers           Boolean       @default(false)
-  canCreateCustomers         Boolean       @default(false)
-  canEditCustomers           Boolean       @default(false)
-  canManageCustomerNotes     Boolean       @default(false)
-  canManageCustomerMarketing Boolean       @default(false)
-  canViewConversations       Boolean       @default(false)
-  canReplyConversations      Boolean       @default(false)
-  canManageDeposits          Boolean       @default(false)
-  canViewOperationalReports  Boolean       @default(false)
-  canViewFinancialAmounts    Boolean       @default(false)
-  canViewCashRegister        Boolean       @default(false)
-  canRecordAppointmentPayments Boolean     @default(false)
-  canApplyDiscounts          Boolean       @default(false)
-  canManageCashOperations    Boolean       @default(false)
-  canAdjustCash              Boolean       @default(false)
-  canManageCashSessions      Boolean       @default(false)
-  cashSessions               CashSession[]
-  assignedPipelineLeads      PipelineLead[]         @relation("PipelineLeadAssignee")
-  authoredPipelineActivities PipelineLeadActivity[] @relation("PipelineActivityAuthor")
-  actedPipelineEvents        PipelineLeadEvent[]    @relation("PipelineEventActor")
-  assignedPipelineTasks      PipelineTask[]         @relation("PipelineTaskAssignee")
-  assignedLeadCaptureForms   LeadCaptureForm[]       @relation("LeadCaptureFormDefaultAssignee")
+  businessId                   String?
+  business                     Business?                    @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  professionalId               String?
+  professional                 Professional?                @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  sessions                     UserSession[]
+  managedBusinesses            Business[]                   @relation("AccountAdminBusinesses")
+  createdBusinesses            Business[]                   @relation("CreatedBusinesses")
+  canCreateAppointments        Boolean                      @default(true)
+  canEditAppointments          Boolean                      @default(true)
+  canCancelAppointments        Boolean                      @default(true)
+  canManageScheduleBlocks      Boolean                      @default(true)
+  staffProfile                 String                       @default("PROFESSIONAL")
+  permissionPreset             String                       @default("PROFESSIONAL_DEFAULT")
+  agendaScope                  String                       @default("OWN")
+  canForceAppointments         Boolean                      @default(false)
+  canViewCustomers             Boolean                      @default(false)
+  canCreateCustomers           Boolean                      @default(false)
+  canEditCustomers             Boolean                      @default(false)
+  canManageCustomerNotes       Boolean                      @default(false)
+  canManageCustomerMarketing   Boolean                      @default(false)
+  canViewConversations         Boolean                      @default(false)
+  canReplyConversations        Boolean                      @default(false)
+  canManageDeposits            Boolean                      @default(false)
+  canViewOperationalReports    Boolean                      @default(false)
+  canViewFinancialAmounts      Boolean                      @default(false)
+  canViewCashRegister          Boolean                      @default(false)
+  canRecordAppointmentPayments Boolean                      @default(false)
+  canApplyDiscounts            Boolean                      @default(false)
+  canManageCashOperations      Boolean                      @default(false)
+  canAdjustCash                Boolean                      @default(false)
+  canManageCashSessions        Boolean                      @default(false)
+  cashSessions                 CashSession[]
+  appointmentTotalAdjustments  AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
+  productSales                 ProductSale[]                @relation("ProductSaleActor")
+  productSaleAudits            ProductSaleAudit[]           @relation("ProductSaleAuditActor")
+  assignedPipelineLeads        PipelineLead[]               @relation("PipelineLeadAssignee")
+  authoredPipelineActivities   PipelineLeadActivity[]       @relation("PipelineActivityAuthor")
+  actedPipelineEvents          PipelineLeadEvent[]          @relation("PipelineEventActor")
+  assignedPipelineTasks        PipelineTask[]               @relation("PipelineTaskAssignee")
+  assignedLeadCaptureForms     LeadCaptureForm[]            @relation("LeadCaptureFormDefaultAssignee")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([businessId])
   @@unique([businessId, id])
+  @@index([businessId])
   @@index([professionalId])
   @@index([role])
 }
@@ -1345,13 +1389,13 @@ model InstagramCommentExecution {
   id String @id @default(cuid())
 
   businessId    String
-  business      Business                     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business      Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   publicationId String
-  publication   InstagramPublication         @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  publication   InstagramPublication       @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
   automationId  String
-  automation    InstagramCommentAutomation   @relation(fields: [businessId, publicationId, automationId], references: [businessId, publicationId, id], onDelete: Cascade, map: "IgCommentExecution_scope_automation_fkey")
+  automation    InstagramCommentAutomation @relation(fields: [businessId, publicationId, automationId], references: [businessId, publicationId, id], onDelete: Cascade, map: "IgCommentExecution_scope_automation_fkey")
   leadId        String?
-  lead          InstagramLead?                @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
+  lead          InstagramLead?             @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
 
   providerCommentId        String
   commenterInstagramUserId String
@@ -1543,20 +1587,20 @@ model Service {
   variants             Service[]                   @relation("ServiceVariants")
   variantSelectionMode ServiceVariantSelectionMode @default(ONE_OF)
 
-  appointments      Appointment[]
-  appointmentItems  AppointmentServiceItem[]
-  aliases           ServiceAlias[]
-  professionalLinks ProfessionalService[]
-  suggestedAddons   ServiceAddon[]           @relation("ServiceAddonSource")
-  suggestedFor      ServiceAddon[]           @relation("ServiceAddonTarget")
-  combinationRulesA ServiceCombinationRule[] @relation("ServiceCombinationA")
-  combinationRulesB ServiceCombinationRule[] @relation("ServiceCombinationB")
+  appointments        Appointment[]
+  appointmentItems    AppointmentServiceItem[]
+  aliases             ServiceAlias[]
+  professionalLinks   ProfessionalService[]
+  suggestedAddons     ServiceAddon[]           @relation("ServiceAddonSource")
+  suggestedFor        ServiceAddon[]           @relation("ServiceAddonTarget")
+  combinationRulesA   ServiceCombinationRule[] @relation("ServiceCombinationA")
+  combinationRulesB   ServiceCombinationRule[] @relation("ServiceCombinationB")
   bookingDepositLines BookingDepositLine[]
 
   createdAt DateTime @default(now())
 
-  @@index([businessId, catalogCategoryId, sortOrder])
   @@unique([businessId, id])
+  @@index([businessId, catalogCategoryId, sortOrder])
   @@index([parentServiceId])
 }
 
@@ -1620,15 +1664,18 @@ model ServiceAlias {
 model Customer {
   id String @id @default(cuid())
 
-  businessId      String?
-  business        Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  name            String
-  phone           String
-  email           String?
-  normalizedPhone String?
+  businessId        String?
+  business          Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name              String
+  phone             String
+  email             String?
+  technicalProfile  String?
+  normalizedPhone   String?
+  instagramUserId   String?
+  instagramUsername String?
 
   appointments             Appointment[]
-  bookingVisits             BookingVisit[]
+  bookingVisits            BookingVisit[]
   notes                    CustomerNote[]
   marketingPreferences     CustomerMarketingPreference[]
   campaignDeliveries       CampaignDelivery[]
@@ -1639,26 +1686,31 @@ model Customer {
   communicationRecipients  CommunicationRecipient[]
   weexLinks                WeexCustomerLink[]
   workshopVehicles         WorkshopVehicle[]
+  pipelineLeads            PipelineLead[]
+  channelIdentities        CustomerChannelIdentity[]
+  productSales             ProductSale[]
 
   createdAt DateTime @default(now())
 
   @@unique([businessId, id])
   @@unique([businessId, normalizedPhone])
+  @@unique([businessId, instagramUserId])
   @@index([businessId, phone])
+  @@index([businessId, instagramUsername])
   @@index([businessId, createdAt])
   @@index([phone])
   @@index([email])
 }
 
 model WorkshopBrand {
-  id             String @id @default(cuid())
+  id             String            @id @default(cuid())
   businessId     String
-  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business       Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   name           String
   normalizedName String
   vehicles       WorkshopVehicle[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@unique([businessId, normalizedName])
   @@unique([businessId, id])
@@ -1667,21 +1719,21 @@ model WorkshopBrand {
 
 model WorkshopVehicle {
   jobs           WorkshopJob[]
-  id             String @id @default(cuid())
+  id             String               @id @default(cuid())
   businessId     String
-  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
   brandId        String
-  brand          WorkshopBrand @relation(fields: [businessId, brandId], references: [businessId, id], onDelete: Restrict)
+  brand          WorkshopBrand        @relation(fields: [businessId, brandId], references: [businessId, id], onDelete: Restrict)
   customerId     String
-  customer       Customer @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
+  customer       Customer             @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict)
   plate          String
   model          String
   year           Int?
   engine         String
   currentMileage Int?
   usage          WorkshopVehicleUsage
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@unique([businessId, plate])
   @@unique([businessId, id])
@@ -1690,45 +1742,48 @@ model WorkshopVehicle {
 }
 
 model WorkshopJob {
-  id String @id @default(cuid())
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  vehicleId String
-  vehicle WorkshopVehicle @relation(fields: [businessId, vehicleId], references: [businessId, id], onDelete: Restrict)
-  date String
-  mileage Int
+  id          String             @id @default(cuid())
+  businessId  String
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  vehicleId   String
+  vehicle     WorkshopVehicle    @relation(fields: [businessId, vehicleId], references: [businessId, id], onDelete: Restrict)
+  date        String
+  mileage     Int
   responsible String?
   performerId String?
-  performer WorkshopPerformer? @relation(fields: [businessId, performerId], references: [businessId, id], onDelete: Restrict)
-  notes String @default("")
-  lines Json
-  totalCents Int
-  createdAt DateTime @default(now())
+  performer   WorkshopPerformer? @relation(fields: [businessId, performerId], references: [businessId, id], onDelete: Restrict)
+  notes       String             @default("")
+  lines       Json
+  totalCents  Int
+  createdAt   DateTime           @default(now())
+
   @@index([businessId, date])
   @@index([businessId, vehicleId, date])
   @@index([businessId, performerId, date])
 }
 
 model WorkshopShortcut {
-  id String @id @default(cuid())
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  name String
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name        String
   description String
-  quantity Int @default(1)
-  active Boolean @default(true)
-  position Int @default(0)
+  quantity    Int      @default(1)
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+
   @@index([businessId, position])
 }
 
 model WorkshopPerformer {
-  id String @id @default(cuid())
-  businessId String
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  name String
+  id             String        @id @default(cuid())
+  businessId     String
+  business       Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name           String
   normalizedName String
-  active Boolean @default(true)
-  jobs WorkshopJob[]
+  active         Boolean       @default(true)
+  jobs           WorkshopJob[]
+
   @@unique([businessId, normalizedName])
   @@unique([businessId, id])
   @@index([businessId, active, name])
@@ -1828,7 +1883,7 @@ model BookingVisit {
   version              Int                @default(0)
   origin               AppointmentOrigin  @default(BOT)
 
-  appointment Appointment?
+  appointment     Appointment?
   bookingDeposits BookingDeposit[]
 
   createdAt DateTime @default(now())
@@ -1857,27 +1912,32 @@ model Appointment {
   service   Service @relation(fields: [serviceId], references: [id])
 
   startAt              DateTime
-  origin               AppointmentOrigin @default(UNKNOWN)
+  origin               AppointmentOrigin         @default(UNKNOWN)
   quotedPrice          Int?
-  manualDepositPaid    Boolean           @default(false)
+  manualDepositPaid    Boolean                   @default(false)
   manualDepositAmount  Int?
   notes                String?
   attentionColor       AppointmentAttentionColor @default(NONE)
   totalDurationMinutes Int
   coordinationGroupId  String?
-  version              Int      @default(0)
+  version              Int                       @default(0)
 
   visitId String?       @unique
   visit   BookingVisit? @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  status                  AppointmentStatus        @default(CONFIRMED)
+  status                  AppointmentStatus          @default(CONFIRMED)
+  completedAt             DateTime?
+  completedByUserId       String?
+  completedByName         String?
+  completionSource        AppointmentCompletionSource?
   reminderDeliveries      ReminderDelivery[]
-  convertedConversation   Conversation?            @relation("ConversationOpportunityAppointment")
+  convertedConversation   Conversation?              @relation("ConversationOpportunityAppointment")
   postSaleDeliveries      PostSaleDelivery[]
   bookingDeposit          BookingDeposit?
-  changeHistory          AppointmentChangeHistory[]
+  changeHistory           AppointmentChangeHistory[]
   serviceItems            AppointmentServiceItem[]
   accountLink             AppointmentAccountLink?
+  productSale             ProductSale?
   googleCalendarEventId   String?
   googleCalendarAccountId String?
 
@@ -1895,15 +1955,37 @@ model AppointmentAccount {
   business       Business               @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   pricingMode    AppointmentPricingMode
   agreedAmount   Int?
+  originalAmount Int?
+  minimumAmount  Int                    @default(0)
   discountAmount Int                    @default(0)
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
 
   appointmentLinks AppointmentAccountLink[]
   cashEntries      CashEntry[]
+  totalAdjustments AppointmentTotalAdjustment[]
 
   @@unique([businessId, id])
   @@index([businessId, createdAt])
+}
+
+model AppointmentTotalAdjustment {
+  id             String             @id @default(cuid())
+  businessId     String
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId      String
+  account        AppointmentAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  actorUserId    String?
+  actor          User?              @relation("AppointmentTotalAdjustmentActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorName      String
+  reason         String
+  previousAmount Int?
+  newAmount      Int
+  createdAt      DateTime           @default(dbgenerated("clock_timestamp()"))
+  appliedAt      DateTime?
+
+  @@index([businessId, accountId, createdAt, id])
+  @@index([businessId, actorUserId, createdAt])
 }
 
 model AppointmentAccountLink {
@@ -1962,39 +2044,185 @@ model CashSession {
   @@index([businessId, responsibleUserId])
 }
 
+model CashExpenseCategory {
+  id             String   @id @default(cuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  position       Int      @default(0)
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  entries CashEntry[]
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, isActive, position, name])
+}
+
 model CashEntry {
-  id               String              @id @default(cuid())
-  businessId       String
-  business         Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  accountId        String?
-  account          AppointmentAccount? @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  registerDayId    String?
-  registerDay      CashRegisterDay?    @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  cashSessionId    String?
-  cashSession      CashSession?        @relation(fields: [businessId, registerDayId, cashSessionId], references: [businessId, registerDayId, id], onDelete: Restrict, onUpdate: Cascade)
-  type             CashEntryType
-  direction        CashDirection
-  amount           Int
-  paymentMethod    CashPaymentMethod
-  origin           CashEntryOrigin
-  description      String?
-  counterparty     String?
-  observation      String?
-  bookingDepositId String?             @unique
-  bookingDeposit   BookingDeposit?     @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  reversesEntryId  String?             @unique
-  reversesEntry    CashEntry?          @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  reversedBy       CashEntry?          @relation("CashEntryReversal")
-  effectiveAt      DateTime?           @default(dbgenerated("clock_timestamp()"))
-  createdAt        DateTime            @default(now())
+  id                String               @id @default(cuid())
+  businessId        String
+  business          Business             @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId         String?
+  account           AppointmentAccount?  @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  registerDayId     String?
+  registerDay       CashRegisterDay?     @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  cashSessionId     String?
+  cashSession       CashSession?         @relation(fields: [businessId, registerDayId, cashSessionId], references: [businessId, registerDayId, id], onDelete: Restrict, onUpdate: Cascade)
+  type              CashEntryType
+  direction         CashDirection
+  amount            Int
+  paymentMethod     CashPaymentMethod
+  origin            CashEntryOrigin
+  description       String?
+  counterparty      String?
+  observation       String?
+  expenseCategoryId String?
+  expenseCategory   CashExpenseCategory? @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  productSaleId     String?              @unique
+  productSale       ProductSale?         @relation(fields: [businessId, productSaleId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  bookingDepositId  String?              @unique
+  bookingDeposit    BookingDeposit?      @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversesEntryId   String?              @unique
+  reversesEntry     CashEntry?           @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversedBy        CashEntry?           @relation("CashEntryReversal")
+  effectiveAt       DateTime?            @default(dbgenerated("clock_timestamp()"))
+  createdAt         DateTime             @default(now())
 
   @@unique([businessId, id])
   @@unique([businessId, bookingDepositId])
   @@unique([businessId, reversesEntryId])
+  @@unique([businessId, productSaleId])
   @@index([businessId, effectiveAt, id])
   @@index([registerDayId, effectiveAt, id])
   @@index([businessId, accountId, effectiveAt, id])
   @@index([businessId, type, paymentMethod, effectiveAt, id])
+  @@index([businessId, expenseCategoryId, effectiveAt, id])
+}
+
+model ProductCategory {
+  id             String   @id @default(cuid())
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  products Product[]
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, isActive, sortOrder, name])
+}
+
+model Product {
+  id             String           @id @default(cuid())
+  businessId     String
+  business       Business         @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  categoryId     String?
+  category       ProductCategory? @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  sku            String?
+  description    String?
+  salePrice      Int
+  cost           Int?
+  sortOrder      Int              @default(0)
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  saleLines ProductSaleLine[]
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@unique([businessId, sku])
+  @@index([businessId, isActive, sortOrder, name])
+  @@index([businessId, categoryId, isActive])
+}
+
+model ProductSale {
+  id                 String            @id @default(cuid())
+  businessId         String
+  business           Business          @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointmentId      String?
+  appointment        Appointment?      @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  customerId         String?
+  customer           Customer?         @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  actorUserId        String?
+  actor              User?             @relation("ProductSaleActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorName          String
+  idempotencyKey     String?
+  requestFingerprint String?
+  status             ProductSaleStatus @default(DRAFT)
+  serviceSubtotal    Int               @default(0)
+  productSubtotal    Int               @default(0)
+  discountAmount     Int               @default(0)
+  total              Int               @default(0)
+  paymentMethod      CashPaymentMethod @default(UNSPECIFIED)
+  observation        String?
+  completedAt        DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  lines     ProductSaleLine[]
+  audits    ProductSaleAudit[]
+  cashEntry CashEntry?
+
+  @@unique([businessId, id])
+  @@unique([businessId, idempotencyKey])
+  @@unique([businessId, appointmentId])
+  @@index([businessId, status, createdAt])
+  @@index([businessId, customerId, createdAt])
+}
+
+model ProductSaleLine {
+  id                  String      @id @default(cuid())
+  businessId          String
+  business            Business    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  saleId              String
+  sale                ProductSale @relation(fields: [businessId, saleId], references: [businessId, id], onDelete: Cascade, onUpdate: Cascade)
+  productId           String
+  product             Product     @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  productNameSnapshot String
+  skuSnapshot         String?
+  unitPrice           Int
+  unitCost            Int?
+  quantity            Int
+  lineTotal           Int
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  @@unique([saleId, productId])
+  @@unique([businessId, id])
+  @@index([businessId, saleId])
+  @@index([businessId, productId])
+}
+
+model ProductSaleAudit {
+  id               String      @id @default(cuid())
+  businessId       String
+  business         Business    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  saleId           String
+  sale             ProductSale @relation(fields: [businessId, saleId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  actorUserId      String?
+  actor            User?       @relation("ProductSaleAuditActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorName        String
+  action           String
+  previousSubtotal Int
+  newSubtotal      Int
+  detail           Json?
+  createdAt        DateTime    @default(dbgenerated("clock_timestamp()"))
+
+  @@unique([businessId, id])
+  @@index([businessId, saleId, createdAt])
 }
 
 model AppointmentServiceItem {
@@ -2122,6 +2350,25 @@ model Conversation {
   @@index([businessId, opportunityStatus, updatedAt])
 }
 
+model ConversationQuickReply {
+  id String @id @default(cuid())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  title    String
+  shortcut String
+  message  String
+  position Int     @default(0)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessId, shortcut])
+  @@index([businessId, isActive, position])
+}
+
 model AiUsageEvent {
   id                String   @id @default(cuid())
   businessId        String?
@@ -2163,34 +2410,34 @@ model BookingDeposit {
   /// La FK compuesta impide vincular una seña de un tenant con una visita de otro.
   visit   BookingVisit? @relation(fields: [businessId, visitId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade, map: "BookingDeposit_visitId_fkey")
 
-  source           BookingDepositSource @default(WHATSAPP)
-  mode             ServiceDepositMode
-  configuredValue  Int
-  baseAmount       Int?
-  amount           Int
-  status           BookingDepositStatus @default(PENDING_PROOF)
-  expiresAt        DateTime
+  source            BookingDepositSource         @default(WHATSAPP)
+  mode              ServiceDepositMode
+  configuredValue   Int
+  baseAmount        Int?
+  amount            Int
+  status            BookingDepositStatus         @default(PENDING_PROOF)
+  expiresAt         DateTime
   /// Momento efectivo, provisto por DB, en que F8.6 liberó la retención.
-  expiredAt        DateTime?
-  expirationReason String?
-  holdTtlMinutes   Int?
+  expiredAt         DateTime?
+  expirationReason  String?
+  holdTtlMinutes    Int?
   holdTtlProvenance BookingDepositTtlProvenance?
   /// F8 closes its immutable financial snapshot only after all lines exist.
-  snapshotSealedAt DateTime?
-  proofMessageId   String?
-  proofData        Bytes?
-  proofMimeType    String?
-  proofFilename    String?
-  reviewedAt       DateTime?
-  reviewedByUserId String?
-  rejectionReason  String?
+  snapshotSealedAt  DateTime?
+  proofMessageId    String?
+  proofData         Bytes?
+  proofMimeType     String?
+  proofFilename     String?
+  reviewedAt        DateTime?
+  reviewedByUserId  String?
+  rejectionReason   String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines BookingDepositLine[]
-  expiryAudit BookingDepositExpiryAudit?
-  proofs BookingDepositProof[]
+  lines              BookingDepositLine[]
+  expiryAudit        BookingDepositExpiryAudit?
+  proofs             BookingDepositProof[]
   appointmentChanges AppointmentChangeHistory[] @relation("AppointmentChangeHistoryBookingDeposit")
   cashEntry          CashEntry?
 
@@ -2204,17 +2451,17 @@ model BookingDeposit {
 /// Append-only audit trail for a future F9 in-place appointment mutation.
 /// `actor` is deliberately a required textual principal, not an actor hierarchy.
 model AppointmentChangeHistory {
-  id                String          @id @default(cuid())
-  appointmentId     String
-  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  operationKey      String          @unique
-  actor             String
-  fromStartAt       DateTime
-  toStartAt         DateTime
-  bookingDepositId  String?
-  bookingDeposit    BookingDeposit? @relation("AppointmentChangeHistoryBookingDeposit", fields: [appointmentId, bookingDepositId], references: [appointmentId, id], onDelete: Restrict, onUpdate: Cascade)
-  depositPreserved  Boolean         @default(false)
-  createdAt         DateTime        @default(now())
+  id               String          @id @default(cuid())
+  appointmentId    String
+  appointment      Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  operationKey     String          @unique
+  actor            String
+  fromStartAt      DateTime
+  toStartAt        DateTime
+  bookingDepositId String?
+  bookingDeposit   BookingDeposit? @relation("AppointmentChangeHistoryBookingDeposit", fields: [appointmentId, bookingDepositId], references: [appointmentId, id], onDelete: Restrict, onUpdate: Cascade)
+  depositPreserved Boolean         @default(false)
+  createdAt        DateTime        @default(now())
 
   @@index([appointmentId, createdAt])
 }
@@ -2251,12 +2498,12 @@ model BookingDepositReviewOutbox {
 /// Durable operational handoff for evidence received after an aggregate has
 /// reached a terminal state. It never reopens the visit or appointment.
 model BookingDepositLateProofHandoff {
-  id        String   @id
+  id         String   @id
   businessId String
-  depositId String
-  proofId   String   @unique
-  action    String
-  createdAt DateTime @default(now())
+  depositId  String
+  proofId    String   @unique
+  action     String
+  createdAt  DateTime @default(now())
 
   @@index([businessId, depositId, createdAt], map: "BookingDepositLateProofHandoff_businessId_depositId_createdAt_i")
 }
@@ -2265,34 +2512,34 @@ model BookingDepositLateProofHandoff {
 /// append-only y conserva tanto el original como el derivado saneado; las
 /// transiciones que elegirán la evidencia vigente quedan fuera de este slice.
 model BookingDepositProof {
-  id               String                              @id @default(cuid())
-  businessId       String
-  business         Business                            @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  depositId        String
-  deposit          BookingDeposit                      @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  sequence         Int
-  kind             BookingDepositProofKind
-  validationStatus BookingDepositProofValidationStatus @default(VALID)
-  validatorVersion String
-  validatedAt      DateTime
-  receivedAt       DateTime
-  providerEventId  String?
-  providerMessageId String?
-  providerMediaId  String?
-  sourceData       Bytes?
-  sourceMimeType   String
-  sourceFilename   String
-  sourceByteSize   Int
-  sourceSha256     String
-  derivedData      Bytes?
-  derivedMimeType  String
-  derivedByteSize  Int
-  derivedSha256    String
+  id                  String                              @id @default(cuid())
+  businessId          String
+  business            Business                            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  depositId           String
+  deposit             BookingDeposit                      @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  sequence            Int
+  kind                BookingDepositProofKind
+  validationStatus    BookingDepositProofValidationStatus @default(VALID)
+  validatorVersion    String
+  validatedAt         DateTime
+  receivedAt          DateTime
+  providerEventId     String?
+  providerMessageId   String?
+  providerMediaId     String?
+  sourceData          Bytes?
+  sourceMimeType      String
+  sourceFilename      String
+  sourceByteSize      Int
+  sourceSha256        String
+  derivedData         Bytes?
+  derivedMimeType     String
+  derivedByteSize     Int
+  derivedSha256       String
   retentionEligibleAt DateTime
   /// DB-owned, irreversible retention transition. NULL means bytes remain.
-  purgedAt          DateTime?
-  purgeReason       String?
-  createdAt        DateTime                            @default(now())
+  purgedAt            DateTime?
+  purgeReason         String?
+  createdAt           DateTime                            @default(now())
 
   @@unique([businessId, id])
   @@unique([businessId, depositId, sequence])
@@ -2308,16 +2555,16 @@ model BookingDepositProof {
 /// Operation-level observability for an internal byte-only retention run. It
 /// intentionally contains no customer, provider, filename, hash or byte data.
 model BookingDepositProofPurgeOperation {
-  id            String   @id
-  operationKey  String   @unique
+  id            String    @id
+  operationKey  String    @unique
   scope         String
   businessId    String?
   reason        String
   requestHash   String
   status        String
-  selectedCount Int      @default(0)
-  purgedCount   Int      @default(0)
-  createdAt     DateTime @default(now())
+  selectedCount Int       @default(0)
+  purgedCount   Int       @default(0)
+  createdAt     DateTime  @default(now())
   completedAt   DateTime?
 
   events BookingDepositProofPurgeAudit[]
@@ -2345,21 +2592,21 @@ model BookingDepositProofPurgeAudit {
 /// Evento append-only de la liberación automática. Conserva el deadline y las
 /// identidades del agregado aunque las filas operativas cambien después.
 model BookingDepositExpiryAudit {
-  id                   String         @id @default(cuid())
-  businessId           String
-  depositId            String         @unique
-  deposit              BookingDeposit @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  visitId              String
-  appointmentId        String
-  jobId                String
-  reason               String
-  dueAt                DateTime
-  expiredAt            DateTime
-  createdAt            DateTime       @default(now())
+  id            String         @id @default(cuid())
+  businessId    String
+  depositId     String         @unique
+  deposit       BookingDeposit @relation(fields: [businessId, depositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  visitId       String
+  appointmentId String
+  jobId         String
+  reason        String
+  dueAt         DateTime
+  expiredAt     DateTime
+  createdAt     DateTime       @default(now())
 
+  @@unique([businessId, depositId])
   @@index([businessId, expiredAt])
   @@index([businessId, visitId])
-  @@unique([businessId, depositId])
 }
 
 /// Snapshot financiero inmutable por servicio. No se recalcula desde catálogo
@@ -2852,10 +3099,10 @@ model Pipeline {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  stages   PipelineStage[]
-  leads    PipelineLead[]
-  tasks    PipelineTask[]
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  stages           PipelineStage[]
+  leads            PipelineLead[]
+  tasks            PipelineTask[]
   leadCaptureForms LeadCaptureForm[]
 
   @@unique([businessId, id])
@@ -2872,12 +3119,12 @@ model PipelineStage {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  business      Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  pipeline      Pipeline            @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  currentLeads  PipelineLead[]       @relation("PipelineLeadCurrentStage")
-  lastOpenLeads PipelineLead[]       @relation("PipelineLeadLastOpenStage")
-  eventsFrom    PipelineLeadEvent[]  @relation("PipelineEventFromStage")
-  eventsTo      PipelineLeadEvent[]  @relation("PipelineEventToStage")
+  business         Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline         Pipeline            @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  currentLeads     PipelineLead[]      @relation("PipelineLeadCurrentStage")
+  lastOpenLeads    PipelineLead[]      @relation("PipelineLeadLastOpenStage")
+  eventsFrom       PipelineLeadEvent[] @relation("PipelineEventFromStage")
+  eventsTo         PipelineLeadEvent[] @relation("PipelineEventToStage")
   leadCaptureForms LeadCaptureForm[]
 
   @@unique([businessId, id])
@@ -2886,41 +3133,43 @@ model PipelineStage {
 }
 
 model PipelineLead {
-  id                String                 @id @default(cuid())
-  businessId        String
-  pipelineId        String
-  stageId           String?
-  lastOpenStageId   String?
-  lifecycle         PipelineLeadLifecycle @default(OPEN)
-  assigneeUserId    String?
-  title             String
-  contactName       String?
-  companyName       String?
-  email             String?
-  normalizedEmail   String?
-  phone             String?
-  normalizedPhone   String?
-  estimatedValue    Decimal                @default(0) @db.Decimal(12, 2)
-  priority          PipelineLeadPriority   @default(MEDIUM)
-  source            String?
-  externalReference String?
-  customData        Json                   @default("{}")
-  customDataSchemaVersion Int              @default(1)
-  position          Int?
-  lastActivityAt    DateTime?
-  resolvedAt        DateTime?
-  archivedAt        DateTime?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  id                      String                @id @default(cuid())
+  businessId              String
+  pipelineId              String
+  stageId                 String?
+  lastOpenStageId         String?
+  lifecycle               PipelineLeadLifecycle @default(OPEN)
+  assigneeUserId          String?
+  customerId              String?
+  title                   String
+  contactName             String?
+  companyName             String?
+  email                   String?
+  normalizedEmail         String?
+  phone                   String?
+  normalizedPhone         String?
+  estimatedValue          Decimal               @default(0) @db.Decimal(12, 2)
+  priority                PipelineLeadPriority  @default(MEDIUM)
+  source                  String?
+  externalReference       String?
+  customData              Json                  @default("{}")
+  customDataSchemaVersion Int                   @default(1)
+  position                Int?
+  lastActivityAt          DateTime?
+  resolvedAt              DateTime?
+  archivedAt              DateTime?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
 
-  business      Business               @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  pipeline      Pipeline               @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  stage         PipelineStage?         @relation("PipelineLeadCurrentStage", fields: [businessId, stageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  lastOpenStage PipelineStage?         @relation("PipelineLeadLastOpenStage", fields: [businessId, lastOpenStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  assignee      User?                  @relation("PipelineLeadAssignee", fields: [businessId, assigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  activities    PipelineLeadActivity[]
-  events        PipelineLeadEvent[]
-  tasks         PipelineTask[]
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline        Pipeline               @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  stage           PipelineStage?         @relation("PipelineLeadCurrentStage", fields: [businessId, stageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  lastOpenStage   PipelineStage?         @relation("PipelineLeadLastOpenStage", fields: [businessId, lastOpenStageId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  assignee        User?                  @relation("PipelineLeadAssignee", fields: [businessId, assigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  customer        Customer?              @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  activities      PipelineLeadActivity[]
+  events          PipelineLeadEvent[]
+  tasks           PipelineTask[]
   formSubmissions FormSubmission[]
 
   @@unique([businessId, id])
@@ -2929,6 +3178,7 @@ model PipelineLead {
   @@index([businessId, assigneeUserId, archivedAt])
   @@index([businessId, normalizedEmail])
   @@index([businessId, normalizedPhone])
+  @@index([businessId, customerId])
 }
 
 model PipelineLeadActivity {
@@ -3011,7 +3261,7 @@ model LeadCaptureForm {
   publicSlug            String
   name                  String
   status                LeadCaptureFormStatus @default(DRAFT)
-  rewardMode            LeadFormRewardMode     @default(NONE)
+  rewardMode            LeadFormRewardMode    @default(NONE)
   schemaVersion         Int                   @default(1)
   version               Int                   @default(1)
   fields                Json                  @default("[]")
@@ -3020,12 +3270,12 @@ model LeadCaptureForm {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
-  business        Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  pipeline        Pipeline                    @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  initialStage    PipelineStage               @relation(fields: [businessId, pipelineId, initialStageId], references: [businessId, pipelineId, id], onDelete: Restrict, onUpdate: Cascade)
-  defaultAssignee User?                       @relation("LeadCaptureFormDefaultAssignee", fields: [businessId, defaultAssigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  submissions     FormSubmission[]
-  rewards         FormReward[]
+  business         Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pipeline         Pipeline                    @relation(fields: [businessId, pipelineId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  initialStage     PipelineStage               @relation(fields: [businessId, pipelineId, initialStageId], references: [businessId, pipelineId, id], onDelete: Restrict, onUpdate: Cascade)
+  defaultAssignee  User?                       @relation("LeadCaptureFormDefaultAssignee", fields: [businessId, defaultAssigneeUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  submissions      FormSubmission[]
+  rewards          FormReward[]
   rateLimitBuckets PublicFormRateLimitBucket[]
 
   @@unique([businessId, id])
@@ -3035,28 +3285,28 @@ model LeadCaptureForm {
 }
 
 model FormSubmission {
-  id                  String               @id @default(cuid())
-  businessId          String
-  formId              String
-  leadId              String?
-  idempotencyKey      String
-  payloadFingerprint  String
-  status              FormSubmissionStatus @default(PENDING)
-  rewardMode          LeadFormRewardMode    @default(NONE)
-  schemaVersion       Int                  @default(1)
-  answers             Json
-  attribution         Json?
-  contactName         String?
-  normalizedEmail     String?
-  normalizedPhone     String?
-  acceptedAt          DateTime?
-  rejectedAt          DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  id                 String               @id @default(cuid())
+  businessId         String
+  formId             String
+  leadId             String?
+  idempotencyKey     String
+  payloadFingerprint String
+  status             FormSubmissionStatus @default(PENDING)
+  rewardMode         LeadFormRewardMode   @default(NONE)
+  schemaVersion      Int                  @default(1)
+  answers            Json
+  attribution        Json?
+  contactName        String?
+  normalizedEmail    String?
+  normalizedPhone    String?
+  acceptedAt         DateTime?
+  rejectedAt         DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
-  business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  form     LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  lead     PipelineLead?   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  business     Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  form         LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  lead         PipelineLead?   @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   rewardClaims RewardClaim[]
 
   @@unique([businessId, id])
@@ -3067,18 +3317,18 @@ model FormSubmission {
 }
 
 model FormReward {
-  id                String         @id @default(cuid())
-  businessId        String
-  formId            String
-  name              String
-  type              LeadRewardType
-  version           Int            @default(1)
-  enabled           Boolean        @default(true)
-  payloadEncrypted  String?
-  objectPath        String?
-  expiresInMinutes  Int?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id               String         @id @default(cuid())
+  businessId       String
+  formId           String
+  name             String
+  type             LeadRewardType
+  version          Int            @default(1)
+  enabled          Boolean        @default(true)
+  payloadEncrypted String?
+  objectPath       String?
+  expiresInMinutes Int?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 
   business Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   form     LeadCaptureForm @relation(fields: [businessId, formId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)

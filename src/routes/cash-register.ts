@@ -48,6 +48,43 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     }
   })
 
+  app.get('/cash-register/period/summary', async (request, reply) => {
+    const query = request.query as { businessId?: string; from?: string; to?: string }
+    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
+    try {
+      return { ...await service.getCashPeriodSummary({ businessId: access.businessId, from: query.from, to: query.to }), permissions: cashPermissionSnapshot(request.auth!.user) }
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.get('/cash-register/period/expenses', async (request, reply) => {
+    const query = request.query as { businessId?: string; from?: string; to?: string; page?: string; pageSize?: string; method?: string; categoryId?: string; q?: string }
+    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
+    if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
+    if (query.method && !methods.includes(query.method as typeof methods[number])) return validation(reply, 'Medio de pago inválido')
+    try {
+      const page = optionalInteger(query.page)
+      const pageSize = optionalInteger(query.pageSize)
+      return await service.listCashPeriodExpenses({
+        businessId: access.businessId,
+        from: query.from,
+        to: query.to,
+        ...(page === undefined ? {} : { page }),
+        ...(pageSize === undefined ? {} : { pageSize }),
+        ...(query.method === undefined ? {} : { method: query.method as typeof methods[number] }),
+        ...(query.categoryId === undefined ? {} : { expenseCategoryId: query.categoryId }),
+        ...(query.q === undefined ? {} : { query: query.q })
+      })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
   app.get('/cash-register/days', async (request, reply) => {
     const query = request.query as { businessId?: string; limit?: string }
     const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
@@ -74,7 +111,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.get('/cash-register/days/:id/entries', async (request, reply) => {
     const params = request.params as { id: string }
-    const query = request.query as { businessId?: string; cursor?: string; limit?: string; type?: string; method?: string; q?: string }
+    const query = request.query as { businessId?: string; cursor?: string; limit?: string; type?: string; method?: string; categoryId?: string; sessionId?: string; q?: string }
     const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     const types = ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND', 'REVERSAL'] as const
@@ -90,9 +127,64 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
         ...(limit === undefined ? {} : { limit }),
         ...(query.type === undefined ? {} : { type: query.type as typeof types[number] }),
         ...(query.method === undefined ? {} : { method: query.method as typeof methods[number] }),
+        ...(query.categoryId === undefined ? {} : { expenseCategoryId: query.categoryId }),
+        ...(query.sessionId === undefined ? {} : { cashSessionId: query.sessionId }),
         ...(query.q === undefined ? {} : { query: query.q })
       })
       return { entries: page.entries, nextCursor: page.nextCursor, permissions: cashPermissionSnapshot(request.auth!.user) }
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.get('/cash-register/expense-categories', async (request, reply) => {
+    const query = request.query as { businessId?: string; includeInactive?: string }
+    const access = cashAnyAccess(request.auth?.user, ['canViewCashRegister', 'canManageCashOperations'], query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    try {
+      return {
+        categories: await service.listExpenseCategories({
+          businessId: access.businessId,
+          includeInactive: query.includeInactive === 'true'
+        })
+      }
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.post('/cash-register/expense-categories', async (request, reply) => {
+    if (!isRecord(request.body)) return validation(reply, 'Revisá el nombre y el orden de la categoría')
+    const body = request.body
+    const access = cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number')) {
+      return validation(reply, 'Revisá el nombre y el orden de la categoría')
+    }
+    try {
+      return await service.createExpenseCategory({ businessId: access.businessId, name: body.name, ...(body.position === undefined ? {} : { position: body.position }) })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.patch('/cash-register/expense-categories/:id', async (request, reply) => {
+    const params = request.params as { id?: unknown }
+    if (!isRecord(request.body)) return validation(reply, 'Revisá los datos de la categoría')
+    const body = request.body
+    const access = cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (typeof params.id !== 'string' || !params.id.trim() || typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number') || (body.isActive !== undefined && typeof body.isActive !== 'boolean')) {
+      return validation(reply, 'Revisá los datos de la categoría')
+    }
+    try {
+      return await service.updateExpenseCategory({
+        businessId: access.businessId,
+        categoryId: params.id.trim(),
+        name: body.name,
+        ...(body.position === undefined ? {} : { position: body.position }),
+        ...(body.isActive === undefined ? {} : { isActive: body.isActive })
+      })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -135,12 +227,19 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   })
 
   app.post('/cash-register/entries', async (request, reply) => {
-    const body = request.body as Record<string, unknown> & { businessId?: string; type?: string; cashSessionId?: string }
+    if (!isRecord(request.body)) return validation(reply, 'Sesión y tipo de operación válidos son requeridos')
+    const body = request.body
     const permission: CashPermission = body.type === 'ADJUSTMENT' ? 'canAdjustCash' : 'canManageCashOperations'
     const access = cashAccess(request.auth?.user, permission, body)
     if (!access.ok) return cashAccessFailure(reply, access)
-    if (!body.cashSessionId?.trim() || !['EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND'].includes(body.type ?? '')) {
+    if (typeof body.cashSessionId !== 'string' || !body.cashSessionId.trim() || typeof body.type !== 'string' || !['EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND'].includes(body.type)) {
       return validation(reply, 'Sesión y tipo de operación válidos son requeridos')
+    }
+    if (body.categoryId !== undefined && body.categoryId !== null && typeof body.categoryId !== 'string') {
+      return validation(reply, 'La categoría de gasto es inválida')
+    }
+    if (body.type !== 'EXPENSE' && typeof body.categoryId === 'string' && body.categoryId.trim()) {
+      return validation(reply, 'La categoría solo corresponde a gastos')
     }
     try {
       return await service.recordCashOperation({ ...body, businessId: access.businessId, cashSessionId: body.cashSessionId.trim() } as CashOperationInput)
@@ -171,8 +270,22 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   })
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
 function cashAccess(user: StaffAuthorizationUser | undefined, permission: CashPermission, source: unknown) {
   if (!user || !hasCashPermission(user, permission)) return { ok: false as const, code: 'CASH_PERMISSION_REQUIRED' as const }
+  const requested = source && typeof source === 'object' ? (source as { businessId?: unknown }).businessId : undefined
+  const canSelectBusiness = user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN'
+  const businessId = canSelectBusiness && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
+  if (!businessId) return { ok: false as const, code: 'BUSINESS_ID_REQUIRED' as const }
+  return { ok: true as const, businessId }
+}
+
+function cashAnyAccess(user: StaffAuthorizationUser | undefined, permissions: CashPermission[], source: unknown) {
+  if (!user || !permissions.some((permission) => hasCashPermission(user, permission))) {
+    return { ok: false as const, code: 'CASH_PERMISSION_REQUIRED' as const }
+  }
   const requested = source && typeof source === 'object' ? (source as { businessId?: unknown }).businessId : undefined
   const canSelectBusiness = user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN'
   const businessId = canSelectBusiness && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
@@ -232,8 +345,53 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   if (['BUSINESS_NOT_FOUND', 'REGISTER_DAY_NOT_FOUND', 'ENTRY_NOT_FOUND', 'APPOINTMENT_ACCOUNT_NOT_FOUND', 'MISSING_APPOINTMENT_EVIDENCE'].includes(code)) {
     return reply.status(404).send({ code: 'NOT_FOUND', message: 'El recurso no está disponible' })
   }
-  if (code === 'OVERPAYMENT') {
+    if (code === 'OVERPAYMENT') {
     return reply.status(409).send({ code, message: 'El importe supera el saldo pendiente o el descuento deja el total por debajo de lo ya pagado' })
+    }
+    if (code === 'TOTAL_BELOW_PAID') {
+      return reply.status(409).send({ code, message: 'El total final no puede quedar por debajo de lo ya cobrado' })
+    }
+    if (code === 'TOTAL_BELOW_MINIMUM') {
+      return reply.status(409).send({ code, message: 'El total final no puede quedar por debajo del precio base del servicio' })
+    }
+    if (code === 'TOTAL_UNCHANGED') {
+      return reply.status(409).send({ code, message: 'El total ingresado es igual al total actual' })
+    }
+  if (code === 'TOTAL_ADJUSTMENT_REASON_REQUIRED') {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Ingresá un motivo breve para el ajuste' })
+    }
+  if (code === 'EXPENSE_CATEGORY_NOT_FOUND') {
+    return reply.status(404).send({ code: 'NOT_FOUND', message: 'La categoría de gasto no existe en este negocio' })
+  }
+  if (code === 'EXPENSE_CATEGORY_INACTIVE') {
+    return reply.status(409).send({ code, message: 'La categoría está inactiva; elegí otra para registrar el gasto' })
+  }
+  if (code === 'DEFAULT_EXPENSE_CATEGORY_PROTECTED') {
+    return reply.status(409).send({ code, message: 'La categoría Otros es obligatoria y no puede renombrarse ni desactivarse' })
+  }
+  if (code === 'EXPENSE_CATEGORY_DUPLICATE') {
+    return reply.status(409).send({ code, message: 'Ya existe una categoría con ese nombre' })
+  }
+  if (['INVALID_EXPENSE_CATEGORY_NAME', 'INVALID_EXPENSE_CATEGORY_POSITION'].includes(code)) {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'Ingresá un nombre de hasta 60 caracteres y un orden válido' })
+  }
+  if (code === 'INVALID_CASH_PERIOD') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'Elegí un período válido' })
+  }
+  if (code === 'CASH_PERIOD_TOO_LONG') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'El período no puede superar 31 días' })
+  }
+  if (code === 'INVALID_PAGE' || code === 'INVALID_PAGE_SIZE') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'Revisá la página y la cantidad de resultados' })
+  }
+  if (code === 'APPOINTMENT_COMPLETION_REQUIRES_FULL_PAYMENT') {
+    return reply.status(409).send({ code, message: 'Para marcarlo realizado, el pago debe completar todo el saldo pendiente' })
+  }
+  if (code === 'APPOINTMENT_COMPLETION_NOT_ALLOWED') {
+    return reply.status(409).send({ code, message: 'El turno no puede marcarse realizado antes de comenzar ni si está cancelado o ausente' })
+  }
+  if (code === 'APPOINTMENT_COMPLETION_ACTOR_REQUIRED') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'No se pudo identificar quién completa el turno' })
   }
   if (code === 'CASH_DIFFERENCE_CONFIRMATION_REQUIRED') {
     return reply.status(409).send({ code, message: 'Confirmá la diferencia de efectivo antes de continuar' })

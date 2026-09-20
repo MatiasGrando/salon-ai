@@ -45,6 +45,14 @@ export const cashRegisterStyles = `
     .cash-filter-controls { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
     .cash-filter-controls :is(select,input) { min-height: 40px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: white; }
     .cash-filter-controls input { min-width: min(320px, 100%); flex: 1; }
+    .cash-category-toolbar { display: flex; gap: 8px; align-items: center; }
+    .cash-category-list { display: grid; border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
+    .cash-category-row { display: grid; grid-template-columns: minmax(150px, 1fr) 90px 100px auto; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+    .cash-category-row:last-child { border-bottom: 0; }
+    .cash-category-row small { color: var(--muted); }
+    .cash-category-row.inactive strong { color: var(--muted); text-decoration: line-through; }
+    .cash-category-editor { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: grid; gap: 12px; }
+    .cash-category-editor[hidden] { display: none; }
     .cash-entry-list { display: grid; }
     .cash-entry { display: grid; grid-template-columns: minmax(180px, 1.2fr) 120px 120px 140px auto; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
     .cash-entry:last-child { border-bottom: 0; }
@@ -107,6 +115,11 @@ export const cashRegisterStyles = `
     .appointment-create-panel[hidden], .appointment-create-observation[hidden] { display: none; }
     .appointment-create-panel-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     .appointment-create-panel-title small { color: var(--muted); }
+    .appointment-payment-complete { display: flex; align-items: flex-start; gap: 9px; padding: 10px; border: 1px solid #bfdbfe; border-radius: 9px; background: #eff6ff; color: #1e3a8a; cursor: pointer; }
+    .appointment-payment-complete[hidden] { display: none; }
+    .appointment-payment-complete input { width: 18px; height: 18px; margin: 1px 0 0; flex: 0 0 auto; }
+    .appointment-payment-complete span { display: grid; gap: 2px; }
+    .appointment-payment-complete small { color: #475569; }
     .appointment-create-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
     .appointment-create-summary div { min-width: 0; padding: 9px 10px; border-radius: 9px; background: var(--surface-soft); display: grid; gap: 3px; }
     .appointment-create-summary span { color: var(--muted); font-size: 11px; }
@@ -115,26 +128,107 @@ export const cashRegisterStyles = `
     .appointment-create-summary .appointment-create-summary-emphasis strong { color: #1d4ed8; }
     .appointment-edit-estimated-total { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
     .appointment-edit-estimated-total[hidden] { display: none; }
+    .appointment-total-reference { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .appointment-total-reference div { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); display: grid; gap: 3px; }
+    .appointment-total-reference span { color: var(--muted); font-size: 12px; }
+    .appointment-total-adjust-grid { display: grid; grid-template-columns: minmax(0, 180px) minmax(220px, 1fr); gap: 10px; align-items: start; }
+    .appointment-total-adjust-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
     .appointment-edit-history { display: grid; gap: 9px; padding-top: 12px; border-top: 1px solid var(--line); }
     .appointment-edit-history > strong { font-size: 13px; }
     .appointment-finance textarea { width: 100%; min-height: 72px; border: 1px solid #b8c4d4; border-radius: 9px; padding: 10px; background: var(--surface); resize: vertical; }
     .appointment-finance textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; outline: none; }
+    .cash-product-layout { display: grid; grid-template-columns: minmax(230px, .75fr) minmax(340px, 1.25fr); gap: 16px; align-items: start; }
+    .cash-product-section { min-width: 0; display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+    .cash-product-section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    .cash-product-section-head h4 { margin: 0; }
+    .cash-product-table { border: 1px solid var(--line); border-radius: 11px; background: var(--surface); overflow: hidden; }
+    .cash-product-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(100px, .7fr) 100px auto; gap: 10px; align-items: center; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+    .cash-product-row:last-child { border-bottom: 0; }
+    .cash-product-row small { color: var(--muted); }
+    .cash-product-row.inactive strong { color: var(--muted); text-decoration: line-through; }
+    .cash-product-dialog { width: min(940px, 100%); }
+    .cash-sale-builder { display: grid; gap: 12px; }
+    .cash-sale-add-row, .appointment-product-add-row { display: grid; grid-template-columns: minmax(180px, 1fr) 100px auto; gap: 8px; align-items: end; }
+    .cash-sale-items, .appointment-product-list { display: grid; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+    .cash-sale-item, .appointment-product-item { display: grid; grid-template-columns: minmax(150px, 1fr) 80px 110px auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    .cash-sale-item:last-child, .appointment-product-item:last-child { border-bottom: 0; }
+    .cash-sale-item small, .appointment-product-item small { color: var(--muted); }
+    .cash-sale-total { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; padding: 12px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; }
+    .cash-sale-total strong { font-size: 20px; }
+    .appointment-products { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .appointment-products > summary { min-height: 52px; cursor: pointer; padding: 0 13px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; font-weight: 850; background: var(--surface-soft); list-style: none; }
+    .appointment-products > summary::-webkit-details-marker { display: none; }
+    .appointment-products > summary::after { content: "⌄"; color: #64748b; font-size: 18px; }
+    .appointment-product-content { padding: 14px; display: grid; gap: 12px; }
+    .appointment-product-note { margin: 0; color: var(--muted); font-size: 13px; }
+    .cash-view-switch { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); width: fit-content; }
+    .cash-view-tab { min-height: 40px; padding: 0 18px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 850; cursor: pointer; }
+    .cash-view-tab.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
+    .cash-method-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+    .cash-method-total { display: grid; gap: 3px; padding: 10px; border: 1px solid #dbeafe; border-radius: 10px; background: #f8fbff; }
+    .cash-method-total span { font-size: 12px; color: var(--muted); }
+    .cash-method-total strong { font-size: 17px; color: #0f172a; }
+    .cash-period-view { display: grid; gap: 16px; }
+    .cash-period-toolbar { display: grid; gap: 14px; padding: 16px; }
+    .cash-period-toolbar-head, .cash-section-head, .cash-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .cash-period-toolbar-head h3, .cash-section-head h3 { margin: 0; }
+    .cash-period-toolbar-head p, .cash-section-head p { margin: 4px 0 0; color: var(--muted); }
+    .cash-period-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+    .cash-period-preset { min-height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); font-weight: 750; cursor: pointer; }
+    .cash-period-preset.active { color: var(--primary); border-color: var(--primary); background: #eff6ff; }
+    .cash-period-dates { display: grid; grid-template-columns: repeat(2, minmax(160px, 230px)) auto; gap: 10px; align-items: end; }
+    .cash-period-limit { color: var(--muted); font-size: 12px; }
+    .cash-period-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cash-period-highlight { grid-column: span 3; }
+    .cash-period-highlight .cash-method-totals { margin-top: 10px; }
+    .cash-period-movements { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .cash-period-movement { display: grid; gap: 4px; padding: 13px; border-radius: 12px; background: var(--surface-soft); border: 1px solid var(--line); }
+    .cash-period-movement span { color: var(--muted); font-size: 12px; }
+    .cash-period-movement strong { font-size: 18px; }
+    .cash-period-category-list { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cash-period-category-list span { padding: 7px 10px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; font-weight: 750; }
+    .cash-period-expenses { padding: 0; overflow: hidden; }
+    .cash-period-expenses .cash-section-head, .cash-period-expense-filters, .cash-pagination { padding: 16px; }
+    .cash-period-expense-filters { display: grid; grid-template-columns: minmax(160px, .7fr) minmax(160px, .7fr) minmax(220px, 1.4fr) auto; gap: 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .cash-period-expense-list { min-height: 120px; }
+    .cash-period-expense-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(120px, .8fr) 150px 130px; gap: 12px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+    .cash-period-expense-row small { color: var(--muted); }
+    .cash-period-expense-row strong:last-child { text-align: right; }
+    .cash-period-expense-row.reversal strong:last-child { color: #047857; }
+    .cash-pagination { border-top: 1px solid var(--line); }
+    .cash-pagination-controls { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
       .app[data-section="cash"] { display: block; }
       .app[data-section="cash"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
       .cash-shell { padding: 16px; }
       .cash-summary-grid { grid-template-columns: 1fr 1fr; }
+      .cash-period-summary-grid { grid-template-columns: 1fr 1fr; }
+      .cash-period-highlight { grid-column: span 2; }
+      .cash-period-expense-filters { grid-template-columns: 1fr 1fr; }
+      .cash-period-expense-row { grid-template-columns: minmax(160px, 1fr) 120px 120px; }
+      .cash-period-expense-row > :nth-child(3) { display: none; }
       .cash-entry { grid-template-columns: 1fr auto; }
       .cash-session-row { grid-template-columns: 1fr 1fr; }
       .cash-entry > :not(.cash-entry-main):not(.cash-entry-amount) { display: none; }
     }
     @media (max-width: 560px) {
       .cash-header, .cash-toolbar, .cash-session-strip, .cash-filter-row { align-items: stretch; flex-direction: column; }
-      .cash-summary-grid, .cash-dialog-grid, .appointment-finance-summary, .appointment-finance-row { grid-template-columns: 1fr; }
-      .cash-session-reconciliation, .cash-session-row { grid-template-columns: 1fr; }
+      .cash-summary-grid, .cash-dialog-grid, .appointment-finance-summary, .appointment-finance-row, .appointment-total-reference, .appointment-total-adjust-grid { grid-template-columns: 1fr; }
+      .appointment-total-adjust-actions > button { flex: 1 1 120px; }
+      .cash-session-reconciliation, .cash-session-row, .cash-product-layout { grid-template-columns: 1fr; }
+      .cash-sale-add-row, .appointment-product-add-row, .cash-sale-item, .appointment-product-item, .cash-product-row { grid-template-columns: 1fr; }
       .appointment-create-actions { flex-direction: column; }
       .appointment-create-summary { grid-template-columns: 1fr 1fr; }
       .cash-actions > button { flex: 1; }
+      .cash-category-toolbar { align-items: stretch; flex-direction: column; }
+      .cash-view-switch { width: 100%; }
+      .cash-view-tab { flex: 1; }
+      .cash-period-dates, .cash-period-movements, .cash-period-expense-filters, .cash-method-totals { grid-template-columns: 1fr; }
+      .cash-period-highlight { grid-column: auto; }
+      .cash-period-expense-row { grid-template-columns: 1fr auto; }
+      .cash-period-expense-row > :nth-child(2), .cash-period-expense-row > :nth-child(3) { display: none; }
+      .cash-category-row { grid-template-columns: 1fr auto; }
+      .cash-category-row > :nth-child(2), .cash-category-row > :nth-child(3) { display: none; }
     }
 `
 
@@ -145,6 +239,49 @@ export const cashRegisterMarkup = `
           <div><h2>Caja</h2><p>Jornadas, cobros y movimientos del negocio</p></div>
           <span class="cash-status" id="cash-status">Caja cerrada</span>
         </header>
+        <nav class="cash-view-switch" aria-label="Vista de Caja">
+          <button class="cash-view-tab active" id="cash-view-day" type="button">Jornada y sesiones</button>
+          <button class="cash-view-tab" id="cash-view-period" type="button">Consultar per&iacute;odo</button>
+        </nav>
+        <section class="cash-period-view" id="cash-period-view" hidden>
+          <section class="cash-panel cash-period-toolbar">
+            <div class="cash-period-toolbar-head"><div><h3>Consultar per&iacute;odo</h3><p>Analiz&aacute; ingresos y egresos sin mezclar el efectivo esperado de una jornada.</p></div><span class="cash-period-limit">M&aacute;ximo 31 d&iacute;as</span></div>
+            <div class="cash-period-presets" role="group" aria-label="Per&iacute;odos r&aacute;pidos">
+              <button class="cash-period-preset" data-cash-period-preset="today" type="button">Hoy</button>
+              <button class="cash-period-preset" data-cash-period-preset="week" type="button">Esta semana</button>
+              <button class="cash-period-preset active" data-cash-period-preset="month" type="button">Este mes</button>
+              <button class="cash-period-preset" data-cash-period-preset="custom" type="button">Personalizado</button>
+            </div>
+            <div class="cash-period-dates">
+              <label>Desde<input id="cash-period-from" type="date"></label>
+              <label>Hasta<input id="cash-period-to" type="date"></label>
+              <button class="primary" id="cash-period-apply" type="button">Consultar</button>
+            </div>
+            <p class="cash-feedback" id="cash-period-feedback" role="status"></p>
+          </section>
+          <section class="cash-summary-grid cash-period-summary-grid" aria-label="Resumen del per&iacute;odo">
+            <article class="cash-summary-card cash-period-highlight"><span>Cobrado bruto</span><strong id="cash-period-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-card">$0</strong></div></div></article>
+            <article class="cash-summary-card"><span>Ventas netas cobradas</span><strong id="cash-period-net-sales">$0</strong><small id="cash-period-refunds">Devoluciones $0</small></article>
+            <article class="cash-summary-card"><span>Gastos registrados</span><strong id="cash-period-expenses-total">$0</strong><small>Solo gastos clasificados</small></article>
+            <article class="cash-summary-card"><span>Resultado operativo registrado</span><strong id="cash-period-result">$0</strong><small>Ventas netas menos gastos</small></article>
+          </section>
+          <section class="cash-panel" style="padding:16px;display:grid;gap:12px">
+            <div class="cash-section-head"><div><h3>Otros movimientos de caja</h3><p>Se muestran separados del resultado operativo.</p></div></div>
+            <div class="cash-period-movements"><div class="cash-period-movement"><span>Aportes a caja</span><strong id="cash-period-cash-in">$0</strong></div><div class="cash-period-movement"><span>Retiros</span><strong id="cash-period-withdrawals">$0</strong></div><div class="cash-period-movement"><span>Ajustes</span><strong id="cash-period-adjustments">$0</strong></div></div>
+            <div class="cash-period-category-list" id="cash-period-category-list"></div>
+          </section>
+          <section class="cash-panel cash-period-expenses">
+            <div class="cash-section-head"><div><h3>Gastos del per&iacute;odo</h3><p id="cash-period-expense-count">0 movimientos</p></div></div>
+            <div class="cash-period-expense-filters">
+              <select id="cash-period-category-filter" aria-label="Categor&iacute;a de gasto"><option value="">Todas las categor&iacute;as</option></select>
+              <select id="cash-period-method-filter" aria-label="Medio de pago"><option value="">Todos los medios</option><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option><option value="UNSPECIFIED">Sin especificar</option></select>
+              <input id="cash-period-search" type="search" placeholder="Buscar descripci&oacute;n o categor&iacute;a" autocomplete="off">
+              <label>Por p&aacute;gina<select id="cash-period-page-size"><option value="10">10</option><option value="20">20</option><option value="50">50</option></select></label>
+            </div>
+            <div class="cash-period-expense-list" id="cash-period-expense-list"><div class="cash-inline-state">Eleg&iacute; un per&iacute;odo para consultar.</div></div>
+            <div class="cash-pagination"><span id="cash-period-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-period-previous" type="button">Anterior</button><button class="secondary" id="cash-period-next" type="button">Siguiente</button></div></div>
+          </section>
+        </section>
         <section class="cash-empty-state" id="cash-empty-state">
           <div>
             <h3>La caja est&aacute; cerrada</h3>
@@ -156,7 +293,9 @@ export const cashRegisterMarkup = `
           <section class="cash-session-strip" id="cash-session-strip">
             <div class="cash-session-copy"><strong id="cash-responsible">Sin responsable</strong><span id="cash-session-time">Sesi&oacute;n activa</span></div>
             <div class="cash-actions">
-              <button class="primary" id="cash-operation-open" type="button">Registrar operaci&oacute;n</button>
+              <button class="primary" id="cash-product-sale-open" type="button">Nueva venta</button>
+              <button class="secondary" id="cash-product-catalog-open" type="button">Productos</button>
+              <button class="secondary" id="cash-operation-open" type="button">Registrar operaci&oacute;n</button>
               <button class="secondary" id="cash-new-session" type="button">Nueva sesi&oacute;n</button>
               <button class="danger" id="cash-close-day" type="button">Cerrar caja</button>
             </div>
@@ -166,26 +305,29 @@ export const cashRegisterMarkup = `
             <div class="cash-actions"><button class="primary" id="cash-open-toolbar" type="button" hidden>Abrir caja</button><button class="secondary" id="cash-refresh" type="button">Actualizar</button></div>
           </section>
           <section class="cash-summary-grid" aria-label="Resumen de Caja">
-            <article class="cash-summary-card"><span>Cobrado bruto</span><strong id="cash-gross">$0</strong><small id="cash-methods">Efectivo $0</small></article>
-            <article class="cash-summary-card"><span>Neto</span><strong id="cash-net">$0</strong><small id="cash-refunds">Devoluciones $0</small></article>
-            <article class="cash-summary-card"><span>Gastos y retiros</span><strong id="cash-outgoing">$0</strong><small id="cash-incoming">Ingresos $0</small></article>
+            <article class="cash-summary-card"><span>Cobrado bruto</span><strong id="cash-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-method-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-method-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-method-card">$0</strong></div></div></article>
+            <article class="cash-summary-card"><span>Ventas netas cobradas</span><strong id="cash-net">$0</strong><small id="cash-refunds">Devoluciones $0</small></article>
+            <article class="cash-summary-card"><span>Gastos registrados</span><strong id="cash-outgoing">$0</strong><small id="cash-incoming">Aportes, retiros y ajustes separados</small></article>
             <article class="cash-summary-card"><span id="cash-balance-label">Efectivo esperado</span><strong id="cash-expected">$0</strong><small id="cash-opening">Inicial $0</small></article>
           </section>
           <section class="cash-reconciliation" id="cash-reconciliation" hidden>
             <div class="cash-reconciliation-copy"><strong>Diferencia de cierre</strong><span id="cash-reconciliation-copy">El efectivo contado no coincide con el esperado.</span></div>
             <strong id="cash-reconciliation-amount">$0</strong>
           </section>
-          <details class="cash-session-history" id="cash-session-history">
-            <summary><span>Historial de sesiones</span><span id="cash-session-count">0 sesiones</span></summary>
+          <section class="cash-session-history" id="cash-session-history">
+            <div class="cash-section-head" style="padding:16px"><div><h3>Historial de sesiones</h3><p>Responsables, conteos y diferencias de la jornada.</p></div><strong id="cash-session-count">0 sesiones</strong></div>
             <div class="cash-session-list" id="cash-session-list"></div>
-          </details>
+          </section>
           <section class="cash-panel">
             <div class="cash-filter-row">
               <div class="cash-filter-controls">
                 <select id="cash-type-filter" aria-label="Filtrar por tipo"><option value="">Todos los tipos</option><option value="PAYMENT">Cobro</option><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option><option value="CASH_IN">Ingreso</option><option value="ADJUSTMENT">Ajuste</option><option value="REFUND">Devoluci&oacute;n</option><option value="REVERSAL">Contrapartida</option></select>
                 <select id="cash-method-filter" aria-label="Filtrar por medio"><option value="">Todos los medios</option><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option><option value="UNSPECIFIED">Sin especificar</option></select>
+                <select id="cash-category-filter" aria-label="Filtrar por categor&iacute;a"><option value="">Todas las categor&iacute;as</option></select>
+                <select id="cash-session-filter" aria-label="Filtrar por sesi&oacute;n"><option value="">Todas las sesiones</option></select>
                 <input id="cash-search" type="search" placeholder="Buscar cliente o descripci&oacute;n" autocomplete="off">
               </div>
+              <button class="secondary" id="cash-expense-category-manage" type="button">Administrar categor&iacute;as</button>
             </div>
             <div class="cash-entry-list" id="cash-entry-list"><div class="cash-inline-state">Cargando movimientos...</div></div>
             <button class="cash-load-more" id="cash-next-page" type="button" hidden>Cargar m&aacute;s movimientos</button>
@@ -217,6 +359,7 @@ export const cashRegisterMarkup = `
         <div class="cash-dialog-head"><h3 id="cash-operation-title">Registrar operaci&oacute;n</h3><button class="icon-button" id="cash-operation-x" type="button" aria-label="Cerrar">X</button></div>
         <form class="cash-dialog-form" id="cash-operation-form">
           <div class="cash-dialog-grid"><label>Tipo<select id="cash-operation-type"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option><option value="CASH_IN">Ingreso</option><option value="ADJUSTMENT">Ajuste</option><option value="REFUND">Devoluci&oacute;n</option></select></label><label id="cash-operation-method-field">Medio<select id="cash-operation-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label></div>
+          <label id="cash-operation-category-field">Categor&iacute;a<select id="cash-operation-category"></select></label>
           <label id="cash-operation-amount-field">Importe<input id="cash-operation-amount" type="number" min="1" step="1" inputmode="numeric"></label>
           <label id="cash-operation-delta-field" hidden>Diferencia con signo<input id="cash-operation-delta" type="number" step="1" inputmode="numeric" placeholder="Ej: -500 o 500"></label>
           <label id="cash-operation-description-field">Descripci&oacute;n<input id="cash-operation-description" maxlength="180"></label>
@@ -227,9 +370,48 @@ export const cashRegisterMarkup = `
         </form>
       </section>
     </div>
+    <div class="cash-dialog-backdrop" id="cash-expense-category-dialog" hidden>
+      <section class="cash-dialog" role="dialog" aria-modal="true" aria-labelledby="cash-expense-category-title">
+        <div class="cash-dialog-head"><div><h3 id="cash-expense-category-title">Categor&iacute;as de gastos</h3><p class="cash-session-help">Organiz&aacute; los gastos sin perder el historial. Otros siempre queda disponible.</p></div><button class="icon-button" id="cash-expense-category-x" type="button" aria-label="Cerrar">X</button></div>
+        <div class="cash-dialog-form">
+          <div class="cash-category-toolbar"><button class="primary" id="cash-expense-category-new" type="button">Nueva categor&iacute;a</button></div>
+          <form class="cash-category-editor" id="cash-expense-category-form" hidden>
+            <div class="cash-dialog-grid"><label>Nombre<input id="cash-expense-category-name" maxlength="60" autocomplete="off"></label><label>Orden<input id="cash-expense-category-position" type="number" min="0" max="10000" step="1" value="0"></label></div>
+            <label id="cash-expense-category-active-field"><span><input id="cash-expense-category-active" type="checkbox" checked> Categor&iacute;a activa</span></label>
+            <p class="cash-feedback" id="cash-expense-category-feedback" role="status"></p>
+            <div class="cash-dialog-actions"><button class="secondary" id="cash-expense-category-edit-cancel" type="button">Cancelar</button><button class="primary" id="cash-expense-category-save" type="submit">Guardar</button></div>
+          </form>
+          <div class="cash-category-list" id="cash-expense-category-list"></div>
+          <div class="cash-dialog-actions"><button class="secondary" id="cash-expense-category-close" type="button">Cerrar</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="cash-dialog-backdrop" id="cash-product-catalog-dialog" hidden>
+      <section class="cash-dialog cash-product-dialog" role="dialog" aria-modal="true" aria-labelledby="cash-product-catalog-title">
+        <div class="cash-dialog-head"><div><h3 id="cash-product-catalog-title">Productos</h3><p class="cash-session-help">Administr&aacute; el cat&aacute;logo y sus categor&iacute;as. El control de stock se incorporar&aacute; en una etapa posterior.</p></div><button class="icon-button" id="cash-product-catalog-x" type="button" aria-label="Cerrar">X</button></div>
+        <div class="cash-dialog-form cash-product-layout">
+          <section class="cash-product-section"><div class="cash-product-section-head"><h4>Categor&iacute;as</h4><button class="secondary" id="cash-product-category-new" type="button">Nueva</button></div>
+            <form class="cash-category-editor" id="cash-product-category-form" hidden><label>Nombre<input id="cash-product-category-name" maxlength="60" autocomplete="off"></label><div class="cash-dialog-grid"><label>Orden<input id="cash-product-category-sort-order" type="number" min="0" step="1" value="0"></label><label><span><input id="cash-product-category-active" type="checkbox" checked> Categor&iacute;a activa</span></label></div><p class="cash-feedback" id="cash-product-category-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-category-cancel" type="button">Cancelar</button><button class="primary" type="submit">Guardar</button></div></form>
+            <div class="cash-category-list" id="cash-product-category-list"></div></section>
+          <section class="cash-product-section"><div class="cash-product-section-head"><h4>Cat&aacute;logo</h4><button class="primary" id="cash-product-new" type="button">Nuevo producto</button></div>
+            <form class="cash-category-editor" id="cash-product-form" hidden><div class="cash-dialog-grid"><label>Nombre<input id="cash-product-name" maxlength="100" autocomplete="off"></label><label>Categor&iacute;a<select id="cash-product-category"></select></label></div><div class="cash-dialog-grid"><label>Precio de venta<input id="cash-product-price" type="number" min="0" step="1" inputmode="numeric"></label><label>Costo opcional<input id="cash-product-cost" type="number" min="0" step="1" inputmode="numeric"></label></div><label>Descripci&oacute;n opcional<textarea id="cash-product-description" maxlength="300" rows="2"></textarea></label><div class="cash-dialog-grid"><label>C&oacute;digo interno opcional<input id="cash-product-sku" maxlength="60" autocomplete="off"></label><label>Orden<input id="cash-product-sort-order" type="number" min="0" step="1" value="0"></label></div><label><span><input id="cash-product-active" type="checkbox" checked> Producto activo</span></label><p class="cash-session-help">Sin controlar stock en esta primera etapa.</p><p class="cash-feedback" id="cash-product-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-cancel" type="button">Cancelar</button><button class="primary" type="submit">Guardar producto</button></div></form>
+            <div class="cash-product-table" id="cash-product-list"></div></section>
+        </div><div class="cash-dialog-actions"><button class="secondary" id="cash-product-catalog-close" type="button">Cerrar</button></div>
+      </section>
+    </div>
+    <div class="cash-dialog-backdrop" id="cash-product-sale-dialog" hidden>
+      <section class="cash-dialog cash-product-dialog" role="dialog" aria-modal="true" aria-labelledby="cash-product-sale-title">
+        <div class="cash-dialog-head"><div><h3 id="cash-product-sale-title">Nueva venta</h3><p class="cash-session-help">Registr&aacute; productos y cobro juntos en la sesi&oacute;n de Caja activa.</p></div><button class="icon-button" id="cash-product-sale-x" type="button" aria-label="Cerrar">X</button></div>
+        <form class="cash-dialog-form" id="cash-product-sale-form"><div class="cash-dialog-grid"><label>Cliente opcional<select id="cash-product-sale-customer"><option value="">Sin cliente</option></select></label><label>Medio de pago<select id="cash-product-sale-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label></div><section class="cash-sale-builder"><div class="cash-sale-add-row"><label>Producto<select id="cash-product-sale-product"></select></label><label>Cantidad<input id="cash-product-sale-quantity" type="number" min="1" step="1" value="1" inputmode="numeric"></label><button class="secondary" id="cash-product-sale-add" type="button">Agregar</button></div><div class="cash-sale-items" id="cash-product-sale-items"><div class="cash-inline-state">Agregá al menos un producto.</div></div><label>Descuento<input id="cash-product-sale-discount" type="number" min="0" step="1" value="0" inputmode="numeric"></label><div class="cash-sale-total"><span>Subtotal</span><strong id="cash-product-sale-subtotal">$0</strong><span>Descuento</span><strong id="cash-product-sale-discount-preview">$0</strong><span>Total</span><strong id="cash-product-sale-total">$0</strong></div></section><label>Observaci&oacute;n opcional<textarea id="cash-product-sale-observation" maxlength="500" rows="2"></textarea></label><p class="cash-session-help">No env&iacute;a ni cobra autom&aacute;ticamente hasta que confirmes la venta.</p><p class="cash-feedback" id="cash-product-sale-feedback" role="status"></p><div class="cash-dialog-actions"><button class="secondary" id="cash-product-sale-cancel" type="button">Cancelar</button><button class="primary" id="cash-product-sale-submit" type="submit">Registrar venta</button></div></form>
+      </section>
+    </div>
 `
 
 export const appointmentFinanceMarkup = `
+          <details class="appointment-products" id="appointment-product-items" hidden>
+            <summary><span>Productos comprados</span><span id="appointment-product-total">$0</span></summary>
+            <div class="appointment-product-content"><p class="appointment-product-note">Agreg&aacute; esmaltes, cremas, geles u otros productos. El total del turno se actualiza al guardar cada producto.</p><div class="appointment-product-add-row"><label>Producto<select id="appointment-product-select"></select></label><label>Cantidad<input id="appointment-product-quantity" type="number" min="1" step="1" value="1" inputmode="numeric"></label><button class="secondary" id="appointment-product-add" type="button">Agregar</button></div><div class="appointment-product-list" id="appointment-product-list"><div class="cash-inline-state">Todav&iacute;a no hay productos.</div></div><p class="appointment-finance-feedback" id="appointment-product-feedback" role="status"></p></div>
+          </details>
           <details class="appointment-finance" id="appointment-create-payment" hidden>
             <summary><span>Pago</span><span id="appointment-create-payment-status">Sin pago</span></summary>
             <div class="appointment-create-payment-content">
@@ -270,10 +452,20 @@ export const appointmentFinanceMarkup = `
             <summary><span>Pago</span><span id="appointment-finance-balance">Cargando...</span></summary>
             <div class="appointment-finance-content">
               <section class="appointment-edit-estimated-total" id="appointment-total-form" hidden>
-                <div class="appointment-create-panel-title"><strong>Total acordado</strong><small>Servicio con precio estimativo</small></div>
-                <div class="appointment-finance-row"><label>Importe<input id="appointment-estimated-total" type="number" min="0" step="1" inputmode="numeric"></label><span></span><button class="secondary" id="appointment-total-submit" type="button">Guardar total</button></div>
+                <div class="appointment-create-panel-title"><strong>Ajustar total acordado</strong><small>El cambio queda registrado en el historial</small></div>
+                <div class="appointment-total-reference">
+                  <div><span>Precio original</span><strong id="appointment-original-total">--</strong></div>
+                  <div id="appointment-minimum-total-row"><span>M&iacute;nimo permitido</span><strong id="appointment-minimum-total">--</strong></div>
+                </div>
+                <div class="appointment-total-adjust-grid">
+                  <label>Total final acordado<input id="appointment-estimated-total" type="number" min="0" step="1" inputmode="numeric"></label>
+                  <label>Motivo del ajuste<textarea id="appointment-total-reason" maxlength="300" rows="2" placeholder="Ej: el cliente eligi&oacute; otra opci&oacute;n" required></textarea></label>
+                </div>
+                <small id="appointment-total-help"></small>
+                <div class="appointment-total-adjust-actions"><button class="secondary" id="appointment-total-cancel" type="button">Cancelar</button><button class="primary" id="appointment-total-submit" type="button">Guardar ajuste</button></div>
               </section>
               <div class="appointment-create-actions appointment-edit-actions">
+                <button class="secondary" id="appointment-adjust-total-toggle" type="button" aria-pressed="false">Ajustar total</button>
                 <button class="secondary" id="appointment-edit-collect-total" type="button" aria-pressed="false">Cobrar total</button>
                 <button class="secondary" id="appointment-edit-deposit" type="button" aria-pressed="false">Registrar se&ntilde;a</button>
                 <button class="secondary" id="appointment-edit-discount-toggle" type="button" aria-pressed="false">Aplicar descuento</button>
@@ -291,11 +483,16 @@ export const appointmentFinanceMarkup = `
                 <div class="appointment-create-panel-title"><strong>Pago del saldo</strong><small>Calculado autom&aacute;ticamente</small></div>
                 <div class="appointment-finance-row"><label>Importe<input id="appointment-payment-amount" type="number" min="1" step="1" inputmode="numeric" readonly></label><label>Medio<select id="appointment-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><button class="secondary" id="appointment-add-payment-line" type="button">Pago mixto</button></div>
                 <div class="appointment-finance-row" id="appointment-payment-line-two" hidden><label>Segundo importe<input id="appointment-payment-amount-two" type="number" min="1" step="1" inputmode="numeric" readonly></label><label>Segundo medio<select id="appointment-payment-method-two"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia / Mercado Pago</option><option value="CARD">Tarjeta</option></select></label><span></span></div>
+                <label class="appointment-payment-complete" id="appointment-payment-complete-row" hidden>
+                  <input id="appointment-payment-complete" type="checkbox">
+                  <span><strong>Marcar este turno como realizado</strong><small>Se registrar&aacute; junto con el pago. Pod&eacute;s desmarcarlo si el servicio todav&iacute;a no termin&oacute;.</small></span>
+                </label>
                 <button class="primary" id="appointment-payment-submit" type="button">Registrar pago</button>
               </section>
               <label class="appointment-create-observation" id="appointment-edit-observation-row" hidden>Observaci&oacute;n<textarea id="appointment-payment-observation" maxlength="500" rows="2"></textarea></label>
               <div class="appointment-create-summary">
-                <div><span>Precio</span><strong id="appointment-finance-price">--</strong></div>
+                <div><span>Servicios</span><strong id="appointment-finance-service-subtotal">--</strong></div>
+                <div><span>Productos</span><strong id="appointment-finance-product-subtotal">--</strong></div>
                 <div><span>Descuento</span><strong id="appointment-finance-discount">--</strong></div>
                 <div><span>Total</span><strong id="appointment-finance-total">--</strong></div>
                 <div><span>Pagado</span><strong id="appointment-finance-paid">--</strong></div>
@@ -310,19 +507,209 @@ export const appointmentFinanceMarkup = `
 
 export const cashRegisterScript = `
     const cashUi = {
-      view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'),
+      view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), periodView: document.getElementById('cash-period-view'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
-      gross: document.getElementById('cash-gross'), methods: document.getElementById('cash-methods'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
-      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
+      gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
+      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
+      periodFrom: document.getElementById('cash-period-from'), periodTo: document.getElementById('cash-period-to'), periodApply: document.getElementById('cash-period-apply'), periodFeedback: document.getElementById('cash-period-feedback'), periodGross: document.getElementById('cash-period-gross'), periodCash: document.getElementById('cash-period-cash'), periodTransfer: document.getElementById('cash-period-transfer'), periodCard: document.getElementById('cash-period-card'), periodNetSales: document.getElementById('cash-period-net-sales'), periodRefunds: document.getElementById('cash-period-refunds'), periodExpensesTotal: document.getElementById('cash-period-expenses-total'), periodResult: document.getElementById('cash-period-result'), periodCashIn: document.getElementById('cash-period-cash-in'), periodWithdrawals: document.getElementById('cash-period-withdrawals'), periodAdjustments: document.getElementById('cash-period-adjustments'), periodCategoryList: document.getElementById('cash-period-category-list'), periodCategoryFilter: document.getElementById('cash-period-category-filter'), periodMethodFilter: document.getElementById('cash-period-method-filter'), periodSearch: document.getElementById('cash-period-search'), periodPageSize: document.getElementById('cash-period-page-size'), periodExpenseList: document.getElementById('cash-period-expense-list'), periodExpenseCount: document.getElementById('cash-period-expense-count'), periodPageInfo: document.getElementById('cash-period-page-info'), periodPrevious: document.getElementById('cash-period-previous'), periodNext: document.getElementById('cash-period-next'),
       sessionDialog: document.getElementById('cash-session-dialog'), sessionTitle: document.getElementById('cash-session-title'), sessionForm: document.getElementById('cash-session-form'), sessionX: document.getElementById('cash-session-x'), sessionCancel: document.getElementById('cash-session-cancel'), sessionSubmit: document.getElementById('cash-session-submit'), sessionResponsible: document.getElementById('cash-session-responsible'), sessionHelp: document.getElementById('cash-session-help'), responsibleField: document.getElementById('cash-responsible-field'), openingField: document.getElementById('cash-opening-field'), openingLabel: document.getElementById('cash-opening-label'), countedField: document.getElementById('cash-counted-field'), countedLabel: document.getElementById('cash-counted-label'), openingCash: document.getElementById('cash-opening-cash'), countedCash: document.getElementById('cash-counted-cash'), sessionReconciliation: document.getElementById('cash-session-reconciliation'), sessionExpected: document.getElementById('cash-session-expected'), sessionCounted: document.getElementById('cash-session-counted'), sessionDifference: document.getElementById('cash-session-difference'), differenceConfirmField: document.getElementById('cash-difference-confirm-field'), differenceConfirm: document.getElementById('cash-difference-confirm'), differenceConfirmCopy: document.getElementById('cash-difference-confirm-copy'), sessionFeedback: document.getElementById('cash-session-feedback'),
-      operationDialog: document.getElementById('cash-operation-dialog'), operationForm: document.getElementById('cash-operation-form'), operationX: document.getElementById('cash-operation-x'), operationCancel: document.getElementById('cash-operation-cancel'), operationType: document.getElementById('cash-operation-type'), operationMethod: document.getElementById('cash-operation-method'), operationMethodField: document.getElementById('cash-operation-method-field'), operationAmount: document.getElementById('cash-operation-amount'), operationAmountField: document.getElementById('cash-operation-amount-field'), operationDelta: document.getElementById('cash-operation-delta'), operationDeltaField: document.getElementById('cash-operation-delta-field'), operationDescription: document.getElementById('cash-operation-description'), operationDescriptionField: document.getElementById('cash-operation-description-field'), operationCounterparty: document.getElementById('cash-operation-counterparty'), operationCounterpartyField: document.getElementById('cash-operation-counterparty-field'), operationObservation: document.getElementById('cash-operation-observation'), operationFeedback: document.getElementById('cash-operation-feedback'), operationSubmit: document.getElementById('cash-operation-submit'),
+      operationDialog: document.getElementById('cash-operation-dialog'), operationForm: document.getElementById('cash-operation-form'), operationX: document.getElementById('cash-operation-x'), operationCancel: document.getElementById('cash-operation-cancel'), operationType: document.getElementById('cash-operation-type'), operationMethod: document.getElementById('cash-operation-method'), operationMethodField: document.getElementById('cash-operation-method-field'), operationCategory: document.getElementById('cash-operation-category'), operationCategoryField: document.getElementById('cash-operation-category-field'), operationAmount: document.getElementById('cash-operation-amount'), operationAmountField: document.getElementById('cash-operation-amount-field'), operationDelta: document.getElementById('cash-operation-delta'), operationDeltaField: document.getElementById('cash-operation-delta-field'), operationDescription: document.getElementById('cash-operation-description'), operationDescriptionField: document.getElementById('cash-operation-description-field'), operationCounterparty: document.getElementById('cash-operation-counterparty'), operationCounterpartyField: document.getElementById('cash-operation-counterparty-field'), operationObservation: document.getElementById('cash-operation-observation'), operationFeedback: document.getElementById('cash-operation-feedback'), operationSubmit: document.getElementById('cash-operation-submit'),
+      categoryDialog: document.getElementById('cash-expense-category-dialog'), categoryX: document.getElementById('cash-expense-category-x'), categoryClose: document.getElementById('cash-expense-category-close'), categoryNew: document.getElementById('cash-expense-category-new'), categoryForm: document.getElementById('cash-expense-category-form'), categoryName: document.getElementById('cash-expense-category-name'), categoryPosition: document.getElementById('cash-expense-category-position'), categoryActive: document.getElementById('cash-expense-category-active'), categoryActiveField: document.getElementById('cash-expense-category-active-field'), categoryFeedback: document.getElementById('cash-expense-category-feedback'), categoryEditCancel: document.getElementById('cash-expense-category-edit-cancel'), categorySave: document.getElementById('cash-expense-category-save'), categoryList: document.getElementById('cash-expense-category-list'),
+      productCatalogOpen: document.getElementById('cash-product-catalog-open'), productSaleOpen: document.getElementById('cash-product-sale-open'),
+      productCatalogDialog: document.getElementById('cash-product-catalog-dialog'), productCatalogX: document.getElementById('cash-product-catalog-x'), productCatalogClose: document.getElementById('cash-product-catalog-close'), productCategoryNew: document.getElementById('cash-product-category-new'), productCategoryForm: document.getElementById('cash-product-category-form'), productCategoryName: document.getElementById('cash-product-category-name'), productCategorySortOrder: document.getElementById('cash-product-category-sort-order'), productCategoryActive: document.getElementById('cash-product-category-active'), productCategoryFeedback: document.getElementById('cash-product-category-feedback'), productCategoryCancel: document.getElementById('cash-product-category-cancel'), productCategoryList: document.getElementById('cash-product-category-list'), productNew: document.getElementById('cash-product-new'), productForm: document.getElementById('cash-product-form'), productName: document.getElementById('cash-product-name'), productCategory: document.getElementById('cash-product-category'), productPrice: document.getElementById('cash-product-price'), productCost: document.getElementById('cash-product-cost'), productDescription: document.getElementById('cash-product-description'), productSku: document.getElementById('cash-product-sku'), productSortOrder: document.getElementById('cash-product-sort-order'), productActive: document.getElementById('cash-product-active'), productFeedback: document.getElementById('cash-product-feedback'), productCancel: document.getElementById('cash-product-cancel'), productList: document.getElementById('cash-product-list'),
+      productSaleDialog: document.getElementById('cash-product-sale-dialog'), productSaleX: document.getElementById('cash-product-sale-x'), productSaleCancel: document.getElementById('cash-product-sale-cancel'), productSaleForm: document.getElementById('cash-product-sale-form'), productSaleCustomer: document.getElementById('cash-product-sale-customer'), productSaleMethod: document.getElementById('cash-product-sale-method'), productSaleProduct: document.getElementById('cash-product-sale-product'), productSaleQuantity: document.getElementById('cash-product-sale-quantity'), productSaleAdd: document.getElementById('cash-product-sale-add'), productSaleItems: document.getElementById('cash-product-sale-items'), productSaleDiscount: document.getElementById('cash-product-sale-discount'), productSaleSubtotal: document.getElementById('cash-product-sale-subtotal'), productSaleDiscountPreview: document.getElementById('cash-product-sale-discount-preview'), productSaleTotal: document.getElementById('cash-product-sale-total'), productSaleObservation: document.getElementById('cash-product-sale-observation'), productSaleFeedback: document.getElementById('cash-product-sale-feedback'), productSaleSubmit: document.getElementById('cash-product-sale-submit'),
+      appointmentProducts: document.getElementById('appointment-product-items'), appointmentProductTotal: document.getElementById('appointment-product-total'), appointmentProductSelect: document.getElementById('appointment-product-select'), appointmentProductQuantity: document.getElementById('appointment-product-quantity'), appointmentProductAdd: document.getElementById('appointment-product-add'), appointmentProductList: document.getElementById('appointment-product-list'), appointmentProductFeedback: document.getElementById('appointment-product-feedback'),
       createPayment: document.getElementById('appointment-create-payment'), createPaymentStatus: document.getElementById('appointment-create-payment-status'), createPaymentFields: document.getElementById('appointment-create-payment-fields'), createEstimatedTotalRow: document.getElementById('appointment-create-estimated-total-row'), createEstimatedTotal: document.getElementById('appointment-create-estimated-total'),
       createCollectTotal: document.getElementById('appointment-create-collect-total'), createDeposit: document.getElementById('appointment-create-deposit'), createDiscountToggle: document.getElementById('appointment-create-discount-toggle'), createDiscountPanel: document.getElementById('appointment-create-discount-panel'), createDiscountType: document.getElementById('appointment-create-discount-type'), createDiscountValue: document.getElementById('appointment-create-discount-value'), createDiscountValueLabel: document.getElementById('appointment-create-discount-value-label'), createDepositPanel: document.getElementById('appointment-create-deposit-panel'), createDepositAmount: document.getElementById('appointment-create-deposit-amount'), createDepositMethod: document.getElementById('appointment-create-deposit-method'),
       createPaymentPanel: document.getElementById('appointment-create-payment-panel'), createPaymentAmount: document.getElementById('appointment-create-payment-amount'), createPaymentMethod: document.getElementById('appointment-create-payment-method'), createPaymentLineTwo: document.getElementById('appointment-create-payment-line-two'), createPaymentAmountTwo: document.getElementById('appointment-create-payment-amount-two'), createPaymentMethodTwo: document.getElementById('appointment-create-payment-method-two'), createAddPaymentLine: document.getElementById('appointment-create-add-payment-line'), createPaymentObservation: document.getElementById('appointment-create-payment-observation'), createObservationRow: document.getElementById('appointment-create-observation-row'),
       createSummaryPrice: document.getElementById('appointment-create-summary-price'), createSummaryDiscount: document.getElementById('appointment-create-summary-discount'), createSummaryTotal: document.getElementById('appointment-create-summary-total'), createSummaryPaid: document.getElementById('appointment-create-summary-paid'), createSummaryDue: document.getElementById('appointment-create-summary-due'), createCashRequired: document.getElementById('appointment-create-cash-required'), createOpenCash: document.getElementById('appointment-create-open-cash'), createPaymentFeedback: document.getElementById('appointment-create-payment-feedback'),
-      finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financePrice: document.getElementById('appointment-finance-price'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalSubmit: document.getElementById('appointment-total-submit'), estimatedTotal: document.getElementById('appointment-estimated-total'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
+      finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeServiceSubtotal: document.getElementById('appointment-finance-service-subtotal'), financeProductSubtotal: document.getElementById('appointment-finance-product-subtotal'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalToggle: document.getElementById('appointment-adjust-total-toggle'), totalSubmit: document.getElementById('appointment-total-submit'), totalCancel: document.getElementById('appointment-total-cancel'), estimatedTotal: document.getElementById('appointment-estimated-total'), totalReason: document.getElementById('appointment-total-reason'), originalTotal: document.getElementById('appointment-original-total'), minimumTotal: document.getElementById('appointment-minimum-total'), minimumTotalRow: document.getElementById('appointment-minimum-total-row'), totalHelp: document.getElementById('appointment-total-help'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentCompleteRow: document.getElementById('appointment-payment-complete-row'), paymentComplete: document.getElementById('appointment-payment-complete'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
-    state.cashRegister = { current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { collectTotal: false, deposit: false, discount: false } }
+    state.cashRegister = { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], editingExpenseCategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+
+    function cashCollection(payload) {
+      if (Array.isArray(payload)) return payload
+      if (Array.isArray(payload?.items)) return payload.items
+      if (Array.isArray(payload?.data)) return payload.data
+      return []
+    }
+
+    function activeCashProducts() { return state.cashRegister.products.filter((product) => product.isActive !== false) }
+    function cashProductCategoryName(categoryId) { return state.cashRegister.productCategories.find((category) => category.id === categoryId)?.name || 'Sin categor&iacute;a' }
+
+    function renderCashProductOptions() {
+      const categoryOptions = state.cashRegister.productCategories.filter((category) => category.isActive !== false).map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>').join('')
+      cashUi.productCategory.innerHTML = categoryOptions || '<option value="">Sin categor&iacute;as</option>'
+      const productOptions = activeCashProducts().map((product) => '<option value="' + escapeHtml(product.id) + '">' + escapeHtml(product.name) + ' · ' + escapeHtml(cashMoney(product.salePrice)) + '</option>').join('')
+      cashUi.productSaleProduct.innerHTML = productOptions || '<option value="">No hay productos activos</option>'
+      cashUi.appointmentProductSelect.innerHTML = productOptions || '<option value="">No hay productos activos</option>'
+    }
+
+    function renderCashProductCatalog() {
+      const mayManage = canUseCashPermission('canManageProducts')
+      cashUi.productCategoryNew.hidden = !mayManage
+      cashUi.productNew.hidden = !mayManage
+      cashUi.productCategoryList.innerHTML = state.cashRegister.productCategories.map((category) => '<article class="cash-category-row' + (category.isActive === false ? ' inactive' : '') + '"><strong>' + escapeHtml(category.name) + '</strong><small>' + (category.isActive === false ? 'Inactiva' : 'Activa') + '</small><span></span>' + (mayManage ? '<button class="secondary" type="button" data-product-category-edit="' + escapeHtml(category.id) + '">Editar</button>' : '<span></span>') + '</article>').join('') || '<div class="cash-inline-state">Todav&iacute;a no hay categor&iacute;as.</div>'
+      cashUi.productList.innerHTML = state.cashRegister.products.map((product) => '<article class="cash-product-row' + (product.isActive === false ? ' inactive' : '') + '"><div><strong>' + escapeHtml(product.name) + '</strong><small>' + escapeHtml(product.sku || 'Sin c&oacute;digo') + '</small></div><span>' + escapeHtml(cashProductCategoryName(product.categoryId)) + '</span><strong>' + escapeHtml(cashMoney(product.salePrice)) + '</strong>' + (mayManage ? '<button class="secondary" type="button" data-product-edit="' + escapeHtml(product.id) + '">Editar</button>' : '<span></span>') + '</article>').join('') || '<div class="cash-inline-state">Todav&iacute;a no hay productos.</div>'
+      renderCashProductOptions()
+    }
+
+    async function loadCashProducts() {
+      const [categories, products] = await Promise.all([getJson(cashScoped('/product-categories')), getJson(cashScoped('/products'))])
+      state.cashRegister.productCategories = cashCollection(categories)
+      state.cashRegister.products = cashCollection(products)
+      renderCashProductCatalog()
+    }
+
+    async function openCashProductCatalog() {
+      cashUi.productCatalogDialog.hidden = false
+      cashUi.productList.innerHTML = '<div class="cash-inline-state">Cargando productos...</div>'
+      try { await loadCashProducts() } catch (error) { cashUi.productList.innerHTML = '<div class="cash-inline-state">' + escapeHtml(error.message) + '</div>' }
+    }
+    function closeCashProductCatalog() { cashUi.productCatalogDialog.hidden = true; cashUi.productForm.hidden = true; cashUi.productCategoryForm.hidden = true }
+
+    function editCashProductCategory(categoryId) {
+      const category = state.cashRegister.productCategories.find((item) => item.id === categoryId)
+      state.cashRegister.editingProductCategoryId = category?.id || null
+      cashUi.productCategoryName.value = category?.name || ''
+      cashUi.productCategorySortOrder.value = String(category?.sortOrder || 0)
+      cashUi.productCategoryActive.checked = category?.isActive !== false
+      cashUi.productCategoryFeedback.textContent = ''
+      cashUi.productCategoryForm.hidden = false
+      requestAnimationFrame(() => cashUi.productCategoryName.focus())
+    }
+
+    async function submitCashProductCategory(event) {
+      event.preventDefault()
+      const categoryId = state.cashRegister.editingProductCategoryId
+      const name = cashUi.productCategoryName.value.trim(); const sortOrder = Number(cashUi.productCategorySortOrder.value)
+      if (!name) { cashUi.productCategoryFeedback.textContent = 'Ingresá un nombre.'; cashUi.productCategoryFeedback.className = 'cash-feedback error'; return }
+      try {
+        const path = categoryId ? '/product-categories/' + encodeURIComponent(categoryId) : '/product-categories'
+        await getJson(path, { method: categoryId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, sortOrder, isActive: cashUi.productCategoryActive.checked, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        cashUi.productCategoryForm.hidden = true; await loadCashProducts(); showCrmToast('Categor&iacute;a de producto guardada.', 'success')
+      } catch (error) { cashUi.productCategoryFeedback.textContent = error.message; cashUi.productCategoryFeedback.className = 'cash-feedback error' }
+    }
+
+    function editCashProduct(productId) {
+      const product = state.cashRegister.products.find((item) => item.id === productId)
+      state.cashRegister.editingProductId = product?.id || null
+      cashUi.productName.value = product?.name || ''
+      cashUi.productCategory.value = product?.categoryId || state.cashRegister.productCategories.find((item) => item.isActive !== false)?.id || ''
+      cashUi.productPrice.value = product ? String(product.salePrice) : ''
+      cashUi.productDescription.value = product?.description || ''
+      cashUi.productCost.value = product?.cost === null || product?.cost === undefined ? '' : String(product.cost)
+      cashUi.productSku.value = product?.sku || ''
+      cashUi.productSortOrder.value = String(product?.sortOrder || 0)
+      cashUi.productActive.checked = product?.isActive !== false
+      cashUi.productFeedback.textContent = ''
+      cashUi.productForm.hidden = false
+      requestAnimationFrame(() => cashUi.productName.focus())
+    }
+
+    async function submitCashProduct(event) {
+      event.preventDefault()
+      const productId = state.cashRegister.editingProductId
+      const name = cashUi.productName.value.trim(); const salePrice = Number(cashUi.productPrice.value); const sortOrder = Number(cashUi.productSortOrder.value); const costText = cashUi.productCost.value.trim(); const cost = costText ? Number(costText) : null
+      if (!name || !cashUi.productCategory.value || !Number.isSafeInteger(salePrice) || salePrice < 0 || !Number.isSafeInteger(sortOrder) || sortOrder < 0 || (cost !== null && (!Number.isSafeInteger(cost) || cost < 0))) { cashUi.productFeedback.textContent = 'Completá nombre, categoría y montos enteros válidos.'; cashUi.productFeedback.className = 'cash-feedback error'; return }
+      try {
+        const path = productId ? '/products/' + encodeURIComponent(productId) : '/products'
+        await getJson(path, { method: productId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, categoryId: cashUi.productCategory.value, description: cashUi.productDescription.value.trim() || null, salePrice, cost, sortOrder, sku: cashUi.productSku.value.trim() || null, isActive: cashUi.productActive.checked, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        cashUi.productForm.hidden = true; await loadCashProducts(); showCrmToast('Producto guardado.', 'success')
+      } catch (error) { cashUi.productFeedback.textContent = error.message; cashUi.productFeedback.className = 'cash-feedback error' }
+    }
+
+    function renderCashProductSale() {
+      const items = state.cashRegister.productSaleItems
+      cashUi.productSaleItems.innerHTML = items.map((item) => '<article class="cash-sale-item"><div><strong>' + escapeHtml(item.name) + '</strong><small>Precio unitario ' + escapeHtml(cashMoney(item.unitPrice)) + '</small></div><span>' + item.quantity + ' u.</span><strong>' + escapeHtml(cashMoney(item.quantity * item.unitPrice)) + '</strong><button class="secondary" type="button" data-product-sale-remove="' + escapeHtml(item.productId) + '">Quitar</button></article>').join('') || '<div class="cash-inline-state">Agregá al menos un producto.</div>'
+      const subtotal = items.reduce((total, item) => total + item.quantity * item.unitPrice, 0)
+      const rawDiscount = Number(cashUi.productSaleDiscount.value || 0)
+      const discountAmount = Number.isSafeInteger(rawDiscount) && rawDiscount >= 0 ? Math.min(rawDiscount, subtotal) : 0
+      cashUi.productSaleSubtotal.textContent = cashMoney(subtotal)
+      cashUi.productSaleDiscountPreview.textContent = cashMoney(discountAmount)
+      cashUi.productSaleTotal.textContent = cashMoney(subtotal - discountAmount)
+    }
+
+    function addCashProductSaleItem() {
+      const product = activeCashProducts().find((item) => item.id === cashUi.productSaleProduct.value); const quantity = Number(cashUi.productSaleQuantity.value)
+      if (!product || !Number.isSafeInteger(quantity) || quantity <= 0) { cashUi.productSaleFeedback.textContent = 'Elegí un producto y una cantidad válida.'; cashUi.productSaleFeedback.className = 'cash-feedback error'; return }
+      const existing = state.cashRegister.productSaleItems.find((item) => item.productId === product.id)
+      if (existing) existing.quantity += quantity; else state.cashRegister.productSaleItems.push({ productId: product.id, name: product.name, quantity, unitPrice: Number(product.salePrice) })
+      cashUi.productSaleQuantity.value = '1'; cashUi.productSaleFeedback.textContent = ''; renderCashProductSale()
+    }
+
+    async function openCashProductSale() {
+      if (!state.cashRegister.current?.session?.id) { showCrmToast('Abr&iacute; una sesi&oacute;n de Caja antes de registrar una venta.', 'error'); return }
+      cashUi.productSaleForm.reset(); state.cashRegister.productSaleItems = []; state.cashRegister.productSaleIdempotencyKey = window.crypto?.randomUUID ? window.crypto.randomUUID() : 'sale-' + Date.now() + '-' + Math.random().toString(36).slice(2); cashUi.productSaleFeedback.textContent = ''
+      cashUi.productSaleCustomer.innerHTML = '<option value="">Sin cliente</option>' + state.customers.map((customer) => '<option value="' + escapeHtml(customer.id) + '">' + escapeHtml(customer.name) + (customer.phone ? ' · ' + escapeHtml(customer.phone) : '') + '</option>').join('')
+      try { if (!state.cashRegister.products.length) await loadCashProducts() } catch (error) { showCrmToast(error.message, 'error'); return }
+      renderCashProductSale(); cashUi.productSaleDialog.hidden = false
+    }
+
+    async function submitCashProductSale(event) {
+      event.preventDefault()
+      if (!state.cashRegister.productSaleItems.length) { cashUi.productSaleFeedback.textContent = 'Agregá al menos un producto.'; cashUi.productSaleFeedback.className = 'cash-feedback error'; return }
+      const items = state.cashRegister.productSaleItems.map(({ productId, quantity }) => ({ productId, quantity }))
+      const subtotal = state.cashRegister.productSaleItems.reduce((total, item) => total + item.quantity * item.unitPrice, 0)
+      const discountAmount = Number(cashUi.productSaleDiscount.value || 0)
+      if (!Number.isSafeInteger(discountAmount) || discountAmount < 0 || discountAmount > subtotal) { cashUi.productSaleFeedback.textContent = 'El descuento debe ser un monto entero entre $0 y el subtotal.'; cashUi.productSaleFeedback.className = 'cash-feedback error'; return }
+      const payload = { idempotencyKey: state.cashRegister.productSaleIdempotencyKey, discountAmount, cashSessionId: state.cashRegister.current?.session?.id, customerId: cashUi.productSaleCustomer.value || undefined, paymentMethod: cashUi.productSaleMethod.value, items, observation: cashUi.productSaleObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }
+      if (!setButtonLoading(cashUi.productSaleSubmit, true, 'Registrando...')) return
+      try { await getJson('/product-sales', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); cashUi.productSaleDialog.hidden = true; state.cashRegister.productSaleIdempotencyKey = null; await loadCashRegister(); showCrmToast('Venta registrada en Caja.', 'success') }
+      catch (error) { cashUi.productSaleFeedback.textContent = error.message; cashUi.productSaleFeedback.className = 'cash-feedback error' }
+      finally { setButtonLoading(cashUi.productSaleSubmit, false) }
+    }
+
+    function renderAppointmentProductItems() {
+      const items = state.cashRegister.appointmentProductItems
+      cashUi.appointmentProductList.innerHTML = items.map((item) => '<article class="appointment-product-item"><div><strong>' + escapeHtml(item.productName || item.name || 'Producto') + '</strong><small>Precio unitario ' + escapeHtml(cashMoney(item.unitPrice)) + '</small></div><label>Cantidad<input data-appointment-product-quantity="' + escapeHtml(item.id) + '" type="number" min="1" step="1" value="' + item.quantity + '"></label><strong>' + escapeHtml(cashMoney(item.totalAmount ?? item.lineTotal ?? item.subtotal ?? item.quantity * item.unitPrice)) + '</strong><span><button class="secondary" type="button" data-appointment-product-update="' + escapeHtml(item.id) + '">Actualizar</button> <button class="secondary" type="button" data-appointment-product-remove="' + escapeHtml(item.id) + '">' + (state.cashRegister.appointmentProductRemovalId === item.id ? 'Confirmar quitar' : 'Quitar') + '</button></span></article>').join('') || '<div class="cash-inline-state">Todav&iacute;a no hay productos.</div>'
+      cashUi.appointmentProductTotal.textContent = cashMoney(items.reduce((total, item) => total + Number(item.totalAmount ?? item.lineTotal ?? item.subtotal ?? item.quantity * item.unitPrice), 0))
+    }
+
+    async function loadAppointmentProductItems(appointmentId) {
+      const payload = await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/product-items' + (isCashBusinessScopedRole() ? '?businessId=' + encodeURIComponent(state.businessId) : ''))
+      if (appointmentId !== state.editingAppointmentId) return
+      state.cashRegister.appointmentProductItems = cashCollection(payload); renderAppointmentProductItems()
+    }
+
+    function prepareAppointmentProducts(appointment) {
+      const visible = Boolean(appointment) && canUseCashPermission('canSellProducts')
+      cashUi.appointmentProducts.hidden = !visible; cashUi.appointmentProducts.open = false
+      state.cashRegister.appointmentProductItems = []; state.cashRegister.appointmentProductRemovalId = null; renderAppointmentProductItems()
+      if (!visible) return
+      cashUi.appointmentProductFeedback.textContent = ''
+      if (!state.cashRegister.products.length) loadCashProducts().catch((error) => { cashUi.appointmentProductFeedback.textContent = error.message })
+      loadAppointmentProductItems(appointment.id).catch((error) => { cashUi.appointmentProductFeedback.textContent = error.message; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error' })
+    }
+
+    async function addAppointmentProductItem() {
+      const appointmentId = state.editingAppointmentId; const productId = cashUi.appointmentProductSelect.value; const quantity = Number(cashUi.appointmentProductQuantity.value)
+      if (!appointmentId || !productId || !Number.isSafeInteger(quantity) || quantity <= 0) { cashUi.appointmentProductFeedback.textContent = 'Elegí un producto y una cantidad válida.'; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error'; return }
+      try {
+        await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/product-items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productId, quantity, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        cashUi.appointmentProductQuantity.value = '1'; await Promise.all([loadAppointmentProductItems(appointmentId), loadAppointmentFinance({ force: true, preserve: true })]); showCrmToast('Producto agregado al turno.', 'success')
+      } catch (error) { cashUi.appointmentProductFeedback.textContent = error.message; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error' }
+    }
+
+    async function updateAppointmentProductItem(itemId) {
+      const appointmentId = state.editingAppointmentId
+      const input = cashUi.appointmentProductList.querySelector('[data-appointment-product-quantity="' + CSS.escape(itemId) + '"]')
+      const quantity = Number(input?.value)
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) { cashUi.appointmentProductFeedback.textContent = 'La cantidad debe ser un entero mayor a cero.'; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error'; return }
+      try {
+        await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/product-items/' + encodeURIComponent(itemId), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        await Promise.all([loadAppointmentProductItems(appointmentId), loadAppointmentFinance({ force: true, preserve: true })]); showCrmToast('Cantidad actualizada.', 'success')
+      } catch (error) { cashUi.appointmentProductFeedback.textContent = error.message; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error' }
+    }
+
+    async function removeAppointmentProductItem(itemId) {
+      if (state.cashRegister.appointmentProductRemovalId !== itemId) { state.cashRegister.appointmentProductRemovalId = itemId; renderAppointmentProductItems(); return }
+      const appointmentId = state.editingAppointmentId
+      try {
+        await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/product-items/' + encodeURIComponent(itemId), { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) })
+        state.cashRegister.appointmentProductRemovalId = null; await Promise.all([loadAppointmentProductItems(appointmentId), loadAppointmentFinance({ force: true, preserve: true })]); showCrmToast('Producto quitado del turno.', 'success')
+      } catch (error) { cashUi.appointmentProductFeedback.textContent = error.message; cashUi.appointmentProductFeedback.className = 'appointment-finance-feedback error' }
+    }
 
     function canUseCashPermission(permission) {
       if (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)) return true
@@ -413,6 +800,7 @@ export const cashRegisterScript = `
             cacheAppointmentFinanceSummary(row.appointmentId, row.financeSummary)
             delete state.cashRegister.appointmentFinanceCache[appointmentFinanceCacheKey(row.appointmentId)]
           }
+          if (els.appShell.dataset.section === 'agenda') renderAgenda()
           if (state.editingAppointmentId && !cashUi.finance.open) {
             const summary = state.cashRegister.appointmentFinanceSummaryCache[appointmentFinanceCacheKey(state.editingAppointmentId)]
             if (summary) renderAppointmentFinanceSummary(summary)
@@ -443,8 +831,9 @@ export const cashRegisterScript = `
       const hasHistory = Boolean(state.cashRegister.selectedDayId)
       cashUi.status.textContent = isOpen ? 'Caja abierta' : 'Caja cerrada'
       cashUi.status.classList.toggle('open', isOpen)
-      cashUi.empty.hidden = isOpen || hasHistory
-      cashUi.dashboard.hidden = !isOpen && !hasHistory
+      const showingPeriod = state.cashRegister.viewMode === 'period'
+      cashUi.empty.hidden = showingPeriod || isOpen || hasHistory
+      cashUi.dashboard.hidden = showingPeriod || (!isOpen && !hasHistory)
       cashUi.sessionStrip.hidden = !isOpen
       cashUi.openToolbar.hidden = isOpen || !canUseCashPermission('canManageCashSessions')
       cashUi.openEmpty.hidden = !canUseCashPermission('canManageCashSessions')
@@ -459,6 +848,8 @@ export const cashRegisterScript = `
       cashUi.responsible.textContent = current.session.responsibleName || 'Responsable'
       cashUi.sessionTime.textContent = 'Desde ' + cashDate(current.session.openedAt)
       cashUi.operationOpen.hidden = !(canUseCashPermission('canManageCashOperations') || canUseCashPermission('canAdjustCash'))
+      cashUi.productSaleOpen.hidden = !canUseCashPermission('canSellProducts')
+      cashUi.productCatalogOpen.hidden = !canUseCashPermission('canViewProducts')
       cashUi.newSession.hidden = !canUseCashPermission('canManageCashSessions')
       cashUi.closeDay.hidden = !canUseCashPermission('canManageCashSessions')
     }
@@ -466,6 +857,9 @@ export const cashRegisterScript = `
     function renderCashSessions(sessions, currentSessionExpectedCash) {
       const rows = Array.isArray(sessions) ? sessions : []
       cashUi.sessionCount.textContent = rows.length + (rows.length === 1 ? ' sesión' : ' sesiones')
+      const selectedSession = cashUi.sessionFilter.value
+      cashUi.sessionFilter.innerHTML = '<option value="">Todas las sesiones</option>' + rows.map((session) => '<option value="' + escapeHtml(session.id) + '">' + escapeHtml(session.responsibleName || 'Responsable') + ' · ' + escapeHtml(cashDate(session.openedAt)) + '</option>').join('')
+      if (rows.some((session) => session.id === selectedSession)) cashUi.sessionFilter.value = selectedSession
       if (!rows.length) {
         cashUi.sessionList.innerHTML = '<div class="cash-inline-state">No hay sesiones registradas.</div>'
         return
@@ -483,11 +877,13 @@ export const cashRegisterScript = `
     function renderCashSummary(day, summary, sessions = [], currentSessionExpectedCash = null) {
       if (!summary) return
       cashUi.gross.textContent = cashMoney(summary.grossCollected)
-      cashUi.methods.textContent = 'Efectivo ' + cashMoney(summary.collectedByMethod?.CASH) + ' · Transferencia ' + cashMoney(summary.collectedByMethod?.TRANSFER) + ' · Tarjeta ' + cashMoney(summary.collectedByMethod?.CARD)
-      cashUi.net.textContent = cashMoney(summary.net)
+      cashUi.methodCash.textContent = cashMoney(summary.collectedByMethod?.CASH)
+      cashUi.methodTransfer.textContent = cashMoney(summary.collectedByMethod?.TRANSFER)
+      cashUi.methodCard.textContent = cashMoney(summary.collectedByMethod?.CARD)
+      cashUi.net.textContent = cashMoney(Number(summary.grossCollected || 0) - Number(summary.refunds || 0))
       cashUi.refunds.textContent = 'Devoluciones ' + cashMoney(summary.refunds)
-      cashUi.outgoing.textContent = cashMoney(Number(summary.expenses || 0) + Number(summary.withdrawals || 0))
-      cashUi.incoming.textContent = 'Ingresos ' + cashMoney(summary.cashIn) + ' · Ajustes ' + cashMoney(summary.adjustments)
+      cashUi.outgoing.textContent = cashMoney(Number(summary.expenses || 0))
+      cashUi.incoming.textContent = 'Aportes ' + cashMoney(summary.cashIn) + ' · Retiros ' + cashMoney(summary.withdrawals) + ' · Ajustes ' + cashMoney(summary.adjustments)
       const isClosed = Boolean(day?.closedAt)
       const expectedCash = Number(day?.expectedClosingCash ?? summary.expectedCash)
       const countedCash = Number(day?.countedClosingCash ?? expectedCash)
@@ -508,13 +904,126 @@ export const cashRegisterScript = `
     const cashTypeLabels = { PAYMENT: 'Cobro', LEGACY_PAYMENT: 'Pago anterior sin especificar', EXPENSE: 'Gasto', WITHDRAWAL: 'Retiro', CASH_IN: 'Ingreso', ADJUSTMENT: 'Ajuste', REFUND: 'Devolución', REVERSAL: 'Contrapartida' }
     const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago', CARD: 'Tarjeta', UNSPECIFIED: 'Sin especificar' }
 
+    function defaultCashExpenseCategory() {
+      return state.cashRegister.expenseCategories.find((category) => category.isDefault) || null
+    }
+
+    function renderCashExpenseCategoryOptions() {
+      const filterValue = cashUi.categoryFilter.value
+      const operationValue = cashUi.operationCategory.value
+      const categories = state.cashRegister.expenseCategories
+      cashUi.categoryFilter.innerHTML = '<option value="">Todas las categor&iacute;as</option>' + categories.map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + (category.isActive ? '' : ' (inactiva)') + '</option>').join('')
+      if (categories.some((category) => category.id === filterValue)) cashUi.categoryFilter.value = filterValue
+      const periodFilterValue = cashUi.periodCategoryFilter.value
+      cashUi.periodCategoryFilter.innerHTML = '<option value="">Todas las categor&iacute;as</option>' + categories.map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>').join('')
+      if (categories.some((category) => category.id === periodFilterValue)) cashUi.periodCategoryFilter.value = periodFilterValue
+      const active = categories.filter((category) => category.isActive)
+      cashUi.operationCategory.innerHTML = active.map((category) => '<option value="' + escapeHtml(category.id) + '">' + escapeHtml(category.name) + '</option>').join('')
+      const fallback = defaultCashExpenseCategory()
+      cashUi.operationCategory.value = active.some((category) => category.id === operationValue)
+        ? operationValue
+        : (fallback?.id || active[0]?.id || '')
+      cashUi.categoryManage.hidden = !canUseCashPermission('canManageCashOperations')
+    }
+
+    function renderCashExpenseCategoryList() {
+      const categories = state.cashRegister.expenseCategories
+      if (!categories.length) {
+        cashUi.categoryList.innerHTML = '<div class="cash-inline-state">No hay categor&iacute;as disponibles.</div>'
+        return
+      }
+      cashUi.categoryList.innerHTML = categories.map((category) => '<article class="cash-category-row' + (category.isActive ? '' : ' inactive') + '">' +
+        '<strong>' + escapeHtml(category.name) + (category.isDefault ? ' <small>Predeterminada</small>' : '') + '</strong>' +
+        '<small>Orden ' + escapeHtml(String(category.position)) + '</small>' +
+        '<small>' + (category.isActive ? 'Activa' : 'Inactiva') + '</small>' +
+        '<button class="secondary" type="button" data-cash-category-edit="' + escapeHtml(category.id) + '">Editar</button>' +
+        '</article>').join('')
+    }
+
+    async function loadCashExpenseCategories() {
+      const params = new URLSearchParams({ includeInactive: 'true' })
+      if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
+      const result = await getJson('/cash-register/expense-categories?' + params.toString())
+      state.cashRegister.expenseCategories = result.categories || []
+      renderCashExpenseCategoryOptions()
+      renderCashExpenseCategoryList()
+    }
+
+    function editCashExpenseCategory(categoryId) {
+      const category = categoryId ? state.cashRegister.expenseCategories.find((item) => item.id === categoryId) : null
+      state.cashRegister.editingExpenseCategoryId = category?.id || null
+      cashUi.categoryForm.hidden = false
+      cashUi.categoryFeedback.textContent = ''
+      cashUi.categoryName.value = category?.name || ''
+      cashUi.categoryName.readOnly = Boolean(category?.isDefault)
+      cashUi.categoryPosition.value = String(category?.position ?? 0)
+      cashUi.categoryActive.checked = category?.isActive ?? true
+      cashUi.categoryActive.disabled = Boolean(category?.isDefault)
+      cashUi.categoryActiveField.hidden = !category
+      cashUi.categorySave.textContent = category ? 'Guardar cambios' : 'Crear categoría'
+      requestAnimationFrame(() => (category?.isDefault ? cashUi.categoryPosition : cashUi.categoryName).focus())
+    }
+
+    function cancelCashExpenseCategoryEdit() {
+      state.cashRegister.editingExpenseCategoryId = null
+      cashUi.categoryForm.reset()
+      cashUi.categoryForm.hidden = true
+      cashUi.categoryName.readOnly = false
+      cashUi.categoryActive.disabled = false
+      cashUi.categoryFeedback.textContent = ''
+    }
+
+    async function openCashExpenseCategoryDialog() {
+      if (!canUseCashPermission('canManageCashOperations')) return
+      cashUi.categoryDialog.hidden = false
+      cancelCashExpenseCategoryEdit()
+      cashUi.categoryList.innerHTML = '<div class="cash-inline-state">Cargando categor&iacute;as...</div>'
+      try {
+        await loadCashExpenseCategories()
+      } catch (error) {
+        cashUi.categoryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function closeCashExpenseCategoryDialog() {
+      cancelCashExpenseCategoryEdit()
+      cashUi.categoryDialog.hidden = true
+    }
+
+    async function submitCashExpenseCategory(event) {
+      event.preventDefault()
+      const editingId = state.cashRegister.editingExpenseCategoryId
+      const payload = {
+        name: cashUi.categoryName.value,
+        position: Number(cashUi.categoryPosition.value),
+        ...(editingId ? { isActive: cashUi.categoryActive.checked } : {}),
+        ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {})
+      }
+      if (!setButtonLoading(cashUi.categorySave, true, 'Guardando...')) return
+      try {
+        await getJson(editingId ? '/cash-register/expense-categories/' + encodeURIComponent(editingId) : '/cash-register/expense-categories', {
+          method: editingId ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        cancelCashExpenseCategoryEdit()
+        await loadCashExpenseCategories()
+        await loadCashEntries()
+        showCrmToast(editingId ? 'Categoría actualizada.' : 'Categoría creada.', 'success')
+      } catch (error) {
+        cashUi.categoryFeedback.textContent = error.message
+        cashUi.categoryFeedback.className = 'cash-feedback error'
+      } finally { setButtonLoading(cashUi.categorySave, false) }
+    }
+
     function renderCashEntries() {
       if (!state.cashRegister.entries.length) {
         cashUi.entryList.innerHTML = '<div class="cash-inline-state">No hay movimientos para estos filtros.</div>'
       } else {
         cashUi.entryList.innerHTML = state.cashRegister.entries.map((entry) => {
           const title = entry.description || entry.counterparty || (entry.customerNames || []).join(', ') || cashTypeLabels[entry.type] || entry.type
-          return '<article class="cash-entry"><div class="cash-entry-main"><strong>' + escapeHtml(title) + '</strong><span>' + escapeHtml(cashTypeLabels[entry.type] || entry.type) + (entry.observation ? ' · ' + escapeHtml(entry.observation) : '') + '</span></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><small>' + escapeHtml(entry.origin || '') + '</small><strong class="cash-entry-amount ' + entry.direction.toLowerCase() + '">' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>'
+          const details = [cashTypeLabels[entry.type] || entry.type, entry.expenseCategoryName ? 'Categor&iacute;a: ' + escapeHtml(entry.expenseCategoryName) : '', entry.observation ? escapeHtml(entry.observation) : ''].filter(Boolean).join(' · ')
+          return '<article class="cash-entry"><div class="cash-entry-main"><strong>' + escapeHtml(title) + '</strong><span>' + details + '</span></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><small>' + escapeHtml(entry.origin || '') + '</small><strong class="cash-entry-amount ' + entry.direction.toLowerCase() + '">' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>'
         }).join('')
       }
       cashUi.nextPage.hidden = !state.cashRegister.nextCursor
@@ -529,6 +1038,8 @@ export const cashRegisterScript = `
       if (options.append && state.cashRegister.nextCursor) params.set('cursor', state.cashRegister.nextCursor)
       if (cashUi.typeFilter.value) params.set('type', cashUi.typeFilter.value)
       if (cashUi.methodFilter.value) params.set('method', cashUi.methodFilter.value)
+      if (cashUi.categoryFilter.value) params.set('categoryId', cashUi.categoryFilter.value)
+      if (cashUi.sessionFilter.value) params.set('sessionId', cashUi.sessionFilter.value)
       if (cashUi.search.value.trim()) params.set('q', cashUi.search.value.trim())
       try {
         const page = await getJson('/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString())
@@ -547,12 +1058,133 @@ export const cashRegisterScript = `
       await loadCashEntries()
     }
 
+    function cashIsoDate(date) {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return year + '-' + month + '-' + day
+    }
+
+    function cashPeriodDates(preset) {
+      const today = new Date()
+      const from = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+      const to = new Date(from)
+      if (preset === 'week') {
+        const mondayOffset = (from.getDay() + 6) % 7
+        from.setDate(from.getDate() - mondayOffset)
+        to.setDate(from.getDate() + 6)
+      } else if (preset === 'month') {
+        from.setDate(1)
+        to.setMonth(to.getMonth() + 1, 0)
+      }
+      return { from: cashIsoDate(from), to: cashIsoDate(to) }
+    }
+
+    function setCashPeriodPreset(preset) {
+      state.cashRegister.periodPreset = preset
+      document.querySelectorAll('[data-cash-period-preset]').forEach((button) => button.classList.toggle('active', button.dataset.cashPeriodPreset === preset))
+      if (preset !== 'custom') {
+        const dates = cashPeriodDates(preset)
+        cashUi.periodFrom.value = dates.from
+        cashUi.periodTo.value = dates.to
+      }
+    }
+
+    function validateCashPeriodDates() {
+      if (!cashUi.periodFrom.value || !cashUi.periodTo.value) throw new Error('Elegí la fecha desde y hasta.')
+      const from = new Date(cashUi.periodFrom.value + 'T00:00:00')
+      const to = new Date(cashUi.periodTo.value + 'T00:00:00')
+      const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1
+      if (!Number.isFinite(days) || days < 1) throw new Error('La fecha hasta no puede ser anterior a la fecha desde.')
+      if (days > 31) throw new Error('El período no puede superar 31 días.')
+      return { from: cashUi.periodFrom.value, to: cashUi.periodTo.value }
+    }
+
+    function renderCashPeriodSummary(result) {
+      const summary = result.summary || {}
+      cashUi.periodGross.textContent = cashMoney(summary.grossCollected)
+      cashUi.periodCash.textContent = cashMoney(summary.collectedByMethod?.CASH)
+      cashUi.periodTransfer.textContent = cashMoney(summary.collectedByMethod?.TRANSFER)
+      cashUi.periodCard.textContent = cashMoney(summary.collectedByMethod?.CARD)
+      cashUi.periodNetSales.textContent = cashMoney(summary.netSales)
+      cashUi.periodRefunds.textContent = 'Devoluciones ' + cashMoney(summary.refunds)
+      cashUi.periodExpensesTotal.textContent = cashMoney(summary.expenses)
+      cashUi.periodResult.textContent = cashMoney(summary.operatingResult)
+      cashUi.periodCashIn.textContent = cashMoney(summary.cashIn)
+      cashUi.periodWithdrawals.textContent = cashMoney(summary.withdrawals)
+      cashUi.periodAdjustments.textContent = cashSignedMoney(summary.adjustments)
+      const categories = summary.expenseByCategory || []
+      cashUi.periodCategoryList.innerHTML = categories.length
+        ? categories.map((item) => '<span>' + escapeHtml(item.name) + ' · ' + escapeHtml(cashMoney(item.amount)) + '</span>').join('')
+        : '<span>Sin gastos clasificados en el período</span>'
+    }
+
+    function renderCashPeriodExpenses(result) {
+      const entries = result.entries || []
+      state.cashRegister.periodPage = result.page || 1
+      state.cashRegister.periodTotalPages = result.totalPages || 1
+      cashUi.periodExpenseCount.textContent = String(result.total || 0) + ((result.total || 0) === 1 ? ' movimiento' : ' movimientos')
+      cashUi.periodExpenseList.innerHTML = entries.length ? entries.map((entry) => {
+        const isReversal = entry.type === 'REVERSAL'
+        const title = entry.description || entry.observation || 'Gasto sin descripción'
+        return '<article class="cash-period-expense-row' + (isReversal ? ' reversal' : '') + '"><div><strong>' + escapeHtml(title) + '</strong><br><small>' + escapeHtml(entry.expenseCategoryName || 'Otros') + '</small></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><strong>' + (isReversal ? '+' : '−') + cashMoney(entry.amount) + '</strong></article>'
+      }).join('') : '<div class="cash-inline-state">No hay gastos para estos filtros.</div>'
+      cashUi.periodPageInfo.textContent = 'Página ' + state.cashRegister.periodPage + ' de ' + state.cashRegister.periodTotalPages
+      cashUi.periodPrevious.disabled = state.cashRegister.periodPage <= 1
+      cashUi.periodNext.disabled = state.cashRegister.periodPage >= state.cashRegister.periodTotalPages
+    }
+
+    async function loadCashPeriod(options = {}) {
+      let dates
+      try {
+        dates = validateCashPeriodDates()
+        cashUi.periodFeedback.textContent = ''
+        cashUi.periodFeedback.className = 'cash-feedback'
+      } catch (error) {
+        cashUi.periodFeedback.textContent = error.message
+        cashUi.periodFeedback.className = 'cash-feedback error'
+        return
+      }
+      const page = options.page || state.cashRegister.periodPage || 1
+      const base = new URLSearchParams({ from: dates.from, to: dates.to })
+      if (isCashBusinessScopedRole() && state.businessId) base.set('businessId', state.businessId)
+      const expense = new URLSearchParams(base)
+      expense.set('page', String(page))
+      expense.set('pageSize', cashUi.periodPageSize.value || '10')
+      if (cashUi.periodCategoryFilter.value) expense.set('categoryId', cashUi.periodCategoryFilter.value)
+      if (cashUi.periodMethodFilter.value) expense.set('method', cashUi.periodMethodFilter.value)
+      if (cashUi.periodSearch.value.trim()) expense.set('q', cashUi.periodSearch.value.trim())
+      cashUi.periodExpenseList.innerHTML = '<div class="cash-inline-state">Cargando gastos...</div>'
+      try {
+        const [summary, expenses] = await Promise.all([
+          getJson('/cash-register/period/summary?' + base.toString()),
+          getJson('/cash-register/period/expenses?' + expense.toString())
+        ])
+        renderCashPeriodSummary(summary)
+        renderCashPeriodExpenses(expenses)
+        state.cashRegister.periodLoaded = true
+      } catch (error) {
+        cashUi.periodExpenseList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
+      }
+    }
+
+    function setCashView(mode) {
+      state.cashRegister.viewMode = mode
+      const showingPeriod = mode === 'period'
+      cashUi.viewDay.classList.toggle('active', !showingPeriod)
+      cashUi.viewPeriod.classList.toggle('active', showingPeriod)
+      cashUi.periodView.hidden = !showingPeriod
+      renderCashCurrent()
+      if (showingPeriod && !state.cashRegister.periodLoaded) loadCashPeriod({ page: 1 })
+    }
+
     async function loadCashRegister(options = {}) {
       if (!canUseCashPermission('canViewCashRegister') || !state.businessId) return
       const preserve = options.preserve ?? state.cashRegister.loaded
       const [current, daysResult] = await Promise.all([getJson(cashScoped('/cash-register/current')), getJson(cashScoped('/cash-register/days'))])
       state.cashRegister.current = current
       state.cashRegister.permissions = current.permissions || {}
+      await loadCashExpenseCategories()
       state.cashRegister.days = daysResult.days || []
       state.cashRegister.selectedDayId = current.day?.id || state.cashRegister.selectedDayId || state.cashRegister.days[0]?.id || null
       renderCashCurrent()
@@ -685,14 +1317,27 @@ export const cashRegisterScript = `
       cashUi.operationCounterpartyField.hidden = type !== 'WITHDRAWAL'
       cashUi.operationDescriptionField.hidden = type === 'WITHDRAWAL' || type === 'ADJUSTMENT'
       cashUi.operationMethodField.hidden = ['WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT'].includes(type)
+      cashUi.operationCategoryField.hidden = type !== 'EXPENSE'
+      cashUi.operationCategory.required = type === 'EXPENSE'
+      if (type === 'EXPENSE' && !cashUi.operationCategory.value) {
+        cashUi.operationCategory.value = defaultCashExpenseCategory()?.id || ''
+      }
     }
 
-    function openCashOperationDialog() {
+    async function openCashOperationDialog() {
       cashUi.operationForm.reset()
       cashUi.operationFeedback.textContent = ''
       const mayOperate = canUseCashPermission('canManageCashOperations')
       for (const option of cashUi.operationType.options) option.hidden = option.value !== 'ADJUSTMENT' && !mayOperate || option.value === 'ADJUSTMENT' && !canUseCashPermission('canAdjustCash')
       cashUi.operationType.value = Array.from(cashUi.operationType.options).find((option) => !option.hidden)?.value || 'ADJUSTMENT'
+      try {
+        if (!state.cashRegister.expenseCategories.length) await loadCashExpenseCategories()
+      } catch (error) {
+        cashUi.operationFeedback.textContent = error.message
+        cashUi.operationFeedback.className = 'cash-feedback error'
+      }
+      const fallback = defaultCashExpenseCategory()
+      cashUi.operationCategory.value = fallback?.id || ''
       syncCashOperationFields()
       cashUi.operationDialog.hidden = false
     }
@@ -709,6 +1354,7 @@ export const cashRegisterScript = `
       if (type === 'WITHDRAWAL') payload.counterparty = cashUi.operationCounterparty.value.trim()
       if (!['WITHDRAWAL', 'ADJUSTMENT'].includes(type)) payload.description = cashUi.operationDescription.value.trim()
       if (['EXPENSE', 'REFUND'].includes(type)) payload.method = cashUi.operationMethod.value
+      if (type === 'EXPENSE') payload.categoryId = cashUi.operationCategory.value
       if (!setButtonLoading(cashUi.operationSubmit, true, 'Registrando...')) return
       try {
         await getJson('/cash-register/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -906,14 +1552,26 @@ export const cashRegisterScript = `
       const canDiscount = canUseCashPermission('canApplyDiscounts')
       const activeSession = Boolean(state.cashRegister.current?.session?.id)
       const hasPaymentIntent = actions.collectTotal || actions.deposit
+      const appointment = editingAgendaAppointment()
+      const canCompleteWithPayment = Boolean(
+        appointment &&
+        canEditAppointments() &&
+        !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
+        new Date(appointment.startAt).getTime() <= Date.now()
+      )
 
+      cashUi.totalToggle.hidden = !canRecord
       cashUi.editCollectTotal.hidden = !canRecord || finance.balanceAmount <= 0
       cashUi.editDeposit.hidden = !canRecord || finance.balanceAmount <= 0
       cashUi.editDiscountToggle.hidden = !canDiscount
       setCreateFinanceAction(cashUi.editCollectTotal, actions.collectTotal)
       setCreateFinanceAction(cashUi.editDeposit, actions.deposit)
       setCreateFinanceAction(cashUi.editDiscountToggle, actions.discount)
+      setCreateFinanceAction(cashUi.totalToggle, actions.adjust)
+      cashUi.totalForm.hidden = !actions.adjust || !canRecord
       cashUi.paymentForm.hidden = !actions.collectTotal || !canRecord || !activeSession
+      cashUi.paymentCompleteRow.hidden = !actions.collectTotal || !canRecord || !activeSession || !canCompleteWithPayment
+      if (!canCompleteWithPayment) cashUi.paymentComplete.checked = false
       cashUi.editDepositPanel.hidden = !actions.deposit || !canRecord || !activeSession
       cashUi.discountForm.hidden = !actions.discount || !canDiscount
       cashUi.editObservationRow.hidden = !hasPaymentIntent || !activeSession
@@ -939,39 +1597,54 @@ export const cashRegisterScript = `
     function renderAppointmentFinanceSummary(finance) {
       state.cashRegister.appointmentFinance = finance
       cashUi.financeBalance.textContent = finance.balanceAmount > 0 ? 'Saldo ' + cashMoney(finance.balanceAmount) : 'Pagado'
-      cashUi.financePrice.textContent = cashMoney(finance.agreedAmount)
+      cashUi.financeServiceSubtotal.textContent = cashMoney(finance.serviceSubtotal ?? finance.agreedAmount)
+      cashUi.financeProductSubtotal.textContent = cashMoney(finance.productSubtotal)
       cashUi.financeDiscount.textContent = cashMoney(finance.discountAmount)
       cashUi.financeTotal.textContent = cashMoney(finance.finalAmount)
       cashUi.financePaid.textContent = cashMoney(finance.paidAmount)
       cashUi.financeDue.textContent = cashMoney(finance.balanceAmount)
       cashUi.estimatedTotal.value = finance.agreedAmount
+      cashUi.originalTotal.textContent = finance.originalAmount === null ? 'Sin referencia' : cashMoney(finance.originalAmount)
+      cashUi.minimumTotalRow.hidden = finance.pricingMode !== 'ESTIMATED'
+      cashUi.minimumTotal.textContent = cashMoney(finance.minimumAmount)
+      cashUi.estimatedTotal.min = String(finance.pricingMode === 'ESTIMATED' ? finance.minimumAmount : 0)
+      cashUi.totalHelp.textContent = finance.pricingMode === 'ESTIMATED'
+        ? 'Podés bajar el estimado, pero nunca por debajo del precio base ni de lo ya cobrado.'
+        : 'El precio fijo solo cambia mediante este ajuste explícito y auditado.'
       cashUi.discountType.value = 'AMOUNT'
       cashUi.discountValue.value = finance.discountAmount
       syncAppointmentDiscountField()
-      cashUi.totalForm.hidden = finance.pricingMode !== 'ESTIMATED' || !canUseCashPermission('canRecordAppointmentPayments')
+      cashUi.totalForm.hidden = !state.cashRegister.editFinance.adjust || !canUseCashPermission('canRecordAppointmentPayments')
       cashUi.financeHistory.innerHTML = '<div class="cash-inline-state">Abr&iacute; Pago para ver los movimientos.</div>'
       syncEditAppointmentFinanceActions()
     }
 
     function renderAppointmentFinance(finance) {
       renderAppointmentFinanceSummary(finance)
-      cashUi.financeHistory.innerHTML = finance.entries?.length ? finance.entries.map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>').join('') : '<div class="cash-inline-state">Todav&iacute;a no hay pagos.</div>'
+      const adjustments = (finance.totalAdjustments || []).map((adjustment) => '<article><span><strong>Ajuste de total</strong> · ' + escapeHtml(adjustment.actorName) + '<small> · ' + escapeHtml(cashDate(adjustment.createdAt)) + ' · ' + escapeHtml(adjustment.reason) + '</small></span><strong>' + cashMoney(adjustment.previousAmount) + ' &rarr; ' + cashMoney(adjustment.newAmount) + '</strong></article>')
+      const payments = (finance.entries || []).map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>')
+      cashUi.financeHistory.innerHTML = adjustments.concat(payments).join('') || '<div class="cash-inline-state">Todav&iacute;a no hay movimientos.</div>'
     }
 
     function resetAppointmentFinanceView() {
       state.cashRegister.appointmentFinance = null
-      state.cashRegister.editFinance = { collectTotal: false, deposit: false, discount: false }
+      state.cashRegister.editFinance = { adjust: false, collectTotal: false, deposit: false, discount: false }
       cashUi.financeBalance.textContent = 'Cargando...'
-      cashUi.financePrice.textContent = '--'
+      cashUi.financeServiceSubtotal.textContent = '--'
+      cashUi.financeProductSubtotal.textContent = '--'
       cashUi.financeDiscount.textContent = '--'
       cashUi.financeTotal.textContent = '--'
       cashUi.financePaid.textContent = '--'
       cashUi.financeDue.textContent = '--'
       cashUi.estimatedTotal.value = ''
+      cashUi.totalReason.value = ''
+      cashUi.originalTotal.textContent = '--'
+      cashUi.minimumTotal.textContent = '--'
       cashUi.discountType.value = 'AMOUNT'
       cashUi.discountValue.value = ''
       syncAppointmentDiscountField()
       cashUi.totalForm.hidden = true
+      cashUi.totalToggle.hidden = true
       cashUi.editCollectTotal.hidden = true
       cashUi.editDeposit.hidden = true
       cashUi.editDiscountToggle.hidden = true
@@ -985,6 +1658,8 @@ export const cashRegisterScript = `
       cashUi.paymentLineTwo.hidden = true
       cashUi.paymentAmountTwo.value = ''
       cashUi.paymentMethodTwo.value = 'TRANSFER'
+      cashUi.paymentComplete.checked = false
+      cashUi.paymentCompleteRow.hidden = true
       cashUi.editDepositAmount.value = ''
       cashUi.editDepositMethod.value = 'CASH'
       cashUi.paymentObservation.value = ''
@@ -1030,12 +1705,15 @@ export const cashRegisterScript = `
         cacheAppointmentFinanceSummary(appointmentId, {
           accountId: finance.accountId,
           pricingMode: finance.pricingMode,
+          originalAmount: finance.originalAmount,
+          minimumAmount: finance.minimumAmount,
           agreedAmount: finance.agreedAmount,
           discountAmount: finance.discountAmount,
           finalAmount: finance.finalAmount,
           paidAmount: finance.paidAmount,
           balanceAmount: finance.balanceAmount
         })
+        if (els.appShell.dataset.section === 'agenda') renderAgenda()
         if (appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
         state.cashRegister.current = current
         renderAppointmentFinance(finance)
@@ -1053,29 +1731,47 @@ export const cashRegisterScript = `
       cashUi.finance.hidden = !appointment || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))
       cashUi.finance.open = false
       cashUi.financeFeedback.textContent = ''
-      state.cashRegister.editFinance = { collectTotal: false, deposit: false, discount: false }
+      state.cashRegister.editFinance = { adjust: false, collectTotal: false, deposit: false, discount: false }
       const summary = appointment
         ? state.cashRegister.appointmentFinanceSummaryCache[appointmentFinanceCacheKey(appointment.id)] || appointment.financeSummary
         : null
       if (summary && !cashUi.finance.hidden) renderAppointmentFinanceSummary(summary)
       else resetAppointmentFinanceView()
       prepareCreateAppointmentPayment(appointment)
+      prepareAppointmentProducts(appointment)
     }
 
-    async function submitAppointmentFinanceValue(event, suffix, field, property) {
+    async function submitAppointmentTotalAdjustment(event) {
       event.preventDefault()
-      const value = Number(field.value)
+      const value = Number(cashUi.estimatedTotal.value)
+      const reason = cashUi.totalReason.value.trim()
       if (!Number.isSafeInteger(value) || value < 0) {
         cashUi.financeFeedback.textContent = 'Ingresá un monto nominal entero válido.'
         cashUi.financeFeedback.className = 'appointment-finance-feedback error'
         return
       }
+      if (!reason) {
+        showAppointmentFinanceError('Ingresá un motivo breve para el ajuste.')
+        cashUi.totalReason.focus()
+        return
+      }
+      const finance = state.cashRegister.appointmentFinance
+      if (finance?.pricingMode === 'ESTIMATED' && value < finance.minimumAmount) {
+        showAppointmentFinanceError('El total no puede ser menor al precio base de ' + cashMoney(finance.minimumAmount) + '.')
+        return
+      }
+      if (finance && value < finance.paidAmount) {
+        showAppointmentFinanceError('El total no puede ser menor a lo ya cobrado: ' + cashMoney(finance.paidAmount) + '.')
+        return
+      }
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/' + suffix, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [property]: value, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/adjust-total', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newAmount: value, reason, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        state.cashRegister.editFinance.adjust = false
+        cashUi.totalReason.value = ''
         await loadAppointmentFinance()
+        showCrmToast('Total ajustado y registrado en el historial.', 'success')
       } catch (error) {
-        cashUi.financeFeedback.textContent = error.message
-        cashUi.financeFeedback.className = 'appointment-finance-feedback error'
+        showAppointmentFinanceError(error.message)
       }
     }
 
@@ -1131,16 +1827,20 @@ export const cashRegisterScript = `
         showAppointmentFinanceError('Los medios de pago deben completar exactamente el saldo pendiente.')
         return
       }
+      const completedWithPayment = !cashUi.paymentCompleteRow.hidden && cashUi.paymentComplete.checked
       try {
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
+        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         cashUi.paymentAmount.value = ''
         cashUi.paymentMethod.value = 'CASH'
         cashUi.paymentAmountTwo.value = ''
         cashUi.paymentMethodTwo.value = 'TRANSFER'
         cashUi.paymentObservation.value = ''
         cashUi.paymentLineTwo.hidden = true
+        cashUi.paymentComplete.checked = false
+        state.cashRegister.editFinance.collectTotal = false
         await loadAppointmentFinance()
-        showCrmToast('Pago registrado.', 'success')
+        if (completedWithPayment) await loadAgenda()
+        showCrmToast(completedWithPayment ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.', 'success')
       } catch (error) {
         if (error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') await loadAppointmentFinance()
         cashUi.financeFeedback.textContent = error.message
@@ -1173,6 +1873,26 @@ export const cashRegisterScript = `
       }
     }
 
+    cashUi.productCatalogOpen.addEventListener('click', openCashProductCatalog)
+    cashUi.productCatalogX.addEventListener('click', closeCashProductCatalog)
+    cashUi.productCatalogClose.addEventListener('click', closeCashProductCatalog)
+    cashUi.productCategoryNew.addEventListener('click', () => editCashProductCategory(null))
+    cashUi.productCategoryCancel.addEventListener('click', () => { cashUi.productCategoryForm.hidden = true })
+    cashUi.productCategoryForm.addEventListener('submit', submitCashProductCategory)
+    cashUi.productCategoryList.addEventListener('click', (event) => { const button = event.target.closest('[data-product-category-edit]'); if (button) editCashProductCategory(button.dataset.productCategoryEdit) })
+    cashUi.productNew.addEventListener('click', () => editCashProduct(null))
+    cashUi.productCancel.addEventListener('click', () => { cashUi.productForm.hidden = true })
+    cashUi.productForm.addEventListener('submit', submitCashProduct)
+    cashUi.productList.addEventListener('click', (event) => { const button = event.target.closest('[data-product-edit]'); if (button) editCashProduct(button.dataset.productEdit) })
+    cashUi.productSaleOpen.addEventListener('click', openCashProductSale)
+    cashUi.productSaleX.addEventListener('click', () => { cashUi.productSaleDialog.hidden = true })
+    cashUi.productSaleCancel.addEventListener('click', () => { cashUi.productSaleDialog.hidden = true })
+    cashUi.productSaleAdd.addEventListener('click', addCashProductSaleItem)
+    cashUi.productSaleDiscount.addEventListener('input', renderCashProductSale)
+    cashUi.productSaleItems.addEventListener('click', (event) => { const button = event.target.closest('[data-product-sale-remove]'); if (!button) return; state.cashRegister.productSaleItems = state.cashRegister.productSaleItems.filter((item) => item.productId !== button.dataset.productSaleRemove); renderCashProductSale() })
+    cashUi.productSaleForm.addEventListener('submit', submitCashProductSale)
+    cashUi.appointmentProductAdd.addEventListener('click', addAppointmentProductItem)
+    cashUi.appointmentProductList.addEventListener('click', (event) => { const update = event.target.closest('[data-appointment-product-update]'); if (update) { updateAppointmentProductItem(update.dataset.appointmentProductUpdate); return }; const button = event.target.closest('[data-appointment-product-remove]'); if (button) removeAppointmentProductItem(button.dataset.appointmentProductRemove) })
     cashUi.openEmpty.addEventListener('click', () => openCashSessionDialog('open'))
     cashUi.openToolbar.addEventListener('click', () => openCashSessionDialog('open'))
     cashUi.newSession.addEventListener('click', () => openCashSessionDialog('new'))
@@ -1189,14 +1909,57 @@ export const cashRegisterScript = `
     cashUi.operationCancel.addEventListener('click', closeCashOperationDialog)
     cashUi.operationType.addEventListener('change', syncCashOperationFields)
     cashUi.operationForm.addEventListener('submit', submitCashOperation)
+    cashUi.categoryManage.addEventListener('click', () => openCashExpenseCategoryDialog())
+    cashUi.categoryX.addEventListener('click', closeCashExpenseCategoryDialog)
+    cashUi.categoryClose.addEventListener('click', closeCashExpenseCategoryDialog)
+    cashUi.categoryNew.addEventListener('click', () => editCashExpenseCategory(null))
+    cashUi.categoryEditCancel.addEventListener('click', cancelCashExpenseCategoryEdit)
+    cashUi.categoryForm.addEventListener('submit', submitCashExpenseCategory)
+    cashUi.categoryList.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-cash-category-edit]')
+      if (button) editCashExpenseCategory(button.dataset.cashCategoryEdit)
+    })
+    cashUi.viewDay.addEventListener('click', () => setCashView('day'))
+    cashUi.viewPeriod.addEventListener('click', () => setCashView('period'))
+    document.querySelectorAll('[data-cash-period-preset]').forEach((button) => button.addEventListener('click', () => {
+      setCashPeriodPreset(button.dataset.cashPeriodPreset)
+      if (button.dataset.cashPeriodPreset !== 'custom') { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) }
+    }))
+    cashUi.periodFrom.addEventListener('change', () => setCashPeriodPreset('custom'))
+    cashUi.periodTo.addEventListener('change', () => setCashPeriodPreset('custom'))
+    cashUi.periodApply.addEventListener('click', () => { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) })
+    cashUi.periodCategoryFilter.addEventListener('change', () => { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) })
+    cashUi.periodMethodFilter.addEventListener('change', () => { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) })
+    cashUi.periodPageSize.addEventListener('change', () => { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) })
+    cashUi.periodSearch.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) }, 250) })
+    cashUi.periodPrevious.addEventListener('click', () => loadCashPeriod({ page: Math.max(1, state.cashRegister.periodPage - 1) }))
+    cashUi.periodNext.addEventListener('click', () => loadCashPeriod({ page: Math.min(state.cashRegister.periodTotalPages, state.cashRegister.periodPage + 1) }))
+    setCashPeriodPreset('month')
     cashUi.refresh.addEventListener('click', () => loadCashRegister().catch((error) => showCrmToast(error.message, 'error')))
     cashUi.daySelect.addEventListener('change', () => selectCashDay(cashUi.daySelect.value).catch((error) => showCrmToast(error.message, 'error')))
     cashUi.typeFilter.addEventListener('change', () => loadCashEntries())
     cashUi.methodFilter.addEventListener('change', () => loadCashEntries())
+    cashUi.categoryFilter.addEventListener('change', () => loadCashEntries())
+    cashUi.sessionFilter.addEventListener('change', () => loadCashEntries())
     cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
     cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
     cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) { scrollAppointmentFinanceIntoView(); loadAppointmentFinance({ force: false, preserve: true }) } })
-    cashUi.totalSubmit.addEventListener('click', (event) => submitAppointmentFinanceValue(event, 'estimated-total', cashUi.estimatedTotal, 'agreedAmount'))
+    cashUi.totalToggle.addEventListener('click', () => {
+      state.cashRegister.editFinance.adjust = !state.cashRegister.editFinance.adjust
+      if (state.cashRegister.editFinance.adjust) {
+        cashUi.estimatedTotal.value = String(state.cashRegister.appointmentFinance?.agreedAmount ?? '')
+        requestAnimationFrame(() => cashUi.estimatedTotal.focus())
+      } else {
+        cashUi.totalReason.value = ''
+      }
+      syncEditAppointmentFinanceActions()
+    })
+    cashUi.totalCancel.addEventListener('click', () => {
+      state.cashRegister.editFinance.adjust = false
+      cashUi.totalReason.value = ''
+      syncEditAppointmentFinanceActions()
+    })
+    cashUi.totalSubmit.addEventListener('click', submitAppointmentTotalAdjustment)
     cashUi.discountType.addEventListener('change', () => { cashUi.discountValue.value = ''; syncAppointmentDiscountField() })
     cashUi.discountSubmit.addEventListener('click', submitAppointmentDiscount)
     cashUi.editCollectTotal.addEventListener('click', () => {
@@ -1204,6 +1967,15 @@ export const cashRegisterScript = `
       if (state.cashRegister.editFinance.collectTotal) {
         state.cashRegister.editFinance.deposit = false
         cashUi.paymentMethod.value = 'CASH'
+        const appointment = editingAgendaAppointment()
+        cashUi.paymentComplete.checked = Boolean(
+          appointment &&
+          canEditAppointments() &&
+          !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
+          new Date(appointment.startAt).getTime() <= Date.now()
+        )
+      } else {
+        cashUi.paymentComplete.checked = false
       }
       cashUi.paymentLineTwo.hidden = true
       cashUi.paymentAmountTwo.value = ''

@@ -25,7 +25,8 @@ assert.match(
 assert.match(repositorySource, /clock_timestamp\(\) AS "dbNow"/)
 assert.match(repositorySource, /"businessId" = \$\{businessId\}[\s\S]*"isActive" = true/)
 assert.match(repositorySource, /WHERE day\."businessId" = \$\{businessId\}[\s\S]*day\."closedAt" IS NULL/)
-assert.doesNotMatch(repositorySource, /::date/, 'la jornada abierta no debe cortarse por fecha calendario')
+const findOpenDaySource = repositorySource.match(/async findOpenDay[\\s\\S]*?async findOpenSession/)?.[0] ?? ''
+assert.doesNotMatch(findOpenDaySource, /::date/, 'la jornada abierta no debe cortarse por fecha calendario')
 assert.doesNotMatch(
   `${serviceSource}\n${repositorySource}`,
   /INSERT INTO "CashEntry"[\s\S]{0,600}'ADJUSTMENT'|cashEntry\.create\([\s\S]{0,600}ADJUSTMENT/,

@@ -202,6 +202,7 @@ export class LeadFormSubmissionService {
           }
 
           let attribution: Record<string, string> | null = declaredAttribution
+          let instagramIdentity: { userId: string; username: string | null } | null = null
           if (input.instagramRef !== undefined) {
             const ref = verifyInstagramFormRef(
               this.options.instagramFormRefSecret ?? '', input.instagramRef as string,
@@ -210,7 +211,13 @@ export class LeadFormSubmissionService {
             if (!ref) reject('INVALID_INSTAGRAM_REF', 422)
             const execution = await tx.instagramCommentExecution.findFirst({
               where: { id: ref.executionId, businessId: input.businessId },
-              select: { id: true, matchedKeyword: true, publicationId: true, commenterInstagramUserId: true }
+              select: {
+                id: true,
+                matchedKeyword: true,
+                publicationId: true,
+                commenterInstagramUserId: true,
+                commenterUsername: true
+              }
             })
             if (!execution) reject('INVALID_INSTAGRAM_REF', 422)
             attribution = {
@@ -220,6 +227,10 @@ export class LeadFormSubmissionService {
               instagramExecutionId: execution.id,
               instagramPublicationId: execution.publicationId,
               instagramUserId: execution.commenterInstagramUserId
+            }
+            instagramIdentity = {
+              userId: execution.commenterInstagramUserId,
+              username: execution.commenterUsername
             }
           }
 
@@ -263,6 +274,60 @@ export class LeadFormSubmissionService {
 
           const leadFields = normalized.leadFields
           const title = leadFields.title ?? form.name
+          const contactName = typeof leadFields.contactName === 'string' ? leadFields.contactName : null
+          const phone = typeof leadFields.phone === 'string' ? leadFields.phone : null
+          const normalizedPhone = typeof leadFields.normalizedPhone === 'string' ? leadFields.normalizedPhone : null
+          const email = typeof leadFields.email === 'string' ? leadFields.email : null
+          let customer: { id: string } | null = null
+          if (contactName && phone && normalizedPhone) {
+            const customerByPhone = await tx.customer.findUnique({
+              where: {
+                businessId_normalizedPhone: {
+                  businessId: input.businessId,
+                  normalizedPhone
+                }
+              }
+            })
+            const customerByInstagram = instagramIdentity
+              ? await tx.customer.findUnique({
+                where: {
+                  businessId_instagramUserId: {
+                    businessId: input.businessId,
+                    instagramUserId: instagramIdentity.userId
+                  }
+                }
+              })
+              : null
+            if (customerByPhone && customerByInstagram && customerByPhone.id !== customerByInstagram.id) {
+              reject('CUSTOMER_IDENTITY_CONFLICT', 409)
+            }
+            const existingCustomer = customerByPhone ?? customerByInstagram
+            const customerData = {
+              name: contactName,
+              ...(email ? { email } : {}),
+              ...(customerByInstagram && !customerByPhone ? { phone, normalizedPhone } : {}),
+              ...(instagramIdentity
+                ? {
+                    instagramUserId: instagramIdentity.userId,
+                    ...(instagramIdentity.username ? { instagramUsername: instagramIdentity.username } : {})
+                  }
+                : {})
+            }
+            customer = existingCustomer
+              ? await tx.customer.update({
+                where: { businessId_id: { businessId: input.businessId, id: existingCustomer.id } },
+                data: customerData
+              })
+              : await tx.customer.create({
+                data: {
+                  businessId: input.businessId,
+                  name: contactName,
+                  phone,
+                  normalizedPhone,
+                  ...customerData
+                }
+              })
+          }
           const submission = await tx.formSubmission.create({
             data: {
               businessId: input.businessId,
@@ -293,6 +358,7 @@ export class LeadFormSubmissionService {
             source: attribution?.source === 'INSTAGRAM_COMMENT' ? 'INSTAGRAM_COMMENT' : 'FORM',
             externalReference: leadFields.externalReference,
             assigneeUserId: form.defaultAssigneeUserId,
+            customerId: customer?.id,
             customData: normalized.customData,
             customDataSchemaVersion: form.schemaVersion,
             eventMetadata: {

@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma.js'
-import type { Prisma } from '../generated/prisma/client.js'
+import { Prisma } from '../generated/prisma/client.js'
 import {
   markConversationOpportunityConverted,
   reopenConversationOpportunityForInvalidatedAppointment
@@ -49,7 +49,7 @@ type CreateAppointmentInput = {
   coordinationGroupId?: string | null
 }
 
-type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser
+type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser & { name?: string }
 
 type CreateAppointmentOptions = {
   afterCreateInTransaction?: (input: {
@@ -124,6 +124,7 @@ type FindAvailabilityInput = {
 
 type FindAppointmentsInput = {
   businessId?: string
+  customerId?: string
   customerPhone?: string
   from?: string
   to?: string
@@ -1201,6 +1202,13 @@ export class AppointmentService {
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
       return appointmentForbidden()
     }
+    if (status === 'COMPLETED' && appointment.startAt.getTime() > Date.now()) {
+      return {
+        ok: false as const,
+        statusCode: 409,
+        message: 'El turno todavía no comenzó y no puede marcarse como realizado'
+      }
+    }
     const updatedAppointment = status === 'CONFIRMED'
       ? await prisma.$transaction(async (transaction) => {
           const validation = await revalidateBookingWrite(transaction, {
@@ -1227,6 +1235,13 @@ export class AppointmentService {
             return 'DEPOSIT_CONFLICT' as const
           }
           if (validation.conflicts.length) return null
+          await persistAppointmentCompletionMetadata(transaction, {
+            businessId: appointment.professional.businessId,
+            appointmentId,
+            status,
+            actorUserId: authorizationUser?.id ?? null,
+            actorName: authorizationUser?.name ?? 'Sistema'
+          })
           const updated = await transaction.appointment.update({
             where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
             data: { status },
@@ -1253,6 +1268,15 @@ export class AppointmentService {
               return 'AUTHORIZATION_CONFLICT' as const
             }
           }
+          if (status !== 'COMPLETED') {
+            await persistAppointmentCompletionMetadata(transaction, {
+              businessId: appointment.professional.businessId,
+              appointmentId,
+              status,
+              actorUserId: authorizationUser?.id ?? null,
+              actorName: authorizationUser?.name ?? 'Sistema'
+            })
+          }
           const updated = await transaction.appointment.update({
             where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
             data: { status },
@@ -1262,6 +1286,15 @@ export class AppointmentService {
               service: true
             }
           })
+          if (status === 'COMPLETED') {
+            await persistAppointmentCompletionMetadata(transaction, {
+              businessId: appointment.professional.businessId,
+              appointmentId,
+              status,
+              actorUserId: authorizationUser?.id ?? null,
+              actorName: authorizationUser?.name ?? 'Sistema'
+            })
+          }
           if (status === 'CANCELLED' || status === 'NO_SHOW') {
             await transaction.bookingDeposit.updateMany({
               where: {
@@ -1370,6 +1403,7 @@ export class AppointmentService {
               }
             }
           : {}),
+        ...(input.customerId ? { customerId: input.customerId } : {}),
         ...(input.customerPhone ? { customer: { phone: input.customerPhone } } : {}),
         ...(from || to
           ? {
@@ -1844,6 +1878,34 @@ function scopedAppointmentMutationWhere(
   return user
     ? { id: appointmentId, AND: authorizedAppointmentWhere(user, appointmentId) }
     : { id: appointmentId }
+}
+
+async function persistAppointmentCompletionMetadata(
+  transaction: Prisma.TransactionClient,
+  input: {
+    businessId: string
+    appointmentId: string
+    status: AppointmentStatusInput
+    actorUserId: string | null
+    actorName: string
+  }
+) {
+  if (input.status === 'COMPLETED') {
+    await transaction.$executeRaw(Prisma.sql`
+      UPDATE "Appointment"
+      SET "completedAt" = COALESCE("completedAt", clock_timestamp()),
+        "completedByUserId" = COALESCE("completedByUserId", ${input.actorUserId}),
+        "completedByName" = COALESCE("completedByName", ${input.actorName}),
+        "completionSource" = COALESCE("completionSource", 'MANUAL'::"AppointmentCompletionSource")
+      WHERE "businessId" = ${input.businessId} AND "id" = ${input.appointmentId}
+    `)
+    return
+  }
+  await transaction.$executeRaw(Prisma.sql`
+    UPDATE "Appointment"
+    SET "completedAt" = NULL, "completedByUserId" = NULL, "completedByName" = NULL, "completionSource" = NULL
+    WHERE "businessId" = ${input.businessId} AND "id" = ${input.appointmentId}
+  `)
 }
 
 function appointmentNotFound(): AppointmentMutationResult {

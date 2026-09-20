@@ -15,6 +15,7 @@ function user(preset: Parameters<typeof resolveStaffPermissions>[0]): StaffAutho
   const resolved = resolveStaffPermissions(preset)
   return {
     role: 'STAFF',
+    businessId: null,
     professionalId: resolved.staffProfile === 'PROFESSIONAL' ? 'professional-1' : null,
     staffProfile: resolved.staffProfile,
     ...resolved.permissions
@@ -86,6 +87,16 @@ access(cashier, 'POST', '/crm/conversations/x/deposit/approve', true, 'caja apru
 access(cashier, 'POST', '/crm/conversations/x/deposit/reject', true, 'caja rechaza señas')
 assert.equal(cashier.canViewFinancialAmounts, true, 'caja ve importes')
 
+const appointmentCollector = user({
+  staffProfile: 'SECRETARY', permissionPreset: 'CUSTOM', canRecordAppointmentPayments: true
+})
+assert.equal(appointmentCollector.canRecordAppointmentPayments, true, 'el permiso personalizado habilita cobros de turnos')
+assert.equal(appointmentCollector.canViewCashRegister, false, 'cobrar turnos no concede acceso completo a Caja')
+access(appointmentCollector, 'GET', '/appointments/a1/finance', true, 'cobros puede consultar el detalle financiero del turno')
+access(appointmentCollector, 'POST', '/appointments/a1/payments', true, 'cobros puede registrar pagos del turno')
+access(appointmentCollector, 'GET', '/cash-register/payment-context', true, 'cobros puede cargar el contexto necesario del pago')
+access(appointmentCollector, 'GET', '/cash-register', false, 'cobros no ve la Caja completa')
+
 const custom = user({
   staffProfile: 'SECRETARY', permissionPreset: 'CUSTOM', canReplyConversations: true,
   canManageDeposits: true, canCreateCustomers: true, canViewFinancialAmounts: true
@@ -104,9 +115,12 @@ const ui = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'ut
 for (const id of [
   'staff-user-profile', 'staff-user-preset', 'staff-preset-description', 'staff-can-force-appointments',
   'staff-can-view-customers', 'staff-can-manage-notes', 'staff-can-view-conversations',
-  'staff-can-manage-deposits', 'staff-can-view-reports', 'staff-can-view-financial'
+  'staff-can-manage-deposits', 'staff-can-view-reports', 'staff-can-view-financial',
+  'staff-can-record-appointment-payments', 'staff-can-view-products', 'staff-can-manage-products', 'staff-can-sell-products'
 ]) assert.ok(ui.includes(`id="${id}"`), `la interfaz debe incluir ${id}`)
-assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 10, 'los permisos exclusivos de secretaría deben estar identificados')
+assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 14, 'los permisos exclusivos de secretaría deben estar identificados')
+assert.ok(ui.includes('Registrar pagos de turnos'), 'el permiso de cobro debe ser visible y explícito para secretaría')
+assert.ok(ui.includes('canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments'), 'el permiso de cobro debe enviarse al guardar la cuenta staff')
 assert.ok(ui.includes("field.hidden = !isSecretary"), 'los permisos de secretaría deben ocultarse para profesionales')
 assert.ok(ui.includes("els.staffProfessionalField.hidden = isSecretary"), 'el profesional asignado debe ocultarse para secretaría')
 assert.ok(ui.includes("'Permisos de secretaría' : 'Permisos de agenda'"), 'el título debe explicar el conjunto visible')
