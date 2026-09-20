@@ -1,4 +1,5 @@
 import { Prisma } from '../generated/prisma/client.js'
+import { ensureProfessionalEarningForCompletedAppointment } from '../services/professional-compensation.js'
 
 export type CashBusinessContext = {
   businessId: string
@@ -765,7 +766,17 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       )
       SELECT * FROM updated
     `)
-    return rows[0] ?? null
+    const completion = rows[0] ?? null
+    if (completion) {
+      await ensureProfessionalEarningForCompletedAppointment(this.transaction, {
+        businessId: input.businessId,
+        appointmentId: input.appointmentId,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName,
+        effectiveAt: input.completedAt
+      })
+    }
+    return completion
   }
 
   async projectApprovedDeposit(input: {

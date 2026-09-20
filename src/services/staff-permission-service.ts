@@ -27,6 +27,8 @@ export type StaffPermissions = {
   canRecordAppointmentPayments: boolean
   canApplyDiscounts: boolean
   canManageCashOperations: boolean
+  canViewProfessionalSettlements: boolean
+  canManageProfessionalSettlements: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
   canViewProducts?: boolean
@@ -87,7 +89,8 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
       canViewConversations: true, canReplyConversations: true, canManageDeposits: true,
       canViewOperationalReports: true, canViewFinancialAmounts: true,
       canViewCashRegister: true, canRecordAppointmentPayments: true, canApplyDiscounts: true,
-      canManageCashOperations: true, canAdjustCash: true, canManageCashSessions: true,
+      canManageCashOperations: true, canViewProfessionalSettlements: true, canManageProfessionalSettlements: true,
+      canAdjustCash: true, canManageCashSessions: true,
       canViewProducts: true, canSellProducts: true
     })
   }
@@ -115,6 +118,8 @@ function permissions(overrides: Partial<StaffPermissions>): StaffPermissions {
     canRecordAppointmentPayments: false,
     canApplyDiscounts: false,
     canManageCashOperations: false,
+    canViewProfessionalSettlements: false,
+    canManageProfessionalSettlements: false,
     canAdjustCash: false,
     canManageCashSessions: false,
     canViewProducts: false,
@@ -155,6 +160,7 @@ export function resolveStaffPermissions(input: Partial<StaffPermissions> & {
   }
   if (!merged.canCreateAppointments && !merged.canEditAppointments) merged.canForceAppointments = false
   if (!merged.canViewOperationalReports) merged.canViewFinancialAmounts = false
+  if (merged.canManageProfessionalSettlements) merged.canViewProfessionalSettlements = true
 
   return { staffProfile, permissionPreset: compatiblePreset, permissions: merged }
 }
@@ -190,6 +196,9 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
     return verb === 'GET' ? user.canViewProducts : user.canSellProducts
   }
 
+  if (path.startsWith('/professional-settlements')) {
+    return verb === 'GET' ? user.canViewProfessionalSettlements : user.canManageProfessionalSettlements
+  }
   if (path.startsWith('/cash-register')) {
     if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
     if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
@@ -233,7 +242,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
   if (path === '/crm/events') return verb === 'GET' && user.canViewConversations
   if (path === '/crm/cash-events') {
-    return verb === 'GET' && (user.canViewCashRegister || user.canRecordAppointmentPayments || user.canApplyDiscounts)
+    return verb === 'GET' && (user.canViewCashRegister || user.canViewProfessionalSettlements || user.canRecordAppointmentPayments || user.canApplyDiscounts)
   }
   if (path.startsWith('/crm/deposits')) {
     // A proof is financial PII. Listing its review queue, downloading its bytes, and
@@ -257,6 +266,8 @@ export type CashPermission =
   | 'canRecordAppointmentPayments'
   | 'canApplyDiscounts'
   | 'canManageCashOperations'
+  | 'canViewProfessionalSettlements'
+  | 'canManageProfessionalSettlements'
   | 'canAdjustCash'
   | 'canManageCashSessions'
 

@@ -29,6 +29,7 @@ import {
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
 import { revalidateBookingWrite } from './booking-operations.js'
 import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
+import { ensureProfessionalEarningForCompletedAppointment } from './professional-compensation.js'
 
 const availabilitySlotInterval = 30
 
@@ -1291,6 +1292,14 @@ export class AppointmentService {
               businessId: appointment.professional.businessId,
               appointmentId,
               status,
+              actorUserId: authorizationUser?.id ?? null,
+              actorName: authorizationUser?.name ?? 'Sistema'
+            })
+          }
+          if (status === 'COMPLETED') {
+            await ensureProfessionalEarningForCompletedAppointment(transaction, {
+              businessId: appointment.professional.businessId,
+              appointmentId,
               actorUserId: authorizationUser?.id ?? null,
               actorName: authorizationUser?.name ?? 'Sistema'
             })

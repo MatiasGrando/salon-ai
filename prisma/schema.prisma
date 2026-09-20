@@ -542,6 +542,25 @@ enum AppointmentCompletionSource {
   FULL_PAYMENT
 }
 
+enum ProfessionalCompensationMode {
+  NONE
+  PERCENTAGE
+  FIXED
+}
+
+enum ProfessionalAccountEntryType {
+  EARNING
+  PAYMENT
+  ADVANCE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum ProfessionalAccountDirection {
+  CREDIT
+  DEBIT
+}
+
 enum AppointmentOrigin {
   BOT
   WEB
@@ -969,6 +988,7 @@ model Business {
   appointmentTotalAdjustments AppointmentTotalAdjustment[]
   appointmentAccountLinks     AppointmentAccountLink[]
   appointments                Appointment[]
+  professionalAccountEntries  ProfessionalAccountEntry[]
   cashRegisterDays            CashRegisterDay[]
   cashSessions                CashSession[]
   cashEntries                 CashEntry[]
@@ -1135,46 +1155,48 @@ model User {
   canCreateBusinesses Boolean   @default(false)
   firstLoginAt        DateTime?
 
-  businessId                   String?
-  business                     Business?                    @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  professionalId               String?
-  professional                 Professional?                @relation(fields: [professionalId], references: [id], onDelete: SetNull)
-  sessions                     UserSession[]
-  managedBusinesses            Business[]                   @relation("AccountAdminBusinesses")
-  createdBusinesses            Business[]                   @relation("CreatedBusinesses")
-  canCreateAppointments        Boolean                      @default(true)
-  canEditAppointments          Boolean                      @default(true)
-  canCancelAppointments        Boolean                      @default(true)
-  canManageScheduleBlocks      Boolean                      @default(true)
-  staffProfile                 String                       @default("PROFESSIONAL")
-  permissionPreset             String                       @default("PROFESSIONAL_DEFAULT")
-  agendaScope                  String                       @default("OWN")
-  canForceAppointments         Boolean                      @default(false)
-  canViewCustomers             Boolean                      @default(false)
-  canCreateCustomers           Boolean                      @default(false)
-  canEditCustomers             Boolean                      @default(false)
-  canManageCustomerNotes       Boolean                      @default(false)
-  canManageCustomerMarketing   Boolean                      @default(false)
-  canViewConversations         Boolean                      @default(false)
-  canReplyConversations        Boolean                      @default(false)
-  canManageDeposits            Boolean                      @default(false)
-  canViewOperationalReports    Boolean                      @default(false)
-  canViewFinancialAmounts      Boolean                      @default(false)
-  canViewCashRegister          Boolean                      @default(false)
-  canRecordAppointmentPayments Boolean                      @default(false)
-  canApplyDiscounts            Boolean                      @default(false)
-  canManageCashOperations      Boolean                      @default(false)
-  canAdjustCash                Boolean                      @default(false)
-  canManageCashSessions        Boolean                      @default(false)
-  cashSessions                 CashSession[]
-  appointmentTotalAdjustments  AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
-  productSales                 ProductSale[]                @relation("ProductSaleActor")
-  productSaleAudits            ProductSaleAudit[]           @relation("ProductSaleAuditActor")
-  assignedPipelineLeads        PipelineLead[]               @relation("PipelineLeadAssignee")
-  authoredPipelineActivities   PipelineLeadActivity[]       @relation("PipelineActivityAuthor")
-  actedPipelineEvents          PipelineLeadEvent[]          @relation("PipelineEventActor")
-  assignedPipelineTasks        PipelineTask[]               @relation("PipelineTaskAssignee")
-  assignedLeadCaptureForms     LeadCaptureForm[]            @relation("LeadCaptureFormDefaultAssignee")
+  businessId                       String?
+  business                         Business?                    @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  professionalId                   String?
+  professional                     Professional?                @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  sessions                         UserSession[]
+  managedBusinesses                Business[]                   @relation("AccountAdminBusinesses")
+  createdBusinesses                Business[]                   @relation("CreatedBusinesses")
+  canCreateAppointments            Boolean                      @default(true)
+  canEditAppointments              Boolean                      @default(true)
+  canCancelAppointments            Boolean                      @default(true)
+  canManageScheduleBlocks          Boolean                      @default(true)
+  staffProfile                     String                       @default("PROFESSIONAL")
+  permissionPreset                 String                       @default("PROFESSIONAL_DEFAULT")
+  agendaScope                      String                       @default("OWN")
+  canForceAppointments             Boolean                      @default(false)
+  canViewCustomers                 Boolean                      @default(false)
+  canCreateCustomers               Boolean                      @default(false)
+  canEditCustomers                 Boolean                      @default(false)
+  canManageCustomerNotes           Boolean                      @default(false)
+  canManageCustomerMarketing       Boolean                      @default(false)
+  canViewConversations             Boolean                      @default(false)
+  canReplyConversations            Boolean                      @default(false)
+  canManageDeposits                Boolean                      @default(false)
+  canViewOperationalReports        Boolean                      @default(false)
+  canViewFinancialAmounts          Boolean                      @default(false)
+  canViewCashRegister              Boolean                      @default(false)
+  canRecordAppointmentPayments     Boolean                      @default(false)
+  canApplyDiscounts                Boolean                      @default(false)
+  canManageCashOperations          Boolean                      @default(false)
+  canViewProfessionalSettlements   Boolean                      @default(false)
+  canManageProfessionalSettlements Boolean                      @default(false)
+  canAdjustCash                    Boolean                      @default(false)
+  canManageCashSessions            Boolean                      @default(false)
+  cashSessions                     CashSession[]
+  appointmentTotalAdjustments      AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
+  productSales                     ProductSale[]                @relation("ProductSaleActor")
+  productSaleAudits                ProductSaleAudit[]           @relation("ProductSaleAuditActor")
+  assignedPipelineLeads            PipelineLead[]               @relation("PipelineLeadAssignee")
+  authoredPipelineActivities       PipelineLeadActivity[]       @relation("PipelineActivityAuthor")
+  actedPipelineEvents              PipelineLeadEvent[]          @relation("PipelineEventActor")
+  assignedPipelineTasks            PipelineTask[]               @relation("PipelineTaskAssignee")
+  assignedLeadCaptureForms         LeadCaptureForm[]            @relation("LeadCaptureFormDefaultAssignee")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1522,14 +1544,17 @@ model BusinessBotConfiguration {
 }
 
 model Professional {
-  id                 String    @id @default(cuid())
-  name               String
-  description        String?
-  avatarUrl          String?
-  isActive           Boolean   @default(true)
-  acceptsBotBookings Boolean   @default(true)
-  botBookingPriority Int       @default(100)
-  deactivatedAt      DateTime?
+  id                    String                       @id @default(cuid())
+  name                  String
+  description           String?
+  avatarUrl             String?
+  isActive              Boolean                      @default(true)
+  acceptsBotBookings    Boolean                      @default(true)
+  botBookingPriority    Int                          @default(100)
+  deactivatedAt         DateTime?
+  commissionMode        ProfessionalCompensationMode @default(NONE)
+  commissionPercentage  Decimal?                     @db.Decimal(5, 2)
+  commissionFixedAmount Int?
 
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
@@ -1539,6 +1564,7 @@ model Professional {
   workingHours   ProfessionalHours[]
   scheduleBlocks ScheduleBlock[]
   serviceLinks   ProfessionalService[]
+  accountEntries ProfessionalAccountEntry[]
   users          User[]
 
   createdAt DateTime @default(now())
@@ -1647,10 +1673,42 @@ model ProfessionalService {
   serviceId String
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  createdAt DateTime @default(now())
+  commissionMode        ProfessionalCompensationMode?
+  commissionPercentage  Decimal?                      @db.Decimal(5, 2)
+  commissionFixedAmount Int?
+  createdAt             DateTime                      @default(now())
 
   @@unique([professionalId, serviceId])
   @@index([serviceId])
+}
+
+model ProfessionalAccountEntry {
+  id              String                        @id @default(cuid())
+  businessId      String
+  business        Business                      @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  professionalId  String
+  professional    Professional                  @relation(fields: [professionalId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointmentId   String?
+  appointment     Appointment?                  @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  cashEntryId     String?
+  cashEntry       CashEntry?                    @relation(fields: [businessId, cashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  type            ProfessionalAccountEntryType
+  direction       ProfessionalAccountDirection
+  amount          Int
+  baseAmount      Int?
+  ruleMode        ProfessionalCompensationMode?
+  rulePercentage  Decimal?                      @db.Decimal(5, 2)
+  ruleFixedAmount Int?
+  description     String?
+  actorUserId     String?
+  actorName       String
+  effectiveAt     DateTime                      @default(dbgenerated("clock_timestamp()"))
+  createdAt       DateTime                      @default(now())
+
+  @@unique([businessId, id])
+  @@unique([businessId, appointmentId])
+  @@unique([businessId, cashEntryId])
+  @@index([businessId, professionalId, effectiveAt, id])
 }
 
 model ServiceAlias {
@@ -1925,21 +1983,22 @@ model Appointment {
   visitId String?       @unique
   visit   BookingVisit? @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  status                  AppointmentStatus          @default(CONFIRMED)
-  completedAt             DateTime?
-  completedByUserId       String?
-  completedByName         String?
-  completionSource        AppointmentCompletionSource?
-  reminderDeliveries      ReminderDelivery[]
-  convertedConversation   Conversation?              @relation("ConversationOpportunityAppointment")
-  postSaleDeliveries      PostSaleDelivery[]
-  bookingDeposit          BookingDeposit?
-  changeHistory           AppointmentChangeHistory[]
-  serviceItems            AppointmentServiceItem[]
-  accountLink             AppointmentAccountLink?
-  productSale             ProductSale?
-  googleCalendarEventId   String?
-  googleCalendarAccountId String?
+  status                   AppointmentStatus            @default(CONFIRMED)
+  completedAt              DateTime?
+  completedByUserId        String?
+  completedByName          String?
+  completionSource         AppointmentCompletionSource?
+  reminderDeliveries       ReminderDelivery[]
+  convertedConversation    Conversation?                @relation("ConversationOpportunityAppointment")
+  postSaleDeliveries       PostSaleDelivery[]
+  bookingDeposit           BookingDeposit?
+  changeHistory            AppointmentChangeHistory[]
+  serviceItems             AppointmentServiceItem[]
+  accountLink              AppointmentAccountLink?
+  productSale              ProductSale?
+  professionalAccountEntry ProfessionalAccountEntry?
+  googleCalendarEventId    String?
+  googleCalendarAccountId  String?
 
   createdAt DateTime @default(now())
 
@@ -2064,34 +2123,35 @@ model CashExpenseCategory {
 }
 
 model CashEntry {
-  id                String               @id @default(cuid())
-  businessId        String
-  business          Business             @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  accountId         String?
-  account           AppointmentAccount?  @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  registerDayId     String?
-  registerDay       CashRegisterDay?     @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  cashSessionId     String?
-  cashSession       CashSession?         @relation(fields: [businessId, registerDayId, cashSessionId], references: [businessId, registerDayId, id], onDelete: Restrict, onUpdate: Cascade)
-  type              CashEntryType
-  direction         CashDirection
-  amount            Int
-  paymentMethod     CashPaymentMethod
-  origin            CashEntryOrigin
-  description       String?
-  counterparty      String?
-  observation       String?
-  expenseCategoryId String?
-  expenseCategory   CashExpenseCategory? @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  productSaleId     String?              @unique
-  productSale       ProductSale?         @relation(fields: [businessId, productSaleId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  bookingDepositId  String?              @unique
-  bookingDeposit    BookingDeposit?      @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  reversesEntryId   String?              @unique
-  reversesEntry     CashEntry?           @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  reversedBy        CashEntry?           @relation("CashEntryReversal")
-  effectiveAt       DateTime?            @default(dbgenerated("clock_timestamp()"))
-  createdAt         DateTime             @default(now())
+  id                       String                    @id @default(cuid())
+  businessId               String
+  business                 Business                  @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId                String?
+  account                  AppointmentAccount?       @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  registerDayId            String?
+  registerDay              CashRegisterDay?          @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  cashSessionId            String?
+  cashSession              CashSession?              @relation(fields: [businessId, registerDayId, cashSessionId], references: [businessId, registerDayId, id], onDelete: Restrict, onUpdate: Cascade)
+  type                     CashEntryType
+  direction                CashDirection
+  amount                   Int
+  paymentMethod            CashPaymentMethod
+  origin                   CashEntryOrigin
+  description              String?
+  counterparty             String?
+  observation              String?
+  expenseCategoryId        String?
+  expenseCategory          CashExpenseCategory?      @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  productSaleId            String?                   @unique
+  productSale              ProductSale?              @relation(fields: [businessId, productSaleId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  professionalAccountEntry ProfessionalAccountEntry?
+  bookingDepositId         String?                   @unique
+  bookingDeposit           BookingDeposit?           @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversesEntryId          String?                   @unique
+  reversesEntry            CashEntry?                @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  reversedBy               CashEntry?                @relation("CashEntryReversal")
+  effectiveAt              DateTime?                 @default(dbgenerated("clock_timestamp()"))
+  createdAt                DateTime                  @default(now())
 
   @@unique([businessId, id])
   @@unique([businessId, bookingDepositId])

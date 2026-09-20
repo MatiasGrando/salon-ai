@@ -259,7 +259,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:cash-period-report": "tsx scripts/cash-period-report-contract-test.ts",
     "test:appointment-completion-payment": "tsx scripts/appointment-completion-payment-contract-test.ts",
-    "test:agenda-appointment-status-badges": "tsx scripts/agenda-appointment-status-badges-contract-test.ts"
+    "test:agenda-appointment-status-badges": "tsx scripts/agenda-appointment-status-badges-contract-test.ts",
+    "test:professional-settlements": "tsx scripts/professional-settlements-contract-test.ts"
   },
   "keywords": [],
   "author": "",

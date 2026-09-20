@@ -37,6 +37,8 @@ export type AuthUser = {
   canRecordAppointmentPayments: boolean
   canApplyDiscounts: boolean
   canManageCashOperations: boolean
+  canViewProfessionalSettlements: boolean
+  canManageProfessionalSettlements: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
   canViewProducts?: boolean
@@ -100,7 +102,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
   }
   const cashUser = session.user as typeof session.user & Pick<AuthUser,
     'canViewCashRegister' | 'canRecordAppointmentPayments' | 'canApplyDiscounts'
-    | 'canManageCashOperations' | 'canAdjustCash' | 'canManageCashSessions'
+    | 'canManageCashOperations' | 'canViewProfessionalSettlements' | 'canManageProfessionalSettlements'
+    | 'canAdjustCash' | 'canManageCashSessions'
     | 'canViewProducts' | 'canManageProducts' | 'canSellProducts'>
 
   return {
@@ -133,6 +136,8 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canRecordAppointmentPayments: cashUser.canRecordAppointmentPayments,
       canApplyDiscounts: cashUser.canApplyDiscounts,
       canManageCashOperations: cashUser.canManageCashOperations,
+      canViewProfessionalSettlements: cashUser.canViewProfessionalSettlements,
+      canManageProfessionalSettlements: cashUser.canManageProfessionalSettlements,
       canAdjustCash: cashUser.canAdjustCash,
       canManageCashSessions: cashUser.canManageCashSessions,
       canViewProducts: cashUser.canViewProducts ?? false,

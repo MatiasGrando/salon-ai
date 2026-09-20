@@ -342,6 +342,8 @@ function publicUser(user: {
   canRecordAppointmentPayments?: boolean
   canApplyDiscounts?: boolean
   canManageCashOperations?: boolean
+  canViewProfessionalSettlements?: boolean
+  canManageProfessionalSettlements?: boolean
   canAdjustCash?: boolean
   canManageCashSessions?: boolean
   canViewProducts?: boolean
@@ -380,6 +382,8 @@ function publicUser(user: {
     canRecordAppointmentPayments: user.role === 'STAFF' ? user.canRecordAppointmentPayments === true : isCashAdmin,
     canApplyDiscounts: user.role === 'STAFF' ? user.canApplyDiscounts === true : isCashAdmin,
     canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : isCashAdmin,
+    canViewProfessionalSettlements: user.role === 'STAFF' ? user.canViewProfessionalSettlements === true : isCashAdmin,
+    canManageProfessionalSettlements: user.role === 'STAFF' ? user.canManageProfessionalSettlements === true : isCashAdmin,
     canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : isCashAdmin,
     canManageCashSessions: user.role === 'STAFF' ? user.canManageCashSessions === true : isCashAdmin,
     canViewProducts: user.role === 'STAFF' ? user.canViewProducts === true : isCashAdmin,

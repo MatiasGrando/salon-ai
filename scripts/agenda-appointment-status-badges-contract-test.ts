@@ -33,6 +33,8 @@ assert.match(source, /agenda-gcal-event\.is-status-compact/)
 assert.match(source, /agenda-gcal-event\.is-status-icons/)
 assert.match(source, /agenda-event\.is-status-compact/)
 assert.match(source, /agenda-event\.is-status-icons/)
+assert.match(source, /is-status-icons \.agenda-status-badge[\s\S]*width: 26px;[\s\S]*height: 26px;/)
+assert.match(source, /is-status-icons \.agenda-status-badge::before[\s\S]*font-size: 14px;/)
 
 const enabledUi = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: true })
 const disabledUi = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })

@@ -9934,6 +9934,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-size: 12px;
     }
 
+    .professional-compensation-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+
+    .professional-service-compensation-list { display: grid; gap: 8px; margin-top: 8px; }
+    .professional-service-compensation-row {
+      display: grid;
+      grid-template-columns: minmax(140px, 1.4fr) minmax(120px, .8fr) minmax(110px, .8fr);
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .professional-service-compensation-row strong { font-size: 13px; }
+    .professional-service-compensation-row select,
+    .professional-service-compensation-row input { min-height: 38px; }
+    @media (max-width: 680px) {
+      .professional-compensation-grid,
+      .professional-service-compensation-row { grid-template-columns: 1fr; }
+    }
+
     .professional-form .schedule-row {
       grid-template-columns: minmax(96px, .75fr) minmax(0, 1.65fr);
       gap: 8px;
@@ -15330,10 +15355,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-event.is-status-icons .agenda-status-badge,
     .agenda-event.is-status-compact .agenda-status-badge,
     .agenda-event.is-status-icons .agenda-status-badge {
-      width: 18px;
-      min-width: 18px;
-      height: 18px;
-      min-height: 18px;
+      width: 26px;
+      min-width: 26px;
+      height: 26px;
+      min-height: 26px;
       padding: 0;
       justify-content: center;
       gap: 0;
@@ -15354,7 +15379,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-event.is-status-compact .agenda-status-badge::before,
     .agenda-event.is-status-icons .agenda-status-badge::before {
       display: block;
-      font-size: 10px;
+      font-size: 14px;
+      font-weight: 900;
       line-height: 1;
     }
 
@@ -16493,6 +16519,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   </div>
                 </div>
               </details>
+              ${cashRegisterEnabled ? `<details class="professional-form-section" id="professional-compensation-section">
+                <summary>Liquidación</summary>
+                <div class="professional-form-section-content">
+                  <div class="professional-form-group">
+                    <label>Regla general</label>
+                    <div class="professional-compensation-grid">
+                      <select id="professional-compensation-mode">
+                        <option value="NONE">Solo registrar servicios realizados</option>
+                        <option value="PERCENTAGE">Porcentaje del servicio</option>
+                        <option value="FIXED">Monto fijo por servicio</option>
+                      </select>
+                      <label id="professional-compensation-value-field" hidden>
+                        <span id="professional-compensation-value-label">Valor</span>
+                        <input class="field" id="professional-compensation-value" type="number" min="0" step="0.01">
+                      </label>
+                    </div>
+                    <div class="professional-form-help">El porcentaje se calcula sobre el total del servicio antes de descuentos. Sin regla, los servicios realizados igual quedan registrados.</div>
+                  </div>
+                  <div class="professional-form-group">
+                    <label>Excepciones por servicio</label>
+                    <div class="professional-service-compensation-list" id="professional-service-compensation-list"></div>
+                    <div class="professional-form-help">Usá una excepción solo cuando este servicio tenga un porcentaje o monto diferente.</div>
+                  </div>
+                </div>
+              </details>` : ''}
               <details class="professional-form-section" id="professional-schedule-section">
                 <summary>Horarios de disponibilidad</summary>
                 <div class="professional-form-section-content">
@@ -18015,6 +18066,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-professional-settlements" type="checkbox"> Ver liquidaciones profesionales</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-professional-settlements" type="checkbox"> Registrar pagos a profesionales</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
@@ -19493,6 +19546,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanViewReports: document.getElementById('staff-can-view-reports'),
       staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
       staffCanRecordAppointmentPayments: document.getElementById('staff-can-record-appointment-payments'),
+      staffCanViewProfessionalSettlements: document.getElementById('staff-can-view-professional-settlements'),
+      staffCanManageProfessionalSettlements: document.getElementById('staff-can-manage-professional-settlements'),
       staffCanViewProducts: document.getElementById('staff-can-view-products'),
       staffCanSellProducts: document.getElementById('staff-can-sell-products'),
       staffCanManageProducts: document.getElementById('staff-can-manage-products'),
@@ -19632,6 +19687,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       professionalServices: document.getElementById('professional-services'),
       professionalBasicSection: document.getElementById('professional-basic-section'),
       professionalServicesSection: document.getElementById('professional-services-section'),
+      professionalCompensationSection: document.getElementById('professional-compensation-section'),
+      professionalCompensationMode: document.getElementById('professional-compensation-mode'),
+      professionalCompensationValueField: document.getElementById('professional-compensation-value-field'),
+      professionalCompensationValueLabel: document.getElementById('professional-compensation-value-label'),
+      professionalCompensationValue: document.getElementById('professional-compensation-value'),
+      professionalServiceCompensationList: document.getElementById('professional-service-compensation-list'),
       professionalScheduleSection: document.getElementById('professional-schedule-section'),
       professionalSettingsSection: document.getElementById('professional-settings-section'),
       professionalStatus: document.getElementById('professional-status'),
@@ -20847,7 +20908,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.currentUser.canViewConversations ? 'conversations' : null,
         'agenda',
         ...pipelineSections,
-        ${cashRegisterEnabled ? "state.currentUser.canViewCashRegister ? 'cash' : null," : ''}
+        ${cashRegisterEnabled ? "(state.currentUser.canViewCashRegister || state.currentUser.canViewProfessionalSettlements) ? 'cash' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
       ].filter(Boolean)
@@ -22288,6 +22349,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canViewOperationalReports: els.staffCanViewReports,
         canViewFinancialAmounts: els.staffCanViewFinancial,
         canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments,
+        canViewProfessionalSettlements: els.staffCanViewProfessionalSettlements,
+        canManageProfessionalSettlements: els.staffCanManageProfessionalSettlements,
         canViewProducts: els.staffCanViewProducts,
         canSellProducts: els.staffCanSellProducts,
         canManageProducts: els.staffCanManageProducts
@@ -22394,6 +22457,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canManageDeposits) labels.push('Señas')
       if (user.canViewOperationalReports) labels.push('Reportes')
       if (user.canRecordAppointmentPayments) labels.push('Pagos de turnos')
+      if (user.canViewProfessionalSettlements) labels.push('Liquidaciones')
+      if (user.canManageProfessionalSettlements) labels.push('Paga profesionales')
       if (user.canViewProducts) labels.push('Productos')
       if (user.canSellProducts) labels.push('Venta de productos')
       if (user.canManageProducts) labels.push('Administra catálogo')
@@ -27145,6 +27210,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const name = els.professionalName.value.trim()
       const description = els.professionalDescription.value.trim()
       const serviceIds = getSelectedProfessionalServiceIds()
+      let compensationPayload = null
+      try {
+        compensationPayload = professionalCompensationPayload()
+      } catch (error) {
+        els.professionalFeedback.textContent = error.message
+        if (els.professionalCompensationSection) els.professionalCompensationSection.open = true
+        return
+      }
       const invalidScheduleDay = invalidWeeklyScheduleDay(professionalDayInputs())
       const workingHours = buildProfessionalWorkingHours()
       if (!name) {
@@ -27189,11 +27262,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           payload.avatarUrl = state.professionalAvatarUrl
         }
 
-        await getJson(id ? '/professionals/' + id : '/professionals', {
+        const savedProfessional = await getJson(id ? '/professionals/' + id : '/professionals', {
           method: id ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         })
+        await saveProfessionalCompensation(savedProfessional.id, compensationPayload)
         els.professionalFeedback.textContent = id ? 'Profesional actualizado.' : 'Profesional creado.'
         hideProfessionalImpact()
         state.professionals = await getJson(businessScopedPath('/professionals'))
@@ -27226,7 +27300,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function editProfessional(id, options = {}) {
+    async function editProfessional(id, options = {}) {
       const professional = state.professionals.find((item) => item.id === id)
       if (!professional) return
       els.professionalId.value = professional.id
@@ -27237,6 +27311,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       setProfessionalAvatar(professional.avatarUrl || null, false)
       setProfessionalWorkingHours(professional.workingHours || [])
       renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
+      await loadProfessionalCompensation(professional.id)
       els.professionalCancel.hidden = false
       els.professionalFormTitle.textContent = 'Editar profesional'
       els.professionalSubmit.textContent = 'Guardar cambios'
@@ -27244,6 +27319,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       hideProfessionalImpact()
       els.professionalBasicSection.open = !options.focusHours
       els.professionalServicesSection.open = false
+      if (els.professionalCompensationSection) els.professionalCompensationSection.open = false
       els.professionalScheduleSection.open = Boolean(options.focusHours)
       els.professionalSettingsSection.open = false
       openProfessionalPanel()
@@ -27304,8 +27380,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.pendingProfessionalSave = null
       hideProfessionalImpact()
       renderProfessionalServiceOptions([])
+      resetProfessionalCompensation()
       els.professionalBasicSection.open = true
       els.professionalServicesSection.open = false
+      if (els.professionalCompensationSection) els.professionalCompensationSection.open = false
       els.professionalScheduleSection.open = false
       els.professionalSettingsSection.open = false
       setProfessionalWorkingHours([
@@ -29179,6 +29257,84 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '</label>'
           }).join('')
         : '<div class="professional-form-help">No hay servicios cargados</div>'
+    }
+
+
+    function syncProfessionalCompensationValueField() {
+      if (!els.professionalCompensationMode) return
+      const mode = els.professionalCompensationMode.value
+      const hasValue = mode === 'PERCENTAGE' || mode === 'FIXED'
+      els.professionalCompensationValueField.hidden = !hasValue
+      els.professionalCompensationValueLabel.textContent = mode === 'PERCENTAGE' ? 'Porcentaje' : 'Monto fijo'
+      els.professionalCompensationValue.step = mode === 'PERCENTAGE' ? '0.01' : '1'
+      if (!hasValue) els.professionalCompensationValue.value = ''
+    }
+
+    function renderProfessionalServiceCompensationOptions(serviceLinks = state.professionalCompensationServiceLinks || []) {
+      if (!els.professionalServiceCompensationList) return
+      state.professionalCompensationServiceLinks = serviceLinks || []
+      const links = new Map((state.professionalCompensationServiceLinks || []).map((link) => [link.serviceId, link]))
+      const selectedIds = getSelectedProfessionalServiceIds()
+      const services = professionalAssignableServices().filter((service) => selectedIds.includes(service.id))
+      els.professionalServiceCompensationList.innerHTML = services.length
+        ? services.map((service) => {
+            const link = links.get(service.id)
+            const mode = link?.commissionMode || 'NONE'
+            const value = mode === 'PERCENTAGE' ? Number(link?.commissionPercentage ?? '') : mode === 'FIXED' ? Number(link?.commissionFixedAmount ?? '') : ''
+            return '<div class="professional-service-compensation-row" data-professional-service-compensation="' + escapeHtml(service.id) + '">' +
+              '<strong>' + escapeHtml(serviceCatalogLabel(service)) + '</strong>' +
+              '<select data-compensation-mode><option value="NONE"' + (mode === 'NONE' ? ' selected' : '') + '>Usar regla general</option><option value="PERCENTAGE"' + (mode === 'PERCENTAGE' ? ' selected' : '') + '>Porcentaje</option><option value="FIXED"' + (mode === 'FIXED' ? ' selected' : '') + '>Monto fijo</option></select>' +
+              '<input data-compensation-value type="number" min="0" step="' + (mode === 'PERCENTAGE' ? '0.01' : '1') + '" value="' + escapeHtml(String(value)) + '"' + (mode === 'NONE' ? ' hidden' : '') + '>' +
+            '</div>'
+          }).join('')
+        : '<div class="professional-form-help">Seleccioná servicios para configurar excepciones.</div>'
+    }
+
+    function resetProfessionalCompensation() {
+      if (!els.professionalCompensationMode) return
+      els.professionalCompensationMode.value = 'NONE'
+      els.professionalCompensationValue.value = ''
+      syncProfessionalCompensationValueField()
+      state.professionalCompensationServiceLinks = []
+      renderProfessionalServiceCompensationOptions([])
+    }
+
+    function professionalCompensationPayload() {
+      if (!els.professionalCompensationMode) return null
+      const mode = els.professionalCompensationMode.value
+      const numericValue = Number(els.professionalCompensationValue.value)
+      if (mode === 'PERCENTAGE' && (!Number.isFinite(numericValue) || numericValue < 0 || numericValue > 100)) throw new Error('El porcentaje general debe estar entre 0 y 100.')
+      if (mode === 'FIXED' && (!Number.isSafeInteger(numericValue) || numericValue < 0)) throw new Error('El monto fijo general debe ser un número entero positivo.')
+      const serviceRules = Array.from(els.professionalServiceCompensationList.querySelectorAll('[data-professional-service-compensation]')).map((row) => {
+        const serviceMode = row.querySelector('[data-compensation-mode]').value
+        const value = Number(row.querySelector('[data-compensation-value]').value)
+        if (serviceMode === 'PERCENTAGE' && (!Number.isFinite(value) || value < 0 || value > 100)) throw new Error('Revisá los porcentajes por servicio.')
+        if (serviceMode === 'FIXED' && (!Number.isSafeInteger(value) || value < 0)) throw new Error('Revisá los montos fijos por servicio.')
+        return { serviceId: row.dataset.professionalServiceCompensation, mode: serviceMode, percentage: serviceMode === 'PERCENTAGE' ? value : null, fixedAmount: serviceMode === 'FIXED' ? value : null }
+      })
+      return { mode, percentage: mode === 'PERCENTAGE' ? numericValue : null, fixedAmount: mode === 'FIXED' ? numericValue : null, serviceRules, businessId: state.businessId }
+    }
+
+    async function saveProfessionalCompensation(professionalId, preparedPayload = null) {
+      const payload = preparedPayload || professionalCompensationPayload()
+      if (!payload || !professionalId) return
+      await getJson('/professional-settlements/configuration/' + encodeURIComponent(professionalId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    }
+
+    async function loadProfessionalCompensation(professionalId) {
+      if (!els.professionalCompensationMode || !professionalId) return
+      try {
+        const configurations = await getJson(businessScopedPath('/professional-settlements/configuration'))
+        const config = configurations.find((item) => item.id === professionalId)
+        if (!config) return resetProfessionalCompensation()
+        els.professionalCompensationMode.value = config.commissionMode || 'NONE'
+        els.professionalCompensationValue.value = config.commissionMode === 'PERCENTAGE' ? String(Number(config.commissionPercentage ?? 0)) : config.commissionMode === 'FIXED' ? String(Number(config.commissionFixedAmount ?? 0)) : ''
+        syncProfessionalCompensationValueField()
+        state.professionalCompensationServiceLinks = config.serviceLinks || []
+        renderProfessionalServiceCompensationOptions(state.professionalCompensationServiceLinks)
+      } catch (error) {
+        els.professionalFeedback.textContent = error.message
+      }
     }
 
     function setProfessionalAvatar(avatarUrl, changed = false) {
@@ -35629,6 +35785,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.professionalListView?.addEventListener('click', () => setProfessionalViewMode('list'))
     els.professionalStatusFilter?.addEventListener('change', updateProfessionalStatusFilter)
     els.professionalAvatar?.addEventListener('change', readProfessionalAvatar)
+    els.professionalCompensationMode?.addEventListener('change', syncProfessionalCompensationValueField)
+    els.professionalServices?.addEventListener('change', () => renderProfessionalServiceCompensationOptions())
+    els.professionalServiceCompensationList?.addEventListener('change', (event) => {
+      const mode = event.target.closest('[data-compensation-mode]')
+      if (!mode) return
+      const row = mode.closest('[data-professional-service-compensation]')
+      const value = row?.querySelector('[data-compensation-value]')
+      if (!value) return
+      value.hidden = mode.value === 'NONE'
+      value.step = mode.value === 'PERCENTAGE' ? '0.01' : '1'
+      if (mode.value === 'NONE') value.value = ''
+    })
     els.professionalImpactKeep.addEventListener('click', () => {
       if (!state.pendingProfessionalSave) return
       saveProfessional(new Event('submit'), { conflictStrategy: 'KEEP_EXISTING' })

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { healthRoutes } from './routes/health.js'
 import { businessRoutes } from './routes/business.js'
 import { professionalRoutes } from './routes/professional.js'
+import { professionalSettlementRoutes } from './routes/professional-settlements.js'
 import { serviceRoutes } from './routes/service.js'
 import { customerRoutes } from './routes/customer.js'
 import { appointmentRoutes } from './routes/appointment.js'
@@ -178,6 +179,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   if (cashRegisterConfig.enabled) {
     await app.register(cashRegisterRoutes)
     await app.register(productSalesRoutes)
+    await app.register(professionalSettlementRoutes)
   }
   await app.register(businessHoursRoutes)
   await app.register(professionalHoursRoutes)
