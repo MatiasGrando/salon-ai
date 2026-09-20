@@ -15267,6 +15267,126 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-gcal-event strong, .agenda-gcal-block strong { font-size: 12px; }
     .agenda-gcal-event span, .agenda-gcal-block span { margin-top: 2px; font-size: 11px; }
 
+    .agenda-status-badge .agenda-status-label {
+      display: inline !important;
+      margin: 0 !important;
+      overflow: hidden !important;
+      font-size: inherit !important;
+      line-height: inherit !important;
+      text-overflow: ellipsis;
+      white-space: nowrap !important;
+    }
+
+    /* En turnos cortos, los estados cambian de densidad sin alterar la altura real del bloque. */
+    .agenda-gcal-event.is-status-compact .agenda-gcal-event-professional,
+    .agenda-gcal-event.is-status-icons .agenda-gcal-event-customer,
+    .agenda-gcal-event.is-status-icons .agenda-gcal-event-professional,
+    .agenda-event.is-status-compact .agenda-event-professional,
+    .agenda-event.is-status-icons .agenda-event-customer,
+    .agenda-event.is-status-icons .agenda-event-professional {
+      display: none !important;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-status-row,
+    .agenda-gcal-event.is-status-icons .agenda-status-row,
+    .agenda-event.is-status-compact .agenda-status-row,
+    .agenda-event.is-status-icons .agenda-status-row {
+      position: absolute;
+      z-index: 6;
+      right: 55px;
+      display: flex !important;
+      flex-wrap: nowrap;
+      gap: 3px;
+      margin: 0 !important;
+      overflow: visible !important;
+    }
+
+    .agenda-event.is-status-compact .agenda-status-row,
+    .agenda-event.is-status-icons .agenda-status-row {
+      right: 5px;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-status-row,
+    .agenda-event.is-status-compact .agenda-status-row {
+      bottom: 4px;
+    }
+
+    .agenda-gcal-event.is-status-icons .agenda-status-row,
+    .agenda-event.is-status-icons .agenda-status-row {
+      top: 4px;
+    }
+
+    .agenda-gcal-event.has-attention.is-status-compact .agenda-status-row,
+    .agenda-gcal-event.has-attention.is-status-icons .agenda-status-row {
+      right: 128px;
+    }
+
+    .agenda-event.has-attention.is-status-compact .agenda-status-row,
+    .agenda-event.has-attention.is-status-icons .agenda-status-row {
+      right: 78px;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-status-badge,
+    .agenda-gcal-event.is-status-icons .agenda-status-badge,
+    .agenda-event.is-status-compact .agenda-status-badge,
+    .agenda-event.is-status-icons .agenda-status-badge {
+      width: 18px;
+      min-width: 18px;
+      height: 18px;
+      min-height: 18px;
+      padding: 0;
+      justify-content: center;
+      gap: 0;
+      border-radius: 50%;
+      font-size: 0 !important;
+      line-height: 1 !important;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-status-label,
+    .agenda-gcal-event.is-status-icons .agenda-status-label,
+    .agenda-event.is-status-compact .agenda-status-label,
+    .agenda-event.is-status-icons .agenda-status-label {
+      display: none !important;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-status-badge::before,
+    .agenda-gcal-event.is-status-icons .agenda-status-badge::before,
+    .agenda-event.is-status-compact .agenda-status-badge::before,
+    .agenda-event.is-status-icons .agenda-status-badge::before {
+      display: block;
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-payment-status.deposit::before,
+    .agenda-gcal-event.is-status-icons .agenda-payment-status.deposit::before,
+    .agenda-event.is-status-compact .agenda-payment-status.deposit::before,
+    .agenda-event.is-status-icons .agenda-payment-status.deposit::before {
+      content: "S";
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-payment-status.due::before,
+    .agenda-gcal-event.is-status-icons .agenda-payment-status.due::before,
+    .agenda-event.is-status-compact .agenda-payment-status.due::before,
+    .agenda-event.is-status-icons .agenda-payment-status.due::before {
+      content: "!";
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-gcal-event-customer,
+    .agenda-event.is-status-compact .agenda-event-customer {
+      padding-right: 48px;
+    }
+
+    .agenda-gcal-event.is-status-icons strong,
+    .agenda-event.is-status-icons strong {
+      padding-right: 100px;
+    }
+
+    .agenda-gcal-event.has-attention.is-status-icons strong,
+    .agenda-event.has-attention.is-status-icons strong {
+      padding-right: 170px;
+    }
+
     .agenda-gcal-now-line {
       position: absolute;
       left: calc(var(--agenda-now-index, 0) * var(--agenda-day-width));
@@ -21274,6 +21394,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.replyText.focus()
     }
 
+    function quickReplyShortcutFromText(text) {
+      const match = typeof text === 'string' ? text.trim().match(/^[/]([a-z0-9_-]{1,40})$/i) : null
+      return match ? match[1].toLocaleLowerCase('es-AR') : null
+    }
+
+    async function expandQuickReplyShortcut(text) {
+      const shortcut = quickReplyShortcutFromText(text)
+      if (!shortcut) return text
+      try {
+        if (state.quickRepliesLoadedForBusinessId !== state.businessId) await loadQuickReplies()
+      } catch (error) {
+        showCrmToast('No pudimos cargar las respuestas rápidas. ' + error.message, 'error')
+        return null
+      }
+      const reply = state.quickReplies.find((item) => item.isActive && item.shortcut.toLocaleLowerCase('es-AR') === shortcut)
+      if (reply) return reply.message
+      showCrmToast('No existe una respuesta rápida activa con el atajo /' + shortcut + '.', 'error')
+      els.quickRepliesSelector.hidden = false
+      renderQuickReplySelector()
+      return null
+    }
+
     function resetQuickReplyForm() {
       state.editingQuickReplyId = null
       els.quickReplyForm.reset()
@@ -26188,19 +26330,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     }
 
-    function sendReply(event) {
+    async function sendReply(event) {
       event.preventDefault()
       if (!state.selected) return
       if (!whatsappReplyWindowState().canReply) {
         updateComposerAvailability()
         return
       }
-      const text = els.replyText.value.trim()
-      if (!text) return
+      const conversationId = state.selected.id
+      const businessId = state.businessId
+      const draftText = els.replyText.value.trim()
+      if (!draftText) return
+      const text = await expandQuickReplyShortcut(draftText)
+      if (!text || state.selected?.id !== conversationId || state.businessId !== businessId) return
       const clientMessageId = crypto.randomUUID()
       const item = {
         id: 'local-' + clientMessageId, clientMessageId,
-        conversationId: state.selected.id, businessId: state.businessId,
+        conversationId, businessId,
         direction: 'OUTBOUND', body: text, createdAt: new Date().toISOString(),
         status: 'pending', queued: true
       }
@@ -29756,11 +29902,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const depositStyle = depositIndicator ? ';--agenda-deposit-color:' + depositIndicator.color : ''
       const depositTitle = depositIndicator ? ' - ' + depositIndicator.label : ''
       const statusSummary = ${cashRegisterEnabled ? 'agendaAppointmentStatusSummaryText(appointment)' : "''"}
+      const statusDensityClass = ${cashRegisterEnabled ? "!['CANCELLED', 'NO_SHOW'].includes(appointment.status) ? agendaStatusDensityClass(duration) : ''" : "''"}
       const origin = appointmentOriginMeta(appointment.origin)
-      return '<article class="agenda-gcal-event' + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '')) + '">' +
+      return '<article class="agenda-gcal-event' + statusDensityClass + depositClass + (attention ? ' has-attention' + attention.className : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '') + '" data-appointment-id="' + appointment.id + '" data-overlap-count="' + columns + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';right:auto;width:' + width + ';--agenda-event-color:' + color + depositStyle + '" title="' + escapeHtml(time + ' - ' + customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + depositTitle + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '')) + '">' +
         '<button class="agenda-gcal-event-main" type="button" data-agenda-edit-appointment>' +
           '<strong>' + escapeHtml(service) + '</strong>' +
-          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
+          '<span class="agenda-gcal-event-customer">' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
           '<span class="agenda-gcal-event-professional">' + escapeHtml(professional) + '</span>' +
           ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"} +
         '</button>' +
@@ -29769,10 +29916,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</article>'
     }
 
+    function agendaStatusDensityClass(duration) {
+      duration = Number(duration) || 0
+      if (duration < 30) return ' is-status-icons'
+      if (duration < 60) return ' is-status-compact'
+      return ''
+    }
+
     function agendaAppointmentStatusBadgesHtml(appointment) {
       if (!appointment || ['CANCELLED', 'NO_SHOW'].includes(appointment.status)) return ''
       const serviceCompleted = appointment.status === 'COMPLETED'
-      const serviceBadge = '<span class="agenda-status-badge agenda-service-status ' + (serviceCompleted ? 'completed' : 'pending') + '" title="' + (serviceCompleted ? 'Servicio realizado' : 'Servicio pendiente') + '">' + (serviceCompleted ? 'Realizado' : 'Pendiente') + '</span>'
+      const serviceLabel = serviceCompleted ? 'Realizado' : 'Pendiente'
+      const serviceTitle = serviceCompleted ? 'Servicio realizado' : 'Servicio pendiente'
+      const serviceBadge = '<span class="agenda-status-badge agenda-service-status ' + (serviceCompleted ? 'completed' : 'pending') + '" title="' + serviceTitle + '" aria-label="' + serviceTitle + '"><span class="agenda-status-label">' + serviceLabel + '</span></span>'
       const financeSummary = appointment.financeSummary
       if (!financeSummary) return '<span class="agenda-status-row">' + serviceBadge + '</span>'
 
@@ -29781,13 +29937,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const balanceAmount = Math.max(0, Number(financeSummary.balanceAmount) || 0)
       let paymentBadge
       if (finalAmount === 0) {
-        paymentBadge = '<span class="agenda-status-badge agenda-payment-status free" title="Turno sin cargo">Sin cargo</span>'
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status free" title="Turno sin cargo" aria-label="Turno sin cargo"><span class="agenda-status-label">Sin cargo</span></span>'
       } else if (balanceAmount === 0 && paidAmount >= finalAmount) {
-        paymentBadge = '<span class="agenda-status-badge agenda-payment-status paid" title="Pago completo">Pagado</span>'
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status paid" title="Pago completo" aria-label="Pago completo"><span class="agenda-status-label">Pagado</span></span>'
       } else if (paidAmount > 0) {
-        paymentBadge = '<span class="agenda-status-badge agenda-payment-status deposit" title="Seña registrada">Se&ntilde;a ' + escapeHtml(formatCurrency(paidAmount)) + '</span>'
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status deposit" title="Se&ntilde;a registrada: ' + escapeHtml(formatCurrency(paidAmount)) + '" aria-label="Se&ntilde;a registrada: ' + escapeHtml(formatCurrency(paidAmount)) + '"><span class="agenda-status-label">Se&ntilde;a ' + escapeHtml(formatCurrency(paidAmount)) + '</span></span>'
       } else {
-        paymentBadge = '<span class="agenda-status-badge agenda-payment-status due" title="Saldo pendiente">Debe ' + escapeHtml(formatCurrency(balanceAmount)) + '</span>'
+        paymentBadge = '<span class="agenda-status-badge agenda-payment-status due" title="Saldo pendiente: ' + escapeHtml(formatCurrency(balanceAmount)) + '" aria-label="Saldo pendiente: ' + escapeHtml(formatCurrency(balanceAmount)) + '"><span class="agenda-status-label">Debe ' + escapeHtml(formatCurrency(balanceAmount)) + '</span></span>'
       }
       return '<span class="agenda-status-row">' + serviceBadge + paymentBadge + '</span>'
     }
@@ -30824,7 +30980,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const origin = appointmentOriginMeta(appointment.origin)
 
         const event = document.createElement('article')
-        event.className = 'agenda-event' + (depositIndicator ? ' has-deposit' : '') + (attention ? ' has-attention' + attention.className : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
+        const statusDensityClass = ${cashRegisterEnabled ? "!['CANCELLED', 'NO_SHOW'].includes(appointment.status) ? agendaStatusDensityClass(duration) : ''" : "''"}
+        event.className = 'agenda-event' + statusDensityClass + (depositIndicator ? ' has-deposit' : '') + (attention ? ' has-attention' + attention.className : '') + (placement.columns > 1 ? ' is-overlap' : '') + (noShow ? ' no-show' : '') + (pending ? ' is-pending' : '')
         event.style.height = height + 'px'
         event.style.top = top + 'px'
         event.style.left = 'calc(' + ((placement.column * 100) / placement.columns) + '% + ' + leftOffset + 'px)'
@@ -30835,8 +30992,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const statusSummary = ${cashRegisterEnabled ? 'agendaAppointmentStatusSummaryText(appointment)' : "''"}
         event.title = customer + ' - ' + service + ' con ' + professional + ' - ' + origin.label + (depositIndicator ? ' - ' + depositIndicator.label : '') + (statusSummary ? ' - ' + statusSummary : '') + (attention ? ' - ' + attention.label : '') + (noShow ? ' - Ausente' : '') + (pending ? ' - Guardando cambio' : '')
         event.innerHTML = agendaAttentionBadgeHtml(attention) + '<strong>' + escapeHtml(service) + '</strong>' +
-          '<span>' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
-          '<span>' + escapeHtml(professional) + '</span>' +
+          '<span class="agenda-event-customer">' + appointmentOriginBadgeHtml(origin) + ' ' + escapeHtml(customer + (noShow ? ' - Ausente' : '')) + '</span>' +
+          '<span class="agenda-event-professional">' + escapeHtml(professional) + '</span>' +
           ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"}
         event.dataset.appointmentId = appointment.id
         event.draggable = false

@@ -33,6 +33,18 @@ assert.match(ui, /id="quick-replies-admin"/)
 assert.match(ui, /function insertQuickReply\([\s\S]*selectionStart[\s\S]*selectionEnd[\s\S]*setRangeText\(reply\.message/)
 assert.doesNotMatch(ui, /insertQuickReply\([\s\S]{0,400}requestSubmit\(/)
 assert.match(ui, /whatsappReplyWindowState\(\)/)
+assert.match(ui, /function quickReplyShortcutFromText\(text\)/)
+assert.ok(ui.includes("text.trim().match(/^[/]([a-z0-9_-]{1,40})$/i)"))
+assert.match(ui, /async function expandQuickReplyShortcut\(text\)[\s\S]*loadQuickReplies\(\)[\s\S]*reply\.shortcut[\s\S]*reply\.message/)
+assert.match(ui, /async function sendReply\(event\)[\s\S]*await expandQuickReplyShortcut\(draftText\)/)
+assert.match(ui, /No existe una respuesta rápida activa con el atajo/)
+const shortcutHelperSource = ui.match(/function quickReplyShortcutFromText\(text\) \{[\s\S]*?\n    \}/)?.[0]
+assert.ok(shortcutHelperSource, 'debe existir el parser del atajo slash')
+const parseShortcut = new Function(shortcutHelperSource + '; return quickReplyShortcutFromText')()
+assert.equal(parseShortcut('/horarios'), 'horarios')
+assert.equal(parseShortcut(' /HORARIOS '), 'horarios')
+assert.equal(parseShortcut('/horarios extra'), null)
+assert.equal(parseShortcut('mensaje normal'), null)
 
 const standard = resolveStaffPermissions({ staffProfile: 'SECRETARY', permissionPreset: 'SECRETARY_STANDARD' })
 const staff = { role: 'STAFF', businessId: 'business-a', professionalId: null, ...standard.permissions }
