@@ -45,6 +45,7 @@ type CustomerOverviewSummary = {
   name: string
   phone: string
   email: string | null
+  technicalProfile: string | null
   marketingStatus: string
   marketingSource: string
   createdAt: Date
@@ -147,6 +148,7 @@ export async function customerRoutes(app: FastifyInstance) {
         name: true,
         phone: true,
         email: true,
+        technicalProfile: true,
         createdAt: true
       }
     })
@@ -238,6 +240,7 @@ export async function customerRoutes(app: FastifyInstance) {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
+        technicalProfile: customer.technicalProfile,
         marketingStatus: 'NOT_AUTHORIZED',
         marketingSource: 'DEFAULT',
         createdAt: customer.createdAt,

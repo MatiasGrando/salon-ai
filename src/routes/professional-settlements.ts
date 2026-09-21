@@ -63,7 +63,24 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: error instanceof Error ? error.message : 'Elegí un período válido' })
     }
     const periodFilter = range
-      ? Prisma.sql`AND entry."effectiveAt" >= ${range.from} AND entry."effectiveAt" < ${range.toExclusive}`
+      ? Prisma.sql`AND (
+          (
+            entry."type" = 'EARNING'::"ProfessionalAccountEntryType"
+            AND EXISTS (
+              SELECT 1
+              FROM "Appointment" appointment
+              WHERE appointment."businessId" = entry."businessId"
+                AND appointment."id" = entry."appointmentId"
+                AND appointment."startAt" >= ${range.from}
+                AND appointment."startAt" < ${range.toExclusive}
+            )
+          )
+          OR (
+            entry."type" <> 'EARNING'::"ProfessionalAccountEntryType"
+            AND entry."effectiveAt" >= ${range.from}
+            AND entry."effectiveAt" < ${range.toExclusive}
+          )
+        )`
       : Prisma.empty
     const rows = await prisma.$queryRaw<Array<{
       id: string
@@ -106,7 +123,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       where: {
         businessId,
         type: 'EARNING',
-        ...(range ? { effectiveAt: { gte: range.from, lt: range.toExclusive } } : {})
+        ...(range ? { appointment: { is: { startAt: { gte: range.from, lt: range.toExclusive } } } } : {})
       },
       select: {
         id: true,
@@ -154,10 +171,15 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
     }
     const page = Math.max(1, Number.parseInt(query.page || '1', 10) || 1)
     const pageSize = Math.min(50, Math.max(5, Number.parseInt(query.pageSize || '10', 10) || 10))
-    const where = {
+    const where: Prisma.ProfessionalAccountEntryWhereInput = {
       businessId,
       ...(query.professionalId ? { professionalId: query.professionalId } : {}),
-      ...(range ? { effectiveAt: { gte: range.from, lt: range.toExclusive } } : {})
+      ...(range ? {
+        OR: [
+          { type: 'EARNING', appointment: { is: { startAt: { gte: range.from, lt: range.toExclusive } } } },
+          { type: { not: 'EARNING' }, effectiveAt: { gte: range.from, lt: range.toExclusive } }
+        ]
+      } : {})
     }
     const [total, items] = await prisma.$transaction([
       prisma.professionalAccountEntry.count({ where }),

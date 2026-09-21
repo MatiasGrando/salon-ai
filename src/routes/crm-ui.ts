@@ -6213,6 +6213,76 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       stroke-width: 2.1;
     }
 
+    .customer-profile-technical {
+      padding: 13px 14px;
+      border: 1px solid #f0cf79;
+      border-radius: 8px;
+      background: #fffaf0;
+    }
+
+    .customer-profile-technical-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .customer-profile-technical-head h4 {
+      margin: 0;
+    }
+
+    .customer-profile-technical-display {
+      margin-top: 9px;
+      color: #624b12;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .customer-profile-technical-display.is-empty {
+      color: #8b6b1f;
+      font-style: italic;
+    }
+
+    .customer-profile-technical-form {
+      margin-top: 10px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .customer-profile-technical-form textarea {
+      width: 100%;
+      min-height: 92px;
+      padding: 10px 11px;
+      border: 1px solid #d9b85f;
+      border-radius: 7px;
+      resize: vertical;
+      color: #352b16;
+      background: #fff;
+      line-height: 1.45;
+    }
+
+    .customer-profile-technical-form textarea:focus {
+      border-color: #b88916;
+      outline: 3px solid rgba(217, 168, 44, .18);
+    }
+
+    .customer-profile-technical-actions {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .customer-profile-technical-feedback {
+      min-height: 17px;
+      margin: 0;
+      color: #b42318;
+      font-size: 11px;
+    }
+
     .customer-profile-section h4 {
       margin: 0 0 7px;
       color: #17213c;
@@ -12685,6 +12755,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     @media (max-width: 620px) {
+      .customer-profile-technical {
+        padding: 12px;
+      }
+
+      .customer-profile-technical-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .customer-profile-technical-actions > button {
+        width: 100%;
+      }
+
       .appointment-form .split-row {
         grid-template-columns: 1fr;
       }
@@ -23289,6 +23372,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         marketingActions +
       '</div></section>'
 
+      const canManageTechnicalProfile = state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerNotes === true
+      const technicalProfile = (customer.technicalProfile || '').trim()
+      const technicalProfileCard = '<section class="customer-profile-section"><div class="customer-profile-technical">' +
+        '<div class="customer-profile-technical-head"><h4 class="customer-section-title">' + icon('document') + 'Ficha t&eacute;cnica</h4>' +
+          (canManageTechnicalProfile ? '<button class="details-link" type="button" data-customer-technical-profile-edit>' + (technicalProfile ? 'Editar' : '+ Agregar dato') + '</button>' : '') +
+        '</div>' +
+        '<div class="customer-profile-technical-display' + (technicalProfile ? '' : ' is-empty') + '" data-customer-technical-profile-display>' + (technicalProfile ? escapeHtml(technicalProfile) : 'Todav&iacute;a no hay datos t&eacute;cnicos guardados.') + '</div>' +
+        '<form class="customer-profile-technical-form" data-customer-technical-profile-form hidden>' +
+          '<label for="customer-profile-technical-input">Dato t&eacute;cnico permanente</label>' +
+          '<textarea id="customer-profile-technical-input" data-customer-technical-profile-input maxlength="1000" rows="4">' + escapeHtml(customer.technicalProfile || '') + '</textarea>' +
+          '<p class="customer-profile-technical-feedback" data-customer-technical-profile-feedback role="status"></p>' +
+          '<div class="customer-profile-technical-actions"><button class="secondary" type="button" data-customer-technical-profile-cancel>Cancelar</button><button class="primary" type="submit" data-customer-technical-profile-save>Guardar ficha</button></div>' +
+        '</form>' +
+      '</div></section>'
       els.customerProfilePanel.innerHTML = '<div class="customer-profile-content">' +
         '<header class="customer-profile-head">' +
           '<div class="customer-profile-avatar tone-' + avatarTone + '">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
@@ -23319,6 +23416,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<div class="customer-frequent-item"><span>' + icon('scissors') + 'Servicio frecuente</span><strong>' + escapeHtml(customer.frequentService || '--') + '</strong><small>Inferido de las ultimas 8 visitas</small></div>' +
         '</div>' +
         marketingCard +
+        technicalProfileCard +
         '<section class="customer-profile-section"><h4 class="customer-section-title">' + icon('calendar') + 'Actividad</h4>' + openConversation + '<div class="customer-history">' + history + '</div></section>' +
         '<section class="customer-profile-section"><div class="row"><h4 class="customer-section-title">' + icon('document') + 'Notas</h4>' +
           (state.currentUser?.role !== 'STAFF' || state.currentUser?.canManageCustomerNotes ? '<button class="details-link" type="button" data-add-customer-note>+ Agregar nota</button>' : '') +
@@ -23326,6 +23424,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       '</div>'
 
       els.customerProfilePanel.querySelector('[data-schedule-customer]')?.addEventListener('click', () => openOverviewCustomerAppointment(customer))
+      els.customerProfilePanel.querySelector('[data-customer-technical-profile-edit]')?.addEventListener('click', () => editOverviewCustomerTechnicalProfile())
+      els.customerProfilePanel.querySelector('[data-customer-technical-profile-cancel]')?.addEventListener('click', () => renderCustomerProfile())
+      els.customerProfilePanel.querySelector('[data-customer-technical-profile-form]')?.addEventListener('submit', (event) => saveOverviewCustomerTechnicalProfile(event, customer))
       els.customerProfilePanel.querySelector('[data-add-customer-note]')?.addEventListener('click', () => openCustomerDialog('note', customer))
       for (const button of els.customerProfilePanel.querySelectorAll('[data-marketing-status]')) {
         button.addEventListener('click', () => openMarketingConfirmDialog(customer, button.dataset.marketingStatus))
@@ -23335,6 +23436,50 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       els.customerProfilePanel.querySelector('[data-delete-customer]')?.addEventListener('click', () => deleteOverviewCustomer(customer))
       els.customerProfilePanel.querySelector('[data-edit-customer]')?.addEventListener('click', () => openCustomerDialog('edit', customer))
+    }
+
+    function editOverviewCustomerTechnicalProfile() {
+      const display = els.customerProfilePanel.querySelector('[data-customer-technical-profile-display]')
+      const form = els.customerProfilePanel.querySelector('[data-customer-technical-profile-form]')
+      const input = els.customerProfilePanel.querySelector('[data-customer-technical-profile-input]')
+      const edit = els.customerProfilePanel.querySelector('[data-customer-technical-profile-edit]')
+      if (!form || !input) return
+      if (display) display.hidden = true
+      if (edit) edit.hidden = true
+      form.hidden = false
+      input.focus()
+    }
+
+    async function saveOverviewCustomerTechnicalProfile(event, customer) {
+      event.preventDefault()
+      if (state.currentUser?.role === 'STAFF' && state.currentUser?.canManageCustomerNotes !== true) return
+      const form = event.currentTarget
+      const input = form.querySelector('[data-customer-technical-profile-input]')
+      const feedback = form.querySelector('[data-customer-technical-profile-feedback]')
+      const save = form.querySelector('[data-customer-technical-profile-save]')
+      const technicalProfile = input.value.trim()
+      if (technicalProfile.length > 1000) {
+        feedback.textContent = 'La ficha técnica no puede superar los 1000 caracteres.'
+        return
+      }
+      if (!setButtonLoading(save, true, 'Guardando...')) return
+      feedback.textContent = ''
+      try {
+        const result = await getJson('/customers/' + customer.id + '/technical-profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ technicalProfile })
+        })
+        customer.technicalProfile = result.technicalProfile || ''
+        const sharedCustomer = state.customers.find((item) => item.id === customer.id)
+        if (sharedCustomer) sharedCustomer.technicalProfile = customer.technicalProfile
+        if (state.selectedCustomerId === customer.id) renderCustomerProfile()
+        showCrmToast('Ficha técnica actualizada.', 'success')
+      } catch (error) {
+        feedback.textContent = error.message
+      } finally {
+        setButtonLoading(save, false)
+      }
     }
 
     function selectedOverviewCustomer() {

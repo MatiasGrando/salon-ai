@@ -48,4 +48,16 @@ assert.match(ui, /@media \(max-width: 620px\)[\s\S]*\.appointment-customer-techn
 assert.match(ui, /resetAppointmentCustomerTechnicalProfile\(\)/)
 assert.match(ui, /closeAppointmentDialog\(\)[\s\S]*resetAppointmentCustomerTechnicalProfile\(\)/)
 
+
+// Customer profile contract: the same technical profile is visible and editable from Clientes.
+assert.match(customerRoute, /select:\s*\{[\s\S]*technicalProfile:\s*true/)
+assert.match(ui, /class="customer-profile-technical"/)
+assert.match(ui, /data-customer-technical-profile-edit/)
+assert.match(ui, /data-customer-technical-profile-form/)
+assert.match(ui, /data-customer-technical-profile-input[^>]*maxlength="1000"/)
+assert.match(ui, /function saveOverviewCustomerTechnicalProfile\(/)
+assert.match(ui, /customer\.technicalProfile = result\.technicalProfile \|\| ''/)
+assert.match(ui, /\.customer-profile-technical\s*\{[^}]*border:/s)
+assert.match(ui, /@media \(max-width: 620px\)[\s\S]*\.customer-profile-technical/s)
+
 console.log('Appointment customer technical profile contract: OK')

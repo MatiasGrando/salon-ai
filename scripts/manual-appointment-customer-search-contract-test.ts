@@ -37,6 +37,6 @@ assert.ok(overview.includes('prisma.appointment.findMany'), 'la vista principal 
 const listStart = route.indexOf("app.get('/customers'", overviewEnd)
 const listEnd = route.indexOf("app.patch('/customers/:id'", listStart)
 const customerList = route.slice(listStart, listEnd)
-assert.ok(customerList.includes('findMany({ where: { businessId } })'), 'la lista debe incluir todas las fichas y solo las del local')
+assert.match(customerList, /findMany\(\{[\s\S]*where:\s*\{\s*businessId\s*\}/, 'la lista debe incluir todas las fichas y solo las del local')
 
 console.log('Manual appointment customer search contract: OK (autocomplete, límites, teclado y aislamiento)')
