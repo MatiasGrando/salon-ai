@@ -2753,6 +2753,11 @@ model ScheduleBlock {
   @@index([businessId, seriesId])
 }
 
+enum CampaignDeliveryMode {
+  MANUAL_ASSISTED
+  AUTOMATIC_API
+}
+
 model Campaign {
   id String @id @default(cuid())
 
@@ -2761,6 +2766,7 @@ model Campaign {
 
   name                    String
   type                    String                    @default("ONE_TIME")
+  deliveryMode            CampaignDeliveryMode      @default(MANUAL_ASSISTED)
   channel                 String                    @default("WHATSAPP")
   status                  String                    @default("DRAFT")
   segment                 String                    @default("ALL")

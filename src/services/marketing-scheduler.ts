@@ -4,6 +4,7 @@ import { processDuePostSales } from './post-sale-service.js'
 
 const DEFAULT_CAMPAIGN_INTERVAL_HOURS = 12
 const DEFAULT_REMINDER_INTERVAL_MINUTES = 15
+const AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED = true
 
 type SchedulerState = {
   campaignsRunning: boolean
@@ -26,6 +27,7 @@ export function startMarketingScheduler(app: FastifyInstance) {
   const state: SchedulerState = { campaignsRunning: false, remindersRunning: false, stopped: false }
 
   const processCampaigns = async () => {
+    if (AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED) return
     if (state.stopped || state.campaignsRunning) return
     state.campaignsRunning = true
     try {
@@ -33,6 +35,8 @@ export function startMarketingScheduler(app: FastifyInstance) {
       const campaigns = await prisma.campaign.findMany({
         where: {
           type: 'AUTOMATED',
+          deliveryMode: 'AUTOMATIC_API',
+          channel: 'WHATSAPP',
           status: 'ACTIVE',
           business: { accountStatus: 'ACTIVE' },
           whatsappTemplate: { status: 'APPROVED' },
@@ -76,6 +80,8 @@ export function startMarketingScheduler(app: FastifyInstance) {
       const oneTimeCampaigns = await prisma.campaign.findMany({
         where: {
           type: 'ONE_TIME',
+          deliveryMode: 'AUTOMATIC_API',
+          channel: 'WHATSAPP',
           status: 'SCHEDULED',
           business: { accountStatus: 'ACTIVE' },
           scheduleMode: 'SCHEDULED',
@@ -91,9 +97,12 @@ export function startMarketingScheduler(app: FastifyInstance) {
         }
       }
 
+      if (!AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED) {
       const scheduledAutomatedCampaigns = await prisma.campaign.findMany({
         where: {
           type: 'AUTOMATED',
+          deliveryMode: 'AUTOMATIC_API',
+          channel: 'WHATSAPP',
           status: 'ACTIVE',
           business: { accountStatus: 'ACTIVE' },
           scheduleMode: 'SCHEDULED',
@@ -110,9 +119,13 @@ export function startMarketingScheduler(app: FastifyInstance) {
         }
       }
 
-      const retryResponse = await app.inject({ method: 'POST', url: '/campaign-jobs/process-retries', payload: { limit: 100 } })
-      if (retryResponse.statusCode >= 400) {
-        app.log.error({ statusCode: retryResponse.statusCode, body: retryResponse.body }, 'Fallo el procesamiento de reintentos tecnicos')
+      }
+
+      if (!AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED) {
+        const retryResponse = await app.inject({ method: 'POST', url: '/campaign-jobs/process-retries', payload: { limit: 100 } })
+        if (retryResponse.statusCode >= 400) {
+          app.log.error({ statusCode: retryResponse.statusCode, body: retryResponse.body }, 'Fallo el procesamiento de reintentos tecnicos')
+        }
       }
 
       const businesses = await prisma.reminderAutomation.findMany({

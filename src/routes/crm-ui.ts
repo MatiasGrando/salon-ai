@@ -4080,6 +4080,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .instagram-reel-actions { position: sticky; bottom: 0; padding: 14px 24px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid #e2e8f0; background: #fff; box-shadow: 0 -8px 20px rgba(15, 23, 42, .04); }
 
     @media (max-width: 720px) {
+      .campaign-delivery-options { grid-template-columns: 1fr; }
+      .campaign-delivery-section { padding: 14px; }
       .instagram-reels-toolbar { align-items: stretch; flex-direction: column; }
       .instagram-reels-toolbar button { width: 100%; }
       .dialog.instagram-reel-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
@@ -4284,6 +4286,98 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       line-height: 1.4;
     }
 
+    .campaign-delivery-section {
+      grid-column: 1 / -1;
+      min-width: 0;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      border: 1px solid #dce5f2;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    .campaign-delivery-section h4,
+    .campaign-delivery-section p { margin: 0; }
+
+    .campaign-delivery-section > div:first-child p {
+      margin-top: 4px;
+      color: #61708a;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .campaign-delivery-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .campaign-delivery-option {
+      position: relative;
+      min-width: 0;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 11px;
+      align-items: start;
+      border: 1px solid #d7deea;
+      border-radius: 11px;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+
+    .campaign-delivery-option:has(input:checked) {
+      border-color: #0d63f3;
+      background: #eef6ff;
+      box-shadow: 0 0 0 2px rgba(13, 99, 243, .1);
+    }
+
+    .campaign-delivery-option:has(input:focus-visible) {
+      outline: 3px solid rgba(13, 99, 243, .2);
+      outline-offset: 2px;
+    }
+
+    .campaign-delivery-option input {
+      width: 18px;
+      height: 18px;
+      margin: 2px 0 0;
+      accent-color: #0d63f3;
+    }
+
+    .campaign-delivery-option strong,
+    .campaign-delivery-option span { display: block; }
+
+    .campaign-delivery-option strong { color: #17213c; font-size: 14px; }
+    .campaign-delivery-option span { margin-top: 4px; color: #61708a; font-size: 12px; line-height: 1.45; }
+
+    .campaign-delivery-option em {
+      display: inline-block;
+      margin-left: 5px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      color: #166534;
+      background: #dcfce7;
+      font-size: 10px;
+      font-style: normal;
+      font-weight: 800;
+    }
+
+    .campaign-delivery-requirements {
+      padding: 10px 12px;
+      border-radius: 9px;
+      color: #334155;
+      background: #eef2f7;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 720px) {
+      .campaign-delivery-options { grid-template-columns: minmax(0, 1fr); }
+      .campaign-delivery-section { padding: 14px; }
+    }
+
     .campaign-manual-settings {
       grid-column: 1 / -1;
       padding: 14px 16px;
@@ -4346,6 +4440,101 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .manual-send-contact { padding: 15px; display: grid; gap: 12px; border: 1px solid #dbe4f0; border-radius: 10px; background: #fff; }
     .manual-send-message { padding: 12px; white-space: pre-wrap; border-radius: 9px; color: #334155; background: #eef6ff; font-size: 13px; line-height: 1.5; }
     .manual-send-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+    .reminder-phone-missing {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid #fed7aa;
+      border-radius: 9px;
+      color: #9a3412;
+      background: #fff7ed;
+    }
+
+    .reminder-phone-missing strong { display: block; font-size: 12px; }
+    .reminder-phone-missing span { display: block; margin-top: 2px; color: #9a5b3a; font-size: 11px; line-height: 1.4; }
+
+    .reminder-phone-dialog {
+      width: min(500px, 100%);
+      overflow: hidden;
+    }
+
+    .reminder-phone-form {
+      min-width: 0;
+      padding: 20px;
+      display: grid;
+      gap: 17px;
+    }
+
+    .reminder-phone-context {
+      padding: 13px 14px;
+      border: 1px solid #bfdbfe;
+      border-radius: 9px;
+      color: #1e3a8a;
+      background: #eff6ff;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .reminder-phone-context strong,
+    .reminder-phone-context span { display: block; }
+    .reminder-phone-context span { margin-top: 4px; color: #52617f; }
+
+    .reminder-phone-field {
+      min-width: 0;
+      display: grid;
+      gap: 8px;
+    }
+
+    .reminder-phone-field label { color: #263958; font-size: 12px; font-weight: 700; }
+
+    .reminder-phone-field input {
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid #dce4f0;
+      border-radius: 8px;
+      color: #17213c;
+      background: #fff;
+      font: inherit;
+      outline: 0;
+    }
+
+    .reminder-phone-field input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+    }
+
+    .reminder-phone-field small { color: #64748b; font-size: 11px; line-height: 1.4; }
+
+    .reminder-phone-feedback {
+      min-height: 18px;
+      margin: -5px 0 0;
+      color: #dc2626;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 767px) {
+      .reminder-phone-missing { align-items: stretch; flex-direction: column; }
+      .reminder-phone-missing button { width: 100%; }
+
+      .reminder-phone-dialog {
+        width: 100%;
+        max-width: 100%;
+        max-height: calc(100dvh - 20px);
+      }
+
+      .reminder-phone-form {
+        min-height: 0;
+        padding: 16px;
+        overflow-y: auto;
+      }
+
+      .reminder-phone-form .dialog-actions { margin: 0 -16px -16px; }
+    }
     .manual-send-whatsapp { padding: 9px 13px; border-radius: 8px; color: #fff; background: #16a34a; font-size: 12px; font-weight: 800; text-decoration: none; }
 
     .campaign-manual-settings p {
@@ -17451,8 +17640,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label for="reminder-channel">Canal</label>
                   <select id="reminder-channel">
                     <option value="WHATSAPP">WhatsApp</option>
-                    <option value="EMAIL">Email - pr&oacute;ximamente</option>
+                    <option value="EMAIL" disabled>Email - pr&oacute;ximamente</option>
                   </select>
+                  <p class="campaign-form-help">Email y WhatsApp + Email estar&aacute;n disponibles pr&oacute;ximamente. Por ahora los recordatorios se env&iacute;an s&oacute;lo por WhatsApp.</p>
                 </div>
                 <div class="campaign-form-field full">
                   <label for="reminder-mode">Modalidad de env&iacute;o</label>
@@ -18951,17 +19141,36 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <label for="campaign-type">Tipo</label>
             <select id="campaign-type">
               <option value="ONE_TIME">Puntual</option>
-              <option value="AUTOMATED">Autom&aacute;tica</option>
+              <option value="AUTOMATED" disabled>Autom&aacute;tica (pausada temporalmente)</option>
             </select>
           </div>
           <div class="campaign-form-field">
             <label for="campaign-channel">Canal</label>
             <select id="campaign-channel">
               <option value="WHATSAPP">WhatsApp</option>
-              <option value="EMAIL">Email</option>
-              <option value="BOTH">WhatsApp + Email</option>
+              <option value="EMAIL" disabled>Email - pr&oacute;ximamente</option>
+              <option value="BOTH" disabled>WhatsApp + Email - pr&oacute;ximamente</option>
             </select>
+            <p class="campaign-form-help">Email y WhatsApp + Email estar&aacute;n disponibles pr&oacute;ximamente. Por ahora las campa&ntilde;as se env&iacute;an s&oacute;lo por WhatsApp.</p>
           </div>
+          <section class="campaign-delivery-section" id="campaign-delivery-section" aria-labelledby="campaign-delivery-title">
+            <input id="campaign-delivery-mode" type="hidden" value="MANUAL_ASSISTED">
+            <div>
+              <h4 id="campaign-delivery-title">Modalidad de env&iacute;o</h4>
+              <p>Eleg&iacute; qui&eacute;n confirma cada mensaje. Esta decisi&oacute;n es independiente de si la campa&ntilde;a es puntual o autom&aacute;tica.</p>
+            </div>
+            <div class="campaign-delivery-options" role="radiogroup" aria-labelledby="campaign-delivery-title">
+              <label class="campaign-delivery-option">
+                <input type="radio" name="campaign-delivery-option" value="MANUAL_ASSISTED" checked>
+                <span><strong>Manual asistido <em>Recomendado</em></strong><span>Disponible para campa&ntilde;as puntuales inmediatas. Prepara una cola y abre WhatsApp contacto por contacto; no env&iacute;a nada solo.</span></span>
+              </label>
+              <label class="campaign-delivery-option">
+                <input type="radio" name="campaign-delivery-option" value="AUTOMATIC_API">
+                <span><strong>Autom&aacute;tico por Meta</strong><span>Env&iacute;a mensajes reales sin intervenci&oacute;n. Requiere WhatsApp habilitado y una plantilla MARKETING aprobada.</span></span>
+              </label>
+            </div>
+            <div class="campaign-delivery-requirements" id="campaign-delivery-requirements">Al activar, s&oacute;lo se preparar&aacute; la cola manual. No se enviar&aacute; ning&uacute;n mensaje autom&aacute;ticamente.</div>
+          </section>
           <div class="campaign-form-field">
             <label for="campaign-segment">Segmento</label>
             <select id="campaign-segment">
@@ -18972,6 +19181,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <option value="NEW_CUSTOMER">Clientes nuevos</option>
               <option value="MANUAL">Selecci&oacute;n manual</option>
             </select>
+          </div>
+          <div class="campaign-form-field" id="campaign-segment-days-field" hidden>
+            <label for="campaign-segment-days">D&iacute;as sin venir</label>
+            <input id="campaign-segment-days" type="number" min="1" max="730" list="campaign-day-options" value="45">
+            <datalist id="campaign-day-options"><option value="15"><option value="30"><option value="45"><option value="90"></datalist>
+            <p class="campaign-form-help" id="campaign-segment-days-help">Incluye clientes cuya &uacute;ltima visita fue hace al menos esta cantidad de d&iacute;as.</p>
           </div>
           <section class="campaign-manual-settings" id="campaign-manual-settings" hidden>
             <div><h4>Elegir destinatarios</h4><p>Seleccion&aacute; los clientes que quer&eacute;s incluir en esta campa&ntilde;a.</p></div>
@@ -18999,16 +19214,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </div>
             <p class="money-preview" id="campaign-budget-preview">Sin l&iacute;mite definido</p>
           </div>
-          <div class="campaign-form-field">
-            <label for="campaign-status">Estado</label>
-            <select id="campaign-status">
-              <option value="DRAFT">Borrador</option>
-              <option value="SCHEDULED">Programada</option>
-              <option value="ACTIVE">Activa</option>
-              <option value="PAUSED">Pausada</option>
-              <option value="FINISHED">Finalizada</option>
-            </select>
-          </div>
+          <input id="campaign-status" type="hidden" value="DRAFT">
+
           <section class="campaign-automation-settings" id="campaign-automation-settings" hidden>
             <div class="campaign-automation-heading">
               <h4>Reglas de automatizaci&oacute;n</h4>
@@ -19019,11 +19226,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <p>Si est&aacute; desactivado, esta campa&ntilde;a puede contactar aunque el cliente haya recibido otra promoci&oacute;n recientemente.</p>
             </div>
             <div class="campaign-automation-grid">
-              <div class="campaign-form-field" id="campaign-segment-days-field">
-                <label for="campaign-segment-days">D&iacute;as para ingresar</label>
-                <input id="campaign-segment-days" type="number" min="1" max="730" list="campaign-day-options" value="45">
-                <datalist id="campaign-day-options"><option value="15"><option value="30"><option value="45"><option value="90"></datalist>
-              </div>
               <div class="campaign-form-field">
                 <label for="campaign-priority">Prioridad ante coincidencias</label>
                 <select id="campaign-priority">
@@ -19104,6 +19306,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <div class="dialog-actions">
           <button class="secondary" id="campaign-dialog-cancel" type="button">Cancelar</button>
           <button class="primary" id="campaign-submit" type="submit">Guardar campa&ntilde;a</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="dialog-backdrop" id="reminder-phone-dialog" hidden>
+    <section class="dialog reminder-phone-dialog" role="dialog" aria-modal="true" aria-labelledby="reminder-phone-title">
+      <header class="dialog-header">
+        <h3 id="reminder-phone-title">Cargar tel&eacute;fono</h3>
+        <button class="icon-button" id="reminder-phone-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
+      </header>
+      <form class="reminder-phone-form" id="reminder-phone-form">
+        <div class="reminder-phone-context">
+          <strong id="reminder-phone-customer">Cliente</strong>
+          <span>Agreg&aacute; un n&uacute;mero v&aacute;lido para preparar este recordatorio en WhatsApp.</span>
+        </div>
+        <div class="reminder-phone-field">
+          <label for="reminder-phone-input">Tel&eacute;fono del cliente</label>
+          <input id="reminder-phone-input" type="tel" inputmode="tel" autocomplete="tel" maxlength="40" placeholder="Ej: +54 9 11 4582-3106" aria-describedby="reminder-phone-help reminder-phone-feedback" required>
+          <small id="reminder-phone-help">Pod&eacute;s escribirlo con espacios o guiones. Lo guardaremos en el formato correcto.</small>
+        </div>
+        <p class="reminder-phone-feedback" id="reminder-phone-feedback" role="status" aria-live="polite"></p>
+        <div class="dialog-actions">
+          <button class="secondary" id="reminder-phone-cancel" type="button">Cancelar</button>
+          <button class="primary" id="reminder-phone-submit" type="submit">Guardar y continuar</button>
         </div>
       </form>
     </section>
@@ -19529,6 +19756,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       reminderDraft: { name: '', channel: 'WHATSAPP', templateId: null, mode: 'PAUSED', enabled: false, sendBeforeMinutes: 1440 },
       reminderDeliveryData: {},
       reminderDetailTab: 'pending',
+      reminderPhoneEditor: null,
       pendingReminderDeleteConfirm: false,
       reminderLoaded: false,
       postSaleData: null,
@@ -20052,6 +20280,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       reminderTemplateLabel: document.getElementById('reminder-template-label'),
       reminderTimeLabel: document.getElementById('reminder-time-label'),
       reminderDetailPanel: document.getElementById('reminder-detail-panel'),
+      reminderPhoneDialog: document.getElementById('reminder-phone-dialog'),
+      reminderPhoneForm: document.getElementById('reminder-phone-form'),
+      reminderPhoneClose: document.getElementById('reminder-phone-close'),
+      reminderPhoneCancel: document.getElementById('reminder-phone-cancel'),
+      reminderPhoneSubmit: document.getElementById('reminder-phone-submit'),
+      reminderPhoneCustomer: document.getElementById('reminder-phone-customer'),
+      reminderPhoneInput: document.getElementById('reminder-phone-input'),
+      reminderPhoneFeedback: document.getElementById('reminder-phone-feedback'),
       postSaleStatus: document.getElementById('post-sale-status'),
       postSaleSent: document.getElementById('post-sale-sent'),
       postSaleResponseRate: document.getElementById('post-sale-response-rate'),
@@ -20092,6 +20328,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       campaignName: document.getElementById('campaign-name'),
       campaignType: document.getElementById('campaign-type'),
       campaignChannel: document.getElementById('campaign-channel'),
+      campaignDeliveryMode: document.getElementById('campaign-delivery-mode'),
+      campaignDeliverySection: document.getElementById('campaign-delivery-section'),
+      campaignDeliveryRequirements: document.getElementById('campaign-delivery-requirements'),
       campaignSegment: document.getElementById('campaign-segment'),
       campaignManualSettings: document.getElementById('campaign-manual-settings'),
       campaignManualList: document.getElementById('campaign-manual-list'),
@@ -20483,6 +20722,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const digits = normalizePhone(phone)
       if (!digits) return '#'
       return 'whatsapp://send?phone=' + encodeURIComponent(digits) + (text ? '&text=' + encodeURIComponent(text) : '')
+    }
+
+    function manualReminderWhatsappUrl(phone, message) {
+      const digits = normalizePhone(phone)
+      if (digits.length < 8 || !String(message || '').trim()) return null
+      return 'https://wa.me/' + digits + '?text=' + encodeURIComponent(message)
     }
 
     function openWhatsappAppLink(event) {
@@ -33213,6 +33458,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               ? '<div class="manual-send-message">' + escapeHtml(delivery.messageSnapshot) + '</div>'
               : ''
             const canManage = mode === 'MANUAL_ASSISTED' || delivery.mode === 'WHATSAPP_MANUAL'
+            const missingPhone = canManage && ['PENDING', 'FAILED'].includes(delivery.status) && !delivery.whatsappUrl && normalizePhone(delivery.customer?.phone).length < 8
+            const phoneWarning = missingPhone
+              ? '<div class="reminder-phone-missing"><div><strong>Sin tel&eacute;fono v&aacute;lido</strong><span>Carg&aacute; un n&uacute;mero para abrir WhatsApp con el mensaje preparado.</span></div><button class="campaign-outline-button" type="button" data-reminder-phone data-reminder-id="' + escapeHtml(state.selectedReminderId) + '" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '" data-reminder-customer-id="' + escapeHtml(delivery.customerId) + '">Cargar tel&eacute;fono</button></div>'
+              : ''
             const open = delivery.whatsappUrl && delivery.status !== 'OPENED'
               ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener" data-reminder-open data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Abrir WhatsApp</a>'
               : delivery.whatsappUrl ? '<a class="manual-send-whatsapp" href="' + escapeHtml(delivery.whatsappUrl) + '" target="_blank" rel="noopener">Volver a WhatsApp</a>' : ''
@@ -33222,7 +33471,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             } else if (canManage && delivery.status === 'OPENED') {
               actions = '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-reminder-delivery-action="SKIPPED" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Omitir</button>' + open + '<button class="campaigns-new" type="button" data-reminder-delivery-action="SENT" data-reminder-delivery-id="' + escapeHtml(delivery.id) + '">Marcar enviado</button></div>'
             }
-            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">&#128276;</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Turno') + ' · ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + preparedMessage + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(reminderDeliveryStatusLabel(delivery.status)) + '</span></div>'
+            return '<div class="campaign-recipient-row"><div class="campaign-recipient-avatar">&#128276;</div><div class="campaign-recipient-copy"><strong>' + escapeHtml(delivery.customer?.name || 'Cliente') + '</strong><span>' + escapeHtml(detail || 'Turno') + ' · ' + escapeHtml(formatDateTime(delivery.appointment?.startAt)) + '</span>' + preparedMessage + phoneWarning + note + error + actions + '</div><span class="reminder-channel-chip">' + escapeHtml(reminderDeliveryStatusLabel(delivery.status)) + '</span></div>'
           }).join('') + '</div>' : '<div class="campaign-detail-empty"><div><strong>' + (state.reminderDetailTab === 'history' ? 'Sin historial todavía' : 'No hay recordatorios pendientes') + '</strong><br>' + (state.reminderDetailTab === 'history' ? 'Los recordatorios gestionados aparecerán acá.' : 'La cola está al día.') + '</div></div>')
         : ''
       els.reminderDetailPanel.innerHTML = settings.channel === 'EMAIL'
@@ -33313,22 +33562,138 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function updateManualReminderDelivery(deliveryId, status) {
       if (!state.selectedReminderId) return
-      for (const button of els.reminderDetailPanel.querySelectorAll('[data-reminder-delivery-action]')) button.disabled = true
+      const reminderId = state.selectedReminderId
+      const previousDeliveryData = state.reminderDeliveryData[reminderId]
+      const shouldOptimisticallyRender = status !== 'OPENED' && previousDeliveryData
+      if (shouldOptimisticallyRender) {
+        state.reminderDeliveryData[reminderId] = {
+          ...previousDeliveryData,
+          deliveries: previousDeliveryData.deliveries.map((delivery) => delivery.id === deliveryId
+            ? { ...delivery, status: status, ...(status === 'SENT' ? { sentAt: new Date().toISOString() } : {}) }
+            : delivery)
+        }
+        renderReminderSettings()
+      } else {
+        for (const button of els.reminderDetailPanel.querySelectorAll('[data-reminder-delivery-action]')) button.disabled = true
+      }
       try {
-        await getJson('/reminder-automations/' + state.selectedReminderId + '/deliveries/' + deliveryId + '/manual-status', {
+        const updated = await getJson('/reminder-automations/' + reminderId + '/deliveries/' + deliveryId + '/manual-status', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessId: state.businessId, status })
         })
-        await loadReminderDeliveries(state.selectedReminderId)
+        const currentDeliveryData = state.reminderDeliveryData[reminderId]
+        if (currentDeliveryData) {
+          state.reminderDeliveryData[reminderId] = {
+            ...currentDeliveryData,
+            deliveries: currentDeliveryData.deliveries.map((delivery) => delivery.id === deliveryId ? { ...delivery, ...updated } : delivery)
+          }
+          renderReminderSettings()
+        }
         els.reminderFeedback.textContent = status === 'SENT'
           ? 'Envío manual registrado. Este recordatorio no se repetirá por API.'
           : 'Recordatorio actualizado.'
         els.reminderFeedback.className = 'campaign-form-feedback success'
       } catch (error) {
+        if (shouldOptimisticallyRender) state.reminderDeliveryData[reminderId] = previousDeliveryData
         els.reminderFeedback.textContent = error.message
         els.reminderFeedback.className = 'campaign-form-feedback error'
         renderReminderSettings()
+      }
+    }
+
+    function openReminderPhoneDialog(button) {
+      const reminderId = button.dataset.reminderId
+      const deliveryId = button.dataset.reminderDeliveryId
+      const customerId = button.dataset.reminderCustomerId
+      const deliveryData = state.reminderDeliveryData[reminderId]
+      const delivery = deliveryData?.deliveries.find((item) => item.id === deliveryId)
+      if (!delivery || delivery.customerId !== customerId || !state.businessId) {
+        els.reminderFeedback.textContent = 'El recordatorio cambió. Actualizá los pendientes e intentá nuevamente.'
+        els.reminderFeedback.className = 'campaign-form-feedback error'
+        return
+      }
+      state.reminderPhoneEditor = {
+        reminderId,
+        deliveryId,
+        customerId,
+        customerName: delivery.customer?.name || 'Cliente'
+      }
+      els.reminderPhoneCustomer.textContent = delivery.customer?.name || 'Cliente'
+      els.reminderPhoneInput.value = delivery.customer?.phone || ''
+      els.reminderPhoneInput.removeAttribute('aria-invalid')
+      els.reminderPhoneFeedback.textContent = ''
+      els.reminderPhoneSubmit.disabled = false
+      els.reminderPhoneSubmit.textContent = 'Guardar y continuar'
+      els.reminderPhoneDialog.hidden = false
+      requestAnimationFrame(() => els.reminderPhoneInput.focus())
+    }
+
+    function closeReminderPhoneDialog() {
+      els.reminderPhoneDialog.hidden = true
+      state.reminderPhoneEditor = null
+      els.reminderPhoneFeedback.textContent = ''
+      els.reminderPhoneInput.removeAttribute('aria-invalid')
+      els.reminderPhoneSubmit.disabled = false
+      els.reminderPhoneSubmit.textContent = 'Guardar y continuar'
+    }
+
+    async function saveReminderPhone(event) {
+      event.preventDefault()
+      const editor = state.reminderPhoneEditor
+      if (!editor || !state.businessId) return
+      const currentDataBeforeSave = state.reminderDeliveryData[editor.reminderId]
+      const targetBeforeSave = currentDataBeforeSave?.deliveries.find((delivery) => delivery.id === editor.deliveryId)
+      if (!targetBeforeSave || targetBeforeSave.customerId !== editor.customerId) {
+        els.reminderPhoneFeedback.textContent = 'El recordatorio cambió. Cerrá esta ventana y volvé a intentarlo.'
+        return
+      }
+      const phone = els.reminderPhoneInput.value.trim()
+      if (!phone) {
+        els.reminderPhoneInput.setAttribute('aria-invalid', 'true')
+        els.reminderPhoneFeedback.textContent = 'Ingresá el teléfono del cliente.'
+        els.reminderPhoneInput.focus()
+        return
+      }
+      els.reminderPhoneInput.removeAttribute('aria-invalid')
+      els.reminderPhoneFeedback.textContent = ''
+      if (!setButtonLoading(els.reminderPhoneSubmit, true, 'Guardando...')) return
+      try {
+        const updated = await getJson('/customers/' + editor.customerId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: editor.customerName,
+            phone,
+            businessId: state.businessId
+          })
+        })
+        const currentData = state.reminderDeliveryData[editor.reminderId]
+        if (currentData) {
+          state.reminderDeliveryData[editor.reminderId] = {
+            ...currentData,
+            deliveries: currentData.deliveries.map((delivery) => delivery.customerId === editor.customerId
+              ? {
+                  ...delivery,
+                  customer: { ...delivery.customer, ...updated },
+                  whatsappUrl: manualReminderWhatsappUrl(updated.phone, delivery.messageSnapshot)
+                }
+              : delivery)
+          }
+        }
+        state.customers = state.customers.map((customer) => customer.id === updated.id ? { ...customer, ...updated } : customer)
+        if (state.selectedReminderId === editor.reminderId) renderReminderSettings()
+        if (state.reminderPhoneEditor?.deliveryId === editor.deliveryId) closeReminderPhoneDialog()
+        els.reminderFeedback.textContent = 'Teléfono guardado. Ya podés abrir WhatsApp.'
+        els.reminderFeedback.className = 'campaign-form-feedback success'
+      } catch (error) {
+        if (state.reminderPhoneEditor?.deliveryId === editor.deliveryId) {
+          els.reminderPhoneInput.setAttribute('aria-invalid', 'true')
+          els.reminderPhoneFeedback.textContent = error.message
+          els.reminderPhoneInput.focus()
+        }
+      } finally {
+        setButtonLoading(els.reminderPhoneSubmit, false)
       }
     }
 
@@ -33816,13 +34181,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.campaigns = []
         state.campaignsLoaded = true
         renderCampaigns()
-        if (state.selectedCampaignId) loadCampaignAudience(state.selectedCampaignId)
         return
       }
 
       try {
         if (!state.whatsappPricingLoaded) loadWhatsappPricing()
         state.campaigns = await getJson('/campaigns?businessId=' + encodeURIComponent(state.businessId))
+        for (const campaign of state.campaigns) {
+          const estimate = campaign.runs?.[0]
+          if (estimate && !state.campaignAudiences[campaign.id]?.included) {
+            state.campaignAudiences[campaign.id] = { total: estimate.eligibleCount, excluded: estimate.exclusionSummary, estimatedAt: estimate.createdAt }
+          }
+        }
         state.campaignsLoaded = true
         if (!state.selectedCampaignId || !state.campaigns.some((campaign) => campaign.id === state.selectedCampaignId)) {
           state.selectedCampaignId = state.campaigns[0]?.id || null
@@ -33847,7 +34217,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function filteredCampaigns() {
       const search = state.campaignSearch.toLocaleLowerCase('es')
       return state.campaigns.filter((campaign) => {
-        if (state.campaignFilter !== 'ALL' && campaign.status !== state.campaignFilter) return false
+        if (state.campaignFilter !== 'ALL' && campaignEffectiveStatus(campaign) !== state.campaignFilter) return false
         if (!search) return true
         return [campaign.name, campaign.segmentLabel, campaign.message, campaign.templateName]
           .some((value) => String(value || '').toLocaleLowerCase('es').includes(search))
@@ -33862,7 +34232,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           getJson('/campaigns/' + campaignId + '/audience-preview'),
           getJson('/campaigns/' + campaignId + '/deliveries'),
           getJson('/campaigns/' + campaignId + '/simulations/latest'),
-          getJson('/campaigns/' + campaignId + '/manual-executions/latest')
+          state.campaigns.find((item) => item.id === campaignId)?.deliveryMode === 'MANUAL_ASSISTED'
+            ? getJson('/campaigns/' + campaignId + '/manual-executions/latest')
+            : Promise.resolve({ execution: null })
         ])
         state.campaignAudiences[campaignId] = results[0]
         state.campaignDeliveries[campaignId] = results[1]
@@ -33884,8 +34256,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return channel === 'EMAIL' ? '&#9993;' : channel === 'BOTH' ? '&#9679;' : 'W'
     }
 
+    function campaignEffectiveStatus(campaign) {
+      return campaign.type === 'AUTOMATED' ? 'PAUSED' : campaign.status
+    }
+
     function campaignNextSend(campaign) {
-      if (!campaign.scheduledAt) return campaign.status === 'ACTIVE' && campaign.type === 'AUTOMATED' ? 'Seg&uacute;n condici&oacute;n' : 'Al activar'
+      if (campaign.type === 'AUTOMATED') return 'Pausada temporalmente'
+      if (!campaign.scheduledAt) return 'Al activar'
       return escapeHtml(new Intl.DateTimeFormat('es-AR', {
         day: '2-digit',
         month: 'short',
@@ -33904,7 +34281,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.campaignAutomationSettings.hidden = !automated
       els.campaignPunctualSettings.hidden = automated
       els.campaignSegmentDaysField.hidden = !campaignSegmentNeedsDays(segment)
-      els.campaignSegmentDays.required = automated && campaignSegmentNeedsDays(segment)
+      els.campaignSegmentDays.required = campaignSegmentNeedsDays(segment)
+      const segmentDaysCopy = {
+        INACTIVE: ['Días sin venir', 'Incluye clientes cuya última visita fue hace al menos esta cantidad de días.'],
+        ONE_TIME_VISITOR: ['Días desde la única visita', 'Incluye clientes cuya única visita fue hace al menos esta cantidad de días.'],
+        NEW_CUSTOMER: ['Días desde la primera visita', 'Incluye clientes cuya primera visita fue dentro de esta cantidad de días.']
+      }[segment]
+      if (segmentDaysCopy) {
+        els.campaignSegmentDaysField.querySelector('label').textContent = segmentDaysCopy[0]
+        document.getElementById('campaign-segment-days-help').textContent = segmentDaysCopy[1]
+      }
       els.campaignManualSettings.hidden = segment !== 'MANUAL'
       els.campaignPunctualCooldownDays.disabled = automated || !els.campaignPunctualRespectCooldown.checked
       els.campaignCooldownDays.disabled = !automated || !els.campaignAutomationRespectCooldown.checked
@@ -33969,9 +34355,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderCampaigns() {
       const all = state.campaigns
       els.campaignTotal.textContent = String(all.length)
-      els.campaignActiveCount.textContent = String(all.filter((campaign) => campaign.status === 'ACTIVE').length)
-      els.campaignScheduledCount.textContent = String(all.filter((campaign) => campaign.status === 'SCHEDULED').length)
-      els.campaignDraftCount.textContent = String(all.filter((campaign) => campaign.status === 'DRAFT').length)
+      els.campaignActiveCount.textContent = String(all.filter((campaign) => campaignEffectiveStatus(campaign) === 'ACTIVE').length)
+      els.campaignScheduledCount.textContent = String(all.filter((campaign) => campaignEffectiveStatus(campaign) === 'SCHEDULED').length)
+      els.campaignDraftCount.textContent = String(all.filter((campaign) => campaignEffectiveStatus(campaign) === 'DRAFT').length)
 
       const filtered = filteredCampaigns()
       const totalPages = Math.max(1, Math.ceil(filtered.length / state.campaignTake))
@@ -33989,7 +34375,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '<td>' + campaignConfiguredSegmentLabel(campaign) + '</td>' +
               '<td><span class="campaign-badge ' + campaignBadgeClass('channel', campaign.channel) + '">' + (campaignChannelLabels[campaign.channel] || campaign.channel) + '</span></td>' +
               '<td>' + campaignNextSend(campaign) + '</td>' +
-              '<td><span class="campaign-badge ' + campaignBadgeClass('status', campaign.status) + '">' + (campaignStatusLabels[campaign.status] || campaign.status) + '</span></td>' +
+              '<td><span class="campaign-badge ' + campaignBadgeClass('status', campaignEffectiveStatus(campaign)) + '">' + (campaignStatusLabels[campaignEffectiveStatus(campaign)] || campaignEffectiveStatus(campaign)) + '</span></td>' +
             '</tr>'
           }).join('')
         : '<tr class="campaign-empty-row"><td colspan="6">' +
@@ -34022,7 +34408,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const responseCount = deliveries.filter((delivery) => delivery.respondedAt || delivery.status === 'RESPONDED').length
       const bookingCount = deliveries.filter((delivery) => delivery.bookedAt || delivery.status === 'BOOKED').length
       const conversionRate = deliveries.length ? Math.round((bookingCount / deliveries.length) * 100) : 0
-      const audienceTotal = audience?.loading ? '...' : audience?.error ? '--' : String(audience?.total ?? 0)
+      const audienceTotal = audience?.loading ? '...' : audience?.error ? '--' : audience?.total === undefined ? 'Sin estimar' : String(audience.total)
       const exclusionLabels = {
         missingPhone: 'tel&eacute;fono inv&aacute;lido',
         withFutureAppointment: 'con pr&oacute;ximo turno',
@@ -34073,9 +34459,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? 'Sin l&iacute;mite definido'
         : formatCurrency(campaign.budgetLimit)
       const rule = campaign.type === 'AUTOMATED'
-        ? 'Se evaluar&aacute; autom&aacute;ticamente. Prioridad ' + (campaignPriorityLabels[campaign.priority] || 'Media').toLowerCase() +
-          ', hasta ' + (campaign.maxAttempts || 2) + ' contactos cada ' + (campaign.retryIntervalDays || 30) +
-          ' d&iacute;as' + ((campaign.respectCooldown ?? true) ? ' y ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as desde otra promoci&oacute;n.' : ', sin descanso desde otras promociones.')
+        ? 'Campa&ntilde;a autom&aacute;tica pausada temporalmente. No se evaluar&aacute;n clientes ni se enviar&aacute;n mensajes.'
         : (campaign.respectCooldown ?? true)
           ? 'Campa&ntilde;a puntual. Excluir&aacute; clientes que recibieron promociones durante los &uacute;ltimos ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as.'
           : 'Campa&ntilde;a puntual sin descanso entre promociones. Las bajas de marketing se aplicar&aacute;n obligatoriamente al conectar los env&iacute;os.'
@@ -34099,7 +34483,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   '<span class="campaign-recipient-status">Incluido</span>' +
                 '</div>'
               }).join('')
-            : '<div class="customer-list-empty">No hay clientes disponibles para esta campa&ntilde;a.</div>'
+            : '<div class="customer-list-empty">' + (audience?.included ? 'No hay clientes disponibles para esta campa&ntilde;a.' : 'Lista no cargada. Actualizala s&oacute;lo si necesit&aacute;s ver los clientes actuales.') + '</div>'
       const simulatedQueueRows = simulation?.jobs?.length
         ? simulation.jobs.map((job, index) => {
             return '<div class="campaign-recipient-row">' +
@@ -34110,12 +34494,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           }).join('')
         : '<div class="customer-list-empty">Ejecut&aacute; la simulaci&oacute;n para generar la cola.</div>'
       const recipientView = '<div class="campaign-recipient-view" data-campaign-panel="recipients"' + (state.campaignDetailTab === 'recipients' ? '' : ' hidden') + '>' +
-        '<div class="campaign-recipient-head"><div><h4>Destinatarios estimados</h4><p>Se recalculan seg&uacute;n reservas, descansos y preferencias de marketing.</p></div><strong>' + audienceTotal + '</strong></div>' +
+        '<div class="campaign-recipient-head"><div><h4>Destinatarios estimados</h4><p>&Uacute;ltima estimaci&oacute;n guardada; puede cambiar antes del env&iacute;o.</p></div><button class="campaign-outline-button" type="button" data-campaign-action="refresh-estimate">Recalcular estimaci&oacute;n</button><button class="campaign-outline-button" type="button" data-campaign-action="refresh-audience">Ver lista actual</button><strong>' + audienceTotal + '</strong></div>' +
         '<div class="campaign-recipient-list">' + recipientRows + '</div>' +
         (audienceExclusionCopy ? '<div class="campaign-rule-note">Excluidos:&nbsp; ' + audienceExclusionCopy + '.</div>' : '') +
         '<div class="campaign-recipient-head"><div><h4>Orden de la cola simulada</h4><p>' + (simulation?.eligibleCount > 100 ? 'Se muestran los primeros 100 de ' + simulation.eligibleCount + ' destinatarios.' : 'Vista previa sin env&iacute;os reales.') + '</p></div><strong>' + (simulation?.eligibleCount ?? 0) + '</strong></div>' +
         '<div class="campaign-recipient-list">' + simulatedQueueRows + '</div>' +
-        manualExecutionCard +
+        (campaign.deliveryMode === 'MANUAL_ASSISTED'
+          ? manualExecutionCard
+          : '<div class="manual-send-workbench"><div class="campaign-recipient-head"><div><h4>Env&iacute;o autom&aacute;tico por Meta</h4><p>Al activar, Meta enviar&aacute; mensajes reales a la audiencia habilitada usando la plantilla aprobada.</p></div><strong>API</strong></div><div class="campaign-rule-note">No requiere confirmaci&oacute;n contacto por contacto. Las bajas, exclusiones, presupuesto y reglas se aplicar&aacute;n antes de cada env&iacute;o.</div></div>') +
       '</div>'
       const deliveryStatusLabels = { SENT: 'Enviado', DELIVERED: 'Entregado', READ: 'Le&iacute;do', RESPONDED: 'Respondi&oacute;', BOOKED: 'Reserv&oacute;', FAILED: 'Fallido', CANCELLED: 'Cancelado' }
       const historyRows = deliveries.length
@@ -34134,6 +34520,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         '<div class="campaign-recipient-head"><div><h4>Configuraci&oacute;n</h4><p>Reglas utilizadas para decidir qui&eacute;n puede recibir la campa&ntilde;a.</p></div></div>' +
         '<div class="campaign-detail-lower"><section class="campaign-budget-card"><div class="campaign-budget-list">' +
           '<div class="campaign-budget-item"><span>Tipo</span><strong>' + campaignTypeLabels[campaign.type] + '</strong></div>' +
+          '<div class="campaign-budget-item"><span>Modalidad</span><strong>' + (campaign.deliveryMode === 'AUTOMATIC_API' ? 'Autom&aacute;tico por Meta' : 'Manual asistido') + '</strong></div>' +
           '<div class="campaign-budget-item"><span>Segmento</span><strong>' + campaignConfiguredSegmentLabel(campaign) + '</strong></div>' +
           '<div class="campaign-budget-item"><span>Canal</span><strong>' + campaignChannelLabels[campaign.channel] + '</strong></div>' +
           '<div class="campaign-budget-item"><span>Estado</span><strong>' + campaignStatusLabels[campaign.status] + '</strong></div>' +
@@ -34157,15 +34544,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '<div><h3>' + escapeHtml(campaign.name) + '</h3><div class="campaign-detail-badges">' +
               '<span class="campaign-badge ' + campaignBadgeClass('type', campaign.type) + '">' + campaignTypeLabels[campaign.type] + '</span>' +
               '<span class="campaign-badge ' + campaignBadgeClass('channel', campaign.channel) + '">' + campaignChannelLabels[campaign.channel] + '</span>' +
-              '<span class="campaign-badge ' + campaignBadgeClass('status', campaign.status) + '">' + campaignStatusLabels[campaign.status] + '</span>' +
+              '<span class="campaign-badge ' + campaignBadgeClass('status', campaignEffectiveStatus(campaign)) + '">' + campaignStatusLabels[campaignEffectiveStatus(campaign)] + '</span>' +
             '</div></div>' +
           '</div>' +
           '<div class="campaign-detail-actions">' +
             '<button class="campaign-outline-button" type="button" data-campaign-action="simulate"' + (simulationLoading ? ' disabled' : '') + '>' + (simulationLoading ? 'Simulando...' : 'Simular') + '</button>' +
-            (campaign.type === 'AUTOMATED' && campaign.status === 'ACTIVE' ? '<button class="campaign-outline-button" type="button" data-campaign-action="process-automated">Procesar ahora</button>' : '') +
             (campaign.templateName ? '<button class="campaign-outline-button" type="button" data-campaign-action="template-sync">Actualizar plantilla</button>' : '') +
             '<button class="campaign-outline-button" type="button" data-campaign-action="edit">Editar</button>' +
-            (campaign.status !== 'FINISHED' ? '<button class="campaign-outline-button" type="button" data-campaign-action="toggle">' + toggleLabel + '</button>' : '') +
+            (campaign.status !== 'FINISHED' && (campaign.type === 'ONE_TIME' || campaign.status === 'ACTIVE') ? '<button class="campaign-outline-button" type="button" data-campaign-action="toggle">' + toggleLabel + '</button>' : '') +
             '<button class="campaign-duplicate-button" type="button" data-campaign-action="duplicate">Duplicar</button>' +
             '<button class="campaign-more-button" type="button" data-campaign-action="delete" title="Eliminar campa&ntilde;a" aria-label="Eliminar campa&ntilde;a">&times;</button>' +
           '</div>' +
@@ -34294,11 +34680,26 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    function setCampaignDeliveryMode(mode) {
+      const normalized = mode === 'AUTOMATIC_API' ? 'AUTOMATIC_API' : 'MANUAL_ASSISTED'
+      els.campaignDeliveryMode.value = normalized
+      for (const option of els.campaignDeliverySection.querySelectorAll('input[name="campaign-delivery-option"]')) {
+        option.checked = option.value === normalized
+      }
+      const manualUnsupported = normalized === 'MANUAL_ASSISTED' && (els.campaignType.value !== 'ONE_TIME' || els.campaignScheduleMode.value !== 'IMMEDIATE')
+      els.campaignDeliveryRequirements.innerHTML = manualUnsupported
+        ? '<strong>Combinaci&oacute;n no disponible:</strong> por ahora la cola manual se prepara s&oacute;lo para campa&ntilde;as puntuales al activar. Eleg&iacute; Autom&aacute;tico por Meta o cambi&aacute; el tipo y el momento.'
+        : normalized === 'AUTOMATIC_API'
+          ? '<strong>Env&iacute;o real:</strong> Meta enviar&aacute; sin intervenci&oacute;n. Antes de activar verificaremos WhatsApp, habilitaci&oacute;n de campa&ntilde;as y plantilla MARKETING aprobada.'
+          : 'Al activar, s&oacute;lo se preparar&aacute; la cola manual. No se enviar&aacute; ning&uacute;n mensaje autom&aacute;ticamente.'
+    }
+
     function openCampaignDialog(campaign = null) {
       els.campaignId.value = campaign?.id || ''
       els.campaignName.value = campaign?.name || ''
       els.campaignType.value = campaign?.type || 'ONE_TIME'
       els.campaignChannel.value = campaign?.channel || 'WHATSAPP'
+      setCampaignDeliveryMode(campaign?.deliveryMode || 'MANUAL_ASSISTED')
       if (campaign?.segment && !Array.from(els.campaignSegment.options).some((option) => option.value === campaign.segment)) {
         els.campaignSegment.add(new Option(campaign.segmentLabel || campaign.segment, campaign.segment))
       }
@@ -34345,6 +34746,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.campaignEmojiSearch.value = ''
       renderCampaignEmojiPicker()
       syncCampaignAutomationFields(false)
+      setCampaignDeliveryMode(els.campaignDeliveryMode.value)
+      for (const option of els.campaignDeliverySection.querySelectorAll('input[name="campaign-delivery-option"]')) option.disabled = Boolean(campaign && campaign.status !== 'DRAFT')
       els.campaignDialogTitle.textContent = campaign ? 'Editar campaña' : 'Nueva campaña'
       els.campaignSubmit.textContent = campaign ? 'Guardar cambios' : 'Guardar campaña'
       els.campaignFormFeedback.textContent = ''
@@ -34383,6 +34786,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         businessId: state.businessId,
         name: els.campaignName.value.trim(),
         type: els.campaignType.value,
+        deliveryMode: els.campaignDeliveryMode.value,
         channel: els.campaignChannel.value,
         segment: els.campaignSegment.value,
         segmentLabel: segmentBaseLabel,
@@ -34415,6 +34819,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         imageUrl: selectedWhatsappTemplate?.imageUrl || null
       }
 
+      if (payload.deliveryMode === 'MANUAL_ASSISTED' && (payload.type !== 'ONE_TIME' || payload.scheduleMode !== 'IMMEDIATE')) {
+        els.campaignFormFeedback.textContent = 'Por ahora el manual asistido admite campañas puntuales al activar. Elegí Automático por Meta para una campaña recurrente o programada.'
+        return
+      }
       if (!payload.name || !payload.message) {
         els.campaignFormFeedback.textContent = 'Completá el nombre y seleccioná una plantilla aprobada.'
         return
@@ -34446,6 +34854,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.selectedCampaignId = saved.id
         closeCampaignDialog()
         await loadCampaigns()
+        try {
+          state.campaignAudiences[saved.id] = await getJson('/campaigns/' + saved.id + '/estimate', { method: 'POST' })
+          renderCampaignDetail()
+        } catch (estimateError) {
+          state.campaignAudiences[saved.id] = { error: estimateError.message }
+          renderCampaignDetail()
+        }
       } catch (error) {
         els.campaignFormFeedback.textContent = error.message
       } finally {
@@ -34516,9 +34931,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const included = audience?.included || []
       const includedPreview = included.slice(0, 3).map((customer) => escapeHtml(customer.name || customer.phone || 'Cliente')).join(', ')
       const messagePreview = campaignActivationMessagePreview(campaign, included[0])
-      const realSendNote = campaign.type === 'ONE_TIME'
-        ? 'Al confirmar se enviará WhatsApp real una sola vez y la campaña quedará Finalizada.'
-        : 'Las automáticas quedan habilitadas para reglas; los envíos reales masivos siguen bloqueados.'
+      const realSendNote = campaign.deliveryMode === 'MANUAL_ASSISTED'
+        ? 'Se preparará la cola manual para ' + (audience?.total ?? 0) + ' destinatarios. No se enviará ningún mensaje automáticamente.'
+        : 'Al confirmar, Meta enviará mensajes reales a ' + (audience?.total ?? 0) + ' destinatarios habilitados, aplicando exclusiones y presupuesto.'
       if (audience?.loading) return '<strong>Calculando destinatarios...</strong><p>Estamos preparando el resumen de seguridad.</p>'
       if (audience?.error) return '<strong>No se pudo calcular destinatarios.</strong><p>' + escapeHtml(audience.error) + '</p>'
       return '<div class="campaign-activation-summary">' +
@@ -34526,7 +34941,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<div class="campaign-activation-card"><span>Tipo</span><strong>' + escapeHtml(campaignTypeLabels[campaign.type] || campaign.type) + '</strong></div>' +
           '<div class="campaign-activation-card"><span>Plantilla</span><strong>' + escapeHtml(campaign.templateName || 'Sin plantilla') + '</strong><small>' + escapeHtml(campaignTemplateStatusLabels[campaign.templateStatus || 'NOT_CREATED'] || campaign.templateStatus || 'Sin estado') + '</small></div>' +
           '<div class="campaign-activation-card"><span>Destinatarios</span><strong>' + (audience?.total ?? 0) + '</strong><small>' + escapeHtml(includedPreview ? includedPreview + (included.length > 3 ? '...' : '') : 'Sin destinatarios incluidos') + '</small></div>' +
-          campaignEstimatedCostHtml(campaign, audience?.total ?? 0) +
+          (campaign.deliveryMode === 'MANUAL_ASSISTED' ? '<div class="campaign-activation-card campaign-activation-cost"><span>Env&iacute;o por Meta API</span><strong>No se usar&aacute;</strong></div>' : campaignEstimatedCostHtml(campaign, audience?.total ?? 0)) +
         '</div>' +
         '<div class="campaign-activation-card"><span>Exclusiones</span><strong>' + escapeHtml(excludedCopy) + '</strong></div>' +
         '<div class="campaign-activation-card"><span>Variables</span><strong>' + (variables.length ? variables.map((variable) => '{{' + escapeHtml(variable) + '}}').join(', ') : 'sin variables') + '</strong></div>' +
@@ -34550,24 +34965,30 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!campaign) return closeCampaignActivationDialog()
       const audience = state.campaignAudiences[campaign.id]
       els.campaignActivationName.textContent = campaign.name
-      els.campaignActivationCopy.textContent = campaign.type === 'ONE_TIME'
-        ? 'Revisá destinatarios, plantilla y costo antes de enviar esta campaña puntual.'
-        : 'Revisá reglas, segmento y plantilla antes de activar la campaña automática.'
-      els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
-        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
-        : 'Confirmar activación'
+      els.campaignActivationCopy.textContent = campaign.deliveryMode === 'MANUAL_ASSISTED'
+        ? 'Revisá la audiencia antes de preparar la cola. Vos confirmarás cada contacto.'
+        : 'Revisá audiencia, exclusiones y plantilla antes de autorizar mensajes reales por Meta.'
+      els.campaignActivationConfirm.textContent = campaign.deliveryMode === 'MANUAL_ASSISTED'
+        ? 'Preparar cola manual'
+        : (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED' ? 'Programar envíos automáticos' : 'Activar envíos automáticos')
       els.campaignActivationSummary.innerHTML = campaignActivationSummaryHtml(campaign)
-      els.campaignActivationConfirm.disabled = Boolean(audience?.loading || audience?.error)
-      els.campaignActivationFeedback.textContent = ''
+      const manualUnsupported = campaign.deliveryMode === 'MANUAL_ASSISTED' && (campaign.type !== 'ONE_TIME' || campaign.scheduleMode !== 'IMMEDIATE')
+      const unsupportedChannel = campaign.channel !== 'WHATSAPP'
+      els.campaignActivationConfirm.disabled = Boolean(audience?.loading || audience?.error || manualUnsupported || unsupportedChannel)
+      els.campaignActivationFeedback.textContent = unsupportedChannel
+        ? 'Email y WhatsApp + Email todavía no están disponibles. Editá la campaña y elegí WhatsApp antes de activarla.'
+        : manualUnsupported
+          ? 'Esta campaña heredada no puede preparar una cola manual recurrente o programada. Editá tipo y momento para usar manual asistido, o duplicala para elegir Automático por Meta.'
+          : ''
     }
 
     function openCampaignActivationDialog(campaign) {
       state.pendingCampaignActivationId = campaign.id
       els.campaignActivationFeedback.textContent = ''
       els.campaignActivationConfirm.disabled = false
-      els.campaignActivationConfirm.textContent = campaign.type === 'ONE_TIME'
-        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programar campaña' : 'Enviar y finalizar')
-        : 'Confirmar activación'
+      els.campaignActivationConfirm.textContent = campaign.deliveryMode === 'MANUAL_ASSISTED'
+        ? 'Preparar cola manual'
+        : (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED' ? 'Programar envíos automáticos' : 'Activar envíos automáticos')
       if (!state.whatsappPricingLoaded) loadWhatsappPricing().then(() => {
         if (!els.campaignActivationDialog.hidden && state.pendingCampaignActivationId === campaign.id) renderCampaignActivationDialog()
       })
@@ -34596,12 +35017,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function confirmCampaignActivation() {
       const campaign = state.campaigns.find((item) => item.id === state.pendingCampaignActivationId)
       if (!campaign) return closeCampaignActivationDialog()
-      const loadingText = campaign.type === 'ONE_TIME'
-        ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programando...' : 'Enviando...')
-        : 'Activando...'
+      const loadingText = campaign.deliveryMode === 'MANUAL_ASSISTED'
+        ? 'Preparando...'
+        : campaign.type === 'ONE_TIME'
+          ? (campaign.scheduleMode === 'SCHEDULED' ? 'Programando...' : 'Enviando...')
+          : 'Activando...'
       if (!setButtonLoading(els.campaignActivationConfirm, true, loadingText)) return
       try {
-        if (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED') {
+        if (campaign.deliveryMode === 'MANUAL_ASSISTED') {
+          const execution = await getJson('/campaigns/' + campaign.id + '/manual-executions', { method: 'POST' })
+          state.campaignManualExecutions[campaign.id] = execution
+          await getJson('/campaigns/' + campaign.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...campaign, status: 'ACTIVE' })
+          })
+          els.campaignActivationFeedback.textContent = 'Cola manual preparada. No se envió ningún mensaje automáticamente.'
+        } else if (campaign.type === 'ONE_TIME' && campaign.scheduleMode === 'SCHEDULED') {
           await getJson('/campaigns/' + campaign.id, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -34711,7 +35143,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       try {
         const run = await getJson('/campaigns/' + campaign.id + '/simulate', { method: 'POST' })
         state.campaignSimulations[campaign.id] = run
-        await loadCampaignAudience(campaign.id)
+        state.campaignAudiences[campaign.id] = { total: run.eligibleCount, excluded: run.exclusionSummary, estimatedAt: run.createdAt }
       } finally {
         state.campaignSimulationLoading[campaign.id] = false
         if (state.selectedCampaignId === campaign.id) renderCampaignDetail()
@@ -34778,6 +35210,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       try {
         if (button.dataset.campaignAction === 'simulate') await simulateCampaign(campaign)
+        if (button.dataset.campaignAction === 'refresh-audience') await loadCampaignAudience(campaign.id)
+        if (button.dataset.campaignAction === 'refresh-estimate') {
+          state.campaignAudiences[campaign.id] = { loading: true }
+          renderCampaignDetail()
+          state.campaignAudiences[campaign.id] = await getJson('/campaigns/' + campaign.id + '/estimate', { method: 'POST' })
+          renderCampaignDetail()
+        }
         if (button.dataset.campaignAction === 'manual-start') await startManualCampaignExecution(campaign)
         if (button.dataset.campaignAction === 'process-automated') {
           button.disabled = true
@@ -36243,6 +36682,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         renderReminderSettings()
         return
       }
+      const phoneButton = event.target.closest('[data-reminder-phone]')
+      if (phoneButton) {
+        openReminderPhoneDialog(phoneButton)
+        return
+      }
       const open = event.target.closest('[data-reminder-open]')
       if (open) {
         void updateManualReminderDelivery(open.dataset.reminderDeliveryId, 'OPENED')
@@ -36250,6 +36694,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       const action = event.target.closest('[data-reminder-delivery-action]')
       if (action) void updateManualReminderDelivery(action.dataset.reminderDeliveryId, action.dataset.reminderDeliveryAction)
+    })
+    els.reminderPhoneForm.addEventListener('submit', saveReminderPhone)
+    els.reminderPhoneClose.addEventListener('click', closeReminderPhoneDialog)
+    els.reminderPhoneCancel.addEventListener('click', closeReminderPhoneDialog)
+    els.reminderPhoneInput.addEventListener('input', () => {
+      els.reminderPhoneInput.removeAttribute('aria-invalid')
+      els.reminderPhoneFeedback.textContent = ''
+    })
+    els.reminderPhoneDialog.addEventListener('click', (event) => {
+      if (event.target === els.reminderPhoneDialog) closeReminderPhoneDialog()
     })
     els.postSaleMode.addEventListener('change', () => {
       renderPostSaleTemplateOptions(els.postSaleMode.value, els.postSaleTemplate.value)
@@ -36359,12 +36813,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.campaignWhatsappTemplate.addEventListener('change', () => {
       syncCampaignTemplateSelection()
     })
-    els.campaignType.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignDeliverySection.addEventListener('change', (event) => {
+      const option = event.target.closest('input[name="campaign-delivery-option"]')
+      if (option) setCampaignDeliveryMode(option.value)
+    })
+    els.campaignType.addEventListener('change', () => { syncCampaignAutomationFields(false); setCampaignDeliveryMode(els.campaignDeliveryMode.value) })
     els.campaignSegment.addEventListener('change', () => {
       syncCampaignAutomationFields(true)
       if (els.campaignSegment.value === 'MANUAL') loadCampaignManualCustomers(true)
     })
-    els.campaignScheduleMode.addEventListener('change', () => syncCampaignAutomationFields(false))
+    els.campaignScheduleMode.addEventListener('change', () => { syncCampaignAutomationFields(false); setCampaignDeliveryMode(els.campaignDeliveryMode.value) })
     els.campaignBudget.addEventListener('input', updateCampaignBudgetPreview)
     els.campaignBudget.addEventListener('blur', updateCampaignBudgetPreview)
     els.campaignManualList.addEventListener('change', (event) => {
@@ -36457,7 +36915,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!row) return
       state.selectedCampaignId = row.dataset.campaignId
       renderCampaigns()
-      loadCampaignAudience(state.selectedCampaignId)
     })
     els.campaignDetailPanel.addEventListener('click', handleCampaignDetailAction)
     els.campaignPagePrev.addEventListener('click', () => {
@@ -36906,6 +37363,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (event.key === 'Escape' && !els.customerDialog.hidden) closeCustomerDialog()
       if (event.key === 'Escape' && !els.customerDeleteDialog.hidden) closeCustomerDeleteDialog()
       if (event.key === 'Escape' && !els.marketingConfirmDialog.hidden) closeMarketingConfirmDialog()
+      if (event.key === 'Escape' && !els.reminderPhoneDialog.hidden) closeReminderPhoneDialog()
       if (event.key === 'Escape' && !els.campaignDialog.hidden) closeCampaignDialog()
       if (event.key === 'Escape' && !els.campaignDeleteDialog.hidden) closeCampaignDeleteDialog()
       if (event.key === 'Escape' && !els.campaignActivationDialog.hidden) closeCampaignActivationDialog()

@@ -23,7 +23,9 @@ import {
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 
 const CAMPAIGN_TYPES = ['ONE_TIME', 'AUTOMATED'] as const
-const CAMPAIGN_CHANNELS = ['WHATSAPP', 'EMAIL', 'BOTH'] as const
+const AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED = true
+const CAMPAIGN_DELIVERY_MODES = ['MANUAL_ASSISTED', 'AUTOMATIC_API'] as const
+const CAMPAIGN_CHANNELS = ['WHATSAPP'] as const
 const CAMPAIGN_STATUSES = ['DRAFT', 'SCHEDULED', 'ACTIVE', 'PAUSED', 'FINISHED'] as const
 const CAMPAIGN_SEGMENTS = [
   'ALL',
@@ -49,6 +51,7 @@ type CampaignInput = {
   businessId?: string
   name?: string
   type?: string
+  deliveryMode?: string
   channel?: string
   status?: string
   segment?: string
@@ -458,7 +461,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       reply.status(400).send({ message: 'El nombre del recordatorio es requerido' })
       return null
     }
-    if (!['WHATSAPP', 'EMAIL'].includes(channel)) {
+    if (channel !== 'WHATSAPP') {
       reply.status(400).send({ message: 'Canal de recordatorio invalido' })
       return null
     }
@@ -470,26 +473,21 @@ export async function campaignRoutes(app: FastifyInstance) {
       reply.status(400).send({ message: 'Elegi un tiempo de recordatorio valido' })
       return null
     }
-    if (channel === 'WHATSAPP') {
-      if (templateId) {
-        const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId } })
-        if (!template) {
-          reply.status(400).send({ message: 'La plantilla seleccionada no existe' })
-          return null
-        }
-        if (!isReminderTemplateEligible(mode, template)) {
-          reply.status(400).send({ message: mode === 'AUTOMATIC_API'
-            ? 'El modo automatico requiere una plantilla de Recordatorio aprobada por Meta'
-            : 'Selecciona una plantilla de tipo Recordatorio' })
-          return null
-        }
-      }
-      if (mode !== 'PAUSED' && !templateId) {
-        reply.status(400).send({ message: 'Selecciona una plantilla antes de activar recordatorios' })
+    if (templateId) {
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: templateId, businessId } })
+      if (!template) {
+        reply.status(400).send({ message: 'La plantilla seleccionada no existe' })
         return null
       }
-    } else if (mode !== 'PAUSED') {
-      reply.status(400).send({ message: 'Recordatorios por email quedan preparados para mas adelante' })
+      if (!isReminderTemplateEligible(mode, template)) {
+        reply.status(400).send({ message: mode === 'AUTOMATIC_API'
+          ? 'El modo automatico requiere una plantilla de Recordatorio aprobada por Meta'
+          : 'Selecciona una plantilla de tipo Recordatorio' })
+        return null
+      }
+    }
+    if (mode !== 'PAUSED' && !templateId) {
+      reply.status(400).send({ message: 'Selecciona una plantilla antes de activar recordatorios' })
       return null
     }
     return {
@@ -498,7 +496,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       channel,
       templateId,
       enabled: mode === 'AUTOMATIC_API',
-      mode: channel === 'EMAIL' ? 'PAUSED' : mode,
+      mode,
       sendBeforeMinutes
     }
   }
@@ -555,23 +553,20 @@ export async function campaignRoutes(app: FastifyInstance) {
     const body = request.body as { businessId?: string; status?: string; note?: string | null }
     const businessId = body.businessId?.trim()
     if (!businessId) return reply.status(400).send({ message: 'businessId es requerido' })
-    const delivery = await prisma.reminderDelivery.findFirst({
-      where: { id: params.deliveryId, reminderAutomationId: params.automationId, businessId },
-      select: { id: true }
-    })
-    if (!delivery) return reply.status(404).send({ message: 'No encontre ese recordatorio pendiente' })
     if (!reminderManualStatuses.includes(body.status as typeof reminderManualStatuses[number])) {
       return reply.status(400).send({ message: 'Estado de recordatorio invalido' })
     }
     try {
       return await transitionManualReminder({
         businessId,
-        deliveryId: delivery.id,
+        automationId: params.automationId,
+        deliveryId: params.deliveryId,
         status: body.status as typeof reminderManualStatuses[number],
         ...(body.note !== undefined ? { note: body.note } : {})
       })
     } catch (error) {
-      return reply.status(409).send({ message: error instanceof Error ? error.message : 'No se pudo actualizar el recordatorio' })
+      const message = error instanceof Error ? error.message : 'No se pudo actualizar el recordatorio'
+      return reply.status(message === 'No encontré ese recordatorio' ? 404 : 409).send({ message })
     }
   })
 
@@ -660,15 +655,19 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     return prisma.campaign.findMany({
       where: { businessId },
-      include: { manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } } },
+      include: {
+        manualRecipients: { select: { customerId: true, customer: { select: { id: true, name: true, phone: true } } } },
+        runs: { where: { mode: { in: ['ESTIMATE', 'SIMULATION'] } }, orderBy: { createdAt: 'desc' }, take: 1, select: { eligibleCount: true, excludedCount: true, exclusionSummary: true, createdAt: true } }
+      },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
     })
   })
 
   app.post('/campaigns', async (request, reply) => {
     const body = request.body as CampaignInput
-    const normalized = normalizeCampaignInput(body, reply, true)
+    const normalized = normalizeCampaignInput(body, reply, true, true)
     if (!normalized) return
+    if (normalized.type === 'AUTOMATED') return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente. Usá una campaña puntual.' })
 
     const business = await prisma.business.findUnique({ where: { id: normalized.businessId } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese comercio' })
@@ -687,6 +686,10 @@ export async function campaignRoutes(app: FastifyInstance) {
       normalized.templateLastSyncedAt = template.lastSyncedAt
       normalized.imageUrl = template.imageUrl
     }
+    if (normalized.deliveryMode === 'AUTOMATIC_API' && ['ACTIVE', 'SCHEDULED'].includes(normalized.status)) {
+      const readiness = await automaticCampaignReadiness(normalized.businessId, normalized.whatsappTemplateId)
+      if (!readiness.allowed) return reply.status(409).send({ message: readiness.message })
+    }
 
     const campaign = await prisma.campaign.create({ data: normalized })
     await replaceManualRecipients(campaign.id, campaign.businessId, body.manualCustomerIds)
@@ -702,8 +705,9 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!current) return sendAuthorizationFailure(reply, 'notFound')
 
     const body = request.body as CampaignInput
-    const normalized = normalizeCampaignInput({ ...current, ...body }, reply, true)
+    const normalized = normalizeCampaignInput({ ...current, ...body }, reply, true, body.segment !== undefined && body.segment !== current.segment)
     if (!normalized) return
+    if (normalized.type === 'AUTOMATED' && ['ACTIVE', 'SCHEDULED'].includes(normalized.status)) return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente. Convertí la campaña a puntual.' })
     if (normalized.whatsappTemplateId) {
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
       if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
@@ -718,6 +722,14 @@ export async function campaignRoutes(app: FastifyInstance) {
       normalized.templateRejectionReason = template.rejectionReason
       normalized.templateLastSyncedAt = template.lastSyncedAt
       normalized.imageUrl = template.imageUrl
+    }
+    if (normalized.deliveryMode === 'AUTOMATIC_API' && ['ACTIVE', 'SCHEDULED'].includes(normalized.status)) {
+      const readiness = await automaticCampaignReadiness(current.businessId, normalized.whatsappTemplateId)
+      if (!readiness.allowed) return reply.status(409).send({ message: readiness.message })
+    }
+
+    if (current.deliveryMode !== normalized.deliveryMode && current.status !== 'DRAFT') {
+      return reply.status(409).send({ message: 'Duplicá la campaña para cambiar la modalidad después de activarla' })
     }
 
     const { businessId: _businessId, ...data } = normalized
@@ -738,7 +750,8 @@ export async function campaignRoutes(app: FastifyInstance) {
       data: {
         businessId: current.businessId,
         name: uniqueCopyName(current.name),
-        type: current.type,
+        type: AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED ? 'ONE_TIME' : current.type,
+        deliveryMode: current.deliveryMode,
         channel: current.channel,
         status: 'DRAFT',
         segment: current.segment,
@@ -761,7 +774,7 @@ export async function campaignRoutes(app: FastifyInstance) {
         templateRejectionReason: current.templateRejectionReason,
         templateLastSyncedAt: current.templateLastSyncedAt,
         whatsappTemplateId: current.whatsappTemplateId,
-        scheduleMode: current.scheduleMode,
+        scheduleMode: AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED && current.deliveryMode === 'MANUAL_ASSISTED' ? 'IMMEDIATE' : current.scheduleMode,
         scheduledAt: null,
         budgetLimit: current.budgetLimit
       }
@@ -813,6 +826,35 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
   })
 
+  app.post('/campaigns/:id/estimate', async (request, reply) => {
+    const params = request.params as { id: string }
+    const campaign = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
+      include: { manualRecipients: { include: { customer: { select: { id: true, name: true, phone: true } } } } }
+    })
+    if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
+    if (campaign.type !== 'ONE_TIME') return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente.' })
+
+    const audience = await calculateCampaignAudience(campaign)
+    const excludedCount = Object.values(audience.excluded).reduce((total, count) => total + Number(count || 0), 0)
+    const run = await prisma.campaignRun.create({
+      data: {
+        businessId: campaign.businessId,
+        campaignId: campaign.id,
+        mode: 'ESTIMATE',
+        status: 'COMPLETED',
+        candidateCount: audience.total + excludedCount,
+        eligibleCount: audience.total,
+        excludedCount,
+        exclusionSummary: audience.excluded,
+        configurationSnapshot: { type: campaign.type, segment: campaign.segment, segmentDays: campaign.segmentDays, respectCooldown: campaign.respectCooldown, cooldownDays: campaign.cooldownDays },
+        completedAt: new Date()
+      },
+      select: { eligibleCount: true, excludedCount: true, exclusionSummary: true, createdAt: true }
+    })
+    return { total: run.eligibleCount, excluded: run.exclusionSummary, estimatedAt: run.createdAt }
+  })
+
   app.get('/campaigns/:id/audience-preview', async (request, reply) => {
     const params = request.params as { id: string }
     const campaign = await prisma.campaign.findFirst({
@@ -830,8 +872,9 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.get('/campaigns/:id/manual-executions/latest', async (request, reply) => {
     const params = request.params as { id: string }
-    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id), select: { id: true, businessId: true } })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id), select: { id: true, businessId: true, deliveryMode: true } })
     if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
+    if (campaign.deliveryMode !== 'MANUAL_ASSISTED') return reply.status(409).send({ message: 'Esta campaña usa envío automático por Meta' })
     const execution = await prisma.communicationExecution.findFirst({
       where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL' },
       include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
@@ -847,7 +890,9 @@ export async function campaignRoutes(app: FastifyInstance) {
       include: { manualRecipients: { include: { customer: { select: { id: true, name: true, phone: true } } } } }
     })
     if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
-    if (!['WHATSAPP', 'BOTH'].includes(campaign.channel)) return reply.status(400).send({ message: 'La campaña debe incluir el canal WhatsApp' })
+    if (campaign.deliveryMode !== 'MANUAL_ASSISTED') return reply.status(409).send({ message: 'Esta campaña usa envío automático por Meta' })
+    if (campaign.type !== 'ONE_TIME' || campaign.scheduleMode !== 'IMMEDIATE') return reply.status(409).send({ message: 'El envío manual asistido sólo admite campañas puntuales al activar' })
+    if (campaign.channel !== 'WHATSAPP') return reply.status(409).send({ message: 'Sólo está disponible el canal WhatsApp para campañas' })
 
     const running = await prisma.communicationExecution.findFirst({
       where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL', status: 'RUNNING' },
@@ -897,8 +942,9 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (!status || !communicationStatuses.includes(status as CommunicationStatus) || !allowed.includes(status)) {
       return reply.status(400).send({ message: 'Estado de comunicación inválido' })
     }
-    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.campaignId), select: { id: true, businessId: true } })
+    const campaign = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.campaignId), select: { id: true, businessId: true, deliveryMode: true } })
     if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
+    if (campaign.deliveryMode !== 'MANUAL_ASSISTED') return reply.status(409).send({ message: 'Esta campaña usa envío automático por Meta' })
     try {
       await manualCampaignCommunicationService.transition({
         executionId: params.executionId,
@@ -929,12 +975,15 @@ export async function campaignRoutes(app: FastifyInstance) {
       }
     })
     if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
+    if (campaign.deliveryMode !== 'AUTOMATIC_API') return reply.status(409).send({ message: 'Esta campaña está configurada como manual asistida' })
+    if (campaign.channel !== 'WHATSAPP') return reply.status(409).send({ message: 'Sólo está disponible el canal WhatsApp para campañas' })
     if (campaign.type !== 'ONE_TIME') return reply.status(400).send({ message: 'Solo las campanas puntuales pueden ejecutarse una sola vez' })
     if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
       return reply.status(409).send({ message: 'La campana todavia no alcanzo su fecha programada' })
     }
     if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
     if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+    if (normalizeWhatsAppTemplateCategory(campaign.whatsappTemplate.category) !== 'MARKETING') return reply.status(400).send({ message: 'El envío automático exige una plantilla MARKETING aprobada' })
     const gate = await assertBusinessCanSendWhatsApp(campaign.businessId, 'CAMPAIGN')
     if (!gate.allowed) return reply.status(409).send({ message: gate.message })
 
@@ -965,6 +1014,7 @@ export async function campaignRoutes(app: FastifyInstance) {
   })
 
   app.post('/campaigns/:id/process-automated', async (request, reply) => {
+    if (AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED) return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente.' })
     const params = request.params as { id: string }
     const body = (request.body ?? {}) as { limit?: number | string }
     const requestedLimit = Math.max(1, Math.min(100, Number(body.limit ?? 25) || 25))
@@ -978,6 +1028,8 @@ export async function campaignRoutes(app: FastifyInstance) {
       }
     })
     if (!campaign) return sendAuthorizationFailure(reply, 'notFound')
+    if (campaign.deliveryMode !== 'AUTOMATIC_API') return reply.status(409).send({ message: 'Esta campaña está configurada como manual asistida' })
+    if (campaign.channel !== 'WHATSAPP') return reply.status(409).send({ message: 'Sólo está disponible el canal WhatsApp para campañas' })
     if (campaign.type !== 'AUTOMATED') return reply.status(400).send({ message: 'Solo las campanas automaticas usan este procesador' })
     if (campaign.status !== 'ACTIVE') return reply.status(400).send({ message: 'La campana automatica debe estar activa' })
     if (campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > new Date()) {
@@ -985,6 +1037,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (!campaign.whatsappTemplateId || !campaign.whatsappTemplate) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada antes de enviar' })
     if (campaign.whatsappTemplate.status !== 'APPROVED') return reply.status(400).send({ message: 'La plantilla debe estar aprobada por Meta' })
+    if (normalizeWhatsAppTemplateCategory(campaign.whatsappTemplate.category) !== 'MARKETING') return reply.status(400).send({ message: 'El envío automático exige una plantilla MARKETING aprobada' })
     const gate = await assertBusinessCanSendWhatsApp(campaign.businessId, 'CAMPAIGN')
     if (!gate.allowed) return reply.status(409).send({ message: gate.message })
 
@@ -1029,7 +1082,8 @@ export async function campaignRoutes(app: FastifyInstance) {
     return { status: 'COMPLETED', runId: run.id, ...summary }
   })
 
-  app.post('/campaign-jobs/process-retries', async (request) => {
+  app.post('/campaign-jobs/process-retries', async (request, reply) => {
+    if (AUTOMATED_CAMPAIGNS_TEMPORARILY_DISABLED) return reply.status(409).send({ message: 'Los reintentos de campañas automáticas están pausados temporalmente.' })
     const body = (request.body ?? {}) as { limit?: number | string }
     const limit = Math.max(1, Math.min(100, Number(body.limit ?? 100) || 100))
     const now = new Date()
@@ -1039,6 +1093,8 @@ export async function campaignRoutes(app: FastifyInstance) {
         retryCount: { lt: 3 },
         nextAttemptAt: { lte: now },
         campaign: {
+          deliveryMode: 'AUTOMATIC_API',
+          channel: 'WHATSAPP',
           type: 'AUTOMATED',
           status: 'ACTIVE',
           business: { accountStatus: 'ACTIVE' },
@@ -1436,7 +1492,17 @@ export async function campaignRoutes(app: FastifyInstance) {
   })
 }
 
-function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requireBusiness: true) {
+async function automaticCampaignReadiness(businessId: string, whatsappTemplateId: string | null) {
+  if (!whatsappTemplateId) return { allowed: false, message: 'Selecciona una plantilla MARKETING aprobada antes de activar el envío automático' }
+  const template = await prisma.whatsAppTemplate.findFirst({
+    where: { id: whatsappTemplateId, businessId, status: 'APPROVED', category: 'MARKETING' },
+    select: { id: true }
+  })
+  if (!template) return { allowed: false, message: 'El envío automático exige una plantilla MARKETING aprobada de este comercio' }
+  return assertBusinessCanSendWhatsApp(businessId, 'CAMPAIGN')
+}
+
+function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requireBusiness: true, requireSegmentDays = false) {
   const businessId = body.businessId?.trim()
   const name = body.name?.trim()
   const message = body.message?.trim()
@@ -1449,6 +1515,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
   const templateLastSyncedAt = body.templateLastSyncedAt ? new Date(body.templateLastSyncedAt) : null
   const whatsappTemplateId = body.whatsappTemplateId?.trim() || null
   const type = body.type?.trim().toUpperCase() || 'ONE_TIME'
+  const deliveryMode = body.deliveryMode?.trim().toUpperCase() || 'MANUAL_ASSISTED'
   const channel = body.channel?.trim().toUpperCase() || 'WHATSAPP'
   const status = body.status?.trim().toUpperCase() || 'DRAFT'
   const segment = body.segment?.trim().toUpperCase() || 'ALL'
@@ -1496,6 +1563,10 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     reply.status(400).send({ message: 'Tipo de campana invalido' })
     return null
   }
+  if (!CAMPAIGN_DELIVERY_MODES.includes(deliveryMode as (typeof CAMPAIGN_DELIVERY_MODES)[number])) {
+    reply.status(400).send({ message: 'Modo de envío inválido' })
+    return null
+  }
   if (!CAMPAIGN_CHANNELS.includes(channel as (typeof CAMPAIGN_CHANNELS)[number])) {
     reply.status(400).send({ message: 'Canal invalido' })
     return null
@@ -1508,7 +1579,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     reply.status(400).send({ message: 'Segmento invalido' })
     return null
   }
-  if (type === 'AUTOMATED' && ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'].includes(segment) && segmentDays === null) {
+  if (requireSegmentDays && ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'].includes(segment) && segmentDays === null) {
     reply.status(400).send({ message: 'Indica la cantidad de dias para este segmento' })
     return null
   }
@@ -1548,6 +1619,10 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     reply.status(400).send({ message: 'Una campana programada necesita fecha y hora' })
     return null
   }
+  if (deliveryMode === 'MANUAL_ASSISTED' && (type !== 'ONE_TIME' || scheduleMode !== 'IMMEDIATE')) {
+    reply.status(400).send({ message: 'Por ahora el envío manual asistido sólo admite campañas puntuales al activar' })
+    return null
+  }
   if (budgetLimit !== null && (!Number.isInteger(budgetLimit) || budgetLimit < 0)) {
     reply.status(400).send({ message: 'El presupuesto debe ser un numero entero mayor o igual a 0' })
     return null
@@ -1559,6 +1634,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     message,
     ...(imageUrl !== undefined ? { imageUrl } : {}),
     type,
+    deliveryMode: deliveryMode as (typeof CAMPAIGN_DELIVERY_MODES)[number],
     channel,
     status,
     segment,
@@ -1640,6 +1716,8 @@ async function sendCampaignRecipients(input: {
   campaign: {
     id: string
     businessId: string
+    deliveryMode: 'MANUAL_ASSISTED' | 'AUTOMATIC_API'
+    channel: string
     whatsappTemplateId: string | null
     restartAfterVisit: boolean
   }
@@ -1655,6 +1733,10 @@ async function sendCampaignRecipients(input: {
   runId?: string
   now?: Date
 }) {
+  if (input.campaign.deliveryMode !== 'AUTOMATIC_API') {
+    throw new Error('Una campaña manual nunca puede enviarse por la API de Meta')
+  }
+  if (input.campaign.channel !== 'WHATSAPP') throw new Error('Sólo WhatsApp puede enviarse por la API de campañas')
   const now = input.now ?? new Date()
   let sent = 0
   let failed = 0

@@ -320,6 +320,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           crmUi.includes("'/crm/conversations/' + encodeURIComponent(deposit.conversationId) + '/deposit/' + action"),
         'una seña de WhatsApp debe usar el flujo de revisión de su conversación'
       )
+      const conversationApproveStart = crm.indexOf("app.post('/crm/conversations/:id/deposit/approve'")
+      const conversationRejectStart = crm.indexOf("app.post('/crm/conversations/:id/deposit/reject'", conversationApproveStart)
+      const conversationApproveRoute = crm.slice(conversationApproveStart, conversationRejectStart)
+      assert.equal(
+        conversationApproveRoute.includes('await sendCrmAutomatedMessage({'),
+        false,
+        'la confirmación durable de la seña no debe esperar la latencia externa de WhatsApp'
+      )
+      assert.equal(
+        conversationApproveRoute.includes('bookingDepositService.expireOverdue()'),
+        false,
+        'aprobar una seña recibida no debe barrer señas vencidas de todos los comercios'
+      )
+      assert.ok(
+        conversationApproveRoute.includes('void sendCrmAutomatedMessage({') &&
+          conversationApproveRoute.includes(".catch((error) => request.log.error({ error, depositId: deposit.id }, 'No se pudo enviar la confirmacion de la seña'))"),
+        'el aviso de WhatsApp debe continuar en segundo plano y registrar sus fallos'
+      )
       assert.ok(
         crmUi.includes('@container conversation-chat (max-width: 960px)'),
         'el menú de acciones debe entrar en modo tres puntos en paneles medianos'

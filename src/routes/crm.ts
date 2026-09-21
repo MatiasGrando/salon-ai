@@ -1957,7 +1957,6 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     if (!deposit) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
-    await bookingDepositService.expireOverdue()
     if (!deposit.conversationId || !deposit.conversation) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
@@ -2117,7 +2116,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           select: { name: true }
         })
       : null
-    await sendCrmAutomatedMessage({
+    void sendCrmAutomatedMessage({
       conversationId: deposit.conversationId,
       businessId: deposit.businessId,
       phone: deposit.conversation.phone,
@@ -2130,7 +2129,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
         : confirmationText,
       provider: 'crm_deposit_review',
       whatsapp: app.authorizationProviders.whatsapp
-    })
+    }).catch((error) => request.log.error({ error, depositId: deposit.id }, 'No se pudo enviar la confirmacion de la seña'))
     publishCrmConversationUpdated({
       id: deposit.conversationId,
       businessId: deposit.businessId,

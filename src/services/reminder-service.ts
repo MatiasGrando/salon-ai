@@ -278,12 +278,13 @@ async function businessIsOperational(businessId: string) {
 
 export async function transitionManualReminder(input: {
   businessId: string
+  automationId: string
   deliveryId: string
   status: ReminderManualStatus
   note?: string | null
 }) {
   const delivery = await prisma.reminderDelivery.findFirst({
-    where: { id: input.deliveryId, businessId: input.businessId },
+    where: { id: input.deliveryId, businessId: input.businessId, reminderAutomationId: input.automationId },
     include: {
       customer: { select: { id: true, name: true, phone: true } },
       reminderAutomation: { select: { mode: true, sendBeforeMinutes: true } },
@@ -323,29 +324,41 @@ export async function transitionManualReminder(input: {
   })
   if (!transition.count) throw new Error('El recordatorio cambi\u00f3 mientras lo estabas gestionando. Actualiz\u00e1 la lista.')
   if (input.status === 'SENT') {
-    await recordCommunicationAttempt.execute({
-      businessId: delivery.businessId,
-      customerId: delivery.customer.id,
-      customerName: delivery.customer.name,
-      phone: delivery.customer.phone,
-      message: delivery.messageSnapshot || 'Recordatorio de turno',
-      sourceType: 'REMINDER',
-      sourceId: delivery.reminderAutomationId,
-      sourceDeliveryId: delivery.id,
-      purpose: 'OPERATIONAL',
-      mode: 'WHATSAPP_MANUAL',
-      status: 'SENT',
-      occurredAt: now,
-      metadata: { appointmentId: delivery.appointmentId, scheduledFor: delivery.scheduledFor.toISOString() }
-    })
-    await recordReminderOutboundMessage({
-      businessId: delivery.businessId,
-      phone: delivery.customer.phone,
-      text: delivery.messageSnapshot || 'Recordatorio de turno',
-      providerMessageId: delivery.providerMessageId
-    })
+    await Promise.all([
+      recordCommunicationAttempt.execute({
+        businessId: delivery.businessId,
+        customerId: delivery.customer.id,
+        customerName: delivery.customer.name,
+        phone: delivery.customer.phone,
+        message: delivery.messageSnapshot || 'Recordatorio de turno',
+        sourceType: 'REMINDER',
+        sourceId: delivery.reminderAutomationId,
+        sourceDeliveryId: delivery.id,
+        purpose: 'OPERATIONAL',
+        mode: 'WHATSAPP_MANUAL',
+        status: 'SENT',
+        occurredAt: now,
+        metadata: { appointmentId: delivery.appointmentId, scheduledFor: delivery.scheduledFor.toISOString() }
+      }),
+      recordReminderOutboundMessage({
+        businessId: delivery.businessId,
+        phone: delivery.customer.phone,
+        text: delivery.messageSnapshot || 'Recordatorio de turno',
+        providerMessageId: delivery.providerMessageId
+      })
+    ])
   }
-  return prisma.reminderDelivery.findUniqueOrThrow({ where: { id: delivery.id } })
+  return {
+    ...delivery,
+    status: input.status,
+    mode: input.status === 'PENDING' ? delivery.mode : 'WHATSAPP_MANUAL',
+    manualNote: input.note?.trim().slice(0, 500) || null,
+    ...(input.status === 'OPENED' ? { openedAt: now } : {}),
+    ...(input.status === 'SENT' ? { sentAt: now } : {}),
+    ...(input.status === 'SENT' && delivery.attemptNumber < 1 ? { attemptNumber: 1 } : {}),
+    ...(input.status === 'SKIPPED' ? { skippedAt: now } : {}),
+    ...(input.status === 'PENDING' ? { lastError: null } : {})
+  }
 }
 
 async function recordReminderOutboundMessage(input: {
