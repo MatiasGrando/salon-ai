@@ -10183,6 +10183,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-weight: 700;
     }
 
+    .professional-service-option input[type="checkbox"] {
+      width: 20px !important;
+      min-width: 20px;
+      height: 20px;
+      margin: 0;
+      flex: 0 0 20px;
+      accent-color: #2563eb;
+    }
+
+    .professional-service-option > span {
+      min-width: 0;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
     .professional-service-option:hover {
       background: #eef3ff;
     }
@@ -13652,6 +13667,85 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         width: 100%;
         max-width: 100%;
         border-radius: 8px;
+      }
+
+      body[data-current-section="professionals"] .professionals-view.form-open {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      body[data-current-section="professionals"] .professionals-view.form-open .professionals-shell {
+        height: 100%;
+        min-height: 0;
+        display: block;
+      }
+
+      body[data-current-section="professionals"] .professionals-view.form-open .professionals-main {
+        display: none;
+      }
+
+      body[data-current-section="professionals"] .professionals-form-panel {
+        height: 100%;
+        max-height: 100%;
+        border: 0;
+        border-radius: 0;
+        overflow: hidden;
+      }
+
+      body[data-current-section="professionals"] .professional-panel-scroll {
+        height: 100%;
+        max-height: 100%;
+        padding: 24px 16px calc(18px + env(safe-area-inset-bottom));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body[data-current-section="professionals"] .professional-panel-close {
+        top: 12px;
+        right: 14px;
+        width: 44px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+      }
+
+      body[data-current-section="professionals"] .professionals-form-panel h3 {
+        padding-right: 48px;
+        font-size: 22px;
+      }
+
+      body[data-current-section="professionals"] .professional-form-section > summary {
+        min-height: 52px;
+        padding: 0 14px;
+        font-size: 15px;
+      }
+
+      body[data-current-section="professionals"] .professional-form-section-content {
+        padding: 16px 14px;
+      }
+
+      body[data-current-section="professionals"] .professional-services-list {
+        max-height: min(42dvh, 340px);
+        padding: 6px;
+      }
+
+      body[data-current-section="professionals"] .professional-service-option {
+        min-height: 48px;
+        padding: 10px 8px;
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr);
+        align-items: start;
+        gap: 10px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      body[data-current-section="professionals"] .professional-form .config-actions {
+        bottom: 0;
+        margin: 18px -16px 0;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
       }
 
       .customer-table-wrap,
@@ -27837,7 +27931,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.professionalFeedback.textContent = 'Editando profesional.'
       hideProfessionalImpact()
       els.professionalBasicSection.open = !options.focusHours
-      els.professionalServicesSection.open = false
+      els.professionalServicesSection.open = window.matchMedia('(max-width: 767px)').matches
       if (els.professionalCompensationSection) els.professionalCompensationSection.open = false
       els.professionalScheduleSection.open = Boolean(options.focusHours)
       els.professionalSettingsSection.open = false
@@ -27926,6 +28020,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function openProfessionalPanel() {
       els.professionalPanel.hidden = false
       els.professionalsView.classList.add('form-open')
+      els.professionalsView.scrollTop = 0
+      const professionalPanelScroll = els.professionalPanel.querySelector('.professional-panel-scroll')
+      professionalPanelScroll?.scrollTo({ top: 0, behavior: 'auto' })
     }
 
     function closeProfessionalPanel() {
