@@ -33,11 +33,15 @@ assert.match(source, /agenda-gcal-event\.is-status-compact/)
 assert.match(source, /agenda-gcal-event\.is-status-icons/)
 assert.match(source, /agenda-event\.is-status-compact/)
 assert.match(source, /agenda-event\.is-status-icons/)
-assert.match(source, /is-status-icons \.agenda-status-badge[\s\S]*width: 26px;[\s\S]*height: 26px;/)
-assert.match(source, /is-status-icons \.agenda-status-badge::before[\s\S]*font-size: 14px;/)
+assert.match(source, /--agenda-status-rail-width:\s*64px/)
+assert.match(source, /agenda-gcal-event \.agenda-status-row[\s\S]*top:\s*0;[\s\S]*right:\s*0;[\s\S]*bottom:\s*0;[\s\S]*width:\s*var\(--agenda-status-rail-width\)/)
+assert.match(source, /agenda-gcal-event \.agenda-status-badge[\s\S]*flex:\s*1 1 0;[\s\S]*height:\s*100%;[\s\S]*border-radius:\s*0;/)
+assert.match(source, /agenda-gcal-event \.agenda-status-label[\s\S]*display:\s*none !important;/)
 
 const enabledUi = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: true })
 const disabledUi = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })
+assert.doesNotMatch(enabledUi, /class=\"agenda-gcal-event-add\"/)
+assert.doesNotMatch(enabledUi, />Otro<\/span>/)
 const enabledBadgeCalls = enabledUi.match(/agendaAppointmentStatusBadgesHtml\(appointment\)/g) || []
 const disabledBadgeCalls = disabledUi.match(/agendaAppointmentStatusBadgesHtml\(appointment\)/g) || []
 const enabledDensityCalls = enabledUi.match(/agendaStatusDensityClass\(duration\)/g) || []

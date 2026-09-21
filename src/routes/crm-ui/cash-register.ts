@@ -232,6 +232,34 @@ export const cashRegisterStyles = `
     }
 
     .cash-professional-view { display:grid; gap:16px; }
+    .cash-professional-period { padding:14px 16px; display:grid; gap:12px; }
+    .cash-professional-period-dates { display:grid; grid-template-columns:minmax(150px,210px) minmax(150px,210px) auto minmax(190px,1fr); gap:10px; align-items:end; }
+    .cash-professional-period-dates label { display:grid; gap:5px; color:#475569; font-size:12px; font-weight:700; }
+    .cash-professional-period-dates input { min-height:40px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
+    .cash-professional-period-selected { min-height:40px; padding:4px 12px; border-left:1px solid #dbe5f3; display:grid; align-content:center; }
+    .cash-professional-period-selected span { color:#64748b; font-size:11px; }
+    .cash-professional-period-selected strong { color:#0f172a; font-size:13px; }
+    .cash-professional-summary-head, .cash-professional-summary-row { display:grid; grid-template-columns:34px minmax(150px,1.35fr) repeat(5,minmax(110px,1fr)); align-items:stretch; }
+    .cash-professional-summary-head { color:#64748b; background:#f8fafc; font-size:11px; font-weight:750; }
+    .cash-professional-summary-head > *, .cash-professional-summary-row > * { padding:11px 10px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; }
+    .cash-professional-summary-row > :not(:last-child), .cash-professional-summary-head > :not(:last-child) { border-right:1px solid #eef2f7; }
+    .cash-professional-toggle { min-height:42px; padding:0; color:#1e3a8a; background:transparent; font-size:17px; font-weight:900; }
+    .cash-professional-current-balance { border-left:2px solid #60a5fa !important; justify-content:center; flex-direction:column; background:#eff6ff; color:#1d4ed8; font-size:20px; line-height:1.1; font-weight:900; text-align:center; }
+    .cash-professional-current-balance small { margin-top:3px; color:#64748b; font-size:9px; font-weight:650; }
+    .cash-professional-summary-head .cash-professional-current-balance { font-size:12px; }
+    .cash-professional-current-balance.negative { color:#dc2626; background:#fff1f2; }
+    .cash-professional-period-balance.positive { color:#15803d; font-weight:850; }
+    .cash-professional-period-balance.negative { color:#dc2626; font-weight:850; }
+    .cash-professional-services { padding:0 10px 10px 44px; background:#f8fbff; border-bottom:1px solid #dbeafe; }
+    .cash-professional-services-head, .cash-professional-service-row { min-width:720px; display:grid; grid-template-columns:110px minmax(170px,1.2fr) minmax(160px,1fr) minmax(170px,1fr) 110px; gap:10px; align-items:center; padding:9px 10px; border-bottom:1px solid #e2e8f0; }
+    .cash-professional-services-head { color:#64748b; font-size:10px; font-weight:800; }
+    .cash-professional-service-row { font-size:12px; }
+    .cash-professional-service-row strong:last-child { text-align:right; }
+    .cash-professional-movement-head, .cash-professional-movement-row { min-width:760px; display:grid; grid-template-columns:140px minmax(130px,1fr) 130px minmax(180px,1.2fr) 120px 140px; gap:10px; align-items:center; padding:11px 10px; border-bottom:1px solid #e2e8f0; }
+    .cash-professional-movement-head { color:#64748b; background:#f8fafc; font-size:11px; font-weight:800; }
+    .cash-professional-movement-row { font-size:12px; }
+    .cash-professional-movement-row .negative { color:#dc2626; }
+    .cash-professional-movements { padding-bottom:0; overflow:hidden; }
     .cash-professional-heading { padding:16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
     .cash-professional-heading h3, .cash-professional-payment-panel h3 { margin:0; }
     .cash-professional-heading p, .cash-professional-payment-panel p { margin:4px 0 0; color:#64748b; }
@@ -244,7 +272,7 @@ export const cashRegisterStyles = `
     .cash-professional-payment-form label { display:grid; gap:6px; font-size:12px; font-weight:700; }
     .cash-professional-payment-form input, .cash-professional-payment-form select { min-height:40px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
     .cash-professional-observation { grid-column:1 / -2; }
-    @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-table { overflow:auto; } .cash-professional-payment-form { grid-template-columns:1fr; } .cash-professional-observation { grid-column:auto; } }
+    @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-table { overflow:auto; } .cash-professional-payment-form { grid-template-columns:1fr; } .cash-professional-observation { grid-column:auto; } .cash-professional-period-dates { grid-template-columns:1fr 1fr; } .cash-professional-period-selected { border-left:0; padding-left:0; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
 `
 
 export const cashRegisterMarkup = `
@@ -260,14 +288,29 @@ export const cashRegisterMarkup = `
           <button class="cash-view-tab" id="cash-view-professionals" type="button">Liquidaciones</button>
         </nav>
         <section class="cash-professional-view" id="cash-professional-view" hidden>
-          <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Servicios realizados, saldos, pagos y adelantos.</p></div><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button></section>
+          <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button></section>
+          <section class="cash-panel cash-professional-period">
+            <div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
+              <button class="cash-period-preset" data-cash-professional-preset="today" type="button">Hoy</button>
+              <button class="cash-period-preset active" data-cash-professional-preset="week" type="button">Semana</button>
+              <button class="cash-period-preset" data-cash-professional-preset="month" type="button">Mes</button>
+              <button class="cash-period-preset" data-cash-professional-preset="custom" type="button">Personalizado</button>
+            </div>
+            <div class="cash-professional-period-dates">
+              <label>Desde<input id="cash-professional-period-from" type="date"></label>
+              <label>Hasta<input id="cash-professional-period-to" type="date"></label>
+              <button class="primary" id="cash-professional-period-apply" type="button">Aplicar</button>
+              <div class="cash-professional-period-selected"><span>Per&iacute;odo seleccionado</span><strong id="cash-professional-period-label">—</strong></div>
+            </div>
+            <p class="cash-feedback" id="cash-professional-period-feedback" role="status"></p>
+          </section>
           <section class="cash-panel cash-professional-panel"><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
           <section class="cash-panel cash-professional-payment-panel" id="cash-professional-payment-panel"><div><h3>Registrar pago o adelanto</h3><p>Queda asentado en la cuenta del profesional y en Caja.</p></div>
             <form class="cash-professional-payment-form" id="cash-professional-payment-form">
               <label>Profesional<select id="cash-professional-payment-professional" required></select></label><label>Tipo<select id="cash-professional-payment-type"><option value="PAYMENT">Pago</option><option value="ADVANCE">Adelanto</option></select></label><label>Importe<input id="cash-professional-payment-amount" type="number" min="1" step="1" required></label><label>Medio<select id="cash-professional-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia</option><option value="CARD">Tarjeta</option></select></label><label class="cash-professional-observation">Observaci&oacute;n<input id="cash-professional-payment-observation" maxlength="160"></label><button class="primary" type="submit">Registrar</button>
             </form><p class="cash-feedback" id="cash-professional-payment-feedback"></p>
           </section>
-          <section class="cash-panel cash-professional-panel"><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes.</p></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div></section>
+          <section class="cash-panel cash-professional-panel cash-professional-movements"><div class="cash-section-head"><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes del per&iacute;odo.</p></div></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div><div class="cash-pagination"><span id="cash-professional-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-professional-previous" type="button">Anterior</button><button class="secondary" id="cash-professional-next" type="button">Siguiente</button></div></div></section>
         </section>
         <section class="cash-period-view" id="cash-period-view" hidden>
           <section class="cash-panel cash-period-toolbar">
@@ -533,7 +576,7 @@ export const appointmentFinanceMarkup = `
 
 export const cashRegisterScript = `
     const cashUi = {
-      view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'),
+      view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'), professionalPeriodFrom: document.getElementById('cash-professional-period-from'), professionalPeriodTo: document.getElementById('cash-professional-period-to'), professionalPeriodApply: document.getElementById('cash-professional-period-apply'), professionalPeriodLabel: document.getElementById('cash-professional-period-label'), professionalPeriodFeedback: document.getElementById('cash-professional-period-feedback'), professionalPageInfo: document.getElementById('cash-professional-page-info'), professionalPrevious: document.getElementById('cash-professional-previous'), professionalNext: document.getElementById('cash-professional-next'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
       gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
       typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
@@ -551,7 +594,7 @@ export const cashRegisterScript = `
       createSummaryPrice: document.getElementById('appointment-create-summary-price'), createSummaryDiscount: document.getElementById('appointment-create-summary-discount'), createSummaryTotal: document.getElementById('appointment-create-summary-total'), createSummaryPaid: document.getElementById('appointment-create-summary-paid'), createSummaryDue: document.getElementById('appointment-create-summary-due'), createCashRequired: document.getElementById('appointment-create-cash-required'), createOpenCash: document.getElementById('appointment-create-open-cash'), createPaymentFeedback: document.getElementById('appointment-create-payment-feedback'),
       finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeServiceSubtotal: document.getElementById('appointment-finance-service-subtotal'), financeProductSubtotal: document.getElementById('appointment-finance-product-subtotal'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalToggle: document.getElementById('appointment-adjust-total-toggle'), totalSubmit: document.getElementById('appointment-total-submit'), totalCancel: document.getElementById('appointment-total-cancel'), estimatedTotal: document.getElementById('appointment-estimated-total'), totalReason: document.getElementById('appointment-total-reason'), originalTotal: document.getElementById('appointment-original-total'), minimumTotal: document.getElementById('appointment-minimum-total'), minimumTotalRow: document.getElementById('appointment-minimum-total-row'), totalHelp: document.getElementById('appointment-total-help'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentCompleteRow: document.getElementById('appointment-payment-complete-row'), paymentComplete: document.getElementById('appointment-payment-complete'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
-    state.cashRegister = { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], editingExpenseCategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+    state.cashRegister = { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], editingExpenseCategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
 
     function cashCollection(payload) {
       if (Array.isArray(payload)) return payload
@@ -1196,30 +1239,106 @@ export const cashRegisterScript = `
       }
     }
 
+    function setProfessionalPeriodPreset(preset) {
+      state.cashRegister.professionalPeriodPreset = preset
+      document.querySelectorAll('[data-cash-professional-preset]').forEach((button) => button.classList.toggle('active', button.dataset.cashProfessionalPreset === preset))
+      if (preset !== 'custom') {
+        const dates = cashPeriodDates(preset)
+        cashUi.professionalPeriodFrom.value = dates.from
+        cashUi.professionalPeriodTo.value = dates.to
+      }
+    }
+
+    function professionalPeriodDates() {
+      if (!cashUi.professionalPeriodFrom.value || !cashUi.professionalPeriodTo.value) throw new Error('Elegí la fecha desde y hasta.')
+      const from = new Date(cashUi.professionalPeriodFrom.value + 'T00:00:00')
+      const to = new Date(cashUi.professionalPeriodTo.value + 'T00:00:00')
+      const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1
+      if (!Number.isFinite(days) || days < 1) throw new Error('La fecha hasta no puede ser anterior a la fecha desde.')
+      if (days > 31) throw new Error('El período no puede superar 31 días.')
+      return { from: cashUi.professionalPeriodFrom.value, to: cashUi.professionalPeriodTo.value }
+    }
+
+    function professionalPeriodLabel(dates) {
+      const format = (value) => new Date(value + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+      return format(dates.from) + ' — ' + format(dates.to)
+    }
+
+    function professionalRuleLabel(service) {
+      if (service.ruleMode === 'PERCENTAGE') return escapeHtml(String(Number(service.rulePercentage || 0))) + '% sobre ' + escapeHtml(cashMoney(service.baseAmount))
+      if (service.ruleMode === 'FIXED') return 'Fijo ' + escapeHtml(cashMoney(service.ruleFixedAmount))
+      return 'Sin liquidaci&oacute;n'
+    }
+
+    function renderProfessionalServiceDetails(item) {
+      if (!state.cashRegister.professionalExpandedIds.has(item.id)) return ''
+      const services = item.services || []
+      if (!services.length) return '<div class="cash-professional-services"><div class="cash-inline-state">No hay servicios realizados en este per&iacute;odo.</div></div>'
+      return '<div class="cash-professional-services"><div class="cash-professional-services-head"><span>Fecha</span><span>Servicio</span><span>Turno / cliente</span><span>Forma de c&aacute;lculo</span><span>Importe</span></div>' + services.map((service) => '<div class="cash-professional-service-row"><span>' + escapeHtml(cashDate(service.effectiveAt)) + '</span><strong>' + escapeHtml(service.appointment?.service?.name || 'Servicio') + '</strong><span>' + escapeHtml((service.appointment?.startAt ? new Date(service.appointment.startAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: state.business?.timezone }) : '—') + ' · ' + (service.appointment?.customer?.name || 'Cliente')) + '</span><span>' + professionalRuleLabel(service) + '</span><strong>' + escapeHtml(cashMoney(service.amount)) + '</strong></div>').join('') + '</div>'
+    }
+
+    function settlementBalanceClass(value) {
+      const amount = Number(value || 0)
+      return amount < 0 ? 'negative' : amount > 0 ? 'positive' : ''
+    }
+
     function renderProfessionalSettlements(result) {
+      state.cashRegister.professionalSummaryResult = result
       const items = result.items || []
+      const currentProfessionalId = cashUi.professionalPaymentProfessional.value
       cashUi.professionalPaymentProfessional.innerHTML = items.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + '</option>').join('') || '<option value="">Sin profesionales</option>'
-      cashUi.professionalSummary.innerHTML = items.length ? '<div class="cash-professional-row cash-professional-row-head"><strong>Profesional</strong><span>Realizados</span><span>Generado</span><span>Pagos/adelantos</span><strong>Saldo</strong></div>' + items.map((item) => '<div class="cash-professional-row"><strong>' + escapeHtml(item.name) + '</strong><span>' + Number(item.completedServices || 0) + '</span><span>' + escapeHtml(cashMoney(item.earned)) + '</span><span>' + escapeHtml(cashMoney(item.paid)) + '</span><strong class="' + (Number(item.balance) < 0 ? 'negative' : '') + '">' + escapeHtml(cashMoney(item.balance)) + '</strong></div>').join('') : '<div class="cash-inline-state">No hay profesionales cargados.</div>'
+      if (items.some((item) => item.id === currentProfessionalId)) cashUi.professionalPaymentProfessional.value = currentProfessionalId
+      const head = '<div class="cash-professional-summary-head"><span></span><strong>Profesional</strong><span>Realizados</span><span>Generado per&iacute;odo</span><span>Pagos/adelantos per&iacute;odo</span><span>Saldo del per&iacute;odo</span><strong class="cash-professional-current-balance">Saldo actual<small>Hist&oacute;rico · no cambia con el filtro</small></strong></div>'
+      cashUi.professionalSummary.innerHTML = items.length ? head + items.map((item) => {
+        const expanded = state.cashRegister.professionalExpandedIds.has(item.id)
+        const currentBalance = Number(item.currentBalance || 0)
+        const periodBalance = Number(item.periodBalance || 0)
+        return '<div class="cash-professional-summary-row"><button class="cash-professional-toggle" type="button" data-professional-settlement-toggle="' + escapeHtml(item.id) + '" aria-expanded="' + expanded + '" aria-label="' + (expanded ? 'Ocultar' : 'Ver') + ' servicios de ' + escapeHtml(item.name) + '">' + (expanded ? '⌄' : '›') + '</button><strong>' + escapeHtml(item.name) + '</strong><span>' + Number(item.completedServices || 0) + '</span><span>' + escapeHtml(cashMoney(item.periodEarned)) + '</span><span>' + escapeHtml(cashMoney(item.periodPaid)) + '</span><strong class="cash-professional-period-balance ' + settlementBalanceClass(periodBalance) + '">' + escapeHtml(cashMoney(periodBalance)) + '</strong><strong class="cash-professional-current-balance ' + settlementBalanceClass(currentBalance) + '">' + escapeHtml(cashMoney(currentBalance)) + (currentBalance < 0 ? '<small>a favor</small>' : '') + '</strong></div>' + renderProfessionalServiceDetails(item)
+      }).join('') : '<div class="cash-inline-state">No hay profesionales cargados.</div>'
     }
 
-    function renderProfessionalSettlementEntries(entries) {
+    function renderProfessionalSettlementEntries(result) {
+      const entries = result.items || []
       const labels = { EARNING: 'Servicio realizado', PAYMENT: 'Pago', ADVANCE: 'Adelanto', ADJUSTMENT: 'Ajuste', REVERSAL: 'Reversión' }
+      const head = '<div class="cash-professional-movement-head"><span>Fecha</span><span>Profesional</span><span>Tipo</span><span>Servicio / detalle</span><span>Cliente</span><span>Importe</span></div>'
       cashUi.professionalEntries.innerHTML = entries.length
-        ? entries.map((entry) => '<div class="cash-professional-row"><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong><span>' + escapeHtml(labels[entry.type] || entry.type) + '</span><span>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + '</span><span>' + escapeHtml(cashDate(entry.effectiveAt)) + '</span><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : '') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></div>').join('')
-        : '<div class="cash-inline-state">Todavía no hay movimientos profesionales.</div>'
+        ? head + entries.map((entry) => '<div class="cash-professional-movement-row"><span>' + escapeHtml(cashDate(entry.effectiveAt)) + '</span><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong><span>' + escapeHtml(labels[entry.type] || entry.type) + '</span><span>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + '</span><span>' + escapeHtml(entry.appointment?.customer?.name || '—') + '</span><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : '') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></div>').join('')
+        : '<div class="cash-inline-state">Todav&iacute;a no hay movimientos profesionales en el per&iacute;odo.</div>'
+      state.cashRegister.professionalPage = Number(result.page || 1)
+      state.cashRegister.professionalTotalPages = Number(result.totalPages || 1)
+      const total = Number(result.total || 0)
+      const from = total ? (state.cashRegister.professionalPage - 1) * Number(result.pageSize || 10) + 1 : 0
+      const to = Math.min(total, state.cashRegister.professionalPage * Number(result.pageSize || 10))
+      cashUi.professionalPageInfo.textContent = total ? from + '–' + to + ' de ' + total : 'Sin movimientos'
+      cashUi.professionalPrevious.disabled = state.cashRegister.professionalPage <= 1
+      cashUi.professionalNext.disabled = state.cashRegister.professionalPage >= state.cashRegister.professionalTotalPages
     }
 
-    async function loadProfessionalSettlements() {
+    async function loadProfessionalSettlements(options = {}) {
+      let dates
+      try {
+        dates = professionalPeriodDates()
+        cashUi.professionalPeriodFeedback.textContent = ''
+        cashUi.professionalPeriodFeedback.className = 'cash-feedback'
+      } catch (error) {
+        cashUi.professionalPeriodFeedback.textContent = error.message
+        cashUi.professionalPeriodFeedback.className = 'cash-feedback error'
+        return
+      }
+      const page = options.page || state.cashRegister.professionalPage || 1
+      const params = new URLSearchParams({ from: dates.from, to: dates.to })
+      const entryParams = new URLSearchParams({ from: dates.from, to: dates.to, page: String(page), pageSize: '10' })
+      cashUi.professionalPeriodLabel.textContent = professionalPeriodLabel(dates)
       cashUi.professionalSummary.innerHTML = '<div class="cash-inline-state">Cargando liquidaciones...</div>'
       cashUi.professionalEntries.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
       cashUi.professionalPaymentPanel.hidden = !canUseCashPermission('canManageProfessionalSettlements')
       try {
         const [summary, entries] = await Promise.all([
-          getJson(cashScoped('/professional-settlements/summary')),
-          getJson(cashScoped('/professional-settlements/entries'))
+          getJson(cashScoped('/professional-settlements/summary?' + params.toString())),
+          getJson(cashScoped('/professional-settlements/entries?' + entryParams.toString()))
         ])
         renderProfessionalSettlements(summary)
-        renderProfessionalSettlementEntries(entries || [])
+        renderProfessionalSettlementEntries(entries)
       } catch (error) {
         const message = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
         cashUi.professionalSummary.innerHTML = message
@@ -2005,8 +2124,31 @@ export const cashRegisterScript = `
     cashUi.viewDay.addEventListener('click', () => setCashView('day'))
     cashUi.viewPeriod.addEventListener('click', () => setCashView('period'))
     cashUi.viewProfessionals.addEventListener('click', () => setCashView('professionals'))
-    cashUi.professionalRefresh.addEventListener('click', loadProfessionalSettlements)
+    cashUi.professionalRefresh.addEventListener('click', () => loadProfessionalSettlements({ page: state.cashRegister.professionalPage }))
     cashUi.professionalPaymentForm.addEventListener('submit', submitProfessionalPayment)
+    cashUi.professionalSummary.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-professional-settlement-toggle]')
+      if (!button) return
+      const professionalId = button.dataset.professionalSettlementToggle
+      if (state.cashRegister.professionalExpandedIds.has(professionalId)) state.cashRegister.professionalExpandedIds.delete(professionalId)
+      else state.cashRegister.professionalExpandedIds.add(professionalId)
+      if (state.cashRegister.professionalSummaryResult) renderProfessionalSettlements(state.cashRegister.professionalSummaryResult)
+    })
+    document.querySelectorAll('[data-cash-professional-preset]').forEach((button) => button.addEventListener('click', () => {
+      setProfessionalPeriodPreset(button.dataset.cashProfessionalPreset)
+      if (button.dataset.cashProfessionalPreset !== 'custom') {
+        state.cashRegister.professionalPage = 1
+        loadProfessionalSettlements({ page: 1 })
+      }
+    }))
+    cashUi.professionalPeriodFrom.addEventListener('change', () => setProfessionalPeriodPreset('custom'))
+    cashUi.professionalPeriodTo.addEventListener('change', () => setProfessionalPeriodPreset('custom'))
+    cashUi.professionalPeriodApply.addEventListener('click', () => {
+      state.cashRegister.professionalPage = 1
+      loadProfessionalSettlements({ page: 1 })
+    })
+    cashUi.professionalPrevious.addEventListener('click', () => loadProfessionalSettlements({ page: Math.max(1, state.cashRegister.professionalPage - 1) }))
+    cashUi.professionalNext.addEventListener('click', () => loadProfessionalSettlements({ page: Math.min(state.cashRegister.professionalTotalPages, state.cashRegister.professionalPage + 1) }))
     document.querySelectorAll('[data-cash-period-preset]').forEach((button) => button.addEventListener('click', () => {
       setCashPeriodPreset(button.dataset.cashPeriodPreset)
       if (button.dataset.cashPeriodPreset !== 'custom') { state.cashRegister.periodPage = 1; loadCashPeriod({ page: 1 }) }
@@ -2021,6 +2163,7 @@ export const cashRegisterScript = `
     cashUi.periodPrevious.addEventListener('click', () => loadCashPeriod({ page: Math.max(1, state.cashRegister.periodPage - 1) }))
     cashUi.periodNext.addEventListener('click', () => loadCashPeriod({ page: Math.min(state.cashRegister.periodTotalPages, state.cashRegister.periodPage + 1) }))
     setCashPeriodPreset('month')
+    setProfessionalPeriodPreset('week')
     cashUi.refresh.addEventListener('click', () => loadCashRegister().catch((error) => showCrmToast(error.message, 'error')))
     cashUi.daySelect.addEventListener('change', () => selectCashDay(cashUi.daySelect.value).catch((error) => showCrmToast(error.message, 'error')))
     cashUi.typeFilter.addEventListener('change', () => loadCashEntries())

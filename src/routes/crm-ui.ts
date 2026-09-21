@@ -15398,6 +15398,135 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       content: "!";
     }
 
+    .agenda-gcal-event,
+    .agenda-event {
+      --agenda-status-rail-width: 64px;
+    }
+
+    .agenda-gcal-event .agenda-gcal-event-main {
+      padding-right: calc(var(--agenda-status-rail-width) + 7px);
+    }
+
+    .agenda-event {
+      padding-right: calc(var(--agenda-status-rail-width) + 7px);
+    }
+
+    .agenda-gcal-event .agenda-status-row,
+    .agenda-event .agenda-status-row,
+    .agenda-gcal-event.is-status-compact .agenda-status-row,
+    .agenda-gcal-event.is-status-icons .agenda-status-row,
+    .agenda-event.is-status-compact .agenda-status-row,
+    .agenda-event.is-status-icons .agenda-status-row {
+      position: absolute;
+      z-index: 7;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: var(--agenda-status-rail-width);
+      min-width: var(--agenda-status-rail-width);
+      height: 100%;
+      margin: 0 !important;
+      display: flex !important;
+      align-items: stretch;
+      flex-wrap: nowrap;
+      gap: 0;
+      overflow: hidden !important;
+      border-radius: 0 7px 7px 0;
+    }
+
+    .agenda-event .agenda-status-row {
+      border-radius: 0 6px 6px 0;
+    }
+
+    .agenda-gcal-event .agenda-status-badge,
+    .agenda-event .agenda-status-badge,
+    .agenda-gcal-event.is-status-compact .agenda-status-badge,
+    .agenda-gcal-event.is-status-icons .agenda-status-badge,
+    .agenda-event.is-status-compact .agenda-status-badge,
+    .agenda-event.is-status-icons .agenda-status-badge {
+      flex: 1 1 0;
+      width: auto;
+      min-width: 0;
+      height: 100%;
+      min-height: 100%;
+      padding: 0;
+      border: 0;
+      border-left: 1px solid rgba(255, 255, 255, .72);
+      border-radius: 0;
+      display: grid !important;
+      place-items: center;
+      color: #fff;
+      font-size: 0 !important;
+      line-height: 1 !important;
+    }
+
+    .agenda-gcal-event .agenda-status-label,
+    .agenda-event .agenda-status-label {
+      display: none !important;
+    }
+
+    .agenda-gcal-event .agenda-status-badge::before,
+    .agenda-event .agenda-status-badge::before {
+      display: block;
+      color: #fff;
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 950;
+    }
+
+    .agenda-gcal-event .agenda-service-status.completed,
+    .agenda-event .agenda-service-status.completed,
+    .agenda-gcal-event .agenda-payment-status.paid,
+    .agenda-event .agenda-payment-status.paid {
+      color: #fff;
+      background: #16a34a;
+    }
+
+    .agenda-gcal-event .agenda-service-status.pending,
+    .agenda-event .agenda-service-status.pending,
+    .agenda-gcal-event .agenda-payment-status.free,
+    .agenda-event .agenda-payment-status.free {
+      color: #fff;
+      background: #64748b;
+    }
+
+    .agenda-gcal-event .agenda-payment-status.deposit,
+    .agenda-event .agenda-payment-status.deposit {
+      color: #fff;
+      background: #f59e0b;
+    }
+
+    .agenda-gcal-event .agenda-payment-status.due,
+    .agenda-event .agenda-payment-status.due {
+      color: #fff;
+      background: #ef4444;
+    }
+
+    .agenda-gcal-event.has-attention .agenda-status-row,
+    .agenda-event.has-attention .agenda-status-row {
+      right: 0;
+    }
+
+    .agenda-gcal-event.has-attention .agenda-gcal-event-main {
+      padding-right: calc(var(--agenda-status-rail-width) + 82px);
+    }
+
+    .agenda-event.has-attention {
+      padding-right: calc(var(--agenda-status-rail-width) + 82px);
+    }
+
+    .agenda-gcal-event.has-attention .agenda-attention-badge,
+    .agenda-event.has-attention .agenda-attention-badge {
+      right: calc(var(--agenda-status-rail-width) + 5px);
+    }
+
+    .agenda-gcal-event.is-status-compact .agenda-gcal-event-customer,
+    .agenda-event.is-status-compact .agenda-event-customer,
+    .agenda-gcal-event.is-status-icons strong,
+    .agenda-event.is-status-icons strong {
+      padding-right: 0;
+    }
+
     .agenda-gcal-event.is-status-compact .agenda-gcal-event-customer,
     .agenda-event.is-status-compact .agenda-event-customer {
       padding-right: 48px;
@@ -30068,7 +30197,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ${cashRegisterEnabled ? 'agendaAppointmentStatusBadgesHtml(appointment)' : "''"} +
         '</button>' +
         agendaAttentionBadgeHtml(attention) +
-        (canCreateAppointments() ? '<button class="agenda-gcal-event-add" type="button" data-agenda-new-at aria-label="Crear otro turno a las ' + escapeHtml(time) + '" title="Crear otro turno en este horario"><span aria-hidden="true">+</span><span class="agenda-gcal-event-add-label">Otro</span></button>' : '') +
       '</article>'
     }
 

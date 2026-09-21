@@ -21,58 +21,164 @@ function requestedBusinessId(user: any, value?: string) {
 
 type ServiceRuleBody = ProfessionalCompensationRuleInput & { serviceId?: string }
 
+type SettlementRange = { from: Date; toExclusive: Date }
+
+function parseSettlementRange(from?: string, to?: string): SettlementRange | null {
+  if (!from && !to) return null
+  if (!from || !to || !/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    throw new Error('Elegí un período válido')
+  }
+  const start = new Date(from + 'T00:00:00.000Z')
+  const end = new Date(to + 'T00:00:00.000Z')
+  const days = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1
+  if (!Number.isFinite(days) || days < 1) throw new Error('La fecha hasta no puede ser anterior a la fecha desde')
+  if (days > 31) throw new Error('El período no puede superar 31 días')
+  return { from: start, toExclusive: new Date(end.getTime() + 86_400_000) }
+}
+
+async function settlementRangeForBusiness(businessId: string, from?: string, to?: string): Promise<SettlementRange | null> {
+  const validated = parseSettlementRange(from, to)
+  if (!validated || !from || !to) return null
+  const business = await prisma.business.findUnique({ where: { id: businessId }, select: { timezone: true } })
+  const timezone = business?.timezone || 'America/Argentina/Buenos_Aires'
+  const rows = await prisma.$queryRaw<Array<{ from: Date; toExclusive: Date }>>(Prisma.sql`
+    SELECT (${from}::date::timestamp AT TIME ZONE ${timezone}) AS "from",
+      ((${to}::date + 1)::timestamp AT TIME ZONE ${timezone}) AS "toExclusive"
+  `)
+  return rows[0] || validated
+}
+
 export async function professionalSettlementRoutes(app: FastifyInstance) {
   app.get('/professional-settlements/summary', async (request, reply) => {
     const user = request.auth?.user
-    const query = request.query as { businessId?: string }
+    const query = request.query as { businessId?: string; from?: string; to?: string }
     if (!canViewProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para ver liquidaciones' })
     const businessId = requestedBusinessId(user, query.businessId)
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
 
-    const rows = await prisma.$queryRaw<Array<{ id: string; name: string; completedServices: number; earned: number; paid: number; balance: number }>>(Prisma.sql`
+    let range: SettlementRange | null
+    try {
+      range = await settlementRangeForBusiness(businessId, query.from, query.to)
+    } catch (error) {
+      return reply.status(400).send({ message: error instanceof Error ? error.message : 'Elegí un período válido' })
+    }
+    const periodFilter = range
+      ? Prisma.sql`AND entry."effectiveAt" >= ${range.from} AND entry."effectiveAt" < ${range.toExclusive}`
+      : Prisma.empty
+    const rows = await prisma.$queryRaw<Array<{
+      id: string
+      name: string
+      completedServices: number
+      periodEarned: number
+      periodPaid: number
+      periodBalance: number
+      currentBalance: number
+    }>>(Prisma.sql`
       SELECT professional."id", professional."name",
-        coalesce(appointments."completedServices", 0)::integer AS "completedServices",
-        coalesce(account."earned", 0)::integer AS "earned",
-        coalesce(account."paid", 0)::integer AS "paid",
-        coalesce(account."balance", 0)::integer AS "balance"
+        coalesce(period_account."completedServices", 0)::integer AS "completedServices",
+        coalesce(period_account."periodEarned", 0)::integer AS "periodEarned",
+        coalesce(period_account."periodPaid", 0)::integer AS "periodPaid",
+        coalesce(period_account."periodBalance", 0)::integer AS "periodBalance",
+        coalesce(current_account."currentBalance", 0)::integer AS "currentBalance"
       FROM "Professional" professional
       LEFT JOIN LATERAL (
-        SELECT count(*)::integer AS "completedServices"
-        FROM "Appointment" appointment
-        WHERE appointment."businessId" = professional."businessId"
-          AND appointment."professionalId" = professional."id"
-          AND appointment."status" = 'COMPLETED'::"AppointmentStatus"
-      ) appointments ON true
-      LEFT JOIN LATERAL (
         SELECT
-          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'CREDIT'::"ProfessionalAccountDirection"), 0)::integer AS "earned",
-          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'DEBIT'::"ProfessionalAccountDirection"), 0)::integer AS "paid",
-          coalesce(sum(CASE WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" THEN entry."amount" ELSE -entry."amount" END), 0)::integer AS "balance"
+          count(*) FILTER (WHERE entry."type" = 'EARNING'::"ProfessionalAccountEntryType")::integer AS "completedServices",
+          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'CREDIT'::"ProfessionalAccountDirection"), 0)::integer AS "periodEarned",
+          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'DEBIT'::"ProfessionalAccountDirection"), 0)::integer AS "periodPaid",
+          coalesce(sum(CASE WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" THEN entry."amount" ELSE -entry."amount" END), 0)::integer AS "periodBalance"
         FROM "ProfessionalAccountEntry" entry
         WHERE entry."businessId" = professional."businessId"
           AND entry."professionalId" = professional."id"
-      ) account ON true
+          ${periodFilter}
+      ) period_account ON true
+      LEFT JOIN LATERAL (
+        SELECT coalesce(sum(CASE WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" THEN entry."amount" ELSE -entry."amount" END), 0)::integer AS "currentBalance"
+        FROM "ProfessionalAccountEntry" entry
+        WHERE entry."businessId" = professional."businessId"
+          AND entry."professionalId" = professional."id"
+      ) current_account ON true
       WHERE professional."businessId" = ${businessId}
       ORDER BY professional."name"
     `)
-    return { items: rows }
+
+    const services = await prisma.professionalAccountEntry.findMany({
+      where: {
+        businessId,
+        type: 'EARNING',
+        ...(range ? { effectiveAt: { gte: range.from, lt: range.toExclusive } } : {})
+      },
+      select: {
+        id: true,
+        professionalId: true,
+        amount: true,
+        baseAmount: true,
+        ruleMode: true,
+        rulePercentage: true,
+        ruleFixedAmount: true,
+        description: true,
+        effectiveAt: true,
+        appointment: {
+          select: {
+            startAt: true,
+            customer: { select: { name: true } },
+            service: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: [{ effectiveAt: 'desc' }, { id: 'desc' }]
+    })
+    const servicesByProfessional = new Map<string, typeof services>()
+    for (const service of services) {
+      const current = servicesByProfessional.get(service.professionalId) || []
+      current.push(service)
+      servicesByProfessional.set(service.professionalId, current)
+    }
+    return {
+      items: rows.map((row) => ({ ...row, services: servicesByProfessional.get(row.id) || [] })),
+      period: range ? { from: query.from, to: query.to } : null
+    }
   })
 
   app.get('/professional-settlements/entries', async (request, reply) => {
     const user = request.auth?.user
-    const query = request.query as { businessId?: string; professionalId?: string }
+    const query = request.query as { businessId?: string; professionalId?: string; from?: string; to?: string; page?: string; pageSize?: string }
     if (!canViewProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para ver liquidaciones' })
     const businessId = requestedBusinessId(user, query.businessId)
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
-    return prisma.professionalAccountEntry.findMany({
-      where: { businessId, ...(query.professionalId ? { professionalId: query.professionalId } : {}) },
-      include: {
-        professional: { select: { name: true } },
-        appointment: { select: { startAt: true, service: { select: { name: true } } } }
-      },
-      orderBy: [{ effectiveAt: 'desc' }, { id: 'desc' }],
-      take: 200
-    })
+    let range: SettlementRange | null
+    try {
+      range = await settlementRangeForBusiness(businessId, query.from, query.to)
+    } catch (error) {
+      return reply.status(400).send({ message: error instanceof Error ? error.message : 'Elegí un período válido' })
+    }
+    const page = Math.max(1, Number.parseInt(query.page || '1', 10) || 1)
+    const pageSize = Math.min(50, Math.max(5, Number.parseInt(query.pageSize || '10', 10) || 10))
+    const where = {
+      businessId,
+      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      ...(range ? { effectiveAt: { gte: range.from, lt: range.toExclusive } } : {})
+    }
+    const [total, items] = await prisma.$transaction([
+      prisma.professionalAccountEntry.count({ where }),
+      prisma.professionalAccountEntry.findMany({
+        where,
+        include: {
+          professional: { select: { name: true } },
+          appointment: {
+            select: {
+              startAt: true,
+              customer: { select: { name: true } },
+              service: { select: { name: true } }
+            }
+          }
+        },
+        orderBy: [{ effectiveAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      })
+    ])
+    return { items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   })
 
   app.post('/professional-settlements/payments', async (request, reply) => {
