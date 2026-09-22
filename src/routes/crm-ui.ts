@@ -21575,8 +21575,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role) ? ['accounts'] : []
       }
       if (isWorkshopBusiness()) {
-        return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role)
-          ? ['accounts', 'autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'] : ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel']
+        const workshopSections = ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel']
+        if (['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role)) return ['accounts', ...workshopSections, 'campaigns']
+        return state.currentUser.role === 'STAFF' ? workshopSections : [...workshopSections, 'campaigns']
       }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         return state.business ? ['accounts', 'conversations', 'agenda', ...pipelineSections, ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
