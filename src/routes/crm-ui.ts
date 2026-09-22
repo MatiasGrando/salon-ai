@@ -5372,13 +5372,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     ${pipelineStyles}
 
     .workshop-view { display: none; min-width: 0; padding: 32px; overflow: auto; }
-    .app[data-section="autos"], .app[data-section="workshop-jobs"], .app[data-section="workshop-personnel"] { grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr); }
+    .app[data-section="autos"], .app[data-section="workshop-jobs"], .app[data-section="workshop-services"], .app[data-section="workshop-personnel"] { grid-template-columns: var(--workspace-nav-width) minmax(0, 1fr); }
     .app[data-section="autos"] .sidebar, .app[data-section="autos"] .chat, .app[data-section="autos"] .details,
     .app[data-section="workshop-jobs"] .sidebar, .app[data-section="workshop-jobs"] .chat, .app[data-section="workshop-jobs"] .details,
+    .app[data-section="workshop-services"] .sidebar, .app[data-section="workshop-services"] .chat, .app[data-section="workshop-services"] .details,
     .app[data-section="workshop-personnel"] .sidebar, .app[data-section="workshop-personnel"] .chat, .app[data-section="workshop-personnel"] .details { display: none; }
-    .app[data-section="autos"] .workshop-autos-view, .app[data-section="workshop-jobs"] .workshop-jobs-view, .app[data-section="workshop-personnel"] .workshop-personnel-view { display: block; }
+    .app[data-section="autos"] .workshop-autos-view, .app[data-section="workshop-jobs"] .workshop-jobs-view, .app[data-section="workshop-services"] .workshop-services-view, .app[data-section="workshop-personnel"] .workshop-personnel-view { display: block; }
     .workshop-empty { margin-top: 32px; padding: 48px 24px; border: 1px solid var(--border); border-radius: 16px; text-align: center; }
     .workshop-empty p { color: var(--muted); }
+    .workshop-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 18px 0 4px; }
+    .workshop-pagination[hidden] { display: none; }
+    .workshop-pagination span { min-width: 150px; text-align: center; color: var(--muted); font-size: 13px; font-weight: 700; }
+    .workshop-pagination button:disabled { opacity: .5; cursor: not-allowed; }
     .workshop-toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 24px 0; }
     .workshop-search { position: relative; flex: 1; max-width: 460px; }
     .workshop-search input { width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; text-transform: uppercase; }
@@ -5413,6 +5418,54 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .workshop-vehicle-detail .wj-record { margin-top: 30px; }
     .workshop-vehicle-detail .workshop-toolbar { align-items: center; margin-bottom: 12px; }
     .workshop-vehicle-detail .workshop-toolbar h2 { font-size: 20px; }
+    .workshop-maintenance-panel { margin-top: 28px; padding: 20px; border: 1px solid #dbe4f0; border-radius: 14px; background: #fff; }
+    .workshop-maintenance-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .workshop-maintenance-head h2 { margin: 0; color: #101936; font-size: 20px; }
+    .workshop-maintenance-head p { margin: 5px 0 0; color: #62728d; font-size: 13px; }
+    .workshop-maintenance-summary { display: flex; flex-wrap: wrap; gap: 7px; }
+    .workshop-maintenance-count { padding: 6px 9px; border-radius: 999px; color: #52627c; background: #edf2f8; font-size: 12px; font-weight: 750; }
+    .workshop-maintenance-count.overdue { color: #a12d27; background: #fdebea; }
+    .workshop-maintenance-count.upcoming { color: #8a5a00; background: #fff3d6; }
+    .workshop-maintenance-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .workshop-maintenance-item { min-width: 0; padding: 15px; border: 1px solid #dbe4f0; border-radius: 12px; background: #f9fbfe; }
+    .workshop-maintenance-item-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .workshop-maintenance-item strong { color: #101936; font-size: 14px; }
+    .workshop-maintenance-status { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+    .workshop-maintenance-status.overdue { color: #a12d27; background: #fdebea; }
+    .workshop-maintenance-status.upcoming { color: #8a5a00; background: #fff3d6; }
+    .workshop-maintenance-status.up-to-date { color: #16724a; background: #e4f6ed; }
+    .workshop-maintenance-item p { margin: 8px 0 0; color: #62728d; font-size: 13px; line-height: 1.45; }
+    .workshop-maintenance-empty { margin: 0; padding: 16px; border-radius: 10px; color: #62728d; background: #f5f8fc; font-size: 13px; }
+    @media (max-width: 720px) { .workshop-maintenance-head { display: grid; } .workshop-maintenance-list { grid-template-columns: 1fr; } .workshop-maintenance-panel { padding: 16px; } }
+    .workshop-public-site-settings { margin: 18px 0 22px; padding: 18px 20px; display: grid; grid-template-columns: minmax(220px, .8fr) minmax(320px, 1.2fr); gap: 24px; align-items: end; border: 1px solid #dbe4f0; border-radius: 14px; background: #f8fbff; }
+    .workshop-public-site-settings h2 { margin: 0; color: #101936; font-size: 16px; }
+    .workshop-public-site-settings p { margin: 6px 0 0; color: #62728d; font-size: 13px; line-height: 1.45; }
+    .workshop-public-site-form label { display: block; margin-bottom: 7px; color: #405176; font-size: 12px; font-weight: 750; }
+    .workshop-public-site-form > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; }
+    .workshop-public-site-form .field { min-width: 0; height: 42px; }
+    #ws-public-feedback.error { color: #b42318; }
+    #ws-public-feedback.success { color: #16724a; }
+    .workshop-detail-head-actions { margin-left: auto; display: flex; gap: 8px; }
+    .workshop-qr-dialog { position: fixed; inset: 0; z-index: 130; padding: 20px; display: grid; place-items: center; background: rgba(15, 23, 42, .55); backdrop-filter: blur(3px); }
+    .workshop-qr-dialog[hidden] { display: none; }
+    .workshop-qr-sheet { width: min(470px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 24px; border-radius: 16px; background: #fff; box-shadow: 0 24px 70px rgba(15, 23, 42, .28); text-align: center; }
+    .workshop-qr-sheet h2 { margin: 0; color: #101936; font-size: 22px; }
+    .workshop-qr-sheet > p { margin: 7px 0 18px; color: #62728d; font-size: 13px; }
+    .workshop-qr-print-card { width: 86mm; max-width: 100%; margin: 0 auto; padding: 8mm; border: 1px dashed #94a3b8; border-radius: 12px; background: #fff; color: #0f172a; }
+    .workshop-qr-print-card img { width: 54mm; max-width: 100%; height: auto; display: block; margin: 0 auto 4mm; }
+    .workshop-qr-print-card strong { display: block; font-size: 22px; letter-spacing: .12em; }
+    .workshop-qr-print-card span { display: block; margin-top: 3mm; font-size: 12px; line-height: 1.35; }
+    .workshop-qr-print-card small { display: block; margin-top: 3mm; overflow-wrap: anywhere; color: #64748b; font-size: 8px; }
+    .workshop-qr-actions { margin-top: 18px; display: flex; justify-content: center; gap: 9px; }
+    @media (max-width: 760px) { .workshop-public-site-settings { grid-template-columns: 1fr; gap: 14px; } .workshop-public-site-form > div { grid-template-columns: 1fr; } .workshop-detail-head-actions { width: 100%; margin-left: 0; } .workshop-detail-head-actions button { flex: 1; } }
+    @media print {
+      body.workshop-qr-printing * { visibility: hidden !important; }
+      body.workshop-qr-printing #workshop-qr-dialog, body.workshop-qr-printing #workshop-qr-dialog * { visibility: visible !important; }
+      body.workshop-qr-printing #workshop-qr-dialog { position: absolute; inset: 0; padding: 0; display: block; background: #fff; }
+      body.workshop-qr-printing .workshop-qr-sheet { width: 100%; max-height: none; padding: 0; overflow: visible; box-shadow: none; }
+      body.workshop-qr-printing .workshop-qr-sheet > h2, body.workshop-qr-printing .workshop-qr-sheet > p, body.workshop-qr-printing .workshop-qr-actions { display: none !important; }
+      body.workshop-qr-printing .workshop-qr-print-card { margin: 0 auto; border: 0; }
+    }
     @media (max-width: 900px) { .workshop-detail-grid { grid-template-columns: 1fr; } .workshop-detail-head { flex-wrap: wrap; } .workshop-detail-edit { margin-left: 0; } }
     .workshop-form-grid { display: grid; gap: var(--workshop-field-gap, 13px); }
     .workshop-form-grid-vehicle { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -5458,7 +5511,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .workshop-brand-field { grid-column: auto; }
     }
     @media (max-width: 900px) {
-      .app[data-section="autos"], .app[data-section="workshop-jobs"], .app[data-section="workshop-personnel"] { grid-template-columns: minmax(0, 1fr); }
+      .app[data-section="autos"], .app[data-section="workshop-jobs"], .app[data-section="workshop-services"], .app[data-section="workshop-personnel"] { grid-template-columns: minmax(0, 1fr); }
       .workshop-view { padding: 20px; }
       .workshop-toolbar { align-items: stretch; flex-direction: column; }
       .workshop-search { max-width: none; }
@@ -16041,6 +16094,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </div>
       <button type="button" data-mobile-section="autos">Autos</button>
       <button type="button" data-mobile-section="workshop-jobs">Trabajos</button>
+      <button type="button" data-mobile-section="workshop-services">Servicios</button>
       <button type="button" data-mobile-section="workshop-personnel">Personal</button>
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
@@ -16296,7 +16350,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     ${workshopJobsMarkup}
     <section class="workshop-view workshop-jobs-view" aria-labelledby="workshop-jobs-title">
       <header><h1 id="workshop-jobs-title">Trabajos</h1><p>La actividad del taller, organizada por fecha.</p></header>
-      <div class="workshop-toolbar"><label>Fecha <input class="field" id="wj-filter-date" type="date"></label><label>Realizado por <select class="field" id="wj-filter-performer"><option value="">Todos los responsables</option></select></label><button class="secondary" id="wj-filter-clear" type="button">Ver todas las fechas</button></div><div id="wj-all-list"></div>
+      <div class="workshop-toolbar"><label>Fecha <input class="field" id="wj-filter-date" type="date"></label><label>Realizado por <select class="field" id="wj-filter-performer"><option value="">Todos los responsables</option></select></label><button class="secondary" id="wj-filter-clear" type="button">Ver todas las fechas</button></div><div id="wj-all-list"></div><nav class="workshop-pagination" id="wj-page-controls" aria-label="Paginaci&oacute;n de trabajos" hidden><button class="secondary" id="wj-page-prev" type="button">Anterior</button><span id="wj-page-status" role="status"></span><button class="secondary" id="wj-page-next" type="button">Siguiente</button></nav>
+    </section>
+    <section class="workshop-view workshop-services-view" aria-labelledby="workshop-services-title">
+      <header class="workshop-toolbar"><div><h1 id="workshop-services-title">Servicios</h1><p>Defin&iacute; las tareas frecuentes y cu&aacute;ndo deber&iacute;a volver cada veh&iacute;culo.</p></div><button class="primary" id="ws-add" type="button">+ Agregar servicio</button></header>
+      <section class="workshop-public-site-settings" aria-labelledby="ws-public-title">
+        <div><h2 id="ws-public-title">P&aacute;gina p&uacute;blica del historial</h2><p>Este enlace se usar&aacute; en los QR impresos. Al escanearlos, la patente se completa y consulta autom&aacute;ticamente.</p></div>
+        <div class="workshop-public-site-form"><label for="ws-public-url">Direcci&oacute;n HTTPS</label><div><input class="field" id="ws-public-url" type="url" inputmode="url" placeholder="https://taller.com/historial"><button class="primary" id="ws-public-save" type="button">Guardar enlace</button></div><p id="ws-public-feedback" role="status"></p></div>
+      </section>
+      <div id="ws-page-list"></div>
     </section>
     <section class="workshop-view workshop-personnel-view" aria-labelledby="workshop-personnel-title">
       <header class="workshop-toolbar"><div><h1 id="workshop-personnel-title">Personal</h1><p>Administr&aacute; qui&eacute;nes realizan los trabajos del taller.</p></div><button class="primary" id="wp-add" type="button">+ Agregar trabajador</button></header>
@@ -20952,6 +21014,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const items = [
         { section: 'autos', label: 'Autos', icon: 'briefcase' },
         { section: 'workshop-jobs', label: 'Trabajos', icon: 'calendar' },
+        { section: 'workshop-services', label: 'Servicios', icon: 'list' },
         { section: 'workshop-personnel', label: 'Personal', icon: 'users' },
         { section: 'accounts', label: 'Cuentas', icon: 'briefcase' },
         { section: 'conversations', label: 'Conversaciones', icon: 'message' },
@@ -21291,21 +21354,84 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderWorkshopVehicles()
     }
 
+    function workshopMaintenanceDateLabel(value) {
+      if (!value) return 'Sin fecha definida'
+      const parts = String(value).split('-')
+      return parts.length === 3 ? parts[2] + '/' + parts[1] + '/' + parts[0] : String(value)
+    }
+
+    function renderWorkshopMaintenance(maintenance) {
+      const items = Array.isArray(maintenance?.items) ? maintenance.items : []
+      const summary = maintenance?.summary || { overdue: 0, upcoming: 0, upToDate: 0 }
+      const summaryHtml =
+        '<div class="workshop-maintenance-summary">' +
+          '<span class="workshop-maintenance-count overdue">' + Number(summary.overdue || 0) + ' vencidos</span>' +
+          '<span class="workshop-maintenance-count upcoming">' + Number(summary.upcoming || 0) + ' pr&oacute;ximos</span>' +
+          '<span class="workshop-maintenance-count">' + Number(summary.upToDate || 0) + ' al d&iacute;a</span>' +
+        '</div>'
+      if (!items.length) return '<section class="workshop-maintenance-panel"><div class="workshop-maintenance-head"><div><h2>Estado de mantenimiento</h2><p>Seguimiento individual por servicio.</p></div>' + summaryHtml + '</div><p class="workshop-maintenance-empty">Todav&iacute;a no hay servicios con vencimiento registrados para este auto.</p></section>'
+      const labels = { OVERDUE: 'Vencido', UPCOMING: 'Pr&oacute;ximo', UP_TO_DATE: 'Al d&iacute;a' }
+      const classes = { OVERDUE: 'overdue', UPCOMING: 'upcoming', UP_TO_DATE: 'up-to-date' }
+      const cards = items.map((item) => {
+        const due = [
+          item.nextDueDate ? 'Fecha: ' + workshopMaintenanceDateLabel(item.nextDueDate) : '',
+          item.nextDueMileage == null ? '' : 'KM: ' + new Intl.NumberFormat('es-AR').format(item.nextDueMileage)
+        ].filter(Boolean).join(' &middot; ')
+        const last = 'Realizado el ' + workshopMaintenanceDateLabel(item.lastPerformedDate) + ' a los ' + new Intl.NumberFormat('es-AR').format(item.lastMileage) + ' km'
+        return '<article class="workshop-maintenance-item"><div class="workshop-maintenance-item-top"><strong>' + escapeHtml(item.serviceName) + '</strong><span class="workshop-maintenance-status ' + classes[item.status] + '">' + labels[item.status] + '</span></div><p>' + due + '</p><p>' + last + '</p>' + (item.customerInstructions ? '<p>' + escapeHtml(item.customerInstructions) + '</p>' : '') + '</article>'
+      }).join('')
+      return '<section class="workshop-maintenance-panel"><div class="workshop-maintenance-head"><div><h2>Estado de mantenimiento</h2><p>Vencimientos por fecha o por el kilometraje conocido.</p></div>' + summaryHtml + '</div><div class="workshop-maintenance-list">' + cards + '</div></section>'
+    }
+    function ensureWorkshopQrDialog() {
+      let dialog = document.getElementById('workshop-qr-dialog')
+      if (dialog) return dialog
+      dialog = document.createElement('div')
+      dialog.id = 'workshop-qr-dialog'
+      dialog.className = 'workshop-qr-dialog'
+      dialog.hidden = true
+      dialog.innerHTML = '<section class="workshop-qr-sheet" role="dialog" aria-modal="true" aria-labelledby="workshop-qr-title"><h2 id="workshop-qr-title">QR del veh&iacute;culo</h2><p>Vista previa de la calcoman&iacute;a lista para imprimir.</p><div class="workshop-qr-print-card"><img id="workshop-qr-image" alt="C&oacute;digo QR del veh&iacute;culo"><strong id="workshop-qr-plate"></strong><span>Escane&aacute; para consultar el historial, los servicios realizados y cu&aacute;ndo volver.</span><small id="workshop-qr-url"></small></div><div class="workshop-qr-actions"><button class="secondary" type="button" data-workshop-qr-close>Cerrar</button><button class="primary" type="button" data-workshop-qr-print>Imprimir</button></div></section>'
+      document.body.appendChild(dialog)
+      dialog.querySelector('[data-workshop-qr-close]').addEventListener('click', () => { dialog.hidden = true })
+      dialog.querySelector('[data-workshop-qr-print]').addEventListener('click', () => {
+        document.body.classList.add('workshop-qr-printing')
+        try { window.print() } finally { document.body.classList.remove('workshop-qr-printing') }
+      })
+      return dialog
+    }
+
+    async function openWorkshopQr(vehicle) {
+      const result = await getJson('/workshop/vehicles/' + encodeURIComponent(vehicle.id) + '/qr?businessId=' + encodeURIComponent(state.businessId))
+      const dialog = ensureWorkshopQrDialog()
+      dialog.querySelector('#workshop-qr-image').src = result.qrDataUrl
+      dialog.querySelector('#workshop-qr-plate').textContent = vehicle.plate
+      dialog.querySelector('#workshop-qr-url').textContent = result.publicUrl
+      dialog.hidden = false
+      dialog.querySelector('[data-workshop-qr-print]').focus()
+    }
     async function openWorkshopVehicle(id) {
-      const vehicle = await getJson('/workshop/vehicles/' + encodeURIComponent(id) + '?businessId=' + encodeURIComponent(state.businessId))
+      const [vehicle, maintenance] = await Promise.all([
+        getJson('/workshop/vehicles/' + encodeURIComponent(id) + '?businessId=' + encodeURIComponent(state.businessId)),
+        getJson('/workshop/vehicles/' + encodeURIComponent(id) + '/maintenance?businessId=' + encodeURIComponent(state.businessId))
+      ])
       state.workshopSelectedVehicle = vehicle
       els.workshopVehicleListView.hidden = true
       els.workshopVehicleDetail.hidden = false
       els.workshopVehicleDetail.innerHTML =
-        '<div class="workshop-detail-head"><button class="secondary workshop-detail-action" type="button" data-workshop-back>&larr; Volver a Autos</button><div class="workshop-detail-identity"><strong>' + escapeHtml(vehicle.brand.name + ' ' + vehicle.model) + '</strong><span class="workshop-detail-plate">' + escapeHtml(vehicle.plate) + '</span></div><button class="secondary workshop-detail-action workshop-detail-edit" type="button" data-workshop-edit>Editar datos</button></div>' +
+        '<div class="workshop-detail-head"><button class="secondary workshop-detail-action" type="button" data-workshop-back>&larr; Volver a Autos</button><div class="workshop-detail-identity"><strong>' + escapeHtml(vehicle.brand.name + ' ' + vehicle.model) + '</strong><span class="workshop-detail-plate">' + escapeHtml(vehicle.plate) + '</span></div><div class="workshop-detail-head-actions"><button class="secondary workshop-detail-action" type="button" data-workshop-qr>Imprimir QR</button><button class="secondary workshop-detail-action workshop-detail-edit" type="button" data-workshop-edit>Editar datos</button></div></div>' +
         '<div class="workshop-detail-grid">' +
           '<div class="workshop-detail-card"><span class="workshop-detail-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 17h14l-1.5-6h-11L5 17Z"></path><path d="M7 11 9 7h6l2 4"></path><circle cx="8" cy="17" r="2"></circle><circle cx="16" cy="17" r="2"></circle></svg></span><div class="workshop-detail-card-copy"><small>Veh&iacute;culo</small><strong>' + escapeHtml(vehicle.brand.name + ' ' + vehicle.model) + '</strong><p>' + escapeHtml(workshopVehicleYearLabel(vehicle.year) + ' · ' + vehicle.engine) + '</p></div></div>' +
           '<div class="workshop-detail-card"><span class="workshop-detail-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 16a7 7 0 1 1 14 0"></path><path d="m12 13 4-4"></path><path d="M12 19v-2"></path></svg></span><div class="workshop-detail-card-copy"><small>Uso</small><strong>' + escapeHtml(workshopUsageLabel(vehicle.usage)) + '</strong><p>' + escapeHtml(vehicle.currentMileage == null ? 'Kilometraje sin registrar' : new Intl.NumberFormat('es-AR').format(vehicle.currentMileage) + ' km') + '</p></div></div>' +
           '<div class="workshop-detail-card"><span class="workshop-detail-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"></circle><path d="M6 20v-2a6 6 0 0 1 12 0v2"></path></svg></span><div class="workshop-detail-card-copy"><small>Contacto</small><strong>' + escapeHtml(vehicle.contact.name) + '</strong><p>' + escapeHtml(formatWorkshopPhoneDisplay(vehicle.contact.phone)) + (vehicle.contact.email ? '<br>' + escapeHtml(vehicle.contact.email) : '') + '</p></div></div>' +
         '</div>' +
+        renderWorkshopMaintenance(maintenance) +
         '<div class="wj-record"><div class="workshop-toolbar"><h2>Historial de trabajos</h2><button class="primary workshop-detail-action" type="button" id="wj-add">+ Agregar trabajo</button></div><div id="wj-history"></div></div>'
       document.getElementById('wj-add').addEventListener('click', () => openWorkshopJobForm(vehicle))
       els.workshopVehicleDetail.querySelector('[data-workshop-edit]').addEventListener('click',()=>openWorkshopVehicleForm(vehicle).catch(error=>showCrmToast(error.message,'error')))
+      els.workshopVehicleDetail.querySelector('[data-workshop-qr]').addEventListener('click', async (event) => {
+        const button = event.currentTarget
+        if (!setButtonLoading(button, true, 'Generando...')) return
+        try { await openWorkshopQr(vehicle) } catch (error) { showCrmToast(error.message, 'error') } finally { setButtonLoading(button, false) }
+      })
       await loadWorkshopJobHistory(vehicle.id)
     }
 
@@ -21448,7 +21574,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (isWorkshopBusiness()) {
         return ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser.role)
-          ? ['accounts', 'autos', 'workshop-jobs', 'workshop-personnel'] : ['autos', 'workshop-jobs', 'workshop-personnel']
+          ? ['accounts', 'autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'] : ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel']
       }
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         return state.business ? ['accounts', 'conversations', 'agenda', ...pipelineSections, ${cashRegisterEnabled ? "'cash'," : ''} 'customers', 'professionals', 'services', 'campaigns', 'reports', 'settings'] : ['accounts']
@@ -35339,7 +35465,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function setSection(section) {
       if (!staffVisibleSections().includes(section)) section = staffVisibleSections()[0] || 'accounts'
-      if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
+      if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
         return
@@ -35351,6 +35477,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const labels = {
           autos: 'Autos',
           'workshop-jobs': 'Trabajos',
+          'workshop-services': 'Servicios',
           'workshop-personnel': 'Personal',
           accounts: 'Cuentas',
           conversations: 'Conversaciones',
@@ -35406,6 +35533,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       if (section === 'workshop-jobs') wjLoadHistoryFilters().then(()=>loadWorkshopJobHistory()).catch((error)=>showCrmToast(error.message,'error'))
+      if (section === 'workshop-services') wsLoad().catch((error)=>showCrmToast(error.message,'error'))
       if (section === 'workshop-personnel') wpLoad().catch((error)=>showCrmToast(error.message,'error'))
 
       if (section === 'accounts') {

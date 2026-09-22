@@ -1,3 +1,5 @@
+import { presentWorkshopMaintenance, type WorkshopMaintenanceCycleView } from './workshop-maintenance.js'
+
 type WorkshopUsage = 'PARTICULAR' | 'FREQUENT' | 'PROFESSIONAL'
 
 type PublicHistoryLine = {
@@ -81,6 +83,7 @@ function recommendationStatus(nextDate: string, nextMileage: number, currentMile
 export function buildPublicWorkshopVehicle(input: {
   vehicle: PublicVehicle
   jobs: PublicHistoryJob[]
+  maintenanceCycles?: WorkshopMaintenanceCycleView[]
   latestJob?: PublicHistoryJob | null
   hasMore: boolean
   nextOffset: number | null
@@ -110,6 +113,11 @@ export function buildPublicWorkshopVehicle(input: {
   const status = nextDate && nextMileage
     ? recommendationStatus(nextDate, nextMileage, vehicle.currentMileage, input.now ?? new Date())
     : null
+  const maintenance = presentWorkshopMaintenance(
+    input.maintenanceCycles ?? [],
+    vehicle.currentMileage,
+    input.now ?? new Date()
+  )
 
   return {
     plate: vehicle.plate,
@@ -127,6 +135,7 @@ export function buildPublicWorkshopVehicle(input: {
       intervalKilometers: policy.kilometers,
       ...status
     } : null,
+    maintenance,
     history: {
       items: historyItems,
       hasMore: input.hasMore,

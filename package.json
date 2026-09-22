@@ -56,6 +56,7 @@
     "test:workshop-vehicles": "tsx scripts/workshop-vehicles-contract-test.ts",
     "test:workshop-vehicles-routes": "tsx scripts/workshop-vehicles-route-contract-test.ts",
     "test:workshop-public": "tsx scripts/public-workshop-history-contract-test.ts && tsx scripts/public-workshop-route-contract-test.ts",
+    "test:workshop-qr": "tsx scripts/workshop-qr-test.ts",
     "test:workshop-pilot-preview": "tsx scripts/workshop-pilot-preview-data-contract-test.ts",
     "preview:workshop": "tsx scripts/workshop-local-preview.ts",
     "test:account-management": "tsx scripts/account-management-contract-test.ts",
@@ -269,6 +270,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.4.1",
     "@types/node": "^25.9.1",
+    "@types/qrcode": "^1.5.6",
     "pptxgenjs": "^4.0.1",
     "supabase": "^2.115.0",
     "tsx": "^4.22.4",
@@ -283,6 +285,7 @@
     "openai": "^6.42.0",
     "pg": "^8.21.0",
     "prisma": "^7.8.0",
+    "qrcode": "^1.5.4",
     "sharp": "^0.35.3",
     "simple-icons": "^16.25.0"
   }

@@ -37,7 +37,8 @@ const jobs = [
   }
 ]
 
-const result = buildPublicWorkshopVehicle({ vehicle, jobs, hasMore: true, nextOffset: 10 })
+const cycles = [{ id:'cycle-a',serviceId:'service-a',serviceName:'Cambio de aceite',lastPerformedDate:'2026-08-15',lastMileage:120000,nextDueDate:'2027-02-15',nextDueMileage:130000,customerInstructions:'Revisar el nivel' }]
+const result = buildPublicWorkshopVehicle({ vehicle, jobs, maintenanceCycles: cycles, hasMore: true, nextOffset: 10, now: new Date('2026-09-21T12:00:00Z') })
 
 assert.equal(result.plate, 'AB123CD')
 assert.equal(result.brand, 'Renault')
@@ -47,6 +48,9 @@ assert.equal(result.lastService?.mileage, 120_000)
 assert.equal(result.recommendation?.nextMileage, 125_000)
 assert.equal(result.recommendation?.nextDate, '2026-11-15')
 assert.equal(result.history.items.length, 2)
+assert.equal(result.maintenance.items[0]?.serviceName, 'Cambio de aceite')
+assert.equal(result.maintenance.items[0]?.nextDueMileage, 130000)
+assert.equal(result.maintenance.summary.upToDate, 1)
 assert.equal(result.history.items[0].items[1].quantity, 2)
 assert.equal(result.history.hasMore, true)
 assert.equal(result.history.nextOffset, 10)

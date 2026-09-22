@@ -11,6 +11,15 @@ try {
   await db.exec(readFileSync('prisma/migrations/20260908010000_add_workshop_jobs/migration.sql', 'utf8'))
   await db.exec(readFileSync('prisma/migrations/20260908160000_add_workshop_performer_active/migration.sql', 'utf8'))
   await db.exec(readFileSync('prisma/migrations/20260908170000_link_workshop_jobs_to_performers/migration.sql', 'utf8'))
+  await db.exec(readFileSync('prisma/migrations/20260921220000_add_workshop_service_rules/migration.sql', 'utf8'))
+  await db.exec(readFileSync('prisma/migrations/20260921230000_add_workshop_maintenance_cycles/migration.sql', 'utf8'))
+  await db.exec(readFileSync('prisma/migrations/20260921240000_add_workshop_public_site_url/migration.sql', 'utf8'))
+  const businessColumns = await db.query<{column_name:string}>("SELECT column_name FROM information_schema.columns WHERE table_name='Business'")
+  assert.ok(businessColumns.rows.some(row=>row.column_name==='workshopPublicSiteUrl'))
+  const columns = await db.query<{column_name:string}>(`SELECT column_name FROM information_schema.columns WHERE table_name='WorkshopShortcut'`)
+  for (const column of ['recurrenceEnabled','returnMonths','returnKilometers','customerInstructions']) assert.ok(columns.rows.some(row=>row.column_name===column),column)
+  const cycleColumns=await db.query<{column_name:string}>(`SELECT column_name FROM information_schema.columns WHERE table_name='WorkshopMaintenanceCycle'`)
+  for (const column of ['vehicleId','serviceId','lastJobId','nextDueDate','nextDueMileage','manuallyAdjusted']) assert.ok(cycleColumns.rows.some(row=>row.column_name===column),column)
   const insert = (id: string, business: string) => db.query(`INSERT INTO "WorkshopJob"
     (id,"businessId","vehicleId",date,mileage,responsible,lines,"totalCents")
     VALUES ($1,$2,'v','2026-09-07',85000,'Mecanico',$3,0)`,

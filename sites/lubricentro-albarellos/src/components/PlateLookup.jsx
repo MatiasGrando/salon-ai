@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { fetchVehicleByPlate, fetchVehicleHistoryPage, formatPlateDisplay } from '../services/plateService';
 import { siteConfig } from '../data/siteConfig';
 import {
@@ -26,6 +26,21 @@ export default function PlateLookup() {
   const [historyError, setHistoryError] = useState('');
   const [result, setResult] = useState(null);
   const [expandedHistory, setExpandedHistory] = useState(true);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const plate = params.get('patente')?.trim();
+    if (!plate) return undefined;
+    let active = true;
+    setInputPlate(plate.toUpperCase());
+    setLoading(true);
+    setHistoryError('');
+    fetchVehicleByPlate(plate).then((response) => {
+      if (!active) return;
+      setResult(response);
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   const handleSearch = async (e, plateToSearch = null) => {
     if (e) e.preventDefault();
@@ -262,7 +277,7 @@ export default function PlateLookup() {
               <div className="p-3 bg-red-950/20 sm:rounded-r-lg">
                 <span className="text-xs text-red-300 font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-red-400" />
-                  Próximo Cambio Sugerido
+                  Próximo Servicio Registrado
                 </span>
                 <p className="font-heading text-2xl font-bold text-red-400 mt-1">
                   {formatKm(result.data.recommendedNextKm)}

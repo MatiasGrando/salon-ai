@@ -71,7 +71,7 @@ export async function publicWorkshopRoutes(app: FastifyInstance) {
     })
     if (!vehicle) return reply.status(404).send({ message: 'No encontramos registros para esa patente.' })
 
-    const [latestJob, page] = await Promise.all([
+    const [latestJob, page, maintenanceCycles] = await Promise.all([
       prisma.workshopJob.findFirst({
         where: { businessId: business.id, vehicleId: vehicle.id },
         select: { id: true, date: true, mileage: true, lines: true },
@@ -83,6 +83,20 @@ export async function publicWorkshopRoutes(app: FastifyInstance) {
         orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         take: limit + 1,
         skip: offset
+      }),
+      prisma.workshopMaintenanceCycle.findMany({
+        where: { businessId: business.id, vehicleId: vehicle.id },
+        select: {
+          id: true,
+          serviceId: true,
+          serviceName: true,
+          lastPerformedDate: true,
+          lastMileage: true,
+          nextDueDate: true,
+          nextDueMileage: true,
+          customerInstructions: true
+        },
+        orderBy: [{ nextDueDate: 'asc' }, { serviceName: 'asc' }]
       })
     ])
     const hasMore = page.length > limit
@@ -90,6 +104,7 @@ export async function publicWorkshopRoutes(app: FastifyInstance) {
       vehicle,
       jobs: page.slice(0, limit),
       latestJob,
+      maintenanceCycles,
       hasMore,
       nextOffset: hasMore ? offset + limit : null
     })

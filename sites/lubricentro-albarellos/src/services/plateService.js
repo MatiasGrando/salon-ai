@@ -49,9 +49,39 @@ function mapHistoryItem(job) {
   };
 }
 
+function mapMaintenanceTask(item) {
+  const due = [
+    item.nextDueDate ? 'fecha ' + formatDateShort(item.nextDueDate) : '',
+    item.nextDueMileage == null ? '' : Number(item.nextDueMileage).toLocaleString('es-AR') + ' km'
+  ].filter(Boolean).join(' o ');
+  const state = item.status === 'OVERDUE' ? 'vencido' : item.status === 'UPCOMING' ? 'próximo' : 'al día';
+  return {
+    id: item.id,
+    item: item.serviceName + ': ' + state + (due ? ' (' + due + ')' : '') + (item.customerInstructions ? '. ' + item.customerInstructions : ''),
+    priority: item.status === 'OVERDUE' ? 'urgente' : item.status === 'UPCOMING' ? 'alta' : 'normal'
+  };
+}
+
 function mapVehicle(payload) {
   const recommendation = payload.recommendation;
-  const priority = recommendation?.status === 'danger' ? 'urgente' : recommendation?.status === 'warning' ? 'alta' : 'normal';
+  const maintenanceItems = Array.isArray(payload.maintenance?.items) ? payload.maintenance.items : [];
+  const maintenanceSummary = payload.maintenance?.summary || { overdue: 0, upcoming: 0, upToDate: 0 };
+  const nextMaintenance = maintenanceItems[0] || null;
+  const hasTrackedMaintenance = maintenanceItems.length > 0;
+  const fallbackPriority = recommendation?.status === 'danger' ? 'urgente' : recommendation?.status === 'warning' ? 'alta' : 'normal';
+  const status = hasTrackedMaintenance
+    ? maintenanceSummary.overdue > 0 ? 'danger' : maintenanceSummary.upcoming > 0 ? 'warning' : 'ok'
+    : recommendation?.status ?? 'unknown';
+  const statusLabel = hasTrackedMaintenance
+    ? maintenanceSummary.overdue > 0 ? 'Mantenimiento vencido' : maintenanceSummary.upcoming > 0 ? 'Próximo mantenimiento cercano' : 'Mantenimiento al día'
+    : recommendation?.label ?? 'Sin servicios registrados';
+  const statusMessage = hasTrackedMaintenance
+    ? maintenanceSummary.overdue > 0
+      ? 'Tenés ' + maintenanceSummary.overdue + ' servicio' + (maintenanceSummary.overdue === 1 ? '' : 's') + ' vencido' + (maintenanceSummary.overdue === 1 ? '' : 's') + '. Escribinos para coordinar tu visita.'
+      : maintenanceSummary.upcoming > 0
+        ? 'Tenés ' + maintenanceSummary.upcoming + ' servicio' + (maintenanceSummary.upcoming === 1 ? '' : 's') + ' próximo' + (maintenanceSummary.upcoming === 1 ? '' : 's') + ' a vencer.'
+        : 'Según los registros del taller, tus servicios controlados se encuentran al día.'
+    : recommendation?.message ?? 'Todavía no hay trabajos asociados a esta patente. Comunicate con el taller si necesitás registrar el primer servicio.';
   return {
     plate: formatPlateDisplay(payload.plate),
     brand: payload.brand,
@@ -62,15 +92,15 @@ function mapVehicle(payload) {
     lastServiceDate: formatDateShort(payload.lastService?.date),
     lastServiceKm: payload.lastService?.mileage ?? null,
     currentMileage: payload.currentMileage,
-    recommendedNextKm: recommendation?.nextMileage ?? null,
-    recommendedNextDate: formatDateShort(recommendation?.nextDate),
-    status: recommendation?.status ?? 'unknown',
-    statusLabel: recommendation?.label ?? 'Sin servicios registrados',
-    statusMessage: recommendation?.message ?? 'Todavía no hay trabajos asociados a esta patente. Comunicate con el taller si necesitás registrar el primer servicio.',
-    upcomingTasks: recommendation ? [{
+    recommendedNextKm: nextMaintenance?.nextDueMileage ?? recommendation?.nextMileage ?? null,
+    recommendedNextDate: formatDateShort(nextMaintenance?.nextDueDate ?? recommendation?.nextDate),
+    status,
+    statusLabel,
+    statusMessage,
+    upcomingTasks: hasTrackedMaintenance ? maintenanceItems.map(mapMaintenanceTask) : recommendation ? [{
       id: 'next-maintenance',
-      item: `Próximo mantenimiento sugerido cada ${recommendation.intervalKilometers.toLocaleString('es-AR')} km o ${recommendation.intervalMonths} meses`,
-      priority
+      item: 'Próximo mantenimiento sugerido cada ' + recommendation.intervalKilometers.toLocaleString('es-AR') + ' km o ' + recommendation.intervalMonths + ' meses',
+      priority: fallbackPriority
     }] : [],
     history: payload.history.items.map(mapHistoryItem),
     historyHasMore: payload.history.hasMore,

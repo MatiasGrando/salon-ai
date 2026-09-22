@@ -21,6 +21,8 @@ const vehicle = {
 let customerUpsertArgs: any = null
 let vehicleUpdateArgs: any = null
 let vehicleFindManyArgs: any = null
+let workshopPublicSiteUrl: string | null = null
+let businessUpdateArgs: any = null
 
 const app = Fastify()
 app.addHook('preHandler', async request => {
@@ -33,12 +35,14 @@ try {
     const ids = where.AND?.map((part: any) => part.id) || [where.id]
     const id = ids[0]
     if (ids.some((value: string) => value !== id)) return null
-    return id === 'workshop-a' ? { id, businessType: 'WORKSHOP' } : id === 'salon-a' ? { id, businessType: 'SALON' } : null
+    return id === 'workshop-a' ? { id, businessType: 'WORKSHOP', workshopPublicSiteUrl } : id === 'salon-a' ? { id, businessType: 'SALON', workshopPublicSiteUrl: null } : null
   })
   mock(prisma.workshopBrand, 'findMany', async ({ where }: any) => brands.filter(item => item.businessId === where.businessId))
+  mock(prisma.business, 'updateMany', async (args: any) => { businessUpdateArgs = args; workshopPublicSiteUrl = args.data.workshopPublicSiteUrl; return { count: 1 } })
   mock(prisma.workshopBrand, 'upsert', async ({ create }: any) => ({ id: 'brand-new', ...create }))
   mock(prisma.workshopVehicle, 'findMany', async (args: any) => { vehicleFindManyArgs = args; return args.where.businessId === 'workshop-a' ? [vehicle] : [] })
   mock(prisma.workshopVehicle, 'findFirst', async ({ where }: any) => where.businessId === 'workshop-a' && where.id === vehicle.id ? vehicle : null)
+  mock(prisma.workshopMaintenanceCycle, 'findMany', async ({ where }: any) => where.businessId === 'workshop-a' && where.vehicleId === vehicle.id ? [{ id: 'cycle-a', serviceId: 'service-a', serviceName: 'Cambio de aceite', lastPerformedDate: '2026-03-01', lastMileage: 72_400, nextDueDate: '2026-09-01', nextDueMileage: 82_400, customerInstructions: 'Revisar el nivel' }] : [])
   mock(prisma, '$transaction', async (operation: any) => operation({
     workshopBrand: { findFirst: async ({ where }: any) => where.businessId === 'workshop-a' && where.id === 'brand-a' ? brands[0] : null },
     customer: { update: async () => vehicle.customer, upsert: async (args: any) => { customerUpsertArgs = args; return vehicle.customer } },
@@ -60,6 +64,29 @@ try {
   assert.deepEqual(vehicleFindManyArgs.where.plate, { startsWith: 'AB1' })
   assert.equal(vehicleFindManyArgs.take, 10)
   assert.deepEqual(vehicleFindManyArgs.orderBy, [{ plate: 'asc' }])
+
+  response = await app.inject({ method: 'GET', url: '/workshop/vehicles/vehicle-a/maintenance?businessId=workshop-a' })
+  assert.equal(response.statusCode, 200, response.body)
+  assert.equal(response.json().items[0].status, 'OVERDUE')
+  assert.equal(response.json().summary.overdue, 1)
+  response = await app.inject({ method: 'GET', url: '/workshop/settings?businessId=workshop-a' })
+  assert.equal(response.statusCode, 200, response.body)
+  assert.equal(response.json().publicSiteUrl, null)
+  response = await app.inject({ method: 'GET', url: '/workshop/vehicles/vehicle-a/qr?businessId=workshop-a' })
+  assert.equal(response.statusCode, 409)
+
+  response = await app.inject({ method: 'PUT', url: '/workshop/settings', payload: { businessId: 'workshop-a', publicSiteUrl: 'http://inseguro.example' } })
+  assert.equal(response.statusCode, 400)
+
+  response = await app.inject({ method: 'PUT', url: '/workshop/settings', payload: { businessId: 'workshop-a', publicSiteUrl: 'https://taller.example/historial/' } })
+  assert.equal(response.statusCode, 200, response.body)
+  assert.equal(response.json().publicSiteUrl, 'https://taller.example/historial')
+  assert.equal(businessUpdateArgs.where.id, 'workshop-a')
+
+  response = await app.inject({ method: 'GET', url: '/workshop/vehicles/vehicle-a/qr?businessId=workshop-a' })
+  assert.equal(response.statusCode, 200, response.body)
+  assert.equal(response.json().publicUrl, 'https://taller.example/historial?patente=AB123CD#consulta-patente')
+  assert.match(response.json().qrDataUrl, /^data:image\/png;base64,/)
 
   response = await app.inject({ method: 'POST', url: '/workshop/brands', payload: { businessId: 'workshop-a', name: 'Ford' } })
   assert.equal(response.statusCode, 200, response.body)

@@ -930,6 +930,7 @@ model Business {
   publicAddress          String?
   publicAddressArea      String?
   publicMapsUrl          String?
+  workshopPublicSiteUrl  String?
   instagramUrl           String?
   facebookUrl            String?
   tiktokUrl              String?
@@ -1000,6 +1001,7 @@ model Business {
   productSaleAudits           ProductSaleAudit[]
   workshopBrands              WorkshopBrand[]
   workshopJobs                WorkshopJob[]
+  workshopMaintenanceCycles   WorkshopMaintenanceCycle[]
   workshopShortcuts           WorkshopShortcut[]
   workshopPerformers          WorkshopPerformer[]
   workshopVehicles            WorkshopVehicle[]
@@ -1777,6 +1779,7 @@ model WorkshopBrand {
 
 model WorkshopVehicle {
   jobs           WorkshopJob[]
+  maintenanceCycles WorkshopMaintenanceCycle[]
   id             String               @id @default(cuid())
   businessId     String
   business       Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -1814,7 +1817,9 @@ model WorkshopJob {
   lines       Json
   totalCents  Int
   createdAt   DateTime           @default(now())
+  maintenanceCycles WorkshopMaintenanceCycle[]
 
+  @@unique([businessId, id])
   @@index([businessId, date])
   @@index([businessId, vehicleId, date])
   @@index([businessId, performerId, date])
@@ -1828,9 +1833,42 @@ model WorkshopShortcut {
   description String
   quantity    Int      @default(1)
   active      Boolean  @default(true)
-  position    Int      @default(0)
+  position             Int      @default(0)
+  recurrenceEnabled    Boolean  @default(false)
+  returnMonths         Int?
+  returnKilometers     Int?
+  customerInstructions String   @default("")
+  maintenanceCycles     WorkshopMaintenanceCycle[]
 
+  @@unique([businessId, id])
   @@index([businessId, position])
+}
+
+model WorkshopMaintenanceCycle {
+  id                   String           @id @default(cuid())
+  businessId           String
+  business             Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  vehicleId            String
+  vehicle              WorkshopVehicle  @relation(fields: [businessId, vehicleId], references: [businessId, id], onDelete: Cascade)
+  serviceId            String
+  service              WorkshopShortcut @relation(fields: [businessId, serviceId], references: [businessId, id], onDelete: Restrict)
+  lastJobId            String
+  lastJob              WorkshopJob      @relation(fields: [businessId, lastJobId], references: [businessId, id], onDelete: Restrict)
+  serviceName          String
+  lastPerformedDate    String
+  lastMileage          Int
+  returnMonths         Int?
+  returnKilometers     Int?
+  nextDueDate          String?
+  nextDueMileage       Int?
+  customerInstructions String           @default("")
+  manuallyAdjusted     Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  @@unique([businessId, vehicleId, serviceId])
+  @@index([businessId, nextDueDate])
+  @@index([businessId, vehicleId])
 }
 
 model WorkshopPerformer {

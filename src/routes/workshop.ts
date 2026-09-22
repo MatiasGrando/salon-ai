@@ -4,6 +4,8 @@ import { registerWorkshopJobs } from './workshop-jobs.js'
 import { workshopJobsStore } from '../services/workshop-jobs-store.js'
 import { loadAuthorizedBusiness } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { presentWorkshopMaintenance } from '../services/workshop-maintenance.js'
+import { normalizeWorkshopPublicSiteUrl, workshopVehiclePublicUrl, workshopVehicleQrDataUrl, WorkshopQrValidationError } from '../services/workshop-qr.js'
 import {
   normalizeWorkshopBrand,
   normalizeWorkshopContactPhone,
@@ -38,6 +40,31 @@ export async function workshopRoutes(app: FastifyInstance) {
     }
   })
   await registerWorkshopJobs(app, workshopJobsStore, requireWorkshop)
+  app.get('/workshop/settings', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const businessId = query.businessId?.trim()
+    const business = await requireWorkshop(request, reply, businessId)
+    if (!business) return
+    return { publicSiteUrl: business.workshopPublicSiteUrl }
+  })
+
+  app.put('/workshop/settings', async (request, reply) => {
+    const body = request.body as { businessId?: string; publicSiteUrl?: unknown }
+    const businessId = body.businessId?.trim()
+    if (!await requireWorkshop(request, reply, businessId)) return
+    try {
+      const publicSiteUrl = normalizeWorkshopPublicSiteUrl(body.publicSiteUrl)
+      const result = await prisma.business.updateMany({
+        where: { id: businessId! },
+        data: { workshopPublicSiteUrl: publicSiteUrl }
+      })
+      if (!result.count) return sendAuthorizationFailure(reply, 'notFound')
+      return { publicSiteUrl }
+    } catch (error) {
+      if (error instanceof WorkshopQrValidationError) return reply.status(400).send({ message: error.message })
+      throw error
+    }
+  })
   app.get('/workshop/brands', async (request, reply) => {
     const query = request.query as { businessId?: string; q?: string }
     const businessId = query.businessId?.trim()
@@ -95,6 +122,52 @@ export async function workshopRoutes(app: FastifyInstance) {
     return serializeVehicle(vehicle)
   })
 
+  app.get('/workshop/vehicles/:id/qr', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const params = request.params as { id: string }
+    const businessId = query.businessId?.trim()
+    const business = await requireWorkshop(request, reply, businessId)
+    if (!business) return
+    const vehicle = await prisma.workshopVehicle.findFirst({
+      where: { id: params.id, businessId: businessId! },
+      select: { id: true, plate: true }
+    })
+    if (!vehicle) return sendAuthorizationFailure(reply, 'notFound')
+    try {
+      const publicUrl = workshopVehiclePublicUrl(business.workshopPublicSiteUrl || '', vehicle.plate)
+      const qrDataUrl = await workshopVehicleQrDataUrl(publicUrl)
+      return { publicUrl, qrDataUrl }
+    } catch (error) {
+      if (error instanceof WorkshopQrValidationError) return reply.status(409).send({ message: error.message })
+      throw error
+    }
+  })
+  app.get('/workshop/vehicles/:id/maintenance', async (request, reply) => {
+    const query = request.query as { businessId?: string }
+    const params = request.params as { id: string }
+    const businessId = query.businessId?.trim()
+    if (!await requireWorkshop(request, reply, businessId)) return
+    const vehicle = await prisma.workshopVehicle.findFirst({
+      where: { id: params.id, businessId: businessId! },
+      select: { id: true, currentMileage: true }
+    })
+    if (!vehicle) return sendAuthorizationFailure(reply, 'notFound')
+    const cycles = await prisma.workshopMaintenanceCycle.findMany({
+      where: { businessId: businessId!, vehicleId: vehicle.id },
+      select: {
+        id: true,
+        serviceId: true,
+        serviceName: true,
+        lastPerformedDate: true,
+        lastMileage: true,
+        nextDueDate: true,
+        nextDueMileage: true,
+        customerInstructions: true
+      },
+      orderBy: [{ nextDueDate: 'asc' }, { serviceName: 'asc' }]
+    })
+    return presentWorkshopMaintenance(cycles, vehicle.currentMileage)
+  })
   app.post('/workshop/vehicles', async (request, reply) => {
     const body = request.body as Record<string, unknown> & { businessId?: string }
     const businessId = body.businessId?.trim()

@@ -17,8 +17,10 @@ export async function registerWorkshopJobs(app: FastifyInstance, store: Workshop
       if (!await authorize(req, reply, q.businessId)) return
       if (resource === 'jobs') {
         const performerId=q.performerId === 'none' ? null : q.performerId || undefined
-        if(q.vehicleId&&q.limit!==undefined){
-          const limit=Math.min(10,Math.max(1,Number(q.limit)||10)),offset=Math.max(0,Number(q.offset)||0)
+        if(q.limit!==undefined){
+          const requestedLimit=Number(q.limit),requestedOffset=Number(q.offset)
+          const limit=Math.min(50,Math.max(1,Number.isFinite(requestedLimit)?Math.floor(requestedLimit):20))
+          const offset=Math.max(0,Number.isFinite(requestedOffset)?Math.floor(requestedOffset):0)
           const rows=await store.list(q.businessId,q.vehicleId,q.date,performerId,limit+1,offset)
           const hasMore=rows.length>limit
           return {items:rows.slice(0,limit),hasMore,nextOffset:hasMore?offset+limit:null}

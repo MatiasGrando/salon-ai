@@ -13,6 +13,7 @@ function mock(target: any, key: string, value: any) {
 
 let vehicleWhere: any = null
 let jobsArgs: any = null
+let maintenanceArgs: any = null
 const vehicle = {
   id: 'vehicle-a', businessId: 'business-a', plate: 'AB123CD', model: 'Kangoo', year: null,
   engine: '--', currentMileage: 120_000, usage: 'PARTICULAR', brand: { name: 'Renault' }
@@ -34,11 +35,14 @@ try {
   })
   mock(prisma.workshopJob, 'findFirst', async () => jobs[0])
   mock(prisma.workshopJob, 'findMany', async (args: any) => { jobsArgs = args; return jobs })
+  mock(prisma.workshopMaintenanceCycle, 'findMany', async (args: any) => { maintenanceArgs=args; return [{id:'cycle-a',serviceId:'service-a',serviceName:'Cambio de aceite',lastPerformedDate:'2026-08-15',lastMileage:120000,nextDueDate:'2027-02-15',nextDueMileage:130000,customerInstructions:'Revisar nivel'}] })
 
   let response = await app.inject({ method: 'GET', url: '/public/workshops/WX-8Y4HHG/vehicles/ab-123-cd?limit=1&offset=0' })
   assert.equal(response.statusCode, 200, response.body)
   assert.equal(response.json().plate, 'AB123CD')
   assert.equal(response.json().history.items.length, 1)
+  assert.equal(response.json().maintenance.items[0].serviceName,'Cambio de aceite')
+  assert.equal(maintenanceArgs.where.vehicleId,'vehicle-a')
   assert.equal(response.json().history.hasMore, true)
   assert.equal(response.json().history.nextOffset, 1)
   assert.deepEqual(vehicleWhere, { businessId: 'business-a', plate: 'AB123CD' })
