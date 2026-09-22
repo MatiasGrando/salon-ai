@@ -15,6 +15,14 @@ export function defaultMarketingPreferenceData(now = new Date()) {
   } as const
 }
 
+export function workshopInPersonMarketingPreferenceData(optedInAt: Date | null = new Date()) {
+  return {
+    status: 'ACTIVE',
+    source: 'WORKSHOP_IN_PERSON',
+    optedInAt
+  } as const
+}
+
 export async function ensureDefaultMarketingPreference(input: {
   businessId: string
   customerId: string

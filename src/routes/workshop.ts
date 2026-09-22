@@ -5,6 +5,7 @@ import { workshopJobsStore } from '../services/workshop-jobs-store.js'
 import { loadAuthorizedBusiness } from '../services/tenant-resource-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { presentWorkshopMaintenance } from '../services/workshop-maintenance.js'
+import { workshopInPersonMarketingPreferenceData } from '../services/marketing-preference-service.js'
 import { normalizeWorkshopPublicSiteUrl, workshopVehiclePublicUrl, workshopVehicleQrDataUrl, WorkshopQrValidationError } from '../services/workshop-qr.js'
 import {
   normalizeWorkshopBrand,
@@ -194,6 +195,11 @@ export async function workshopRoutes(app: FastifyInstance) {
             phone: normalizedPhone.storedPhone,
             ...(input.contactEmail ? { email: input.contactEmail } : {})
           }
+        })
+        await transaction.customerMarketingPreference.upsert({
+          where: { businessId_customerId: { businessId: businessId!, customerId: customer.id } },
+          create: { businessId: businessId!, customerId: customer.id, ...workshopInPersonMarketingPreferenceData() },
+          update: {}
         })
         return transaction.workshopVehicle.create({
           data: {

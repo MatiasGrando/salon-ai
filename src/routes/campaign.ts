@@ -2180,9 +2180,10 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
     return appointments
   }
 
+  const business = await prisma.business.findUnique({ where: { id: campaign.businessId }, select: { businessType: true } })
   const baseAudience: CampaignAudienceResult = campaign.segment === 'WORKSHOP_MAINTENANCE_DUE'
     ? await loadWorkshopMaintenanceDueAudience(campaign.businessId)
-    : campaign.segment === 'WORKSHOP_INACTIVE'
+    : campaign.segment === 'WORKSHOP_INACTIVE' || (campaign.segment === 'INACTIVE' && business?.businessType === 'WORKSHOP')
       ? await loadWorkshopInactiveAudience(campaign.businessId, campaign.segmentDays ?? 180)
       : buildAudiencePreview(campaign, await loadAppointments())
   const candidateIds = Array.from(new Set(baseAudience.included.map((customer) => customer.id)))
@@ -2229,7 +2230,7 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
     if (!competitorWins) continue
     const competitorBaseAudience: CampaignAudienceResult = competitor.segment === 'WORKSHOP_MAINTENANCE_DUE'
       ? await loadWorkshopMaintenanceDueAudience(campaign.businessId)
-      : competitor.segment === 'WORKSHOP_INACTIVE'
+      : competitor.segment === 'WORKSHOP_INACTIVE' || (competitor.segment === 'INACTIVE' && business?.businessType === 'WORKSHOP')
         ? await loadWorkshopInactiveAudience(campaign.businessId, competitor.segmentDays ?? 180)
         : buildAudiencePreview(competitor, await loadAppointments())
     const eligibleCompetitorAudience = applyCampaignEligibility({

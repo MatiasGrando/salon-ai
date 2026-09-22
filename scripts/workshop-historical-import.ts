@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { prisma } from '../src/config/prisma.js'
 import { normalizeWorkshopBrand } from '../src/services/workshop-vehicle-domain.js'
+import { workshopInPersonMarketingPreferenceData } from '../src/services/marketing-preference-service.js'
 
 type LegacyRow = Record<string, string>
 
@@ -309,6 +310,15 @@ async function applyPlan(plan: WorkshopHistoricalImportPlan, customerCode: strin
   for (const batch of chunks(newContacts, 500)) await prisma.customer.createMany({ data: batch.map(contact => ({ id: randomUUID(), businessId: business.id, ...contact })), skipDuplicates: true })
   const customers = await findByValues(contacts.map(contact => contact.normalizedPhone), batch => prisma.customer.findMany({ where: { businessId: business.id, normalizedPhone: { in: batch } }, select: { id: true, normalizedPhone: true } }))
   const customerIds = new Map(customers.map(customer => [customer.normalizedPhone, customer.id]))
+  const consentingCustomers = customers.filter(customer => !customer.normalizedPhone.startsWith('legacy-'))
+  for (const batch of chunks(consentingCustomers, 500)) await prisma.customerMarketingPreference.createMany({
+    data: batch.map(customer => ({
+      businessId: business.id,
+      customerId: customer.id,
+      ...workshopInPersonMarketingPreferenceData(null)
+    })),
+    skipDuplicates: true
+  })
 
   const existingVehicles = await findByValues(plan.vehicles.map(vehicle => vehicle.plate), batch => prisma.workshopVehicle.findMany({ where: { businessId: business.id, plate: { in: batch } }, select: { id: true, plate: true } }))
   const knownVehiclePlates = new Set(existingVehicles.map(vehicle => vehicle.plate))

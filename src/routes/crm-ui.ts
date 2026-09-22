@@ -34511,10 +34511,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function syncCampaignAutomationFields(applySuggestedPriority = false) {
       const workshopBusiness = isWorkshopBusiness()
       Array.from(els.campaignSegment.options).forEach((option) => {
+        if (option.value === 'INACTIVE' && workshopBusiness) {
+          option.hidden = true
+          option.disabled = true
+          return
+        }
+        if (option.value === 'INACTIVE') {
+          option.hidden = false
+          option.disabled = false
+        }
         if (!option.value.startsWith('WORKSHOP_')) return
         option.hidden = !workshopBusiness
         option.disabled = !workshopBusiness
       })
+      if (workshopBusiness && els.campaignSegment.value === 'INACTIVE') els.campaignSegment.value = 'WORKSHOP_INACTIVE'
       if (!workshopBusiness && els.campaignSegment.value.startsWith('WORKSHOP_')) els.campaignSegment.value = 'ALL'
       const automated = els.campaignType.value === 'AUTOMATED'
       const segment = els.campaignSegment.value
@@ -34587,7 +34597,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function campaignConfiguredSegmentLabel(campaign) {
-      const base = campaignSegmentLabels[campaign.segment] || escapeHtml(campaign.segmentLabel || campaign.segment)
+      const base = isWorkshopBusiness() && campaign.segment === 'INACTIVE' ? campaignSegmentLabels.WORKSHOP_INACTIVE : campaignSegmentLabels[campaign.segment] || escapeHtml(campaign.segmentLabel || campaign.segment)
       return campaign.segmentDays && campaignSegmentNeedsDays(campaign.segment)
         ? base + ' · ' + campaign.segmentDays + ' d&iacute;as'
         : base
@@ -34959,7 +34969,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (campaign?.segment && !Array.from(els.campaignSegment.options).some((option) => option.value === campaign.segment)) {
         els.campaignSegment.add(new Option(campaign.segmentLabel || campaign.segment, campaign.segment))
       }
-      els.campaignSegment.value = campaign?.segment || 'ALL'
+      els.campaignSegment.value = campaign?.segment === 'INACTIVE' && isWorkshopBusiness() ? 'WORKSHOP_INACTIVE' : campaign?.segment || (isWorkshopBusiness() ? 'WORKSHOP_INACTIVE' : 'ALL')
       state.campaignManualSelected = new Map((campaign?.manualRecipients || []).map((recipient) => {
         const customer = recipient.customer || state.customers.find((item) => item.id === recipient.customerId) || { id: recipient.customerId, name: 'Cliente', phone: '' }
         return [recipient.customerId, customer]

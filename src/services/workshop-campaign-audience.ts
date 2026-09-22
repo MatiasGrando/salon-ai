@@ -145,7 +145,7 @@ export async function loadWorkshopInactiveAudience(businessId: string, segmentDa
       customer."phone" AS "customerPhone",
       vehicle."id" AS "vehicleId",
       vehicle."plate" AS "plate",
-      COALESCE(recent."lastVisitDate", cycle."lastPerformedDate") AS "lastVisitDate",
+      recent."lastVisitDate" AS "lastVisitDate",
       business."workshopPublicSiteUrl" AS "publicSiteUrl"
     FROM (
       SELECT job."businessId", job."vehicleId", MAX(job."date") AS "lastVisitDate"
