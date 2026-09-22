@@ -3151,6 +3151,7 @@ model CommunicationRecipient {
   business    Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customerId  String
   customer    Customer               @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  recipientKey String
 
   phoneSnapshot        String
   customerNameSnapshot String
@@ -3175,7 +3176,7 @@ model CommunicationRecipient {
 
   events CommunicationEvent[]
 
-  @@unique([executionId, customerId])
+  @@unique([executionId, recipientKey])
   @@index([businessId, customerId, sentAt])
   @@index([businessId, status, scheduledAt])
 }

@@ -19335,6 +19335,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <option value="INACTIVE">Inactivos por cantidad de d&iacute;as</option>
               <option value="ONE_TIME_VISITOR">Visit&oacute; una sola vez</option>
               <option value="NEW_CUSTOMER">Clientes nuevos</option>
+              <option value="WORKSHOP_MAINTENANCE_DUE">Mantenimientos vencidos</option>
+              <option value="WORKSHOP_INACTIVE">Veh&iacute;culos sin visitar</option>
               <option value="MANUAL">Selecci&oacute;n manual</option>
             </select>
           </div>
@@ -33132,6 +33134,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       INACTIVE: 'Inactivos',
       ONE_TIME_VISITOR: 'Visit&oacute; una sola vez',
       NEW_CUSTOMER: 'Clientes nuevos',
+      WORKSHOP_MAINTENANCE_DUE: 'Mantenimientos vencidos',
+      WORKSHOP_INACTIVE: 'Veh&iacute;culos sin visitar',
       INACTIVE_90: 'Sin reservas por 90 d&iacute;as',
       BIRTHDAY: 'Cumplea&ntilde;os del mes',
       FREQUENT: 'Clientes frecuentes',
@@ -34148,7 +34152,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function supportedTemplateVariables(category = selectedTemplateCategory()) {
       return category === 'UTILITY'
         ? ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
-        : ['nombre_cliente', 'usuario', 'fecha_ultima_visita']
+        : ['nombre_cliente', 'usuario', 'fecha_ultima_visita', 'patente', 'servicios_vencidos', 'enlace_historial']
     }
 
     function templateVariableDescription(variable, category = selectedTemplateCategory()) {
@@ -34164,7 +34168,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         : {
             nombre_cliente: 'Automático: nombre del cliente.',
             usuario: 'Alias temporal: usa el nombre del cliente.',
-            fecha_ultima_visita: 'Automático: última visita registrada del cliente.'
+            fecha_ultima_visita: 'Automático: última visita registrada del cliente o vehículo.',
+            patente: 'Automático para Mecánica: patente del vehículo.',
+            servicios_vencidos: 'Automático para Mecánica: lista de servicios vencidos de esa patente.',
+            enlace_historial: 'Automático para Mecánica: enlace público al historial del vehículo.'
           }
       return descriptions[variable] || 'No compatible para ' + templateCategoryLabel(category) + '. Escribí ese dato fijo en el texto o cambiá el tipo de plantilla.'
     }
@@ -34495,10 +34502,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function campaignSegmentNeedsDays(segment) {
-      return ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'].includes(segment)
+      return ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER', 'WORKSHOP_INACTIVE'].includes(segment)
     }
 
     function syncCampaignAutomationFields(applySuggestedPriority = false) {
+      const workshopBusiness = isWorkshopBusiness()
+      Array.from(els.campaignSegment.options).forEach((option) => {
+        if (!option.value.startsWith('WORKSHOP_')) return
+        option.hidden = !workshopBusiness
+        option.disabled = !workshopBusiness
+      })
+      if (!workshopBusiness && els.campaignSegment.value.startsWith('WORKSHOP_')) els.campaignSegment.value = 'ALL'
       const automated = els.campaignType.value === 'AUTOMATED'
       const segment = els.campaignSegment.value
       els.campaignAutomationSettings.hidden = !automated
@@ -34508,7 +34522,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const segmentDaysCopy = {
         INACTIVE: ['Días sin venir', 'Incluye clientes cuya última visita fue hace al menos esta cantidad de días.'],
         ONE_TIME_VISITOR: ['Días desde la única visita', 'Incluye clientes cuya única visita fue hace al menos esta cantidad de días.'],
-        NEW_CUSTOMER: ['Días desde la primera visita', 'Incluye clientes cuya primera visita fue dentro de esta cantidad de días.']
+        NEW_CUSTOMER: ['Días desde la primera visita', 'Incluye clientes cuya primera visita fue dentro de esta cantidad de días.'],
+        WORKSHOP_INACTIVE: ['Días sin ingresar al taller', 'Incluye cada vehículo cuya última ficha de trabajo fue hace al menos esta cantidad de días.']
       }[segment]
       if (segmentDaysCopy) {
         els.campaignSegmentDaysField.querySelector('label').textContent = segmentDaysCopy[0]
@@ -34526,7 +34541,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.campaignScheduledAtLabel.textContent = automated ? 'Comenzar desde' : 'Fecha y hora de envío'
 
       if (applySuggestedPriority) {
-        const suggested = { ONE_TIME_VISITOR: 3, AT_RISK: 2, NEW_CUSTOMER: 2, INACTIVE: 1 }
+        const suggested = { ONE_TIME_VISITOR: 3, AT_RISK: 2, NEW_CUSTOMER: 2, INACTIVE: 1, WORKSHOP_MAINTENANCE_DUE: 3, WORKSHOP_INACTIVE: 1 }
         els.campaignPriority.value = String(suggested[segment] || 2)
       }
     }
@@ -34666,13 +34681,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const manualCurrent = manualExecution?.recipients?.find((recipient) => ['PENDING', 'OPENED'].includes(recipient.status))
       const manualProgress = manualExecution?.eligibleCount ? Math.round((manualExecution.completedCount / manualExecution.eligibleCount) * 100) : 0
       const manualStatusLabels = { PENDING: 'Pendiente', OPENED: 'WhatsApp abierto', SENT: 'Marcado enviado', SKIPPED: 'Omitido', RESPONDED: 'Respondi&oacute;', BOOKED: 'Reserv&oacute;' }
+      const manualVehicleCopy = manualCurrent?.metadata?.plate
+        ? ' &middot; Patente ' + escapeHtml(manualCurrent.metadata.plate) + (manualCurrent.metadata.overdueServicesText ? ' &middot; ' + escapeHtml(manualCurrent.metadata.overdueServicesText) : '')
+        : ''
       const manualExecutionCard = '<div class="manual-send-workbench">' +
         '<div class="campaign-recipient-head"><div><h4>Env&iacute;o manual asistido</h4><p>Abre WhatsApp con el mensaje preparado y registra cada contacto en el historial.</p></div>' +
           (manualExecution ? '<strong>' + manualExecution.completedCount + ' / ' + manualExecution.eligibleCount + '</strong>' : '') + '</div>' +
         (manualExecution
           ? '<div class="manual-send-progress"><div><span style="width:' + manualProgress + '%"></span></div><strong>' + manualProgress + '%</strong></div>' +
             (manualCurrent
-              ? '<div class="manual-send-contact"><div class="campaign-recipient-copy"><strong>' + escapeHtml(manualCurrent.customerName) + '</strong><span>' + escapeHtml(formatCustomerPhone(manualCurrent.phone)) + ' &middot; ' + (manualStatusLabels[manualCurrent.status] || escapeHtml(manualCurrent.status)) + '</span></div>' +
+              ? '<div class="manual-send-contact"><div class="campaign-recipient-copy"><strong>' + escapeHtml(manualCurrent.customerName) + '</strong><span>' + escapeHtml(formatCustomerPhone(manualCurrent.phone)) + manualVehicleCopy + ' &middot; ' + (manualStatusLabels[manualCurrent.status] || escapeHtml(manualCurrent.status)) + '</span></div>' +
                   '<div class="manual-send-message">' + escapeHtml(manualCurrent.message) + '</div>' +
                   '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-manual-recipient-action="SKIPPED" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Omitir</button><a class="manual-send-whatsapp" href="' + escapeHtml(manualCurrent.whatsappUrl) + '" target="_blank" rel="noopener" data-manual-open data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Abrir WhatsApp</a><button class="campaigns-new" type="button" data-manual-recipient-action="SENT" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Marcar enviado</button></div></div>'
               : '<div class="campaign-rule-note">Cola finalizada. Los contactos marcados como enviados ya participan del descanso entre promociones.</div>')
@@ -34702,7 +34720,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             ? audience.included.map((customer) => {
                 return '<div class="campaign-recipient-row">' +
                   '<div class="campaign-recipient-avatar">' + escapeHtml(contactInitials(customer.name, customer.phone)) + '</div>' +
-                  '<div class="campaign-recipient-copy"><strong>' + escapeHtml(customer.name) + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + '</span></div>' +
+                  '<div class="campaign-recipient-copy"><strong>' + escapeHtml(customer.name) + (customer.plate ? ' &middot; ' + escapeHtml(customer.plate) : '') + '</strong><span>' + escapeHtml(formatCustomerPhone(customer.phone)) + (customer.overdueServicesText ? ' &middot; ' + escapeHtml(customer.overdueServicesText) : '') + '</span></div>' +
                   '<span class="campaign-recipient-status">Incluido</span>' +
                 '</div>'
               }).join('')
@@ -35179,6 +35197,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (variable === 'nombre_cliente') return customer.name || ''
         if (variable === 'usuario') return customer.name || ''
         if (variable === 'fecha_ultima_visita') return customer.lastVisitAt ? formatShortDate(customer.lastVisitAt) : '{{' + variable + '}}'
+        if (variable === 'patente') return customer.plate || '{{' + variable + '}}'
+        if (variable === 'servicios_vencidos') return customer.overdueServicesText || '{{' + variable + '}}'
+        if (variable === 'enlace_historial') return customer.publicUrl || '{{' + variable + '}}'
         return '{{' + variable + '}}'
       })
     }

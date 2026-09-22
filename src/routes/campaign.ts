@@ -3,7 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { whatsappPricingRates } from '../config/whatsapp-pricing.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from '../services/business-whatsapp-settings.js'
-import { CommunicationService } from '../application/communications/communication-service.js'
+import { CommunicationService, type StartCommunicationExecutionInput } from '../application/communications/communication-service.js'
 import { ManualCampaignCommunicationService } from '../application/campaigns/manual-campaign-communication-service.js'
 import { buildManualWhatsAppUrl, communicationStatuses, type CommunicationStatus } from '../domain/communications/communication.js'
 import { isReminderTemplateEligible, normalizeReminderMode, reminderManualStatuses, reminderModes } from '../domain/communications/reminder.js'
@@ -13,6 +13,7 @@ import { toManualCommunicationExecutionViewModel } from './view-models/communica
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 import { prepareDueReminders, processDueReminders as processDueReminderDeliveries, transitionManualReminder } from '../services/reminder-service.js'
+import { loadWorkshopInactiveAudience, loadWorkshopMaintenanceDueAudience } from '../services/workshop-campaign-audience.js'
 import {
   authorizedCampaignWhere,
   authorizedWhatsAppTemplateWhere,
@@ -34,13 +35,15 @@ const CAMPAIGN_SEGMENTS = [
   'ONE_TIME_VISITOR',
   'NEW_CUSTOMER',
   'MANUAL',
+  'WORKSHOP_MAINTENANCE_DUE',
+  'WORKSHOP_INACTIVE',
   // Valores anteriores: se conservan para poder editar campanas ya creadas.
   'INACTIVE_90',
   'BIRTHDAY',
   'FREQUENT',
   'NO_FUTURE_APPOINTMENT'
 ] as const
-const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_ultima_visita'] as const
+const MARKETING_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_ultima_visita', 'patente', 'servicios_vencidos', 'enlace_historial'] as const
 const REMINDER_TEMPLATE_VARIABLES = ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional'] as const
 const whatsappCloudApi = new WhatsAppCloudApi()
 const communicationService = new CommunicationService(new PrismaCommunicationRepository())
@@ -671,6 +674,9 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const business = await prisma.business.findUnique({ where: { id: normalized.businessId } })
     if (!business) return reply.status(404).send({ message: 'No encontre ese comercio' })
+    if (isWorkshopCampaignSegment(normalized.segment) && business.businessType !== 'WORKSHOP') {
+      return reply.status(400).send({ message: 'Este segmento est� disponible solamente para comercios de Mec�nica' })
+    }
     if (normalized.whatsappTemplateId) {
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
       if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
@@ -701,12 +707,18 @@ export async function campaignRoutes(app: FastifyInstance) {
 
   app.patch('/campaigns/:id', async (request, reply) => {
     const params = request.params as { id: string }
-    const current = await prisma.campaign.findFirst({ where: authorizedCampaignWhere(request.auth!.user, params.id) })
+    const current = await prisma.campaign.findFirst({
+      where: authorizedCampaignWhere(request.auth!.user, params.id),
+      include: { business: { select: { businessType: true } } }
+    })
     if (!current) return sendAuthorizationFailure(reply, 'notFound')
 
     const body = request.body as CampaignInput
     const normalized = normalizeCampaignInput({ ...current, ...body }, reply, true, body.segment !== undefined && body.segment !== current.segment)
     if (!normalized) return
+    if (isWorkshopCampaignSegment(normalized.segment) && current.business.businessType !== 'WORKSHOP') {
+      return reply.status(400).send({ message: 'Este segmento est� disponible solamente para comercios de Mec�nica' })
+    }
     if (normalized.type === 'AUTOMATED' && ['ACTIVE', 'SCHEDULED'].includes(normalized.status)) return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente. Convertí la campaña a puntual.' })
     if (normalized.whatsappTemplateId) {
       const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
@@ -902,10 +914,11 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (running) return toManualCommunicationExecutionViewModel(running)
 
     const audience = await calculateCampaignAudience(campaign)
-    const recipients = []
+    const recipients: StartCommunicationExecutionInput['recipients'] = []
     const invalidRecipients: Array<{ customerId: string; reason: string }> = []
     for (const customer of audience.included) {
-      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id })
+      const workshop = workshopContextForAudienceRecipient(customer)
+      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id, workshop })
       const resolved = resolveWhatsAppTemplateVariables({ body: campaign.message, category: 'MARKETING', context })
       const invalid = [...resolved.unsupported, ...resolved.missing]
       if (invalid.length) {
@@ -914,10 +927,13 @@ export async function campaignRoutes(app: FastifyInstance) {
       }
       recipients.push({
         customerId: customer.id,
+        ...(customer.recipientKey ? { recipientKey: customer.recipientKey } : {}),
         customerName: customer.name,
         phone: customer.phone,
         message: resolved.previewText,
-        metadata: { lastVisitAt: customer.lastVisitAt }
+        metadata: workshop
+          ? { ...workshop, overdueServices: customer.overdueServices || [] }
+          : { lastVisitAt: customer.lastVisitAt }
       })
     }
     if (!recipients.length) return reply.status(400).send({ message: 'No hay destinatarios habilitados para el envío manual' })
@@ -1579,7 +1595,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
     reply.status(400).send({ message: 'Segmento invalido' })
     return null
   }
-  if (requireSegmentDays && ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'].includes(segment) && segmentDays === null) {
+  if (requireSegmentDays && ['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER', 'WORKSHOP_INACTIVE'].includes(segment) && segmentDays === null) {
     reply.status(400).send({ message: 'Indica la cantidad de dias para este segmento' })
     return null
   }
@@ -1729,7 +1745,7 @@ async function sendCampaignRecipients(input: {
     category: string
     imageUrl: string | null
   }
-  recipients: Array<{ id: string; name: string; phone: string }>
+  recipients: CampaignAudienceRecipient[]
   runId?: string
   now?: Date
 }) {
@@ -1753,7 +1769,8 @@ async function sendCampaignRecipients(input: {
   }
 
   for (const customer of input.recipients) {
-    const context = await buildTemplateVariableContext({ businessId: input.campaign.businessId, customerId: customer.id })
+    const workshop = workshopContextForAudienceRecipient(customer)
+    const context = await buildTemplateVariableContext({ businessId: input.campaign.businessId, customerId: customer.id, workshop })
     const resolved = resolveWhatsAppTemplateVariables({
       body: input.template.body,
       category: input.template.category,
@@ -1802,7 +1819,7 @@ async function sendCampaignRecipients(input: {
       providerMessageId,
       failureReason: failureMessage,
       occurredAt: now,
-      ...(input.runId ? { metadata: { campaignRunId: input.runId } } : {})
+      ...((input.runId || workshop) ? { metadata: { ...(input.runId ? { campaignRunId: input.runId } : {}), ...(workshop || {}) } } : {})
     })
     const runId = input.runId
     if (runId) {
@@ -1934,9 +1951,21 @@ type TemplateVariableContext = {
     service: { name: string }
     professional: { name: string }
   } | null
+  workshop?: {
+    vehicleId: string
+    plate: string
+    overdueServicesText: string
+    publicUrl: string | null
+    lastVisitAt?: string | null
+  } | null
 }
 
-async function buildTemplateVariableContext(input: { businessId: string; customerId?: string; appointmentId?: string }): Promise<TemplateVariableContext> {
+async function buildTemplateVariableContext(input: {
+  businessId: string
+  customerId?: string
+  appointmentId?: string
+  workshop?: TemplateVariableContext['workshop']
+}): Promise<TemplateVariableContext> {
   const appointment = input.appointmentId
     ? await prisma.appointment.findFirst({
         where: { id: input.appointmentId, professional: { businessId: input.businessId } },
@@ -1968,7 +1997,13 @@ async function buildTemplateVariableContext(input: { businessId: string; custome
         orderBy: { startAt: 'desc' }
       })
     : null
-  return { customer: customer || appointment?.customer || null, lastVisitAt: lastVisit?.startAt ?? null, appointment }
+  const workshopLastVisitAt = input.workshop?.lastVisitAt ? new Date(input.workshop.lastVisitAt) : null
+  return {
+    customer: customer || appointment?.customer || null,
+    lastVisitAt: workshopLastVisitAt ?? lastVisit?.startAt ?? null,
+    appointment,
+    workshop: input.workshop ?? null
+  }
 }
 
 function resolveWhatsAppTemplateVariables(input: { body: string; category?: string | null; context: TemplateVariableContext }) {
@@ -2001,6 +2036,9 @@ function resolveTemplateVariableValue(variable: string, context: TemplateVariabl
   if (variable === 'hora_turno') return context.appointment?.startAt ? formatTemplateTime(context.appointment.startAt) : null
   if (variable === 'servicio') return context.appointment?.service.name?.trim() || null
   if (variable === 'profesional') return context.appointment?.professional.name?.trim() || null
+  if (variable === 'patente') return context.workshop?.plate?.trim() || null
+  if (variable === 'servicios_vencidos') return context.workshop?.overdueServicesText?.trim() || null
+  if (variable === 'enlace_historial') return context.workshop?.publicUrl?.trim() || null
   return null
 }
 
@@ -2054,6 +2092,41 @@ type AudienceAppointment = {
   customer: { id: string; name: string; phone: string }
 }
 
+type CampaignAudienceRecipient = {
+  id: string
+  name: string
+  phone: string
+  lastVisitAt: string | null
+  recipientKey?: string
+  vehicleId?: string
+  plate?: string
+  overdueServices?: string[]
+  overdueServicesText?: string
+  publicUrl?: string | null
+}
+
+type CampaignAudienceResult = {
+  total: number
+  included: CampaignAudienceRecipient[]
+  excluded: { missingPhone: number; withFutureAppointment: number }
+  note: string
+}
+
+function isWorkshopCampaignSegment(segment: string) {
+  return segment === 'WORKSHOP_MAINTENANCE_DUE' || segment === 'WORKSHOP_INACTIVE'
+}
+
+function workshopContextForAudienceRecipient(customer: CampaignAudienceRecipient): NonNullable<TemplateVariableContext['workshop']> | null {
+  if (!customer.vehicleId || !customer.plate) return null
+  return {
+    vehicleId: customer.vehicleId,
+    plate: customer.plate,
+    overdueServicesText: customer.overdueServicesText || '',
+    publicUrl: customer.publicUrl || null,
+    lastVisitAt: customer.lastVisitAt
+  }
+}
+
 type AudienceCampaign = {
   type: string
   segment: string
@@ -2091,19 +2164,28 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
   createdAt: Date
   manualRecipients?: Array<{ customer: { id: string; name: string; phone: string } }>
 }) {
-  const appointments = await prisma.appointment.findMany({
-    where: { professional: { businessId: campaign.businessId } },
-    select: {
-      customerId: true,
-      startAt: true,
-      status: true,
-      customer: { select: { id: true, name: true, phone: true } }
-    },
-    orderBy: { startAt: 'asc' }
-  })
+  let appointments: AudienceAppointment[] | null = null
+  const loadAppointments = async () => {
+    if (appointments) return appointments
+    appointments = await prisma.appointment.findMany({
+      where: { professional: { businessId: campaign.businessId } },
+      select: {
+        customerId: true,
+        startAt: true,
+        status: true,
+        customer: { select: { id: true, name: true, phone: true } }
+      },
+      orderBy: { startAt: 'asc' }
+    })
+    return appointments
+  }
 
-  const baseAudience = buildAudiencePreview(campaign, appointments)
-  const candidateIds = baseAudience.included.map((customer) => customer.id)
+  const baseAudience: CampaignAudienceResult = campaign.segment === 'WORKSHOP_MAINTENANCE_DUE'
+    ? await loadWorkshopMaintenanceDueAudience(campaign.businessId)
+    : campaign.segment === 'WORKSHOP_INACTIVE'
+      ? await loadWorkshopInactiveAudience(campaign.businessId, campaign.segmentDays ?? 180)
+      : buildAudiencePreview(campaign, await loadAppointments())
+  const candidateIds = Array.from(new Set(baseAudience.included.map((customer) => customer.id)))
   if (!candidateIds.length) return {
     ...baseAudience,
     excluded: {
@@ -2145,7 +2227,11 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
     const competitorWins = competitor.priority > campaign.priority ||
       (competitor.priority === campaign.priority && competitor.createdAt < campaign.createdAt)
     if (!competitorWins) continue
-    const competitorBaseAudience = buildAudiencePreview(competitor, appointments)
+    const competitorBaseAudience: CampaignAudienceResult = competitor.segment === 'WORKSHOP_MAINTENANCE_DUE'
+      ? await loadWorkshopMaintenanceDueAudience(campaign.businessId)
+      : competitor.segment === 'WORKSHOP_INACTIVE'
+        ? await loadWorkshopInactiveAudience(campaign.businessId, competitor.segmentDays ?? 180)
+        : buildAudiencePreview(competitor, await loadAppointments())
     const eligibleCompetitorAudience = applyCampaignEligibility({
       campaign: competitor,
       baseAudience: competitorBaseAudience,
@@ -2161,7 +2247,7 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
   return applyCampaignEligibility({ campaign, baseAudience, preferences, deliveries, higherPriorityCustomerIds })
 }
 
-function buildAudiencePreview(campaign: AudienceCampaign, appointments: AudienceAppointment[]) {
+function buildAudiencePreview(campaign: AudienceCampaign, appointments: AudienceAppointment[]): CampaignAudienceResult {
   const now = new Date()
   const customers = new Map<string, {
     id: string
@@ -2263,7 +2349,7 @@ function buildAudiencePreview(campaign: AudienceCampaign, appointments: Audience
 
 function applyCampaignEligibility(input: {
   campaign: EligibilityCampaign
-  baseAudience: ReturnType<typeof buildAudiencePreview>
+  baseAudience: CampaignAudienceResult
   preferences: MarketingPreferenceRow[]
   deliveries: CampaignDeliveryRow[]
   higherPriorityCustomerIds: Set<string>

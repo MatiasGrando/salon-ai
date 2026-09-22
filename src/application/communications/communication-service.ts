@@ -21,6 +21,7 @@ export type StartCommunicationExecutionInput = {
   metadata?: Record<string, unknown>
   recipients: Array<{
     customerId: string
+    recipientKey?: string
     customerName: string
     phone: string
     message: string
@@ -32,6 +33,7 @@ export type CommunicationRecipientRecord = {
   id: string
   executionId: string
   customerId: string
+  recipientKey: string
   status: string
   phoneSnapshot: string
   messageSnapshot: string
@@ -41,6 +43,7 @@ export type CommunicationRecipientRecord = {
   sentAt: Date | null
   skipReason: string | null
   failureReason: string | null
+  metadata: unknown
 }
 
 export type CommunicationExecutionRecord = {
@@ -86,8 +89,8 @@ export class CommunicationService {
   startExecution(input: StartCommunicationExecutionInput) {
     if (!input.businessId || !input.sourceId) throw new Error('Falta identificar el origen de la comunicación')
     if (!input.recipients.length) throw new Error('No hay destinatarios habilitados')
-    const customerIds = new Set(input.recipients.map((recipient) => recipient.customerId))
-    if (customerIds.size !== input.recipients.length) throw new Error('La ejecución contiene destinatarios duplicados')
+    const recipientKeys = new Set(input.recipients.map((recipient) => recipient.recipientKey || recipient.customerId))
+    if (recipientKeys.size !== input.recipients.length) throw new Error('La ejecución contiene destinatarios duplicados')
     for (const recipient of input.recipients) buildManualWhatsAppUrl(recipient.phone, recipient.message)
     return this.repository.createExecution(input)
   }

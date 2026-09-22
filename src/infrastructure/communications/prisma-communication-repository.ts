@@ -22,6 +22,7 @@ export class PrismaCommunicationRepository implements CommunicationRepository {
           create: input.recipients.map((recipient) => ({
             business: { connect: { id: input.businessId } },
             customer: { connect: { id: recipient.customerId } },
+            recipientKey: recipient.recipientKey || recipient.customerId,
             phoneSnapshot: recipient.phone,
             customerNameSnapshot: recipient.customerName,
             messageSnapshot: recipient.message,
@@ -45,6 +46,7 @@ export class PrismaCommunicationRepository implements CommunicationRepository {
         id: true,
         executionId: true,
         customerId: true,
+        recipientKey: true,
         status: true,
         phoneSnapshot: true,
         customerNameSnapshot: true,
@@ -53,7 +55,8 @@ export class PrismaCommunicationRepository implements CommunicationRepository {
         openedAt: true,
         sentAt: true,
         skipReason: true,
-        failureReason: true
+        failureReason: true,
+        metadata: true
       }
     })
   }

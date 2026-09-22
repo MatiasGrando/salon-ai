@@ -25,6 +25,7 @@ export function toManualCommunicationExecutionViewModel(execution: Communication
     recipients: execution.recipients.map((recipient) => ({
       id: recipient.id,
       customerId: recipient.customerId,
+      recipientKey: recipient.recipientKey,
       customerName: recipient.customerNameSnapshot,
       phone: recipient.phoneSnapshot,
       message: recipient.messageSnapshot,
@@ -34,7 +35,8 @@ export function toManualCommunicationExecutionViewModel(execution: Communication
       sentAt: recipient.sentAt,
       skipReason: recipient.skipReason,
       failureReason: recipient.failureReason,
-      sourceDeliveryId: recipient.sourceDeliveryId
+      sourceDeliveryId: recipient.sourceDeliveryId,
+      metadata: recipient.metadata
     }))
   }
 }

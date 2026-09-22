@@ -13,7 +13,7 @@ assert.match(ui, /campaignSegmentDaysField\.hidden = !campaignSegmentNeedsDays\(
 assert.match(ui, /campaignSegmentDays\.required = campaignSegmentNeedsDays\(segment\)/)
 assert.match(ui, /D&iacute;as sin venir/, 'explicar el umbral de inactividad')
 assert.match(ui, /segmentDays:?[\s\S]{0,160}els\.campaignSegmentDays\.value/, 'enviar el umbral elegido')
-assert.match(route, /if \(requireSegmentDays && \['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER'\]\.includes\(segment\) && segmentDays === null\)/, 'exigir el umbral para nuevas campañas')
+assert.match(route, /if \(requireSegmentDays && \['INACTIVE', 'ONE_TIME_VISITOR', 'NEW_CUSTOMER', 'WORKSHOP_INACTIVE'\]\.includes\(segment\) && segmentDays === null\)/, 'exigir el umbral para nuevas campañas')
 assert.match(route, /normalizeCampaignInput\(body, reply, true, true\)/, 'validar al crear')
 assert.match(route, /body\.segment !== undefined && body\.segment !== current\.segment/, 'validar al cambiar de segmento sin bloquear campañas existentes')
 assert.match(route, /campaign\.segmentDays \?\? 45/, 'usar el umbral al calcular audiencia')
