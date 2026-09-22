@@ -678,9 +678,9 @@ export async function campaignRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'Este segmento est� disponible solamente para comercios de Mec�nica' })
     }
     if (normalized.whatsappTemplateId) {
-      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
-      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
-      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campanas de marketing solo pueden usar plantillas de Marketing aprobadas' })
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: { in: normalized.deliveryMode === 'MANUAL_ASSISTED' ? ['DRAFT', 'APPROVED'] : ['APPROVED'] } } })
+      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla de Marketing válida para esta modalidad' })
+      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campañas de marketing solo pueden usar plantillas de Marketing' })
       const unsupportedVariables = unsupportedTemplateVariables('MARKETING', extractNamedTemplateVariables(template.body))
       if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage('MARKETING', unsupportedVariables) })
       normalized.message = template.body
@@ -721,9 +721,9 @@ export async function campaignRoutes(app: FastifyInstance) {
     }
     if (normalized.type === 'AUTOMATED' && ['ACTIVE', 'SCHEDULED'].includes(normalized.status)) return reply.status(409).send({ message: 'Las campañas automáticas están pausadas temporalmente. Convertí la campaña a puntual.' })
     if (normalized.whatsappTemplateId) {
-      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: 'APPROVED' } })
-      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla aprobada de este comercio' })
-      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campanas de marketing solo pueden usar plantillas de Marketing aprobadas' })
+      const template = await prisma.whatsAppTemplate.findFirst({ where: { id: normalized.whatsappTemplateId, businessId: normalized.businessId, status: { in: normalized.deliveryMode === 'MANUAL_ASSISTED' ? ['DRAFT', 'APPROVED'] : ['APPROVED'] } } })
+      if (!template) return reply.status(400).send({ message: 'Selecciona una plantilla de Marketing válida para esta modalidad' })
+      if (normalizeWhatsAppTemplateCategory(template.category) !== 'MARKETING') return reply.status(400).send({ message: 'Las campañas de marketing solo pueden usar plantillas de Marketing' })
       const unsupportedVariables = unsupportedTemplateVariables('MARKETING', extractNamedTemplateVariables(template.body))
       if (unsupportedVariables.length) return reply.status(400).send({ message: unsupportedTemplateVariablesMessage('MARKETING', unsupportedVariables) })
       normalized.message = template.body
@@ -1543,7 +1543,7 @@ function normalizeCampaignInput(body: CampaignInput, reply: FastifyReply, requir
   const cooldownDays = integerOrDefault(body.cooldownDays, 30)
   const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null
   const scheduleMode = body.scheduleMode?.trim().toUpperCase() || (scheduledAt ? 'SCHEDULED' : 'IMMEDIATE')
-  const budgetLimit = body.budgetLimit === null || body.budgetLimit === undefined || body.budgetLimit === ''
+  const budgetLimit = deliveryMode === 'MANUAL_ASSISTED' || body.budgetLimit === null || body.budgetLimit === undefined || body.budgetLimit === ''
     ? null
     : Number(body.budgetLimit)
 

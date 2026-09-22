@@ -52,4 +52,12 @@ assert.match(campaignRoute, /current\.deliveryMode !== normalized\.deliveryMode 
 assert.match(crmUi, /campaign\.deliveryMode === 'MANUAL_ASSISTED'\s*\? '<div class="campaign-activation-card campaign-activation-cost"/, 'el manual no debe mostrar precio de Meta API')
 assert.doesNotMatch(crmUi, /\b(?:alert|confirm|prompt)\s*\(/)
 
+assert.ok(crmUi.includes("['DRAFT', 'APPROVED'].includes(item.status)"), 'manual should list draft templates')
+assert.ok(crmUi.includes("els.campaignBudget.closest('.campaign-form-field').hidden = isManual"), 'manual should hide budget')
+assert.ok(crmUi.includes("budgetLimit: els.campaignDeliveryMode.value === 'MANUAL_ASSISTED' ? null"), 'manual should not submit budget')
+assert.ok(crmUi.includes("item.status === 'APPROVED'"), 'automatic should still require approved templates')
+assert.ok(crmUi.includes("campaign.deliveryMode === 'MANUAL_ASSISTED' ? '' : '<div class=\"campaign-budget-item\"><span>Presupuesto</span>"), 'manual detail should not show budget')
+assert.ok(campaignRoute.includes("status: { in: normalized.deliveryMode === 'MANUAL_ASSISTED' ? ['DRAFT', 'APPROVED'] : ['APPROVED'] }"), 'manual should accept draft on server')
+assert.ok(campaignRoute.includes("const budgetLimit = deliveryMode === 'MANUAL_ASSISTED' || body.budgetLimit === null"), 'server should clear manual budget')
+
 console.log('Campaign delivery mode contract: OK')

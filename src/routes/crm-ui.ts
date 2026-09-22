@@ -19363,7 +19363,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <label for="campaign-scheduled-at" id="campaign-scheduled-at-label">Fecha y hora</label>
             <input id="campaign-scheduled-at" type="datetime-local">
           </div>
-          <div class="campaign-form-field">
+          <div class="campaign-form-field" id="campaign-budget-field">
             <label for="campaign-budget">L&iacute;mite de presupuesto</label>
             <div class="money-input-shell">
               <span class="money-input-prefix">$</span>
@@ -19423,9 +19423,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </div>
           </section>
           <div class="campaign-form-field full">
-            <label for="campaign-whatsapp-template">Plantilla aprobada de Meta</label>
+            <label for="campaign-whatsapp-template" id="campaign-whatsapp-template-label">Plantilla del mensaje</label>
             <select id="campaign-whatsapp-template" required><option value="">Seleccionar plantilla aprobada</option></select>
-            <p class="campaign-form-help">Las plantillas se crean y administran desde la pesta&ntilde;a Plantillas de Meta. Solo aparecen aqu&iacute; cuando est&aacute;n aprobadas.</p>
+            <p class="campaign-form-help" id="campaign-whatsapp-template-help">En manual asistido pod&eacute;s usar borradores o plantillas aprobadas.</p>
             <input id="campaign-template-name" type="hidden"><select id="campaign-template-language" hidden><option value="es_AR">es_AR</option><option value="es">es</option><option value="en_US">en_US</option></select>
             <button id="campaign-template-create" type="button" hidden></button><button id="campaign-template-sync" type="button" hidden></button><div id="campaign-template-state" hidden></div><p id="campaign-template-feedback" hidden></p>
           </div>
@@ -34329,9 +34329,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function renderCampaignTemplateOptions(selectedId) {
       const currentId = selectedId || els.campaignWhatsappTemplate.value
-      const approved = state.whatsappTemplates.filter((item) => item.status === 'APPROVED' && item.category !== 'UTILITY')
-      els.campaignWhatsappTemplate.innerHTML = '<option value="">Seleccionar plantilla aprobada</option>' + approved.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')</option>').join('')
-      if (currentId) els.campaignWhatsappTemplate.value = currentId
+      const isManual = els.campaignDeliveryMode.value === 'MANUAL_ASSISTED'
+      const eligible = state.whatsappTemplates.filter((item) => item.category === 'MARKETING' && (isManual ? ['DRAFT', 'APPROVED'].includes(item.status) : item.status === 'APPROVED'))
+      els.campaignWhatsappTemplate.innerHTML = '<option value="">' + (isManual ? 'Seleccionar plantilla' : 'Seleccionar plantilla aprobada') + '</option>' + eligible.map((item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.internalName) + ' (' + escapeHtml(item.language) + ')' + (isManual ? ' - ' + (item.status === 'DRAFT' ? 'Borrador' : 'Aprobada') : '') + '</option>').join('')
+      if (currentId && eligible.some((item) => item.id === currentId)) els.campaignWhatsappTemplate.value = currentId
+      syncCampaignTemplateSelection()
     }
 
     function syncCampaignTemplateSelection() {
@@ -34709,7 +34711,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ? '<img class="campaign-message-media" src="' + escapeHtml(campaign.imageUrl) + '" alt="Imagen de la campa&ntilde;a">'
         : ''
       const templateCopy = campaign.templateName
-        ? '<div class="campaign-rule-note">Plantilla Meta: <strong>' + escapeHtml(campaign.templateName) + '</strong> &middot; Idioma ' + escapeHtml(campaign.templateLanguage || 'es_AR') +
+        ? '<div class="campaign-rule-note">' + (campaign.deliveryMode === 'MANUAL_ASSISTED' ? 'Plantilla del mensaje' : 'Plantilla Meta') + ': <strong>' + escapeHtml(campaign.templateName) + '</strong> &middot; Idioma ' + escapeHtml(campaign.templateLanguage || 'es_AR') +
           ' &middot; Estado: <strong>' + escapeHtml(campaignTemplateStatusLabels[campaign.templateStatus || 'NOT_CREATED'] || campaign.templateStatus || 'Sin crear') + '</strong>' +
           (campaign.templateRejectionReason ? '<br>Motivo del rechazo: ' + escapeHtml(campaign.templateRejectionReason) : '') + '</div>'
         : '<div class="campaign-rule-note">Sin plantilla Meta asociada todav&iacute;a. Para env&iacute;os fuera de la ventana de 24 hs se usar&aacute;n plantillas aprobadas.</div>'
@@ -34776,7 +34778,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '<div class="campaign-budget-item"><span>Entre contactos</span><strong>' + (campaign.retryIntervalDays || 30) + ' d&iacute;as</strong></div>'
             : '<div class="campaign-budget-item"><span>Respeta descanso</span><strong>' + ((campaign.respectCooldown ?? true) ? 'S&iacute;' : 'No') + '</strong></div>') +
           '<div class="campaign-budget-item"><span>Desde otra promoci&oacute;n</span><strong>' + ((campaign.respectCooldown ?? true) ? (campaign.cooldownDays ?? 30) + ' d&iacute;as' : 'Desactivado') + '</strong></div>' +
-          '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>' +
+          (campaign.deliveryMode === 'MANUAL_ASSISTED' ? '' : '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>') +
         '</div></section></div><div class="campaign-rule-note">&#9432;&nbsp; ' + rule + '</div></div>'
 
       els.campaignDetailPanel.innerHTML =
@@ -34829,7 +34831,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             (campaign.type === 'AUTOMATED' ?
               '<div class="campaign-budget-item"><span>Prioridad</span><strong>' + (campaignPriorityLabels[campaign.priority] || 'Media') + '</strong></div>' +
               '<div class="campaign-budget-item"><span>M&aacute;ximo de contactos</span><strong>' + (campaign.maxAttempts || 2) + '</strong></div>' : '') +
-            '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>' +
+            (campaign.deliveryMode === 'MANUAL_ASSISTED' ? '' : '<div class="campaign-budget-item"><span>Presupuesto</span><strong>' + budget + '</strong></div>') +
             '<div class="campaign-budget-item"><span>Pr&oacute;ximo env&iacute;o</span><strong>' + campaignNextSend(campaign) + '</strong></div>' +
           '</div></section>' +
         '</div>' +
@@ -34925,6 +34927,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function setCampaignDeliveryMode(mode) {
       const normalized = mode === 'AUTOMATIC_API' ? 'AUTOMATIC_API' : 'MANUAL_ASSISTED'
       els.campaignDeliveryMode.value = normalized
+      const isManual = normalized === 'MANUAL_ASSISTED'
+      els.campaignBudget.closest('.campaign-form-field').hidden = isManual
+      els.campaignBudget.disabled = isManual
+      if (isManual) {
+        els.campaignBudget.value = ''
+        updateCampaignBudgetPreview()
+      }
+      document.getElementById('campaign-whatsapp-template-label').textContent = isManual ? 'Plantilla del mensaje' : 'Plantilla aprobada de Meta'
+      document.getElementById('campaign-whatsapp-template-help').innerHTML = isManual
+        ? 'Pod&eacute;s usar una plantilla de Marketing en borrador o aprobada. El env&iacute;o se hace desde tu WhatsApp, no desde la API de Meta.'
+        : 'Para el env&iacute;o autom&aacute;tico se requiere una plantilla de Marketing aprobada por Meta.'
+      renderCampaignTemplateOptions(els.campaignWhatsappTemplate.value)
       for (const option of els.campaignDeliverySection.querySelectorAll('input[name="campaign-delivery-option"]')) {
         option.checked = option.value === normalized
       }
@@ -35048,7 +35062,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         restartAfterVisit: true,
         scheduleMode: els.campaignScheduleMode.value,
         scheduledAt: els.campaignScheduleMode.value === 'SCHEDULED' ? (els.campaignScheduledAt.value || null) : null,
-        budgetLimit: normalizeMoneyInput(els.campaignBudget.value) || null,
+        budgetLimit: els.campaignDeliveryMode.value === 'MANUAL_ASSISTED' ? null : normalizeMoneyInput(els.campaignBudget.value) || null,
         status: els.campaignStatus.value,
         whatsappTemplateId: selectedWhatsappTemplate?.id || null,
         templateName: selectedWhatsappTemplate?.metaName || null,
@@ -35066,11 +35080,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       if (!payload.name || !payload.message) {
-        els.campaignFormFeedback.textContent = 'Completá el nombre y seleccioná una plantilla aprobada.'
+        els.campaignFormFeedback.textContent = 'Completá el nombre y seleccioná una plantilla.'
         return
       }
       if (!payload.whatsappTemplateId) {
-        els.campaignFormFeedback.textContent = 'Seleccioná una plantilla aprobada para crear la campaña.'
+        els.campaignFormFeedback.textContent = payload.deliveryMode === 'MANUAL_ASSISTED' ? 'Seleccioná una plantilla de Marketing en borrador o aprobada.' : 'Seleccioná una plantilla de Marketing aprobada por Meta.'
         return
       }
       if (payload.templateName && !/^[a-z0-9_]{1,512}$/.test(payload.templateName)) {
