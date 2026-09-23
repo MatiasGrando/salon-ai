@@ -34161,6 +34161,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return variables
     }
 
+    function normalizeTemplateVariableTypos(text) {
+      return String(text || '').replace(/\{\{\s*ervicios_vencidos\s*\}\}/g, '{{servicios_vencidos}}')
+    }
+
+    function correctTemplateBodyVariableTypos() {
+      const input = els.templateBody
+      const corrected = normalizeTemplateVariableTypos(input.value)
+      if (corrected === input.value) return false
+      const start = normalizeTemplateVariableTypos(input.value.slice(0, input.selectionStart ?? input.value.length)).length
+      const end = normalizeTemplateVariableTypos(input.value.slice(0, input.selectionEnd ?? input.value.length)).length
+      input.value = corrected
+      input.setSelectionRange(start, end)
+      return true
+    }
     function supportedTemplateVariables(category = selectedTemplateCategory()) {
       return category === 'UTILITY'
         ? ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
@@ -34388,6 +34402,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       setTemplateCategory(template?.category || 'MARKETING')
       els.templateLanguage.value = template?.language || 'es_AR'
       els.templateBody.value = template?.body || ''
+      correctTemplateBodyVariableTypos()
       els.templateDialogTitle.textContent = template ? 'Editar plantilla' : 'Nueva plantilla de WhatsApp'
       els.templateFormFeedback.textContent = ''
       els.templateFormFeedback.className = 'campaign-form-feedback template-form-feedback'
@@ -34410,6 +34425,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function saveTemplate(sendToMeta) {
+      correctTemplateBodyVariableTypos()
       const variables = extractTemplateVariables(els.templateBody.value)
       const missingExamples = variables.filter((variable) => !state.templateDraftExamples[variable]?.trim())
       const unsupported = unsupportedTemplateVariables(variables)
@@ -37089,7 +37105,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.templateForm.addEventListener('submit', (event) => { event.preventDefault(); saveTemplate(false) })
     els.templateSaveSubmit.addEventListener('click', () => saveTemplate(true))
-    els.templateBody.addEventListener('input', () => { renderTemplateVariables(); updateTemplateBuilderPreview() })
+    els.templateBody.addEventListener('input', () => { correctTemplateBodyVariableTypos(); renderTemplateVariables(); updateTemplateBuilderPreview() })
     els.templateVariablePicker.addEventListener('change', (event) => {
       insertTemplateVariable(event.target.value)
       event.target.value = ''

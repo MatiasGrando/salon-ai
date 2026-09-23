@@ -22,6 +22,19 @@ assert.match(response.body, /id="template-variable-picker"/, 'template builder s
 const pickerSource = response.body.match(/function renderTemplateVariablePicker\(\) \{[\s\S]*?\n    \}/)?.[0] || ''
 const insertSource = response.body.match(/function insertTemplateVariable\(variable\) \{[\s\S]*?\n    \}/)?.[0] || ''
 assert.ok(pickerSource && insertSource, 'variable picker should render options and insert selected variables')
+const typoSource = response.body.match(/function normalizeTemplateVariableTypos\(text\) \{[\s\S]*?\n    \}/)?.[0] || ''
+const fixBodySource = response.body.match(/function correctTemplateBodyVariableTypos\(\) \{[\s\S]*?\n    \}/)?.[0] || ''
+assert.ok(typoSource && fixBodySource, 'template editor should correct the known missing-s typo')
+const normalizeTemplateVariableTypos = new Function(typoSource + '; return normalizeTemplateVariableTypos')()
+assert.equal(normalizeTemplateVariableTypos('{{ervicios_vencidos}}'), '{{servicios_vencidos}}')
+assert.equal(normalizeTemplateVariableTypos('{{servicios_vencidos}}'), '{{servicios_vencidos}}')
+assert.equal(normalizeTemplateVariableTypos('{{ervicios_vencidos_extra}}'), '{{ervicios_vencidos_extra}}')
+const typoText = { value: 'Hola {{ervicios_vencidos}}!', selectionStart: 26, selectionEnd: 26, setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end } }
+const fixBody = new Function('els', 'normalizeTemplateVariableTypos', fixBodySource + '; return correctTemplateBodyVariableTypos')({ templateBody: typoText }, normalizeTemplateVariableTypos)
+fixBody()
+assert.equal(typoText.value, 'Hola {{servicios_vencidos}}!')
+assert.equal(typoText.selectionStart, 27)
+assert.match(response.body, /templateBody\.addEventListener\('input', \(\) => \{ correctTemplateBodyVariableTypos\(\)/)
 const textarea = {
   value: 'Hola mundo', selectionStart: 5, selectionEnd: 5, focused: false,
   setRangeText(token: string, start: number, end: number) {
