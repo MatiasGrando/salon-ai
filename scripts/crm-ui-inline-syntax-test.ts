@@ -30,6 +30,22 @@ assert.ok(extractSource, 'rendered CRM must include template variable extraction
 const extractTemplateVariables = new Function(extractSource + '; return extractTemplateVariables')()
 assert.deepEqual(extractTemplateVariables('{{servicios_vencidos}}'), ['servicios_vencidos'])
 assert.deepEqual(extractTemplateVariables('{{ssssssessrvicios_vencidos}}'), ['ssssssessrvicios_vencidos'], 'the rendered regex must not consume leading s characters')
+const supportedSource = response.body.match(/function supportedTemplateVariables\(category = selectedTemplateCategory\(\)\) \{[\s\S]*?\n    \}/)?.[0] || ''
+assert.ok(supportedSource, 'rendered CRM must include business-aware template variables')
+const salonSupportedVariables = new Function('selectedTemplateCategory', 'isWorkshopBusiness', supportedSource + '; return supportedTemplateVariables')(
+  () => 'MARKETING',
+  () => false
+)
+const workshopSupportedVariables = new Function('selectedTemplateCategory', 'isWorkshopBusiness', supportedSource + '; return supportedTemplateVariables')(
+  () => 'MARKETING',
+  () => true
+)
+assert.doesNotMatch(salonSupportedVariables().join(','), /patente|servicios_vencidos/, 'salons must not offer workshop-only variables')
+assert.deepEqual(
+  workshopSupportedVariables(),
+  ['nombre_cliente', 'usuario', 'fecha_ultima_visita', 'patente', 'servicios_vencidos', 'enlace_historial'],
+  'workshops must keep their marketing variables'
+)
 const normalizeTemplateVariableTypos = new Function(typoSource + '; return normalizeTemplateVariableTypos')()
 assert.equal(normalizeTemplateVariableTypos('{{ervicios_vencidos}}'), '{{servicios_vencidos}}')
 assert.equal(normalizeTemplateVariableTypos('{{servicios_vencidos}}'), '{{servicios_vencidos}}')
@@ -61,8 +77,8 @@ const elements = { templateBody: textarea, templateVariablePicker: picker, templ
 let category = 'MARKETING'
 const supported = () => category === 'MARKETING' ? ['nombre_cliente', 'servicios_vencidos'] : ['fecha_turno']
 const OptionMock = class { constructor(public text: string, public value: string) {} }
-const renderPicker = new Function('els', 'supportedTemplateVariables', 'selectedTemplateCategory', 'Option', pickerSource + '; return renderTemplateVariablePicker')(
-  elements, supported, () => category, OptionMock
+const renderPicker = new Function('els', 'supportedTemplateVariables', 'selectedTemplateCategory', 'isWorkshopBusiness', 'Option', pickerSource + '; return renderTemplateVariablePicker')(
+  elements, supported, () => category, () => false, OptionMock
 )
 const insertVariable = new Function('els', 'supportedTemplateVariables', 'renderTemplateVariables', 'updateTemplateBuilderPreview', insertSource + '; return insertTemplateVariable')(
   elements, supported, () => {}, () => {}

@@ -677,7 +677,7 @@ assert.equal(unifiedRecommendation.view.interactiveBody, compactConfirmation)
 assert.deepEqual(
   unifiedRecommendation.view.choices.slice(0, 4).map(choice => [choice.actionType, choice.label]),
   [
-    ['cart.continue', 'Continuar con la reserva'],
+    ['cart.continue', 'Elegir día y horario'],
     ['recommendation.add', 'Agregar Baño de crema'],
     ['cart.add_service', 'Agregar otro servicio'],
     ['cart.open_remove', 'Quitar un servicio']
@@ -873,7 +873,7 @@ assert.equal(removeOne.outcome, 'APPLIED')
 assert.equal(removeOne.state.flow, 'CART_REVIEW')
 assert.deepEqual(removeOne.state.cart, [{ serviceId: 'srv_banio' }])
 assert.deepEqual(removeOne.view.choices.map((choice) => choice.label), [
-  'Continuar con la reserva',
+  'Elegir día y horario',
   'Agregar otro servicio',
   'Quitar un servicio',
   'Volver',

@@ -29,6 +29,7 @@ export type StaffPermissions = {
   canManageCashOperations: boolean
   canViewProfessionalSettlements: boolean
   canManageProfessionalSettlements: boolean
+  canViewTodayProfessionalProduction: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
   canViewProducts?: boolean
@@ -89,7 +90,7 @@ export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CU
       canViewConversations: true, canReplyConversations: true, canManageDeposits: true,
       canViewOperationalReports: true, canViewFinancialAmounts: true,
       canViewCashRegister: true, canRecordAppointmentPayments: true, canApplyDiscounts: true,
-      canManageCashOperations: true, canViewProfessionalSettlements: true, canManageProfessionalSettlements: true,
+      canManageCashOperations: true, canViewProfessionalSettlements: false, canManageProfessionalSettlements: false,
       canAdjustCash: true, canManageCashSessions: true,
       canViewProducts: true, canSellProducts: true
     })
@@ -120,6 +121,7 @@ function permissions(overrides: Partial<StaffPermissions>): StaffPermissions {
     canManageCashOperations: false,
     canViewProfessionalSettlements: false,
     canManageProfessionalSettlements: false,
+    canViewTodayProfessionalProduction: false,
     canAdjustCash: false,
     canManageCashSessions: false,
     canViewProducts: false,
@@ -160,7 +162,10 @@ export function resolveStaffPermissions(input: Partial<StaffPermissions> & {
   }
   if (!merged.canCreateAppointments && !merged.canEditAppointments) merged.canForceAppointments = false
   if (!merged.canViewOperationalReports) merged.canViewFinancialAmounts = false
-  if (merged.canManageProfessionalSettlements) merged.canViewProfessionalSettlements = true
+  // La vista financiera completa y los pagos quedan exclusivamente para administración.
+  merged.canViewProfessionalSettlements = false
+  merged.canManageProfessionalSettlements = false
+  if (staffProfile !== 'SECRETARY') merged.canViewTodayProfessionalProduction = false
 
   return { staffProfile, permissionPreset: compatiblePreset, permissions: merged }
 }
@@ -197,8 +202,9 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
 
   if (path.startsWith('/professional-settlements')) {
-    return verb === 'GET' ? user.canViewProfessionalSettlements : user.canManageProfessionalSettlements
+    return path === '/professional-settlements/today' && verb === 'GET' && user.canViewTodayProfessionalProduction === true
   }
+  if (path.startsWith('/treasury')) return false
   if (path.startsWith('/cash-register')) {
     if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
     if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
@@ -268,6 +274,7 @@ export type CashPermission =
   | 'canManageCashOperations'
   | 'canViewProfessionalSettlements'
   | 'canManageProfessionalSettlements'
+  | 'canViewTodayProfessionalProduction'
   | 'canAdjustCash'
   | 'canManageCashSessions'
 

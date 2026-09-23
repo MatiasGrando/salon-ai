@@ -994,6 +994,8 @@ model Business {
   cashSessions                CashSession[]
   cashEntries                 CashEntry[]
   cashExpenseCategories       CashExpenseCategory[]
+  treasuryAccounts            TreasuryAccount[]
+  treasuryMovements           TreasuryMovement[]
   productCategories           ProductCategory[]
   products                    Product[]
   productSales                ProductSale[]
@@ -1188,6 +1190,7 @@ model User {
   canManageCashOperations          Boolean                      @default(false)
   canViewProfessionalSettlements   Boolean                      @default(false)
   canManageProfessionalSettlements Boolean                      @default(false)
+  canViewTodayProfessionalProduction Boolean                    @default(false)
   canAdjustCash                    Boolean                      @default(false)
   canManageCashSessions            Boolean                      @default(false)
   cashSessions                     CashSession[]
@@ -1554,6 +1557,7 @@ model Professional {
   acceptsBotBookings    Boolean                      @default(true)
   botBookingPriority    Int                          @default(100)
   deactivatedAt         DateTime?
+  archivedAt            DateTime?
   commissionMode        ProfessionalCompensationMode @default(NONE)
   commissionPercentage  Decimal?                     @db.Decimal(5, 2)
   commissionFixedAmount Int?
@@ -1572,6 +1576,7 @@ model Professional {
   createdAt DateTime @default(now())
 
   @@unique([businessId, id])
+  @@index([businessId, archivedAt])
 }
 
 model Service {
@@ -1588,6 +1593,7 @@ model Service {
   imageUrl              String?
   isBookable            Boolean              @default(true)
   isActive              Boolean              @default(true)
+  archivedAt            DateTime?
   sortOrder             Int                  @default(0)
   bookingOrderPriority  Int                  @default(20)
   attentionMode         ServiceAttentionMode @default(DIRECT_BOOKING)
@@ -1629,6 +1635,7 @@ model Service {
 
   @@unique([businessId, id])
   @@index([businessId, catalogCategoryId, sortOrder])
+  @@index([businessId, archivedAt])
   @@index([parentServiceId])
 }
 
@@ -1694,6 +1701,8 @@ model ProfessionalAccountEntry {
   appointment     Appointment?                  @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   cashEntryId     String?
   cashEntry       CashEntry?                    @relation(fields: [businessId, cashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  treasuryMovementId String?                   @unique
+  treasuryMovement TreasuryMovement?           @relation(fields: [businessId, treasuryMovementId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   type            ProfessionalAccountEntryType
   direction       ProfessionalAccountDirection
   amount          Int
@@ -1710,6 +1719,7 @@ model ProfessionalAccountEntry {
   @@unique([businessId, id])
   @@unique([businessId, appointmentId])
   @@unique([businessId, cashEntryId])
+  @@unique([businessId, treasuryMovementId])
   @@index([businessId, professionalId, effectiveAt, id])
 }
 
@@ -2141,6 +2151,47 @@ model CashSession {
   @@index([businessId, responsibleUserId])
 }
 
+model TreasuryAccount {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  method      String
+  createdAt   DateTime @default(now())
+  movements   TreasuryMovement[]
+
+  @@unique([businessId, id])
+  @@unique([businessId, method])
+}
+
+model TreasuryMovement {
+  id          String          @id @default(cuid())
+  businessId  String
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountId   String
+  account     TreasuryAccount @relation(fields: [businessId, accountId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  kind        String
+  direction   CashDirection
+  amount      Int
+  description String?
+  counterparty String?
+  expenseCategoryId String?
+  expenseCategory CashExpenseCategory? @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  expenseSubcategoryId String?
+  expenseSubcategory CashExpenseSubcategory? @relation(fields: [businessId, expenseCategoryId, expenseSubcategoryId], references: [businessId, categoryId, id], onDelete: Restrict, onUpdate: Cascade)
+  actorUserId String
+  actorName   String
+  cashEntryId String?         @unique
+  cashEntry   CashEntry?      @relation(fields: [businessId, cashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  professionalAccountEntry ProfessionalAccountEntry?
+  createdAt   DateTime        @default(dbgenerated("clock_timestamp()"))
+
+  @@unique([businessId, id])
+  @@unique([businessId, cashEntryId])
+  @@index([businessId, createdAt, id])
+  @@index([businessId, accountId, createdAt, id])
+  @@index([businessId, kind, expenseCategoryId, expenseSubcategoryId, createdAt])
+}
+
 model CashExpenseCategory {
   id             String   @id @default(cuid())
   businessId     String
@@ -2154,10 +2205,31 @@ model CashExpenseCategory {
   updatedAt      DateTime @updatedAt
 
   entries CashEntry[]
+  subcategories CashExpenseSubcategory[]
+  treasuryMovements TreasuryMovement[]
 
   @@unique([businessId, normalizedName])
   @@unique([businessId, id])
   @@index([businessId, isActive, position, name])
+}
+
+model CashExpenseSubcategory {
+  id             String   @id @default(cuid())
+  businessId     String
+  categoryId     String
+  category       CashExpenseCategory @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  position       Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  entries        CashEntry[]
+  treasuryMovements TreasuryMovement[]
+
+  @@unique([businessId, categoryId, normalizedName])
+  @@unique([businessId, categoryId, id])
+  @@index([businessId, categoryId, isActive, position, name])
 }
 
 model CashEntry {
@@ -2180,9 +2252,12 @@ model CashEntry {
   observation              String?
   expenseCategoryId        String?
   expenseCategory          CashExpenseCategory?      @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  expenseSubcategoryId     String?
+  expenseSubcategory       CashExpenseSubcategory?   @relation(fields: [businessId, expenseCategoryId, expenseSubcategoryId], references: [businessId, categoryId, id], onDelete: Restrict, onUpdate: Cascade)
   productSaleId            String?                   @unique
   productSale              ProductSale?              @relation(fields: [businessId, productSaleId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   professionalAccountEntry ProfessionalAccountEntry?
+  treasuryMovement         TreasuryMovement?
   bookingDepositId         String?                   @unique
   bookingDeposit           BookingDeposit?           @relation(fields: [businessId, bookingDepositId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   reversesEntryId          String?                   @unique

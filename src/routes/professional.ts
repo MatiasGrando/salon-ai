@@ -8,6 +8,7 @@ import {
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
 import { authorizedProfessionalWhere } from '../services/tenant-resource-authorization.js'
+import { businessAccessWhere, resolveBusinessScope } from '../services/business-authorization.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 
@@ -111,7 +112,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     })
 
     await refreshBusinessOnboarding(businessId)
-    return serializeProfessional(professional)
+    return serializeProfessional(professional, request.auth?.user.role !== 'STAFF')
   })
 
   app.get('/professionals', async (request) => {
@@ -125,7 +126,8 @@ export async function professionalRoutes(app: FastifyInstance) {
 
     const professionals = await prisma.professional.findMany({
       where: {
-        ...(query.businessId ? { businessId: query.businessId } : {}),
+        business: { is: businessAccessWhere(resolveBusinessScope(request.auth!.user), query.businessId) },
+        archivedAt: null,
         ...(query.activeOnly === 'true' ? { isActive: true } : {})
       },
       include: includeImages ? professionalInclude : professionalIncludeWithoutImages,
@@ -135,7 +137,20 @@ export async function professionalRoutes(app: FastifyInstance) {
       }
     })
 
-    return professionals.map(serializeProfessional)
+    return professionals.map((professional) => serializeProfessional(professional, request.auth?.user.role !== 'STAFF'))
+  })
+
+  app.get('/professionals/:id', async (request, reply) => {
+    const params = request.params as { id: string }
+    const query = request.query as { includeImages?: string }
+    const includeImages = query.includeImages !== 'false'
+    const professional = await prisma.professional.findFirst({
+      where: { ...authorizedProfessionalWhere(request.auth!.user, params.id), archivedAt: null },
+      include: includeImages ? professionalInclude : professionalIncludeWithoutImages,
+      ...(includeImages ? {} : { omit: { avatarUrl: true } })
+    })
+    if (!professional) return sendAuthorizationFailure(reply, 'notFound')
+    return serializeProfessional(professional, request.auth?.user.role !== 'STAFF')
   })
 
   app.get('/professionals/:id/appointments-impact', async (request, reply) => {
@@ -150,7 +165,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       : undefined
 
     const professional = await prisma.professional.findFirst({
-      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      where: { ...authorizedProfessionalWhere(request.auth!.user, params.id), archivedAt: null },
       select: { id: true }
     })
     if (!professional) return sendAuthorizationFailure(reply, 'notFound')
@@ -193,7 +208,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     const workingHours = workingHoursValidation?.hours
 
     const existing = await prisma.professional.findFirst({
-      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      where: { ...authorizedProfessionalWhere(request.auth!.user, params.id), archivedAt: null },
       include: {
         workingHours: true
       }
@@ -338,7 +353,7 @@ export async function professionalRoutes(app: FastifyInstance) {
     }
 
     const existing = await prisma.professional.findFirst({
-      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      where: { ...authorizedProfessionalWhere(request.auth!.user, params.id), archivedAt: null },
       select: { id: true }
     })
     if (!existing) return sendAuthorizationFailure(reply, 'notFound')
@@ -372,7 +387,7 @@ export async function professionalRoutes(app: FastifyInstance) {
       id: string
     }
     const existingProfessional = await prisma.professional.findFirst({
-      where: authorizedProfessionalWhere(request.auth!.user, params.id),
+      where: { ...authorizedProfessionalWhere(request.auth!.user, params.id), archivedAt: null },
       select: { businessId: true }
     })
     if (!existingProfessional) return sendAuthorizationFailure(reply, 'notFound')
@@ -411,14 +426,14 @@ export async function professionalRoutes(app: FastifyInstance) {
         })
         await tx.professional.update({
           where: { id: params.id },
-          data: { isActive: false, deactivatedAt: new Date() }
+          data: { isActive: false, deactivatedAt: new Date(), archivedAt: new Date() }
         })
       })
       await refreshBusinessOnboarding(existingProfessional.businessId)
 
       return {
         deleted: false,
-        deactivated: true
+        archived: true
       }
     }
 
@@ -488,15 +503,16 @@ const professionalIncludeWithoutImages = {
   }
 } as const
 
-function serializeProfessional(professional: any) {
+export function serializeProfessional(professional: any, includeCompensation = true) {
   if (!professional) {
     return professional
   }
 
-  const { serviceLinks, ...rest } = professional
+  const { serviceLinks, commissionMode, commissionPercentage, commissionFixedAmount, ...rest } = professional
 
   return {
     ...rest,
+    ...(includeCompensation ? { commissionMode, commissionPercentage, commissionFixedAmount } : {}),
     avatarUrl: normalizeAvatarUrl(rest.avatarUrl),
     services: (serviceLinks || []).map((link: { service: unknown }) => link.service)
   }
@@ -533,6 +549,8 @@ async function resolveServiceIdsForBusiness(businessId: string, serviceIds?: str
     where: {
       businessId,
       isBookable: true,
+      isActive: true,
+      archivedAt: null,
       ...(normalizedServiceIds ? { id: { in: normalizedServiceIds } } : {})
     },
     select: {

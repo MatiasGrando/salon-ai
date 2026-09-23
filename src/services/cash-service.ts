@@ -125,8 +125,15 @@ export class CashService {
     currentSessionId: string
     countedCash: number
     acknowledgeDifference?: boolean
+    cashToLeave?: number
+    actorUserId?: string
+    actorName?: string
   }) {
     const countedCash = assertMoney(input.countedCash)
+    const cashToLeave = input.cashToLeave === undefined ? countedCash : assertMoney(input.cashToLeave, 'INVALID_CASH_TO_LEAVE')
+    if (cashToLeave > countedCash) throw new CashServiceError('INVALID_CASH_TO_LEAVE')
+    const transferAmount = countedCash - cashToLeave
+    if (transferAmount > 0 && (!input.actorUserId || !input.actorName)) throw new CashServiceError('CASH_TRANSFER_ACTOR_REQUIRED')
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.currentSessionId)
@@ -141,23 +148,37 @@ export class CashService {
       if (sessionCashDifference !== 0 && input.acknowledgeDifference !== true) {
         throw new CashServiceError('CASH_DIFFERENCE_CONFIRMATION_REQUIRED')
       }
+      if (transferAmount > 0) {
+        const account = await transaction.findTreasuryCashAccount(input.businessId)
+        if (!account) throw new CashServiceError('TREASURY_NOT_ENABLED')
+        const entry = await transaction.insertCashOperation({
+          id: randomUUID(), businessId: input.businessId, registerDayId: day.id, cashSessionId: session.id,
+          type: 'WITHDRAWAL', direction: 'OUTFLOW', amount: transferAmount, method: 'CASH',
+          description: 'Traspaso de cierre a Tesorería', counterparty: null, observation: null,
+          expenseCategoryId: null, effectiveAt: context.dbNow
+        })
+        await transaction.insertTreasuryMovement({
+          id: randomUUID(), businessId: input.businessId, accountId: account.id, amount: transferAmount,
+          cashEntryId: entry.id, actorUserId: input.actorUserId!, actorName: input.actorName!
+        })
+      }
       const closedSession = await transaction.closeSession({
         businessId: input.businessId,
         sessionId: session.id,
         closedAt: context.dbNow,
-        expectedCash: sessionExpectedCash,
-        countedCash,
+        expectedCash: sessionExpectedCash - transferAmount,
+        countedCash: cashToLeave,
         cashDifference: sessionCashDifference
       })
       const closedDay = await transaction.closeDay({
         businessId: input.businessId,
         registerDayId: day.id,
         closedAt: context.dbNow,
-        expectedClosingCash: dayExpectedCash,
-        countedClosingCash: countedCash,
+        expectedClosingCash: dayExpectedCash - transferAmount,
+        countedClosingCash: cashToLeave,
         closingDifference: dayCashDifference
       })
-      return { day: closedDay, session: closedSession }
+      return { day: closedDay, session: closedSession, transferAmount }
     })
   }
 
@@ -493,6 +514,7 @@ export class CashService {
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
       let expenseCategoryId: string | null = null
+      let expenseSubcategoryId: string | null = null
       if (input.type === 'EXPENSE') {
         const fallback = await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
         const category = input.categoryId
@@ -501,6 +523,13 @@ export class CashService {
         if (!category) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
         if (!category.isActive) throw new CashServiceError('EXPENSE_CATEGORY_INACTIVE')
         expenseCategoryId = category.id
+        if (input.subcategoryId) {
+          const subcategory = await transaction.findExpenseSubcategory(input.businessId, requiredText(input.subcategoryId, 'EXPENSE_SUBCATEGORY_REQUIRED'))
+          if (!subcategory) throw new CashServiceError('EXPENSE_SUBCATEGORY_NOT_FOUND')
+          if (subcategory.categoryId !== category.id) throw new CashServiceError('EXPENSE_SUBCATEGORY_CATEGORY_MISMATCH')
+          if (!subcategory.isActive) throw new CashServiceError('EXPENSE_SUBCATEGORY_INACTIVE')
+          expenseSubcategoryId = subcategory.id
+        }
       }
       return transaction.insertCashOperation({
         id: randomUUID(),
@@ -509,6 +538,7 @@ export class CashService {
         cashSessionId: session.id,
         effectiveAt: context.dbNow,
         expenseCategoryId,
+        expenseSubcategoryId,
         ...normalized
       })
     })
@@ -551,6 +581,49 @@ export class CashService {
       }
       const updated = await transaction.updateExpenseCategory({ businessId: input.businessId, categoryId, name, normalizedName, position, isActive })
       if (!updated) throw new CashServiceError('EXPENSE_CATEGORY_DUPLICATE')
+      return updated
+    })
+  }
+
+  async listExpenseSubcategories(input: { businessId: string; categoryId?: string | null; includeInactive?: boolean }) {
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      const categoryId = input.categoryId?.trim() || null
+      if (categoryId && !await transaction.findExpenseCategory(input.businessId, categoryId)) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+      return transaction.listExpenseSubcategories(input.businessId, categoryId, input.includeInactive === true)
+    })
+  }
+
+  async createExpenseSubcategory(input: { businessId: string; categoryId: string; name: string; position?: number }) {
+    const categoryId = requiredText(input.categoryId, 'EXPENSE_CATEGORY_REQUIRED')
+    const name = normalizeExpenseCategoryName(input.name)
+    const normalizedName = expenseCategoryKey(name)
+    const position = normalizeCategoryPosition(input.position)
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      const category = await transaction.findExpenseCategory(input.businessId, categoryId)
+      if (!category) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
+      if (!category.isActive) throw new CashServiceError('EXPENSE_CATEGORY_INACTIVE')
+      const subcategory = await transaction.createExpenseSubcategory({ id: randomUUID(), businessId: input.businessId, categoryId, name, normalizedName, position })
+      if (!subcategory) throw new CashServiceError('EXPENSE_SUBCATEGORY_DUPLICATE')
+      return subcategory
+    })
+  }
+
+  async updateExpenseSubcategory(input: { businessId: string; subcategoryId: string; name: string; position?: number; isActive?: boolean }) {
+    const subcategoryId = requiredText(input.subcategoryId, 'EXPENSE_SUBCATEGORY_REQUIRED')
+    const name = normalizeExpenseCategoryName(input.name)
+    const normalizedName = expenseCategoryKey(name)
+    const position = normalizeCategoryPosition(input.position)
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      const current = await transaction.findExpenseSubcategory(input.businessId, subcategoryId)
+      if (!current) throw new CashServiceError('EXPENSE_SUBCATEGORY_NOT_FOUND')
+      const isActive = input.isActive ?? current.isActive
+      const category = await transaction.findExpenseCategory(input.businessId, current.categoryId)
+      if (isActive && !category?.isActive) throw new CashServiceError('EXPENSE_CATEGORY_INACTIVE')
+      const updated = await transaction.updateExpenseSubcategory({ businessId: input.businessId, subcategoryId, name, normalizedName, position, isActive })
+      if (!updated) throw new CashServiceError('EXPENSE_SUBCATEGORY_DUPLICATE')
       return updated
     })
   }
@@ -650,6 +723,7 @@ export class CashService {
     type?: CashEntryForSummary['type'] | null
     method?: CashEntryForSummary['method'] | null
     expenseCategoryId?: string | null
+    expenseSubcategoryId?: string | null
     cashSessionId?: string | null
     query?: string | null
   }) {
@@ -665,6 +739,12 @@ export class CashService {
       if (expenseCategoryId && !await transaction.findExpenseCategory(input.businessId, expenseCategoryId)) {
         throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
       }
+      const expenseSubcategoryId = input.expenseSubcategoryId?.trim() || null
+      if (expenseSubcategoryId) {
+        const subcategory = await transaction.findExpenseSubcategory(input.businessId, expenseSubcategoryId)
+        if (!subcategory) throw new CashServiceError('EXPENSE_SUBCATEGORY_NOT_FOUND')
+        if (expenseCategoryId && subcategory.categoryId !== expenseCategoryId) throw new CashServiceError('EXPENSE_SUBCATEGORY_CATEGORY_MISMATCH')
+      }
       const rows = await transaction.listCashEntries({
         businessId: input.businessId,
         registerDayId: input.registerDayId,
@@ -673,6 +753,7 @@ export class CashService {
         type: input.type ?? null,
         method: input.method ?? null,
         expenseCategoryId,
+        expenseSubcategoryId,
         cashSessionId: input.cashSessionId?.trim() || null,
         query: input.query?.trim() || null
       })
@@ -686,12 +767,12 @@ export class CashService {
     })
   }
 
-  async getCashPeriodSummary(input: { businessId: string; from: string; to: string }) {
+  async getCashPeriodSummary(input: { businessId: string; from: string; to: string; registerOnly?: boolean }) {
     const period = normalizeCashPeriodRange(input.from, input.to)
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
       const timezone = assertIanaTimezone(context.timezone)
-      const entries = await transaction.listPeriodEntries(input.businessId, { ...period, timezone })
+      const entries = await transaction.listPeriodEntries(input.businessId, { ...period, timezone, registerOnly: input.registerOnly === true })
       const base = summarizeCashRegister({ openingCash: 0, entries })
       const expenseByCategory = new Map<string, number>()
       for (const entry of entries) {
@@ -706,6 +787,7 @@ export class CashService {
         summary: {
           grossCollected: base.grossCollected,
           collectedByMethod: base.collectedByMethod,
+          outgoingByMethod: base.outgoingByMethod,
           refunds: base.refunds,
           netSales,
           expenses: base.expenses,
@@ -722,6 +804,7 @@ export class CashService {
   }
 
   async listCashPeriodExpenses(input: {
+    registerOnly?: boolean
     businessId: string
     from: string
     to: string
@@ -729,6 +812,7 @@ export class CashService {
     pageSize?: number
     method?: CashEntryForSummary['method'] | null
     expenseCategoryId?: string | null
+    expenseSubcategoryId?: string | null
     query?: string | null
   }) {
     const period = normalizeCashPeriodRange(input.from, input.to)
@@ -743,14 +827,22 @@ export class CashService {
       if (expenseCategoryId && !await transaction.findExpenseCategory(input.businessId, expenseCategoryId)) {
         throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
       }
+      const expenseSubcategoryId = input.expenseSubcategoryId?.trim() || null
+      if (expenseSubcategoryId) {
+        const subcategory = await transaction.findExpenseSubcategory(input.businessId, expenseSubcategoryId)
+        if (!subcategory) throw new CashServiceError('EXPENSE_SUBCATEGORY_NOT_FOUND')
+        if (expenseCategoryId && subcategory.categoryId !== expenseCategoryId) throw new CashServiceError('EXPENSE_SUBCATEGORY_CATEGORY_MISMATCH')
+      }
       const rows = await transaction.listPeriodExpenses({
         businessId: input.businessId,
+        registerOnly: input.registerOnly === true,
         ...period,
         timezone,
         offset: (page - 1) * pageSize,
         limit: pageSize,
         method: input.method ?? null,
         expenseCategoryId,
+        expenseSubcategoryId,
         query: input.query?.trim() || null
       })
       const total = rows[0]?.totalCount ?? 0
@@ -770,7 +862,7 @@ export type CashOperationInput = {
   businessId: string
   cashSessionId: string
 } & (
-  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; description: string; categoryId?: string | null; observation?: string | null }
+  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; description: string; categoryId?: string | null; subcategoryId?: string | null; observation?: string | null }
   | { type: 'WITHDRAWAL'; amount: number; counterparty: string; observation?: string | null }
   | { type: 'CASH_IN'; amount: number; description: string; observation?: string | null }
   | { type: 'ADJUSTMENT'; delta: number; observation: string }

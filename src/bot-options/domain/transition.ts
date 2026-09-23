@@ -839,7 +839,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
     case 'RECOMMENDATION_SELECT': {
       const recommendations = context.labels.recommendations ?? []
       const choices: ViewChoice[] = [
-        { actionType: 'cart.continue', label: 'Continuar con la reserva' },
+        { actionType: 'cart.continue', label: 'Elegir día y horario' },
         ...recommendations.map((item) => item.compatible
           ? { actionType: 'recommendation.add' as const, label: `Agregar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }
           : { actionType: 'recommendation.consult' as const, label: `Coordinar ${item.label}`, entityRef: { type: 'SERVICE' as const, id: item.serviceId } }),
@@ -861,7 +861,7 @@ export function renderCurrentView(state: BotOptionsState, context: TransitionCon
         )
       }
       const choices: ViewChoice[] = [
-        { actionType: 'cart.continue', label: 'Continuar con la reserva' },
+        { actionType: 'cart.continue', label: 'Elegir día y horario' },
         { actionType: 'cart.add_service', label: 'Agregar otro servicio' },
         { actionType: 'cart.open_remove', label: 'Quitar un servicio' }
       ]

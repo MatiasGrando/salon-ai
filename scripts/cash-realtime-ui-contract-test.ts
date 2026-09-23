@@ -68,6 +68,8 @@ assert.ok(authGuard.includes("/^\\/appointments\\/[^/]+\\/(?:finance|estimated-t
 assert.match(authRoute, /\['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'\]\.includes\(user\.role\)/, '/auth/me debe publicar permisos de Caja al administrador de cuenta')
 assert.match(shell, /role === 'ACCOUNT_ADMIN'[\s\S]{0,260}'cash'/, 'el menú de un comercio administrado debe mostrar Caja al ACCOUNT_ADMIN')
 assert.match(ui, /\['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'\]\.includes\(state\.currentUser\?\.role\)/, 'la UI debe tratar ACCOUNT_ADMIN como administrador de Caja')
+assert.match(ui, /Administrador del local/, 'el selector de responsables debe identificar claramente al administrador del local')
+assert.match(ui, /user\.role === 'BUSINESS_ADMIN' \|\| user\.role === 'ACCOUNT_ADMIN'/, 'la UI debe rotular ambos roles administrativos como administrador del local')
 assert.match(ui, /function isCashBusinessScopedRole[\s\S]{0,260}ACCOUNT_ADMIN/, 'ACCOUNT_ADMIN debe identificarse como administrador multi-comercio de Caja')
 assert.match(ui, /function cashScoped[\s\S]{0,180}isCashBusinessScopedRole/, 'las solicitudes de Caja deben incluir el comercio activo para roles multi-comercio')
 assert.match(shell, /cacheAgendaAppointmentFinanceSummaries/, 'Agenda debe guardar el resumen financiero recibido con cada turno')

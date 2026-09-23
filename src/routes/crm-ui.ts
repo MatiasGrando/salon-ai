@@ -18631,8 +18631,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-professional-settlements" type="checkbox"> Ver liquidaciones profesionales</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-professional-settlements" type="checkbox"> Registrar pagos a profesionales</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
@@ -19746,6 +19745,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       professionals: [],
       professionalMediaBusinessId: null,
       professionalMediaPromise: null,
+      professionalEditRequest: 0,
       staffUsers: [],
       staffPresets: [],
       services: [],
@@ -20153,8 +20153,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanViewReports: document.getElementById('staff-can-view-reports'),
       staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
       staffCanRecordAppointmentPayments: document.getElementById('staff-can-record-appointment-payments'),
-      staffCanViewProfessionalSettlements: document.getElementById('staff-can-view-professional-settlements'),
-      staffCanManageProfessionalSettlements: document.getElementById('staff-can-manage-professional-settlements'),
+      staffCanViewTodayProfessionalProduction: document.getElementById('staff-can-view-today-professional-production'),
       staffCanViewProducts: document.getElementById('staff-can-view-products'),
       staffCanSellProducts: document.getElementById('staff-can-sell-products'),
       staffCanManageProducts: document.getElementById('staff-can-manage-products'),
@@ -21599,7 +21598,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.currentUser.canViewConversations ? 'conversations' : null,
         'agenda',
         ...pipelineSections,
-        ${cashRegisterEnabled ? "(state.currentUser.canViewCashRegister || state.currentUser.canViewProfessionalSettlements) ? 'cash' : null," : ''}
+        ${cashRegisterEnabled ? "(state.currentUser.canViewCashRegister || state.currentUser.canViewTodayProfessionalProduction) ? 'cash' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
       ].filter(Boolean)
@@ -23040,8 +23039,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canViewOperationalReports: els.staffCanViewReports,
         canViewFinancialAmounts: els.staffCanViewFinancial,
         canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments,
-        canViewProfessionalSettlements: els.staffCanViewProfessionalSettlements,
-        canManageProfessionalSettlements: els.staffCanManageProfessionalSettlements,
+        canViewTodayProfessionalProduction: els.staffCanViewTodayProfessionalProduction,
         canViewProducts: els.staffCanViewProducts,
         canSellProducts: els.staffCanSellProducts,
         canManageProducts: els.staffCanManageProducts
@@ -23148,8 +23146,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canManageDeposits) labels.push('Señas')
       if (user.canViewOperationalReports) labels.push('Reportes')
       if (user.canRecordAppointmentPayments) labels.push('Pagos de turnos')
-      if (user.canViewProfessionalSettlements) labels.push('Liquidaciones')
-      if (user.canManageProfessionalSettlements) labels.push('Paga profesionales')
+      if (user.canViewTodayProfessionalProduction) labels.push('Actividad profesionales de hoy')
       if (user.canViewProducts) labels.push('Productos')
       if (user.canSellProducts) labels.push('Venta de productos')
       if (user.canManageProducts) labels.push('Administra catálogo')
@@ -25946,7 +25943,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         : '<div class="empty">No hay profesionales cargados.</div>'
 
       for (const button of els.professionalList.querySelectorAll('[data-edit-professional]')) {
-        button.addEventListener('click', () => editProfessional(button.dataset.editProfessional))
+        button.addEventListener('click', () => editProfessional(button.dataset.editProfessional, { triggerButton: button }))
       }
 
       for (const button of els.professionalList.querySelectorAll('[data-delete-professional]')) {
@@ -25958,7 +25955,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       for (const button of els.professionalList.querySelectorAll('[data-edit-hours-professional]')) {
-        button.addEventListener('click', () => editProfessional(button.dataset.editHoursProfessional, { focusHours: true }))
+        button.addEventListener('click', () => editProfessional(button.dataset.editHoursProfessional, { focusHours: true, triggerButton: button }))
       }
 
       for (const button of els.professionalList.querySelectorAll('[data-activate-professional]')) {
@@ -28054,34 +28051,70 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function editProfessional(id, options = {}) {
-      const professional = state.professionals.find((item) => item.id === id)
-      if (!professional) return
-      els.professionalId.value = professional.id
-      els.professionalName.value = professional.name
-      els.professionalDescription.value = professional.description || ''
-      els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
-      els.professionalBotBookings.value = professional.acceptsBotBookings === false ? 'manual_only' : 'accept'
-      setProfessionalAvatar(professional.avatarUrl || null, false)
-      setProfessionalWorkingHours(professional.workingHours || [])
-      renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
-      await loadProfessionalCompensation(professional.id)
-      els.professionalCancel.hidden = false
-      els.professionalFormTitle.textContent = 'Editar profesional'
-      els.professionalSubmit.textContent = 'Guardar cambios'
-      els.professionalFeedback.textContent = 'Editando profesional.'
-      hideProfessionalImpact()
-      els.professionalBasicSection.open = !options.focusHours
-      els.professionalServicesSection.open = window.matchMedia('(max-width: 767px)').matches
-      if (els.professionalCompensationSection) els.professionalCompensationSection.open = false
-      els.professionalScheduleSection.open = Boolean(options.focusHours)
-      els.professionalSettingsSection.open = false
-      openProfessionalPanel()
-      setSection('professionals')
-      if (options.focusHours) {
-        const firstEnabledDay = professionalDayInputs().find((day) => day.enabled.checked && !day.enabled.disabled)
-        ;(firstEnabledDay || professionalDayInputs()[0])?.start.focus()
-      } else {
-        els.professionalName.focus()
+      const requestId = ++state.professionalEditRequest
+      const businessId = state.businessId
+      const triggerButton = options.triggerButton
+      if (!setButtonLoading(triggerButton, true, 'Cargando...')) return
+
+      try {
+        const query = new URLSearchParams()
+        if (businessId) query.set('businessId', businessId)
+        query.set('includeImages', 'false')
+        const [freshProfessional, freshServices] = await Promise.all([
+          getJson('/professionals/' + encodeURIComponent(id) + '?includeImages=false'),
+          getJson('/services?' + query.toString())
+        ])
+        if (requestId !== state.professionalEditRequest || state.businessId !== businessId) return
+
+        const previousProfessional = state.professionals.find((item) => item.id === id)
+        const professional = {
+          ...freshProfessional,
+          avatarUrl: previousProfessional?.avatarUrl || freshProfessional.avatarUrl || null
+        }
+        const previousServices = new Map(state.services.map((service) => [service.id, service]))
+        state.services = freshServices.map((service) => ({
+          ...service,
+          imageUrl: previousServices.get(service.id)?.imageUrl || service.imageUrl || null
+        }))
+        state.professionals = state.professionals.map((item) =>
+          item.id === id ? professional : item
+        )
+
+        els.professionalId.value = professional.id
+        els.professionalName.value = professional.name
+        els.professionalDescription.value = professional.description || ''
+        els.professionalStatus.value = professional.isActive === false ? 'inactive' : 'active'
+        els.professionalBotBookings.value = professional.acceptsBotBookings === false ? 'manual_only' : 'accept'
+        setProfessionalAvatar(professional.avatarUrl || null, false)
+        setProfessionalWorkingHours(professional.workingHours || [])
+        renderProfessionalServiceOptions((professional.services || []).map((service) => service.id))
+        await loadProfessionalCompensation(professional.id)
+        if (requestId !== state.professionalEditRequest || state.businessId !== businessId) return
+        els.professionalCancel.hidden = false
+        els.professionalFormTitle.textContent = 'Editar profesional'
+        els.professionalSubmit.textContent = 'Guardar cambios'
+        els.professionalFeedback.textContent = 'Editando profesional.'
+        hideProfessionalImpact()
+        els.professionalBasicSection.open = !options.focusHours
+        els.professionalServicesSection.open = window.matchMedia('(max-width: 767px)').matches
+        if (els.professionalCompensationSection) els.professionalCompensationSection.open = false
+        els.professionalScheduleSection.open = Boolean(options.focusHours)
+        els.professionalSettingsSection.open = false
+        openProfessionalPanel()
+        setSection('professionals')
+        if (options.focusHours) {
+          const firstEnabledDay = professionalDayInputs().find((day) => day.enabled.checked && !day.enabled.disabled)
+          ;(firstEnabledDay || professionalDayInputs()[0])?.start.focus()
+        } else {
+          els.professionalName.focus()
+        }
+      } catch (error) {
+        if (requestId !== state.professionalEditRequest) return
+        const message = error.message || 'No se pudo cargar el profesional.'
+        els.professionalFeedback.textContent = message
+        showCrmToast('No se pudo cargar el profesional. ' + message, 'error')
+      } finally {
+        setButtonLoading(triggerButton, false)
       }
     }
 
@@ -28104,10 +28137,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!await requestCrmConfirmation('¿Querés eliminar al profesional ' + professional.name + '?')) return
 
       try {
-        await getJson('/professionals/' + id, {
+        const result = await getJson('/professionals/' + id, {
           method: 'DELETE'
         })
-        els.professionalFeedback.textContent = professional._count?.appointments ? 'Profesional desactivado y oculto de nuevas reservas.' : 'Profesional eliminado.'
+        els.professionalFeedback.textContent = result?.archived
+          ? 'Profesional eliminado de la vista. Su historial se conserva.'
+          : 'Profesional eliminado.'
         state.professionals = await getJson(businessScopedPath('/professionals'))
         state.professionalMediaBusinessId = state.businessId
         renderProfessionals()
@@ -29949,10 +29984,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const services = professional.services || []
       if (services.length) {
         return services.map((service) => service.name).join(', ')
-      }
-
-      if (!state.services.length) {
-        return 'Corte, Color, Peinados'
       }
 
       return 'Sin servicios asignados'
@@ -34176,9 +34207,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return true
     }
     function supportedTemplateVariables(category = selectedTemplateCategory()) {
-      return category === 'UTILITY'
-        ? ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
-        : ['nombre_cliente', 'usuario', 'fecha_ultima_visita', 'patente', 'servicios_vencidos', 'enlace_historial']
+      if (category === 'UTILITY') return ['nombre_cliente', 'usuario', 'fecha_turno', 'hora_turno', 'servicio', 'profesional']
+      const variables = ['nombre_cliente', 'usuario', 'fecha_ultima_visita', 'enlace_historial']
+      if (isWorkshopBusiness()) variables.splice(3, 0, 'patente', 'servicios_vencidos')
+      return variables
     }
 
     function templateVariableDescription(variable, category = selectedTemplateCategory()) {
@@ -34219,7 +34251,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         ...supportedTemplateVariables().map((variable) => new Option('{{' + variable + '}}', variable))
       )
       picker.value = ''
-      els.templateVariablePickerHelp.textContent = selectedTemplateCategory() === 'UTILITY'
+      els.templateVariablePickerHelp.textContent = selectedTemplateCategory() === 'UTILITY' || !isWorkshopBusiness()
         ? 'Elegí una variable y se insertará donde esté el cursor del mensaje.'
         : 'Elegí una variable y se insertará donde esté el cursor. Servicios vencidos sólo tiene valor en campañas de mantenimientos vencidos por patente.'
     }
@@ -36353,22 +36385,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       pendingServiceLifecycleIds.add(id)
       try {
-        await getJson('/services/' + id, {
+        const result = await getJson('/services/' + id, {
           method: 'DELETE'
         })
-        els.serviceFeedback.textContent = 'Servicio eliminado.'
-        showCrmToast('Servicio eliminado.', 'success')
+        const message = result?.archived
+          ? 'Servicio eliminado de la vista. Su historial se conserva.'
+          : 'Servicio eliminado.'
+        els.serviceFeedback.textContent = message
+        showCrmToast(message, 'success')
         await reloadServiceCatalog()
       } catch (error) {
         els.serviceFeedback.textContent = error.message
-        if (error.body?.code === 'SERVICE_HAS_HISTORY' && error.body?.canDeactivate) {
-          const shouldDeactivate = await requestCrmConfirmation(
-            'Este servicio tiene historial y no se puede eliminar. ¿Querés desactivarlo para que deje de ofrecerse en nuevas reservas?',
-            { title: 'No se puede eliminar', confirmLabel: 'Sí, desactivar' }
-          )
-          if (shouldDeactivate) await setServiceActive(service, false)
-          return
-        }
         showCrmToast(error.message || 'No se pudo eliminar el servicio.', 'error')
       } finally {
         pendingServiceLifecycleIds.delete(id)

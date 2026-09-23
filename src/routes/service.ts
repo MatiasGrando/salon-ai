@@ -522,11 +522,10 @@ export async function serviceRoutes(app: FastifyInstance) {
     const includeImages = query.includeImages !== 'false'
 
     return prisma.service.findMany({
-      where: query.businessId
-        ? {
-            businessId: query.businessId
-          }
-        : {},
+      where: {
+        ...(query.businessId ? { businessId: query.businessId } : {}),
+        archivedAt: null
+      },
       include: serviceCatalogInclude,
       ...(includeImages ? {} : { omit: { imageUrl: true } }),
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
@@ -607,7 +606,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       ?.map((alias) => alias.trim())
       .filter(Boolean)
     const existing = await prisma.service.findFirst({
-      where: authorizedServiceWhere(request.auth!.user, params.id),
+      where: { ...authorizedServiceWhere(request.auth!.user, params.id), archivedAt: null },
       select: {
         id: true,
         description: true,
@@ -945,7 +944,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     const service = await prisma.service.findFirst({
-      where: authorizedServiceWhere(request.auth!.user, params.id),
+      where: { ...authorizedServiceWhere(request.auth!.user, params.id), archivedAt: null },
       select: {
         id: true,
         businessId: true,
@@ -981,7 +980,13 @@ export async function serviceRoutes(app: FastifyInstance) {
         tx.appointmentServiceItem.count({ where: { serviceId: { in: serviceIds } } }),
         tx.bookingDepositLine.count({ where: { serviceId: { in: serviceIds } } })
       ])
-      if (appointments + appointmentItems + depositLines > 0) return false
+      if (appointments + appointmentItems + depositLines > 0) {
+        await tx.service.updateMany({
+          where: { id: { in: serviceIds } },
+          data: { isActive: false, archivedAt: new Date() }
+        })
+        return 'archived' as const
+      }
       await tx.serviceAlias.deleteMany({
         where: {
           serviceId: { in: serviceIds }
@@ -997,21 +1002,20 @@ export async function serviceRoutes(app: FastifyInstance) {
           id: service.id
         }
       })
-      return true
+      return 'deleted' as const
     })
-    if (!deleted) {
-      return reply.status(409).send({
-        code: 'SERVICE_HAS_HISTORY',
-        canDeactivate: true,
-        message: 'No se puede eliminar porque tiene historial de turnos o señas. Podés desactivarlo para dejar de ofrecerlo en nuevas reservas.'
-      })
-    }
     await refreshBusinessOnboarding(service.businessId)
 
-    return {
-      deleted: true,
-      deletedCount: serviceIds.length
-    }
+    return deleted === 'archived'
+      ? {
+          deleted: false,
+          archived: true,
+          archivedCount: serviceIds.length
+        }
+      : {
+          deleted: true,
+          deletedCount: serviceIds.length
+        }
   })
 
   app.patch('/services/:id/status', async (request, reply) => {
@@ -1022,7 +1026,7 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
 
     const service = await prisma.service.findFirst({
-      where: authorizedServiceWhere(request.auth!.user, params.id),
+      where: { ...authorizedServiceWhere(request.auth!.user, params.id), archivedAt: null },
       select: { id: true, businessId: true }
     })
     if (!service) return sendAuthorizationFailure(reply, 'notFound')

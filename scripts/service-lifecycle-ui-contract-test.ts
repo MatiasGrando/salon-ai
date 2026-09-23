@@ -11,7 +11,7 @@ function harness(answers = [true], failure?: any) {
   const context: any = { state: { services: [service] }, els: { serviceFeedback: {} }, Set,
     getServiceItemType: () => 'SERVICE', deleteServiceFamily: async () => {},
     requestCrmConfirmation: async (...args: any[]) => { calls.push(['confirm', ...args]); return answers.shift() },
-    getJson: async (url: string, options: any) => { calls.push([url, options]); if (failure) { const error = failure; failure = undefined; throw error } return {} },
+    getJson: async (url: string, options: any) => { calls.push([url, options]); if (failure) { const error = failure; failure = undefined; throw error } return { archived: true } },
     reloadServiceCatalog: async () => { calls.push(['reload']) },
     showCrmToast: (...args: any[]) => notices.push(args)
   }
@@ -24,12 +24,8 @@ assert.ok(deleted.notices.some(([message]) => message.includes('eliminado')), 's
 const failed = harness([true], new Error('No autorizado')); await failed.context.deleteService('s1')
 assert.deepEqual(failed.notices[0], ['No autorizado', 'error'])
 assert.equal(failed.calls.filter(([type]) => type === 'confirm').length, 1)
-const historyError = () => Object.assign(new Error('Tiene turnos asociados'), { body: { code: 'SERVICE_HAS_HISTORY', canDeactivate: true } })
-const canceled = harness([true, false], historyError()); await canceled.context.deleteService('s1')
-assert.equal(canceled.calls.filter(([url]) => url.endsWith('/status')).length, 0)
-assert.equal(canceled.service.isActive, true)
-const disabled = harness([true, true], historyError()); await disabled.context.deleteService('s1')
-assert.ok(disabled.calls.some(([url, options]) => url === '/services/s1/status' && JSON.parse(options.body).isActive === false))
+assert.ok(deleted.notices.some(([message]) => message.includes('historial')), 'la UI debe aclarar que el historial se conserva al archivar')
+assert.equal(deleted.calls.filter(([url]) => url.endsWith('/status')).length, 0, 'eliminar no debe convertirse silenciosamente en pausar')
 const enabled = harness(); enabled.service.isActive = false; await enabled.context.setServiceActive('s1', true)
 assert.ok(enabled.calls.some(([url, options]) => url === '/services/s1/status' && JSON.parse(options.body).isActive === true))
 assert.ok(enabled.notices.some(([message]) => message.includes('reactivado')))

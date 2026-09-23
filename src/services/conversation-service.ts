@@ -3000,7 +3000,9 @@ export class ConversationService {
       where: {
         businessId: input.businessId,
         id: { in: input.serviceIds },
-        isBookable: true
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
       },
       select: {
         id: true,
@@ -3024,7 +3026,9 @@ export class ConversationService {
     const services = await prisma.service.findMany({
       where: {
         businessId,
-        isBookable: true
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
       },
       select: { id: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
@@ -4122,7 +4126,7 @@ export class ConversationService {
     const allServiceIds = [...existingServiceIds, ...additions.map((addition) => addition.serviceId)]
     const [services, rules] = await Promise.all([
       prisma.service.findMany({
-        where: { id: { in: allServiceIds }, businessId: input.businessId, isBookable: true },
+        where: { id: { in: allServiceIds }, businessId: input.businessId, isBookable: true, isActive: true, archivedAt: null },
         select: {
           id: true,
           name: true,

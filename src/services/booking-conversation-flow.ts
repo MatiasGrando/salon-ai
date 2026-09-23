@@ -1612,7 +1612,9 @@ export class BookingConversationFlow {
     const services = await prisma.service.findMany({
       where: {
         ...(businessId ? { businessId } : {}),
-        isBookable: true
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
       },
       select: bookingServiceSelect,
       orderBy: {
@@ -1751,7 +1753,12 @@ export class BookingConversationFlow {
     }
 
     const services = await prisma.service.findMany({
-      where: input.businessId ? { businessId: input.businessId } : {},
+      where: {
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
+      },
       select: bookingServiceSelect,
       orderBy: {
         name: 'asc'
@@ -1961,7 +1968,9 @@ export class BookingConversationFlow {
     const services = await prisma.service.findMany({
       where: {
         ...(input.businessId ? { businessId: input.businessId } : {}),
-        isBookable: true
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
       },
       select: bookingServiceSelect,
       orderBy: {
@@ -2227,7 +2236,9 @@ export class BookingConversationFlow {
     const services = await prisma.service.findMany({
       where: {
         ...(businessId ? { businessId } : {}),
-        isBookable: true
+        isBookable: true,
+        isActive: true,
+        archivedAt: null
       },
       select: bookingServiceSelect,
       orderBy: {

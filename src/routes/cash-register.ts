@@ -4,32 +4,38 @@ import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashDomainError } from '../services/cash-domain.js'
 import { CashService, CashServiceError, type CashOperationInput } from '../services/cash-service.js'
 import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
+import { requireAuthorizedBusiness } from '../services/business-authorization.js'
+import type { AuthUser } from '../services/auth-service.js'
 
 type CashRegisterRoutesOptions = {
   cashService?: CashService
+  authorizeBusiness?: (user: AuthUser, businessId: string) => Promise<boolean>
 }
 
 const defaultCashService = new CashService(new PrismaCashRepository(prisma))
 
 export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegisterRoutesOptions = {}) {
   const service = options.cashService ?? defaultCashService
+  const authorizeBusiness = options.authorizeBusiness ?? (async (user: AuthUser, businessId: string) => Boolean(await requireAuthorizedBusiness(prisma, user, businessId)))
+  const cashAccess = (user: AuthUser | undefined, permission: CashPermission, source: unknown) => cashAccessForUser(user, permission, source, authorizeBusiness)
+  const cashAnyAccess = (user: AuthUser | undefined, permissions: CashPermission[], source: unknown) => cashAnyAccessForUser(user, permissions, source, authorizeBusiness)
 
   app.get('/cash-register/responsibles', async (request, reply) => {
-    const access = cashAccess(request.auth?.user, 'canManageCashSessions', request.query)
+    const access = await cashAccess(request.auth?.user, 'canManageCashSessions', request.query)
     if (!access.ok) return cashAccessFailure(reply, access)
     return prisma.user.findMany({
       where: {
         businessId: access.businessId,
         isActive: true,
-        role: { in: ['BUSINESS_ADMIN', 'STAFF'] }
+        role: { in: ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'STAFF'] }
       },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      select: { id: true, name: true }
+      select: { id: true, name: true, role: true }
     })
   })
 
   app.get('/cash-register/current', async (request, reply) => {
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', request.query)
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', request.query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       return { ...await service.getCurrentCashRegister({ businessId: access.businessId }), permissions: cashPermissionSnapshot(request.auth!.user) }
@@ -39,7 +45,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   })
 
   app.get('/cash-register/payment-context', async (request, reply) => {
-    const access = cashAccess(request.auth?.user, 'canRecordAppointmentPayments', request.query)
+    const access = await cashAccess(request.auth?.user, 'canRecordAppointmentPayments', request.query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       return await service.getCurrentPaymentContext({ businessId: access.businessId })
@@ -50,19 +56,19 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.get('/cash-register/period/summary', async (request, reply) => {
     const query = request.query as { businessId?: string; from?: string; to?: string }
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
     try {
-      return { ...await service.getCashPeriodSummary({ businessId: access.businessId, from: query.from, to: query.to }), permissions: cashPermissionSnapshot(request.auth!.user) }
+      return { ...await service.getCashPeriodSummary({ businessId: access.businessId, from: query.from, to: query.to, ...(request.auth!.user.role === 'STAFF' ? { registerOnly: true } : {}) }), permissions: cashPermissionSnapshot(request.auth!.user) }
     } catch (error) {
       return sendCashError(reply, error)
     }
   })
 
   app.get('/cash-register/period/expenses', async (request, reply) => {
-    const query = request.query as { businessId?: string; from?: string; to?: string; page?: string; pageSize?: string; method?: string; categoryId?: string; q?: string }
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    const query = request.query as { businessId?: string; from?: string; to?: string; page?: string; pageSize?: string; method?: string; categoryId?: string; subcategoryId?: string; q?: string }
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
     if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
@@ -72,12 +78,14 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
       const pageSize = optionalInteger(query.pageSize)
       return await service.listCashPeriodExpenses({
         businessId: access.businessId,
+        ...(request.auth!.user.role === 'STAFF' ? { registerOnly: true } : {}),
         from: query.from,
         to: query.to,
         ...(page === undefined ? {} : { page }),
         ...(pageSize === undefined ? {} : { pageSize }),
         ...(query.method === undefined ? {} : { method: query.method as typeof methods[number] }),
         ...(query.categoryId === undefined ? {} : { expenseCategoryId: query.categoryId }),
+        ...(query.subcategoryId === undefined ? {} : { expenseSubcategoryId: query.subcategoryId }),
         ...(query.q === undefined ? {} : { query: query.q })
       })
     } catch (error) {
@@ -87,7 +95,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.get('/cash-register/days', async (request, reply) => {
     const query = request.query as { businessId?: string; limit?: string }
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       const limit = optionalInteger(query.limit)
@@ -100,7 +108,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   app.get('/cash-register/days/:id/summary', async (request, reply) => {
     const query = request.query as { businessId?: string }
     const params = request.params as { id: string }
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       return { ...await service.getCashRegisterDaySummary({ businessId: access.businessId, registerDayId: params.id }), permissions: cashPermissionSnapshot(request.auth!.user) }
@@ -111,8 +119,8 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.get('/cash-register/days/:id/entries', async (request, reply) => {
     const params = request.params as { id: string }
-    const query = request.query as { businessId?: string; cursor?: string; limit?: string; type?: string; method?: string; categoryId?: string; sessionId?: string; q?: string }
-    const access = cashAccess(request.auth?.user, 'canViewCashRegister', query)
+    const query = request.query as { businessId?: string; cursor?: string; limit?: string; type?: string; method?: string; categoryId?: string; subcategoryId?: string; sessionId?: string; q?: string }
+    const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     const types = ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND', 'REVERSAL'] as const
     const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
@@ -128,6 +136,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
         ...(query.type === undefined ? {} : { type: query.type as typeof types[number] }),
         ...(query.method === undefined ? {} : { method: query.method as typeof methods[number] }),
         ...(query.categoryId === undefined ? {} : { expenseCategoryId: query.categoryId }),
+        ...(query.subcategoryId === undefined ? {} : { expenseSubcategoryId: query.subcategoryId }),
         ...(query.sessionId === undefined ? {} : { cashSessionId: query.sessionId }),
         ...(query.q === undefined ? {} : { query: query.q })
       })
@@ -139,7 +148,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.get('/cash-register/expense-categories', async (request, reply) => {
     const query = request.query as { businessId?: string; includeInactive?: string }
-    const access = cashAnyAccess(request.auth?.user, ['canViewCashRegister', 'canManageCashOperations'], query)
+    const access = await cashAnyAccess(request.auth?.user, ['canViewCashRegister', 'canManageCashOperations'], query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       return {
@@ -156,7 +165,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   app.post('/cash-register/expense-categories', async (request, reply) => {
     if (!isRecord(request.body)) return validation(reply, 'Revisá el nombre y el orden de la categoría')
     const body = request.body
-    const access = cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    const access = await cashAccess(request.auth?.user, 'canManageCashOperations', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number')) {
       return validation(reply, 'Revisá el nombre y el orden de la categoría')
@@ -172,7 +181,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const params = request.params as { id?: unknown }
     if (!isRecord(request.body)) return validation(reply, 'Revisá los datos de la categoría')
     const body = request.body
-    const access = cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    const access = await cashAccess(request.auth?.user, 'canManageCashOperations', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (typeof params.id !== 'string' || !params.id.trim() || typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number') || (body.isActive !== undefined && typeof body.isActive !== 'boolean')) {
       return validation(reply, 'Revisá los datos de la categoría')
@@ -190,9 +199,48 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     }
   })
 
+  app.get('/cash-register/expense-subcategories', async (request, reply) => {
+    const query = request.query as { businessId?: string; categoryId?: string; includeInactive?: string }
+    const access = await cashAnyAccess(request.auth?.user, ['canViewCashRegister', 'canManageCashOperations'], query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (query.categoryId !== undefined && typeof query.categoryId !== 'string') return validation(reply, 'La categoría es inválida')
+    try {
+      return { subcategories: await service.listExpenseSubcategories({ businessId: access.businessId, categoryId: query.categoryId, includeInactive: query.includeInactive === 'true' }) }
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.post('/cash-register/expense-subcategories', async (request, reply) => {
+    if (!isRecord(request.body)) return validation(reply, 'Revisá la subcategoría')
+    const body = request.body
+    const access = await cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (typeof body.categoryId !== 'string' || typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number')) return validation(reply, 'Revisá categoría, nombre y orden')
+    try {
+      return await service.createExpenseSubcategory({ businessId: access.businessId, categoryId: body.categoryId, name: body.name, ...(body.position === undefined ? {} : { position: body.position }) })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
+  app.patch('/cash-register/expense-subcategories/:id', async (request, reply) => {
+    const params = request.params as { id?: unknown }
+    if (!isRecord(request.body)) return validation(reply, 'Revisá la subcategoría')
+    const body = request.body
+    const access = await cashAccess(request.auth?.user, 'canManageCashOperations', body)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    if (typeof params.id !== 'string' || !params.id.trim() || typeof body.name !== 'string' || (body.position !== undefined && typeof body.position !== 'number') || (body.isActive !== undefined && typeof body.isActive !== 'boolean')) return validation(reply, 'Revisá los datos de la subcategoría')
+    try {
+      return await service.updateExpenseSubcategory({ businessId: access.businessId, subcategoryId: params.id.trim(), name: body.name, ...(body.position === undefined ? {} : { position: body.position }), ...(body.isActive === undefined ? {} : { isActive: body.isActive }) })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+
   app.post('/cash-register/open', async (request, reply) => {
     const body = request.body as { businessId?: string; responsibleUserId?: string; openingCash?: number | null }
-    const access = cashAccess(request.auth?.user, 'canManageCashSessions', body)
+    const access = await cashAccess(request.auth?.user, 'canManageCashSessions', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.responsibleUserId?.trim()) return validation(reply, 'Responsable requerido')
     try {
@@ -204,7 +252,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 
   app.post('/cash-register/new-session', async (request, reply) => {
     const body = request.body as { businessId?: string; currentSessionId?: string; responsibleUserId?: string; countedCash?: number; acknowledgeDifference?: boolean }
-    const access = cashAccess(request.auth?.user, 'canManageCashSessions', body)
+    const access = await cashAccess(request.auth?.user, 'canManageCashSessions', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.currentSessionId?.trim() || !body.responsibleUserId?.trim() || body.countedCash === undefined) return validation(reply, 'Sesión, responsable y efectivo contado son requeridos')
     try {
@@ -215,12 +263,18 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   })
 
   app.post('/cash-register/close', async (request, reply) => {
-    const body = request.body as { businessId?: string; currentSessionId?: string; countedCash?: number; acknowledgeDifference?: boolean }
-    const access = cashAccess(request.auth?.user, 'canManageCashSessions', body)
+    const body = request.body as { businessId?: string; currentSessionId?: string; countedCash?: number; cashToLeave?: unknown; acknowledgeDifference?: boolean }
+    const access = await cashAccess(request.auth?.user, 'canManageCashSessions', body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.currentSessionId?.trim() || body.countedCash === undefined) return validation(reply, 'Sesión y efectivo contado son requeridos')
+    if (body.cashToLeave !== undefined && !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(request.auth!.user.role)) {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'Solo administración puede transferir fondos a Tesorería' })
+    }
+    if (body.cashToLeave !== undefined && (typeof body.cashToLeave !== 'number' || !Number.isSafeInteger(body.cashToLeave) || body.cashToLeave < 0 || body.cashToLeave > body.countedCash)) {
+      return validation(reply, 'Indicá un monto a dejar entre cero y el efectivo contado')
+    }
     try {
-      return await service.closeRegisterDay({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true })
+      return await service.closeRegisterDay({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true, ...(body.cashToLeave === undefined ? {} : { cashToLeave: body.cashToLeave as number, actorUserId: request.auth!.user.id, actorName: request.auth!.user.name }) })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -230,7 +284,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     if (!isRecord(request.body)) return validation(reply, 'Sesión y tipo de operación válidos son requeridos')
     const body = request.body
     const permission: CashPermission = body.type === 'ADJUSTMENT' ? 'canAdjustCash' : 'canManageCashOperations'
-    const access = cashAccess(request.auth?.user, permission, body)
+    const access = await cashAccess(request.auth?.user, permission, body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (typeof body.cashSessionId !== 'string' || !body.cashSessionId.trim() || typeof body.type !== 'string' || !['EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND'].includes(body.type)) {
       return validation(reply, 'Sesión y tipo de operación válidos son requeridos')
@@ -241,6 +295,8 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     if (body.type !== 'EXPENSE' && typeof body.categoryId === 'string' && body.categoryId.trim()) {
       return validation(reply, 'La categoría solo corresponde a gastos')
     }
+    if (body.subcategoryId !== undefined && body.subcategoryId !== null && typeof body.subcategoryId !== 'string') return validation(reply, 'La subcategoría es inválida')
+    if (body.type !== 'EXPENSE' && typeof body.subcategoryId === 'string' && body.subcategoryId.trim()) return validation(reply, 'La subcategoría solo corresponde a gastos')
     try {
       return await service.recordCashOperation({ ...body, businessId: access.businessId, cashSessionId: body.cashSessionId.trim() } as CashOperationInput)
     } catch (error) {
@@ -253,7 +309,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const body = request.body as { businessId?: string; cashSessionId?: string; observation?: string | null }
     const user = request.auth?.user
     const allowedTypes = cashReversalTypes(user)
-    const access = cashAccess(user, cashReversalPermission(user), body)
+    const access = await cashAccess(user, cashReversalPermission(user), body)
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.cashSessionId?.trim()) return validation(reply, 'Sesión requerida')
     try {
@@ -273,16 +329,17 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
-function cashAccess(user: StaffAuthorizationUser | undefined, permission: CashPermission, source: unknown) {
+async function cashAccessForUser(user: AuthUser | undefined, permission: CashPermission, source: unknown, authorizeBusiness: (user: AuthUser, businessId: string) => Promise<boolean>) {
   if (!user || !hasCashPermission(user, permission)) return { ok: false as const, code: 'CASH_PERMISSION_REQUIRED' as const }
   const requested = source && typeof source === 'object' ? (source as { businessId?: unknown }).businessId : undefined
   const canSelectBusiness = user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN'
   const businessId = canSelectBusiness && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
   if (!businessId) return { ok: false as const, code: 'BUSINESS_ID_REQUIRED' as const }
+  if (!await authorizeBusiness(user, businessId)) return { ok: false as const, code: 'BUSINESS_NOT_FOUND' as const }
   return { ok: true as const, businessId }
 }
 
-function cashAnyAccess(user: StaffAuthorizationUser | undefined, permissions: CashPermission[], source: unknown) {
+async function cashAnyAccessForUser(user: AuthUser | undefined, permissions: CashPermission[], source: unknown, authorizeBusiness: (user: AuthUser, businessId: string) => Promise<boolean>) {
   if (!user || !permissions.some((permission) => hasCashPermission(user, permission))) {
     return { ok: false as const, code: 'CASH_PERMISSION_REQUIRED' as const }
   }
@@ -290,10 +347,12 @@ function cashAnyAccess(user: StaffAuthorizationUser | undefined, permissions: Ca
   const canSelectBusiness = user.role === 'SUPER_ADMIN' || user.role === 'ACCOUNT_ADMIN'
   const businessId = canSelectBusiness && typeof requested === 'string' ? requested.trim() : user.businessId?.trim()
   if (!businessId) return { ok: false as const, code: 'BUSINESS_ID_REQUIRED' as const }
+  if (!await authorizeBusiness(user, businessId)) return { ok: false as const, code: 'BUSINESS_NOT_FOUND' as const }
   return { ok: true as const, businessId }
 }
 
-function cashAccessFailure(reply: FastifyReply, access: { code: 'CASH_PERMISSION_REQUIRED' | 'BUSINESS_ID_REQUIRED' }) {
+function cashAccessFailure(reply: FastifyReply, access: { code: 'CASH_PERMISSION_REQUIRED' | 'BUSINESS_ID_REQUIRED' | 'BUSINESS_NOT_FOUND' }) {
+  if (access.code === 'BUSINESS_NOT_FOUND') return reply.status(404).send({ message: 'Recurso no encontrado' })
   return access.code === 'CASH_PERMISSION_REQUIRED'
     ? reply.status(403).send({ code: access.code, message: 'No tenés permiso para realizar esta operación de Caja' })
     : validation(reply, 'Seleccioná un comercio')
@@ -366,6 +425,10 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   if (code === 'EXPENSE_CATEGORY_INACTIVE') {
     return reply.status(409).send({ code, message: 'La categoría está inactiva; elegí otra para registrar el gasto' })
   }
+  if (code === 'EXPENSE_SUBCATEGORY_NOT_FOUND') return reply.status(404).send({ code: 'NOT_FOUND', message: 'La subcategoría no existe en este negocio' })
+  if (code === 'EXPENSE_SUBCATEGORY_INACTIVE') return reply.status(409).send({ code, message: 'La subcategoría está inactiva; elegí otra' })
+  if (code === 'EXPENSE_SUBCATEGORY_CATEGORY_MISMATCH') return reply.status(400).send({ code: 'VALIDATION', message: 'La subcategoría no pertenece a la categoría seleccionada' })
+  if (code === 'EXPENSE_SUBCATEGORY_DUPLICATE') return reply.status(409).send({ code, message: 'Ya existe esa subcategoría en esta categoría' })
   if (code === 'DEFAULT_EXPENSE_CATEGORY_PROTECTED') {
     return reply.status(409).send({ code, message: 'La categoría Otros es obligatoria y no puede renombrarse ni desactivarse' })
   }
@@ -392,6 +455,15 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   }
   if (code === 'APPOINTMENT_COMPLETION_ACTOR_REQUIRED') {
     return reply.status(400).send({ code: 'VALIDATION', message: 'No se pudo identificar quién completa el turno' })
+  }
+  if (code === 'TREASURY_NOT_ENABLED') {
+    return reply.status(409).send({ code, message: 'Habilitá Tesorería antes de dejar cambio y transferir el excedente' })
+  }
+  if (code === 'INVALID_CASH_TO_LEAVE') {
+    return reply.status(400).send({ code: 'VALIDATION', message: 'El monto a dejar no puede superar el efectivo contado' })
+  }
+  if (code === 'CASH_TRANSFER_ACTOR_REQUIRED') {
+    return reply.status(403).send({ code, message: 'No se pudo identificar quién transfiere el dinero' })
   }
   if (code === 'CASH_DIFFERENCE_CONFIRMATION_REQUIRED') {
     return reply.status(409).send({ code, message: 'Confirmá la diferencia de efectivo antes de continuar' })

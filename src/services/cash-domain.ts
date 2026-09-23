@@ -163,6 +163,7 @@ export function summarizeCashRegister(input: {
 }) {
   const openingCash = assertMoney(input.openingCash)
   const collectedByMethod = { CASH: 0, TRANSFER: 0, CARD: 0 }
+  const outgoingByMethod = { CASH: 0, TRANSFER: 0, CARD: 0, UNSPECIFIED: 0 }
   let grossCollected = 0
   let refunds = 0
   let expenses = 0
@@ -182,6 +183,7 @@ export function summarizeCashRegister(input: {
     }
     if (effectiveType === 'REFUND') refunds -= signed
     if (effectiveType === 'EXPENSE') expenses -= signed
+    if (effectiveType === 'REFUND' || effectiveType === 'EXPENSE') outgoingByMethod[entry.method ?? 'UNSPECIFIED'] -= signed
     if (effectiveType === 'WITHDRAWAL') withdrawals -= signed
     if (effectiveType === 'CASH_IN') cashIn += signed
     if (effectiveType === 'ADJUSTMENT') adjustments += signed
@@ -201,6 +203,7 @@ export function summarizeCashRegister(input: {
   return {
     grossCollected,
     collectedByMethod,
+    outgoingByMethod,
     refunds,
     expenses,
     withdrawals,

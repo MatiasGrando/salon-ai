@@ -6,11 +6,11 @@ import { requireAuthorizedBusiness } from '../services/business-authorization.js
 import { normalizeProfessionalCompensationRule, type ProfessionalCompensationRuleInput } from '../services/professional-compensation.js'
 
 function canViewProfessionalSettlements(user: any) {
-  return user && (user.role !== 'STAFF' || user.canViewProfessionalSettlements === true)
+  return user && (user.role !== 'STAFF')
 }
 
 function canManageProfessionalSettlements(user: any) {
-  return user && (user.role !== 'STAFF' || user.canManageProfessionalSettlements === true)
+  return user && (user.role !== 'STAFF')
 }
 
 function requestedBusinessId(user: any, value?: string) {
@@ -49,6 +49,44 @@ async function settlementRangeForBusiness(businessId: string, from?: string, to?
 }
 
 export async function professionalSettlementRoutes(app: FastifyInstance) {
+  // Respuesta mínima: no expone comisiones, deuda, historial ni pagos.
+  app.get('/professional-settlements/today', async (request, reply) => {
+    const user = request.auth?.user
+    if (!user || (user.role === 'STAFF' && (user.staffProfile !== 'SECRETARY' || user.canViewTodayProfessionalProduction !== true))) {
+      return reply.status(403).send({ message: 'No tenés permiso para ver la actividad de hoy' })
+    }
+    const query = request.query as { businessId?: string }
+    const businessId = requestedBusinessId(user, query.businessId)
+    if (!businessId || !await requireAuthorizedBusiness(prisma, user, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
+    const business = await prisma.business.findUnique({ where: { id: businessId }, select: { timezone: true } })
+    const timezone = business?.timezone || 'America/Argentina/Buenos_Aires'
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+    const component = (type: string) => parts.find((part) => part.type === type)?.value || ''
+    const date = `${component('year')}-${component('month')}-${component('day')}`
+    const range = await settlementRangeForBusiness(businessId, date, date)
+    if (!range) return reply.status(500).send({ message: 'No pudimos calcular el día del negocio' })
+    const [professionals, earnings] = await Promise.all([
+      prisma.professional.findMany({ where: { businessId, isActive: true, archivedAt: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      prisma.professionalAccountEntry.findMany({
+        where: { businessId, type: 'EARNING', appointment: { is: { status: 'COMPLETED', startAt: { gte: range.from, lt: range.toExclusive } } } },
+        select: { id: true, professionalId: true, baseAmount: true, appointment: { select: { startAt: true, service: { select: { name: true } } } } },
+        orderBy: [{ effectiveAt: 'asc' }, { id: 'asc' }]
+      })
+    ])
+    return {
+      date,
+      items: professionals.map((professional) => {
+        const services = earnings.filter((entry) => entry.professionalId === professional.id).map((entry) => ({
+          id: entry.id,
+          startAt: entry.appointment?.startAt,
+          serviceName: entry.appointment?.service.name || 'Servicio',
+          billedAmount: entry.baseAmount ?? 0
+        }))
+        return { id: professional.id, name: professional.name, completedServices: services.length, billedAmount: services.reduce((sum, service) => sum + service.billedAmount, 0), services }
+      })
+    }
+  })
+
   app.get('/professional-settlements/summary', async (request, reply) => {
     const user = request.auth?.user
     const query = request.query as { businessId?: string; from?: string; to?: string }

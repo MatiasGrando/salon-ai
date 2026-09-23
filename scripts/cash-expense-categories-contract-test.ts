@@ -35,7 +35,7 @@ assert.doesNotMatch(ui, /class="cash-filter-row"[\s\S]{0,1500}id="cash-expense-c
 assert.match(ui, /id="cash-category-filter"/)
 assert.match(ui, /id="cash-expense-category-dialog"/)
 assert.match(ui, /Administrar categor&iacute;as/)
-assert.match(ui, /if \(type === 'EXPENSE'\) payload\.categoryId/)
+assert.match(ui, /if \(type === 'EXPENSE'\)[\s\S]*payload\.categoryId/)
 assert.match(ui, /params\.set\('categoryId'/)
 assert.match(ui, /entry\.expenseCategoryName/)
 assert.match(ui, /loadCashExpenseCategories/)

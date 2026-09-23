@@ -86,6 +86,10 @@ const cashier = user({ staffProfile: 'SECRETARY', permissionPreset: 'SECRETARY_C
 access(cashier, 'POST', '/crm/conversations/x/deposit/approve', true, 'caja aprueba señas')
 access(cashier, 'POST', '/crm/conversations/x/deposit/reject', true, 'caja rechaza señas')
 assert.equal(cashier.canViewFinancialAmounts, true, 'caja ve importes')
+assert.equal(cashier.canViewProfessionalSettlements, false, 'caja no abre liquidaciones completas')
+assert.equal(cashier.canManageProfessionalSettlements, false, 'caja no paga liquidaciones')
+access(cashier, 'GET', '/professional-settlements/summary', false, 'caja no ve deuda')
+access(cashier, 'POST', '/professional-settlements/payments', false, 'caja no paga profesionales')
 
 const appointmentCollector = user({
   staffProfile: 'SECRETARY', permissionPreset: 'CUSTOM', canRecordAppointmentPayments: true
@@ -116,12 +120,11 @@ for (const id of [
   'staff-user-profile', 'staff-user-preset', 'staff-preset-description', 'staff-can-force-appointments',
   'staff-can-view-customers', 'staff-can-manage-notes', 'staff-can-view-conversations',
   'staff-can-manage-deposits', 'staff-can-view-reports', 'staff-can-view-financial',
-  'staff-can-record-appointment-payments', 'staff-can-view-professional-settlements', 'staff-can-manage-professional-settlements',
+  'staff-can-record-appointment-payments', 'staff-can-view-today-professional-production',
   'staff-can-view-products', 'staff-can-manage-products', 'staff-can-sell-products'
 ]) assert.ok(ui.includes(`id="${id}"`), `la interfaz debe incluir ${id}`)
-assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 16, 'los permisos exclusivos de secretaría deben estar identificados')
-assert.ok(ui.includes('Ver liquidaciones profesionales'), 'el acceso a liquidaciones debe ser visible y explícito para secretaría')
-assert.ok(ui.includes('Registrar pagos a profesionales'), 'el pago de liquidaciones debe ser un permiso separado')
+assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 15, 'los permisos exclusivos de secretaría deben estar identificados')
+assert.ok(ui.includes('Ver trabajo y facturaci&oacute;n de profesionales de hoy'), 'solo se ofrece vista de hoy a secretaría')
 assert.ok(ui.includes('Registrar pagos de turnos'), 'el permiso de cobro debe ser visible y explícito para secretaría')
 assert.ok(ui.includes('canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments'), 'el permiso de cobro debe enviarse al guardar la cuenta staff')
 assert.ok(ui.includes("field.hidden = !isSecretary"), 'los permisos de secretaría deben ocultarse para profesionales')

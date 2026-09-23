@@ -17,6 +17,8 @@ assert.match(appointmentSource, /includeFinanceSummary:\s*canViewFinance/, 'el l
 assert.match(serverSource, /register\(cashRegisterRoutes\)/)
 assert.match(cashRouteSource, /nextCursor/)
 assert.match(cashRouteSource, /CASH_PERMISSION_REQUIRED/)
+assert.match(cashRouteSource, /role: \{ in: \['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'STAFF'\] \}/, 'responsables debe incluir al administrador de cuenta vinculado al local')
+assert.match(cashRouteSource, /select: \{ id: true, name: true, role: true \}/, 'responsables debe informar el rol para distinguir al administrador en la interfaz')
 
 const { cashRegisterRoutes } = await import('../src/routes/cash-register.js')
 const { CashServiceError } = await import('../src/services/cash-service.js')
@@ -37,12 +39,13 @@ const app = Fastify()
 app.addHook('preHandler', async (request) => {
   request.auth = { user: fakeAuthUser(request.headers) }
 })
-await app.register(cashRegisterRoutes, { cashService: fakeService as never })
+await app.register(cashRegisterRoutes, { cashService: fakeService as never, authorizeBusiness: async (user: { role: string }, businessId: string) => user.role !== 'ACCOUNT_ADMIN' || businessId === 'managed-business' })
 
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/current' })).statusCode, 403)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/current', headers: { 'x-view': 'yes' } })).statusCode, 200)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/current?businessId=managed-business', headers: { 'x-role': 'ACCOUNT_ADMIN' } })).statusCode, 200)
 assert.equal(calls.some((call) => call.endsWith(':managed-business')), true, 'ACCOUNT_ADMIN debe operar sobre el comercio activo ya validado por el auth guard')
+assert.equal((await app.inject({ method: 'GET', url: '/cash-register/current?businessId=foreign-business', headers: { 'x-role': 'ACCOUNT_ADMIN' } })).statusCode, 404)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/current', headers: { 'x-view': 'yes', 'x-business': 'missing' } })).statusCode, 404)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-context' })).statusCode, 403)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-context', headers: { 'x-view': 'yes' } })).statusCode, 403)
@@ -50,6 +53,11 @@ assert.equal((await app.inject({ method: 'GET', url: '/cash-register/payment-con
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/open', headers: { 'x-sessions': 'yes' }, payload: {} })).statusCode, 400)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/new-session', headers: { 'x-sessions': 'yes' }, payload: { currentSessionId: 'session', responsibleUserId: 'next-user', countedCash: 90, acknowledgeDifference: true } })).statusCode, 200)
 assert.equal(callInputs.findLast((call) => call.property === 'startNewSession')?.input.acknowledgeDifference, true)
+assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-sessions': 'yes' }, payload: { currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000 } })).statusCode, 403, 'el personal no puede mover fondos a Tesoreria')
+assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-role': 'BUSINESS_ADMIN' }, payload: { currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000 } })).statusCode, 200)
+assert.deepEqual(callInputs.findLast((call) => call.property === 'closeRegisterDay')?.input, { businessId: 'business-a', currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000, actorUserId: 'user', actorName: 'User', acknowledgeDifference: false })
+assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-role': 'BUSINESS_ADMIN' }, payload: { currentSessionId: 'session', countedCash: 100, cashToLeave: '20' } })).statusCode, 400)
+
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'closed' } })).statusCode, 409)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-adjust': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'x' } })).statusCode, 403)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { businessId: 'foreign-business', cashSessionId: 'session', type: 'CASH_IN', amount: 10, description: 'x' } })).statusCode, 200)
@@ -60,9 +68,9 @@ assert.equal(page.json().nextCursor, 'cursor-2')
 assert.equal(callInputs.findLast((call) => call.property === 'listCashEntries')?.input.cashSessionId, 'session-1')
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/summary', headers: { 'x-view': 'yes' } })).statusCode, 400)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/summary?from=2026-09-01&to=2026-09-30', headers: { 'x-view': 'yes' } })).statusCode, 200)
-assert.deepEqual(callInputs.findLast((call) => call.property === 'getCashPeriodSummary')?.input, { businessId: 'business-a', from: '2026-09-01', to: '2026-09-30' })
+assert.deepEqual(callInputs.findLast((call) => call.property === 'getCashPeriodSummary')?.input, { businessId: 'business-a', from: '2026-09-01', to: '2026-09-30', registerOnly: true })
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/period/expenses?from=2026-09-01&to=2026-09-30&page=2&pageSize=10&method=CASH&categoryId=category-1&q=luz', headers: { 'x-view': 'yes' } })).statusCode, 200)
-assert.deepEqual(callInputs.findLast((call) => call.property === 'listCashPeriodExpenses')?.input, { businessId: 'business-a', from: '2026-09-01', to: '2026-09-30', page: 2, pageSize: 10, method: 'CASH', expenseCategoryId: 'category-1', query: 'luz' })
+assert.deepEqual(callInputs.findLast((call) => call.property === 'listCashPeriodExpenses')?.input, { businessId: 'business-a', registerOnly: true, from: '2026-09-01', to: '2026-09-30', page: 2, pageSize: 10, method: 'CASH', expenseCategoryId: 'category-1', query: 'luz' })
 assert.equal(calls.some((call) => call.endsWith(':foreign-business')), false, 'ninguna operación debe usar un tenant arbitrario')
 await app.close()
 
@@ -101,6 +109,7 @@ function fakeAuthUser(headers: Record<string, string | string[] | undefined>) {
     canManageDeposits: false, canViewOperationalReports: false, canViewFinancialAmounts: false, canCreateBusinesses: false,
     canViewCashRegister: headers['x-view'] === 'yes', canRecordAppointmentPayments: headers['x-payments'] === 'yes',
     canApplyDiscounts: headers['x-discounts'] === 'yes', canManageCashOperations: headers['x-operate'] === 'yes',
-    canAdjustCash: headers['x-adjust'] === 'yes', canManageCashSessions: headers['x-sessions'] === 'yes', businessAccountStatus: 'ACTIVE' as const
+    canAdjustCash: headers['x-adjust'] === 'yes', canManageCashSessions: headers['x-sessions'] === 'yes',
+    canViewProfessionalSettlements: false, canManageProfessionalSettlements: false, canViewTodayProfessionalProduction: false, businessAccountStatus: 'ACTIVE' as const
   }
 }

@@ -8,6 +8,7 @@ import { serviceRoutes } from './routes/service.js'
 import { customerRoutes } from './routes/customer.js'
 import { appointmentRoutes } from './routes/appointment.js'
 import { cashRegisterRoutes } from './routes/cash-register.js'
+import { treasuryRoutes } from './routes/treasury.js'
 import { productSalesRoutes } from './routes/product-sales.js'
 import { businessHoursRoutes } from './routes/business-hours.js'
 import { professionalHoursRoutes } from './routes/professional-hours.js'
@@ -178,6 +179,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(appointmentRoutes, { cashRegisterEnabled: cashRegisterConfig.enabled })
   if (cashRegisterConfig.enabled) {
     await app.register(cashRegisterRoutes)
+    await app.register(treasuryRoutes)
     await app.register(productSalesRoutes)
     await app.register(professionalSettlementRoutes)
   }
