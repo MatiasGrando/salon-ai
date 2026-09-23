@@ -34152,7 +34152,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function extractTemplateVariables(text) {
       const variables = []
       const seen = new Set()
-      for (const match of String(text || '').matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) {
+      for (const match of String(text || '').matchAll(/\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\}\\}/g)) {
         if (!seen.has(match[1])) {
           seen.add(match[1])
           variables.push(match[1])
@@ -34162,7 +34162,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function normalizeTemplateVariableTypos(text) {
-      return String(text || '').replace(/\{\{\s*ervicios_vencidos\s*\}\}/g, '{{servicios_vencidos}}')
+      return String(text || '').replace(/\\{\\{\\s*ervicios_vencidos\\s*\\}\\}/g, '{{servicios_vencidos}}')
     }
 
     function correctTemplateBodyVariableTypos() {
@@ -34248,7 +34248,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function templatePreviewText() {
       const body = els.templateBody.value.trim()
       if (!body) return 'Escribí el mensaje para ver la vista previa.'
-      return body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => {
+      return body.replace(/\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\}\\}/g, (_match, variable) => {
         return state.templateDraftExamples[variable] || '{{' + variable + '}}'
       })
     }
@@ -34351,7 +34351,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const editable = ['DRAFT', 'REJECTED'].includes(item.status)
       const examples = parseTemplateExampleJson(item.exampleJson)
       const variables = extractTemplateVariables(item.body)
-      const previewBody = item.body.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => examples[variable] || '{{' + variable + '}}')
+      const previewBody = item.body.replace(/\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\}\\}/g, (_match, variable) => examples[variable] || '{{' + variable + '}}')
       els.templateDetailPanel.innerHTML = '<div class="template-detail-head"><div>' + templateStatusBadge(item.status) + '<h3>' + escapeHtml(item.internalName) + '</h3><p class="template-meta-line">Nombre en Meta: ' + escapeHtml(item.metaName) + '</p></div></div>' +
         '<div class="template-preview">' + (item.imageUrl ? '<img class="template-detail-preview-image" src="' + escapeHtml(item.imageUrl) + '" alt="Imagen de la plantilla">' : '') + '<div class="template-preview-message">' + escapeHtml(previewBody) + '</div></div>' +
         (['PENDING', 'IN_APPEAL'].includes(item.status) ? '<div class="template-review-note"><strong>Aún en revisión por Meta.</strong><span>Podés volver a actualizar el estado dentro de unos minutos.</span></div>' : '') +
@@ -35271,7 +35271,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function campaignActivationMessagePreview(campaign, customer) {
       if (!customer || !campaign.message) return ''
-      return campaign.message.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_match, variable) => {
+      return campaign.message.replace(/\\{\\{\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\}\\}/g, (_match, variable) => {
         if (variable === 'nombre_cliente') return customer.name || ''
         if (variable === 'usuario') return customer.name || ''
         if (variable === 'fecha_ultima_visita') return customer.lastVisitAt ? formatShortDate(customer.lastVisitAt) : '{{' + variable + '}}'

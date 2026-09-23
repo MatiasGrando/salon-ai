@@ -25,9 +25,22 @@ assert.ok(pickerSource && insertSource, 'variable picker should render options a
 const typoSource = response.body.match(/function normalizeTemplateVariableTypos\(text\) \{[\s\S]*?\n    \}/)?.[0] || ''
 const fixBodySource = response.body.match(/function correctTemplateBodyVariableTypos\(\) \{[\s\S]*?\n    \}/)?.[0] || ''
 assert.ok(typoSource && fixBodySource, 'template editor should correct the known missing-s typo')
+const extractSource = response.body.match(/function extractTemplateVariables\(text\) \{[\s\S]*?\n    \}/)?.[0] || ''
+assert.ok(extractSource, 'rendered CRM must include template variable extraction')
+const extractTemplateVariables = new Function(extractSource + '; return extractTemplateVariables')()
+assert.deepEqual(extractTemplateVariables('{{servicios_vencidos}}'), ['servicios_vencidos'])
+assert.deepEqual(extractTemplateVariables('{{ssssssessrvicios_vencidos}}'), ['ssssssessrvicios_vencidos'], 'the rendered regex must not consume leading s characters')
 const normalizeTemplateVariableTypos = new Function(typoSource + '; return normalizeTemplateVariableTypos')()
 assert.equal(normalizeTemplateVariableTypos('{{ervicios_vencidos}}'), '{{servicios_vencidos}}')
 assert.equal(normalizeTemplateVariableTypos('{{servicios_vencidos}}'), '{{servicios_vencidos}}')
+assert.equal(normalizeTemplateVariableTypos('{{ssssssservicios_vencidos}}'), '{{ssssssservicios_vencidos}}', 'the typo fixer must not consume additional leading s characters')
+const previewSource = response.body.match(/function templatePreviewText\(\) \{[\s\S]*?\n    \}/)?.[0] || ''
+assert.ok(previewSource, 'rendered CRM must include the template preview')
+const preview = new Function('els', 'state', previewSource + '; return templatePreviewText')(
+  { templateBody: { value: 'Hola {{servicios_vencidos}}' } },
+  { templateDraftExamples: { servicios_vencidos: 'Cambio de aceite' } }
+)
+assert.equal(preview(), 'Hola Cambio de aceite', 'preview must resolve the complete variable name')
 assert.equal(normalizeTemplateVariableTypos('{{ervicios_vencidos_extra}}'), '{{ervicios_vencidos_extra}}')
 const typoText = { value: 'Hola {{ervicios_vencidos}}!', selectionStart: 26, selectionEnd: 26, setSelectionRange(start: number, end: number) { this.selectionStart = start; this.selectionEnd = end } }
 const fixBody = new Function('els', 'normalizeTemplateVariableTypos', fixBodySource + '; return correctTemplateBodyVariableTypos')({ templateBody: typoText }, normalizeTemplateVariableTypos)
