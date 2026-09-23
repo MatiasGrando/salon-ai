@@ -2,14 +2,16 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { findCustomSiteProfileBinding } from '../src/services/custom-site-profile-binding.js'
 
-const [route, authGuard, server, rootPackage, sitePackage, plateService, plateLookup] = await Promise.all([
+const [route, authGuard, server, rootPackage, sitePackage, plateService, plateLookup, siteHtml, hero] = await Promise.all([
   readFile('src/routes/lubricentro-site.ts', 'utf8'),
   readFile('src/plugins/auth-guard.ts', 'utf8'),
   readFile('src/server.ts', 'utf8'),
   readFile('package.json', 'utf8'),
   readFile('sites/lubricentro-albarellos/package.json', 'utf8'),
   readFile('sites/lubricentro-albarellos/src/services/plateService.js', 'utf8'),
-  readFile('sites/lubricentro-albarellos/src/components/PlateLookup.jsx', 'utf8')
+  readFile('sites/lubricentro-albarellos/src/components/PlateLookup.jsx', 'utf8'),
+  readFile('sites/lubricentro-albarellos/index.html', 'utf8'),
+  readFile('sites/lubricentro-albarellos/src/components/Hero.jsx', 'utf8')
 ])
 
 assert.deepEqual(findCustomSiteProfileBinding('lubricentro.weex.com.ar'), {
@@ -34,5 +36,9 @@ assert.match(plateService, /\/public\/workshops\//)
 assert.doesNotMatch(plateService, /mockVehicles/)
 assert.match(plateLookup, /fetchVehicleHistoryPage/)
 assert.doesNotMatch(plateLookup, /PATENTES DE PRUEBA|demoPlates|demoQuick/i)
+assert.ok(hero.includes('src="/images/hero-desktop.jpg"'))
+assert.ok(siteHtml.includes('<meta property="og:image" content="https://lubricentro.weex.com.ar/images/hero-desktop.jpg" />'))
+assert.ok(siteHtml.includes('<meta property="og:image:width" content="1024" />'))
+assert.ok(siteHtml.includes('<meta property="og:image:height" content="576" />'))
 
 console.log('Lubricentro custom site contract: OK')
