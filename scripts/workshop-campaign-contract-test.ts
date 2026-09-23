@@ -41,6 +41,7 @@ assert.equal(audience.total, 2, 'debe crear un destinatario por vehículo vencid
 assert.equal(audience.excluded.missingPhone, 1)
 assert.deepEqual(audience.included.map(item => item.recipientKey), ['workshop:vehicle-1', 'workshop:vehicle-2'])
 assert.deepEqual(audience.included[0]?.overdueServices, ['Cambio de aceite', 'Líquido refrigerante'])
+assert.equal(audience.included[0]?.overdueServicesText, 'Cambio de aceite, Líquido refrigerante', 'la variable lista sólo los servicios vencidos de esta patente')
 assert.equal(audience.included[0]?.plate, 'AA123BB')
 assert.equal(audience.included[0]?.lastVisitAt, '2026-08-15T00:00:00.000Z')
 assert.equal(audience.included[0]?.publicUrl, 'https://taller.example.com/?patente=AA123BB#consulta-patente')
@@ -62,6 +63,7 @@ const inactiveAudience = buildWorkshopInactiveAudience([
 assert.equal(inactiveAudience.total, 1, 'el filtro de inactividad debe evaluar cada vehículo')
 assert.equal(inactiveAudience.included[0]?.plate, 'AA123BB')
 assert.equal(inactiveAudience.included[0]?.lastVisitAt, '2026-01-01T00:00:00.000Z')
+assert.equal(inactiveAudience.included[0]?.overdueServicesText, '', 'la inactividad por sí sola no implica servicios vencidos')
 
 const campaignRoute = readFileSync(new URL('../src/routes/campaign.ts', import.meta.url), 'utf8')
 const crmUi = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')

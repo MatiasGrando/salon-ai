@@ -3422,6 +3422,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .template-type-card:has(input:checked)::after { content: "✓"; position: absolute; right: 12px; top: 12px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: #0d63f3; font-size: 12px; font-weight: 800; }
     .template-meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .template-category-readonly { height: 42px; display: flex; align-items: center; padding: 0 12px; border: 1px solid #dce4ef; border-radius: 8px; color: #16213a; background: #f8fafc; font-weight: 700; }
+    .template-dialog .campaign-message-tools { flex-wrap: wrap; }
+    .template-variable-picker-label { display: inline-flex; align-items: center; gap: 8px; color: #34435f; font-size: 13px; font-weight: 700; }
+    .template-variable-picker-label select { min-width: 200px; max-width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid #d7deea; border-radius: 8px; background: #fff; color: #34435f; font: inherit; cursor: pointer; }
+    .template-variable-picker-label select:focus-visible { outline: 2px solid #0d63f3; outline-offset: 2px; }
+    .template-variable-picker-help { margin: 9px 0 0; color: #687790; font-size: 12px; line-height: 1.45; }
     .template-variable-panel { display: grid; gap: 10px; }
     .template-variable-empty { padding: 12px; border-radius: 10px; background: #f8fafc; color: #687790; font-size: 12px; }
     .template-variable-row { display: grid; grid-template-columns: minmax(150px, .75fr) minmax(220px, 1fr); gap: 10px; align-items: center; padding: 10px; border: 1px solid #e5eaf2; border-radius: 11px; background: #fbfdff; }
@@ -13063,6 +13068,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     @media (max-width: 760px) {
       .template-dialog { width: calc(100vw - 20px); }
+      .template-variable-picker-label { width: 100%; justify-content: space-between; }
+      .template-variable-picker-label select { flex: 1; min-width: 0; }
       .template-builder-grid,
       .template-meta-grid,
       .template-type-grid,
@@ -19570,14 +19577,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <h4>Mensaje</h4>
                 <p>Us&aacute; variables entre llaves dobles cuando el dato cambie para cada cliente.</p>
                 <div class="campaign-message-tools">
+                  <label class="template-variable-picker-label" for="template-variable-picker">Variable <select id="template-variable-picker" aria-describedby="template-variable-picker-help"><option value="">Insertar variable...</option></select></label>
                   <button class="campaign-message-tool" id="template-emoji-toggle" type="button">&#128578; Agregar emoji</button>
                   <label class="campaign-image-picker">&#128247; Agregar imagen
                     <input id="template-image" type="file" accept="image/png,image/jpeg,image/webp">
                   </label>
                 </div>
+                <p class="template-variable-picker-help" id="template-variable-picker-help"></p>
                 <emoji-picker class="template-emoji-picker light" id="template-emoji-picker" locale="es" hidden></emoji-picker>
                 <div class="campaign-image-preview" id="template-image-preview" hidden><img id="template-image-preview-img" alt="Vista previa de la imagen"><div><strong>Encabezado con imagen</strong><button class="campaign-image-remove" id="template-image-remove" type="button">Quitar imagen</button></div></div>
-                <div class="campaign-form-field full"><label for="template-body">Texto de la plantilla</label><textarea id="template-body" maxlength="1024" placeholder="Hola {{nombre_cliente}} 👋 tenemos una promo para vos: {{promo}}." required></textarea></div>
+                <div class="campaign-form-field full"><label for="template-body">Texto de la plantilla</label><textarea id="template-body" maxlength="1024" placeholder="Hola {{nombre_cliente}} 👋 tenemos una promo para vos esta semana." required></textarea></div>
               </section>
               <section class="template-builder-card">
                 <h4>Variables detectadas</h4>
@@ -20562,6 +20571,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       templateCategoryLabel: document.getElementById('template-category-label'),
       templateLanguage: document.getElementById('template-language'),
       templateBody: document.getElementById('template-body'),
+      templateVariablePicker: document.getElementById('template-variable-picker'),
+      templateVariablePickerHelp: document.getElementById('template-variable-picker-help'),
       templateEmojiToggle: document.getElementById('template-emoji-toggle'),
       templateEmojiPicker: document.getElementById('template-emoji-picker'),
       templateImage: document.getElementById('template-image'),
@@ -34157,6 +34168,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function templateVariableDescription(variable, category = selectedTemplateCategory()) {
+      if (variable === 'ervicios_vencidos') return '¿Quisiste escribir {{servicios_vencidos}}? Falta la s inicial.'
       const descriptions = category === 'UTILITY'
         ? {
             nombre_cliente: 'Automático: nombre del cliente.',
@@ -34171,7 +34183,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             usuario: 'Alias temporal: usa el nombre del cliente.',
             fecha_ultima_visita: 'Automático: última visita registrada del cliente o vehículo.',
             patente: 'Automático para Mecánica: patente del vehículo.',
-            servicios_vencidos: 'Automático para Mecánica: lista de servicios vencidos de esa patente.',
+            servicios_vencidos: 'Automático para Mecánica: nombres de servicios vencidos por fecha o kilometraje de esa patente. Sólo en campañas de mantenimientos vencidos.',
             enlace_historial: 'Automático para Mecánica: enlace público al historial del vehículo.'
           }
       return descriptions[variable] || 'No compatible para ' + templateCategoryLabel(category) + '. Escribí ese dato fijo en el texto o cambiá el tipo de plantilla.'
@@ -34186,10 +34198,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return els.templateCategoryUtility.checked ? 'UTILITY' : 'MARKETING'
     }
 
+    function renderTemplateVariablePicker() {
+      const picker = els.templateVariablePicker
+      picker.replaceChildren(
+        new Option('Insertar variable...', ''),
+        ...supportedTemplateVariables().map((variable) => new Option('{{' + variable + '}}', variable))
+      )
+      picker.value = ''
+      els.templateVariablePickerHelp.textContent = selectedTemplateCategory() === 'UTILITY'
+        ? 'Elegí una variable y se insertará donde esté el cursor del mensaje.'
+        : 'Elegí una variable y se insertará donde esté el cursor. Servicios vencidos sólo tiene valor en campañas de mantenimientos vencidos por patente.'
+    }
+
+    function insertTemplateVariable(variable) {
+      if (!supportedTemplateVariables().includes(variable)) return
+      const input = els.templateBody
+      const start = input.selectionStart ?? input.value.length
+      const end = input.selectionEnd ?? start
+      const token = '{{' + variable + '}}'
+      input.setRangeText(token, start, end, 'end')
+      input.focus()
+      renderTemplateVariables()
+      updateTemplateBuilderPreview()
+    }
+
     function setTemplateCategory(category) {
       els.templateCategoryUtility.checked = category === 'UTILITY'
       els.templateCategoryMarketing.checked = category !== 'UTILITY'
       els.templateCategoryLabel.textContent = templateCategoryLabel(category)
+      renderTemplateVariablePicker()
       renderTemplateVariables()
       updateTemplateBuilderPreview()
     }
@@ -37053,6 +37090,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.templateForm.addEventListener('submit', (event) => { event.preventDefault(); saveTemplate(false) })
     els.templateSaveSubmit.addEventListener('click', () => saveTemplate(true))
     els.templateBody.addEventListener('input', () => { renderTemplateVariables(); updateTemplateBuilderPreview() })
+    els.templateVariablePicker.addEventListener('change', (event) => {
+      insertTemplateVariable(event.target.value)
+      event.target.value = ''
+    })
     els.templateEmojiToggle.addEventListener('click', () => {
       els.templateEmojiPicker.hidden = !els.templateEmojiPicker.hidden
     })
