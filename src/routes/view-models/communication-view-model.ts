@@ -1,4 +1,4 @@
-import { buildManualWhatsAppUrl } from '../../domain/communications/communication.js'
+import { buildManualWhatsAppAppUrl, buildManualWhatsAppUrl } from '../../domain/communications/communication.js'
 import type { CommunicationExecutionRecord, CommunicationRecipientRecord } from '../../application/communications/communication-service.js'
 
 export function toManualCommunicationExecutionSummary(
@@ -19,6 +19,7 @@ export function toManualCommunicationExecutionSummary(
       phone: current.phoneSnapshot,
       message: current.messageSnapshot,
       whatsappUrl: buildManualWhatsAppUrl(current.phoneSnapshot, current.messageSnapshot),
+      whatsappAppUrl: buildManualWhatsAppAppUrl(current.phoneSnapshot, current.messageSnapshot),
       status: current.status,
       openedAt: current.openedAt,
       sentAt: current.sentAt,

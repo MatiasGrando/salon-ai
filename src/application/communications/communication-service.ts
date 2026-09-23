@@ -115,6 +115,11 @@ export class CommunicationService {
     return execution ? recipient : null
   }
 
+  async getRecipientForExecution(id: string, executionId: string) {
+    const recipient = await this.repository.findRecipient(id)
+    return recipient?.executionId === executionId ? recipient : null
+  }
+
   async transitionRecipient(input: {
     recipientId: string
     businessId: string
@@ -129,6 +134,22 @@ export class CommunicationService {
     if (!recipient) throw new Error('No encontré ese destinatario')
     const execution = await this.repository.findExecutionHeader(recipient.executionId)
     if (!execution || execution.businessId !== input.businessId) throw new Error('No encontré esa ejecución')
+    return this.transitionRecipientWithContext(input, recipient, execution)
+  }
+
+  async transitionRecipientWithContext(input: {
+    recipientId: string
+    businessId: string
+    status: CommunicationStatus
+    actorId?: string | null
+    note?: string | null
+    skipReason?: string | null
+    failureReason?: string | null
+    sourceDeliveryId?: string | null
+  }, recipient: CommunicationRecipientRecord, execution: Pick<CommunicationExecutionRecord, 'id' | 'businessId'>) {
+    if (recipient.id !== input.recipientId || recipient.executionId !== execution.id || execution.businessId !== input.businessId) {
+      throw new Error('No encontré esa ejecución')
+    }
     assertCommunicationTransition(recipient.status, input.status)
     const updated = await this.repository.transitionRecipient({
       recipientId: recipient.id,

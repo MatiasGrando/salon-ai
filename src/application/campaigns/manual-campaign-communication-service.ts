@@ -30,12 +30,14 @@ export class ManualCampaignCommunicationService {
     note?: string | null
     skipReason?: string | null
   }) {
-    const execution = await this.communications.getExecutionHeader(input.executionId, input.businessId)
+    const [execution, recipient] = await Promise.all([
+      this.communications.getExecutionHeader(input.executionId, input.businessId),
+      this.communications.getRecipientForExecution(input.recipientId, input.executionId)
+    ])
     if (!execution || execution.sourceType !== 'CAMPAIGN' || execution.mode !== 'WHATSAPP_MANUAL' || (input.sourceId && execution.sourceId !== input.sourceId)) {
       throw new Error('No encontré esa ejecución manual')
     }
-    const recipient = await this.communications.getRecipient(input.recipientId, input.businessId)
-    if (!recipient || recipient.executionId !== execution.id) throw new Error('El destinatario no pertenece a esa ejecución')
+    if (!recipient) throw new Error('El destinatario no pertenece a esa ejecución')
     assertCommunicationTransition(recipient.status, input.status)
 
     let sourceDeliveryId = recipient.sourceDeliveryId as string | null
@@ -49,7 +51,7 @@ export class ManualCampaignCommunicationService {
       sourceDeliveryId = delivery.id
     }
 
-    return this.communications.transitionRecipient({
+    return this.communications.transitionRecipientWithContext({
       recipientId: input.recipientId,
       businessId: input.businessId,
       status: input.status,
@@ -57,6 +59,6 @@ export class ManualCampaignCommunicationService {
       note: input.note ?? null,
       skipReason: input.skipReason ?? null,
       sourceDeliveryId
-    })
+    }, recipient, execution)
   }
 }

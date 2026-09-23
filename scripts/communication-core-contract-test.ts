@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { ManualCampaignCommunicationService, type CampaignDeliveryRecorder } from '../src/application/campaigns/manual-campaign-communication-service.js'
 import { CommunicationService, type CommunicationRecipientRecord, type CommunicationRepository, type StartCommunicationExecutionInput } from '../src/application/communications/communication-service.js'
-import { assertCommunicationTransition, buildManualWhatsAppUrl, isExecutionComplete, isWithinCommunicationCooldown } from '../src/domain/communications/communication.js'
+import { assertCommunicationTransition, buildManualWhatsAppAppUrl, buildManualWhatsAppUrl, isExecutionComplete, isWithinCommunicationCooldown } from '../src/domain/communications/communication.js'
 import { toManualCommunicationExecutionSummary } from '../src/routes/view-models/communication-view-model.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
@@ -9,6 +9,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     name: 'genera un enlace manual seguro con mensaje personalizado',
     run: () => {
       assert.equal(buildManualWhatsAppUrl('+54 9 11 1234-5678', 'Hola María'), 'https://wa.me/5491112345678?text=Hola%20Mar%C3%ADa')
+      assert.equal(buildManualWhatsAppUrl('11-2690-1753', 'Hola'), 'https://wa.me/5491126901753?text=Hola')
+      assert.equal(buildManualWhatsAppAppUrl('11-2690-1753', 'Hola'), 'whatsapp://send?phone=5491126901753&text=Hola')
       assert.throws(() => buildManualWhatsAppUrl('123', 'Hola'), /teléfono/)
     }
   },
@@ -59,6 +61,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(view.recipients.length, 1)
       assert.equal(view.recipients[0]?.recipientKey, 'workshop:vehicle-2')
       assert.match(view.recipients[0]?.whatsappUrl || '', /wa.me/)
+      assert.match(view.recipients[0]?.whatsappAppUrl || '', /^whatsapp:\/\/send\?phone=549/)
     }
   },
   {
@@ -86,6 +89,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(deliveryRecorder.calls[0]?.campaignId, 'campaign-1')
       assert.equal(repository.execution.status, 'COMPLETED')
       assert.equal(repository.fullExecutionReads, 0, 'cada cambio de estado debe evitar cargar toda la cola')
+      assert.equal(repository.headerReads, 3, 'cada acción debe leer la cabecera una sola vez')
+      assert.equal(repository.recipientReads, 3, 'cada acción debe leer el destinatario una sola vez')
     }
   }
 ]
@@ -93,6 +98,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 class FakeCommunicationRepository implements CommunicationRepository {
   execution: any = null
   fullExecutionReads = 0
+  headerReads = 0
+  recipientReads = 0
 
   async createExecution(input: StartCommunicationExecutionInput) {
     this.execution = {
@@ -126,6 +133,7 @@ class FakeCommunicationRepository implements CommunicationRepository {
   }
 
   async findExecutionHeader(id: string) {
+    this.headerReads++
     if (this.execution?.id !== id) return null
     const { recipients: _recipients, ...header } = this.execution
     return header
@@ -136,6 +144,7 @@ class FakeCommunicationRepository implements CommunicationRepository {
   }
 
   async findRecipient(id: string): Promise<CommunicationRecipientRecord | null> {
+    this.recipientReads++
     return this.execution?.recipients.find((recipient: CommunicationRecipientRecord) => recipient.id === id) ?? null
   }
 

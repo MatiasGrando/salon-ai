@@ -45,10 +45,18 @@ export function communicationTimestampField(status: CommunicationStatus) {
   return fields[status] ?? null
 }
 
+function manualWhatsAppPhone(phone: string) {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 8) throw new Error('El teléfono no es válido para WhatsApp')
+  return digits.length === 10 ? '549' + digits : digits
+}
+
 export function buildManualWhatsAppUrl(phone: string, message: string) {
-  const normalizedPhone = phone.replace(/\D/g, '')
-  if (normalizedPhone.length < 8) throw new Error('El teléfono no es válido para WhatsApp')
-  return 'https://wa.me/' + normalizedPhone + '?text=' + encodeURIComponent(message)
+  return 'https://wa.me/' + manualWhatsAppPhone(phone) + '?text=' + encodeURIComponent(message)
+}
+
+export function buildManualWhatsAppAppUrl(phone: string, message: string) {
+  return 'whatsapp://send?phone=' + manualWhatsAppPhone(phone) + '&text=' + encodeURIComponent(message)
 }
 
 export function isExecutionComplete(statuses: string[]) {

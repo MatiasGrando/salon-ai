@@ -34705,7 +34705,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             (manualCurrent
               ? '<div class="manual-send-contact"><div class="campaign-recipient-copy"><strong>' + escapeHtml(manualCurrent.customerName) + '</strong><span>' + escapeHtml(formatCustomerPhone(manualCurrent.phone)) + manualVehicleCopy + ' &middot; ' + (manualStatusLabels[manualCurrent.status] || escapeHtml(manualCurrent.status)) + '</span></div>' +
                   '<div class="manual-send-message">' + escapeHtml(manualCurrent.message) + '</div>' +
-                  '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-manual-recipient-action="SKIPPED" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Omitir</button><a class="manual-send-whatsapp" href="' + escapeHtml(manualCurrent.whatsappUrl) + '" target="_blank" rel="noopener" data-manual-open data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Abrir WhatsApp</a><button class="campaigns-new" type="button" data-manual-recipient-action="SENT" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Marcar enviado</button></div></div>'
+                  '<div class="manual-send-actions"><button class="campaign-outline-button" type="button" data-manual-recipient-action="SKIPPED" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Omitir</button><a class="manual-send-whatsapp" href="' + escapeHtml(manualCurrent.whatsappAppUrl) + '" data-manual-open data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Abrir WhatsApp</a><button class="campaigns-new" type="button" data-manual-recipient-action="SENT" data-manual-recipient-id="' + escapeHtml(manualCurrent.id) + '">Marcar enviado</button></div></div>'
               : '<div class="campaign-rule-note">Cola finalizada. Los contactos marcados como enviados ya participan del descanso entre promociones.</div>')
           : '<div class="campaign-rule-note">Se aplicar&aacute;n nuevamente las bajas, tel&eacute;fonos v&aacute;lidos y descanso de ' + (campaign.cooldownDays ?? 30) + ' d&iacute;as antes de crear la cola.</div><div class="manual-send-actions"><button class="campaigns-new" type="button" data-campaign-action="manual-start">Preparar env&iacute;o manual</button></div>') +
       '</div>'
@@ -35442,10 +35442,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({ status, skipReason: status === 'SKIPPED' ? 'Omitido por el operador' : null })
         })
         state.campaignManualExecutions[campaign.id] = execution
-        if (status === 'SENT') {
-          state.campaignDeliveries[campaign.id] = await getJson('/campaigns/' + campaign.id + '/deliveries')
-        }
         renderCampaignDetail()
+        if (status === 'SENT') {
+          void getJson('/campaigns/' + campaign.id + '/deliveries').then((deliveries) => {
+            state.campaignDeliveries[campaign.id] = deliveries
+            if (state.selectedCampaignId === campaign.id) renderCampaignDetail()
+          }).catch(() => showCrmToast('El envío se registró, pero no se actualizaron las estadísticas. Recargá la página.', 'error'))
+        }
       } catch (error) {
         const existing = els.campaignDetailPanel.querySelector('[data-campaign-inline-error]')
         if (existing) existing.remove()

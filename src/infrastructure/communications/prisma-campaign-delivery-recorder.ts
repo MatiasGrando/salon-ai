@@ -4,7 +4,7 @@ import { isWithinCommunicationCooldown } from '../../domain/communications/commu
 
 export class PrismaCampaignDeliveryRecorder implements CampaignDeliveryRecorder {
   async recordManualSent(input: { businessId: string; campaignId: string; customerId: string; sentAt: Date }) {
-    const [campaign, preference, lastDelivery] = await Promise.all([
+    const [campaign, preference, lastDelivery, previousAttempts] = await Promise.all([
       prisma.campaign.findFirst({
         where: { id: input.campaignId, businessId: input.businessId },
         select: { respectCooldown: true, cooldownDays: true }
@@ -17,6 +17,13 @@ export class PrismaCampaignDeliveryRecorder implements CampaignDeliveryRecorder 
         where: { businessId: input.businessId, customerId: input.customerId, status: { notIn: ['FAILED', 'CANCELLED'] } },
         orderBy: { sentAt: 'desc' },
         select: { sentAt: true }
+      }),
+      prisma.campaignDelivery.count({
+        where: {
+          campaignId: input.campaignId,
+          customerId: input.customerId,
+          status: { notIn: ['FAILED', 'CANCELLED'] }
+        }
       })
     ])
     if (!campaign) throw new Error('No encontré esa campaña')
@@ -24,13 +31,7 @@ export class PrismaCampaignDeliveryRecorder implements CampaignDeliveryRecorder 
     if (campaign.respectCooldown && isWithinCommunicationCooldown(lastDelivery?.sentAt ?? null, input.sentAt, campaign.cooldownDays)) {
       throw new Error('El cliente recibió una promoción dentro del período de descanso')
     }
-    const previousAttempts = await prisma.campaignDelivery.count({
-      where: {
-        campaignId: input.campaignId,
-        customerId: input.customerId,
-        status: { notIn: ['FAILED', 'CANCELLED'] }
-      }
-    })
+
     return prisma.campaignDelivery.create({
       data: {
         businessId: input.businessId,
