@@ -39,8 +39,9 @@ export const workshopJobsStore: WorkshopJobsStore = {
       if(!line.serviceId)return line
       const service=servicesById.get(line.serviceId)!
       const cycle=calculateWorkshopMaintenance({jobDate:job.date,jobMileage:job.mileage,line,service})
+      if(service.recurrenceEnabled&&!cycle)throw new WorkshopJobError('Indicá meses y/o kilómetros para el seguimiento')
       if(cycle)maintenance.push(cycle)
-      return {...line,serviceName:service.name,recurrenceEnabled:service.recurrenceEnabled,returnMonths:service.returnMonths,returnKilometers:service.returnKilometers,customerInstructions:service.customerInstructions,...(cycle?{nextDueDate:cycle.nextDueDate,nextDueMileage:cycle.nextDueMileage,manuallyAdjusted:cycle.manuallyAdjusted}:{})}
+      return {...line,serviceName:service.name,recurrenceEnabled:service.recurrenceEnabled,returnMonths:cycle?.returnMonths??null,returnKilometers:cycle?.returnKilometers??null,customerInstructions:service.customerInstructions,...(cycle?{nextDueDate:cycle.nextDueDate,nextDueMileage:cycle.nextDueMileage,manuallyAdjusted:cycle.manuallyAdjusted}:{})}
     })
     const performer = await tx.workshopPerformer.findFirst({where:{businessId,id:job.performerId,active:true}})
     if(!performer) throw new WorkshopJobError('Seleccion&aacute; un trabajador activo')

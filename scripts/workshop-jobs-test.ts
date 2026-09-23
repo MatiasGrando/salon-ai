@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import { parseWorkshopJob, parseWorkshopShortcut } from '../src/services/workshop-job-domain.js'
 import { workshopDefaultShortcuts } from '../src/services/workshop-shortcuts.js'
 import { calculateWorkshopMaintenance, presentWorkshopMaintenance, shouldReplaceWorkshopMaintenance } from '../src/services/workshop-maintenance.js'
-const input = { vehicleId: 'v', date: '2026-09-07', mileage: 85000, performerId: 'performer-a', lines: [{ description: 'Aceite', quantity: 2, parts: '10,50', labor: '' }] }
+const input = { vehicleId: 'v', date: '2026-09-07', mileage: 85000, performerId: 'performer-a', lines: [{ description: 'Aceite', quantity: 2, parts: '10', labor: '' }] }
 const job = parseWorkshopJob(input)
 assert.equal(job.performerId, 'performer-a')
-assert.equal(job.lines[0]?.partsCents, 1050)
-assert.equal(job.totalCents, 2100)
+assert.equal(job.lines[0]?.partsCents, 1000)
+assert.equal(job.totalCents, 2000)
+assert.equal(parseWorkshopJob({...input,lines:[{description:'Aceite',quantity:1,parts:'12500',labor:''}]}).totalCents,1_250_000)
 assert.equal(job.lines[0]?.laborCents, null)
+assert.throws(() => parseWorkshopJob({...input,lines:[{...input.lines[0],parts:'10,50'}]}))
 const linkedJob=parseWorkshopJob({...input,lines:[{...input.lines[0],serviceId:'service-a',nextDueDate:'2027-03-07',nextDueMileage:96000}]})
 assert.equal(linkedJob.lines[0]?.serviceId,'service-a')
 assert.equal(linkedJob.lines[0]?.nextDueDate,'2027-03-07')
@@ -30,6 +32,18 @@ const calculated=calculateWorkshopMaintenance({jobDate:'2026-09-07',jobMileage:8
 assert.equal(calculated?.nextDueDate,'2027-03-07')
 assert.equal(calculated?.nextDueMileage,95000)
 assert.equal(calculated?.manuallyAdjusted,false)
+const relative=calculateWorkshopMaintenance({jobDate:'2026-09-07',jobMileage:85000,line:{serviceId:'service-a',returnMonths:9,returnKilometers:5000},service:{id:'service-a',name:'Cambio de aceite',recurrenceEnabled:true,returnMonths:6,returnKilometers:10000,customerInstructions:'Revisar nivel'}})
+assert.equal(relative?.returnMonths,9)
+assert.equal(relative?.returnKilometers,5000)
+assert.equal(relative?.nextDueDate,'2027-06-07')
+assert.equal(relative?.nextDueMileage,90000)
+assert.equal(relative?.manuallyAdjusted,true)
+const withoutKm=calculateWorkshopMaintenance({jobDate:'2026-01-31',jobMileage:85000,line:{serviceId:'service-a',returnMonths:1,returnKilometers:null},service:{id:'service-a',name:'Cambio de aceite',recurrenceEnabled:true,returnMonths:6,returnKilometers:10000,customerInstructions:''}})
+assert.equal(withoutKm?.nextDueDate,'2026-02-28')
+assert.equal(withoutKm?.nextDueMileage,null)
+const relativeJob=parseWorkshopJob({...input,lines:[{...input.lines[0],serviceId:'service-a',returnMonths:9,returnKilometers:5000}]})
+assert.equal(relativeJob.lines[0]?.returnMonths,9)
+assert.equal(relativeJob.lines[0]?.returnKilometers,5000)
 const overridden=calculateWorkshopMaintenance({jobDate:'2026-09-07',jobMileage:85000,line:{serviceId:'service-a',nextDueDate:'2027-04-10',nextDueMileage:97000},service:{id:'service-a',name:'Cambio de aceite',recurrenceEnabled:true,returnMonths:6,returnKilometers:10000,customerInstructions:'Revisar nivel'}})
 assert.equal(overridden?.nextDueDate,'2027-04-10')
 assert.equal(overridden?.nextDueMileage,97000)

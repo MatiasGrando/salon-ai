@@ -11,6 +11,8 @@ export type WorkshopMaintenanceLine = {
   serviceId?: string
   nextDueDate?: string | null
   nextDueMileage?: number | null
+  returnMonths?: number | null
+  returnKilometers?: number | null
 }
 
 export function addWorkshopMonths(date: string, months: number) {
@@ -30,20 +32,23 @@ export function calculateWorkshopMaintenance(input: {
   if (!service.recurrenceEnabled) return null
   const defaultDate = service.returnMonths ? addWorkshopMonths(input.jobDate, service.returnMonths) : null
   const defaultMileage = service.returnKilometers ? input.jobMileage + service.returnKilometers : null
-  const nextDueDate = line.nextDueDate || defaultDate
-  const nextDueMileage = line.nextDueMileage ?? defaultMileage
+  const returnMonths = line.returnMonths === undefined ? service.returnMonths : line.returnMonths
+  const returnKilometers = line.returnKilometers === undefined ? service.returnKilometers : line.returnKilometers
+  const nextDueDate = line.nextDueDate || (returnMonths ? addWorkshopMonths(input.jobDate, returnMonths) : null)
+  const nextDueMileage = line.nextDueMileage ?? (returnKilometers ? input.jobMileage + returnKilometers : null)
   if (!nextDueDate && nextDueMileage === null) return null
   return {
     serviceId: service.id,
     serviceName: service.name,
     lastPerformedDate: input.jobDate,
     lastMileage: input.jobMileage,
-    returnMonths: service.returnMonths,
-    returnKilometers: service.returnKilometers,
+    returnMonths,
+    returnKilometers,
     nextDueDate,
     nextDueMileage,
     customerInstructions: service.customerInstructions,
-    manuallyAdjusted: (line.nextDueDate != null && line.nextDueDate !== '' && line.nextDueDate !== defaultDate) ||
+    manuallyAdjusted: returnMonths !== service.returnMonths || returnKilometers !== service.returnKilometers ||
+      (line.nextDueDate != null && line.nextDueDate !== '' && line.nextDueDate !== defaultDate) ||
       (line.nextDueMileage != null && line.nextDueMileage !== defaultMileage)
   }
 }

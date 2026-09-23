@@ -36,9 +36,9 @@ function optionalDate(value: unknown) {
 }
 function money(value: unknown) {
   if (value == null || value === '') return null
-  const raw = String(value).trim().replace(',', '.')
-  if (!/^\d{1,8}(\.\d{1,2})?$/.test(raw)) throw new WorkshopJobError('Importe invalido: usa numeros y hasta dos decimales')
-  return Math.round(Number(raw) * 100)
+  const raw = String(value).trim()
+  if (!/^\d{1,8}$/.test(raw)) throw new WorkshopJobError('Importe inválido: usá pesos enteros, sin centavos')
+  return Number(raw) * 100
 }
 export function parseWorkshopShortcut(body: any) {
   const recurrenceEnabled = body?.recurrenceEnabled === true
@@ -66,7 +66,9 @@ export function parseWorkshopJob(body: any) {
     ...(line?.serviceId ? {
       serviceId: text(line.serviceId, 'servicio', 100),
       ...(optionalDate(line.nextDueDate) ? { nextDueDate: optionalDate(line.nextDueDate) } : {}),
-      ...(line.nextDueMileage == null || line.nextDueMileage === '' ? {} : { nextDueMileage: optionalPositiveInteger(line.nextDueMileage, 'Kilometraje de próximo control', 20_000_000) })
+      ...(line.nextDueMileage == null || line.nextDueMileage === '' ? {} : { nextDueMileage: optionalPositiveInteger(line.nextDueMileage, 'Kilometraje de próximo control', 20_000_000) }),
+      ...('returnMonths' in line ? { returnMonths: optionalPositiveInteger(line.returnMonths, 'Intervalo de meses', 240) } : {}),
+      ...('returnKilometers' in line ? { returnKilometers: optionalPositiveInteger(line.returnKilometers, 'Intervalo de kilometros', 1_000_000) } : {})
     } : {}),
     description: text(line?.description, 'descripcion de tarea', 300),
     quantity: quantity(line?.quantity),

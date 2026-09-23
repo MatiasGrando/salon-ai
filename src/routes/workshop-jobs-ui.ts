@@ -24,9 +24,9 @@ export const workshopJobsMarkup = `
  <section class="wj-dialog" role="dialog" aria-modal="true" aria-labelledby="wj-title">
   <header class="wj-header"><div><h2 id="wj-title">Nuevo trabajo</h2><p id="wj-vehicle"></p></div><button id="wj-close" type="button" aria-label="Cerrar ficha">&times;</button></header>
   <form id="wj-form"><div class="wj-body">
-   <div class="wj-fields"><label>Fecha<input id="wj-date" type="date" required></label><label>Kilometraje<input id="wj-mileage" type="number" min="0" max="10000000" required></label><label>Realizado por<select id="wj-responsible" required><option value="">Seleccion&aacute; un trabajador</option></select></label></div>
+   <div class="wj-fields"><label>Fecha<input id="wj-date" type="date" required></label><label>Kilometraje<input id="wj-mileage" type="text" inputmode="numeric" autocomplete="off" required></label><label>Realizado por<select id="wj-responsible" required><option value="">Seleccion&aacute; un trabajador</option></select></label></div>
    <div id="wj-tools"><h3>Agregar servicios o tareas</h3><div class="wj-shortcuts" id="wj-shortcuts"></div><p class="wj-help">Los servicios se administran desde la secci&oacute;n Servicios. Otra tarea no genera seguimiento autom&aacute;tico.</p></div>
-   <div><div class="wj-table-wrap"><table class="wj-lines"><thead><tr><th>Cant.</th><th>Descripci&oacute;n</th><th>Repuestos / unidad</th><th>Mano de obra / unidad</th><th>Pr&oacute;xima fecha</th><th>Pr&oacute;ximos KM</th><th></th></tr></thead><tbody id="wj-lines"></tbody></table></div><p class="wj-help">Importes opcionales en pesos. El total multiplica cada importe por su cantidad; vac&iacute;o significa sin cotizar.</p></div>
+   <div><div class="wj-table-wrap"><table class="wj-lines"><thead><tr><th>Cant.</th><th>Descripci&oacute;n</th><th>Repuestos / unidad</th><th>Mano de obra / unidad</th><th>Volver en meses</th><th>Volver en KM</th><th></th></tr></thead><tbody id="wj-lines"></tbody></table></div><p class="wj-help">Importes enteros en pesos, sin centavos. Kil&oacute;metros y precios se muestran con puntos de miles. El total multiplica cada importe por su cantidad; vac&iacute;o significa sin cotizar.</p></div>
    <label class="wj-note">Observaciones<textarea id="wj-notes" maxlength="4000"></textarea></label><p class="wj-feedback" id="wj-error" role="status"></p>
   </div><footer class="wj-footer"><div>Total cargado: <strong id="wj-total">$ 0</strong></div><button class="primary" id="wj-save" type="submit">Guardar trabajo</button></footer></form>
  </section>
@@ -49,7 +49,7 @@ export const workshopJobsMarkup = `
     <label>Texto que agrega al trabajo<input id="ws-description" maxlength="300" required></label>
     <div class="ws-grid"><label>Cantidad predeterminada<input id="ws-quantity" type="number" min="1" max="999" value="1" required></label><label>Orden<input id="ws-position" type="number" min="0" max="10000" value="0" required></label></div>
     <label class="ws-check"><input id="ws-recurrenceEnabled" type="checkbox">Controlar el pr&oacute;ximo vencimiento</label>
-    <div class="ws-return" id="ws-return-fields" hidden><div class="ws-grid"><label>Volver en meses<input id="ws-returnMonths" type="number" min="1" max="240" placeholder="Opcional"></label><label>Volver en kil&oacute;metros<input id="ws-returnKilometers" type="number" min="1" max="1000000" placeholder="Opcional"></label></div><label>Consideraciones para el cliente<textarea id="ws-customerInstructions" maxlength="1000" placeholder="Ej: Verificar el manual y las condiciones de uso."></textarea></label></div>
+    <div class="ws-return" id="ws-return-fields" hidden><div class="ws-grid"><label>Volver en meses<input id="ws-returnMonths" type="number" min="1" max="240" placeholder="Opcional"></label><label>Volver en kil&oacute;metros<input id="ws-returnKilometers" type="text" inputmode="numeric" autocomplete="off" placeholder="Opcional"></label></div><label>Consideraciones para el cliente<textarea id="ws-customerInstructions" maxlength="1000" placeholder="Ej: Verificar el manual y las condiciones de uso."></textarea></label></div>
     <p class="wj-feedback" id="ws-feedback" role="status"></p>
     <div class="wp-form-actions"><button class="secondary" id="ws-cancel" type="button">Cancelar</button><button class="primary" id="ws-save" type="submit">Guardar servicio</button></div>
    </form>
@@ -75,36 +75,29 @@ export const workshopJobsScript = String.raw`
       try{localStorage.setItem('workshop-job-dialog-size',JSON.stringify({width,height}))}catch{}
     }).observe(wjDialog)
     let wjVehicleId = null, wjCatalog = [], wjSaving = false, wjReadOnly = false, wjBusinessId = null
-    function wjMoney(cents) { return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(cents/100) }
+    function wjMoney(cents) { return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(cents/100) }
+    function wjFormatInteger(value) { return String(value??'').replace(/\D/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,'.') }
+    function wjParseInteger(value) { return String(value??'').replace(/\./g,'') }
+    function wjFormatInput(input) {
+      const before=input.value.slice(0,input.selectionStart??input.value.length).replace(/\D/g,'').length
+      input.value=wjFormatInteger(input.value)
+      if(document.activeElement!==input)return
+      let cursor=0,digits=0
+      while(cursor<input.value.length&&digits<before){if(/\d/.test(input.value[cursor]))digits++;cursor++}
+      input.setSelectionRange(cursor,cursor)
+    }
     function wjQuery() { return '?businessId=' + encodeURIComponent(state.businessId) }
     function wjDateToday() { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
     if(!wj('filter-date').value) wj('filter-date').value=wjDateToday()
-    function wjAddMonths(date,months){
-      if(!date||!months)return ''
-      const parts=date.split('-').map(Number),target=new Date(Date.UTC(parts[0],parts[1]-1+Number(months),1)),lastDay=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth()+1,0)).getUTCDate()
-      return target.getUTCFullYear()+'-'+String(target.getUTCMonth()+1).padStart(2,'0')+'-'+String(Math.min(parts[2],lastDay)).padStart(2,'0')
-    }
-    function wjAddLine(description='', quantity=1, parts='', labor='', service=null, nextDueDate='', nextDueMileage='') {
+    function wjAddLine(description='', quantity=1, parts='', labor='', service=null) {
       const row = document.createElement('tr'),serviceId=service?.id||'',tracking=Boolean(service?.recurrenceEnabled)
-      const automaticDate=tracking&&service.returnMonths?wjAddMonths(wj('date').value,service.returnMonths):''
-      const automaticMileage=tracking&&service.returnKilometers&&wj('mileage').value!==''?String(Number(wj('mileage').value)+Number(service.returnKilometers)):''
-      row.dataset.serviceId=serviceId;row.dataset.returnMonths=String(service?.returnMonths||'');row.dataset.returnKilometers=String(service?.returnKilometers||'');row.dataset.autoDueDate=automaticDate;row.dataset.autoDueMileage=automaticMileage
-      row.innerHTML = '<td><input aria-label="Cantidad" data-wj-field="quantity" type="number" min="1" max="999" required></td><td><input aria-label="Descripcion" data-wj-field="description" maxlength="300" required></td><td><input aria-label="Repuestos por unidad" data-wj-field="parts" inputmode="decimal" placeholder="Opcional"></td><td><input aria-label="Mano de obra por unidad" data-wj-field="labor" inputmode="decimal" placeholder="Opcional"></td><td><input aria-label="Próxima fecha" data-wj-field="nextDueDate" type="date" '+(tracking?'':'disabled title="Este servicio no tiene seguimiento"')+'></td><td><input aria-label="Próximo kilometraje" data-wj-field="nextDueMileage" type="number" min="1" max="20000000" '+(tracking?'':'disabled title="Este servicio no tiene seguimiento"')+'></td><td><button type="button" class="wj-remove" aria-label="Quitar tarea">&times;</button></td>'
-      for(const [field,value] of Object.entries({description,quantity,parts,labor,nextDueDate:nextDueDate||automaticDate,nextDueMileage:nextDueMileage||automaticMileage})) row.querySelector('[data-wj-field="'+field+'"]').value = value??''
+      row.dataset.serviceId=serviceId
+      row.innerHTML = '<td><input aria-label="Cantidad" data-wj-field="quantity" type="number" min="1" max="999" required></td><td><input aria-label="Descripcion" data-wj-field="description" maxlength="300" required></td><td><input aria-label="Repuestos por unidad" data-wj-field="parts" inputmode="numeric" placeholder="Opcional"></td><td><input aria-label="Mano de obra por unidad" data-wj-field="labor" inputmode="numeric" placeholder="Opcional"></td><td><input aria-label="Volver en meses" data-wj-field="returnMonths" type="number" min="1" max="240" placeholder="Opcional" '+(tracking?'':'disabled title="Este servicio no tiene seguimiento"')+'></td><td><input aria-label="Volver en kil&oacute;metros" data-wj-field="returnKilometers" type="text" inputmode="numeric" placeholder="Opcional" '+(tracking?'':'disabled title="Este servicio no tiene seguimiento"')+'></td><td><button type="button" class="wj-remove" aria-label="Quitar tarea">&times;</button></td>'
+      for(const [field,value] of Object.entries({description,quantity,parts,labor,returnMonths:service?.returnMonths??'',returnKilometers:service?.returnKilometers??''})) row.querySelector('[data-wj-field="'+field+'"]').value = ['parts','labor','returnKilometers'].includes(field)?wjFormatInteger(value):value??''
       wj('lines').appendChild(row); wjTotal()
     }
-    function wjRefreshDueSuggestions(){
-      for(const row of wj('lines').rows){
-        if(!row.dataset.serviceId)continue
-        const dateInput=row.querySelector('[data-wj-field="nextDueDate"]'),mileageInput=row.querySelector('[data-wj-field="nextDueMileage"]')
-        const date=wjAddMonths(wj('date').value,row.dataset.returnMonths),mileage=row.dataset.returnKilometers&&wj('mileage').value!==''?String(Number(wj('mileage').value)+Number(row.dataset.returnKilometers)):''
-        if(!dateInput.disabled&&(!dateInput.value||dateInput.value===row.dataset.autoDueDate))dateInput.value=date
-        if(!mileageInput.disabled&&(!mileageInput.value||mileageInput.value===row.dataset.autoDueMileage))mileageInput.value=mileage
-        row.dataset.autoDueDate=date;row.dataset.autoDueMileage=mileage
-      }
-    }
-    function wjLines() { return Array.from(wj('lines').rows).map(row => ({...Object.fromEntries(Array.from(row.querySelectorAll('input')).map(input => [input.dataset.wjField,input.value])),...(row.dataset.serviceId?{serviceId:row.dataset.serviceId}:{})})) }
-    function wjTotal() { let total=0; for(const line of wjLines()) total += Number(line.quantity||0)*(Math.round(Number(String(line.parts||0).replace(',','.'))*100)+Math.round(Number(String(line.labor||0).replace(',','.'))*100)); wj('total').textContent = Number.isFinite(total) ? wjMoney(total) : 'Revisar importes' }
+    function wjLines() { return Array.from(wj('lines').rows).map(row => ({...Object.fromEntries(Array.from(row.querySelectorAll('input')).filter(input=>!input.disabled).map(input => [input.dataset.wjField,['parts','labor','returnKilometers'].includes(input.dataset.wjField)?wjParseInteger(input.value):input.value])),...(row.dataset.serviceId?{serviceId:row.dataset.serviceId}:{})})) }
+    function wjTotal() { let total=0; for(const line of wjLines()) total += Number(line.quantity||0)*100*(Number(line.parts||0)+Number(line.labor||0)); wj('total').textContent = Number.isFinite(total) ? wjMoney(total) : 'Revisar importes' }
     function wjRenderCatalog() {
       wj('shortcuts').innerHTML = wjCatalog.filter(x=>x.active).map(x=>'<button type="button" data-wj-custom="'+escapeHtml(x.id)+'">+ '+escapeHtml(x.name)+'</button>').join('') + '<button type="button" data-wj-blank>+ Otra tarea</button>'
     }
@@ -118,12 +111,12 @@ export const workshopJobsScript = String.raw`
       wjCatalog=[];wjRenderCatalog();wjSetPerformerOptions([])
       wj('form').reset();wj('lines').innerHTML='';wj('error').textContent=''
       wj('title').textContent=record?'Trabajo realizado':'Nuevo trabajo';wj('vehicle').textContent=vehicle.plate+' · '+vehicle.model
-      wj('date').value=record?.date||wjDateToday();wj('mileage').value=record?.mileage??vehicle.currentMileage??'';wj('notes').value=record?.notes||''
+      wj('date').value=record?.date||wjDateToday();wj('mileage').value=wjFormatInteger(record?.mileage??vehicle.currentMileage??'');wj('notes').value=record?.notes||''
       wj('tools').hidden=wjReadOnly;wj('save').hidden=wjReadOnly;wj('form').classList.toggle('wj-readonly',wjReadOnly)
       for(const field of ['date','mileage','responsible','notes']) wj(field).disabled=wjReadOnly
       wj('backdrop').hidden=false
       wjRestoreSize();wj('close').focus()
-      if(record) { wjSetPerformerOptions(record.performerId?[{id:record.performerId,name:record.responsible||'Sin registro'}]:[],record.performerId||'',true);for(const line of record.lines) wjAddLine(line.description,line.quantity,line.partsCents==null?'':(line.partsCents/100).toFixed(2),line.laborCents==null?'':(line.laborCents/100).toFixed(2),line.serviceId?{id:line.serviceId,recurrenceEnabled:line.recurrenceEnabled,returnMonths:line.returnMonths,returnKilometers:line.returnKilometers}:null,line.nextDueDate||'',line.nextDueMileage||''); for(const el of wj('lines').querySelectorAll('input')) el.disabled=true; return }
+      if(record) { wjSetPerformerOptions(record.performerId?[{id:record.performerId,name:record.responsible||'Sin registro'}]:[],record.performerId||'',true);for(const line of record.lines) wjAddLine(line.description,line.quantity,line.partsCents==null?'':Math.round(line.partsCents/100),line.laborCents==null?'':Math.round(line.laborCents/100),line.serviceId?{id:line.serviceId,recurrenceEnabled:line.recurrenceEnabled,returnMonths:line.returnMonths,returnKilometers:line.returnKilometers}:null); for(const el of wj('lines').querySelectorAll('input')) el.disabled=true; return }
       wjTotal()
       try {
         const business=wjBusinessId
@@ -205,16 +198,15 @@ export const workshopJobsScript = String.raw`
     }
     wj('close').addEventListener('click',()=>{if(!wjSaving)wj('backdrop').hidden=true})
     wj('shortcuts').addEventListener('click',event=>{const b=event.target.closest('button');if(!b)return;if(b.hasAttribute('data-wj-custom')){const x=wjCatalog.find(x=>x.id===b.dataset.wjCustom);if(!x)return;if(Array.from(wj('lines').rows).some(row=>row.dataset.serviceId===x.id)){wj('error').textContent='Ese servicio ya fue agregado al trabajo.';return}wj('error').textContent='';wjAddLine(x.description,x.quantity,'','',x)}else wjAddLine()})
-    wj('lines').addEventListener('input',wjTotal)
-    wj('date').addEventListener('change',wjRefreshDueSuggestions)
-    wj('mileage').addEventListener('input',wjRefreshDueSuggestions)
+    wj('lines').addEventListener('input',event=>{if(['parts','labor','returnKilometers'].includes(event.target.dataset?.wjField))wjFormatInput(event.target);wjTotal()})
+    wj('mileage').addEventListener('input',event=>wjFormatInput(event.target))
     wj('lines').addEventListener('click',event=>{if(event.target.closest('.wj-remove')&&!wjReadOnly){event.target.closest('tr').remove();wjTotal()}})
     wj('form').addEventListener('submit',async event=>{
       event.preventDefault();if(wjSaving||wjReadOnly)return
       if(wjBusinessId!==state.businessId){wj('error').textContent='El comercio cambio. Cerra y abri la ficha nuevamente.';return}
       wjSaving=true;setButtonLoading(wj('save'),true,'Guardando...');wj('close').disabled=true
       try{
-        await getJson('/workshop/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({businessId:wjBusinessId,vehicleId:wjVehicleId,date:wj('date').value,mileage:wj('mileage').value,performerId:wj('responsible').value,notes:wj('notes').value,lines:wjLines()})})
+        await getJson('/workshop/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({businessId:wjBusinessId,vehicleId:wjVehicleId,date:wj('date').value,mileage:wjParseInteger(wj('mileage').value),performerId:wj('responsible').value,notes:wj('notes').value,lines:wjLines()})})
         wj('backdrop').hidden=true;if(wjBusinessId!==state.businessId)return;showCrmToast('Trabajo guardado','success');await loadWorkshopVehicles({force:true});await openWorkshopVehicle(wjVehicleId)
       }catch(e){wj('error').textContent=e.message}finally{wjSaving=false;setButtonLoading(wj('save'),false);wj('close').disabled=false}
     })
@@ -285,11 +277,12 @@ export const workshopJobsScript = String.raw`
       wsRender();wjCatalog=wsItems;wjRenderCatalog()
     }
     function wsSyncReturnFields(){ws('return-fields').hidden=!ws('recurrenceEnabled').checked}
-    function wsOpen(item=null){ws('form').reset();ws('id').value='';ws('quantity').value='1';ws('position').value=String(Math.min(10000,Math.max(0,...wsItems.map(x=>x.position))+1));ws('feedback').textContent='';ws('title').textContent=item?'Editar servicio':'Agregar servicio';ws('save').textContent=item?'Guardar cambios':'Guardar servicio';if(item){for(const field of ['id','name','description','quantity','position','returnMonths','returnKilometers','customerInstructions'])ws(field).value=item[field]??'';ws('recurrenceEnabled').checked=Boolean(item.recurrenceEnabled)}wsSyncReturnFields();ws('backdrop').hidden=false;ws('name').focus()}
+    function wsOpen(item=null){ws('form').reset();ws('id').value='';ws('quantity').value='1';ws('position').value=String(Math.min(10000,Math.max(0,...wsItems.map(x=>x.position))+1));ws('feedback').textContent='';ws('title').textContent=item?'Editar servicio':'Agregar servicio';ws('save').textContent=item?'Guardar cambios':'Guardar servicio';if(item){for(const field of ['id','name','description','quantity','position','returnMonths','returnKilometers','customerInstructions'])ws(field).value=item[field]??'';ws('recurrenceEnabled').checked=Boolean(item.recurrenceEnabled);ws('returnKilometers').value=wjFormatInteger(item.returnKilometers??'')}wsSyncReturnFields();ws('backdrop').hidden=false;ws('name').focus()}
     ws('recurrenceEnabled').addEventListener('change',wsSyncReturnFields)
     ws('close').addEventListener('click',()=>{if(!wsSaving)ws('backdrop').hidden=true})
     ws('cancel').addEventListener('click',()=>{if(!wsSaving)ws('backdrop').hidden=true})
-    ws('form').addEventListener('submit',async event=>{event.preventDefault();if(wsSaving)return;wsSaving=true;if(!setButtonLoading(ws('save'),true,'Guardando...')){wsSaving=false;return}try{const id=ws('id').value;const data={businessId:state.businessId,name:ws('name').value,description:ws('description').value,quantity:ws('quantity').value,position:ws('position').value,active:id?(wsItems.find(x=>x.id===id)?.active!==false):true,recurrenceEnabled:ws('recurrenceEnabled').checked,returnMonths:ws('returnMonths').value,returnKilometers:ws('returnKilometers').value,customerInstructions:ws('customerInstructions').value};await getJson('/workshop/shortcuts'+(id?'/'+encodeURIComponent(id):''),{method:id?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});ws('backdrop').hidden=true;await wsLoad();showCrmToast(id?'Servicio actualizado':'Servicio agregado','success')}catch(error){ws('feedback').textContent=error.message}finally{wsSaving=false;setButtonLoading(ws('save'),false)}})
+    ws('returnKilometers').addEventListener('input',event=>wjFormatInput(event.target))
+    ws('form').addEventListener('submit',async event=>{event.preventDefault();if(wsSaving)return;wsSaving=true;if(!setButtonLoading(ws('save'),true,'Guardando...')){wsSaving=false;return}try{const id=ws('id').value;const data={businessId:state.businessId,name:ws('name').value,description:ws('description').value,quantity:ws('quantity').value,position:ws('position').value,active:id?(wsItems.find(x=>x.id===id)?.active!==false):true,recurrenceEnabled:ws('recurrenceEnabled').checked,returnMonths:ws('returnMonths').value,returnKilometers:wjParseInteger(ws('returnKilometers').value),customerInstructions:ws('customerInstructions').value};await getJson('/workshop/shortcuts'+(id?'/'+encodeURIComponent(id):''),{method:id?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});ws('backdrop').hidden=true;await wsLoad();showCrmToast(id?'Servicio actualizado':'Servicio agregado','success')}catch(error){ws('feedback').textContent=error.message}finally{wsSaving=false;setButtonLoading(ws('save'),false)}})
     ws('page-list').addEventListener('click',async event=>{const edit=event.target.closest('[data-ws-edit]'),toggle=event.target.closest('[data-ws-toggle]');if(edit){const item=wsItems.find(x=>x.id===edit.dataset.wsEdit);if(item)wsOpen(item);return}if(!toggle||wsSaving)return;const item=wsItems.find(x=>x.id===toggle.dataset.wsToggle);if(!item)return;wsSaving=true;toggle.disabled=true;try{await getJson('/workshop/shortcuts/'+encodeURIComponent(item.id),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...item,businessId:state.businessId,active:!item.active})});await wsLoad();showCrmToast(item.active?'Servicio dado de baja':'Servicio reactivado','success')}catch(error){showCrmToast(error.message,'error')}finally{wsSaving=false}})
     ws('add').addEventListener('click',()=>wsOpen())
     ws('public-save').addEventListener('click',async()=>{
