@@ -24,17 +24,18 @@ export class ManualCampaignCommunicationService {
     executionId: string
     recipientId: string
     businessId: string
+    sourceId?: string
     status: CommunicationStatus
     actorId?: string | null
     note?: string | null
     skipReason?: string | null
   }) {
-    const execution = await this.communications.getExecution(input.executionId, input.businessId)
-    if (!execution || execution.sourceType !== 'CAMPAIGN' || execution.mode !== 'WHATSAPP_MANUAL') {
+    const execution = await this.communications.getExecutionHeader(input.executionId, input.businessId)
+    if (!execution || execution.sourceType !== 'CAMPAIGN' || execution.mode !== 'WHATSAPP_MANUAL' || (input.sourceId && execution.sourceId !== input.sourceId)) {
       throw new Error('No encontré esa ejecución manual')
     }
-    const recipient = execution.recipients.find((item: { id: string }) => item.id === input.recipientId)
-    if (!recipient) throw new Error('El destinatario no pertenece a esa ejecución')
+    const recipient = await this.communications.getRecipient(input.recipientId, input.businessId)
+    if (!recipient || recipient.executionId !== execution.id) throw new Error('El destinatario no pertenece a esa ejecución')
     assertCommunicationTransition(recipient.status, input.status)
 
     let sourceDeliveryId = recipient.sourceDeliveryId as string | null

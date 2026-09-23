@@ -2,7 +2,6 @@ import {
   assertCommunicationTransition,
   buildManualWhatsAppUrl,
   communicationTimestampField,
-  isExecutionComplete,
   type CommunicationMode,
   type CommunicationPurpose,
   type CommunicationSourceType,
@@ -64,8 +63,9 @@ export type CommunicationExecutionRecord = {
 }
 
 export interface CommunicationRepository {
-  createExecution(input: StartCommunicationExecutionInput): Promise<CommunicationExecutionRecord>
+  createExecution(input: StartCommunicationExecutionInput): Promise<{ id: string }>
   findExecution(id: string): Promise<CommunicationExecutionRecord | null>
+  findExecutionHeader(id: string): Promise<Pick<CommunicationExecutionRecord, 'id' | 'businessId' | 'sourceType' | 'sourceId' | 'mode'> | null>
   findRecipient(id: string): Promise<CommunicationRecipientRecord | null>
   transitionRecipient(input: {
     recipientId: string
@@ -80,6 +80,7 @@ export interface CommunicationRepository {
     sourceDeliveryId?: string | null
   }): Promise<unknown>
   recipientStatuses(executionId: string): Promise<string[]>
+  hasPendingRecipients(executionId: string): Promise<boolean>
   completeExecution(executionId: string): Promise<void>
 }
 
@@ -101,6 +102,19 @@ export class CommunicationService {
     return execution
   }
 
+  async getExecutionHeader(id: string, businessId: string) {
+    const execution = await this.repository.findExecutionHeader(id)
+    if (!execution || execution.businessId !== businessId) return null
+    return execution
+  }
+
+  async getRecipient(id: string, businessId: string) {
+    const recipient = await this.repository.findRecipient(id)
+    if (!recipient) return null
+    const execution = await this.getExecutionHeader(recipient.executionId, businessId)
+    return execution ? recipient : null
+  }
+
   async transitionRecipient(input: {
     recipientId: string
     businessId: string
@@ -113,7 +127,7 @@ export class CommunicationService {
   }) {
     const recipient = await this.repository.findRecipient(input.recipientId)
     if (!recipient) throw new Error('No encontré ese destinatario')
-    const execution = await this.repository.findExecution(recipient.executionId)
+    const execution = await this.repository.findExecutionHeader(recipient.executionId)
     if (!execution || execution.businessId !== input.businessId) throw new Error('No encontré esa ejecución')
     assertCommunicationTransition(recipient.status, input.status)
     const updated = await this.repository.transitionRecipient({
@@ -128,8 +142,7 @@ export class CommunicationService {
       failureReason: input.failureReason ?? null,
       sourceDeliveryId: input.sourceDeliveryId ?? null
     })
-    const statuses = await this.repository.recipientStatuses(recipient.executionId)
-    if (isExecutionComplete(statuses)) await this.repository.completeExecution(recipient.executionId)
+    if (!await this.repository.hasPendingRecipients(recipient.executionId)) await this.repository.completeExecution(recipient.executionId)
     return updated
   }
 }

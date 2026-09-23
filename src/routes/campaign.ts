@@ -9,7 +9,7 @@ import { buildManualWhatsAppUrl, communicationStatuses, type CommunicationStatus
 import { isReminderTemplateEligible, normalizeReminderMode, reminderManualStatuses, reminderModes } from '../domain/communications/reminder.js'
 import { PrismaCommunicationRepository } from '../infrastructure/communications/prisma-communication-repository.js'
 import { PrismaCampaignDeliveryRecorder } from '../infrastructure/communications/prisma-campaign-delivery-recorder.js'
-import { toManualCommunicationExecutionViewModel } from './view-models/communication-view-model.js'
+import { toManualCommunicationExecutionSummary } from './view-models/communication-view-model.js'
 import { RecordCommunicationAttempt } from '../application/communications/record-communication-attempt.js'
 import { PrismaCommunicationAttemptRepository } from '../infrastructure/communications/prisma-communication-attempt-repository.js'
 import { prepareDueReminders, processDueReminders as processDueReminderDeliveries, transitionManualReminder } from '../services/reminder-service.js'
@@ -889,10 +889,10 @@ export async function campaignRoutes(app: FastifyInstance) {
     if (campaign.deliveryMode !== 'MANUAL_ASSISTED') return reply.status(409).send({ message: 'Esta campaña usa envío automático por Meta' })
     const execution = await prisma.communicationExecution.findFirst({
       where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL' },
-      include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
+      select: { id: true },
       orderBy: { createdAt: 'desc' }
     })
-    return { execution: execution ? toManualCommunicationExecutionViewModel(execution) : null }
+    return { execution: execution ? await loadManualCampaignExecutionViewModel(execution.id, campaign.businessId) : null }
   })
 
   app.post('/campaigns/:id/manual-executions', async (request, reply) => {
@@ -908,17 +908,22 @@ export async function campaignRoutes(app: FastifyInstance) {
 
     const running = await prisma.communicationExecution.findFirst({
       where: { businessId: campaign.businessId, sourceType: 'CAMPAIGN', sourceId: campaign.id, mode: 'WHATSAPP_MANUAL', status: 'RUNNING' },
-      include: { recipients: { include: { customer: { select: { id: true, name: true, phone: true } } }, orderBy: { createdAt: 'asc' } } },
+      select: { id: true },
       orderBy: { createdAt: 'desc' }
     })
-    if (running) return toManualCommunicationExecutionViewModel(running)
+    if (running) return loadManualCampaignExecutionViewModel(running.id, campaign.businessId)
 
     const audience = await calculateCampaignAudience(campaign)
     const recipients: StartCommunicationExecutionInput['recipients'] = []
     const invalidRecipients: Array<{ customerId: string; reason: string }> = []
     for (const customer of audience.included) {
       const workshop = workshopContextForAudienceRecipient(customer)
-      const context = await buildTemplateVariableContext({ businessId: campaign.businessId, customerId: customer.id, workshop })
+      const context: TemplateVariableContext = {
+        customer: { id: customer.id, name: customer.name, phone: customer.phone },
+        lastVisitAt: customer.lastVisitAt ? new Date(customer.lastVisitAt) : null,
+        appointment: null,
+        workshop
+      }
       const resolved = resolveWhatsAppTemplateVariables({ body: campaign.message, category: 'MARKETING', context })
       const invalid = [...resolved.unsupported, ...resolved.missing]
       if (invalid.length) {
@@ -947,7 +952,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       metadata: { campaignName: campaign.name, exclusionSummary: audience.excluded, invalidRecipients },
       recipients
     })
-    return reply.status(201).send(toManualCommunicationExecutionViewModel(execution))
+    return reply.status(201).send(await loadManualCampaignExecutionViewModel(execution.id, campaign.businessId))
   })
 
   app.patch('/campaigns/:campaignId/manual-executions/:executionId/recipients/:recipientId', async (request, reply) => {
@@ -966,14 +971,15 @@ export async function campaignRoutes(app: FastifyInstance) {
         executionId: params.executionId,
         recipientId: params.recipientId,
         businessId: campaign.businessId,
+        sourceId: campaign.id,
         status: status as CommunicationStatus,
         actorId: request.auth?.user.id ?? null,
         note: body.note?.trim().slice(0, 500) || null,
         skipReason: body.skipReason?.trim().slice(0, 200) || null
       })
-      const execution = await communicationService.getExecution(params.executionId, campaign.businessId)
-      if (!execution) return reply.status(404).send({ message: 'No encontré esa ejecución manual' })
-      return toManualCommunicationExecutionViewModel(execution)
+      const execution = await loadManualCampaignExecutionViewModel(params.executionId, campaign.businessId)
+      if (!execution || execution.sourceId !== campaign.id) return reply.status(404).send({ message: 'No encontré esa ejecución manual' })
+      return execution
     } catch (error) {
       return reply.status(409).send({ message: error instanceof Error ? error.message : 'No pude actualizar el destinatario' })
     }
@@ -2110,6 +2116,29 @@ type CampaignAudienceResult = {
   included: CampaignAudienceRecipient[]
   excluded: { missingPhone: number; withFutureAppointment: number }
   note: string
+}
+
+async function loadManualCampaignExecutionViewModel(executionId: string, businessId: string) {
+  const [execution, statusRows, current] = await Promise.all([
+    prisma.communicationExecution.findFirst({
+      where: { id: executionId, businessId, sourceType: 'CAMPAIGN', mode: 'WHATSAPP_MANUAL' }
+    }),
+    prisma.communicationRecipient.groupBy({
+      by: ['status'],
+      where: { executionId, businessId },
+      _count: { _all: true }
+    }),
+    prisma.communicationRecipient.findFirst({
+      where: { executionId, businessId, status: { in: ['PENDING', 'OPENED'] } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+    })
+  ])
+  if (!execution) return null
+  return toManualCommunicationExecutionSummary(
+    execution,
+    statusRows.map((row) => ({ status: row.status, count: row._count._all })),
+    current
+  )
 }
 
 function isWorkshopCampaignSegment(segment: string) {

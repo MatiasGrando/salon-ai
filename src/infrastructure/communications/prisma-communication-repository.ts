@@ -4,43 +4,69 @@ import type { CommunicationRepository, StartCommunicationExecutionInput } from '
 import type { CommunicationStatus } from '../../domain/communications/communication.js'
 
 export class PrismaCommunicationRepository implements CommunicationRepository {
+  constructor(private readonly database: typeof prisma = prisma) {}
+
   createExecution(input: StartCommunicationExecutionInput) {
-    return prisma.communicationExecution.create({
-      data: {
-        businessId: input.businessId,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        purpose: input.purpose,
-        mode: input.mode,
-        status: 'RUNNING',
-        initiatedByUserId: input.initiatedByUserId || null,
-        candidateCount: input.candidateCount,
-        eligibleCount: input.recipients.length,
-        excludedCount: input.excludedCount,
-        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
-        recipients: {
-          create: input.recipients.map((recipient) => ({
-            business: { connect: { id: input.businessId } },
-            customer: { connect: { id: recipient.customerId } },
+    return this.database.$transaction(async (tx) => {
+      const execution = await tx.communicationExecution.create({
+        data: {
+          businessId: input.businessId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          purpose: input.purpose,
+          mode: input.mode,
+          status: 'RUNNING',
+          initiatedByUserId: input.initiatedByUserId || null,
+          candidateCount: input.candidateCount,
+          eligibleCount: input.recipients.length,
+          excludedCount: input.excludedCount,
+          ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {})
+        },
+        select: { id: true }
+      })
+      const startedAt = new Date()
+      const batchSize = 500
+      for (let offset = 0; offset < input.recipients.length; offset += batchSize) {
+        const batch = input.recipients.slice(offset, offset + batchSize)
+        const created = await tx.communicationRecipient.createManyAndReturn({
+          data: batch.map((recipient, index) => ({
+            executionId: execution.id,
+            businessId: input.businessId,
+            customerId: recipient.customerId,
             recipientKey: recipient.recipientKey || recipient.customerId,
             phoneSnapshot: recipient.phone,
             customerNameSnapshot: recipient.customerName,
             messageSnapshot: recipient.message,
-            ...(recipient.metadata ? { metadata: recipient.metadata as Prisma.InputJsonValue } : {}),
-            events: { create: { toStatus: 'PENDING', actorType: 'SYSTEM' } }
+            createdAt: new Date(startedAt.getTime() + offset + index),
+            ...(recipient.metadata ? { metadata: recipient.metadata as Prisma.InputJsonValue } : {})
+          })),
+          select: { id: true }
+        })
+        await tx.communicationEvent.createMany({
+          data: created.map((recipient) => ({
+            recipientId: recipient.id,
+            toStatus: 'PENDING',
+            actorType: 'SYSTEM'
           }))
-        }
-      },
-      include: executionInclude
-    })
+        })
+      }
+      return execution
+    }, { maxWait: 10_000, timeout: 90_000 })
   }
 
   findExecution(id: string) {
-    return prisma.communicationExecution.findUnique({ where: { id }, include: executionInclude })
+    return this.database.communicationExecution.findUnique({ where: { id }, include: executionInclude })
+  }
+
+  findExecutionHeader(id: string) {
+    return this.database.communicationExecution.findUnique({
+      where: { id },
+      select: { id: true, businessId: true, sourceType: true, sourceId: true, mode: true }
+    })
   }
 
   findRecipient(id: string) {
-    return prisma.communicationRecipient.findUnique({
+    return this.database.communicationRecipient.findUnique({
       where: { id },
       select: {
         id: true,
@@ -74,7 +100,7 @@ export class PrismaCommunicationRepository implements CommunicationRepository {
     sourceDeliveryId?: string | null
   }) {
     const now = new Date()
-    return prisma.$transaction(async (tx) => {
+    return this.database.$transaction(async (tx) => {
       const updated = await tx.communicationRecipient.update({
         where: { id: input.recipientId },
         data: {
@@ -100,12 +126,20 @@ export class PrismaCommunicationRepository implements CommunicationRepository {
   }
 
   async recipientStatuses(executionId: string) {
-    const rows = await prisma.communicationRecipient.findMany({ where: { executionId }, select: { status: true } })
+    const rows = await this.database.communicationRecipient.findMany({ where: { executionId }, select: { status: true } })
     return rows.map((row) => row.status)
   }
 
+  async hasPendingRecipients(executionId: string) {
+    const recipient = await this.database.communicationRecipient.findFirst({
+      where: { executionId, status: { in: ['PENDING', 'OPENED'] } },
+      select: { id: true }
+    })
+    return Boolean(recipient)
+  }
+
   async completeExecution(executionId: string) {
-    await prisma.communicationExecution.update({ where: { id: executionId }, data: { status: 'COMPLETED', completedAt: new Date() } })
+    await this.database.communicationExecution.update({ where: { id: executionId }, data: { status: 'COMPLETED', completedAt: new Date() } })
   }
 }
 

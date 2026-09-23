@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { ManualCampaignCommunicationService, type CampaignDeliveryRecorder } from '../src/application/campaigns/manual-campaign-communication-service.js'
 import { CommunicationService, type CommunicationRecipientRecord, type CommunicationRepository, type StartCommunicationExecutionInput } from '../src/application/communications/communication-service.js'
 import { assertCommunicationTransition, buildManualWhatsAppUrl, isExecutionComplete, isWithinCommunicationCooldown } from '../src/domain/communications/communication.js'
+import { toManualCommunicationExecutionSummary } from '../src/routes/view-models/communication-view-model.js'
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -36,6 +37,31 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: 'la vista de una cola grande devuelve sólo el siguiente contacto',
+    run: () => {
+      const view = toManualCommunicationExecutionSummary({
+        id: 'execution-1', businessId: 'business-1', sourceType: 'CAMPAIGN', sourceId: 'campaign-1',
+        purpose: 'PROMOTIONAL', mode: 'WHATSAPP_MANUAL', status: 'RUNNING',
+        candidateCount: 4606, eligibleCount: 4606, excludedCount: 0, metadata: null,
+        startedAt: new Date('2026-09-23T00:00:00Z'), completedAt: null
+      }, [
+        { status: 'PENDING', count: 4604 },
+        { status: 'OPENED', count: 1 },
+        { status: 'SENT', count: 1 }
+      ], {
+        id: 'recipient-2', executionId: 'execution-1', customerId: 'customer-1',
+        recipientKey: 'workshop:vehicle-2', status: 'OPENED',
+        phoneSnapshot: '+5491112345678', messageSnapshot: 'Hola María',
+        customerNameSnapshot: 'María', openedAt: new Date('2026-09-23T00:01:00Z'),
+        sentAt: null, skipReason: null, failureReason: null, metadata: { plate: 'AB123CD' }
+      })
+      assert.equal(view.completedCount, 1)
+      assert.equal(view.recipients.length, 1)
+      assert.equal(view.recipients[0]?.recipientKey, 'workshop:vehicle-2')
+      assert.match(view.recipients[0]?.whatsappUrl || '', /wa.me/)
+    }
+  },
+  {
     name: 'la campaña manual registra entrega solamente al marcar enviado',
     run: async () => {
       const repository = new FakeCommunicationRepository()
@@ -48,18 +74,25 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         excludedCount: 0,
         recipients: [{ customerId: 'customer-1', customerName: 'María', phone: '+5491112345678', message: 'Hola María' }]
       }) as any
-      await service.transition({ executionId: execution.id, recipientId: 'recipient-1', businessId: 'business-1', status: 'OPENED' })
+      await assert.rejects(
+        () => service.transition({ executionId: execution.id, recipientId: 'recipient-1', businessId: 'business-1', sourceId: 'campaign-other', status: 'SENT' }),
+        /ejecución manual/
+      )
+      assert.equal(deliveryRecorder.calls.length, 0)
+      await service.transition({ executionId: execution.id, recipientId: 'recipient-1', businessId: 'business-1', sourceId: 'campaign-1', status: 'OPENED' })
       assert.equal(deliveryRecorder.calls.length, 0)
       await service.transition({ executionId: execution.id, recipientId: 'recipient-1', businessId: 'business-1', status: 'SENT' })
       assert.equal(deliveryRecorder.calls.length, 1)
       assert.equal(deliveryRecorder.calls[0]?.campaignId, 'campaign-1')
       assert.equal(repository.execution.status, 'COMPLETED')
+      assert.equal(repository.fullExecutionReads, 0, 'cada cambio de estado debe evitar cargar toda la cola')
     }
   }
 ]
 
 class FakeCommunicationRepository implements CommunicationRepository {
   execution: any = null
+  fullExecutionReads = 0
 
   async createExecution(input: StartCommunicationExecutionInput) {
     this.execution = {
@@ -88,7 +121,18 @@ class FakeCommunicationRepository implements CommunicationRepository {
   }
 
   async findExecution(id: string) {
+    this.fullExecutionReads++
     return this.execution?.id === id ? this.execution : null
+  }
+
+  async findExecutionHeader(id: string) {
+    if (this.execution?.id !== id) return null
+    const { recipients: _recipients, ...header } = this.execution
+    return header
+  }
+
+  async hasPendingRecipients(executionId: string) {
+    return this.execution?.id === executionId && this.execution.recipients.some((recipient: CommunicationRecipientRecord) => ['PENDING', 'OPENED'].includes(recipient.status))
   }
 
   async findRecipient(id: string): Promise<CommunicationRecipientRecord | null> {

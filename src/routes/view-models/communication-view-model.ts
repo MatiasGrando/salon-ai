@@ -1,42 +1,31 @@
 import { buildManualWhatsAppUrl } from '../../domain/communications/communication.js'
-import type { CommunicationExecutionRecord } from '../../application/communications/communication-service.js'
+import type { CommunicationExecutionRecord, CommunicationRecipientRecord } from '../../application/communications/communication-service.js'
 
-export function toManualCommunicationExecutionViewModel(execution: CommunicationExecutionRecord) {
-  const counts = execution.recipients.reduce<Record<string, number>>((result, recipient) => {
-    result[recipient.status] = (result[recipient.status] || 0) + 1
-    return result
-  }, {})
+export function toManualCommunicationExecutionSummary(
+  execution: Pick<CommunicationExecutionRecord, 'id' | 'businessId' | 'sourceType' | 'sourceId' | 'purpose' | 'mode' | 'status' | 'candidateCount' | 'eligibleCount' | 'excludedCount' | 'metadata' | 'startedAt' | 'completedAt'>,
+  statusCounts: Array<{ status: string; count: number }>,
+  current: CommunicationRecipientRecord | null
+) {
+  const counts = Object.fromEntries(statusCounts.map((row) => [row.status, row.count]))
   return {
-    id: execution.id,
-    businessId: execution.businessId,
-    sourceType: execution.sourceType,
-    sourceId: execution.sourceId,
-    purpose: execution.purpose,
-    mode: execution.mode,
-    status: execution.status,
-    candidateCount: execution.candidateCount,
-    eligibleCount: execution.eligibleCount,
-    excludedCount: execution.excludedCount,
-    metadata: execution.metadata,
-    startedAt: execution.startedAt,
-    completedAt: execution.completedAt,
+    ...execution,
     counts,
-    completedCount: execution.recipients.filter((recipient) => !['PENDING', 'OPENED'].includes(recipient.status)).length,
-    recipients: execution.recipients.map((recipient) => ({
-      id: recipient.id,
-      customerId: recipient.customerId,
-      recipientKey: recipient.recipientKey,
-      customerName: recipient.customerNameSnapshot,
-      phone: recipient.phoneSnapshot,
-      message: recipient.messageSnapshot,
-      whatsappUrl: buildManualWhatsAppUrl(recipient.phoneSnapshot, recipient.messageSnapshot),
-      status: recipient.status,
-      openedAt: recipient.openedAt,
-      sentAt: recipient.sentAt,
-      skipReason: recipient.skipReason,
-      failureReason: recipient.failureReason,
-      sourceDeliveryId: recipient.sourceDeliveryId,
-      metadata: recipient.metadata
-    }))
+    completedCount: execution.eligibleCount - (counts.PENDING || 0) - (counts.OPENED || 0),
+    recipients: current ? [{
+      id: current.id,
+      customerId: current.customerId,
+      recipientKey: current.recipientKey,
+      customerName: current.customerNameSnapshot,
+      phone: current.phoneSnapshot,
+      message: current.messageSnapshot,
+      whatsappUrl: buildManualWhatsAppUrl(current.phoneSnapshot, current.messageSnapshot),
+      status: current.status,
+      openedAt: current.openedAt,
+      sentAt: current.sentAt,
+      skipReason: current.skipReason,
+      failureReason: current.failureReason,
+      sourceDeliveryId: current.sourceDeliveryId,
+      metadata: current.metadata
+    }] : []
   }
 }

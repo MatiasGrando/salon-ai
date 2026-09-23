@@ -3177,6 +3177,7 @@ model CommunicationRecipient {
   events CommunicationEvent[]
 
   @@unique([executionId, recipientKey])
+  @@index([executionId, status, createdAt])
   @@index([businessId, customerId, sentAt])
   @@index([businessId, status, scheduledAt])
 }
