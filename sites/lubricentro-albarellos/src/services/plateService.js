@@ -1,5 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_WEEX_API_URL || 'https://weex.com.ar').replace(/\/$/, '');
-const WORKSHOP_CUSTOMER_CODE = import.meta.env.VITE_WORKSHOP_CUSTOMER_CODE || 'WX-8Y4HHG';
+const API_BASE_URL = (import.meta.env?.VITE_WEEX_API_URL || 'https://weex.com.ar').replace(/\/$/, '');
+const WORKSHOP_CUSTOMER_CODE = import.meta.env?.VITE_WORKSHOP_CUSTOMER_CODE || 'WX-8Y4HHG';
 
 export function normalizePlate(input) {
   if (!input) return '';
@@ -22,10 +22,10 @@ function isCompleteArgentinePlate(plate) {
   return /^(?:[A-Z]{3}[0-9]{3}|[A-Z]{2}[0-9]{3}[A-Z]{2})$/.test(plate);
 }
 
-function formatDate(date) {
+export function formatDate(date) {
   if (!date) return 'Sin registro';
   const [year, month, day] = date.split('-').map(Number);
-  return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })
+  return new Intl.DateTimeFormat('es-AR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'UTC' })
     .format(new Date(Date.UTC(year, month - 1, day)));
 }
 
@@ -62,26 +62,24 @@ function mapMaintenanceTask(item) {
   };
 }
 
-function mapVehicle(payload) {
-  const recommendation = payload.recommendation;
+export function mapVehicle(payload) {
   const maintenanceItems = Array.isArray(payload.maintenance?.items) ? payload.maintenance.items : [];
   const maintenanceSummary = payload.maintenance?.summary || { overdue: 0, upcoming: 0, upToDate: 0 };
   const nextMaintenance = maintenanceItems[0] || null;
   const hasTrackedMaintenance = maintenanceItems.length > 0;
-  const fallbackPriority = recommendation?.status === 'danger' ? 'urgente' : recommendation?.status === 'warning' ? 'alta' : 'normal';
   const status = hasTrackedMaintenance
     ? maintenanceSummary.overdue > 0 ? 'danger' : maintenanceSummary.upcoming > 0 ? 'warning' : 'ok'
-    : recommendation?.status ?? 'unknown';
+    : 'unknown';
   const statusLabel = hasTrackedMaintenance
-    ? maintenanceSummary.overdue > 0 ? 'Mantenimiento vencido' : maintenanceSummary.upcoming > 0 ? 'Próximo mantenimiento cercano' : 'Mantenimiento al día'
-    : recommendation?.label ?? 'Sin servicios registrados';
+    ? maintenanceSummary.overdue > 0 ? 'Control vencido' : maintenanceSummary.upcoming > 0 ? 'Próximo control cercano' : 'Controles registrados al día'
+    : 'Sin controles programados';
   const statusMessage = hasTrackedMaintenance
     ? maintenanceSummary.overdue > 0
       ? 'Tenés ' + maintenanceSummary.overdue + ' servicio' + (maintenanceSummary.overdue === 1 ? '' : 's') + ' vencido' + (maintenanceSummary.overdue === 1 ? '' : 's') + '. Escribinos para coordinar tu visita.'
       : maintenanceSummary.upcoming > 0
         ? 'Tenés ' + maintenanceSummary.upcoming + ' servicio' + (maintenanceSummary.upcoming === 1 ? '' : 's') + ' próximo' + (maintenanceSummary.upcoming === 1 ? '' : 's') + ' a vencer.'
         : 'Según los registros del taller, tus servicios controlados se encuentran al día.'
-    : recommendation?.message ?? 'Todavía no hay trabajos asociados a esta patente. Comunicate con el taller si necesitás registrar el primer servicio.';
+    : 'El taller todavía no programó un próximo control para los servicios registrados de este vehículo.';
   return {
     plate: formatPlateDisplay(payload.plate),
     brand: payload.brand,
@@ -92,16 +90,12 @@ function mapVehicle(payload) {
     lastServiceDate: formatDateShort(payload.lastService?.date),
     lastServiceKm: payload.lastService?.mileage ?? null,
     currentMileage: payload.currentMileage,
-    recommendedNextKm: nextMaintenance?.nextDueMileage ?? recommendation?.nextMileage ?? null,
-    recommendedNextDate: formatDateShort(nextMaintenance?.nextDueDate ?? recommendation?.nextDate),
+    recommendedNextKm: nextMaintenance?.nextDueMileage ?? null,
+    recommendedNextDate: nextMaintenance?.nextDueDate ? formatDateShort(nextMaintenance.nextDueDate) : null,
     status,
     statusLabel,
     statusMessage,
-    upcomingTasks: hasTrackedMaintenance ? maintenanceItems.map(mapMaintenanceTask) : recommendation ? [{
-      id: 'next-maintenance',
-      item: 'Próximo mantenimiento sugerido cada ' + recommendation.intervalKilometers.toLocaleString('es-AR') + ' km o ' + recommendation.intervalMonths + ' meses',
-      priority: fallbackPriority
-    }] : [],
+    upcomingTasks: maintenanceItems.map(mapMaintenanceTask),
     history: payload.history.items.map(mapHistoryItem),
     historyHasMore: payload.history.hasMore,
     historyNextOffset: payload.history.nextOffset

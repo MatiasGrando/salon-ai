@@ -106,7 +106,7 @@ export default function PlateLookup() {
             CONSULTÁ EL ESTADO DE <span className="text-red-500">TU VEHÍCULO</span>
           </h2>
           <p className="text-zinc-400 text-base sm:text-lg mt-3">
-            Ingresá tu patente para ver los servicios realizados en nuestro taller, los insumos colocados y cuándo te recomendamos volver.
+            Ingresá tu patente para ver los trabajos registrados en nuestro taller y los próximos controles programados.
           </p>
         </div>
 
@@ -255,7 +255,7 @@ export default function PlateLookup() {
               <div className="p-3">
                 <span className="text-xs text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-1">
                   <Gauge className="w-3.5 h-3.5 text-red-500" />
-                  Último Km Registrado
+                  Km del último trabajo
                 </span>
                 <p className="font-heading text-2xl font-bold text-white mt-1">
                   {formatKm(result.data.lastServiceKm)}
@@ -271,18 +271,18 @@ export default function PlateLookup() {
                 <p className="font-heading text-2xl font-bold text-yellow-400 mt-1">
                   {formatKm(result.data.currentMileage)}
                 </p>
-                <span className="text-[11px] text-zinc-400">Dato informado al taller</span>
+                <span className="text-[11px] text-zinc-400">Dato registrado por el taller; si no coincide, consultanos.</span>
               </div>
 
               <div className="p-3 bg-red-950/20 sm:rounded-r-lg">
                 <span className="text-xs text-red-300 font-semibold uppercase tracking-wider flex items-center justify-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-red-400" />
-                  Próximo Servicio Registrado
+                  Próximo control estimado
                 </span>
                 <p className="font-heading text-2xl font-bold text-red-400 mt-1">
-                  {formatKm(result.data.recommendedNextKm)}
+                  {result.data.recommendedNextKm != null ? formatKm(result.data.recommendedNextKm) : result.data.recommendedNextDate ?? 'Sin control programado'}
                 </p>
-                <span className="text-[11px] text-red-300/80 font-medium">Fecha sugerida: {result.data.recommendedNextDate}</span>
+                <span className="text-[11px] text-red-300/80 font-medium">{result.data.recommendedNextKm != null && result.data.recommendedNextDate ? `O el ${result.data.recommendedNextDate}, lo que ocurra primero` : result.data.recommendedNextKm != null ? 'Control por kilometraje registrado' : result.data.recommendedNextDate ? 'Control por fecha registrada' : 'El taller aún no configuró un vencimiento'}</span>
               </div>
             </div>
 
@@ -312,7 +312,7 @@ export default function PlateLookup() {
                 ))}
                 {!result.data.upcomingTasks.length && (
                   <p className="text-sm text-zinc-400 md:col-span-2">
-                    Para calcular una fecha y un kilometraje sugeridos primero necesitamos registrar un servicio.
+                    El taller todavía no programó un próximo control para este vehículo.
                   </p>
                 )}
               </div>
@@ -320,8 +320,8 @@ export default function PlateLookup() {
               {/* CTA directo de agendamiento para esta patente */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl bg-gradient-to-r from-red-950/40 via-red-900/30 to-zinc-900 border border-red-700/50">
                 <div>
-                  <p className="font-heading text-base font-bold text-white">¿Querés agendar este servicio ahora?</p>
-                  <p className="text-xs text-zinc-300">Enviamos automáticamente los datos de tu patente para darte presupuesto exacto y reservar tu horario.</p>
+                  <p className="font-heading text-base font-bold text-white">{result.data.status === 'ok' ? '¿Querés consultar o programar tu próximo control?' : '¿Querés coordinar una visita al taller?'}</p>
+                  <p className="text-xs text-zinc-300">Compartimos los datos de tu vehículo para que el taller pueda orientarte y coordinar una visita.</p>
                 </div>
                 <a
                   href={getCustomWhatsAppLink(result.data)}
@@ -374,9 +374,9 @@ export default function PlateLookup() {
                           </div>
                         </div>
 
-                        {/* Insumos Colocados */}
+                        {/* Trabajos realizados */}
                         <div className="mb-3">
-                          <p className="text-xs font-semibold text-zinc-300 mb-2">Insumos y Repuestos Instalados:</p>
+                          <p className="text-xs font-semibold text-zinc-300 mb-2">Trabajos y tareas registrados:</p>
                           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-zinc-300">
                             {srv.items.map((it, i) => (
                               <li key={i} className="flex items-center justify-between p-2 rounded bg-zinc-950/60 border border-zinc-800/80">
