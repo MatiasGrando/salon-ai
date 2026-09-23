@@ -3109,7 +3109,7 @@ model CampaignJob {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@unique([runId, customerId])
+  // La audiencia de taller identifica cada vehiculo con recipientKey en idempotencyKey.
   @@index([status, nextAttemptAt])
   @@index([campaignId, customerId])
   @@index([businessId, status])

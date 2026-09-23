@@ -77,6 +77,12 @@ assert.match(campaignRoute, /'patente', 'servicios_vencidos', 'enlace_historial'
 assert.match(campaignRoute, /workshopContextForAudienceRecipient\(customer\)/)
 assert.match(campaignRoute, /business\.businessType !== 'WORKSHOP'/)
 assert.match(campaignRoute, /recipientKey: customer\.recipientKey/)
+assert.match(campaignRoute, /idempotencyKey: 'simulation:' \+ createdRun\.id \+ ':' \+ \(customer\.recipientKey \|\| customer\.id\)/)
+assert.match(campaignRoute, /idempotencyKey: 'real:' \+ runId \+ ':' \+ \(customer\.recipientKey \|\| customer\.id\)/)
+assert.doesNotMatch(schema, /@@unique\(\[runId, customerId\]\)/)
+const campaignJobMigration=readFileSync(new URL('../prisma/migrations/20260922020000_campaign_job_per_vehicle/migration.sql', import.meta.url), 'utf8')
+assert.match(campaignJobMigration, /DROP INDEX IF EXISTS "CampaignJob_runId_customerId_key"/)
+
 assert.match(crmUi, /value="WORKSHOP_MAINTENANCE_DUE">Mantenimientos vencidos/)
 assert.match(crmUi, /value="WORKSHOP_INACTIVE">Veh&iacute;culos sin visitar/)
 assert.match(crmUi, /Mantenimientos vencidos/)

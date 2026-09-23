@@ -1297,7 +1297,7 @@ export async function campaignRoutes(app: FastifyInstance) {
             nextAttemptAt: campaign.scheduleMode === 'SCHEDULED' && campaign.scheduledAt && campaign.scheduledAt > now
               ? campaign.scheduledAt
               : new Date(now.getTime() + index * 1000),
-            idempotencyKey: 'simulation:' + createdRun.id + ':' + customer.id
+            idempotencyKey: 'simulation:' + createdRun.id + ':' + (customer.recipientKey || customer.id)
           }))
         })
       }
@@ -1834,7 +1834,7 @@ async function sendCampaignRecipients(input: {
           retryCount: 0,
           maxRetries: 3,
           nextAttemptAt: status === 'FAILED' ? new Date(now.getTime() + retryDelayMinutes(1) * 60_000) : now,
-          idempotencyKey: 'real:' + runId + ':' + customer.id
+          idempotencyKey: 'real:' + runId + ':' + (customer.recipientKey || customer.id)
         }
       })
     }
