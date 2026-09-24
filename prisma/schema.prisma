@@ -1193,7 +1193,8 @@ model User {
   canViewTodayProfessionalProduction Boolean                    @default(false)
   canAdjustCash                    Boolean                      @default(false)
   canManageCashSessions            Boolean                      @default(false)
-  cashSessions                     CashSession[]
+  cashSessions                     CashSession[] @relation("CashSessionLocalResponsible")
+  administratorCashSessions        CashSession[] @relation("CashSessionAdministrator")
   appointmentTotalAdjustments      AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
   productSales                     ProductSale[]                @relation("ProductSaleActor")
   productSaleAudits                ProductSaleAudit[]           @relation("ProductSaleAuditActor")
@@ -2133,9 +2134,11 @@ model CashSession {
   business          Business        @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   registerDayId     String
   registerDay       CashRegisterDay @relation(fields: [businessId, registerDayId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  responsibleUserId String
-  responsibleUser   User            @relation(fields: [businessId, responsibleUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
-  responsibleName   String
+  responsibleUserId              String?
+  responsibleUser                User?           @relation("CashSessionLocalResponsible", fields: [businessId, responsibleUserId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  responsibleAdministratorUserId String?
+  responsibleAdministrator       User?           @relation("CashSessionAdministrator", fields: [responsibleAdministratorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  responsibleName                String
   openedAt          DateTime        @default(dbgenerated("clock_timestamp()"))
   closedAt          DateTime?
   expectedCash      Int?

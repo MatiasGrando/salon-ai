@@ -33,5 +33,3 @@ for (const [subcategoryId, code] of [['foreign-category', 'EXPENSE_SUBCATEGORY_C
 }
 assert.equal(writes.length, 1, 'las subcategorias invalidas no deben registrar gastos')
 console.log('OK subcategorias: esquema, API, validacion, filtros e interfaz.')
-
-\r\n

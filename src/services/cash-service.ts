@@ -49,6 +49,7 @@ export class CashService {
   async openRegisterDay(input: {
     businessId: string
     responsibleUserId: string
+    actingAdministrator?: { id: string; name: string }
     openingCash?: number | null
   }) {
     const firstOpeningCash = input.openingCash === undefined || input.openingCash === null
@@ -57,7 +58,7 @@ export class CashService {
 
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
-      const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId)
+      const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId, input.actingAdministrator)
       if (await transaction.findOpenDay(input.businessId)) throw new CashServiceError('OPEN_DAY_EXISTS')
 
       const previousCountedCash = await transaction.findPreviousCountedCash(input.businessId)
@@ -72,7 +73,8 @@ export class CashService {
         id: randomUUID(),
         businessId: input.businessId,
         registerDayId: day.id,
-        responsibleUserId: responsible.id,
+        responsibleUserId: responsible.kind === 'LOCAL' ? responsible.id : null,
+        responsibleAdministratorUserId: responsible.kind === 'ADMIN' ? responsible.id : null,
         responsibleName: responsible.name,
         openedAt: context.dbNow
       })
@@ -84,6 +86,7 @@ export class CashService {
     businessId: string
     currentSessionId: string
     responsibleUserId: string
+    actingAdministrator?: { id: string; name: string }
     countedCash: number
     acknowledgeDifference?: boolean
   }) {
@@ -91,7 +94,7 @@ export class CashService {
     return this.repository.transaction(async (transaction) => {
       const context = await requireBusinessContext(transaction, input.businessId)
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.currentSessionId)
-      const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId)
+      const responsible = await requireResponsible(transaction, input.businessId, input.responsibleUserId, input.actingAdministrator)
       const [entries, sessions] = await Promise.all([
         transaction.listDayEntries(input.businessId, day.id),
         transaction.listDaySessions(input.businessId, day.id)
@@ -112,7 +115,8 @@ export class CashService {
         id: randomUUID(),
         businessId: input.businessId,
         registerDayId: day.id,
-        responsibleUserId: responsible.id,
+        responsibleUserId: responsible.kind === 'LOCAL' ? responsible.id : null,
+        responsibleAdministratorUserId: responsible.kind === 'ADMIN' ? responsible.id : null,
         responsibleName: responsible.name,
         openedAt: context.dbNow
       })
@@ -663,7 +667,7 @@ export class CashService {
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const day = await transaction.findOpenDay(input.businessId)
-      if (!day) return { day: null, session: null, summary: null }
+      if (!day) return { day: null, session: null, summary: null, nextOpeningCash: await transaction.findPreviousCountedCash(input.businessId) }
       const session = await transaction.findOpenSession(input.businessId, day.id)
       if (!session) throw new CashServiceError('CASH_CLOSED')
       const [entries, sessions] = await Promise.all([
@@ -1064,11 +1068,15 @@ async function requireBusinessContext(transaction: CashTransactionRepository, bu
 async function requireResponsible(
   transaction: CashTransactionRepository,
   businessId: string,
-  responsibleUserId: string
+  responsibleUserId: string,
+  actingAdministrator?: { id: string; name: string }
 ) {
+  if (actingAdministrator && actingAdministrator.id === responsibleUserId && actingAdministrator.name.trim()) {
+    return { id: actingAdministrator.id, name: actingAdministrator.name.trim(), kind: 'ADMIN' as const }
+  }
   const responsible = await transaction.findResponsible(businessId, responsibleUserId)
   if (!responsible) throw new CashServiceError('RESPONSIBLE_NOT_FOUND')
-  return responsible
+  return { ...responsible, kind: 'LOCAL' as const }
 }
 
 async function requireCurrentState(

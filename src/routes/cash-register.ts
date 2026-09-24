@@ -58,9 +58,10 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const query = request.query as { businessId?: string; from?: string; to?: string }
     const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
+    if (request.auth!.user.role === 'STAFF') return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'Solo administración puede consultar períodos anteriores' })
     if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
     try {
-      return { ...await service.getCashPeriodSummary({ businessId: access.businessId, from: query.from, to: query.to, ...(request.auth!.user.role === 'STAFF' ? { registerOnly: true } : {}) }), permissions: cashPermissionSnapshot(request.auth!.user) }
+      return { ...await service.getCashPeriodSummary({ businessId: access.businessId, from: query.from, to: query.to }), permissions: cashPermissionSnapshot(request.auth!.user) }
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -70,6 +71,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const query = request.query as { businessId?: string; from?: string; to?: string; page?: string; pageSize?: string; method?: string; categoryId?: string; subcategoryId?: string; q?: string }
     const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
+    if (request.auth!.user.role === 'STAFF') return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'Solo administración puede consultar períodos anteriores' })
     const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
     if (typeof query.from !== 'string' || typeof query.to !== 'string') return validation(reply, 'Elegí un período válido')
     if (query.method && !methods.includes(query.method as typeof methods[number])) return validation(reply, 'Medio de pago inválido')
@@ -78,7 +80,6 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
       const pageSize = optionalInteger(query.pageSize)
       return await service.listCashPeriodExpenses({
         businessId: access.businessId,
-        ...(request.auth!.user.role === 'STAFF' ? { registerOnly: true } : {}),
         from: query.from,
         to: query.to,
         ...(page === undefined ? {} : { page }),
@@ -99,6 +100,10 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
       const limit = optionalInteger(query.limit)
+      if (request.auth!.user.role === 'STAFF') {
+        const current = await service.getCurrentCashRegister({ businessId: access.businessId })
+        return { days: current.day ? [current.day] : [], permissions: cashPermissionSnapshot(request.auth!.user) }
+      }
       return { days: await service.listCashRegisterDays({ businessId: access.businessId, ...(limit === undefined ? {} : { limit }) }), permissions: cashPermissionSnapshot(request.auth!.user) }
     } catch (error) {
       return sendCashError(reply, error)
@@ -111,6 +116,10 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
     try {
+      if (request.auth!.user.role === 'STAFF') {
+        const current = await service.getCurrentCashRegister({ businessId: access.businessId })
+        if (current.day?.id !== params.id) return reply.status(404).send({ code: 'NOT_FOUND', message: 'La jornada no está disponible' })
+      }
       return { ...await service.getCashRegisterDaySummary({ businessId: access.businessId, registerDayId: params.id }), permissions: cashPermissionSnapshot(request.auth!.user) }
     } catch (error) {
       return sendCashError(reply, error)
@@ -122,6 +131,14 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const query = request.query as { businessId?: string; cursor?: string; limit?: string; type?: string; method?: string; categoryId?: string; subcategoryId?: string; sessionId?: string; q?: string }
     const access = await cashAccess(request.auth?.user, 'canViewCashRegister', query)
     if (!access.ok) return cashAccessFailure(reply, access)
+    try {
+      if (request.auth!.user.role === 'STAFF') {
+        const current = await service.getCurrentCashRegister({ businessId: access.businessId })
+        if (current.day?.id !== params.id) return reply.status(404).send({ code: 'NOT_FOUND', message: 'La jornada no está disponible' })
+      }
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
     const types = ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND', 'REVERSAL'] as const
     const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
     if (query.type && !types.includes(query.type as typeof types[number])) return validation(reply, 'Tipo de movimiento inválido')
@@ -244,7 +261,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.responsibleUserId?.trim()) return validation(reply, 'Responsable requerido')
     try {
-      return await service.openRegisterDay({ businessId: access.businessId, responsibleUserId: body.responsibleUserId.trim(), ...(body.openingCash === undefined ? {} : { openingCash: body.openingCash }) })
+      return await service.openRegisterDay({ businessId: access.businessId, responsibleUserId: body.responsibleUserId.trim(), ...administratorResponsible(request.auth!.user, body.responsibleUserId.trim()), ...(body.openingCash === undefined ? {} : { openingCash: body.openingCash }) })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -256,7 +273,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     if (!access.ok) return cashAccessFailure(reply, access)
     if (!body.currentSessionId?.trim() || !body.responsibleUserId?.trim() || body.countedCash === undefined) return validation(reply, 'Sesión, responsable y efectivo contado son requeridos')
     try {
-      return await service.startNewSession({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), responsibleUserId: body.responsibleUserId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true })
+      return await service.startNewSession({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), responsibleUserId: body.responsibleUserId.trim(), ...administratorResponsible(request.auth!.user, body.responsibleUserId.trim()), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true })
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -483,4 +500,9 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   }
   if (code === 'INTERNAL_ERROR') throw error
   return reply.status(400).send({ code: 'VALIDATION', message: 'Revisá los datos ingresados' })
+}
+
+function administratorResponsible(user: AuthUser, selectedUserId: string) {
+  if (!['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role) || user.id !== selectedUserId) return {}
+  return { actingAdministrator: { id: user.id, name: user.name?.trim() || user.email || 'Administrador' } }
 }

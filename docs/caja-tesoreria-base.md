@@ -88,6 +88,21 @@ En **Administrar categorías** se crean categorías y subcategorías opcionales.
 20. Administrador: en «Resultado global» elegir un período con $150.000 cobrados, $25.000 de gastos de Caja, $10.000 de devoluciones y $35.000 pagados desde Tesorería. Debe mostrar Cobrado $150.000, Egresos $70.000 y Total $80.000. Un traspaso de $20.000 o un retiro interno no modifica esas tarjetas.
 21. Comprobar que el mismo período visto en Caja mantiene su resultado **solo de Caja** ($115.000 en el ejemplo), mientras el global incorpora el egreso privado. Entrar como secretaría e intentar GET `/treasury/consolidated`: 403.
 
+## Alcance de jornadas, responsable administrador y actualización visible
+
+- **Secretaría/personal (STAFF) con permiso de Caja:** el selector de Jornada queda limitado a la jornada abierta. Si la Caja está cerrada, no muestra la última jornada como si estuviera activa. La API también rechaza la consulta directa de resúmenes y movimientos de jornadas cerradas (404) y los reportes por período (403). La pestaña «Consultar período» no se presenta. Administración mantiene la consulta histórica.
+- **Apertura y cambio de responsable:** el administrador autenticado puede elegirse a sí mismo aunque no tenga una cuenta de secretaría dentro del local. No puede designar como administrador a otro usuario global. Para personal local se conserva la relación estricta con el negocio; la migración nueva separa la identidad del administrador y exige exactamente un responsable por sesión. Antes de desplegar este código debe aplicarse la migración 20260924020000_cash_admin_responsible.
+- **Carga:** al guardar una apertura, cambio de sesión o cierre aparece una rueda y el cuadro permanece visible hasta terminar el refresco. Si la operación se guardó pero falló solo el refresco, el botón pasa a «Reintentar actualización» y no vuelve a enviar la operación.
+- **Liquidaciones:** en el detalle de servicios, «Fecha» indica el movimiento y «Turno / cliente» muestra fecha **y** hora del turno, en la zona horaria del local.
+
+### Casos para probar con uso real
+
+1. Con Caja cerrada, entrar como secretaria: no hay jornada histórica seleccionable ni totales viejos; intentar abrir una jornada cerrada por URL/API devuelve 404. Tras abrir, aparece solo la activa.
+2. Como administrador, comprobar que siguen apareciendo jornadas anteriores y «Consultar período».
+3. Como administrador sin perfil de secretaría, abrir Caja eligiéndose como responsable. Repetir en «Nueva sesión»; el nombre debe quedar en historial. Como secretaria, no debe poder asignar un administrador de otro local.
+4. Al abrir Caja, la rueda se mantiene hasta ver la jornada nueva. Si falla el refresco después de guardar, reintentar no crea otra jornada.
+5. En Liquidaciones, comparar un turno creado un día y realizado otro: ambas columnas deben mostrar su fecha correcta además de la hora. Revisar en móvil.
+
 ## Todavía pendiente, no asumirlo implementado
 
 - Seguimiento opcional de transferencias/banco y Mercado Pago. Esta etapa habilita únicamente reserva **en efectivo**.

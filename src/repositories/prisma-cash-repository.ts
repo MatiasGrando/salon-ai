@@ -37,7 +37,8 @@ export type CashSessionRecord = {
   id: string
   businessId: string
   registerDayId: string
-  responsibleUserId: string
+  responsibleUserId: string | null
+  responsibleAdministratorUserId: string | null
   responsibleName: string
   openedAt: Date
   closedAt: Date | null
@@ -170,7 +171,8 @@ export interface CashTransactionRepository {
     id: string
     businessId: string
     registerDayId: string
-    responsibleUserId: string
+    responsibleUserId: string | null
+    responsibleAdministratorUserId: string | null
     responsibleName: string
     openedAt: Date
   }): Promise<CashSessionRecord>
@@ -401,7 +403,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
 
   async findOpenSession(businessId: string, registerDayId: string) {
     const rows = await this.transaction.$queryRaw<CashSessionRecord[]>(Prisma.sql`
-      SELECT session."id", session."businessId", session."registerDayId", session."responsibleUserId",
+      SELECT session."id", session."businessId", session."registerDayId", session."responsibleUserId", session."responsibleAdministratorUserId",
         session."responsibleName", session."openedAt", session."closedAt", session."expectedCash",
         session."countedCash", session."cashDifference"
       FROM "CashSession" AS session
@@ -458,7 +460,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
 
   async listDaySessions(businessId: string, registerDayId: string) {
     return this.transaction.$queryRaw<CashSessionRecord[]>(Prisma.sql`
-      SELECT session."id", session."businessId", session."registerDayId", session."responsibleUserId",
+      SELECT session."id", session."businessId", session."registerDayId", session."responsibleUserId", session."responsibleAdministratorUserId",
         session."responsibleName", session."openedAt", session."closedAt", session."expectedCash",
         session."countedCash", session."cashDifference"
       FROM "CashSession" AS session
@@ -1288,17 +1290,18 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     id: string
     businessId: string
     registerDayId: string
-    responsibleUserId: string
+    responsibleUserId: string | null
+    responsibleAdministratorUserId: string | null
     responsibleName: string
     openedAt: Date
   }) {
     const rows = await this.transaction.$queryRaw<CashSessionRecord[]>(Prisma.sql`
       INSERT INTO "CashSession" (
-        "id", "businessId", "registerDayId", "responsibleUserId", "responsibleName", "openedAt"
+        "id", "businessId", "registerDayId", "responsibleUserId", "responsibleAdministratorUserId", "responsibleName", "openedAt"
       ) VALUES (
-        ${input.id}, ${input.businessId}, ${input.registerDayId}, ${input.responsibleUserId}, ${input.responsibleName}, ${input.openedAt}
+        ${input.id}, ${input.businessId}, ${input.registerDayId}, ${input.responsibleUserId}, ${input.responsibleAdministratorUserId}, ${input.responsibleName}, ${input.openedAt}
       )
-      RETURNING "id", "businessId", "registerDayId", "responsibleUserId", "responsibleName",
+      RETURNING "id", "businessId", "registerDayId", "responsibleUserId", "responsibleAdministratorUserId", "responsibleName",
         "openedAt", "closedAt", "expectedCash", "countedCash", "cashDifference"
     `)
     return rows[0]!
@@ -1317,7 +1320,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       SET "closedAt" = ${input.closedAt}, "expectedCash" = ${input.expectedCash},
         "countedCash" = ${input.countedCash}, "cashDifference" = ${input.cashDifference}
       WHERE "businessId" = ${input.businessId} AND "id" = ${input.sessionId} AND "closedAt" IS NULL
-      RETURNING "id", "businessId", "registerDayId", "responsibleUserId", "responsibleName",
+      RETURNING "id", "businessId", "registerDayId", "responsibleUserId", "responsibleAdministratorUserId", "responsibleName",
         "openedAt", "closedAt", "expectedCash", "countedCash", "cashDifference"
     `)
     if (!rows[0]) throw new Error('cash session disappeared while locked')
