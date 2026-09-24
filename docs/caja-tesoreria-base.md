@@ -32,7 +32,7 @@ La pestaña **Tesorería** aparece solo a administración. El dueño puede:
 2. Transferir efectivo desde una **sesión abierta** de Caja diaria. Se verifica que el importe no supere el efectivo esperado de la jornada.
 3. Registrar un **gasto** o **retiro** desde la reserva, con detalle obligatorio y sin necesitar Caja abierta. Un gasto puede clasificarse en categoría/subcategoría y tener destinatario; el formulario exige categoría para gastos nuevos. El retiro interno no permite clasificarlo como gasto.
 4. Pagar una **liquidación o adelanto profesional** desde Liquidaciones, eligiendo «Tesorería (efectivo)» como origen. No requiere una sesión de Caja abierta.
-5. Consultar saldo y últimos 100 movimientos de la reserva; el historial puede filtrarse por categoría/subcategoría sin modificar el saldo mostrado.
+5. Consultar el saldo destacado y movimientos de la reserva paginados de a 20; el historial puede filtrarse por categoría/subcategoría sin modificar el saldo mostrado. Los filtros reinician en la primera página.
 
 Un traspaso registra dos hechos **en una misma transacción**:
 - `CashEntry WITHDRAWAL/CASH` en Caja diaria: baja el efectivo esperado.
@@ -87,6 +87,14 @@ En **Administrar categorías** se crean categorías y subcategorías opcionales.
 19. Ingresar como secretaría: no debe ver pagos profesionales desde Tesorería ni gastos de alquiler/proveedores en Caja, Liquidaciones limitadas o APIs de Tesorería, aunque conozca un identificador de categoría o movimiento.
 20. Administrador: en «Resultado global» elegir un período con $150.000 cobrados, $25.000 de gastos de Caja, $10.000 de devoluciones y $35.000 pagados desde Tesorería. Debe mostrar Cobrado $150.000, Egresos $70.000 y Total $80.000. Un traspaso de $20.000 o un retiro interno no modifica esas tarjetas.
 21. Comprobar que el mismo período visto en Caja mantiene su resultado **solo de Caja** ($115.000 en el ejemplo), mientras el global incorpora el egreso privado. Entrar como secretaría e intentar GET `/treasury/consolidated`: 403.
+
+## Presentación de Tesorería y origen de pagos
+
+El **efectivo reservado** se destaca en una tarjeta de saldo independiente del resultado global. «Transferir a Tesorería» mueve efectivo desde una sesión de Caja diaria abierta y registra un retiro/ingreso interno; no es gasto. «Gastos y retiros desde Tesorería» es una operación distinta: consume la reserva y solo el tipo Gasto modifica el resultado del negocio. Cada acción tiene un bloque y explicación propios.
+
+El historial de Tesorería muestra **20 movimientos por página**, con Anterior/Siguiente y cantidad total. Los filtros de categoría y subcategoría se aplican antes de paginar y no alteran el saldo total; los movimientos nuevos llevan a la primera página.
+
+**Liquidaciones:** «Caja diaria» ya existe como origen: el pago debe registrarse directamente como egreso de la jornada y débito del profesional en una sola transacción, sin pasar ficticiamente por Tesorería. «Tesorería» se usa solo si el dinero sale realmente del efectivo reservado. El mensaje genérico «No pudimos registrar el pago» de Caja diaria requiere diagnóstico aparte; no demuestra que falte esta modalidad.
 
 ## Alcance de jornadas, responsable administrador y actualización visible
 

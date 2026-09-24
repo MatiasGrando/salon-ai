@@ -34,13 +34,22 @@ export async function treasuryRoutes(app: FastifyInstance) {
     const businessId = scope(user!, request.query as { businessId?: string })
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
     const accounts = await prisma.treasuryAccount.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' } })
-    const query = request.query as { expenseCategoryId?: string; expenseSubcategoryId?: string }
+    const query = request.query as { expenseCategoryId?: string; expenseSubcategoryId?: string; page?: string }
+    const pagination = treasuryPage(query.page)
+    if (!pagination) return reply.status(400).send({ message: 'La página solicitada es inválida' })
+    const { page, pageSize, offset } = pagination
     if ((query.expenseCategoryId !== undefined && (typeof query.expenseCategoryId !== 'string' || query.expenseCategoryId.length > 200)) ||
         (query.expenseSubcategoryId !== undefined && (typeof query.expenseSubcategoryId !== 'string' || query.expenseSubcategoryId.length > 200))) {
       return reply.status(400).send({ message: 'El filtro de gasto es inválido' })
     }
     const categoryFilter = query.expenseCategoryId?.trim() ? Prisma.sql`AND movement."expenseCategoryId" = ${query.expenseCategoryId.trim()}` : Prisma.empty
     const subcategoryFilter = query.expenseSubcategoryId?.trim() ? Prisma.sql`AND movement."expenseSubcategoryId" = ${query.expenseSubcategoryId.trim()}` : Prisma.empty
+    const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS "total"
+      FROM "TreasuryMovement" movement
+      WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter}
+    `)
+    const total = Number(countRows[0]?.total ?? 0n)
     const movements = await prisma.$queryRaw<Array<{
       id: string; accountId: string; kind: string; direction: string; amount: number; description: string | null;
       counterparty: string | null; expenseCategoryId: string | null; expenseCategoryName: string | null;
@@ -56,7 +65,7 @@ export async function treasuryRoutes(app: FastifyInstance) {
       LEFT JOIN "CashExpenseSubcategory" subcategory
         ON subcategory."businessId" = movement."businessId" AND subcategory."categoryId" = movement."expenseCategoryId" AND subcategory."id" = movement."expenseSubcategoryId"
       WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter}
-      ORDER BY movement."createdAt" DESC, movement."id" DESC LIMIT 100
+      ORDER BY movement."createdAt" DESC, movement."id" DESC LIMIT ${pageSize} OFFSET ${offset}
     `)
     const totals = await prisma.treasuryMovement.groupBy({
       by: ['accountId', 'direction'], where: { businessId }, _sum: { amount: true }
@@ -66,7 +75,11 @@ export async function treasuryRoutes(app: FastifyInstance) {
         id: account.id, method: account.method,
         balance: balanceOf(totals.filter((row) => row.accountId === account.id).map((row) => ({ direction: row.direction, amount: row._sum.amount || 0 })))
       })),
-      movements
+      movements,
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize))
     }
   })
 
@@ -382,4 +395,13 @@ export function consolidateCashAndTreasury(cash: {
       UNSPECIFIED: collectedByMethod.UNSPECIFIED - outgoingByMethod.UNSPECIFIED
     }
   }
+}
+
+
+export function treasuryPage(value: unknown): { page: number; pageSize: number; offset: number } | null {
+  if (value !== undefined && (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value))) return null
+  const page = value === undefined ? 1 : Number(value)
+  if (!Number.isSafeInteger(page) || page > 10_000) return null
+  const pageSize = 20
+  return { page, pageSize, offset: (page - 1) * pageSize }
 }

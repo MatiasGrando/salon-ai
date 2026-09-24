@@ -271,6 +271,19 @@ export const cashRegisterStyles = `
     .cash-treasury-panel { padding:18px; display:grid; grid-template-columns:minmax(0,1fr); gap:14px; min-width:0; }
     .cash-treasury-panel .cash-summary-grid, .cash-treasury-panel .cash-summary-card, .cash-treasury-panel .cash-treasury-form, .cash-treasury-panel .cash-treasury-period-row, .cash-treasury-panel .cash-treasury-filter-row { min-width:0; }
     .cash-treasury-panel .cash-summary-card { overflow-wrap:anywhere; }
+    .cash-treasury-panel[hidden] { display:none; }
+    .cash-treasury-reserve-card { display:grid; gap:8px; width:fit-content; min-width:min(280px,100%); padding:18px 22px; border:1px solid #bfdbfe; border-radius:14px; background:linear-gradient(135deg,#eff6ff,#f8fbff); }
+    .cash-treasury-reserve-card[hidden] { display:none; }
+    .cash-treasury-reserve-card span { font-size:13px; font-weight:750; color:#475569; }
+    .cash-treasury-reserve-card strong { font-size:clamp(30px,4vw,42px); line-height:1.1; color:#123b83; font-variant-numeric:tabular-nums; }
+    .cash-treasury-operations { display:grid; gap:16px; min-width:0; }
+    .cash-treasury-operations[hidden] { display:none; }
+    .cash-treasury-operation-head h3 { margin:0; }
+    .cash-treasury-operation-head p { margin:5px 0 0; color:var(--muted); }
+    .cash-treasury-pagination { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .cash-treasury-pagination div { display:flex; gap:8px; }
+    .cash-treasury-pagination button { min-height:38px; }
+
     .cash-treasury-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; align-items:end; }
     .cash-treasury-form label { display:grid; gap:6px; }
     .cash-treasury-form input, .cash-treasury-form select { min-height:40px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; }
@@ -349,7 +362,7 @@ export const cashRegisterMarkup = `
           <section class="cash-panel cash-treasury-panel">
             <div class="cash-section-head"><div><h3>Tesorer&iacute;a · efectivo reservado</h3><p>Solo administraci&oacute;n. Los traspasos desde Caja no son gastos del negocio.</p></div></div>
             <div id="cash-treasury-inactive" hidden><p>Todav&iacute;a no est&aacute; habilitada la reserva de efectivo.</p><button class="primary" id="cash-treasury-enable" type="button">Habilitar reserva</button></div>
-            <strong id="cash-treasury-balance" hidden>$ 0</strong>
+            <div class="cash-treasury-reserve-card" id="cash-treasury-reserve-card" hidden><span>Efectivo reservado</span><strong id="cash-treasury-balance">$ 0</strong></div>
             <p class="cash-feedback" id="cash-treasury-feedback" role="status"></p>
           </section>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-consolidated">
@@ -363,25 +376,37 @@ export const cashRegisterMarkup = `
             </div>
             <small>Resultado de movimientos del per&iacute;odo, no saldo f&iacute;sico. El efectivo reservado se muestra por separado arriba.</small>
           </section>
-          <section class="cash-panel cash-treasury-panel" id="cash-treasury-operations" hidden>
-            <form class="cash-treasury-form" id="cash-treasury-transfer-form">
-              <label>Desde Caja diaria<input id="cash-treasury-transfer-amount" type="number" min="1" step="1" required></label>
-              <button class="primary" type="submit">Transferir a reserva</button>
-            </form>
-            <small>Requiere una sesi&oacute;n de Caja abierta. Queda un retiro en Caja y un ingreso interno en Tesorer&iacute;a.</small>
-            <form class="cash-treasury-form" id="cash-treasury-outflow-form">
-              <label>Tipo<select id="cash-treasury-outflow-kind"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option></select></label>
-              <div class="cash-treasury-expense-fields" id="cash-treasury-expense-fields">
-                <label>Categor&iacute;a<select id="cash-treasury-outflow-category" required><option value="">Eleg&iacute; una categor&iacute;a</option></select></label>
-                <label>Subcategor&iacute;a (opcional)<select id="cash-treasury-outflow-subcategory"><option value="">Sin subcategor&iacute;a</option></select></label>
-                <label>Destinatario (opcional)<input id="cash-treasury-outflow-counterparty" maxlength="100" placeholder="Ej.: proveedor o propietario"></label>
-              </div>
-              <label>Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
-              <label>Importe<input id="cash-treasury-outflow-amount" type="number" min="1" step="1" required></label>
-              <button class="primary" type="submit">Registrar salida</button>
-            </form>
+          <div class="cash-treasury-operations" id="cash-treasury-operations" hidden>
+            <section class="cash-panel cash-treasury-panel" id="cash-treasury-transfer-section" aria-labelledby="cash-treasury-transfer-title">
+              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-transfer-title">Transferir a Tesorer&iacute;a</h3><p>Mov&eacute; efectivo de la Caja diaria a la reserva. Es un movimiento interno, no un gasto.</p></div>
+              <form class="cash-treasury-form" id="cash-treasury-transfer-form">
+                <label>Importe desde Caja diaria<input id="cash-treasury-transfer-amount" type="number" min="1" step="1" required></label>
+                <button class="primary" type="submit">Transferir a Tesorer&iacute;a</button>
+              </form>
+              <small>Requiere una sesi&oacute;n de Caja abierta. Queda un retiro en Caja y un ingreso interno en Tesorer&iacute;a.</small>
+            </section>
+            <section class="cash-panel cash-treasury-panel" id="cash-treasury-outflow-section" aria-labelledby="cash-treasury-outflow-title">
+              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-outflow-title">Gastos y retiros desde Tesorer&iacute;a</h3><p>El dinero sale del efectivo reservado, no de la Caja diaria.</p></div>
+              <form class="cash-treasury-form" id="cash-treasury-outflow-form">
+                <label>Tipo<select id="cash-treasury-outflow-kind"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option></select></label>
+                <div class="cash-treasury-expense-fields" id="cash-treasury-expense-fields">
+                  <label>Categor&iacute;a<select id="cash-treasury-outflow-category" required><option value="">Eleg&iacute; una categor&iacute;a</option></select></label>
+                  <label>Subcategor&iacute;a (opcional)<select id="cash-treasury-outflow-subcategory"><option value="">Sin subcategor&iacute;a</option></select></label>
+                  <label>Destinatario (opcional)<input id="cash-treasury-outflow-counterparty" maxlength="100" placeholder="Ej.: proveedor o propietario"></label>
+                </div>
+                <label>Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
+                <label>Importe<input id="cash-treasury-outflow-amount" type="number" min="1" step="1" required></label>
+                <button class="primary" type="submit">Registrar salida</button>
+              </form>
+            </section>
+          </div>
+          <section class="cash-panel cash-treasury-panel" id="cash-treasury-history-panel" hidden>
+            <div class="cash-treasury-operation-head"><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div>
+            <div class="cash-treasury-filter-row"><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div>
+            <small>Los filtros afectan la lista, no el saldo total reservado. Hasta 20 movimientos por p&aacute;gina.</small>
+            <div class="cash-today-table-wrap"><table class="cash-today-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Categor&iacute;a</th><th>Destinatario</th><th>Detalle</th><th>Importe</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
+            <div class="cash-treasury-pagination"><span id="cash-treasury-page-info">0 movimientos</span><div><button class="secondary" id="cash-treasury-previous" type="button" disabled>Anterior</button><button class="secondary" id="cash-treasury-next" type="button" disabled>Siguiente</button></div></div>
           </section>
-          <section class="cash-panel cash-treasury-panel" id="cash-treasury-history-panel" hidden><h3>Movimientos de Tesorer&iacute;a</h3><div class="cash-treasury-filter-row"><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div><small>Los filtros afectan la lista, no el saldo total reservado. Se muestran los &uacute;ltimos 100 movimientos coincidentes.</small><div class="cash-today-table-wrap"><table class="cash-today-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Categor&iacute;a</th><th>Destinatario</th><th>Detalle</th><th>Importe</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div></section>
         </section>
         <section class="cash-professional-view" id="cash-professional-view" hidden>
           <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button></section>
@@ -1679,15 +1704,18 @@ export const cashRegisterScript = `
       category.required = kind === 'EXPENSE'
     }
 
-    async function loadTreasury() {
+    async function loadTreasury(options = {}) {
       if (state.currentUser?.role === 'STAFF') return
       const inactive = document.getElementById('cash-treasury-inactive')
       const balance = document.getElementById('cash-treasury-balance')
+      const reserveCard = document.getElementById('cash-treasury-reserve-card')
       const operations = document.getElementById('cash-treasury-operations')
       const history = document.getElementById('cash-treasury-history-panel')
       const feedback = document.getElementById('cash-treasury-feedback')
       try {
         const filters = new URLSearchParams()
+        const page = options.page || state.cashRegister.treasuryPage || 1
+        filters.set('page', String(page))
         const categoryId = document.getElementById('cash-treasury-filter-category').value
         const subcategoryId = document.getElementById('cash-treasury-filter-subcategory').value
         if (categoryId) filters.set('expenseCategoryId', categoryId)
@@ -1695,10 +1723,19 @@ export const cashRegisterScript = `
         const result = await getJson(cashScoped('/treasury' + (filters.size ? '?' + filters.toString() : '')))
         const account = (result.accounts || []).find((item) => item.method === 'CASH')
         inactive.hidden = Boolean(account)
-        balance.hidden = !account
+        reserveCard.hidden = !account
         operations.hidden = !account
         history.hidden = !account
-        balance.textContent = account ? 'Efectivo reservado: ' + cashMoney(account.balance) : ''
+        balance.textContent = account ? cashMoney(account.balance) : ''
+        state.cashRegister.treasuryPage = result.page || 1
+        const pageInfo = document.getElementById('cash-treasury-page-info')
+        const total = Number(result.total || 0)
+        const pageSize = Number(result.pageSize || 20)
+        const first = total ? (state.cashRegister.treasuryPage - 1) * pageSize + 1 : 0
+        const last = Math.min(total, state.cashRegister.treasuryPage * pageSize)
+        pageInfo.textContent = total ? first + '–' + last + ' de ' + total + ' movimientos · Página ' + state.cashRegister.treasuryPage + ' de ' + result.totalPages : '0 movimientos'
+        document.getElementById('cash-treasury-previous').disabled = state.cashRegister.treasuryPage <= 1
+        document.getElementById('cash-treasury-next').disabled = state.cashRegister.treasuryPage >= result.totalPages
         document.getElementById('cash-treasury-entries').innerHTML = (result.movements || []).length
           ? result.movements.map((entry) => '<tr><td>' + escapeHtml(cashDate(entry.createdAt)) + '</td><td>' + escapeHtml(entry.kind === 'DAILY_TRANSFER' ? 'Traspaso interno' : entry.kind === 'PROFESSIONAL_PAYMENT' ? 'Pago profesional' : entry.kind === 'PROFESSIONAL_ADVANCE' ? 'Adelanto profesional' : entry.kind === 'EXPENSE' ? 'Gasto' : 'Retiro') + '</td><td>' + escapeHtml([entry.expenseCategoryName, entry.expenseSubcategoryName].filter(Boolean).join(' / ') || '—') + '</td><td>' + escapeHtml(entry.counterparty || '—') + '</td><td>' + escapeHtml(entry.description || '—') + '</td><td>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</td></tr>').join('')
           : '<tr><td colspan="6">Todavía no hay movimientos.</td></tr>'
@@ -1759,7 +1796,7 @@ export const cashRegisterScript = `
         })
         form.reset()
         delete form.dataset.key
-        await Promise.all([loadTreasury(), loadCashRegister({ preserve: true })])
+        await Promise.all([loadTreasury({ page: 1 }), loadCashRegister({ preserve: true })])
         feedback.textContent = 'Traspaso registrado. No se contabiliza como gasto.'
         feedback.className = 'cash-feedback success'
       } catch (error) {
@@ -1789,7 +1826,7 @@ export const cashRegisterScript = `
         form.reset()
         delete form.dataset.key
         renderTreasuryClassificationOptions()
-        await Promise.all([loadTreasury(), loadTreasuryConsolidated()])
+        await Promise.all([loadTreasury({ page: 1 }), loadTreasuryConsolidated()])
         feedback.textContent = 'Salida registrada en Tesorería.'
         feedback.className = 'cash-feedback success'
       } catch (error) {
@@ -2685,8 +2722,10 @@ export const cashRegisterScript = `
     for (const id of ['cash-treasury-transfer-form', 'cash-treasury-outflow-form']) for (const eventName of ['input', 'change']) document.getElementById(id).addEventListener(eventName, (event) => { delete event.currentTarget.dataset.key })
     document.getElementById('cash-treasury-outflow-kind').addEventListener('change', renderTreasuryClassificationOptions)
     document.getElementById('cash-treasury-outflow-category').addEventListener('change', renderTreasuryClassificationOptions)
-    document.getElementById('cash-treasury-filter-category').addEventListener('change', () => { renderTreasuryClassificationOptions(); loadTreasury() })
-    document.getElementById('cash-treasury-filter-subcategory').addEventListener('change', loadTreasury)
+    document.getElementById('cash-treasury-filter-category').addEventListener('change', () => { renderTreasuryClassificationOptions(); loadTreasury({ page: 1 }) })
+    document.getElementById('cash-treasury-filter-subcategory').addEventListener('change', () => loadTreasury({ page: 1 }))
+    document.getElementById('cash-treasury-previous').addEventListener('click', () => loadTreasury({ page: Math.max(1, (state.cashRegister.treasuryPage || 1) - 1) }))
+    document.getElementById('cash-treasury-next').addEventListener('click', () => loadTreasury({ page: (state.cashRegister.treasuryPage || 1) + 1 }))
     document.getElementById('cash-treasury-period-apply').addEventListener('click', loadTreasuryConsolidated)
     document.getElementById('cash-treasury-transfer-form').addEventListener('submit', submitTreasuryTransfer)
     document.getElementById('cash-treasury-outflow-form').addEventListener('submit', submitTreasuryOutflow)
