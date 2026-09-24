@@ -453,6 +453,9 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   if (code === 'DEFAULT_EXPENSE_CATEGORY_PROTECTED') {
     return reply.status(409).send({ code, message: 'La categoría Otros es obligatoria y no puede renombrarse ni desactivarse' })
   }
+  if (code === 'PROFESSIONAL_EXPENSE_CATEGORY_PROTECTED') {
+    return reply.status(409).send({ code, message: 'Liquidaciones profesionales es una categoría automática y no puede renombrarse ni desactivarse' })
+  }
   if (code === 'EXPENSE_CATEGORY_DUPLICATE') {
     return reply.status(409).send({ code, message: 'Ya existe una categoría con ese nombre' })
   }

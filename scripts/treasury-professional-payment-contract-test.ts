@@ -21,6 +21,7 @@ function fake(balance = 10_000n, existing: Record<string, unknown> | null = null
       if (query.sql.includes('FROM "TreasuryAccount"')) return [{ id: 'cash-reserve' }]
       if (query.sql.includes('COALESCE(SUM')) return [{ balance }]
       if (query.sql.includes('FROM "Professional"')) return [{ name: 'Ana' }]
+      if (query.sql.includes('FROM "CashExpenseCategory"')) return [{ id: 'liquidaciones', isActive: true }]
       throw new Error('unexpected query: ' + query.sql)
     },
     $executeRaw: async (query: { sql: string; values: unknown[] }) => { writes.push(query); return 1 }
@@ -30,11 +31,13 @@ function fake(balance = 10_000n, existing: Record<string, unknown> | null = null
 const happy = fake()
 const created = await recordTreasuryProfessionalPayment(happy.tx as never, input)
 assert.equal(created.treasuryMovementId, input.idempotencyKey)
-assert.equal(happy.writes.length, 2)
-assert.ok(happy.writes[0]?.sql.includes('"TreasuryMovement"'))
-assert.ok(happy.writes[1]?.sql.includes('"ProfessionalAccountEntry"'))
+assert.equal(happy.writes.length, 3)
+assert.ok(happy.writes[0]?.sql.includes('"CashExpenseCategory"'))
+assert.ok(happy.writes[1]?.sql.includes('"TreasuryMovement"'))
+assert.ok(happy.writes[1]?.values.includes('liquidaciones'))
+assert.ok(happy.writes[2]?.sql.includes('"ProfessionalAccountEntry"'))
 assert.ok(!happy.writes.some((write) => write.sql.includes('"CashEntry"')), 'Tesoreria no debe escribir Caja diaria')
-assert.ok(happy.writes[1]?.values.includes(input.idempotencyKey), 'la cuenta profesional debe vincular el movimiento')
+assert.ok(happy.writes[2]?.values.includes(input.idempotencyKey), 'la cuenta profesional debe vincular el movimiento')
 const retry = fake(0n, { id: input.idempotencyKey, businessId: 'shop', kind: 'PROFESSIONAL_PAYMENT', amount: 5000, entryId: created.id, professionalId: 'pro', entryType: 'PAYMENT', observation: 'Semana 1' })
 assert.deepEqual(await recordTreasuryProfessionalPayment(retry.tx as never, input), created)
 assert.equal(retry.writes.length, 0, 'reintento no duplica pago')

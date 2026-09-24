@@ -42,7 +42,11 @@ No es venta ni gasto del negocio. En la caja diaria se ve el retiro para concili
 
 Una salida desde Tesorería baja solo su saldo. `EXPENSE` representa un gasto real; `WITHDRAWAL` representa dinero que sale de la reserva sin clasificarlo como gasto. **Alquiler y proveedores** se registran como `EXPENSE` con categoría/subcategoría y destinatario; esos importes solo aparecen en Tesorería para administración, no en Caja diaria ni en sus filtros para secretaría. La clasificación de gastos anteriores queda vacía y se conserva su historial. Un gasto o retiro reintentado con la misma clave no duplica el movimiento; si cambian sus datos, se rechaza. Categorías inactivas o subcategorías ajenas al local/categoría se rechazan para carga nueva.
 
-Para **profesionales**, Tesorería genera atómicamente un `TreasuryMovement` de salida y un `ProfessionalAccountEntry` de débito vinculado: baja la reserva y baja lo adeudado al profesional. No crea `CashEntry`, no necesita Caja abierta y no aparece en reportes/filtros de Caja de secretaría. El mismo identificador de operación se puede reintentar sin duplicar el pago; la ruta rechaza importe mayor al saldo, profesional de otro local y claves reutilizadas con otros datos. Los pagos hechos desde Caja abierta conservan el circuito anterior y sí cuentan como egreso de Caja.
+Para **profesionales**, pagar desde la reserva genera atómicamente un `TreasuryMovement` de salida y un `ProfessionalAccountEntry` de débito vinculado: baja el saldo reservado y lo adeudado al profesional. No crea `CashEntry`, no necesita Caja abierta y no aparece en reportes/filtros de Caja de secretaría. El mismo identificador de operación se puede reintentar sin duplicar el pago; la ruta rechaza importe mayor al saldo, profesional de otro local y claves reutilizadas con otros datos.
+
+Si el administrador elige **Caja diaria + Efectivo**, la operación crea en una sola transacción un retiro interno de Caja, un ingreso a Tesorería, el pago profesional de Tesorería y el débito de la cuenta profesional. Exige Caja abierta, reserva habilitada y efectivo esperado suficiente. La reserva queda con el mismo saldo neto: el efectivo pasa por Tesorería como cuenta puente y sale en el mismo acto. El retiro en Caja se identifica como «Traspaso a Tesorería para liquidación», **no** como gasto; el pago real aparece en el historial privado de Tesorería como «Pago profesional» o «Adelanto profesional», con categoría «Liquidaciones profesionales» y nombre. Esa categoría se crea al primer pago, se comparte con los pagos digitales de Caja y no se puede renombrar ni desactivar para preservar la búsqueda histórica. En el resultado global se cuenta solo el pago, no el traspaso. Un reintento con la misma clave no repite ningún movimiento. No se coloca en «Otros».
+
+Si elige **Caja diaria + Transferencia/Tarjeta**, el dinero no se inventa como efectivo reservado: sigue registrándose como egreso directo de Caja, con categoría específica «Liquidaciones profesionales», creada al primer uso. Secretaría con acceso a Caja puede ver ese egreso. Para privacidad total, usar efectivo de Tesorería.
 
 ## Resultado global exclusivo de administración
 
@@ -92,9 +96,9 @@ En **Administrar categorías** se crean categorías y subcategorías opcionales.
 
 El **efectivo reservado** se destaca en una tarjeta de saldo independiente del resultado global. «Transferir a Tesorería» mueve efectivo desde una sesión de Caja diaria abierta y registra un retiro/ingreso interno; no es gasto. «Gastos y retiros desde Tesorería» es una operación distinta: consume la reserva y solo el tipo Gasto modifica el resultado del negocio. Cada acción tiene un bloque y explicación propios.
 
-El historial de Tesorería muestra **20 movimientos por página**, con Anterior/Siguiente y cantidad total. Los filtros de categoría y subcategoría se aplican antes de paginar y no alteran el saldo total; los movimientos nuevos llevan a la primera página.
+El historial de Tesorería muestra **20 movimientos por página**, con Anterior/Siguiente y cantidad total. Los filtros de tipo, búsqueda por detalle/profesional, categoría y subcategoría se aplican antes de paginar y no alteran el saldo total; los movimientos nuevos llevan a la primera página.
 
-**Liquidaciones:** «Caja diaria» ya existe como origen: el pago debe registrarse directamente como egreso de la jornada y débito del profesional en una sola transacción, sin pasar ficticiamente por Tesorería. «Tesorería» se usa solo si el dinero sale realmente del efectivo reservado. El mensaje genérico «No pudimos registrar el pago» de Caja diaria requiere diagnóstico aparte; no demuestra que falte esta modalidad.
+**Liquidaciones:** «Caja diaria» requiere una sesión abierta. En efectivo usa el puente atómico Caja → Tesorería → profesional descrito arriba; Caja refleja la salida física, pero solo Tesorería refleja el gasto real. Desde Tesorería se paga con la reserva existente. Transferencia/tarjeta desde Caja permanecen como egresos de Caja porque la reserva aún no lleva saldos digitales. El error genérico anterior surgía porque el asiento `CashEntry EXPENSE` omitía la categoría obligatoria por el esquema; este flujo ya no usa «Otros».
 
 ## Alcance de jornadas, responsable administrador y actualización visible
 
@@ -116,3 +120,10 @@ El historial de Tesorería muestra **20 movimientos por página**, con Anterior/
 - Seguimiento opcional de transferencias/banco y Mercado Pago. Esta etapa habilita únicamente reserva **en efectivo**.
 - Integración PostgreSQL: no se ejecutó porque `TEST_DATABASE_URL` no está configurada. La migración y el despliegue quedan a cargo del procedimiento habitual. Se revisó una maqueta local de la vista en escritorio y viewport móvil real de 390 px (sin scroll horizontal); falta probar el CRM conectado con datos reales.
 - Pendientes por cobrar: expresamente fuera de alcance.
+
+## Regresión: pagos profesionales desde Caja
+
+1. Administrador: habilitar Tesorería, abrir Caja con $10.000 y pagar $3.000 en efectivo desde Liquidaciones. Verificar un **retiro interno** de $3.000 en Caja, un ingreso y un pago de $3.000 en Tesorería, saldo reservado sin cambio, saldo profesional -$3.000 y **un solo egreso** de $3.000 en resultado global.
+2. En Tesorería filtrar «Pagos profesionales» o la categoría «Liquidaciones profesionales», y buscar el nombre: debe aparecer el pago con importe y fecha; secretaría no puede abrir esa vista.
+3. Reintentar la misma solicitud: no crear nuevos movimientos. Probar reserva deshabilitada y efectivo esperado insuficiente: mostrar motivo, sin asientos parciales.
+4. Pagar mediante transferencia/tarjeta desde Caja: gasto categorizado como «Liquidaciones profesionales», sin cambiar saldo reservado ni crear movimientos de Tesorería.

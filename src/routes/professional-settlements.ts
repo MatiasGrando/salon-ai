@@ -4,13 +4,15 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { normalizeProfessionalCompensationRule, type ProfessionalCompensationRuleInput } from '../services/professional-compensation.js'
+import { summarizeCashRegister, type CashDomainEntry } from '../services/cash-domain.js'
+import { ensureProfessionalSettlementCategory } from '../services/professional-settlement-category.js'
 
 function canViewProfessionalSettlements(user: any) {
   return user && (user.role !== 'STAFF')
 }
 
 function canManageProfessionalSettlements(user: any) {
-  return user && (user.role !== 'STAFF')
+  return user && ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)
 }
 
 function requestedBusinessId(user: any, value?: string) {
@@ -243,48 +245,34 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
 
   app.post('/professional-settlements/payments', async (request, reply) => {
     const user = request.auth?.user
-    const body = request.body as { businessId?: string; professionalId?: string; cashSessionId?: string; amount?: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; type?: 'PAYMENT' | 'ADVANCE'; observation?: string }
+    const body = request.body as { businessId?: string; professionalId?: string; cashSessionId?: string; amount?: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; type?: 'PAYMENT' | 'ADVANCE'; observation?: string; idempotencyKey?: string }
     if (!canManageProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para pagar liquidaciones' })
     const businessId = requestedBusinessId(user, body.businessId)
     const amount = Number(body.amount)
-    if (!businessId || !body.professionalId || !body.cashSessionId || !Number.isSafeInteger(amount) || amount <= 0 || !['CASH', 'TRANSFER', 'CARD'].includes(body.method || '') || !['PAYMENT', 'ADVANCE'].includes(body.type || '')) {
+    if (!businessId || !body.professionalId || !body.cashSessionId || !Number.isSafeInteger(amount) || amount <= 0 || !['CASH', 'TRANSFER', 'CARD'].includes(body.method || '') || !['PAYMENT', 'ADVANCE'].includes(body.type || '') || (body.idempotencyKey !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.idempotencyKey))) {
       return reply.status(400).send({ message: 'Completá profesional, tipo, sesión, medio e importe válido' })
     }
     if (!await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
 
     try {
       return await prisma.$transaction(async (tx) => {
-        const sessions = await tx.$queryRaw<Array<{ registerDayId: string }>>(Prisma.sql`
-          SELECT "registerDayId" FROM "CashSession"
-          WHERE "businessId" = ${businessId} AND "id" = ${body.cashSessionId} AND "closedAt" IS NULL
-          FOR UPDATE
-        `)
-        if (!sessions[0]) throw new Error('CASH_SESSION_REQUIRED')
-        const professionals = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
-          SELECT "name" FROM "Professional"
-          WHERE "businessId" = ${businessId} AND "id" = ${body.professionalId}
-          FOR UPDATE
-        `)
-        if (!professionals[0]) throw new Error('PROFESSIONAL_NOT_FOUND')
-
-        const cashEntryId = randomUUID()
-        const entryId = randomUUID()
-        const kind = body.type === 'ADVANCE' ? 'ADVANCE' : 'PAYMENT'
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "counterparty", "observation", "effectiveAt")
-          VALUES (${cashEntryId}, ${businessId}, ${sessions[0].registerDayId}, ${body.cashSessionId}, 'EXPENSE'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${amount}, ${body.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", ${kind === 'ADVANCE' ? 'Adelanto a profesional' : 'Pago a profesional'}, ${professionals[0].name}, ${body.observation?.trim() || null}, clock_timestamp())
-        `)
-        await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "cashEntryId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt")
-          VALUES (${entryId}, ${businessId}, ${body.professionalId}, ${cashEntryId}, ${kind}::"ProfessionalAccountEntryType", 'DEBIT'::"ProfessionalAccountDirection", ${amount}, ${body.observation?.trim() || null}, ${user!.id}, ${user!.name}, clock_timestamp())
-        `)
-        return { id: entryId, cashEntryId }
+        return recordCashProfessionalPayment(tx, {
+          businessId, professionalId: body.professionalId!, cashSessionId: body.cashSessionId!,
+          amount, method: body.method!, type: body.type!, observation: body.observation?.trim() || null,
+          idempotencyKey: body.idempotencyKey || randomUUID(),
+          actorUserId: user!.id, actorName: user!.name
+        })
       })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
-      return reply.status(code === 'PROFESSIONAL_NOT_FOUND' ? 404 : 409).send({
-        message: code === 'CASH_SESSION_REQUIRED' ? 'Abrí una sesión de Caja para registrar el pago' : 'No pudimos registrar el pago'
-      })
+      if (code === 'CASH_SESSION_REQUIRED') return reply.status(409).send({ message: 'Abrí una sesión de Caja para registrar el pago' })
+      if (code === 'PROFESSIONAL_NOT_FOUND') return reply.status(404).send({ message: 'El profesional no existe en este local' })
+      if (code === 'TREASURY_NOT_ENABLED') return reply.status(409).send({ message: 'Habilitá Tesorería para pagar en efectivo desde Caja' })
+      if (code === 'INSUFFICIENT_CASH') return reply.status(409).send({ message: 'El importe supera el efectivo esperado de Caja' })
+      if (code === 'KEY_CONFLICT') return reply.status(409).send({ message: 'La operación ya existe con otros datos' })
+      if (code === 'LIQUIDATION_CATEGORY_INACTIVE') return reply.status(409).send({ message: 'Activá la categoría Liquidaciones profesionales para pagar con este medio' })
+      request.log.error({ err: error }, 'cash_professional_payment_failed')
+      return reply.status(500).send({ message: 'No pudimos registrar el pago desde Caja. Probá actualizar la página y reintentá.' })
     }
   })
 
@@ -390,4 +378,149 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       throw error
     }
   })
+}
+
+export async function recordCashProfessionalPayment(tx: Prisma.TransactionClient, input: {
+  businessId: string
+  professionalId: string
+  cashSessionId: string
+  amount: number
+  method: 'CASH' | 'TRANSFER' | 'CARD'
+  type: 'PAYMENT' | 'ADVANCE'
+  observation: string | null
+  idempotencyKey: string
+  actorUserId: string
+  actorName: string
+}) {
+  // Caja en efectivo pasa por Tesorería como cuenta puente; sólo el pago es un gasto.
+  // Transferencia y tarjeta no se anotan en una reserva que hoy es exclusivamente de efectivo.
+  if (input.method !== 'CASH') return recordDigitalCashProfessionalPayment(tx, input)
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Business" WHERE "id" = ${input.businessId} FOR UPDATE`)
+  const transferId = input.idempotencyKey + ':cash'
+  const existing = await tx.$queryRaw<Array<{
+    id: string; businessId: string; kind: string; amount: number; entryId: string | null;
+    professionalId: string | null; entryType: string | null; observation: string | null; cashSessionId: string | null
+  }>>(Prisma.sql`
+    SELECT movement."id", movement."businessId", movement."kind", movement."amount", entry."id" AS "entryId",
+      entry."professionalId", entry."type"::text AS "entryType", entry."description" AS "observation",
+      cash."cashSessionId"
+    FROM "TreasuryMovement" movement
+    LEFT JOIN "ProfessionalAccountEntry" entry
+      ON entry."businessId" = movement."businessId" AND entry."treasuryMovementId" = movement."id"
+    LEFT JOIN "TreasuryMovement" transfer
+      ON transfer."businessId" = movement."businessId" AND transfer."id" = ${transferId}
+    LEFT JOIN "CashEntry" cash
+      ON cash."businessId" = transfer."businessId" AND cash."id" = transfer."cashEntryId"
+    WHERE movement."id" = ${input.idempotencyKey}
+  `)
+  const kind = input.type === 'ADVANCE' ? 'PROFESSIONAL_ADVANCE' : 'PROFESSIONAL_PAYMENT'
+  if (existing[0]) {
+    const row = existing[0]
+    if (row.businessId !== input.businessId || row.kind !== kind || row.amount !== input.amount ||
+        row.professionalId !== input.professionalId || row.entryType !== input.type ||
+        row.observation !== input.observation || row.cashSessionId !== input.cashSessionId || !row.entryId) throw new Error('KEY_CONFLICT')
+    return { id: row.entryId, treasuryMovementId: row.id, cashEntryId: null }
+  }
+  const accounts = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id" FROM "TreasuryAccount" WHERE "businessId" = ${input.businessId} AND "method" = 'CASH' FOR KEY SHARE
+  `)
+  const account = accounts[0]
+  if (!account) throw new Error('TREASURY_NOT_ENABLED')
+  const sessions = await tx.$queryRaw<Array<{ id: string; registerDayId: string; openingCash: number }>>(Prisma.sql`
+    SELECT session."id", session."registerDayId", day."openingCash"
+    FROM "CashSession" session
+    JOIN "CashRegisterDay" day ON day."id" = session."registerDayId" AND day."businessId" = session."businessId"
+    WHERE session."businessId" = ${input.businessId} AND session."id" = ${input.cashSessionId}
+      AND session."closedAt" IS NULL AND day."closedAt" IS NULL
+    FOR UPDATE OF session, day
+  `)
+  const session = sessions[0]
+  if (!session) throw new Error('CASH_SESSION_REQUIRED')
+  const entries = await tx.cashEntry.findMany({
+    where: { businessId: input.businessId, registerDayId: session.registerDayId },
+    select: { type: true, direction: true, amount: true, paymentMethod: true, reversesEntry: { select: { type: true } } }
+  })
+  const expected = summarizeCashRegister({
+    openingCash: session.openingCash,
+    entries: entries.map((entry): CashDomainEntry => ({
+      type: entry.type, direction: entry.direction, amount: entry.amount,
+      method: entry.paymentMethod, ...(entry.reversesEntry ? { reversedEntryType: entry.reversesEntry.type } : {})
+    }))
+  }).expectedCash
+  if (input.amount > expected) throw new Error('INSUFFICIENT_CASH')
+  const professionals = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+    SELECT "name" FROM "Professional" WHERE "businessId" = ${input.businessId} AND "id" = ${input.professionalId} FOR KEY SHARE
+  `)
+  if (!professionals[0]) throw new Error('PROFESSIONAL_NOT_FOUND')
+  const categoryId = await ensureProfessionalSettlementCategory(tx, input.businessId)
+  const cashEntryId = randomUUID()
+  const entryId = randomUUID()
+  const paymentDescription = (input.type === 'ADVANCE' ? 'Adelanto a profesional: ' : 'Pago a profesional: ') + professionals[0].name
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "counterparty", "effectiveAt")
+    VALUES (${cashEntryId}, ${input.businessId}, ${session.registerDayId}, ${session.id}, 'WITHDRAWAL'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${input.amount}, 'CASH'::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", 'Traspaso a Tesorería para liquidación', 'Tesorería', clock_timestamp())
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "TreasuryMovement" ("id", "businessId", "accountId", "kind", "direction", "amount", "description", "actorUserId", "actorName", "cashEntryId")
+    VALUES (${transferId}, ${input.businessId}, ${account.id}, 'DAILY_TRANSFER', 'INFLOW'::"CashDirection", ${input.amount}, 'Desde Caja diaria para liquidación', ${input.actorUserId}, ${input.actorName}, ${cashEntryId})
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "TreasuryMovement" ("id", "businessId", "accountId", "kind", "direction", "amount", "description", "expenseCategoryId", "actorUserId", "actorName")
+    VALUES (${input.idempotencyKey}, ${input.businessId}, ${account.id}, ${kind}, 'OUTFLOW'::"CashDirection", ${input.amount}, ${paymentDescription}, ${categoryId}, ${input.actorUserId}, ${input.actorName})
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "treasuryMovementId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt")
+    VALUES (${entryId}, ${input.businessId}, ${input.professionalId}, ${input.idempotencyKey}, ${input.type}::"ProfessionalAccountEntryType", 'DEBIT'::"ProfessionalAccountDirection", ${input.amount}, ${input.observation}, ${input.actorUserId}, ${input.actorName}, clock_timestamp())
+  `)
+  return { id: entryId, treasuryMovementId: input.idempotencyKey, cashEntryId }
+}
+
+async function recordDigitalCashProfessionalPayment(tx: Prisma.TransactionClient, input: {
+  businessId: string; professionalId: string; cashSessionId: string; amount: number;
+  method: 'CASH' | 'TRANSFER' | 'CARD'; type: 'PAYMENT' | 'ADVANCE';
+  observation: string | null; idempotencyKey: string; actorUserId: string; actorName: string
+}) {
+  await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Business" WHERE "id" = ${input.businessId} FOR UPDATE`)
+  const existing = await tx.$queryRaw<Array<{
+    id: string; businessId: string; cashSessionId: string | null; amount: number; paymentMethod: string;
+    entryId: string | null; professionalId: string | null; entryType: string | null; observation: string | null
+  }>>(Prisma.sql`
+    SELECT cash."id", cash."businessId", cash."cashSessionId", cash."amount",
+      cash."paymentMethod"::text AS "paymentMethod", entry."id" AS "entryId",
+      entry."professionalId", entry."type"::text AS "entryType", entry."description" AS "observation"
+    FROM "CashEntry" cash
+    LEFT JOIN "ProfessionalAccountEntry" entry
+      ON entry."businessId" = cash."businessId" AND entry."cashEntryId" = cash."id"
+    WHERE cash."id" = ${input.idempotencyKey}
+  `)
+  if (existing[0]) {
+    const row = existing[0]
+    if (row.businessId !== input.businessId || row.cashSessionId !== input.cashSessionId ||
+        row.amount !== input.amount || row.paymentMethod !== input.method ||
+        row.professionalId !== input.professionalId || row.entryType !== input.type ||
+        row.observation !== input.observation || !row.entryId) throw new Error('KEY_CONFLICT')
+    return { id: row.entryId, cashEntryId: row.id }
+  }
+  const sessions = await tx.$queryRaw<Array<{ registerDayId: string }>>(Prisma.sql`
+    SELECT "registerDayId" FROM "CashSession"
+    WHERE "businessId" = ${input.businessId} AND "id" = ${input.cashSessionId} AND "closedAt" IS NULL
+    FOR UPDATE
+  `)
+  if (!sessions[0]) throw new Error('CASH_SESSION_REQUIRED')
+  const professionals = await tx.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+    SELECT "name" FROM "Professional" WHERE "businessId" = ${input.businessId} AND "id" = ${input.professionalId} FOR KEY SHARE
+  `)
+  if (!professionals[0]) throw new Error('PROFESSIONAL_NOT_FOUND')
+  const categoryId = await ensureProfessionalSettlementCategory(tx, input.businessId)
+  const cashEntryId = input.idempotencyKey
+  const entryId = randomUUID()
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "counterparty", "observation", "expenseCategoryId", "effectiveAt")
+    VALUES (${cashEntryId}, ${input.businessId}, ${sessions[0].registerDayId}, ${input.cashSessionId}, 'EXPENSE'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${input.amount}, ${input.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", ${input.type === 'ADVANCE' ? 'Adelanto a profesional' : 'Pago a profesional'}, ${professionals[0].name}, ${input.observation}, ${categoryId}, clock_timestamp())
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "cashEntryId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt")
+    VALUES (${entryId}, ${input.businessId}, ${input.professionalId}, ${cashEntryId}, ${input.type}::"ProfessionalAccountEntryType", 'DEBIT'::"ProfessionalAccountDirection", ${input.amount}, ${input.observation}, ${input.actorUserId}, ${input.actorName}, clock_timestamp())
+  `)
+  return { id: entryId, cashEntryId }
 }

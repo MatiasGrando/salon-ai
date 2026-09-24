@@ -583,6 +583,9 @@ export class CashService {
       if (current.isDefault && (name !== 'Otros' || !isActive)) {
         throw new CashServiceError('DEFAULT_EXPENSE_CATEGORY_PROTECTED')
       }
+      if (current.normalizedName === 'liquidaciones profesionales' && (normalizedName !== current.normalizedName || !isActive)) {
+        throw new CashServiceError('PROFESSIONAL_EXPENSE_CATEGORY_PROTECTED')
+      }
       const updated = await transaction.updateExpenseCategory({ businessId: input.businessId, categoryId, name, normalizedName, position, isActive })
       if (!updated) throw new CashServiceError('EXPENSE_CATEGORY_DUPLICATE')
       return updated

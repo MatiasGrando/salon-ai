@@ -50,6 +50,7 @@ const now = new Date('2026-09-19T12:00:00.000Z')
 const defaultCategory = { id: 'cat-other', businessId: 'biz-1', name: 'Otros', normalizedName: 'otros', position: 0, isDefault: true, isActive: true, createdAt: now, updatedAt: now }
 const activeCategory = { id: 'cat-light', businessId: 'biz-1', name: 'Luz', normalizedName: 'luz', position: 10, isDefault: false, isActive: true, createdAt: now, updatedAt: now }
 const inactiveCategory = { ...activeCategory, id: 'cat-old', name: 'Vieja', normalizedName: 'vieja', isActive: false }
+const professionalCategory = { ...activeCategory, id: 'cat-professionals', name: 'Liquidaciones profesionales', normalizedName: 'liquidaciones profesionales' }
 let insertedOperation: Record<string, unknown> | null = null
 let listedInput: Record<string, unknown> | null = null
 let createdInput: Record<string, unknown> | null = null
@@ -58,7 +59,7 @@ const transaction = {
   findOpenDay: async (businessId: string) => ({ id: 'day-1', businessId, openedAt: now, closedAt: null, openingCash: 0, expectedClosingCash: null, countedClosingCash: null, closingDifference: null }),
   findOpenSession: async (businessId: string, registerDayId: string) => ({ id: 'session-1', businessId, registerDayId, responsibleUserId: 'user-1', responsibleName: 'User', openedAt: now, closedAt: null, expectedCash: null, countedCash: null, cashDifference: null }),
   ensureDefaultExpenseCategory: async () => defaultCategory,
-  findExpenseCategory: async (businessId: string, categoryId: string) => businessId === 'biz-1' ? [defaultCategory, activeCategory, inactiveCategory].find((category) => category.id === categoryId) ?? null : null,
+  findExpenseCategory: async (businessId: string, categoryId: string) => businessId === 'biz-1' ? [defaultCategory, activeCategory, inactiveCategory, professionalCategory].find((category) => category.id === categoryId) ?? null : null,
   insertCashOperation: async (input: Record<string, unknown>) => { insertedOperation = input; return input },
   findRegisterDay: async (_businessId: string, registerDayId: string) => registerDayId === 'day-1' ? { id: registerDayId } : null,
   listCashEntries: async (input: Record<string, unknown>) => { listedInput = input; return [] },
@@ -100,4 +101,12 @@ await assert.rejects(
   (error: unknown) => error instanceof CashServiceError && error.code === 'DEFAULT_EXPENSE_CATEGORY_PROTECTED'
 )
 
+await assert.rejects(
+  () => cashService.updateExpenseCategory({ businessId: 'biz-1', categoryId: professionalCategory.id, name: 'Sueldos', isActive: true }),
+  (error: unknown) => error instanceof CashServiceError && error.code === 'PROFESSIONAL_EXPENSE_CATEGORY_PROTECTED'
+)
+await assert.rejects(
+  () => cashService.updateExpenseCategory({ businessId: 'biz-1', categoryId: professionalCategory.id, name: professionalCategory.name, isActive: false }),
+  (error: unknown) => error instanceof CashServiceError && error.code === 'PROFESSIONAL_EXPENSE_CATEGORY_PROTECTED'
+)
 console.log('OK categorías de gastos: modelo, backfill Otros, tenant, validaciones, CRUD, filtro e integración UI')

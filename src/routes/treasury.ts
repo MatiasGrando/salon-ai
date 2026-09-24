@@ -5,6 +5,7 @@ import { prisma } from '../config/prisma.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { assertIanaTimezone, summarizeCashRegister, type CashDomainEntry } from '../services/cash-domain.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
+import { ensureProfessionalSettlementCategory } from '../services/professional-settlement-category.js'
 import { CashService, CashServiceError, normalizeCashPeriodRange } from '../services/cash-service.js'
 
 const cashService = new CashService(new PrismaCashRepository(prisma))
@@ -34,20 +35,24 @@ export async function treasuryRoutes(app: FastifyInstance) {
     const businessId = scope(user!, request.query as { businessId?: string })
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
     const accounts = await prisma.treasuryAccount.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' } })
-    const query = request.query as { expenseCategoryId?: string; expenseSubcategoryId?: string; page?: string }
+    const query = request.query as { expenseCategoryId?: string; expenseSubcategoryId?: string; kind?: string; search?: string; page?: string }
     const pagination = treasuryPage(query.page)
     if (!pagination) return reply.status(400).send({ message: 'La página solicitada es inválida' })
     const { page, pageSize, offset } = pagination
     if ((query.expenseCategoryId !== undefined && (typeof query.expenseCategoryId !== 'string' || query.expenseCategoryId.length > 200)) ||
-        (query.expenseSubcategoryId !== undefined && (typeof query.expenseSubcategoryId !== 'string' || query.expenseSubcategoryId.length > 200))) {
+        (query.expenseSubcategoryId !== undefined && (typeof query.expenseSubcategoryId !== 'string' || query.expenseSubcategoryId.length > 200)) ||
+        (query.kind !== undefined && !['DAILY_TRANSFER', 'PROFESSIONAL_PAYMENT', 'PROFESSIONAL_ADVANCE', 'EXPENSE', 'WITHDRAWAL'].includes(query.kind)) ||
+        (query.search !== undefined && (typeof query.search !== 'string' || query.search.length > 100))) {
       return reply.status(400).send({ message: 'El filtro de gasto es inválido' })
     }
     const categoryFilter = query.expenseCategoryId?.trim() ? Prisma.sql`AND movement."expenseCategoryId" = ${query.expenseCategoryId.trim()}` : Prisma.empty
     const subcategoryFilter = query.expenseSubcategoryId?.trim() ? Prisma.sql`AND movement."expenseSubcategoryId" = ${query.expenseSubcategoryId.trim()}` : Prisma.empty
+    const kindFilter = query.kind ? Prisma.sql`AND movement."kind" = ${query.kind}` : Prisma.empty
+    const searchFilter = query.search?.trim() ? Prisma.sql`AND (movement."description" ILIKE ${'%' + query.search.trim() + '%'} OR movement."counterparty" ILIKE ${'%' + query.search.trim() + '%'})` : Prisma.empty
     const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
       SELECT COUNT(*)::bigint AS "total"
       FROM "TreasuryMovement" movement
-      WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter}
+      WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter} ${kindFilter} ${searchFilter}
     `)
     const total = Number(countRows[0]?.total ?? 0n)
     const movements = await prisma.$queryRaw<Array<{
@@ -64,7 +69,7 @@ export async function treasuryRoutes(app: FastifyInstance) {
         ON category."businessId" = movement."businessId" AND category."id" = movement."expenseCategoryId"
       LEFT JOIN "CashExpenseSubcategory" subcategory
         ON subcategory."businessId" = movement."businessId" AND subcategory."categoryId" = movement."expenseCategoryId" AND subcategory."id" = movement."expenseSubcategoryId"
-      WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter}
+      WHERE movement."businessId" = ${businessId} ${categoryFilter} ${subcategoryFilter} ${kindFilter} ${searchFilter}
       ORDER BY movement."createdAt" DESC, movement."id" DESC LIMIT ${pageSize} OFFSET ${offset}
     `)
     const totals = await prisma.treasuryMovement.groupBy({
@@ -216,6 +221,7 @@ export async function treasuryRoutes(app: FastifyInstance) {
       if (code === 'TREASURY_NOT_ENABLED') return reply.status(409).send({ message: 'Habilitá la reserva de efectivo antes de pagar' })
       if (code === 'INSUFFICIENT_TREASURY') return reply.status(409).send({ message: 'El pago supera el saldo de Tesorería' })
       if (code === 'PROFESSIONAL_NOT_FOUND') return reply.status(404).send({ message: 'El profesional no existe en este local' })
+      if (code === 'LIQUIDATION_CATEGORY_INACTIVE') return reply.status(409).send({ message: 'Activá la categoría Liquidaciones profesionales antes de pagar' })
       if (code === 'KEY_CONFLICT') return reply.status(409).send({ message: 'La operación ya existe con otros datos' })
       request.log.error({ err: error }, 'treasury_professional_payment_failed')
       return reply.status(500).send({ message: 'No pudimos registrar el pago desde Tesorería' })
@@ -302,11 +308,12 @@ export async function recordTreasuryProfessionalPayment(tx: Prisma.TransactionCl
     SELECT "name" FROM "Professional" WHERE "businessId" = ${input.businessId} AND "id" = ${input.professionalId} FOR KEY SHARE
   `)
   if (!professionals[0]) throw new Error('PROFESSIONAL_NOT_FOUND')
+  const categoryId = await ensureProfessionalSettlementCategory(tx, input.businessId)
   const entryId = randomUUID()
   const description = input.type === 'ADVANCE' ? 'Adelanto a profesional: ' : 'Pago a profesional: '
   await tx.$executeRaw(Prisma.sql`
-    INSERT INTO "TreasuryMovement" ("id", "businessId", "accountId", "kind", "direction", "amount", "description", "actorUserId", "actorName")
-    VALUES (${input.idempotencyKey}, ${input.businessId}, ${account.id}, ${kind}, 'OUTFLOW'::"CashDirection", ${input.amount}, ${description + professionals[0].name}, ${input.actorUserId}, ${input.actorName})
+    INSERT INTO "TreasuryMovement" ("id", "businessId", "accountId", "kind", "direction", "amount", "description", "expenseCategoryId", "actorUserId", "actorName")
+    VALUES (${input.idempotencyKey}, ${input.businessId}, ${account.id}, ${kind}, 'OUTFLOW'::"CashDirection", ${input.amount}, ${description + professionals[0].name}, ${categoryId}, ${input.actorUserId}, ${input.actorName})
   `)
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "treasuryMovementId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt")

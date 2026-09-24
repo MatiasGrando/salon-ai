@@ -296,7 +296,7 @@ export const cashRegisterStyles = `
     .cash-treasury-period-row input { min-height:40px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
     .cash-treasury-period-row button { min-height:40px; }
     .cash-treasury-filter-row label { display:grid; gap:6px; }
-    .cash-treasury-filter-row select { min-height:40px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
+    .cash-treasury-filter-row select, .cash-treasury-filter-row input { min-height:40px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
     @media (max-width:480px) { .cash-treasury-panel { padding:14px; } .cash-treasury-form, .cash-treasury-expense-fields, .cash-treasury-filter-row, .cash-treasury-period-row { grid-template-columns:minmax(0,1fr); } }
     .cash-today-table-wrap { overflow-x:auto; padding:12px 16px; }
     .cash-today-table { width:100%; min-width:440px; border-collapse:collapse; text-align:left; }
@@ -402,8 +402,8 @@ export const cashRegisterMarkup = `
           </div>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-history-panel" hidden>
             <div class="cash-treasury-operation-head"><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div>
-            <div class="cash-treasury-filter-row"><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div>
-            <small>Los filtros afectan la lista, no el saldo total reservado. Hasta 20 movimientos por p&aacute;gina.</small>
+            <div class="cash-treasury-filter-row"><label>Tipo<select id="cash-treasury-filter-kind"><option value="">Todos</option><option value="PROFESSIONAL_PAYMENT">Pagos profesionales</option><option value="PROFESSIONAL_ADVANCE">Adelantos profesionales</option><option value="EXPENSE">Gastos</option><option value="DAILY_TRANSFER">Traspasos internos</option><option value="WITHDRAWAL">Retiros</option></select></label><label>Buscar por detalle o profesional<input id="cash-treasury-filter-search" maxlength="100" placeholder="Ej.: Gaspar"></label><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div>
+            <small>Filtr&aacute; pagos por tipo y busc&aacute; al profesional por nombre. Los filtros no alteran el saldo reservado. Hasta 20 movimientos por p&aacute;gina.</small>
             <div class="cash-today-table-wrap"><table class="cash-today-table"><thead><tr><th>Fecha</th><th>Movimiento</th><th>Categor&iacute;a</th><th>Destinatario</th><th>Detalle</th><th>Importe</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
             <div class="cash-treasury-pagination"><span id="cash-treasury-page-info">0 movimientos</span><div><button class="secondary" id="cash-treasury-previous" type="button" disabled>Anterior</button><button class="secondary" id="cash-treasury-next" type="button" disabled>Siguiente</button></div></div>
           </section>
@@ -427,7 +427,7 @@ export const cashRegisterMarkup = `
             <p class="cash-feedback" id="cash-professional-period-feedback" role="status"></p>
           </section>
           <section class="cash-panel cash-professional-panel"><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
-          <section class="cash-panel cash-professional-payment-panel" id="cash-professional-payment-panel"><div><h3>Registrar pago o adelanto</h3><p>Eleg&iacute; si el dinero sale de Caja abierta o de Tesorer&iacute;a. Solo administraci&oacute;n puede usar la reserva.</p></div>
+          <section class="cash-panel cash-professional-payment-panel" id="cash-professional-payment-panel"><div><h3>Registrar pago o adelanto</h3><p>En efectivo, Caja traspasa el importe a Tesorer&iacute;a y all&iacute; registra el pago; no queda como gasto de Caja. Transferencia y tarjeta se registran en Caja como &laquo;Liquidaciones profesionales&raquo;.</p></div>
             <form class="cash-professional-payment-form" id="cash-professional-payment-form">
               <label>Profesional<select id="cash-professional-payment-professional" required></select></label><label>Origen<select id="cash-professional-payment-source"><option value="CASH_REGISTER">Caja diaria</option><option value="TREASURY">Tesorer&iacute;a (efectivo)</option></select></label><label>Tipo<select id="cash-professional-payment-type"><option value="PAYMENT">Pago</option><option value="ADVANCE">Adelanto</option></select></label><label>Importe<input id="cash-professional-payment-amount" type="number" min="1" step="1" required></label><label>Medio<select id="cash-professional-payment-method"><option value="CASH">Efectivo</option><option value="TRANSFER">Transferencia</option><option value="CARD">Tarjeta</option></select></label><label class="cash-professional-observation">Observaci&oacute;n<input id="cash-professional-payment-observation" maxlength="160"></label><button class="primary" type="submit">Registrar</button>
             </form><p class="cash-feedback" id="cash-professional-payment-feedback"></p>
@@ -1237,10 +1237,10 @@ export const cashRegisterScript = `
       cashUi.categoryForm.hidden = false
       cashUi.categoryFeedback.textContent = ''
       cashUi.categoryName.value = category?.name || ''
-      cashUi.categoryName.readOnly = Boolean(category?.isDefault)
+      cashUi.categoryName.readOnly = Boolean(category?.isDefault || category?.normalizedName === 'liquidaciones profesionales')
       cashUi.categoryPosition.value = String(category?.position ?? 0)
       cashUi.categoryActive.checked = category?.isActive ?? true
-      cashUi.categoryActive.disabled = Boolean(category?.isDefault)
+      cashUi.categoryActive.disabled = Boolean(category?.isDefault || category?.normalizedName === 'liquidaciones profesionales')
       cashUi.categoryActiveField.hidden = !category
       cashUi.categorySave.textContent = category ? 'Guardar cambios' : 'Crear categoría'
       requestAnimationFrame(() => (category?.isDefault ? cashUi.categoryPosition : cashUi.categoryName).focus())
@@ -1663,23 +1663,25 @@ export const cashRegisterScript = `
       const session = state.cashRegister.current?.session
       if (!treasury && !session?.id) { cashUi.professionalPaymentFeedback.textContent = 'Abrí una sesión de Caja para registrar el pago.'; cashUi.professionalPaymentFeedback.className = 'cash-feedback error'; return }
       const form = cashUi.professionalPaymentForm
-      if (treasury && !form.dataset.key) form.dataset.key = crypto.randomUUID()
+      if (!form.dataset.key) form.dataset.key = crypto.randomUUID()
       const payload = {
         professionalId: cashUi.professionalPaymentProfessional.value,
         type: cashUi.professionalPaymentType.value,
         amount: Number(cashUi.professionalPaymentAmount.value),
         observation: cashUi.professionalPaymentObservation.value.trim() || undefined,
-        ...(treasury ? { idempotencyKey: form.dataset.key } : { cashSessionId: session.id, method: cashUi.professionalPaymentMethod.value }),
+        ...(treasury ? { idempotencyKey: form.dataset.key } : { idempotencyKey: form.dataset.key, cashSessionId: session.id, method: cashUi.professionalPaymentMethod.value }),
         ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {})
       }
       try {
         await getJson(treasury ? '/treasury/pay-professional' : '/professional-settlements/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        await loadCashRegister({ preserve: true })
+        await loadProfessionalSettlements()
+        if (treasury || payload.method === 'CASH') await Promise.all([loadTreasury(), loadTreasuryConsolidated()])
         delete form.dataset.key
         form.reset()
         syncProfessionalPaymentSource()
         cashUi.professionalPaymentFeedback.textContent = 'Pago registrado.'
         cashUi.professionalPaymentFeedback.className = 'cash-feedback success'
-        await Promise.all([loadProfessionalSettlements(), treasury ? loadTreasury() : loadCashRegister({ preserve: true }), ...(treasury ? [loadTreasuryConsolidated()] : [])])
       } catch (error) { cashUi.professionalPaymentFeedback.textContent = error.message; cashUi.professionalPaymentFeedback.className = 'cash-feedback error' }
     }
     function renderTreasuryClassificationOptions() {
@@ -1718,6 +1720,10 @@ export const cashRegisterScript = `
         filters.set('page', String(page))
         const categoryId = document.getElementById('cash-treasury-filter-category').value
         const subcategoryId = document.getElementById('cash-treasury-filter-subcategory').value
+        const kind = document.getElementById('cash-treasury-filter-kind').value
+        const search = document.getElementById('cash-treasury-filter-search').value.trim()
+        if (kind) filters.set('kind', kind)
+        if (search) filters.set('search', search)
         if (categoryId) filters.set('expenseCategoryId', categoryId)
         if (subcategoryId) filters.set('expenseSubcategoryId', subcategoryId)
         const result = await getJson(cashScoped('/treasury' + (filters.size ? '?' + filters.toString() : '')))
@@ -2722,6 +2728,9 @@ export const cashRegisterScript = `
     for (const id of ['cash-treasury-transfer-form', 'cash-treasury-outflow-form']) for (const eventName of ['input', 'change']) document.getElementById(id).addEventListener(eventName, (event) => { delete event.currentTarget.dataset.key })
     document.getElementById('cash-treasury-outflow-kind').addEventListener('change', renderTreasuryClassificationOptions)
     document.getElementById('cash-treasury-outflow-category').addEventListener('change', renderTreasuryClassificationOptions)
+    document.getElementById('cash-treasury-filter-kind').addEventListener('change', () => loadTreasury({ page: 1 }))
+    let treasurySearchTimer
+    document.getElementById('cash-treasury-filter-search').addEventListener('input', () => { clearTimeout(treasurySearchTimer); treasurySearchTimer = setTimeout(() => loadTreasury({ page: 1 }), 300) })
     document.getElementById('cash-treasury-filter-category').addEventListener('change', () => { renderTreasuryClassificationOptions(); loadTreasury({ page: 1 }) })
     document.getElementById('cash-treasury-filter-subcategory').addEventListener('change', () => loadTreasury({ page: 1 }))
     document.getElementById('cash-treasury-previous').addEventListener('click', () => loadTreasury({ page: Math.max(1, (state.cashRegister.treasuryPage || 1) - 1) }))
