@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { staffProfessionalUpdate } from '../src/routes/staff-user.js'
 import {
   STAFF_PRESET_DEFINITIONS,
   canStaffAccessRoute,
@@ -144,6 +145,16 @@ assert.ok(appointmentRoute.includes('manualDepositAmount: _manualDepositAmount')
 assert.ok(ui.includes('canViewAppointmentCustomerData()'), 'la agenda debe ocultar los datos del cliente según permisos')
 assert.ok(ui.includes('canOpenAppointmentConversations()'), 'la agenda debe ocultar el acceso al chat según permisos')
 assert.ok(ui.includes('canMessageAppointmentCustomer()'), 'la agenda debe ocultar WhatsApp cuando el staff no puede responder conversaciones')
+
+assert.deepEqual(staffProfessionalUpdate(null), { professional: { disconnect: true } }, 'secretaría debe desvincular profesional')
+assert.deepEqual(staffProfessionalUpdate('professional-1'), { professional: { connect: { id: 'professional-1' } } }, 'perfil profesional debe vincular por relación')
+const staffRoute = readFileSync(new URL('../src/routes/staff-user.ts', import.meta.url), 'utf8')
+const staffUpdate = staffRoute.slice(staffRoute.indexOf('await prisma.user.update'), staffRoute.indexOf('if (passwordChanged || isActiveChanged)'))
+assert.match(staffRoute, /function staffProfessionalUpdate[\s\S]*connect:[\s\S]*disconnect:/, 'la edición debe usar la relación Prisma connect/disconnect')
+assert.match(staffUpdate, /staffProfessionalUpdate\(validation\.professionalId\)/, 'user.update debe aplicar la relación validada')
+assert.doesNotMatch(staffUpdate, /professionalId:/, 'user.update no debe mezclar professionalId con UserUpdateInput')
+assert.match(staffRoute, /staff_user_update_failed/, 'los errores internos de Prisma deben registrarse en servidor')
+assert.match(staffRoute, /No pudimos guardar los cambios del usuario/, 'la UI debe recibir un error seguro')
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 for (const field of ['staffProfile', 'permissionPreset', 'agendaScope', 'canViewCustomers', 'canViewConversations', 'canViewOperationalReports', 'StaffAuditLog']) {

@@ -95,21 +95,27 @@ export async function staffUserRoutes(app: FastifyInstance) {
 
     const passwordChanged = Boolean(validation.password)
     const isActiveChanged = typeof body.isActive === 'boolean' && body.isActive !== existing.isActive
-    await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        name: validation.name,
-        email: validation.email,
-        professionalId: validation.professionalId,
-        staffProfile: resolved.staffProfile,
-        permissionPreset: resolved.permissionPreset,
-        ...resolved.permissions,
-        ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
-        ...(passwordChanged ? { passwordHash: await hashPassword(validation.password) } : {})
-      }
-    })
-    if (passwordChanged || isActiveChanged) await prisma.userSession.deleteMany({ where: { userId: existing.id } })
-    return listStaffUsers(existing.businessId)
+    try {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: validation.name,
+          email: validation.email,
+          ...staffProfessionalUpdate(validation.professionalId),
+          staffProfile: resolved.staffProfile,
+          permissionPreset: resolved.permissionPreset,
+          ...resolved.permissions,
+          ...(typeof body.isActive === 'boolean' ? { isActive: body.isActive } : {}),
+          ...(passwordChanged ? { passwordHash: await hashPassword(validation.password) } : {})
+        }
+      })
+      if (passwordChanged || isActiveChanged) await prisma.userSession.deleteMany({ where: { userId: existing.id } })
+      return listStaffUsers(existing.businessId)
+    } catch (error) {
+      if (prismaErrorCode(error) === 'P2002') return reply.status(409).send({ message: 'Ya existe un usuario con ese email' })
+      request.log.error({ err: error, staffUserId: existing.id }, 'staff_user_update_failed')
+      return reply.status(500).send({ message: 'No pudimos guardar los cambios del usuario' })
+    }
   })
 
   app.delete('/staff-users/:id', async (request, reply) => {
@@ -168,4 +174,16 @@ function resolveBusinessId(request: { auth?: { user: { role: string; businessId:
 
 function canManageStaffUsers(auth: { user: { role: string; businessId: string | null } } | undefined) {
   return auth?.user.role === 'SUPER_ADMIN' || auth?.user.role === 'ACCOUNT_ADMIN' || auth?.user.role === 'BUSINESS_ADMIN'
+}
+
+export function staffProfessionalUpdate(professionalId: string | null) {
+  return professionalId
+    ? { professional: { connect: { id: professionalId } } }
+    : { professional: { disconnect: true } }
+}
+
+function prismaErrorCode(error: unknown) {
+  return error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code || '')
+    : ''
 }
