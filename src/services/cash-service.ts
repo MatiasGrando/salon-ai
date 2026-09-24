@@ -154,7 +154,7 @@ export class CashService {
         const entry = await transaction.insertCashOperation({
           id: randomUUID(), businessId: input.businessId, registerDayId: day.id, cashSessionId: session.id,
           type: 'WITHDRAWAL', direction: 'OUTFLOW', amount: transferAmount, method: 'CASH',
-          description: 'Traspaso de cierre a Tesorería', counterparty: null, observation: null,
+          description: 'Traspaso de cierre a Tesorería', counterparty: 'Tesorería', observation: null,
           expenseCategoryId: null, effectiveAt: context.dbNow
         })
         await transaction.insertTreasuryMovement({

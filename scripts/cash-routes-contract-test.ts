@@ -29,6 +29,7 @@ const fakeService = new Proxy({}, {
     calls.push(`${String(property)}:${input.businessId}`)
     callInputs.push({ property: String(property), input })
     if (input.businessId === 'missing') throw new CashServiceError('BUSINESS_NOT_FOUND')
+    if (property === 'closeRegisterDay' && input.countedCash === 777_777) throw new Error('sensitive CashEntry database detail')
     if (property === 'recordCashOperation' && input.description === 'closed') throw new CashServiceError('CASH_CLOSED')
     if (property === 'listCashEntries') return { entries: [{ id: 'entry-1' }], nextCursor: 'cursor-2' }
     if (property === 'listCashPeriodExpenses') return { entries: [], page: 2, pageSize: 10, total: 0, totalPages: 1 }
@@ -56,6 +57,10 @@ assert.equal(callInputs.findLast((call) => call.property === 'startNewSession')?
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-sessions': 'yes' }, payload: { currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000 } })).statusCode, 403, 'el personal no puede mover fondos a Tesoreria')
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-role': 'BUSINESS_ADMIN' }, payload: { currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000 } })).statusCode, 200)
 assert.deepEqual(callInputs.findLast((call) => call.property === 'closeRegisterDay')?.input, { businessId: 'business-a', currentSessionId: 'session', countedCash: 120_000, cashToLeave: 20_000, actorUserId: 'user', actorName: 'User', acknowledgeDifference: false })
+const internalCloseError = await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-role': 'BUSINESS_ADMIN' }, payload: { currentSessionId: 'session', countedCash: 777_777 } })
+assert.equal(internalCloseError.statusCode, 500)
+assert.doesNotMatch(internalCloseError.body, /sensitive CashEntry database detail/, 'El cierre no debe mostrar detalles internos de la base')
+
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', headers: { 'x-role': 'BUSINESS_ADMIN' }, payload: { currentSessionId: 'session', countedCash: 100, cashToLeave: '20' } })).statusCode, 400)
 
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'closed' } })).statusCode, 409)

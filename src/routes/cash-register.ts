@@ -276,6 +276,10 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     try {
       return await service.closeRegisterDay({ businessId: access.businessId, currentSessionId: body.currentSessionId.trim(), countedCash: body.countedCash, acknowledgeDifference: body.acknowledgeDifference === true, ...(body.cashToLeave === undefined ? {} : { cashToLeave: body.cashToLeave as number, actorUserId: request.auth!.user.id, actorName: request.auth!.user.name }) })
     } catch (error) {
+      if (!(error instanceof CashServiceError || error instanceof CashDomainError)) {
+        request.log.error({ err: error }, 'cash_close_failed')
+        return reply.status(500).send({ code: 'INTERNAL_ERROR', message: 'No pudimos cerrar la caja. Actualizá la jornada antes de reintentar.' })
+      }
       return sendCashError(reply, error)
     }
   })

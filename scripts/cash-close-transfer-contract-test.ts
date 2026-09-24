@@ -20,7 +20,7 @@ function fixture({ treasuryEnabled = true, failAtClose = false } = {}) {
         listDayEntries: async () => draft.entries,
         listDaySessions: async () => [draft.session],
         findTreasuryCashAccount: async () => treasuryEnabled ? { id: 'reserve' } : null,
-        insertCashOperation: async (input: { id: string; type: string; amount: number; method: string; cashSessionId: string }) => { draft.entries.push({ id: input.id, type: input.type as 'PAYMENT', direction: 'OUTFLOW', amount: input.amount, method: input.method as 'CASH', cashSessionId: input.cashSessionId }); return input },
+        insertCashOperation: async (input: { id: string; type: string; amount: number; method: string; cashSessionId: string; counterparty: string | null }) => { assert.ok(input.counterparty?.trim(), "CashEntry_shape_check requires a withdrawal counterparty"); draft.entries.push({ id: input.id, type: input.type as 'PAYMENT', direction: 'OUTFLOW', amount: input.amount, method: input.method as 'CASH', cashSessionId: input.cashSessionId }); return input },
         insertTreasuryMovement: async (input: { amount: number; cashEntryId: string; actorUserId: string }) => { draft.movements.push(input); return input },
         closeSession: async (input: Record<string, number | Date>) => { Object.assign(draft.session, input); return draft.session },
         closeDay: async (input: Record<string, number | Date>) => { if (failAtClose) throw new Error('forced close failure'); Object.assign(draft.day, input); return draft.day }
@@ -82,5 +82,3 @@ const oldClose = await legacy.service.closeRegisterDay({ businessId: 'shop', cur
 assert.equal(oldClose.day.countedClosingCash, 120_000)
 assert.equal(legacy.state.movements.length, 0)
 console.log('OK cierre de Caja: cambio, arqueo, atomicidad y compatibilidad.')
-
-\r\n

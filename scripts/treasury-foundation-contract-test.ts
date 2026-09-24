@@ -6,6 +6,7 @@ import { treasuryRoutes } from '../src/routes/treasury.js'
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
 const migration = readFileSync(new URL('../prisma/migrations/20260923040000_treasury_foundation/migration.sql', import.meta.url), 'utf8')
+const cashLedgerMigration = readFileSync(new URL('../prisma/migrations/20260906120000_add_cash_financial_ledger/migration.sql', import.meta.url), 'utf8')
 const route = readFileSync(new URL('../src/routes/treasury.ts', import.meta.url), 'utf8')
 const ui = readFileSync(new URL('../src/routes/crm-ui/cash-register.ts', import.meta.url), 'utf8')
 assert.match(schema, /model TreasuryAccount/)
@@ -16,6 +17,12 @@ assert.match(route, /FOR UPDATE/)
 assert.match(route, /idempotencyKey/)
 assert.match(route, /requireAuthorizedBusiness/)
 assert.match(route, /app.post\('\/treasury\/from-daily'/)
+assert.match(cashLedgerMigration, /WHEN 'WITHDRAWAL'[\s\S]*?btrim\(coalesce\("counterparty", ''\)\) <> ''/)
+const manualTransferInsert = route.split('const cashEntryId = randomUUID()')[1]?.split('const movement =')[0]
+assert.ok(manualTransferInsert, 'Falta el INSERT del traspaso manual')
+assert.match(manualTransferInsert, /INSERT INTO "CashEntry" \([^)]*"counterparty"/, 'El retiro manual debe tener destinatario')
+assert.match(manualTransferInsert, /'Traspaso interno a Tesorería', 'Tesorería'/, 'El destinatario interno no puede estar vacío')
+
 assert.match(ui, /cash-view-treasury/)
 assert.match(ui, /state.currentUser\?\.role === 'STAFF'/)
 

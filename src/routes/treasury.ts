@@ -160,8 +160,8 @@ export async function treasuryRoutes(app: FastifyInstance) {
         if (body.amount! > expected) throw new Error('INSUFFICIENT_CASH')
         const cashEntryId = randomUUID()
         await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "effectiveAt")
-          VALUES (${cashEntryId}, ${businessId}, ${session.registerDayId}, ${session.id}, 'WITHDRAWAL'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${body.amount}, 'CASH'::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", 'Traspaso interno a Tesorería', clock_timestamp())
+          INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "counterparty", "effectiveAt")
+          VALUES (${cashEntryId}, ${businessId}, ${session.registerDayId}, ${session.id}, 'WITHDRAWAL'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${body.amount}, 'CASH'::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", 'Traspaso interno a Tesorería', 'Tesorería', clock_timestamp())
         `)
         const movement = await tx.treasuryMovement.create({
           data: {
