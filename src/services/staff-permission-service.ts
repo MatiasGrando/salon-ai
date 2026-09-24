@@ -32,9 +32,9 @@ export type StaffPermissions = {
   canViewTodayProfessionalProduction: boolean
   canAdjustCash: boolean
   canManageCashSessions: boolean
-  canViewProducts?: boolean
-  canManageProducts?: boolean
-  canSellProducts?: boolean
+  canViewProducts: boolean
+  canManageProducts: boolean
+  canSellProducts: boolean
 }
 
 export const STAFF_PRESET_DEFINITIONS: Record<Exclude<StaffPermissionPreset, 'CUSTOM'>, {

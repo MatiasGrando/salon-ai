@@ -157,7 +157,17 @@ assert.match(staffRoute, /staff_user_update_failed/, 'los errores internos de Pr
 assert.match(staffRoute, /No pudimos guardar los cambios del usuario/, 'la UI debe recibir un error seguro')
 
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-for (const field of ['staffProfile', 'permissionPreset', 'agendaScope', 'canViewCustomers', 'canViewConversations', 'canViewOperationalReports', 'StaffAuditLog']) {
+for (const field of [
+  'staffProfile', 'permissionPreset', 'agendaScope',
+  'canCreateAppointments', 'canEditAppointments', 'canCancelAppointments', 'canManageScheduleBlocks',
+  'canForceAppointments', 'canViewCustomers', 'canCreateCustomers', 'canEditCustomers',
+  'canManageCustomerNotes', 'canManageCustomerMarketing', 'canViewConversations', 'canReplyConversations',
+  'canManageDeposits', 'canViewOperationalReports', 'canViewFinancialAmounts', 'canViewCashRegister',
+  'canRecordAppointmentPayments', 'canApplyDiscounts', 'canManageCashOperations',
+  'canViewProfessionalSettlements', 'canManageProfessionalSettlements', 'canViewTodayProfessionalProduction',
+  'canAdjustCash', 'canManageCashSessions', 'canViewProducts', 'canManageProducts', 'canSellProducts',
+  'StaffAuditLog'
+]) {
   assert.ok(schema.includes(field), `el modelo debe persistir ${field}`)
 }
 
