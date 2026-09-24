@@ -378,6 +378,7 @@ const internalRouteRoots = new Set([
   'schedule-blocks',
   'services',
   'staff-users',
+  'treasury',
   'webhooks',
   'whatsapp',
   'whatsapp-pricing',

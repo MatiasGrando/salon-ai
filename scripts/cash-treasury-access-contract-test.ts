@@ -19,8 +19,12 @@ assert.equal(canStaffAccessRoute(user, 'POST', '/professional-settlements/paymen
 assert.equal(canStaffAccessRoute(user, 'GET', '/treasury/accounts'), false)
 assert.equal(canStaffAccessRoute(user, 'POST', '/treasury/movements'), false)
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+const authGuard = readFileSync(new URL('../src/plugins/auth-guard.ts', import.meta.url), 'utf8')
 const routes = readFileSync(new URL('../src/routes/professional-settlements.ts', import.meta.url), 'utf8')
 const ui = readFileSync(new URL('../src/routes/crm-ui/cash-register.ts', import.meta.url), 'utf8')
+const internalRoots = authGuard.split('const internalRouteRoots = new Set([')[1]?.split('])')[0]
+assert.ok(internalRoots, 'No se encontró la lista de rutas internas')
+assert.match(internalRoots, /'treasury'/, 'GET /treasury debe pasar por el control de sesión, no por el landing público')
 assert.match(schema, /canViewTodayProfessionalProduction\s+Boolean/)
 assert.match(routes, /professional-settlements\/today/)
 const todayRoute = routes.split("app.get('/professional-settlements/today'")[1]!.split("app.get('/professional-settlements/summary'")[0]!
