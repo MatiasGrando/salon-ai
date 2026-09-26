@@ -3,6 +3,7 @@ export type CashPaymentMethod = 'CASH' | 'TRANSFER' | 'CARD' | 'UNSPECIFIED'
 export type CashEntryType =
   | 'PAYMENT'
   | 'LEGACY_PAYMENT'
+  | 'INCOME'
   | 'EXPENSE'
   | 'WITHDRAWAL'
   | 'CASH_IN'
@@ -177,7 +178,7 @@ export function summarizeCashRegister(input: {
     const reversedType = entry.type === 'REVERSAL' ? entry.reversedEntryType : undefined
     const effectiveType = reversedType ?? entry.type
 
-    if (effectiveType === 'PAYMENT') {
+    if (effectiveType === 'PAYMENT' || effectiveType === 'INCOME' || effectiveType === 'CASH_IN') {
       grossCollected += signed
       if (entry.method && entry.method !== 'UNSPECIFIED') collectedByMethod[entry.method] += signed
     }
@@ -190,6 +191,7 @@ export function summarizeCashRegister(input: {
 
     if (entry.method === 'CASH' && [
       'PAYMENT',
+      'INCOME',
       'REFUND',
       'EXPENSE',
       'WITHDRAWAL',

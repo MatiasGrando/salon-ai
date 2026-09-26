@@ -65,8 +65,8 @@ assert.match(
 )
 assert.match(
   crmUiSource,
-  /state\.agendaSelectedDate = addDays\(state\.agendaSelectedDate, dayOffset\)/,
-  'el fallback del gesto debe avanzar o retroceder un dia'
+  /await navigateAgendaToDate\(addDays\(state\.agendaSelectedDate, dayOffset\)\)/,
+  'el fallback del gesto debe avanzar o retroceder un dia usando la precarga'
 )
 assert.match(
   crmUiSource,

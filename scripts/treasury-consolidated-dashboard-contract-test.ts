@@ -14,6 +14,17 @@ assert.equal(result.outgoingByMethod.CASH, 55000)
 assert.equal(result.totalByMethod.CASH, 45000)
 assert.equal(result.totalByMethod.TRANSFER, 30000)
 assert.equal(result.totalByMethod.CARD, 5000)
+const withTreasuryIncome = consolidateCashAndTreasury(
+  cash,
+  { CASH: 0, TRANSFER: 5_000, CARD: 0, UNSPECIFIED: 0 },
+  { CASH: 0, TRANSFER: 20_000, CARD: 0, UNSPECIFIED: 0 }
+)
+assert.equal(withTreasuryIncome.incomingTreasury, 20_000)
+assert.equal(withTreasuryIncome.collected, 170_000)
+assert.equal(withTreasuryIncome.outgoingTreasury, 5_000)
+assert.equal(withTreasuryIncome.total, 130_000)
+assert.equal(withTreasuryIncome.collectedByMethod.TRANSFER, 60_000)
+assert.equal(withTreasuryIncome.totalByMethod.TRANSFER, 45_000)
 const route = readFileSync('src/routes/treasury.ts', 'utf8')
 const ui = readFileSync('src/routes/crm-ui/cash-register.ts', 'utf8')
 for (const marker of ['/treasury/consolidated', 'PROFESSIONAL_PAYMENT', 'PROFESSIONAL_ADVANCE', "'EXPENSE'", 'AT TIME ZONE', 'normalizeCashPeriodRange']) assert.ok(route.includes(marker), `falta ${marker}`)

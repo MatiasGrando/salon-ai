@@ -10,8 +10,8 @@ assert.match(routesSource, /\/cash-register\/period\/summary/)
 assert.match(routesSource, /\/cash-register\/period\/expenses/)
 assert.match(repositorySource, /listPeriodEntries/)
 assert.match(repositorySource, /listPeriodExpenses/)
-assert.match(uiSource, /Jornada y sesiones/)
-assert.match(uiSource, /Consultar per(?:&iacute;|í)odo/)
+assert.match(uiSource, /Caja actual/)
+assert.match(uiSource, /Historial de caja/)
 assert.match(uiSource, /M(?:&aacute;|á)ximo 31 d(?:&iacute;|í)as/)
 assert.match(uiSource, /Gastos del per(?:&iacute;|í)odo/)
 assert.match(uiSource, /cash-period-page-size/)
@@ -41,7 +41,7 @@ const transaction = {
     { type: 'REFUND', direction: 'OUTFLOW', amount: 10_000, method: 'CASH' },
     { type: 'EXPENSE', direction: 'OUTFLOW', amount: 20_000, method: 'CASH', expenseCategoryName: 'Alquiler' },
     { type: 'WITHDRAWAL', direction: 'OUTFLOW', amount: 5_000, method: 'CASH' },
-    { type: 'CASH_IN', direction: 'INFLOW', amount: 3_000, method: 'CASH' }
+    { type: 'INCOME', direction: 'INFLOW', amount: 3_000, method: 'CASH' }
   ],
   findExpenseCategory: async () => ({ id: 'category-1' }),
   listPeriodExpenses: async (input: any) => {
@@ -57,12 +57,12 @@ const transaction = {
 }
 const service = new CashService({ transaction: async (work: any) => work(transaction) } as any)
 const summary = await service.getCashPeriodSummary({ businessId: 'business-1', from: '2026-09-01', to: '2026-09-30' })
-assert.equal(summary.summary.grossCollected, 150_000)
-assert.equal(summary.summary.netSales, 140_000)
+assert.equal(summary.summary.grossCollected, 153_000)
+assert.equal(summary.summary.netSales, 143_000)
 assert.equal(summary.summary.expenses, 20_000)
-assert.equal(summary.summary.operatingResult, 120_000)
+assert.equal(summary.summary.operatingResult, 123_000)
 assert.equal(summary.summary.withdrawals, 5_000)
-assert.equal(summary.summary.cashIn, 3_000)
+assert.equal(summary.summary.cashIn, 0)
 assert.deepEqual(summary.summary.expenseByCategory, [{ name: 'Alquiler', amount: 20_000 }])
 
 const expenses = await service.listCashPeriodExpenses({

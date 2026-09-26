@@ -1,6 +1,6 @@
 import { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
-import { workshopVehiclePublicUrl } from './workshop-qr.js'
+import { workshopVehicleCampaignUrl } from './workshop-qr.js'
 
 export type WorkshopCampaignCycleRow = {
   customerId: string
@@ -56,7 +56,7 @@ export function buildWorkshopDueAudience(rows: WorkshopCampaignCycleRow[], now =
 
     let publicUrl: string | null = null
     if (row.publicSiteUrl) {
-      try { publicUrl = workshopVehiclePublicUrl(row.publicSiteUrl, row.plate) } catch { publicUrl = null }
+      try { publicUrl = workshopVehicleCampaignUrl(row.publicSiteUrl, row.plate) } catch { publicUrl = null }
     }
     vehicles.set(row.vehicleId, {
       id: row.customerId,
@@ -109,7 +109,7 @@ export function buildWorkshopInactiveAudience(rows: WorkshopInactiveRow[], segme
     }
     let publicUrl: string | null = null
     if (row.publicSiteUrl) {
-      try { publicUrl = workshopVehiclePublicUrl(row.publicSiteUrl, row.plate) } catch { publicUrl = null }
+      try { publicUrl = workshopVehicleCampaignUrl(row.publicSiteUrl, row.plate) } catch { publicUrl = null }
     }
     included.push({
       id: row.customerId,

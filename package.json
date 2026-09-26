@@ -98,6 +98,7 @@
     "test:manual-appointment-filter": "tsx scripts/manual-appointment-service-filter-contract-test.ts",
     "test:manual-appointment-deposit": "tsx scripts/manual-appointment-deposit-contract-test.ts",
     "test:manual-appointment-payment": "tsx scripts/manual-appointment-payment-contract-test.ts",
+    "test:manual-appointment-add-service": "tsx scripts/manual-appointment-add-service-contract-test.ts",
     "test:appointment-origin": "tsx scripts/appointment-origin-contract-test.ts",
     "test:manual-appointment-customer-search": "tsx scripts/manual-appointment-customer-search-contract-test.ts",
     "test:manual-appointment-customer-edit": "tsx scripts/manual-appointment-customer-edit-contract-test.ts",
@@ -268,7 +269,9 @@
     "test:cash-period-report": "tsx scripts/cash-period-report-contract-test.ts",
     "test:appointment-completion-payment": "tsx scripts/appointment-completion-payment-contract-test.ts",
     "test:agenda-appointment-status-badges": "tsx scripts/agenda-appointment-status-badges-contract-test.ts",
-    "test:professional-settlements": "tsx scripts/professional-settlements-contract-test.ts"
+    "test:professional-settlements": "tsx scripts/professional-settlements-contract-test.ts",
+    "test:business-operational-reset": "tsx scripts/business-operational-reset-contract-test.ts",
+    "test:financial-effective-date": "tsx scripts/financial-effective-date-contract-test.ts"
   },
   "keywords": [],
   "author": "",

@@ -27,6 +27,12 @@ export function workshopVehiclePublicUrl(baseUrl: string, plate: string) {
   return url.toString()
 }
 
+export function workshopVehicleCampaignUrl(baseUrl: string, plate: string) {
+  const url = new URL(workshopVehiclePublicUrl(baseUrl, plate))
+  url.hash = ''
+  return url.toString()
+}
+
 export function workshopVehicleQrDataUrl(publicUrl: string) {
   return QRCode.toDataURL(publicUrl, {
     errorCorrectionLevel: 'M',

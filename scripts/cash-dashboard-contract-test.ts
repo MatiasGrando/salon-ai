@@ -9,13 +9,13 @@ const summary = summarizeCashRegister({ openingCash: 20_000, entries: [
   { type: 'EXPENSE', direction: 'OUTFLOW', amount: 20_000, method: 'CASH' },
   { type: 'EXPENSE', direction: 'OUTFLOW', amount: 5_000, method: 'TRANSFER' },
   { type: 'WITHDRAWAL', direction: 'OUTFLOW', amount: 30_000, method: 'CASH' },
-  { type: 'CASH_IN', direction: 'INFLOW', amount: 3_000, method: 'CASH' }
+  { type: 'INCOME', direction: 'INFLOW', amount: 3_000, method: 'CASH' }
 ] })
-assert.equal(summary.grossCollected, 150_000)
+assert.equal(summary.grossCollected, 153_000)
 assert.equal(summary.outgoingByMethod.CASH, 30_000)
 assert.equal(summary.outgoingByMethod.TRANSFER, 5_000)
 assert.equal(summary.expenses + summary.refunds, 35_000)
-assert.equal(summary.net, 115_000)
+assert.equal(summary.net, 118_000)
 assert.equal(summary.expectedCash, 63_000)
 const source = readFileSync('src/routes/crm-ui/cash-register.ts', 'utf8')
 for (const marker of ['Cobrado', 'Egresos', 'Total', 'cash-outgoing-cash', 'cash-total-cash', 'cash-period-outgoing-cash', 'cash-period-total-cash', 'cash-unknown-collected-row', 'cash-period-unknown-total-row']) assert.ok(source.includes(marker), `falta ${marker}`)

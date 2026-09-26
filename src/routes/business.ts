@@ -5,10 +5,11 @@ import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
 import { BusinessService } from '../services/business-service.js'
-import type { AuthContext } from '../services/auth-service.js'
+import { verifyPassword, type AuthContext } from '../services/auth-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
 import { CashDomainError, assertIanaTimezone } from '../services/cash-domain.js'
+import { getBusinessOperationalResetPreview, operationalResetConfirmationMatches, resetBusinessOperationalData } from '../services/business-operational-reset.js'
 import {
   businessAccessWhere,
   canCreateBusiness,
@@ -20,6 +21,59 @@ const service = new BusinessService()
 const LANDING_TEMPLATES = new Set(['classic', 'editorial', 'salon-white', 'luxe-nails'])
 
 export async function businessRoutes(app: FastifyInstance) {
+  app.get('/businesses/:id/operational-reset-preview', async (request, reply) => {
+    const actor = request.auth?.user
+    if (!actor || !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
+      return reply.status(403).send({ message: 'Solo un administrador puede revisar este reinicio' })
+    }
+    const params = request.params as { id: string }
+    if (!await requireAuthorizedBusiness(prisma, actor, params.id)) {
+      return reply.status(404).send({ message: 'Comercio no encontrado' })
+    }
+    return getBusinessOperationalResetPreview(params.id)
+  })
+  app.post('/businesses/:id/operational-reset', async (request, reply) => {
+    const actor = request.auth?.user
+    if (!actor || !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
+      return reply.status(403).send({ message: 'Solo un administrador puede borrar datos de prueba' })
+    }
+
+    const params = request.params as { id: string }
+    const body = request.body as { businessName?: string; phrase?: string; password?: string }
+    if (!await requireAuthorizedBusiness(prisma, actor, params.id)) {
+      return reply.status(404).send({ message: 'Comercio no encontrado' })
+    }
+
+    const [business, user] = await Promise.all([
+      prisma.business.findUnique({ where: { id: params.id }, select: { id: true, name: true } }),
+      prisma.user.findUnique({ where: { id: actor.id }, select: { passwordHash: true } })
+    ])
+    if (!business || !user) return reply.status(404).send({ message: 'Comercio no encontrado' })
+    if (!body.password || !await verifyPassword(body.password, user.passwordHash)) {
+      return reply.status(403).send({ message: 'La contraseña no es correcta' })
+    }
+    if (!operationalResetConfirmationMatches({
+      businessName: business.name,
+      confirmation: body.businessName || '',
+      phrase: body.phrase || ''
+    })) {
+      return reply.status(400).send({
+        message: 'Escribí exactamente el nombre del comercio y BORRAR DATOS DE PRUEBA'
+      })
+    }
+
+    try {
+      return await resetBusinessOperationalData({
+        businessId: business.id,
+        actorUserId: actor.id,
+        actorName: actor.name,
+        requestPath: '/businesses/:id/operational-reset'
+      })
+    } catch (error) {
+      request.log.error({ err: error, businessId: business.id, actorUserId: actor.id }, 'business_operational_reset_failed')
+      return reply.status(500).send({ message: 'No pudimos borrar los datos de prueba. No se aplicaron cambios parciales.' })
+    }
+  })
 
   app.post('/businesses', async (request, reply) => {
     if (!request.auth || !canCreateBusiness(request.auth.user)) {

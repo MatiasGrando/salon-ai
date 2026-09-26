@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
+import { authorizedAppointmentWhere } from '../services/tenant-resource-authorization.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashService, CashServiceError } from '../services/cash-service.js'
@@ -59,7 +61,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       payment?: {
         businessId?: string
         cashSessionId?: string
-        lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
+        lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
         observation?: string | null
         agreedAmount?: number
         discountType?: 'AMOUNT' | 'PERCENTAGE'
@@ -171,6 +173,123 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     return result.appointment
   })
 
+  app.post('/appointments/:id/add-service', async (request, reply) => {
+    if (!hasAgendaPermission(request.auth, 'canCreateAppointments') || !hasAgendaPermission(request.auth, 'canEditAppointments')) {
+      return reply.status(403).send({ message: 'No tenes permiso para agregar servicios a una visita' })
+    }
+
+    const params = request.params as { id: string }
+    const body = request.body as {
+      professionalId: string
+      serviceId: string
+      startAt: string
+      force?: boolean
+    }
+    if (body.force && request.auth?.user.role === 'STAFF' && !request.auth.user.canForceAppointments) {
+      return reply.status(403).send({ message: 'No tenes permiso para forzar turnos fuera de disponibilidad' })
+    }
+    const authUser = request.auth?.user
+    if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const appointmentAuthorizationUser = authUser as NonNullable<Parameters<AppointmentService['create']>[1]>
+
+    const anchor = await prisma.appointment.findFirst({
+      where: authorizedAppointmentWhere(authUser, params.id),
+      include: { accountLink: true, serviceItems: true }
+    })
+    if (!anchor) return sendAuthorizationFailure(reply, 'notFound')
+    if (['CANCELLED', 'NO_SHOW'].includes(anchor.status)) {
+      return reply.status(409).send({ code: 'APPOINTMENT_NOT_ACTIVE', message: 'No se pueden agregar servicios a un turno cancelado o ausente' })
+    }
+
+    const visitAppointments = anchor.coordinationGroupId
+      ? await prisma.appointment.findMany({
+          where: { businessId: anchor.businessId, customerId: anchor.customerId, coordinationGroupId: anchor.coordinationGroupId },
+          include: { accountLink: true, serviceItems: true },
+          orderBy: { startAt: 'asc' }
+        })
+      : [anchor]
+    if (visitAppointments.some((appointment) => appointment.accountLink)) {
+      return reply.status(409).send({
+        code: 'APPOINTMENT_FINANCE_ALREADY_STARTED',
+        message: 'La cuenta de esta visita ya fue iniciada. Agrega el servicio como un nuevo turno para no modificar importes ya conciliados.'
+      })
+    }
+
+    const target = visitAppointments.find((appointment) =>
+      appointment.professionalId === body.professionalId && appointment.status !== 'CANCELLED'
+    )
+    let result
+    if (target) {
+      const serviceIds = Array.from(new Set([
+        target.serviceId,
+        ...target.serviceItems.map((item) => item.serviceId),
+        body.serviceId
+      ]))
+      if (target.serviceId === body.serviceId || target.serviceItems.some((item) => item.serviceId === body.serviceId)) {
+        return reply.status(409).send({ code: 'SERVICE_ALREADY_ADDED', message: 'Ese servicio ya forma parte del turno de este profesional' })
+      }
+      result = await service.update({
+        id: target.id,
+        customerId: target.customerId,
+        professionalId: target.professionalId,
+        serviceId: target.serviceId,
+        serviceIds,
+        startAt: target.startAt.toISOString(),
+        manualDepositPaid: target.manualDepositPaid,
+        manualDepositAmount: target.manualDepositAmount,
+        notes: target.notes,
+        attentionColor: target.attentionColor,
+        ...(body.force === undefined ? {} : { force: body.force })
+      }, appointmentAuthorizationUser)
+    } else {
+      const coordinationGroupId = anchor.coordinationGroupId ?? randomUUID()
+      try {
+        result = await service.create({
+          customerId: anchor.customerId,
+          professionalId: body.professionalId,
+          serviceId: body.serviceId,
+          startAt: body.startAt,
+          origin: anchor.origin,
+          coordinationGroupId,
+          ...(body.force === undefined ? {} : { force: body.force })
+        }, appointmentAuthorizationUser, anchor.coordinationGroupId ? {} : {
+          afterCreateInTransaction: async ({ transaction }) => {
+            const updated = await transaction.appointment.updateMany({
+              where: {
+                id: anchor.id,
+                businessId: anchor.businessId,
+                customerId: anchor.customerId,
+                coordinationGroupId: null
+              },
+              data: { coordinationGroupId }
+            })
+            if (updated.count !== 1) throw new Error('COORDINATION_GROUP_CONFLICT')
+          }
+        })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'COORDINATION_GROUP_CONFLICT') {
+          return reply.status(409).send({
+            code: 'COORDINATION_GROUP_CONFLICT',
+            message: 'La visita cambio mientras agregabas el servicio. Actualiza la agenda e intenta nuevamente.'
+          })
+        }
+        throw error
+      }
+    }
+
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        message: result.message,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.forceable !== undefined ? { forceable: result.forceable } : {}),
+        ...(result.conflicts ? { conflicts: result.conflicts } : {})
+      })
+    }
+    return {
+      mode: target ? 'SAME_PROFESSIONAL' : 'COORDINATED_PROFESSIONAL',
+      appointment: result.appointment
+    }
+  })
   app.get('/appointments', async (request, reply) => {
     const query = request.query as {
       businessId?: string
@@ -464,7 +583,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     const body = request.body as {
       businessId?: string
       cashSessionId?: string
-      lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
+      lines?: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
       observation?: string | null
       completeAppointment?: boolean
     }

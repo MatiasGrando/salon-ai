@@ -68,6 +68,16 @@ assert.deepEqual(coordinated, {
   legacyPayments: []
 })
 
+const coordinatedManual = buildAppointmentAccountBackfillPlan([
+  evidence({ appointmentId: 'manual-1', origin: 'MANUAL', coordinationGroupId: 'manual-group', quotedPrice: 12_000 }),
+  evidence({ appointmentId: 'manual-2', origin: 'MANUAL', coordinationGroupId: 'manual-group', quotedPrice: 18_000 })
+])
+assert.equal(coordinatedManual.ok, true)
+if (coordinatedManual.ok) {
+  assert.equal(coordinatedManual.sourceKey, 'coordination:manual-group')
+  assert.equal(coordinatedManual.agreedAmount, 30_000)
+}
+
 assert.deepEqual(buildAppointmentAccountBackfillPlan([
   evidence({ appointmentId: 'bad-web', origin: 'WEB', coordinationGroupId: 'bad-group' }),
   evidence({ appointmentId: 'bad-manual', origin: 'MANUAL', coordinationGroupId: 'bad-group' })

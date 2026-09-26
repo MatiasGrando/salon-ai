@@ -7781,6 +7781,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       background: #fff;
     }
 
+    .service-icon-button.is-loading[data-loading-icon-only="true"] > .ti {
+      display: none;
+    }
+
     .service-icon-button .ti,
     .services-title-icon .ti,
     .service-count-icon .ti,
@@ -9081,6 +9085,32 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       display: flex;
     }
 
+    .operational-reset-zone { margin-top:22px; padding:18px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:center; border:1px solid #fecaca; border-radius:14px; background:#fff7f7; }
+    .operational-reset-zone[hidden] { display:none; }
+    .operational-reset-zone h3 { margin:0; color:#991b1b; font-size:16px; }
+    .operational-reset-zone p { margin:6px 0 0; color:#7f1d1d; font-size:13px; line-height:1.5; }
+    .operational-reset-dialog { width:min(680px,calc(100vw - 28px)); max-height:min(88vh,760px); overflow:auto; padding:0; }
+    .operational-reset-dialog-head { padding:20px 22px; display:flex; align-items:flex-start; justify-content:space-between; gap:16px; border-bottom:1px solid #fee2e2; background:#fff7f7; }
+    .operational-reset-dialog-head h3 { margin:0; color:#991b1b; }
+    .operational-reset-dialog-head p { margin:6px 0 0; color:#7f1d1d; font-size:13px; line-height:1.45; }
+    .operational-reset-form { padding:20px 22px 22px; display:grid; gap:18px; }
+    .operational-reset-impact { padding:14px 16px; border:1px solid #fed7aa; border-radius:12px; background:#fffaf0; }
+    .operational-reset-impact strong { color:#9a3412; }
+    .operational-reset-impact ul { margin:10px 0 0; padding-left:20px; display:grid; gap:6px; color:#7c2d12; font-size:12px; line-height:1.4; }
+    .operational-reset-preview { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .operational-reset-preview span { padding:9px 10px; display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid #fed7aa; border-radius:8px; background:#fff; color:#7c2d12; font-size:11px; }
+    .operational-reset-preview strong { font-size:14px; font-variant-numeric:tabular-nums; }
+    .operational-reset-confirmation { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .operational-reset-confirmation .settings-field { min-width:0; }
+    .operational-reset-confirmation code { overflow-wrap:anywhere; color:#991b1b; }
+    .operational-reset-dialog .dialog-actions { position:sticky; bottom:-22px; margin:0 -22px -22px; padding:14px 22px; border-top:1px solid #fee2e2; background:#fff; }
+    @media (max-width:640px) {
+      .operational-reset-zone { grid-template-columns:1fr; }
+      .operational-reset-zone button { width:100%; }
+      .operational-reset-confirmation, .operational-reset-preview { grid-template-columns:1fr; }
+      .operational-reset-dialog-head, .operational-reset-form { padding-left:16px; padding-right:16px; }
+      .operational-reset-dialog .dialog-actions { margin-left:-16px; margin-right:-16px; padding-left:16px; padding-right:16px; }
+    }
     .settings-actions {
       display: flex;
       justify-content: flex-end;
@@ -12465,6 +12495,64 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       gap: 10px;
     }
 
+    .appointment-visit-services {
+      padding: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      display: grid;
+      gap: 12px;
+      background: #f8fafc;
+    }
+
+    .appointment-visit-services[hidden],
+    .appointment-add-service-panel[hidden] { display: none; }
+
+    .appointment-visit-services-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .appointment-visit-services-header h4 { margin: 0; color: #0f172a; font-size: 14px; }
+    .appointment-visit-services-header p { margin: 4px 0 0; color: #64748b; font-size: 12px; line-height: 1.4; }
+
+    .appointment-visit-services-list { display: grid; gap: 8px; }
+
+    .appointment-visit-service-row {
+      padding: 10px 12px;
+      border: 1px solid #dbe3ed;
+      border-radius: 9px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      background: #fff;
+      color: #334155;
+      font-size: 12px;
+    }
+
+    .appointment-visit-service-row strong { color: #0f172a; }
+    .appointment-visit-service-row span { white-space: nowrap; }
+
+    .appointment-add-service-panel {
+      padding: 14px;
+      border: 1px solid #93c5fd;
+      border-radius: 10px;
+      display: grid;
+      gap: 12px;
+      background: #eff6ff;
+    }
+
+    .appointment-add-service-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .appointment-add-service-grid .full { grid-column: 1 / -1; }
+    .appointment-add-service-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .appointment-add-service-feedback { min-height: 18px; margin: 0; color: #b42318; font-size: 12px; }
+
     .appointment-additional {
       border: 1px solid #b8c4d4;
       border-radius: 10px;
@@ -13030,9 +13118,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         width: 100%;
       }
 
-      .appointment-form .split-row {
+      .appointment-form .split-row,
+      .appointment-add-service-grid {
         grid-template-columns: 1fr;
       }
+
+      .appointment-add-service-grid .full { grid-column: auto; }
+      .appointment-visit-services-header { flex-direction: column; }
+      .appointment-visit-services-header > button { width: 100%; }
+      .appointment-visit-service-row { flex-direction: column; gap: 4px; }
+      .appointment-visit-service-row span { white-space: normal; }
 
       .appointment-customer-technical-profile {
         padding: 11px 12px;
@@ -16671,6 +16766,37 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <select id="appointment-service" required></select>
             </div>
           </div>
+          <section class="appointment-visit-services" id="appointment-visit-services" hidden>
+            <div class="appointment-visit-services-header">
+              <div>
+                <h4>Servicios de la visita</h4>
+                <p>Sum&aacute; otro servicio sin volver a buscar al cliente. Si cambia el profesional, se crear&aacute; un tramo coordinado.</p>
+              </div>
+              <button class="secondary" id="appointment-add-service-open" type="button">+ Agregar servicio a esta visita</button>
+            </div>
+            <div class="appointment-visit-services-list" id="appointment-visit-services-list"></div>
+            <div class="appointment-add-service-panel" id="appointment-add-service-panel" hidden>
+              <div class="appointment-add-service-grid">
+                <div class="form-row">
+                  <label for="appointment-add-service-service">Servicio</label>
+                  <select id="appointment-add-service-service"></select>
+                </div>
+                <div class="form-row">
+                  <label for="appointment-add-service-professional">Profesional</label>
+                  <select id="appointment-add-service-professional"></select>
+                </div>
+                <div class="form-row full">
+                  <label for="appointment-add-service-start">Comienza</label>
+                  <input class="field" id="appointment-add-service-start" type="datetime-local">
+                </div>
+              </div>
+              <p class="appointment-add-service-feedback" id="appointment-add-service-feedback" role="status"></p>
+              <div class="appointment-add-service-actions">
+                <button class="secondary" id="appointment-add-service-cancel" type="button">Cancelar</button>
+                <button class="primary" id="appointment-add-service-submit" type="button">Agregar a la visita</button>
+              </div>
+            </div>
+          </section>
           <div class="form-row">
             <label for="appointment-customer-search">Buscar cliente existente</label>
             <div class="appointment-customer-combobox">
@@ -16743,6 +16869,50 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       </section>
     </div>
 
+    <div class="dialog-backdrop" id="operational-reset-dialog" hidden>
+      <section class="dialog operational-reset-dialog" role="dialog" aria-modal="true" aria-labelledby="operational-reset-title" aria-describedby="operational-reset-description">
+        <header class="operational-reset-dialog-head">
+          <div>
+            <h3 id="operational-reset-title">Borrar datos de prueba</h3>
+            <p id="operational-reset-description">Esta acci&oacute;n reinicia la operaci&oacute;n del comercio y no se puede deshacer.</p>
+          </div>
+          <button class="icon-button" id="operational-reset-x" type="button" aria-label="Cerrar">X</button>
+        </header>
+        <form class="operational-reset-form" id="operational-reset-form">
+          <div class="operational-reset-impact">
+            <strong>Se borrar&aacute;n de forma permanente:</strong>
+            <ul>
+              <li>Turnos, se&ntilde;as y cuentas asociadas.</li>
+              <li>Cobros, ingresos, gastos, retiros, jornadas y sesiones de Caja.</li>
+              <li>Movimientos y saldos de Tesorer&iacute;a.</li>
+              <li>Ventas de productos y liquidaciones profesionales.</li>
+            </ul>
+          </div>
+          <div class="operational-reset-preview" id="operational-reset-preview" aria-live="polite"><span>Calculando datos actuales...</span></div>
+          <p class="settings-section-help">Se conservar&aacute;n profesionales, servicios, productos, clientes, horarios, categor&iacute;as, medios de pago, usuarios y toda la configuraci&oacute;n.</p>
+          <div class="operational-reset-confirmation">
+            <div class="settings-field">
+              <label for="operational-reset-business-name">Escrib&iacute; el nombre del comercio</label>
+              <input class="field" id="operational-reset-business-name" autocomplete="off" required>
+              <small>Debe coincidir exactamente con <strong id="operational-reset-expected-name"></strong>.</small>
+            </div>
+            <div class="settings-field">
+              <label for="operational-reset-phrase">Escrib&iacute; <code>BORRAR DATOS DE PRUEBA</code></label>
+              <input class="field" id="operational-reset-phrase" autocomplete="off" required>
+            </div>
+            <div class="settings-field">
+              <label for="operational-reset-password">Tu contrase&ntilde;a</label>
+              <input class="field" id="operational-reset-password" type="password" autocomplete="current-password" required>
+            </div>
+          </div>
+          <p class="settings-feedback" id="operational-reset-feedback" role="status" aria-live="assertive"></p>
+          <div class="dialog-actions">
+            <button class="secondary" id="operational-reset-cancel" type="button">Cancelar</button>
+            <button class="danger" id="operational-reset-submit" type="submit" disabled>Borrar definitivamente</button>
+          </div>
+        </form>
+      </section>
+    </div>
     <div class="dialog-backdrop" id="confirmation-dialog" hidden>
       <section class="dialog confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirmation-dialog-title" aria-describedby="confirmation-dialog-message">
         <div class="confirmation-dialog-icon" aria-hidden="true">!</div>
@@ -18186,6 +18356,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </div>
             <p class="settings-feedback" id="business-settings-feedback" role="status" aria-live="polite"></p>
           </form>
+          <section class="operational-reset-zone" id="operational-reset-zone" hidden aria-labelledby="operational-reset-zone-title">
+            <div>
+              <h3 id="operational-reset-zone-title">Zona de riesgo</h3>
+              <p>Borr&aacute; turnos y movimientos cargados durante las pruebas sin perder profesionales, servicios, productos, clientes ni configuraciones.</p>
+            </div>
+            <button class="danger" id="operational-reset-open" type="button">Borrar datos de prueba</button>
+          </section>
         </section>
 
         <section class="settings-panel" data-settings-panel="landing" hidden>
@@ -18630,7 +18807,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"> Ver Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"> Aplicar descuentos</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"> Registrar ingresos y egresos de Caja</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
+                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"> Abrir, cerrar y cambiar responsable de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
@@ -20152,7 +20334,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanManageDeposits: document.getElementById('staff-can-manage-deposits'),
       staffCanViewReports: document.getElementById('staff-can-view-reports'),
       staffCanViewFinancial: document.getElementById('staff-can-view-financial'),
+      staffCanViewCashRegister: document.getElementById('staff-can-view-cash-register'),
       staffCanRecordAppointmentPayments: document.getElementById('staff-can-record-appointment-payments'),
+      staffCanApplyDiscounts: document.getElementById('staff-can-apply-discounts'),
+      staffCanManageCashOperations: document.getElementById('staff-can-manage-cash-operations'),
+      staffCanAdjustCash: document.getElementById('staff-can-adjust-cash'),
+      staffCanManageCashSessions: document.getElementById('staff-can-manage-cash-sessions'),
       staffCanViewTodayProfessionalProduction: document.getElementById('staff-can-view-today-professional-production'),
       staffCanViewProducts: document.getElementById('staff-can-view-products'),
       staffCanSellProducts: document.getElementById('staff-can-sell-products'),
@@ -20677,6 +20864,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       appointmentStart: document.getElementById('appointment-start'),
       appointmentProfessional: document.getElementById('appointment-professional'),
       appointmentService: document.getElementById('appointment-service'),
+      appointmentVisitServices: document.getElementById('appointment-visit-services'),
+      appointmentVisitServicesList: document.getElementById('appointment-visit-services-list'),
+      appointmentAddServiceOpen: document.getElementById('appointment-add-service-open'),
+      appointmentAddServicePanel: document.getElementById('appointment-add-service-panel'),
+      appointmentAddServiceService: document.getElementById('appointment-add-service-service'),
+      appointmentAddServiceProfessional: document.getElementById('appointment-add-service-professional'),
+      appointmentAddServiceStart: document.getElementById('appointment-add-service-start'),
+      appointmentAddServiceFeedback: document.getElementById('appointment-add-service-feedback'),
+      appointmentAddServiceCancel: document.getElementById('appointment-add-service-cancel'),
+      appointmentAddServiceSubmit: document.getElementById('appointment-add-service-submit'),
       appointmentCustomer: document.getElementById('appointment-customer'),
       appointmentCustomerSearch: document.getElementById('appointment-customer-search'),
       appointmentCustomerResults: document.getElementById('appointment-customer-results'),
@@ -20719,6 +20916,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       availabilityBandPreview: document.getElementById('availability-band-preview'),
       businessSettingsSubmit: document.getElementById('business-settings-submit'),
       businessSettingsFeedback: document.getElementById('business-settings-feedback'),
+      operationalResetZone: document.getElementById('operational-reset-zone'),
+      operationalResetOpen: document.getElementById('operational-reset-open'),
+      operationalResetDialog: document.getElementById('operational-reset-dialog'),
+      operationalResetForm: document.getElementById('operational-reset-form'),
+      operationalResetBusinessName: document.getElementById('operational-reset-business-name'),
+      operationalResetExpectedName: document.getElementById('operational-reset-expected-name'),
+      operationalResetPhrase: document.getElementById('operational-reset-phrase'),
+      operationalResetPassword: document.getElementById('operational-reset-password'),
+      operationalResetFeedback: document.getElementById('operational-reset-feedback'),
+      operationalResetPreview: document.getElementById('operational-reset-preview'),
+      operationalResetSubmit: document.getElementById('operational-reset-submit'),
+      operationalResetCancel: document.getElementById('operational-reset-cancel'),
+      operationalResetX: document.getElementById('operational-reset-x'),
       businessEmail: document.getElementById('business-email'),
       businessInstagram: document.getElementById('business-instagram'),
       businessFacebook: document.getElementById('business-facebook'),
@@ -22342,6 +22552,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
       if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
       if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
+      if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
       if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
       if (els.appointmentNoShow) els.appointmentNoShow.disabled = !canCancelAppointments()
@@ -23038,7 +23249,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canManageDeposits: els.staffCanManageDeposits,
         canViewOperationalReports: els.staffCanViewReports,
         canViewFinancialAmounts: els.staffCanViewFinancial,
+        canViewCashRegister: els.staffCanViewCashRegister,
         canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments,
+        canApplyDiscounts: els.staffCanApplyDiscounts,
+        canManageCashOperations: els.staffCanManageCashOperations,
+        canAdjustCash: els.staffCanAdjustCash,
+        canManageCashSessions: els.staffCanManageCashSessions,
         canViewTodayProfessionalProduction: els.staffCanViewTodayProfessionalProduction,
         canViewProducts: els.staffCanViewProducts,
         canSellProducts: els.staffCanSellProducts,
@@ -23145,7 +23361,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canViewConversations) labels.push('Conversaciones')
       if (user.canManageDeposits) labels.push('Señas')
       if (user.canViewOperationalReports) labels.push('Reportes')
+      if (user.canViewCashRegister) labels.push('Ve Caja')
       if (user.canRecordAppointmentPayments) labels.push('Pagos de turnos')
+      if (user.canApplyDiscounts) labels.push('Descuentos')
+      if (user.canManageCashOperations) labels.push('Operaciones de Caja')
+      if (user.canAdjustCash) labels.push('Ajustes de Caja')
+      if (user.canManageCashSessions) labels.push('Abre y cierra Caja')
       if (user.canViewTodayProfessionalProduction) labels.push('Actividad profesionales de hoy')
       if (user.canViewProducts) labels.push('Productos')
       if (user.canSellProducts) labels.push('Venta de productos')
@@ -23522,6 +23743,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.selectedCustomerId = null
       state.agendaAppointments = []
       state.agendaBlocks = []
+      state.agendaLoadedRangeStart = null
+      state.agendaLoadedRangeEnd = null
       state.campaignsLoaded = false
       state.instagramReels = []
       state.instagramReelsLoaded = false
@@ -26387,7 +26610,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       for (const button of els.serviceList.querySelectorAll('[data-toggle-service-active]')) {
-        button.addEventListener('click', () => toggleServiceStatus(button.dataset.toggleServiceActive))
+        button.addEventListener('click', () => toggleServiceStatus(button.dataset.toggleServiceActive, button))
       }
     }
 
@@ -28588,6 +28811,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       updateBusinessBrand()
       renderLandingSettings()
       setWeeklySchedule(businessDayInputs(), state.businessHours)
+      els.operationalResetZone.hidden = !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)
     }
 
     function renderAvailabilityBandPreview() {
@@ -29715,6 +29939,85 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    function syncOperationalResetConfirmation() {
+      const matches = els.operationalResetBusinessName.value === (state.business?.name || '') &&
+        els.operationalResetPhrase.value === 'BORRAR DATOS DE PRUEBA' &&
+        Boolean(els.operationalResetPassword.value)
+      els.operationalResetSubmit.disabled = !matches
+    }
+
+    async function loadOperationalResetPreview() {
+      els.operationalResetPreview.innerHTML = '<span>Calculando datos actuales...</span>'
+      try {
+        const preview = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/operational-reset-preview')
+        const rows = [
+          ['Turnos', preview.appointments],
+          ['Se&ntilde;as', preview.bookingDeposits],
+          ['Movimientos de Caja', preview.cashEntries],
+          ['Movimientos de Tesorer&iacute;a', preview.treasuryMovements],
+          ['Ventas de productos', preview.productSales],
+          ['Movimientos profesionales', preview.professionalEntries],
+          ['Sesiones de Caja', preview.cashSessions],
+          ['Jornadas de Caja', preview.cashRegisterDays]
+        ]
+        els.operationalResetPreview.innerHTML = rows.map((row) => '<span>' + row[0] + '<strong>' + Number(row[1] || 0) + '</strong></span>').join('')
+      } catch (error) {
+        els.operationalResetPreview.innerHTML = '<span>No pudimos calcular el detalle. ' + escapeHtml(error.message) + '</span>'
+      }
+    }
+    function openOperationalResetDialog() {
+      if (!['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)) return
+      els.operationalResetForm.reset()
+      els.operationalResetExpectedName.textContent = state.business?.name || ''
+      els.operationalResetFeedback.textContent = ''
+      els.operationalResetFeedback.className = 'settings-feedback'
+      els.operationalResetDialog.hidden = false
+      syncOperationalResetConfirmation()
+      void loadOperationalResetPreview()
+      window.setTimeout(() => els.operationalResetBusinessName.focus(), 50)
+    }
+
+    function closeOperationalResetDialog() {
+      if (els.operationalResetSubmit.disabled && els.operationalResetSubmit.dataset.loading === 'true') return
+      els.operationalResetDialog.hidden = true
+      els.operationalResetForm.reset()
+      els.operationalResetPassword.value = ''
+      syncOperationalResetConfirmation()
+    }
+
+    async function submitOperationalReset(event) {
+      event.preventDefault()
+      if (!state.businessId || !state.business?.name) return
+      syncOperationalResetConfirmation()
+      if (els.operationalResetSubmit.disabled) return
+      if (!setButtonLoading(els.operationalResetSubmit, true, 'Borrando datos...')) return
+      let completed = false
+      els.operationalResetFeedback.textContent = 'Reiniciando Caja, Tesorería, turnos y movimientos...'
+      els.operationalResetFeedback.className = 'settings-feedback visible'
+      try {
+        const result = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/operational-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessName: els.operationalResetBusinessName.value,
+            phrase: els.operationalResetPhrase.value,
+            password: els.operationalResetPassword.value
+          })
+        })
+        completed = true
+        const removed = Number(result.appointments || 0) + Number(result.cashEntries || 0) + Number(result.treasuryMovements || 0) + Number(result.productSales || 0)
+        els.operationalResetFeedback.textContent = 'Reinicio completado. Se limpiaron ' + removed + ' registros operativos principales.'
+        els.operationalResetFeedback.className = 'settings-feedback visible success'
+        showCrmToast('Datos de prueba eliminados. El comercio ya puede comenzar desde cero.', 'success')
+        window.setTimeout(() => window.location.reload(), 1400)
+      } catch (error) {
+        els.operationalResetFeedback.textContent = error.message
+        els.operationalResetFeedback.className = 'settings-feedback visible error'
+      } finally {
+        if (!completed) setButtonLoading(els.operationalResetSubmit, false)
+        syncOperationalResetConfirmation()
+      }
+    }
     async function saveBusinessSettings(event) {
       event.preventDefault()
       clearBusinessSettingsFeedback()
@@ -30336,6 +30639,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!state.businessId) {
         state.agendaAppointments = []
         state.agendaBlocks = []
+        state.agendaLoadedRangeStart = null
+        state.agendaLoadedRangeEnd = null
         els.agendaGridWrap.innerHTML = '<div class="agenda-empty">Eleg&iacute; un negocio para cargar la agenda.</div>'
         return
       }
@@ -30348,8 +30653,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
       const rangeStart = monthRange
         ? startOfMondayWeek(monthStart)
-        : addDays(startOfDay(state.agendaSelectedDate), -14)
-      const rangeEnd = addDays(rangeStart, 42)
+        : addDays(startOfDay(state.agendaSelectedDate), -7)
+      const rangeEnd = addDays(rangeStart, monthRange ? 42 : 15)
       const params = new URLSearchParams({
         businessId,
         from: rangeStart.toISOString(),
@@ -30381,6 +30686,40 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       } finally {
         if (requestId === state.agendaLoadRequest) state.agendaLoadController = null
       }
+    }
+
+    function agendaRangeContains(visibleStart, visibleEnd) {
+      return Boolean(
+        state.agendaLoadedRangeStart &&
+        state.agendaLoadedRangeEnd &&
+        visibleStart >= state.agendaLoadedRangeStart &&
+        visibleEnd <= state.agendaLoadedRangeEnd
+      )
+    }
+
+    function agendaShouldRefreshBuffer(visibleStart, visibleEnd) {
+      if (!agendaRangeContains(visibleStart, visibleEnd)) return false
+      const safeStart = addDays(state.agendaLoadedRangeStart, 2)
+      const safeEnd = addDays(state.agendaLoadedRangeEnd, -2)
+      return visibleStart < safeStart || visibleEnd > safeEnd
+    }
+
+    async function navigateAgendaToDate(nextDate) {
+      const selectedDate = startOfDay(nextDate)
+      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
+      const visibleStart = selectedDate
+      const visibleEnd = addDays(selectedDate, viewDays)
+      state.agendaSelectedDate = selectedDate
+      state.agendaMonthDate = new Date(selectedDate)
+
+      if (agendaRangeContains(visibleStart, visibleEnd)) {
+        renderAgenda()
+        if (agendaShouldRefreshBuffer(visibleStart, visibleEnd) && !state.agendaLoadController) {
+          void loadAgenda().catch((error) => console.error(error))
+        }
+        return
+      }
+      await loadAgenda()
     }
 
     function renderAgenda() {
@@ -31374,14 +31713,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function bindAgendaMobileControls(hourHeight, displayRange) {
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
-        state.agendaSelectedDate = addDays(state.agendaSelectedDate, -state.agendaViewDays)
-        state.agendaMonthDate = new Date(state.agendaSelectedDate)
-        await loadAgenda()
+        await navigateAgendaToDate(addDays(state.agendaSelectedDate, -state.agendaViewDays))
       })
       els.agendaGridWrap.querySelector('[data-agenda-next]')?.addEventListener('click', async () => {
-        state.agendaSelectedDate = addDays(state.agendaSelectedDate, state.agendaViewDays)
-        state.agendaMonthDate = new Date(state.agendaSelectedDate)
-        await loadAgenda()
+        await navigateAgendaToDate(addDays(state.agendaSelectedDate, state.agendaViewDays))
       })
       els.agendaGridWrap.querySelector('[data-agenda-view-days]')?.addEventListener('change', (event) => {
         state.agendaViewDays = Number(event.target.value || 1)
@@ -31403,20 +31738,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         renderAgenda()
       })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-today]')?.addEventListener('click', async () => {
-        state.agendaSelectedDate = new Date()
-        state.agendaMonthDate = new Date()
         state.agendaMobileMonthOpen = false
-        await loadAgenda()
+        await navigateAgendaToDate(new Date())
       })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-new]')?.addEventListener('click', () => openAppointmentDialog({ date: state.agendaSelectedDate }))
 
       for (const button of els.agendaGridWrap.querySelectorAll('[data-agenda-date], [data-agenda-mobile-date]')) {
         button.addEventListener('click', async () => {
           if (state.agendaDidDrag) return
-          state.agendaSelectedDate = parseDateKey(button.dataset.agendaDate || button.dataset.agendaMobileDate)
-          state.agendaMonthDate = new Date(state.agendaSelectedDate)
+          const selectedDate = parseDateKey(button.dataset.agendaDate || button.dataset.agendaMobileDate)
           state.agendaMobileMonthOpen = false
-          await loadAgenda()
+          await navigateAgendaToDate(selectedDate)
         })
       }
 
@@ -31548,9 +31880,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             if (currentScroll) {
               state.agendaMobileScrollMinute = displayRange.start + (currentScroll.scrollTop / hourHeight) * 60
             }
-            state.agendaSelectedDate = addDays(state.agendaSelectedDate, dayOffset)
-            state.agendaMonthDate = new Date(state.agendaSelectedDate)
-            await loadAgenda()
+            await navigateAgendaToDate(addDays(state.agendaSelectedDate, dayOffset))
           }
           bindAgendaProfessionalHorizontalDrag(frame, [daysViewport, columnsViewport], syncHorizontalScroll, navigateProfessionalDay)
           for (const button of frame.querySelectorAll('[data-agenda-professional-column]')) {
@@ -31604,20 +31934,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               state.agendaMobileScrollMinute = displayRange.start + (currentScroll.scrollTop / hourHeight) * 60
             }
             const nextSelectedDate = addDays(state.agendaSelectedDate, safeOffset)
-            const nextRenderStart = addDays(startOfDay(nextSelectedDate), -7)
-            const nextRenderEnd = addDays(startOfDay(nextSelectedDate), 24)
-            const hasBufferedRange = state.agendaLoadedRangeStart &&
-              state.agendaLoadedRangeEnd &&
-              nextRenderStart >= state.agendaLoadedRangeStart &&
-              nextRenderEnd <= state.agendaLoadedRangeEnd
-            state.agendaSelectedDate = nextSelectedDate
-            state.agendaMonthDate = new Date(state.agendaSelectedDate)
             try {
-              if (hasBufferedRange) {
-                renderAgenda()
-              } else {
-                await loadAgenda()
-              }
+              await navigateAgendaToDate(nextSelectedDate)
             } finally {
               state.agendaMobilePaging = false
               window.setTimeout(() => {
@@ -32441,6 +32759,162 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    function appointmentVisitSegments(appointment) {
+      if (!appointment) return []
+      const all = [...state.agendaAppointments, ...state.appointments]
+      const unique = new Map(all.map((item) => [item.id, item]))
+      unique.set(appointment.id, appointment)
+      if (!appointment.coordinationGroupId) return [appointment]
+      return Array.from(unique.values())
+        .filter((item) => item.coordinationGroupId === appointment.coordinationGroupId)
+        .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+    }
+
+    function appointmentVisitSuggestedStart(appointment) {
+      const segments = appointmentVisitSegments(appointment)
+      const latestEnd = segments.reduce((latest, segment) => {
+        const duration = Number(segment.totalDurationMinutes || getServiceForAppointment(segment)?.duration || 30)
+        return Math.max(latest, addMinutes(new Date(segment.startAt), duration).getTime())
+      }, new Date(appointment.startAt).getTime())
+      return new Date(latestEnd)
+    }
+
+    function renderAppointmentVisitServices(appointment) {
+      const visible = Boolean(appointment)
+      els.appointmentVisitServices.hidden = !visible
+      els.appointmentAddServicePanel.hidden = true
+      els.appointmentAddServiceFeedback.textContent = ''
+      if (!visible) {
+        els.appointmentVisitServicesList.innerHTML = ''
+        return
+      }
+
+      const segments = appointmentVisitSegments(appointment)
+      els.appointmentVisitServicesList.innerHTML = segments.map((segment) =>
+        '<div class="appointment-visit-service-row">' +
+          '<strong>' + escapeHtml(appointmentServiceLabel(segment)) + '</strong>' +
+          '<span>' + escapeHtml((segment.professional?.name || 'Profesional') + ' · ' + formatTimeOnly(new Date(segment.startAt))) + '</span>' +
+        '</div>'
+      ).join('')
+
+      const financeStarted = segments.some((segment) => Boolean(segment.financeSummary?.accountId))
+      const canAdd = canCreateAppointments() && canEditAppointments() &&
+        !['CANCELLED', 'NO_SHOW', 'COMPLETED'].includes(appointment.status) && !financeStarted
+      els.appointmentAddServiceOpen.hidden = !canAdd
+      if (financeStarted) {
+        els.appointmentVisitServicesList.insertAdjacentHTML(
+          'beforeend',
+          '<p class="appointment-add-service-feedback">La cuenta de esta visita ya fue iniciada. Los servicios nuevos deben cargarse como otro turno.</p>'
+        )
+      }
+    }
+
+    function renderAppointmentAddServiceProfessionals(preferredProfessionalId = '') {
+      const serviceId = els.appointmentAddServiceService.value
+      const professionals = activeProfessionals().filter((professional) =>
+        appointmentServicesForProfessional(professional.id).some((service) => service.id === serviceId)
+      )
+      els.appointmentAddServiceProfessional.innerHTML = professionals.length
+        ? professionals.map((professional) => '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>').join('')
+        : '<option value="">Sin profesionales disponibles</option>'
+      els.appointmentAddServiceProfessional.value = professionals.some((professional) => professional.id === preferredProfessionalId)
+        ? preferredProfessionalId
+        : professionals[0]?.id || ''
+      els.appointmentAddServiceProfessional.disabled = professionals.length === 0
+      els.appointmentAddServiceSubmit.disabled = professionals.length === 0
+    }
+
+    function openAppointmentAddServicePanel() {
+      const appointment = editingAgendaAppointment()
+      if (!appointment) return
+      const usedServiceIds = new Set(appointmentVisitSegments(appointment).flatMap(appointmentServiceIds))
+      const services = bookableServices().filter((service) => !usedServiceIds.has(service.id))
+      els.appointmentAddServiceService.innerHTML = services.length
+        ? services.map((service) => '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>').join('')
+        : '<option value="">No quedan servicios para agregar</option>'
+      els.appointmentAddServiceService.disabled = services.length === 0
+      renderAppointmentAddServiceProfessionals(appointment.professionalId)
+      els.appointmentAddServiceStart.value = toDatetimeLocalValue(appointmentVisitSuggestedStart(appointment))
+      els.appointmentAddServiceFeedback.textContent = ''
+      els.appointmentAddServicePanel.hidden = false
+      if (services.length) els.appointmentAddServiceService.focus()
+    }
+
+    function closeAppointmentAddServicePanel() {
+      els.appointmentAddServicePanel.hidden = true
+      els.appointmentAddServiceFeedback.textContent = ''
+    }
+
+    async function addServiceToAppointmentVisit() {
+      const appointment = editingAgendaAppointment()
+      const serviceId = els.appointmentAddServiceService.value
+      const professionalId = els.appointmentAddServiceProfessional.value
+      const startAt = els.appointmentAddServiceStart.value
+      if (!appointment || !serviceId || !professionalId || !startAt) {
+        els.appointmentAddServiceFeedback.textContent = 'Complet&aacute; servicio, profesional y horario.'
+        return
+      }
+
+      const segments = appointmentVisitSegments(appointment)
+      const sameProfessionalSegment = segments.find((segment) =>
+        segment.professionalId === professionalId && segment.status !== 'CANCELLED'
+      )
+      const existingServiceIds = sameProfessionalSegment ? appointmentServiceIds(sameProfessionalSegment) : []
+      const availabilityInput = {
+        professionalId,
+        serviceId: sameProfessionalSegment?.serviceId || serviceId,
+        serviceIds: sameProfessionalSegment ? [...existingServiceIds, serviceId] : [serviceId],
+        startAt: sameProfessionalSegment ? sameProfessionalSegment.startAt : new Date(startAt).toISOString(),
+        ...(sameProfessionalSegment ? { appointmentId: sameProfessionalSegment.id } : {})
+      }
+
+      let force = false
+      try {
+        const availability = await getJson('/appointments/check-availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(availabilityInput)
+        })
+        const conflicts = Array.isArray(availability.conflicts) ? availability.conflicts : []
+        if (conflicts.length) {
+          force = await confirmManualAppointmentOverride(conflicts, { startAt, professionalId, serviceId })
+          if (!force) return
+        }
+      } catch (error) {
+        els.appointmentAddServiceFeedback.textContent = error.message
+        return
+      }
+
+      if (!setButtonLoading(els.appointmentAddServiceSubmit, true, 'Agregando...')) return
+      try {
+        const submit = (forceOverride) => getJson('/appointments/' + appointment.id + '/add-service', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ professionalId, serviceId, startAt: new Date(startAt).toISOString(), force: forceOverride })
+        })
+        try {
+          await submit(force)
+        } catch (error) {
+          const conflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
+          if (force || error.body?.code !== 'APPOINTMENT_AVAILABILITY_CONFLICT' || !conflicts.length) throw error
+          const confirmed = await confirmManualAppointmentOverride(conflicts, { startAt, professionalId, serviceId })
+          if (!confirmed) return
+          await submit(true)
+        }
+        closeAppointmentAddServicePanel()
+        closeAppointmentDialog()
+        await loadAgenda()
+        if (state.selected) {
+          await loadAppointments()
+          renderAppointments()
+        }
+        showCrmToast('Servicio agregado a la visita.', 'success')
+      } catch (error) {
+        els.appointmentAddServiceFeedback.textContent = error.message || 'No se pudo agregar el servicio.'
+      } finally {
+        setButtonLoading(els.appointmentAddServiceSubmit, false)
+      }
+    }
     function openAppointmentDialog(input = {}) {
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
@@ -32526,6 +33000,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentCustomerName.readOnly = protectsScheduledCustomer
       if (protectsScheduledCustomer) els.appointmentCustomerPhone.value = ''
       updateAppointmentContactActions(appointment)
+      renderAppointmentVisitServices(appointment)
       ${cashRegisterEnabled ? 'prepareAppointmentFinance(appointment)' : ''}
       applyAgendaPermissions()
       els.appointmentDialog.hidden = false
@@ -32543,6 +33018,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       resetAppointmentCustomerTechnicalProfile()
       updateAppointmentContactActions(null)
       closeAppointmentAttentionMenu()
+      closeAppointmentAddServicePanel()
+      els.appointmentVisitServices.hidden = true
     }
 
     function editingAgendaAppointment() {
@@ -32851,6 +33328,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const attentionColor = els.appointmentAttentionColor.value
       let customerId = els.appointmentCustomer.value
       const appointment = editingAgendaAppointment()
+      const selectedServiceIds = appointment
+        ? Array.from(new Set([
+            serviceId,
+            ...appointmentServiceIds(appointment).filter((id) => id !== appointment.serviceId && id !== serviceId)
+          ]))
+        : [serviceId]
       const selectedCustomer = state.customers.find((customer) => customer.id === customerId)
       const customerChanges = appointmentCustomerChanges(
         selectedCustomer,
@@ -32863,8 +33346,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
 
-      if (!appointmentServicesForProfessional(professionalId).some((service) => service.id === serviceId)) {
-        els.appointmentFeedback.textContent = 'El profesional seleccionado no realiza ese servicio.'
+      const professionalServiceIds = new Set(appointmentServicesForProfessional(professionalId).map((service) => service.id))
+      if (selectedServiceIds.some((id) => !professionalServiceIds.has(id))) {
+        els.appointmentFeedback.textContent = 'El profesional seleccionado no realiza todos los servicios del turno.'
         return
       }
 
@@ -32930,6 +33414,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({
             professionalId,
             serviceId,
+            serviceIds: selectedServiceIds,
             startAt: new Date(startAt).toISOString(),
             ...(state.editingAppointmentId ? { appointmentId: state.editingAppointmentId } : {})
           })
@@ -32986,6 +33471,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             customerId,
             professionalId,
             serviceId,
+            serviceIds: selectedServiceIds,
             startAt: new Date(startAt).toISOString(),
             manualDepositPaid,
             manualDepositAmount,
@@ -36402,9 +36888,33 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    async function toggleServiceStatus(id) {
+    function setServiceStatusButtonLoading(button, loading, isActive) {
+      if (!button) return true
+      if (loading) {
+        if (!setButtonLoading(button, true, '')) return false
+        button.dataset.serviceStatusOriginalAriaLabel = button.getAttribute('aria-label') || ''
+        button.dataset.serviceStatusOriginalTitle = button.getAttribute('title') || ''
+        const loadingLabel = isActive ? 'Reactivando servicio...' : 'Pausando servicio...'
+        button.setAttribute('aria-label', loadingLabel)
+        button.setAttribute('title', loadingLabel)
+        return true
+      }
+
+      const originalAriaLabel = button.dataset.serviceStatusOriginalAriaLabel
+      const originalTitle = button.dataset.serviceStatusOriginalTitle
+      setButtonLoading(button, false, '')
+      if (originalAriaLabel) button.setAttribute('aria-label', originalAriaLabel)
+      else button.removeAttribute('aria-label')
+      if (originalTitle) button.setAttribute('title', originalTitle)
+      else button.removeAttribute('title')
+      delete button.dataset.serviceStatusOriginalAriaLabel
+      delete button.dataset.serviceStatusOriginalTitle
+      return true
+    }
+
+    async function toggleServiceStatus(id, triggerButton = null) {
       const service = state.services.find((item) => item.id === id)
-      if (!service) return
+      if (!service || pendingServiceLifecycleIds.has(id)) return
       const isActivating = service.isActive === false
       const accepted = await requestCrmConfirmation(
         isActivating
@@ -36412,14 +36922,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           : '¿Querés dejar de ofrecer ' + service.name + ' para nuevas reservas? Su historial se conservará.',
         { title: isActivating ? 'Reactivar servicio' : 'Desactivar servicio', confirmLabel: isActivating ? 'Sí, reactivar' : 'Sí, desactivar', danger: !isActivating }
       )
-      if (accepted) await setServiceActive(service, isActivating)
+      if (accepted) await setServiceActive(service, isActivating, triggerButton)
     }
 
-    async function setServiceActive(serviceOrId, isActive) {
+    async function setServiceActive(serviceOrId, isActive, triggerButton = null) {
       const service = typeof serviceOrId === 'string'
         ? state.services.find((item) => item.id === serviceOrId)
         : serviceOrId
-      if (!service) return
+      if (!service || pendingServiceLifecycleIds.has(service.id)) return
+      if (!setServiceStatusButtonLoading(triggerButton, true, isActive)) return
+      pendingServiceLifecycleIds.add(service.id)
       try {
         await getJson('/services/' + service.id + '/status', {
           method: 'PATCH',
@@ -36433,6 +36945,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       } catch (error) {
         els.serviceFeedback.textContent = error.message
         showCrmToast(error.message || 'No se pudo actualizar el servicio.', 'error')
+      } finally {
+        pendingServiceLifecycleIds.delete(service.id)
+        setServiceStatusButtonLoading(triggerButton, false, isActive)
       }
     }
 
@@ -37324,6 +37839,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.demoChatForm?.addEventListener('submit', sendDemoChatMessage)
     els.businessSettingsForm.addEventListener('submit', saveBusinessSettings)
+    els.operationalResetOpen.addEventListener('click', openOperationalResetDialog)
+    els.operationalResetCancel.addEventListener('click', closeOperationalResetDialog)
+    els.operationalResetX.addEventListener('click', closeOperationalResetDialog)
+    els.operationalResetForm.addEventListener('submit', submitOperationalReset)
+    for (const eventName of ['input', 'change']) els.operationalResetForm.addEventListener(eventName, syncOperationalResetConfirmation)
+    els.operationalResetDialog.addEventListener('click', (event) => {
+      if (event.target === els.operationalResetDialog) closeOperationalResetDialog()
+    })
     els.availabilityMorningCutTime.addEventListener('input', renderAvailabilityBandPreview)
     els.availabilityEveningCutTime.addEventListener('input', renderAvailabilityBandPreview)
     els.landingSettingsForm.addEventListener('submit', saveLandingSettings)
@@ -37785,19 +38308,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
     els.agendaToday.addEventListener('click', async () => {
-      state.agendaSelectedDate = new Date()
-      state.agendaMonthDate = new Date()
-      await loadAgenda()
+      await navigateAgendaToDate(new Date())
     })
     els.agendaPrev.addEventListener('click', async () => {
-      state.agendaSelectedDate = addDays(state.agendaSelectedDate, -7)
-      state.agendaMonthDate = new Date(state.agendaSelectedDate)
-      await loadAgenda()
+      await navigateAgendaToDate(addDays(state.agendaSelectedDate, -state.agendaViewDays))
     })
     els.agendaNext.addEventListener('click', async () => {
-      state.agendaSelectedDate = addDays(state.agendaSelectedDate, 7)
-      state.agendaMonthDate = new Date(state.agendaSelectedDate)
-      await loadAgenda()
+      await navigateAgendaToDate(addDays(state.agendaSelectedDate, state.agendaViewDays))
     })
     els.agendaMonthPrev.addEventListener('click', () => {
       state.agendaMonthDate = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth() - 1, 1)
@@ -37885,6 +38402,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       updateAppointmentContactActions(editingAgendaAppointment())
     })
     els.appointmentService.addEventListener('change', () => updateAppointmentContactActions(editingAgendaAppointment()))
+    els.appointmentAddServiceOpen.addEventListener('click', openAppointmentAddServicePanel)
+    els.appointmentAddServiceCancel.addEventListener('click', closeAppointmentAddServicePanel)
+    els.appointmentAddServiceService.addEventListener('change', () => renderAppointmentAddServiceProfessionals())
+    els.appointmentAddServiceSubmit.addEventListener('click', addServiceToAppointmentVisit)
     els.appointmentCustomerName.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentCustomerPhone.addEventListener('input', () => updateAppointmentContactActions(editingAgendaAppointment()))
     els.appointmentDialog.addEventListener('click', (event) => {

@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
-const [schema, migration, authSource, authRouteSource, permissionSource] = await Promise.all([
+const [schema, migration, authSource, authRouteSource, permissionSource, crmUiSource] = await Promise.all([
   readFile(path.join(process.cwd(), 'prisma', 'schema.prisma'), 'utf8'),
   readFile(path.join(process.cwd(), 'prisma', 'migrations', '20260906150000_add_cash_permissions', 'migration.sql'), 'utf8'),
   readFile(path.join(process.cwd(), 'src', 'services', 'auth-service.ts'), 'utf8'),
   readFile(path.join(process.cwd(), 'src', 'routes', 'auth.ts'), 'utf8'),
-  readFile(path.join(process.cwd(), 'src', 'services', 'staff-permission-service.ts'), 'utf8')
+  readFile(path.join(process.cwd(), 'src', 'services', 'staff-permission-service.ts'), 'utf8'),
+  readFile(path.join(process.cwd(), 'src', 'routes', 'crm-ui.ts'), 'utf8')
 ])
 const permissions = [
   'canViewCashRegister',
@@ -23,6 +24,7 @@ for (const permission of permissions) {
   assert.match(authSource, new RegExp(`${permission}:`), `AuthUser debe exponer ${permission}`)
   assert.match(authRouteSource, new RegExp(`${permission}:`), `/auth/me debe publicar ${permission}`)
   assert.match(permissionSource, new RegExp(`${permission}: false`), `los presets base deben negar ${permission}`)
+  assert.match(crmUiSource, new RegExp(`${permission}: els\\.staff`), `el formulario staff debe permitir configurar ${permission}`)
 }
 
 const { canStaffAccessRoute, hasCashPermission, resolveStaffPermissions } = await import('../src/services/staff-permission-service.js')

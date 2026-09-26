@@ -440,7 +440,7 @@ export class CashService {
     appointmentId: string
     cashSessionId: string
     origin: 'AGENDA' | 'CASH_REGISTER'
-    lines: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD' }>
+    lines: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
     observation?: string | null
     completeAppointment?: boolean
     actorUserId?: string
@@ -450,7 +450,7 @@ export class CashService {
     if (input.completeAppointment && (!input.actorUserId?.trim() || !input.actorName?.trim())) {
       throw new CashServiceError('APPOINTMENT_COMPLETION_ACTOR_REQUIRED')
     }
-    const lines = input.lines.map((line) => ({ amount: assertEntryAmount(line.amount), method: line.method }))
+    const lines = input.lines.map((line) => ({ amount: assertEntryAmount(line.amount), method: line.method, paymentMethodId: line.paymentMethodId?.trim() || null }))
     if (lines.some((line) => !['CASH', 'TRANSFER', 'CARD'].includes(line.method))) {
       throw new CashServiceError('INVALID_PAYMENT_METHOD')
     }
@@ -458,6 +458,11 @@ export class CashService {
       const context = await transaction.lockBusiness(input.businessId)
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
+      for (const line of lines) {
+        if (!line.paymentMethodId) continue
+        const configured = await transaction.findBusinessPaymentMethod(input.businessId, line.paymentMethodId)
+        if (!configured || !configured.isActive || configured.kind !== line.method) throw new CashServiceError('INVALID_PAYMENT_METHOD')
+      }
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
       const currentEntries = await transaction.listAccountEntries(input.businessId, account.id)
@@ -517,13 +522,18 @@ export class CashService {
       const context = await transaction.lockBusiness(input.businessId)
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
+      if (normalized.paymentMethodId) {
+        const configured = await transaction.findBusinessPaymentMethod(input.businessId, normalized.paymentMethodId)
+        if (!configured || !configured.isActive || configured.kind !== normalized.method) throw new CashServiceError('INVALID_PAYMENT_METHOD')
+      }
       let expenseCategoryId: string | null = null
       let expenseSubcategoryId: string | null = null
-      if (input.type === 'EXPENSE') {
-        const fallback = await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId })
+      if (input.type === 'EXPENSE' || input.type === 'INCOME') {
+        const fallback = input.type === 'EXPENSE' ? await transaction.ensureDefaultExpenseCategory({ id: randomUUID(), businessId: input.businessId }) : null
         const category = input.categoryId
           ? await transaction.findExpenseCategory(input.businessId, requiredText(input.categoryId, 'EXPENSE_CATEGORY_REQUIRED'))
           : fallback
+        if (input.type === 'INCOME' && !input.categoryId) throw new CashServiceError('EXPENSE_CATEGORY_REQUIRED')
         if (!category) throw new CashServiceError('EXPENSE_CATEGORY_NOT_FOUND')
         if (!category.isActive) throw new CashServiceError('EXPENSE_CATEGORY_INACTIVE')
         expenseCategoryId = category.id
@@ -869,11 +879,11 @@ export type CashOperationInput = {
   businessId: string
   cashSessionId: string
 } & (
-  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; description: string; categoryId?: string | null; subcategoryId?: string | null; observation?: string | null }
+  | { type: 'EXPENSE'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string; description: string; categoryId?: string | null; subcategoryId?: string | null; observation?: string | null }
+  | { type: 'INCOME'; amount: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string; description: string; categoryId?: string | null; subcategoryId?: string | null; observation?: string | null }
   | { type: 'WITHDRAWAL'; amount: number; counterparty: string; observation?: string | null }
-  | { type: 'CASH_IN'; amount: number; description: string; observation?: string | null }
   | { type: 'ADJUSTMENT'; delta: number; observation: string }
-  | { type: 'REFUND'; amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; description: string; observation?: string | null }
+  | { type: 'REFUND'; amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string; description: string; observation?: string | null }
 )
 
 function normalizeCashOperation(input: CashOperationInput) {
@@ -903,24 +913,14 @@ function normalizeCashOperation(input: CashOperationInput) {
       observation
     }
   }
-  if (input.type === 'CASH_IN') {
-    return {
-      type: input.type,
-      direction: 'INFLOW' as const,
-      amount,
-      method: 'CASH' as const,
-      description: requiredText(input.description, 'DESCRIPTION_REQUIRED'),
-      counterparty: null,
-      observation
-    }
-  }
   const method = input.method ?? 'CASH'
   if (!['CASH', 'TRANSFER', 'CARD'].includes(method)) throw new CashServiceError('INVALID_PAYMENT_METHOD')
   return {
     type: input.type,
-    direction: 'OUTFLOW' as const,
+    direction: input.type === 'INCOME' ? 'INFLOW' as const : 'OUTFLOW' as const,
     amount,
     method,
+    paymentMethodId: input.paymentMethodId?.trim() || null,
     description: requiredText(input.description, 'DESCRIPTION_REQUIRED'),
     counterparty: null,
     observation
@@ -1007,7 +1007,15 @@ export function buildAppointmentAccountBackfillPlan(
     }
     sourceKey = `visit:${visitId}`
   } else if (coordinationGroupId !== null && rows.length > 1) {
-    if (rows.some((row) => row.visitId !== null || row.coordinationGroupId !== coordinationGroupId || row.origin !== 'WEB')) {
+    const coordinationOrigin = rows[0].origin
+    if (
+      !['WEB', 'MANUAL'].includes(coordinationOrigin) ||
+      rows.some((row) =>
+        row.visitId !== null ||
+        row.coordinationGroupId !== coordinationGroupId ||
+        row.origin !== coordinationOrigin
+      )
+    ) {
       return { ok: false, code: 'INCONSISTENT_COORDINATION_GROUP', appointmentIds }
     }
     sourceKey = `coordination:${coordinationGroupId}`

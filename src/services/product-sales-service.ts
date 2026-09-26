@@ -158,6 +158,7 @@ export class ProductSalesService {
     customerId?: string | null
     appointmentId?: string | null
     paymentMethod: 'CASH' | 'TRANSFER' | 'CARD'
+    paymentMethodId?: string | null
     discountAmount?: number
     items: ProductItemInput[]
     observation?: string | null
@@ -181,6 +182,15 @@ export class ProductSalesService {
         return replay
       }
 
+      let configuredPaymentMethodId: string | null = null
+      if (input.paymentMethodId?.trim()) {
+        const methods = await tx.$queryRaw<Array<{ id: string; kind: string; isActive: boolean }>>(Prisma.sql`
+          SELECT "id", "kind"::text AS "kind", "isActive" FROM "BusinessPaymentMethod"
+          WHERE "businessId" = ${input.businessId} AND "id" = ${input.paymentMethodId.trim()} FOR KEY SHARE
+        `)
+        if (!methods[0] || !methods[0].isActive || methods[0].kind !== input.paymentMethod) throw new ProductSalesError('INVALID_PAYMENT_METHOD')
+        configuredPaymentMethodId = methods[0].id
+      }
       const session = await tx.cashSession.findFirst({
         where: { id: input.cashSessionId, businessId: input.businessId, closedAt: null },
         include: { registerDay: { select: { id: true, closedAt: true } } }
@@ -251,7 +261,7 @@ export class ProductSalesService {
           detail: { paymentMethod: input.paymentMethod, discountAmount, idempotencyKey: key }
         }
       })
-      await tx.cashEntry.create({
+      const cashEntry = await tx.cashEntry.create({
         data: {
           businessId: input.businessId,
           accountId,
@@ -267,6 +277,10 @@ export class ProductSalesService {
           productSaleId: sale.id
         }
       })
+      if (configuredPaymentMethodId) await tx.$executeRaw(Prisma.sql`
+        UPDATE "CashEntry" SET "businessPaymentMethodId" = ${configuredPaymentMethodId}
+        WHERE "businessId" = ${input.businessId} AND "id" = ${cashEntry.id}
+      `)
       return tx.productSale.findUniqueOrThrow({ where: { id: sale.id }, include: { lines: true, cashEntry: true } })
     }, { isolationLevel: 'Serializable' })
   }
@@ -492,6 +506,7 @@ function saleRequestFingerprint(input: {
   customerId?: string | null
   appointmentId?: string | null
   paymentMethod: string
+  paymentMethodId?: string | null
   discountAmount?: number
   items: ProductItemInput[]
   observation?: string | null
@@ -502,6 +517,7 @@ function saleRequestFingerprint(input: {
     customerId: input.customerId ?? null,
     appointmentId: input.appointmentId ?? null,
     paymentMethod: input.paymentMethod,
+    paymentMethodId: input.paymentMethodId ?? null,
     discountAmount: input.discountAmount ?? 0,
     items: [...input.items].sort((left, right) => left.productId.localeCompare(right.productId)),
     observation: optionalText(input.observation)

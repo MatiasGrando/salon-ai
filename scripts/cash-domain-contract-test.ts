@@ -135,6 +135,7 @@ const summary = summarizeCashRegister({
     { type: 'PAYMENT', direction: 'INFLOW', amount: 60_000, method: 'CASH' },
     { type: 'PAYMENT', direction: 'INFLOW', amount: 48_500, method: 'TRANSFER' },
     { type: 'PAYMENT', direction: 'INFLOW', amount: 33_000, method: 'CARD' },
+    { type: 'INCOME', direction: 'INFLOW', amount: 6_000, method: 'CASH' },
     { type: 'REFUND', direction: 'OUTFLOW', amount: 5_000, method: 'TRANSFER' },
     { type: 'EXPENSE', direction: 'OUTFLOW', amount: 8_200, method: 'CASH' },
     { type: 'WITHDRAWAL', direction: 'OUTFLOW', amount: 15_000, method: 'CASH' },
@@ -158,16 +159,16 @@ const summary = summarizeCashRegister({
 })
 
 assert.deepEqual(summary, {
-  grossCollected: 140_500,
-  collectedByMethod: { CASH: 59_000, TRANSFER: 48_500, CARD: 33_000 },
+  grossCollected: 147_500,
+  collectedByMethod: { CASH: 66_000, TRANSFER: 48_500, CARD: 33_000 },
   outgoingByMethod: { CASH: 7_000, TRANSFER: 5_000, CARD: 0, UNSPECIFIED: 0 },
   refunds: 5_000,
   expenses: 7_000,
   withdrawals: 15_000,
   cashIn: 1_000,
   adjustments: -300,
-  net: 128_500,
-  expectedCash: 112_700
+  net: 135_500,
+  expectedCash: 118_700
 })
 
 const electronicOnly = summarizeCashRegister({

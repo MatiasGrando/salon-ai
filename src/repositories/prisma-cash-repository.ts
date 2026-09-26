@@ -121,12 +121,16 @@ export type CashEntryRecord = AppointmentAccountEntryRecord & {
   observation: string | null
   reversesEntryId: string | null
   reversedById?: string | null
+  correctionSourceId?: string | null
+  correctionReason?: string | null
+  dateCorrected?: boolean
   effectiveAt: Date | null
   customerNames?: string[]
   expenseCategoryId?: string | null
   expenseCategoryName?: string | null
   expenseSubcategoryId?: string | null
   expenseSubcategoryName?: string | null
+  businessPaymentMethodId?: string | null
 }
 export type CashEntryCursor = { effectiveAt: Date; id: string }
 export type CashPeriodExpenseRecord = CashEntryRecord & {
@@ -237,6 +241,7 @@ export interface CashTransactionRepository {
   updateAdjustedTotal(businessId: string, accountId: string, agreedAmount: number): Promise<AppointmentAccountRecord>
   listTotalAdjustments(businessId: string, accountId: string): Promise<AppointmentTotalAdjustmentRecord[]>
   updateDiscount(businessId: string, accountId: string, discountAmount: number): Promise<AppointmentAccountRecord>
+  findBusinessPaymentMethod(businessId: string, paymentMethodId: string): Promise<{ id: string; kind: ManualPaymentMethod; isActive: boolean } | null>
   insertManualPayments(input: {
     ids: string[]
     businessId: string
@@ -246,7 +251,7 @@ export interface CashTransactionRepository {
     origin: 'AGENDA' | 'CASH_REGISTER'
     observation: string | null
     effectiveAt: Date
-    lines: Array<{ amount: number; method: ManualPaymentMethod }>
+    lines: Array<{ amount: number; method: ManualPaymentMethod; paymentMethodId?: string | null }>
   }): Promise<Array<{ id: string; amount: number; method: ManualPaymentMethod }>>
   completeAppointmentFromPayment(input: {
     businessId: string
@@ -279,10 +284,11 @@ export interface CashTransactionRepository {
     businessId: string
     registerDayId: string
     cashSessionId: string
-    type: 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'
+    type: 'INCOME' | 'EXPENSE' | 'WITHDRAWAL' | 'ADJUSTMENT' | 'REFUND'
     direction: 'INFLOW' | 'OUTFLOW'
     amount: number
     method: ManualPaymentMethod
+    paymentMethodId?: string | null
     description: string | null
     counterparty: string | null
     observation: string | null
@@ -594,7 +600,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
   }) {
     const inserted = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO "CashEntry" (
-        "id", "businessId", "accountId", "type", "direction", "amount", "paymentMethod", "origin", "description", "effectiveAt"
+        "id", "businessId", "accountId", "type", "direction", "amount", "paymentMethod", "businessPaymentMethodId", "origin", "description", "effectiveAt"
       ) VALUES (
         ${input.id}, ${input.businessId}, ${input.accountId}, 'LEGACY_PAYMENT'::"CashEntryType",
         'INFLOW'::"CashDirection", ${input.amount}, 'UNSPECIFIED'::"CashPaymentMethod",
@@ -741,6 +747,14 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     return rows[0]
   }
 
+  async findBusinessPaymentMethod(businessId: string, paymentMethodId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ id: string; kind: ManualPaymentMethod; isActive: boolean }>>(Prisma.sql`
+      SELECT "id", "kind"::text AS "kind", "isActive" FROM "BusinessPaymentMethod"
+      WHERE "businessId" = ${businessId} AND "id" = ${paymentMethodId} FOR KEY SHARE
+    `)
+    return rows[0] ?? null
+  }
+
   async insertManualPayments(input: {
     ids: string[]
     businessId: string
@@ -750,7 +764,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     origin: 'AGENDA' | 'CASH_REGISTER'
     observation: string | null
     effectiveAt: Date
-    lines: Array<{ amount: number; method: ManualPaymentMethod }>
+    lines: Array<{ amount: number; method: ManualPaymentMethod; paymentMethodId?: string | null }>
   }) {
     const created: Array<{ id: string; amount: number; method: ManualPaymentMethod }> = []
     for (const [index, line] of input.lines.entries()) {
@@ -758,10 +772,10 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       await this.transaction.$executeRaw(Prisma.sql`
         INSERT INTO "CashEntry" (
           "id", "businessId", "accountId", "registerDayId", "cashSessionId", "type", "direction",
-          "amount", "paymentMethod", "origin", "observation", "effectiveAt"
+          "amount", "paymentMethod", "businessPaymentMethodId", "origin", "observation", "effectiveAt"
         ) VALUES (
           ${id}, ${input.businessId}, ${input.accountId}, ${input.registerDayId}, ${input.cashSessionId},
-          'PAYMENT'::"CashEntryType", 'INFLOW'::"CashDirection", ${line.amount}, ${line.method}::"CashPaymentMethod",
+          'PAYMENT'::"CashEntryType", 'INFLOW'::"CashDirection", ${line.amount}, ${line.method}::"CashPaymentMethod", ${line.paymentMethodId ?? null},
           ${input.origin}::"CashEntryOrigin", ${input.observation}, ${input.effectiveAt}
         )
       `)
@@ -967,10 +981,11 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     businessId: string
     registerDayId: string
     cashSessionId: string
-    type: 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'
+    type: 'INCOME' | 'EXPENSE' | 'WITHDRAWAL' | 'ADJUSTMENT' | 'REFUND'
     direction: 'INFLOW' | 'OUTFLOW'
     amount: number
     method: ManualPaymentMethod
+    paymentMethodId?: string | null
     description: string | null
     counterparty: string | null
     observation: string | null
@@ -980,11 +995,11 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     const rows = await this.transaction.$queryRaw<CashEntryRecord[]>(Prisma.sql`
       INSERT INTO "CashEntry" (
         "id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount",
-        "paymentMethod", "origin", "description", "counterparty", "observation", "expenseCategoryId", "expenseSubcategoryId", "effectiveAt"
+        "paymentMethod", "businessPaymentMethodId", "origin", "description", "counterparty", "observation", "expenseCategoryId", "expenseSubcategoryId", "effectiveAt"
       ) VALUES (
         ${input.id}, ${input.businessId}, ${input.registerDayId}, ${input.cashSessionId},
         ${input.type}::"CashEntryType", ${input.direction}::"CashDirection", ${input.amount},
-        ${input.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", ${input.description},
+        ${input.method}::"CashPaymentMethod", ${input.paymentMethodId ?? null}, 'CASH_REGISTER'::"CashEntryOrigin", ${input.description},
         ${input.counterparty}, ${input.observation}, ${input.expenseCategoryId}, ${input.expenseSubcategoryId ?? null}, ${input.effectiveAt}
       )
       RETURNING "id", "businessId", "accountId", "registerDayId", "cashSessionId",
@@ -1059,7 +1074,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     const rows = await this.transaction.$queryRaw<CashEntryRecord[]>(Prisma.sql`
       SELECT entry."id", entry."businessId", entry."accountId", entry."registerDayId", entry."cashSessionId",
         entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
-        entry."paymentMethod"::text AS "method", entry."origin"::text AS "origin", entry."description",
+        entry."paymentMethod"::text AS "method", entry."businessPaymentMethodId", entry."origin"::text AS "origin", entry."description",
         entry."counterparty", entry."observation", entry."reversesEntryId", entry."effectiveAt",
         reversal."id" AS "reversedById"
       FROM "CashEntry" AS entry
@@ -1083,12 +1098,12 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     const rows = await this.transaction.$queryRaw<CashEntryRecord[]>(Prisma.sql`
       INSERT INTO "CashEntry" (
         "id", "businessId", "accountId", "registerDayId", "cashSessionId", "type", "direction",
-        "amount", "paymentMethod", "origin", "observation", "reversesEntryId", "effectiveAt"
+        "amount", "paymentMethod", "businessPaymentMethodId", "origin", "observation", "reversesEntryId", "effectiveAt"
       ) VALUES (
         ${input.id}, ${input.businessId}, ${input.source.accountId}, ${input.registerDayId}, ${input.cashSessionId},
         'REVERSAL'::"CashEntryType",
         ${input.source.direction === 'INFLOW' ? 'OUTFLOW' : 'INFLOW'}::"CashDirection",
-        ${input.source.amount}, ${input.source.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin",
+        ${input.source.amount}, ${input.source.method}::"CashPaymentMethod", ${input.source.businessPaymentMethodId ?? null}, 'CASH_REGISTER'::"CashEntryOrigin",
         ${input.observation}, ${input.source.id}, ${input.effectiveAt}
       )
       RETURNING "id", "businessId", "accountId", "registerDayId", "cashSessionId",
@@ -1162,10 +1177,13 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         entry."counterparty", entry."observation", COALESCE(entry."expenseCategoryId", original."expenseCategoryId") AS "expenseCategoryId",
         COALESCE(category."name", original_category."name") AS "expenseCategoryName",
         COALESCE(entry."expenseSubcategoryId", original."expenseSubcategoryId") AS "expenseSubcategoryId",
-        COALESCE(subcategory."name", original_subcategory."name") AS "expenseSubcategoryName", entry."reversesEntryId", entry."effectiveAt",
+        COALESCE(subcategory."name", original_subcategory."name") AS "expenseSubcategoryName", entry."reversesEntryId", reversed."id" AS "reversedById",
+        entry."correctionSourceId", entry."correctionReason", entry."effectiveAt", entry."createdAt",
+        EXISTS (SELECT 1 FROM "CashEntry" correction WHERE correction."businessId" = entry."businessId" AND correction."correctionSourceId" = entry."id") AS "dateCorrected",
         coalesce(customers.names, ARRAY[]::text[]) AS "customerNames"
       FROM "CashEntry" entry
       LEFT JOIN "CashEntry" original ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
+      LEFT JOIN "CashEntry" reversed ON reversed."businessId" = entry."businessId" AND reversed."reversesEntryId" = entry."id"
       LEFT JOIN "CashExpenseCategory" category
         ON category."businessId" = entry."businessId" AND category."id" = entry."expenseCategoryId"
       LEFT JOIN "CashExpenseSubcategory" subcategory

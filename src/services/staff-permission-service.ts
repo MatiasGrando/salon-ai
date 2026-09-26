@@ -206,6 +206,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
   if (path.startsWith('/treasury')) return false
   if (path.startsWith('/cash-register')) {
+    if (path === '/cash-register/payment-methods') return verb === 'GET' && (user.canViewCashRegister || user.canRecordAppointmentPayments || user.canManageCashOperations)
     if (path === '/cash-register/responsibles') return verb === 'GET' && user.canManageCashSessions
     if (path === '/cash-register/payment-context') return verb === 'GET' && user.canRecordAppointmentPayments
     if (verb === 'GET') return user.canViewCashRegister

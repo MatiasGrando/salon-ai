@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashDomainError } from '../services/cash-domain.js'
@@ -6,6 +8,7 @@ import { CashService, CashServiceError, type CashOperationInput } from '../servi
 import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import type { AuthUser } from '../services/auth-service.js'
+import { financialCorrectionDirections, isFinancialEffectiveDate, resolveFinancialEffectiveAt } from '../services/financial-effective-date.js'
 
 type CashRegisterRoutesOptions = {
   cashService?: CashService
@@ -19,6 +22,40 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
   const authorizeBusiness = options.authorizeBusiness ?? (async (user: AuthUser, businessId: string) => Boolean(await requireAuthorizedBusiness(prisma, user, businessId)))
   const cashAccess = (user: AuthUser | undefined, permission: CashPermission, source: unknown) => cashAccessForUser(user, permission, source, authorizeBusiness)
   const cashAnyAccess = (user: AuthUser | undefined, permissions: CashPermission[], source: unknown) => cashAnyAccessForUser(user, permissions, source, authorizeBusiness)
+
+  app.get('/cash-register/payment-methods', async (request, reply) => {
+    const access = await cashAnyAccess(request.auth?.user, ['canViewCashRegister', 'canRecordAppointmentPayments', 'canManageCashOperations'], request.query)
+    if (!access.ok) return cashAccessFailure(reply, access)
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Business" WHERE "id" = ${access.businessId} FOR UPDATE`)
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "BusinessPaymentMethod" ("id", "businessId", "name", "normalizedName", "kind", "position", "isDefault", "isActive", "updatedAt")
+        SELECT template.id, ${access.businessId}, template.name, template."normalizedName", template.kind, template.position, true, true, clock_timestamp()
+        FROM (VALUES
+          (${'pm_cash_' + access.businessId}, 'Efectivo', 'efectivo', 'CASH'::"CashPaymentMethod", 10),
+          (${'pm_transfer_' + access.businessId}, 'Mercado Pago', 'mercado pago', 'TRANSFER'::"CashPaymentMethod", 20),
+          (${'pm_card_' + access.businessId}, 'Tarjeta', 'tarjeta', 'CARD'::"CashPaymentMethod", 30)
+        ) AS template(id, name, "normalizedName", kind, position)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "BusinessPaymentMethod" method
+          WHERE method."businessId" = ${access.businessId} AND method."kind" = template.kind AND method."isDefault" = true
+        )
+      `)
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "TreasuryAccount" ("id", "businessId", "method", "paymentMethodId")
+        SELECT 'ta_' || md5(method."id"), method."businessId", CASE WHEN method."kind" = 'CASH'::"CashPaymentMethod" THEN 'CASH' ELSE method."id" END, method."id"
+        FROM "BusinessPaymentMethod" method
+        WHERE method."businessId" = ${access.businessId}
+        ON CONFLICT ("businessId", "paymentMethodId") DO NOTHING
+      `)
+    })
+    return prisma.$queryRaw(Prisma.sql`
+      SELECT "id", "name", "kind"::text AS "kind", "position", "isDefault"
+      FROM "BusinessPaymentMethod"
+      WHERE "businessId" = ${access.businessId} AND "isActive" = true
+      ORDER BY "position", "name", "id"
+    `)
+  })
 
   app.get('/cash-register/responsibles', async (request, reply) => {
     const access = await cashAccess(request.auth?.user, 'canManageCashSessions', request.query)
@@ -139,7 +176,7 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     } catch (error) {
       return sendCashError(reply, error)
     }
-    const types = ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND', 'REVERSAL'] as const
+    const types = ['PAYMENT', 'LEGACY_PAYMENT', 'INCOME', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND', 'REVERSAL'] as const
     const methods = ['CASH', 'TRANSFER', 'CARD', 'UNSPECIFIED'] as const
     if (query.type && !types.includes(query.type as typeof types[number])) return validation(reply, 'Tipo de movimiento inválido')
     if (query.method && !methods.includes(query.method as typeof methods[number])) return validation(reply, 'Medio de pago inválido')
@@ -307,17 +344,17 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const permission: CashPermission = body.type === 'ADJUSTMENT' ? 'canAdjustCash' : 'canManageCashOperations'
     const access = await cashAccess(request.auth?.user, permission, body)
     if (!access.ok) return cashAccessFailure(reply, access)
-    if (typeof body.cashSessionId !== 'string' || !body.cashSessionId.trim() || typeof body.type !== 'string' || !['EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND'].includes(body.type)) {
+    if (typeof body.cashSessionId !== 'string' || !body.cashSessionId.trim() || typeof body.type !== 'string' || !['INCOME', 'EXPENSE', 'WITHDRAWAL', 'ADJUSTMENT', 'REFUND'].includes(body.type)) {
       return validation(reply, 'Sesión y tipo de operación válidos son requeridos')
     }
     if (body.categoryId !== undefined && body.categoryId !== null && typeof body.categoryId !== 'string') {
       return validation(reply, 'La categoría de gasto es inválida')
     }
-    if (body.type !== 'EXPENSE' && typeof body.categoryId === 'string' && body.categoryId.trim()) {
-      return validation(reply, 'La categoría solo corresponde a gastos')
+    if (!['EXPENSE', 'INCOME'].includes(body.type) && typeof body.categoryId === 'string' && body.categoryId.trim()) {
+      return validation(reply, 'La categoría solo corresponde a ingresos o gastos')
     }
     if (body.subcategoryId !== undefined && body.subcategoryId !== null && typeof body.subcategoryId !== 'string') return validation(reply, 'La subcategoría es inválida')
-    if (body.type !== 'EXPENSE' && typeof body.subcategoryId === 'string' && body.subcategoryId.trim()) return validation(reply, 'La subcategoría solo corresponde a gastos')
+    if (!['EXPENSE', 'INCOME'].includes(body.type) && typeof body.subcategoryId === 'string' && body.subcategoryId.trim()) return validation(reply, 'La subcategoría solo corresponde a ingresos o gastos')
     try {
       return await service.recordCashOperation({ ...body, businessId: access.businessId, cashSessionId: body.cashSessionId.trim() } as CashOperationInput)
     } catch (error) {
@@ -343,6 +380,128 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
       })
     } catch (error) {
       return sendCashError(reply, error)
+    }
+  })
+
+  app.post('/cash-register/entries/:id/correct-date', async (request, reply) => {
+    const user = request.auth?.user
+    if (!user || !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)) {
+      return reply.status(403).send({ message: 'Solo administración puede corregir fechas' })
+    }
+    const params = request.params as { id?: string }
+    const body = (request.body || {}) as { businessId?: string; effectiveDate?: string; reason?: string }
+    const businessId = ['ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role) ? body.businessId?.trim() || user.businessId : user.businessId
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : ''
+    if (!businessId || !await authorizeBusiness(user, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
+    if (!params.id?.trim() || !isFinancialEffectiveDate(body.effectiveDate) || reason.length < 3 || reason.length > 200) {
+      return reply.status(400).send({ message: 'Indicá una fecha válida y el motivo de la corrección' })
+    }
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Business" WHERE "id" = ${businessId} FOR UPDATE`)
+        const sources = await tx.$queryRaw<Array<{
+          id: string; accountId: string | null; registerDayId: string | null; cashSessionId: string | null;
+          type: string; direction: 'INFLOW' | 'OUTFLOW'; amount: number; paymentMethod: string; businessPaymentMethodId: string | null;
+          origin: string; description: string | null; counterparty: string | null; observation: string | null;
+          expenseCategoryId: string | null; expenseSubcategoryId: string | null; effectiveAt: Date; effectiveDate: string;
+          reversed: boolean; correctionSourceId: string | null; responsibleUserId: string | null
+        }>>(Prisma.sql`
+          SELECT entry."id", entry."accountId", entry."registerDayId", entry."cashSessionId", entry."type"::text AS "type",
+            entry."direction"::text AS "direction", entry."amount", entry."paymentMethod"::text AS "paymentMethod",
+            entry."businessPaymentMethodId", entry."origin"::text AS "origin", entry."description", entry."counterparty",
+            entry."observation", entry."expenseCategoryId", entry."expenseSubcategoryId", entry."effectiveAt",
+            (entry."effectiveAt" AT TIME ZONE business."timezone")::date::text AS "effectiveDate",
+            EXISTS (SELECT 1 FROM "CashEntry" reversed WHERE reversed."businessId" = entry."businessId" AND reversed."reversesEntryId" = entry."id") AS "reversed",
+            entry."correctionSourceId", original_session."responsibleUserId"
+          FROM "CashEntry" entry
+          LEFT JOIN "CashSession" original_session ON original_session."businessId" = entry."businessId" AND original_session."id" = entry."cashSessionId"
+          JOIN "Business" business ON business."id" = entry."businessId"
+          WHERE entry."businessId" = ${businessId} AND entry."id" = ${params.id.trim()}
+          FOR UPDATE OF entry
+        `)
+        const source = sources[0]
+        if (!source) throw new Error('CASH_ENTRY_NOT_FOUND')
+        if (!['PAYMENT', 'INCOME', 'EXPENSE'].includes(source.type) || source.correctionSourceId || source.reversed) {
+          throw new Error('CASH_DATE_NOT_CORRECTABLE')
+        }
+        const prior = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          SELECT "id" FROM "CashEntry"
+          WHERE "businessId" = ${businessId} AND "correctionSourceId" = ${source.id}
+          LIMIT 1 FOR UPDATE
+        `)
+        if (prior[0]) throw new Error('CASH_DATE_ALREADY_CORRECTED')
+        if (source.effectiveDate === body.effectiveDate) throw new Error('FINANCIAL_EFFECTIVE_DATE_UNCHANGED')
+        const replacementEffectiveAt = await resolveFinancialEffectiveAt(tx, businessId, body.effectiveDate!)
+        const targets = await tx.$queryRaw<Array<{ registerDayId: string; cashSessionId: string | null }>>(Prisma.sql`
+          SELECT day."id" AS "registerDayId", (
+            SELECT session."id" FROM "CashSession" session
+            WHERE session."businessId" = day."businessId" AND session."registerDayId" = day."id"
+              AND session."responsibleUserId" IS NOT DISTINCT FROM ${source.responsibleUserId}
+            ORDER BY session."openedAt", session."id" LIMIT 1
+          ) AS "cashSessionId"
+          FROM "CashRegisterDay" day
+          JOIN "Business" business ON business."id" = day."businessId"
+          WHERE day."businessId" = ${businessId}
+            AND (day."openedAt" AT TIME ZONE business."timezone")::date = ${body.effectiveDate}::date
+          ORDER BY day."openedAt" LIMIT 1
+        `)
+        const target = targets[0]
+        if (source.registerDayId && (!target?.registerDayId || !target.cashSessionId)) throw new Error('CASH_CORRECTION_TARGET_DAY_REQUIRED')
+        const directions = financialCorrectionDirections(source.direction)
+        const reversalId = randomUUID()
+        const replacementId = randomUUID()
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO "CashEntry" (
+            "id", "businessId", "accountId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod",
+            "businessPaymentMethodId", "origin", "description", "counterparty", "observation", "expenseCategoryId", "expenseSubcategoryId",
+            "reversesEntryId", "correctionSourceId", "correctionReason", "effectiveAt"
+          ) VALUES (
+            ${reversalId}, ${businessId}, ${source.accountId}, ${source.registerDayId}, ${source.cashSessionId}, 'REVERSAL'::"CashEntryType",
+            ${directions.reversal}::"CashDirection", ${source.amount}, ${source.paymentMethod}::"CashPaymentMethod", ${source.businessPaymentMethodId},
+            ${source.origin}::"CashEntryOrigin", ${source.description}, ${source.counterparty}, ${source.observation}, ${source.expenseCategoryId},
+            ${source.expenseSubcategoryId}, ${source.id}, ${null}, ${reason}, ${source.effectiveAt}
+          ), (
+            ${replacementId}, ${businessId}, ${source.accountId}, ${source.registerDayId ? target?.registerDayId ?? null : null}, ${source.registerDayId ? target?.cashSessionId ?? null : null}, ${source.type}::"CashEntryType",
+            ${directions.replacement}::"CashDirection", ${source.amount}, ${source.paymentMethod}::"CashPaymentMethod", ${source.businessPaymentMethodId},
+            ${source.origin}::"CashEntryOrigin", ${source.description}, ${source.counterparty}, ${source.observation}, ${source.expenseCategoryId},
+            ${source.expenseSubcategoryId}, ${null}, ${source.id}, ${reason}, ${replacementEffectiveAt}
+          )
+        `)
+        const professionalEntries = await tx.$queryRaw<Array<{
+          professionalId: string; type: string; direction: 'CREDIT' | 'DEBIT'; amount: number; description: string | null
+        }>>(Prisma.sql`
+          SELECT "professionalId", "type"::text AS "type", "direction"::text AS "direction", "amount", "description"
+          FROM "ProfessionalAccountEntry"
+          WHERE "businessId" = ${businessId} AND "cashEntryId" = ${source.id}
+          FOR UPDATE
+        `)
+        const professional = professionalEntries[0]
+        if (professional) {
+          const reversalDirection = professional.direction === 'CREDIT' ? 'DEBIT' : 'CREDIT'
+          await tx.$executeRaw(Prisma.sql`
+            INSERT INTO "ProfessionalAccountEntry" (
+              "id", "businessId", "professionalId", "cashEntryId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt"
+            ) VALUES (
+              ${randomUUID()}, ${businessId}, ${professional.professionalId}, ${reversalId}, 'REVERSAL'::"ProfessionalAccountEntryType",
+              ${reversalDirection}::"ProfessionalAccountDirection", ${professional.amount}, ${reason}, ${user.id}, ${user.name}, ${source.effectiveAt}
+            ), (
+              ${randomUUID()}, ${businessId}, ${professional.professionalId}, ${replacementId}, ${professional.type}::"ProfessionalAccountEntryType",
+              ${professional.direction}::"ProfessionalAccountDirection", ${professional.amount}, ${professional.description}, ${user.id}, ${user.name}, ${replacementEffectiveAt}
+            )
+          `)
+        }
+        return { sourceId: source.id, reversalId, replacementId, effectiveAt: replacementEffectiveAt }
+      })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      if (code === 'CASH_ENTRY_NOT_FOUND') return reply.status(404).send({ message: 'Movimiento no encontrado' })
+      if (code === 'CASH_DATE_NOT_CORRECTABLE') return reply.status(409).send({ message: 'Este movimiento no admite corrección de fecha' })
+      if (code === 'CASH_CORRECTION_TARGET_DAY_REQUIRED') return reply.status(409).send({ message: 'Para corregir la fecha, primero tiene que existir una jornada y sesión de Caja en el día de destino' })
+      if (code === 'CASH_DATE_ALREADY_CORRECTED') return reply.status(409).send({ message: 'La fecha de este movimiento ya fue corregida' })
+      if (code === 'FINANCIAL_EFFECTIVE_DATE_UNCHANGED') return reply.status(400).send({ message: 'La nueva fecha debe ser diferente' })
+      if (code === 'FINANCIAL_EFFECTIVE_DATE_FUTURE') return reply.status(400).send({ message: 'La fecha no puede ser futura' })
+      request.log.error({ err: error, businessId, entryId: params.id }, 'cash_date_correction_failed')
+      return reply.status(500).send({ message: 'No pudimos corregir la fecha' })
     }
   })
 }
@@ -379,12 +538,12 @@ function cashAccessFailure(reply: FastifyReply, access: { code: 'CASH_PERMISSION
     : validation(reply, 'Seleccioná un comercio')
 }
 
-function cashReversalTypes(user: StaffAuthorizationUser | undefined): Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> {
+function cashReversalTypes(user: StaffAuthorizationUser | undefined): Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'INCOME' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> {
   if (!user) return []
-  if (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)) return ['PAYMENT', 'LEGACY_PAYMENT', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND']
-  const types: Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> = []
+  if (['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)) return ['PAYMENT', 'LEGACY_PAYMENT', 'INCOME', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'ADJUSTMENT', 'REFUND']
+  const types: Array<'PAYMENT' | 'LEGACY_PAYMENT' | 'INCOME' | 'EXPENSE' | 'WITHDRAWAL' | 'CASH_IN' | 'ADJUSTMENT' | 'REFUND'> = []
   if (user.canRecordAppointmentPayments) types.push('PAYMENT', 'LEGACY_PAYMENT')
-  if (user.canManageCashOperations) types.push('EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'REFUND')
+  if (user.canManageCashOperations) types.push('INCOME', 'EXPENSE', 'WITHDRAWAL', 'CASH_IN', 'REFUND')
   if (user.canAdjustCash) types.push('ADJUSTMENT')
   return types
 }
@@ -440,11 +599,12 @@ export function sendCashError(reply: FastifyReply, error: unknown) {
   if (code === 'TOTAL_ADJUSTMENT_REASON_REQUIRED') {
       return reply.status(400).send({ code: 'VALIDATION', message: 'Ingresá un motivo breve para el ajuste' })
     }
+  if (code === 'EXPENSE_CATEGORY_REQUIRED') return reply.status(400).send({ code: 'VALIDATION', message: 'Elegí una categoría para la operación' })
   if (code === 'EXPENSE_CATEGORY_NOT_FOUND') {
-    return reply.status(404).send({ code: 'NOT_FOUND', message: 'La categoría de gasto no existe en este negocio' })
+    return reply.status(404).send({ code: 'NOT_FOUND', message: 'La categoría no existe en este negocio' })
   }
   if (code === 'EXPENSE_CATEGORY_INACTIVE') {
-    return reply.status(409).send({ code, message: 'La categoría está inactiva; elegí otra para registrar el gasto' })
+    return reply.status(409).send({ code, message: 'La categoría está inactiva; elegí otra para registrar la operación' })
   }
   if (code === 'EXPENSE_SUBCATEGORY_NOT_FOUND') return reply.status(404).send({ code: 'NOT_FOUND', message: 'La subcategoría no existe en este negocio' })
   if (code === 'EXPENSE_SUBCATEGORY_INACTIVE') return reply.status(409).send({ code, message: 'La subcategoría está inactiva; elegí otra' })

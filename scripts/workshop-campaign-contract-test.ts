@@ -44,7 +44,7 @@ assert.deepEqual(audience.included[0]?.overdueServices, ['Cambio de aceite', 'L�
 assert.equal(audience.included[0]?.overdueServicesText, 'Cambio de aceite, Líquido refrigerante', 'la variable lista sólo los servicios vencidos de esta patente')
 assert.equal(audience.included[0]?.plate, 'AA123BB')
 assert.equal(audience.included[0]?.lastVisitAt, '2026-08-15T00:00:00.000Z')
-assert.equal(audience.included[0]?.publicUrl, 'https://taller.example.com/?patente=AA123BB#consulta-patente')
+assert.equal(audience.included[0]?.publicUrl, 'https://taller.example.com/?patente=AA123BB')
 assert.equal(audience.included[1]?.overdueServicesText, 'Correa de distribución')
 
 
@@ -62,6 +62,7 @@ const inactiveAudience = buildWorkshopInactiveAudience([
 ], 180, now)
 assert.equal(inactiveAudience.total, 1, 'el filtro de inactividad debe evaluar cada vehículo')
 assert.equal(inactiveAudience.included[0]?.plate, 'AA123BB')
+assert.equal(inactiveAudience.included[0]?.publicUrl, 'https://taller.example.com/?patente=AA123BB')
 assert.equal(inactiveAudience.included[0]?.lastVisitAt, '2026-01-01T00:00:00.000Z')
 assert.equal(inactiveAudience.included[0]?.overdueServicesText, '', 'la inactividad por sí sola no implica servicios vencidos')
 

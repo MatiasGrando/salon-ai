@@ -84,6 +84,7 @@ export async function productSalesRoutes(app: FastifyInstance) {
         cashSessionId: body.cashSessionId,
         customerId: optionalString(body.customerId),
         paymentMethod: body.paymentMethod as 'CASH' | 'TRANSFER' | 'CARD',
+        paymentMethodId: optionalString(body.paymentMethodId),
         discountAmount: typeof body.discountAmount === 'number' ? body.discountAmount : 0,
         items: body.items as ProductItemInput[],
         observation: optionalString(body.observation),

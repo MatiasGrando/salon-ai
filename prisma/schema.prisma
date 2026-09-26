@@ -582,6 +582,7 @@ enum AppointmentPricingMode {
 enum CashEntryType {
   PAYMENT
   LEGACY_PAYMENT
+  INCOME
   EXPENSE
   WITHDRAWAL
   CASH_IN
@@ -994,6 +995,8 @@ model Business {
   cashSessions                CashSession[]
   cashEntries                 CashEntry[]
   cashExpenseCategories       CashExpenseCategory[]
+  businessPaymentMethods      BusinessPaymentMethod[]
+  treasuryCounterparties      TreasuryCounterparty[]
   treasuryAccounts            TreasuryAccount[]
   treasuryMovements           TreasuryMovement[]
   productCategories           ProductCategory[]
@@ -2157,16 +2160,55 @@ model CashSession {
   @@index([businessId, responsibleUserId])
 }
 
+model BusinessPaymentMethod {
+  id             String            @id @default(cuid())
+  businessId     String
+  business       Business          @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  kind           CashPaymentMethod
+  position       Int               @default(0)
+  isDefault      Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  cashEntries    CashEntry[]
+  treasuryAccount TreasuryAccount?
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, isActive, position, name])
+}
+
+model TreasuryCounterparty {
+  id             String             @id @default(cuid())
+  businessId     String
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  normalizedName String
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  movements      TreasuryMovement[]
+
+  @@unique([businessId, normalizedName])
+  @@unique([businessId, id])
+  @@index([businessId, isActive, name])
+}
+
 model TreasuryAccount {
   id          String   @id @default(cuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   method      String
+  paymentMethodId String?
+  paymentMethod BusinessPaymentMethod? @relation(fields: [businessId, paymentMethodId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   createdAt   DateTime @default(now())
   movements   TreasuryMovement[]
 
   @@unique([businessId, id])
   @@unique([businessId, method])
+  @@unique([businessId, paymentMethodId])
 }
 
 model TreasuryMovement {
@@ -2180,6 +2222,8 @@ model TreasuryMovement {
   amount      Int
   description String?
   counterparty String?
+  counterpartyId String?
+  counterpartyRef TreasuryCounterparty? @relation(fields: [businessId, counterpartyId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   expenseCategoryId String?
   expenseCategory CashExpenseCategory? @relation(fields: [businessId, expenseCategoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   expenseSubcategoryId String?
@@ -2189,13 +2233,22 @@ model TreasuryMovement {
   cashEntryId String?         @unique
   cashEntry   CashEntry?      @relation(fields: [businessId, cashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   professionalAccountEntry ProfessionalAccountEntry?
+  effectiveAt DateTime        @default(dbgenerated("clock_timestamp()"))
+  correctionSourceId String?
+  correctionSource TreasuryMovement? @relation("TreasuryMovementCorrections", fields: [businessId, correctionSourceId], references: [businessId, id], onDelete: NoAction, onUpdate: Cascade)
+  corrections TreasuryMovement[] @relation("TreasuryMovementCorrections")
+  correctionRole String?
+  correctionReason String?
   createdAt   DateTime        @default(dbgenerated("clock_timestamp()"))
 
   @@unique([businessId, id])
   @@unique([businessId, cashEntryId])
+  @@unique([businessId, correctionSourceId, correctionRole])
+  @@index([businessId, effectiveAt, id])
   @@index([businessId, createdAt, id])
   @@index([businessId, accountId, createdAt, id])
   @@index([businessId, kind, expenseCategoryId, expenseSubcategoryId, createdAt])
+  @@index([businessId, counterpartyId, createdAt])
 }
 
 model CashExpenseCategory {
@@ -2252,6 +2305,8 @@ model CashEntry {
   direction                CashDirection
   amount                   Int
   paymentMethod            CashPaymentMethod
+  businessPaymentMethodId  String?
+  businessPaymentMethod    BusinessPaymentMethod?     @relation(fields: [businessId, businessPaymentMethodId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   origin                   CashEntryOrigin
   description              String?
   counterparty             String?
@@ -2269,6 +2324,10 @@ model CashEntry {
   reversesEntryId          String?                   @unique
   reversesEntry            CashEntry?                @relation("CashEntryReversal", fields: [businessId, reversesEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   reversedBy               CashEntry?                @relation("CashEntryReversal")
+  correctionSourceId       String?
+  correctionSource         CashEntry?                @relation("CashEntryDateCorrections", fields: [businessId, correctionSourceId], references: [businessId, id], onDelete: NoAction, onUpdate: Cascade)
+  dateCorrections          CashEntry[]               @relation("CashEntryDateCorrections")
+  correctionReason         String?
   effectiveAt              DateTime?                 @default(dbgenerated("clock_timestamp()"))
   createdAt                DateTime                  @default(now())
 
@@ -2276,10 +2335,12 @@ model CashEntry {
   @@unique([businessId, bookingDepositId])
   @@unique([businessId, reversesEntryId])
   @@unique([businessId, productSaleId])
+  @@unique([businessId, correctionSourceId])
   @@index([businessId, effectiveAt, id])
   @@index([registerDayId, effectiveAt, id])
   @@index([businessId, accountId, effectiveAt, id])
   @@index([businessId, type, paymentMethod, effectiveAt, id])
+  @@index([businessId, businessPaymentMethodId, effectiveAt, id])
   @@index([businessId, expenseCategoryId, effectiveAt, id])
 }
 

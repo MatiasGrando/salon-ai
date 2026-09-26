@@ -125,13 +125,15 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
     const rows = await prisma.$queryRaw<Array<{
       id: string
       name: string
+      isActive: boolean
+      archivedAt: Date | null
       completedServices: number
       periodEarned: number
       periodPaid: number
       periodBalance: number
       currentBalance: number
     }>>(Prisma.sql`
-      SELECT professional."id", professional."name",
+      SELECT professional."id", professional."name", professional."isActive", professional."archivedAt",
         coalesce(period_account."completedServices", 0)::integer AS "completedServices",
         coalesce(period_account."periodEarned", 0)::integer AS "periodEarned",
         coalesce(period_account."periodPaid", 0)::integer AS "periodPaid",
@@ -141,8 +143,8 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       LEFT JOIN LATERAL (
         SELECT
           count(*) FILTER (WHERE entry."type" = 'EARNING'::"ProfessionalAccountEntryType")::integer AS "completedServices",
-          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'CREDIT'::"ProfessionalAccountDirection"), 0)::integer AS "periodEarned",
-          coalesce(sum(entry."amount") FILTER (WHERE entry."direction" = 'DEBIT'::"ProfessionalAccountDirection"), 0)::integer AS "periodPaid",
+          coalesce(sum(CASE WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" AND entry."type" <> 'REVERSAL'::"ProfessionalAccountEntryType" THEN entry."amount" ELSE 0 END), 0)::integer AS "periodEarned",
+          coalesce(sum(CASE WHEN entry."direction" = 'DEBIT'::"ProfessionalAccountDirection" AND entry."type" <> 'EARNING'::"ProfessionalAccountEntryType" THEN entry."amount" WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" AND entry."type" = 'REVERSAL'::"ProfessionalAccountEntryType" THEN -entry."amount" ELSE 0 END), 0)::integer AS "periodPaid",
           coalesce(sum(CASE WHEN entry."direction" = 'CREDIT'::"ProfessionalAccountDirection" THEN entry."amount" ELSE -entry."amount" END), 0)::integer AS "periodBalance"
         FROM "ProfessionalAccountEntry" entry
         WHERE entry."businessId" = professional."businessId"
@@ -156,7 +158,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
           AND entry."professionalId" = professional."id"
       ) current_account ON true
       WHERE professional."businessId" = ${businessId}
-      ORDER BY professional."name"
+      ORDER BY (professional."archivedAt" IS NOT NULL), professional."name"
     `)
 
     const services = await prisma.professionalAccountEntry.findMany({
@@ -245,7 +247,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
 
   app.post('/professional-settlements/payments', async (request, reply) => {
     const user = request.auth?.user
-    const body = request.body as { businessId?: string; professionalId?: string; cashSessionId?: string; amount?: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; type?: 'PAYMENT' | 'ADVANCE'; observation?: string; idempotencyKey?: string }
+    const body = request.body as { businessId?: string; professionalId?: string; cashSessionId?: string; amount?: number; method?: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string; type?: 'PAYMENT' | 'ADVANCE'; observation?: string; idempotencyKey?: string }
     if (!canManageProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para pagar liquidaciones' })
     const businessId = requestedBusinessId(user, body.businessId)
     const amount = Number(body.amount)
@@ -258,13 +260,14 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       return await prisma.$transaction(async (tx) => {
         return recordCashProfessionalPayment(tx, {
           businessId, professionalId: body.professionalId!, cashSessionId: body.cashSessionId!,
-          amount, method: body.method!, type: body.type!, observation: body.observation?.trim() || null,
+          amount, method: body.method!, paymentMethodId: body.paymentMethodId?.trim() || null, type: body.type!, observation: body.observation?.trim() || null,
           idempotencyKey: body.idempotencyKey || randomUUID(),
           actorUserId: user!.id, actorName: user!.name
         })
       })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
+      if (code === 'INVALID_PAYMENT_METHOD') return reply.status(400).send({ message: 'El medio de pago no existe, está inactivo o no coincide con su tipo' })
       if (code === 'CASH_SESSION_REQUIRED') return reply.status(409).send({ message: 'Abrí una sesión de Caja para registrar el pago' })
       if (code === 'PROFESSIONAL_NOT_FOUND') return reply.status(404).send({ message: 'El profesional no existe en este local' })
       if (code === 'TREASURY_NOT_ENABLED') return reply.status(409).send({ message: 'Habilitá Tesorería para pagar en efectivo desde Caja' })
@@ -386,12 +389,20 @@ export async function recordCashProfessionalPayment(tx: Prisma.TransactionClient
   cashSessionId: string
   amount: number
   method: 'CASH' | 'TRANSFER' | 'CARD'
+  paymentMethodId: string | null
   type: 'PAYMENT' | 'ADVANCE'
   observation: string | null
   idempotencyKey: string
   actorUserId: string
   actorName: string
 }) {
+  if (input.paymentMethodId) {
+    const methods = await tx.$queryRaw<Array<{ kind: string; isActive: boolean }>>(Prisma.sql`
+      SELECT "kind"::text AS "kind", "isActive" FROM "BusinessPaymentMethod"
+      WHERE "businessId" = ${input.businessId} AND "id" = ${input.paymentMethodId} FOR KEY SHARE
+    `)
+    if (!methods[0] || !methods[0].isActive || methods[0].kind !== input.method) throw new Error('INVALID_PAYMENT_METHOD')
+  }
   // Caja en efectivo pasa por Tesorería como cuenta puente; sólo el pago es un gasto.
   // Transferencia y tarjeta no se anotan en una reserva que hoy es exclusivamente de efectivo.
   if (input.method !== 'CASH') return recordDigitalCashProfessionalPayment(tx, input)
@@ -477,7 +488,7 @@ export async function recordCashProfessionalPayment(tx: Prisma.TransactionClient
 
 async function recordDigitalCashProfessionalPayment(tx: Prisma.TransactionClient, input: {
   businessId: string; professionalId: string; cashSessionId: string; amount: number;
-  method: 'CASH' | 'TRANSFER' | 'CARD'; type: 'PAYMENT' | 'ADVANCE';
+  method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId: string | null; type: 'PAYMENT' | 'ADVANCE';
   observation: string | null; idempotencyKey: string; actorUserId: string; actorName: string
 }) {
   await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Business" WHERE "id" = ${input.businessId} FOR UPDATE`)
@@ -515,8 +526,8 @@ async function recordDigitalCashProfessionalPayment(tx: Prisma.TransactionClient
   const cashEntryId = input.idempotencyKey
   const entryId = randomUUID()
   await tx.$executeRaw(Prisma.sql`
-    INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "origin", "description", "counterparty", "observation", "expenseCategoryId", "effectiveAt")
-    VALUES (${cashEntryId}, ${input.businessId}, ${sessions[0].registerDayId}, ${input.cashSessionId}, 'EXPENSE'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${input.amount}, ${input.method}::"CashPaymentMethod", 'CASH_REGISTER'::"CashEntryOrigin", ${input.type === 'ADVANCE' ? 'Adelanto a profesional' : 'Pago a profesional'}, ${professionals[0].name}, ${input.observation}, ${categoryId}, clock_timestamp())
+    INSERT INTO "CashEntry" ("id", "businessId", "registerDayId", "cashSessionId", "type", "direction", "amount", "paymentMethod", "businessPaymentMethodId", "origin", "description", "counterparty", "observation", "expenseCategoryId", "effectiveAt")
+    VALUES (${cashEntryId}, ${input.businessId}, ${sessions[0].registerDayId}, ${input.cashSessionId}, 'EXPENSE'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${input.amount}, ${input.method}::"CashPaymentMethod", ${input.paymentMethodId}, 'CASH_REGISTER'::"CashEntryOrigin", ${input.type === 'ADVANCE' ? 'Adelanto a profesional' : 'Pago a profesional'}, ${professionals[0].name}, ${input.observation}, ${categoryId}, clock_timestamp())
   `)
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "cashEntryId", "type", "direction", "amount", "description", "actorUserId", "actorName", "effectiveAt")

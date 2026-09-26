@@ -82,7 +82,7 @@ assert.equal((await app.inject({ method: 'POST', url: '/cash-register/close', he
 
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'closed' } })).statusCode, 409)
 assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-adjust': 'yes' }, payload: { cashSessionId: 'session', type: 'EXPENSE', amount: 10, description: 'x' } })).statusCode, 403)
-assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { businessId: 'foreign-business', cashSessionId: 'session', type: 'CASH_IN', amount: 10, description: 'x' } })).statusCode, 200)
+assert.equal((await app.inject({ method: 'POST', url: '/cash-register/entries', headers: { 'x-operate': 'yes' }, payload: { businessId: 'foreign-business', cashSessionId: 'session', type: 'INCOME', amount: 10, description: 'x', categoryId: 'category-1' } })).statusCode, 200)
 assert.equal((await app.inject({ method: 'GET', url: '/cash-register/days/active-day/entries?type=UNKNOWN', headers: { 'x-view': 'yes' } })).statusCode, 400)
 const page = await app.inject({ method: 'GET', url: '/cash-register/days/active-day/entries?cursor=abc&type=EXPENSE&method=CASH&sessionId=session-1&q=cliente', headers: { 'x-view': 'yes' } })
 assert.equal(page.statusCode, 200)

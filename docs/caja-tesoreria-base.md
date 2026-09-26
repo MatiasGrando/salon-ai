@@ -1,10 +1,10 @@
 # Caja diaria y Tesorería — funcionamiento y pruebas
 
-Estado: reserva de efectivo, permisos separados, cierre con cambio, tablero Cobrado/Egresos/Total, subcategorías, pagos privados desde Tesorería y resultado global exclusivo de administración. El seguimiento bancario/Mercado Pago aún no está implementado.
+Estado: cuentas de Tesorería por medio de pago configurable, destinatarios reutilizables, permisos separados, cierre con cambio, tablero Cobrado/Egresos/Total, subcategorías, pagos privados desde Tesorería y resultado global exclusivo de administración.
 
 ## Preparación para probar
 
-1. Aplicar, en orden, las migraciones `20260923030000_today_professional_production_permission`, `20260923040000_treasury_foundation`, `20260923050000_cash_expense_subcategories`, `20260923060000_treasury_professional_payments` y `20260923070000_treasury_expense_classification` mediante el procedimiento habitual. El desarrollo local no aplicó migraciones ni modificó datos.
+1. Aplicar, en orden, las migraciones `20260923030000_today_professional_production_permission`, `20260923040000_treasury_foundation`, `20260923050000_cash_expense_subcategories`, `20260923060000_treasury_professional_payments`, `20260923070000_treasury_expense_classification` y `20260925010000_treasury_payment_methods_and_counterparties` y `20260925020000_operating_income` mediante el procedimiento habitual. El desarrollo local no aplicó migraciones ni modificó datos.
 2. Mantener `CASH_REGISTER_ENABLED=true` y volver a iniciar la aplicación con el código nuevo.
 3. Usar un local autorizado con un usuario administrador y una cuenta de secretaría. Las sesiones ya existentes toman los permisos de la base en cada solicitud.
 
@@ -24,15 +24,16 @@ Estado: reserva de efectivo, permisos separados, cierre con cambio, tablero Cobr
 - Los reportes por período de secretaría incluyen solo movimientos asociados a jornadas de Caja; no cobros históricos o proyectados sin jornada.
 - El administrador de cuentas solo puede consultar locales que tenga autorizados. Las consultas de Caja y Tesorería verifican ese alcance en servidor. Una URL manipulada de otro local debe devolver 404.
 
-## Efectivo de Tesorería
+## Cuentas y medios de pago de Tesorería
 
 La pestaña **Tesorería** aparece solo a administración. El dueño puede:
 
 1. Habilitar una reserva de efectivo en cero. La habilitación es idempotente.
 2. Transferir efectivo desde una **sesión abierta** de Caja diaria. Se verifica que el importe no supere el efectivo esperado de la jornada.
-3. Registrar un **gasto** o **retiro** desde la reserva, con detalle obligatorio y sin necesitar Caja abierta. Un gasto puede clasificarse en categoría/subcategoría y tener destinatario; el formulario exige categoría para gastos nuevos. El retiro interno no permite clasificarlo como gasto.
+3. Registrar un **ingreso**, **gasto** o **retiro** desde cualquiera de las cuentas, con detalle y categoría obligatorios, subcategoría opcional y destinatario seleccionable. El botón **(+)** permite crear un destinatario sin salir del formulario.
 4. Pagar una **liquidación o adelanto profesional** desde Liquidaciones, eligiendo «Tesorería (efectivo)» como origen. No requiere una sesión de Caja abierta.
 5. Consultar el saldo destacado y movimientos de la reserva paginados de a 20; el historial puede filtrarse por categoría/subcategoría sin modificar el saldo mostrado. Los filtros reinician en la primera página.
+6. Administrar los medios de pago del negocio. La plantilla inicial crea Efectivo, Mercado Pago y Tarjeta; administración puede renombrar, ordenar, activar/desactivar o sumar canales de transferencia/billetera y tarjeta/posnet. Cada uno conserva una cuenta corriente separada.
 
 Un traspaso registra dos hechos **en una misma transacción**:
 - `CashEntry WITHDRAWAL/CASH` en Caja diaria: baja el efectivo esperado.
@@ -40,7 +41,7 @@ Un traspaso registra dos hechos **en una misma transacción**:
 
 No es venta ni gasto del negocio. En la caja diaria se ve el retiro para conciliar el efectivo físico; el saldo y los egresos de Tesorería nunca se entregan a personal. Los importes son enteros en ARS y los movimientos no se borran ni editan. Los traspasos manuales incluyen clave de idempotencia; reintentar el mismo envío no duplica dinero. El cierre automático se protege por el estado cerrado de la sesión, además del bloqueo transaccional.
 
-Una salida desde Tesorería baja solo su saldo. `EXPENSE` representa un gasto real; `WITHDRAWAL` representa dinero que sale de la reserva sin clasificarlo como gasto. **Alquiler y proveedores** se registran como `EXPENSE` con categoría/subcategoría y destinatario; esos importes solo aparecen en Tesorería para administración, no en Caja diaria ni en sus filtros para secretaría. La clasificación de gastos anteriores queda vacía y se conserva su historial. Un gasto o retiro reintentado con la misma clave no duplica el movimiento; si cambian sus datos, se rechaza. Categorías inactivas o subcategorías ajenas al local/categoría se rechazan para carga nueva.
+Un ingreso de Tesorería aumenta el saldo de la cuenta elegida y se incorpora al resultado como ingreso real del negocio. Una salida desde Tesorería baja ese saldo. `EXPENSE` representa un gasto real; `WITHDRAWAL` representa dinero que sale de esa cuenta sin incorporarlo al resultado del negocio. Ambos exigen categoría y pueden llevar subcategoría y destinatario. **Alquiler y proveedores** se registran como `EXPENSE` con categoría/subcategoría y destinatario; esos importes solo aparecen en Tesorería para administración, no en Caja diaria ni en sus filtros para secretaría. La clasificación de gastos anteriores queda vacía y se conserva su historial. Un gasto o retiro reintentado con la misma clave no duplica el movimiento; si cambian sus datos, se rechaza. Categorías inactivas o subcategorías ajenas al local/categoría se rechazan para carga nueva.
 
 Para **profesionales**, pagar desde la reserva genera atómicamente un `TreasuryMovement` de salida y un `ProfessionalAccountEntry` de débito vinculado: baja el saldo reservado y lo adeudado al profesional. No crea `CashEntry`, no necesita Caja abierta y no aparece en reportes/filtros de Caja de secretaría. El mismo identificador de operación se puede reintentar sin duplicar el pago; la ruta rechaza importe mayor al saldo, profesional de otro local y claves reutilizadas con otros datos.
 
@@ -50,9 +51,9 @@ Si elige **Caja diaria + Transferencia/Tarjeta**, el dinero no se inventa como e
 
 ## Resultado global exclusivo de administración
 
-En la pestaña **Tesorería**, «Resultado global del local» permite consultar hasta 31 días. Muestra **Cobrado**, **Egresos** y **Total** por medio, con desglose del egreso entre Caja y Tesorería. Se combinan los cobros y gastos/devoluciones de Caja con `EXPENSE`, `PROFESSIONAL_PAYMENT` y `PROFESSIONAL_ADVANCE` de Tesorería dentro de la fecha local del negocio. Un pago profesional hecho desde Caja ya está en los egresos de Caja y no se vuelve a agregar. `DAILY_TRANSFER` y `WITHDRAWAL` no son gastos y quedan fuera del resultado. Se trata de un **resultado por movimientos de dinero**, no del saldo físico; el saldo reservado se ve aparte. El tablero de Caja sigue mostrando solamente Caja, por lo que secretaría nunca recibe un total que incluya alquiler o liquidaciones privadas.
+En la pestaña **Tesorería**, «Resultado global del local» permite consultar hasta 31 días. Muestra **Cobrado**, **Egresos** y **Total** por medio, con desglose del egreso entre Caja y Tesorería. Se combinan los cobros e ingresos categorizados de Caja con los movimientos `INCOME`, `EXPENSE`, `PROFESSIONAL_PAYMENT` y `PROFESSIONAL_ADVANCE` de Tesorería dentro de la fecha local del negocio. Los ingresos de Tesorería usan el mismo catálogo de categorías y subcategorías que Caja. Un pago profesional hecho desde Caja ya está en los egresos de Caja y no se vuelve a agregar. `DAILY_TRANSFER` y `WITHDRAWAL` no son gastos y quedan fuera del resultado. Se trata de un **resultado por movimientos de dinero**, no del saldo físico; el saldo reservado se ve aparte. El tablero de Caja sigue mostrando solamente Caja, por lo que secretaría nunca recibe un total que incluya alquiler o liquidaciones privadas.
 
-La consulta y los cálculos globales del servidor están restringidos a administración y a locales autorizados. Un GET de personal a `/treasury/consolidated` responde 403. Los importes de transferencias y Mercado Pago todavía comparten el medio `TRANSFER`; no se puede desglosar esos dos canales con los datos actuales.
+La consulta y los cálculos globales del servidor están restringidos a administración y a locales autorizados. Un GET de personal a `/treasury/consolidated` responde 403. Los nombres comerciales se configuran por negocio y se vinculan a un tipo contable base (`CASH`, `TRANSFER` o `CARD`). Así, Mercado Pago y Transferencia Río pueden verse como cuentas separadas sin alterar los cálculos contables consolidados por tipo.
 
 ## Cierre con cambio para la próxima apertura
 
@@ -64,9 +65,9 @@ El servidor valida importes enteros, no negativos y que el monto a dejar no supe
 
 ## Resumen y subcategorías de gastos
 
-Las tarjetas de Jornada y Período muestran **Cobrado**, **Egresos** y **Total**, con desglose por efectivo, transferencia y tarjeta. Cobrado son los pagos asentados; Egresos son gastos más devoluciones; Total es Cobrado menos Egresos. Los aportes, retiros internos a Tesorería y ajustes no se hacen pasar por ventas ni gastos: se muestran aparte. El **efectivo esperado** sigue siendo un indicador operativo distinto del resultado. Una reserva de Tesorería no se suma a la Caja diaria de secretaría.
+Las tarjetas de Jornada y Período muestran **Cobrado**, **Egresos** y **Total**, con desglose por efectivo, transferencia y tarjeta. Cobrado son los pagos asentados; Egresos son gastos más devoluciones; Total es Cobrado menos Egresos. Los retiros internos a Tesorería y ajustes no se hacen pasar por ventas ni gastos: se muestran aparte. Todo ingreso registrado, incluida una categoría como «Aporte de efectivo», suma al resultado. El **efectivo esperado** sigue siendo un indicador operativo distinto del resultado. Una reserva de Tesorería no se suma a la Caja diaria de secretaría.
 
-En **Administrar categorías** se crean categorías y subcategorías opcionales. Ejemplo: categoría Servicios y subcategorías Luz, Gas, Agua, Internet y Alquiler. Al registrar un gasto se elige una categoría y, si corresponde, una subcategoría activa de esa misma categoría. Los gastos antiguos quedan sin subcategoría; no se modifica su historial. Se puede filtrar la jornada y los gastos por período por ambos niveles. Desactivar una subcategoría la quita de la carga nueva, pero conserva su nombre y sus movimientos históricos. El servidor valida pertenencia a categoría, vigencia y local, incluso si se manipula el formulario.
+En **Administrar categorías** se crean categorías y subcategorías reutilizables para gastos e ingresos. Al registrar un ingreso en Caja o Tesorería, la categoría es obligatoria y la subcategoría opcional; el ingreso aumenta el saldo y el resultado del negocio. «Aporte de efectivo» puede crearse como categoría de Ingreso y también suma al resultado. Ejemplo: categoría Servicios y subcategorías Luz, Gas, Agua, Internet y Alquiler. Al registrar un gasto se elige una categoría y, si corresponde, una subcategoría activa de esa misma categoría. Los gastos antiguos quedan sin subcategoría; no se modifica su historial. Se puede filtrar la jornada y los gastos por período por ambos niveles. Desactivar una subcategoría la quita de la carga nueva, pero conserva su nombre y sus movimientos históricos. El servidor valida pertenencia a categoría, vigencia y local, incluso si se manipula el formulario.
 
 ## Prueba manual sugerida
 
@@ -82,7 +83,7 @@ En **Administrar categorías** se crean categorías y subcategorías opcionales.
 10. Probar monto a dejar mayor que el contado, negativo o fraccionario y Tesorería deshabilitada: no debe cerrar ni mover fondos. Repetir un cierre ya exitoso: no debe duplicar el ingreso. Cerrar sin marcar la casilla conserva el comportamiento anterior.
 11. Con secretaría: no aparece la casilla; enviar `cashToLeave` manualmente al endpoint de cierre responde 403. Puede cerrar sin traspaso si tiene permiso de sesiones.
 12. Crear Servicios → Luz y Gas. Registrar un gasto bajo Luz, filtrar por Servicios y luego por Luz; Gas no debe aparecer. Desactivar Luz: no debe poder asignarse a gastos nuevos, pero debe seguir visible en el histórico. Probar una subcategoría de otra categoría y otro local: debe rechazarse.
-13. Comprobar el tablero con cobros $150.000, gastos $25.000 y devoluciones $10.000: Cobrado $150.000, Egresos $35.000 y Total $115.000. Un retiro interno de $30.000 y un aporte de $3.000 no cambian esas tres tarjetas; sí modifican el efectivo esperado según el medio.
+13. Comprobar el tablero con cobros $150.000, gastos $25.000 y devoluciones $10.000: Cobrado $150.000, Egresos $35.000 y Total $115.000. Un retiro interno de $30.000 no cambia esas tres tarjetas; un ingreso de $3.000 sí aumenta Cobrado y Total y, si el medio es efectivo, también el efectivo esperado.
 14. Probar un `businessId` de otro local: Caja y Tesorería no deben entregar datos.
 15. Administrador: en Liquidaciones elegir **Tesorería (efectivo)**, pagar $5.000 a un profesional con Caja cerrada. Verificar que baja $5.000 la reserva, baja $5.000 su saldo profesional y aparece el origen «Tesorería» en el historial; Caja diaria no recibe un gasto duplicado.
 16. Reintentar el mismo pago o forzar saldo insuficiente: no se deben duplicar movimientos ni aceptar saldo negativo. Probar un profesional de otro local: debe rechazarse.
@@ -98,7 +99,7 @@ El **efectivo reservado** se destaca en una tarjeta de saldo independiente del r
 
 El historial de Tesorería muestra **20 movimientos por página**, con Anterior/Siguiente y cantidad total. Los filtros de tipo, búsqueda por detalle/profesional, categoría y subcategoría se aplican antes de paginar y no alteran el saldo total; los movimientos nuevos llevan a la primera página.
 
-**Liquidaciones:** «Caja diaria» requiere una sesión abierta. En efectivo usa el puente atómico Caja → Tesorería → profesional descrito arriba; Caja refleja la salida física, pero solo Tesorería refleja el gasto real. Desde Tesorería se paga con la reserva existente. Transferencia/tarjeta desde Caja permanecen como egresos de Caja porque la reserva aún no lleva saldos digitales. El error genérico anterior surgía porque el asiento `CashEntry EXPENSE` omitía la categoría obligatoria por el esquema; este flujo ya no usa «Otros».
+**Liquidaciones:** «Caja diaria» requiere una sesión abierta. En efectivo usa el puente atómico Caja → Tesorería → profesional descrito arriba; Caja refleja la salida física, pero solo Tesorería refleja el gasto real. Desde Tesorería se paga con la reserva existente. Los cobros y egresos digitales quedan asociados al medio configurable elegido y alimentan el saldo de su cuenta de Tesorería. El error genérico anterior surgía porque el asiento `CashEntry EXPENSE` omitía la categoría obligatoria por el esquema; este flujo ya no usa «Otros».
 
 ## Alcance de jornadas, responsable administrador y actualización visible
 
@@ -117,8 +118,7 @@ El historial de Tesorería muestra **20 movimientos por página**, con Anterior/
 
 ## Todavía pendiente, no asumirlo implementado
 
-- Seguimiento opcional de transferencias/banco y Mercado Pago. Esta etapa habilita únicamente reserva **en efectivo**.
-- Integración PostgreSQL: no se ejecutó porque `TEST_DATABASE_URL` no está configurada. La migración y el despliegue quedan a cargo del procedimiento habitual. Se revisó una maqueta local de la vista en escritorio y viewport móvil real de 390 px (sin scroll horizontal); falta probar el CRM conectado con datos reales.
+- Integración PostgreSQL y prueba visual conectada: no se ejecutaron porque `TEST_DATABASE_URL` no está configurada y la automatización del navegador local no pudo iniciarse. La migración y el despliegue quedan a cargo del procedimiento habitual.
 - Pendientes por cobrar: expresamente fuera de alcance.
 
 ## Regresión: pagos profesionales desde Caja
@@ -127,3 +127,12 @@ El historial de Tesorería muestra **20 movimientos por página**, con Anterior/
 2. En Tesorería filtrar «Pagos profesionales» o la categoría «Liquidaciones profesionales», y buscar el nombre: debe aparecer el pago con importe y fecha; secretaría no puede abrir esa vista.
 3. Reintentar la misma solicitud: no crear nuevos movimientos. Probar reserva deshabilitada y efectivo esperado insuficiente: mostrar motivo, sin asientos parciales.
 4. Pagar mediante transferencia/tarjeta desde Caja: gasto categorizado como «Liquidaciones profesionales», sin cambiar saldo reservado ni crear movimientos de Tesorería.
+
+## Fecha contable y corrección auditada
+
+- Los gastos, retiros e ingresos de Tesorería y los pagos a profesionales desde Tesorería permiten elegir fecha; por defecto se propone hoy, según la zona horaria del negocio. No se aceptan días futuros.
+- La fecha del movimiento (effectiveAt) determina el período contable. La fecha de registro (createdAt) queda intacta y se muestra en el historial.
+- Solo administración puede corregir la fecha de un cobro, ingreso o gasto de Caja, o de un movimiento propio de Tesorería. Se exige un motivo. La corrección crea una contrapartida en la fecha anterior y un movimiento equivalente en la nueva fecha; el original nunca se reescribe. La cuenta y el saldo actual permanecen iguales, pero cambian los períodos afectados.
+- Si el movimiento de Caja pertenece a una jornada/sesión, la fecha destino debe tener una jornada y sesión del mismo responsable. No se lo coloca silenciosamente en otra persona ni se lo deja fuera del cierre. Los movimientos legados sin fecha efectiva no se corrigen por esta vía.
+- Los movimientos internos de traspaso Caja → Tesorería y los asientos derivados de Caja no se corrigen desde la tabla de Tesorería. Se evita corregir dos veces el mismo hecho económico.
+- La migración 20260926010000_financial_effective_dates copia createdAt a effectiveAt para los movimientos de Tesorería ya existentes. Aplicarla antes de habilitar los nuevos endpoints. No se ejecutó contra una base real en esta sesión.

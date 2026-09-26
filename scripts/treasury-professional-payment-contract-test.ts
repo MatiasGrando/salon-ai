@@ -11,7 +11,7 @@ for (const marker of ['/treasury/pay-professional', 'isAdmin(user)', 'INSUFFICIE
 assert.ok(route.includes("typeof body.professionalId !== 'string'"), 'un profesional no textual debe rechazarse sin TypeError')
 for (const marker of ['cash-professional-payment-source', '/treasury/pay-professional', 'idempotencyKey']) assert.ok(ui.includes(marker), `falta UI ${marker}`)
 assert.ok(!route.includes('cashSessionId: body.cashSessionId') || route.includes('pay-professional'), 'el pago desde reserva no debe requerir Caja')
-const input = { businessId: 'shop', professionalId: 'pro', type: 'PAYMENT' as const, amount: 5000, observation: 'Semana 1', idempotencyKey: '12345678-1234-1234-1234-123456789abc', actorUserId: 'owner', actorName: 'Dueña' }
+const input = { businessId: 'shop', professionalId: 'pro', type: 'PAYMENT' as const, amount: 5000, observation: 'Semana 1', effectiveAt: new Date('2026-09-25T15:00:00.000Z'), effectiveDate: '2026-09-25', idempotencyKey: '12345678-1234-1234-1234-123456789abc', actorUserId: 'owner', actorName: 'Dueña' }
 function fake(balance = 10_000n, existing: Record<string, unknown> | null = null) {
   const writes: Array<{ sql: string; values: unknown[] }> = []
   const tx = {
@@ -38,9 +38,10 @@ assert.ok(happy.writes[1]?.values.includes('liquidaciones'))
 assert.ok(happy.writes[2]?.sql.includes('"ProfessionalAccountEntry"'))
 assert.ok(!happy.writes.some((write) => write.sql.includes('"CashEntry"')), 'Tesoreria no debe escribir Caja diaria')
 assert.ok(happy.writes[2]?.values.includes(input.idempotencyKey), 'la cuenta profesional debe vincular el movimiento')
-const retry = fake(0n, { id: input.idempotencyKey, businessId: 'shop', kind: 'PROFESSIONAL_PAYMENT', amount: 5000, entryId: created.id, professionalId: 'pro', entryType: 'PAYMENT', observation: 'Semana 1' })
+const retry = fake(0n, { id: input.idempotencyKey, businessId: 'shop', kind: 'PROFESSIONAL_PAYMENT', amount: 5000, entryId: created.id, professionalId: 'pro', entryType: 'PAYMENT', observation: 'Semana 1', effectiveDate: input.effectiveDate })
 assert.deepEqual(await recordTreasuryProfessionalPayment(retry.tx as never, input), created)
 assert.equal(retry.writes.length, 0, 'reintento no duplica pago')
+await assert.rejects(recordTreasuryProfessionalPayment(fake(0n, { id: input.idempotencyKey, businessId: 'shop', kind: 'PROFESSIONAL_PAYMENT', amount: 5000, entryId: created.id, professionalId: 'pro', entryType: 'PAYMENT', observation: 'Semana 1', effectiveDate: input.effectiveDate }).tx as never, { ...input, effectiveDate: '2026-09-24' }), /KEY_CONFLICT/)
 const noFunds = fake(4_999n)
 await assert.rejects(recordTreasuryProfessionalPayment(noFunds.tx as never, input), /INSUFFICIENT_TREASURY/)
 assert.equal(noFunds.writes.length, 0)
