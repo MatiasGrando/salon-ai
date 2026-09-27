@@ -6,6 +6,7 @@ const roots = [
   new URL('../src', import.meta.url),
   new URL('../scripts', import.meta.url)
 ]
+const migrationRoot = new URL('../prisma/migrations', import.meta.url)
 const suspiciousTokens = [
   String.fromCharCode(0xc3),
   String.fromCharCode(0xc2),
@@ -33,6 +34,8 @@ function inspectDirectory(directory: string) {
 
 for (const root of roots) inspectDirectory(root.pathname.replace(/^\/(.:)/, '$1'))
 
+inspectMigrationFiles(migrationRoot.pathname.replace(/^\/(.:)/, '$1'))
+
 assert.deepEqual(
   violations,
   [],
@@ -40,3 +43,18 @@ assert.deepEqual(
 )
 
 console.log('Text encoding contract: OK (fuentes UTF-8 sin secuencias corruptas)')
+
+function inspectMigrationFiles(directory: string) {
+  for (const entry of readdirSync(directory)) {
+    const path = join(directory, entry)
+    if (statSync(path).isDirectory()) {
+      inspectMigrationFiles(path)
+      continue
+    }
+    if (!path.endsWith('migration.sql')) continue
+    const bytes = readFileSync(path)
+    if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+      violations.push(`${path}:1 (UTF-8 BOM)`)
+    }
+  }
+}

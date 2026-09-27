@@ -1,4 +1,4 @@
-﻿CREATE TABLE "BusinessPaymentMethod" (
+CREATE TABLE "BusinessPaymentMethod" (
   "id" TEXT NOT NULL,
   "businessId" TEXT NOT NULL,
   "name" TEXT NOT NULL,
