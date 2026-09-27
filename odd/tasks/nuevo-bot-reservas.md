@@ -108,13 +108,13 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 
 ## T02 — Primer slice de contratos compartidos
 
-- Estado: parcial; T01 también sigue parcial y su dependencia no está resuelta. Este slice no cierra T02 ni modifica la ruta productiva `bot-options`.
-- Ruta: T02, delegada directa. El núcleo expone contratos genéricos; los fixtures de salón y taller declaran capacidades distintas, y taller admite diagnóstico/cotización sin agenda.
-- Admisión determinística: `admitIntentProposal` recibe el tenant confiable aparte de la propuesta no confiable; acepta solo intents y capacidades declarados, exige entidades requeridas, rechaza `businessId` reservado en `requiredEntities` y proyecta solo los campos requeridos. Devuelve un descriptor ligado al businessId confiable; no ejecuta efectos ni está conectado a una ruta activa.
-- TDD observado: RED del slice inicial por fixtures ausentes; RED de la regresión de seguridad mostró `attacker-tenant` dentro de `entities` cuando el contrato pedía `businessId`. GREEN tras agregar la validación y pasar ambas pruebas.
-- Checks: `npm run test:new-bot-contracts` → OK; `npm run test:booking-v2` → OK (250 pruebas); `npm run test:text-encoding` → OK; `git diff --check` → OK (avisos Git LF/CRLF). Typecheck focal `npx tsc --ignoreConfig --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --types node scripts/new-bot-contracts-contract-test.ts src/new-bot/domain/contracts.ts src/new-bot/domain/admission.ts src/new-bot/domain/verticals/salon.ts src/new-bot/domain/verticals/workshop.ts` → OK.
-- Typecheck global: `npx tsc --noEmit` agotó el heap Node predeterminado; al reintentar con heap de 4 GB aparecieron errores de TypeScript en archivos ajenos al slice. Sigue sin quedar limpio.
-- Runtime harness: N/A; función pura sin routing, DB, Meta/WhatsApp ni configuración remota.
-- Reversión: retirar el módulo, fixtures y test bajo `src/new-bot/domain` y `scripts/new-bot-contracts-contract-test.ts`, el script de `package.json` y esta sección; no modifica datos ni rutas productivas.
-- Cierre: commit pendiente del padre; el review gate también queda a su cargo.
-- Próximo paso: mantener T01/T02 parciales hasta resolver la dependencia de T01 y completar el alcance restante.
+- Estado: parcial; T01 sigue parcial y su dependencia no está resuelta. El bot no está activo y esta unidad no modifica la ruta productiva `bot-options`.
+- Ruta: T02, delegada directa. El núcleo declara contratos genéricos; los fixtures de salón y taller expresan capacidades distintas, con diagnóstico y cotización de taller independientes de agenda.
+- Admisión determinística: `admitIntentProposal` recibe por separado el tenant confiable y la propuesta no confiable; exige intent/capacidad declarados y entidades requeridas, rechaza `businessId` dentro de `requiredEntities` y proyecta solo campos requeridos. Devuelve un descriptor ligado al `businessId` confiable, sin ejecutar efectos ni activar routing.
+- TDD: RED inicial por fixtures faltantes y RED de seguridad que reprodujo `attacker-tenant` dentro de `entities`; GREEN luego de agregar la admisión y el guard.
+- Commit local de la unidad: `86cc5aa20d141705c106b35d48839362dbb08cd2` — `feat(bot): define tenant-bound multivertical contracts` (contratos, fixtures, admisión y pruebas).
+- Checks: `npm run test:new-bot-contracts` → OK; `npm run test:booking-v2` → OK (250 pruebas); `npm run test:text-encoding` → OK; typecheck focal del módulo/test → OK; `git diff --check` → OK.
+- Typecheck global incompleto: `npx tsc --noEmit` agotó el heap Node predeterminado; al reintentar con heap de 4 GB aparecieron errores de TypeScript en archivos ajenos a esta unidad. No se afirma un typecheck global limpio.
+- Revisión nativa pendiente: el assess informó `high_risk` porque el rango desde el boundary revisado `2c90256` incluye el hot path previo del webhook. Native STATUS requiere selección explícita de archivos untracked ajenos; la revisión todavía no se completó y no hay recibo/aprobación.
+- Runtime harness: N/A; función pura sin ruta activa, DB, Meta/WhatsApp ni configuración remota.
+- Cierre documental: pendiente del padre; T01/T02 continúan parciales hasta resolver la dependencia y completar el alcance restante.
