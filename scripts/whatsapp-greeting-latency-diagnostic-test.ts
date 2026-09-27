@@ -69,10 +69,12 @@ for (const stage of [
 ]) {
   assert.match(webhookSource, new RegExp(`['"]${stage}['"]`))
 }
-assert.match(webhookSource, /\[whatsapp-latency-diagnostic\]/)
+assert.match(webhookSource, /emitWhatsAppLatencyDiagnostic\(/)
+const latencyDiagnosticSource = readFileSync('src/services/latency-diagnostic.ts', 'utf8')
+assert.match(latencyDiagnosticSource, /\[whatsapp-latency-diagnostic\]/)
 assert.match(webhookSource, /WHATSAPP_LATENCY_DIAGNOSTICS_ENABLED|latencyDiagnosticsEnabled/)
-assert.match(webhookSource, /traceId: firstMessage\.inboundMessageId/)
-assert.match(webhookSource, /JSON\.stringify/)
+assert.match(latencyDiagnosticSource, /traceId,/)
+assert.match(latencyDiagnosticSource, /JSON\.stringify/)
 assert.doesNotMatch(webhookSource, /checkpoint\(['"]batch_wait['"]\)/)
 
 console.log('whatsapp-greeting-latency-diagnostic-test: OK')

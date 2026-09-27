@@ -93,3 +93,13 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 - Estrategia elegida: feature-branch-chain; integrar primero en rama del nuevo bot, no en producción.
 - Validación final: test:text-encoding OK. diff --check detectó únicamente una línea vacía final del tracker en el candidato original; este registro normaliza ese final.
 - No se activó el piloto ni se hizo push/despliegue. Próximo paso: prueba conductual del diagnóstico antes de habilitarlo en Barber Demo.
+
+## Follow-up de revisión R3 — emisión tenant-scoped
+
+- RED observado: `npm run test:whatsapp-tenant-latency-diagnostics` falló antes del seam conductual porque `latency-diagnostic.ts` aún no exportaba `emitWhatsAppLatencyDiagnostic`.
+- GREEN: se extrajo la decisión/serialización de emisión a `emitWhatsAppLatencyDiagnostic`, inyectando el sink. La prueba ejecuta el seam real, captura el sink y verifica que el negocio allowlisted emite exactamente una línea mientras el no listado no emite; en ambos casos los disparadores global, greeting y bot especial están desactivados.
+- El webhook delega la emisión existente al seam con los mismos cuatro disparadores; no cambia enrutamiento, reservas ni decisiones del motor. La prueba de greeting verifica el wiring y la serialización en su nueva ubicación.
+- Verificación observada: `npm run test:whatsapp-tenant-latency-diagnostics` → OK; `npm run test:whatsapp-greeting-latency` → OK (fixtures: total 8130 ms); `npm run test:whatsapp-shadow-wiring` → OK; `npm run test:text-encoding` → OK; `git diff --check` → OK. Sin build.
+- Runtime harness: parcial — ejecución del seam con sink capturado; no se ejecutó el webhook de punta a punta, ni DB, tráfico, configuración ni WhatsApp real.
+- Reversión: restaurar el bloque de emisión anterior en `src/services/whatsapp-webhook-service.ts`, retirar `emitWhatsAppLatencyDiagnostic` de `src/services/latency-diagnostic.ts` y eliminar las expectativas conductuales/wiring actualizadas en `scripts/whatsapp-tenant-latency-diagnostics-test.ts` y `scripts/whatsapp-greeting-latency-diagnostic-test.ts`. No afecta la allowlist ni comportamiento de reservas.
+- T01 permanece parcial: esta prueba resuelve el warning de cobertura de emisión, pero no aporta medición operacional, percentiles del flujo real ni cuello de botella demostrado. Sin commit por instrucción del orquestador; revisión/commit quedan a cargo del padre.

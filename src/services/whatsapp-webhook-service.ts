@@ -40,6 +40,7 @@ import {
 } from './conversation-interactive-prompt.js'
 import { stateFromConversation } from './booking-v2-conversation-state.js'
 import {
+  emitWhatsAppLatencyDiagnostic,
   isGreetingLatencyDiagnosticMessage,
   LatencyDiagnostic
 } from './latency-diagnostic.js'
@@ -1135,20 +1136,16 @@ export class WhatsAppWebhookService {
       if (!deliveryResult.sent) break
     }
 
-    if (
-      latencyDiagnostic &&
-      (firstMessage.tenantLatencyDiagnosticsEnabled ||
-        whatsappConfig.latencyDiagnosticsEnabled ||
-        isGreetingLatencyDiagnosticMessage(firstMessage.text) ||
-        (conversationResult as { supportBot?: string }).supportBot === TAMARA_OPTIONS_BOT_KEY)
-    ) {
-      console.info('[whatsapp-latency-diagnostic]', JSON.stringify({
-        traceId: firstMessage.inboundMessageId,
-        conversationId: firstMessage.conversationId,
-        ...latencyDiagnostic.report()
-      }))
-    }
-
+    emitWhatsAppLatencyDiagnostic({
+      diagnostic: latencyDiagnostic,
+      tenantEnabled: firstMessage.tenantLatencyDiagnosticsEnabled,
+      globalEnabled: whatsappConfig.latencyDiagnosticsEnabled,
+      greetingMessage: isGreetingLatencyDiagnosticMessage(firstMessage.text),
+      specialBotEnabled: (conversationResult as { supportBot?: string }).supportBot === TAMARA_OPTIONS_BOT_KEY,
+      traceId: firstMessage.inboundMessageId,
+      conversationId: firstMessage.conversationId,
+      sink: console.info
+    })
     if (
       conversationResult.depositRequestId &&
       deliveryResults.some((delivery) => !delivery.sent) &&

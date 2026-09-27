@@ -11,6 +11,35 @@ export type LatencyDiagnosticReport = {
   alerts: string[]
 }
 
+export function emitWhatsAppLatencyDiagnostic(options: {
+  diagnostic: LatencyDiagnostic | undefined
+  tenantEnabled: boolean
+  globalEnabled: boolean
+  greetingMessage: boolean
+  specialBotEnabled: boolean
+  traceId: string
+  conversationId: string
+  sink: (tag: string, payload: string) => void
+}) {
+  const {
+    diagnostic,
+    tenantEnabled,
+    globalEnabled,
+    greetingMessage,
+    specialBotEnabled,
+    traceId,
+    conversationId,
+    sink
+  } = options
+  if (!diagnostic || !(tenantEnabled || globalEnabled || greetingMessage || specialBotEnabled)) return false
+
+  sink('[whatsapp-latency-diagnostic]', JSON.stringify({
+    traceId,
+    conversationId,
+    ...diagnostic.report()
+  }))
+  return true
+}
 export class LatencyDiagnostic {
   private readonly startedAt: number
   private checkpointAt: number
