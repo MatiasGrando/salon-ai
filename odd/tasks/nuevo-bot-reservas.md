@@ -12,14 +12,14 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 
 ## Alcance autorizado y restricciones
 
-- Trabajo local del nuevo bot autorizado; comenzar por T01. No tocar producción.
+- Trabajo local del nuevo bot autorizado. T01 sigue parcial y T02 puede avanzar solo como trabajo parcial hasta que se cierre T01 o se revise explícitamente la dependencia. No tocar producción.
 - No hacer builds, push, despliegues, acceso remoto ni envíos o pruebas reales por WhatsApp sin autorización específica. Las pruebas locales enfocadas sí forman parte de la implementación.
-- El piloto autorizado es el perfil Barber Demo. Su código público es WX-38N6UG, almacenado en Business.customerCode (no es el Business.id). La instrumentación se activa solo para códigos listados en WHATSAPP_LATENCY_DIAGNOSTIC_BUSINESS_CODES; vacío/no definido mantiene desactivada esta activación. No cambiar la configuración compartida ni desplegarla sin autorización.
+- Barber Demo (WX-38N6UG) es un perfil de prueba aislado por tenant; no exige reversión rápida. El despliegue diagnóstico del 2026-09-27 quedó activo, pero el tráfico observado usó bot-options y la ruta diagnóstica legacy no emitió datos. No asumir mediciones de T01 ni cambiar activación/configuración compartida sin autorización.
 - Mantener transporte, persistencia, orden de sesión y observabilidad compartidos; representar diferencias como contratos/políticas/capacidades de cada vertical.
 - Salón primero; incluir un contrato de segundo vertical en pruebas antes de congelar el núcleo.
 - La mecánica puede requerir flujo de diagnóstico/presupuesto, no solo reservar un horario.
 - IA solo propone intención y entidades; las reglas del dominio validan y ejecutan.
-- TDD estricto: activo según AGENTS.md; para T01 el comando runner enfocado queda definido abajo.
+- TDD estricto: activo según AGENTS.md. La selección de modelo IA se difiere a T08; el fallback local conocido es `gpt-4o-mini`, mientras el `OPENAI_MODEL` efectivo de Railway no está verificado.
 - Estrategia de entrega predeterminada: `ask-on-risk`. Pronóstico inicial: más de 400 líneas propias para la funcionalidad completa, orientativo y no vinculante. Estrategia de cadena: pendiente de decisión cuando corresponda.
 
 ## Tareas y dependencias
@@ -27,7 +27,7 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 | ID | Tarea | Depende de | Estado |
 |---|---|---|---|
 | T01 | Medir línea base de latencia, corrección y confiabilidad del flujo actual | — | Parcial: resumen estadístico puro conservado; colector operacional retirado por defectos de cohorte y timestamps. Falta evidencia route-specific con DB aislada |
-| T02 | Definir contratos del motor, del núcleo compartido y de los verticales; incluir un contrato de segundo vertical | T01 | Pendiente |
+| T02 | Definir contratos del motor, del núcleo compartido y de los verticales; incluir un contrato de segundo vertical | T01 | Parcial: primer slice contractual en progreso; no cierra T02 ni resuelve la dependencia de T01 |
 | T03 | Implementar ingreso durable, validación y deduplicación | T02 | Pendiente |
 | T04 | Implementar procesamiento ordenado por conversación y escalable | T03 | Pendiente |
 | T05 | Implementar outbox y envío confiable, con reconciliación de resultados inciertos | T03, T04 | Pendiente |
@@ -51,7 +51,7 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 - El análisis debe reconciliar la ruta real de webhook a estados de envío, medir p50/p95/p99, carga, saturación, errores y arranque frío; no inferir rendimiento solo de consumo de Supabase.
 - Criterio de cierre: línea base reproducible, cuello de botella demostrado, correlación por identificador y brechas explícitas.
 - Resumen estadístico puro conservado para percentiles y atribución de hitos cuando existan trazas válidas. No hay un colector confiable conectado a los datos durables.
-- Follow-up local: se conectó la salida del diagnóstico legacy existente a una lista de códigos públicos de negocio opt-in. La resolución del webhook trae Business.customerCode; el allowlist es default-off y el diagnóstico se conserva en la ruta existente, sin cambiar motor ni política de reservas. El perfil Barber Demo puede añadirse al allowlist de configuración cuando el usuario autorice ese cambio de entorno; no se habilitó ningún tenant ni se midió su tráfico en esta unidad.
+- Follow-up local: se conectó la salida del diagnóstico legacy existente a una lista de códigos públicos de negocio opt-in. El despliegue del diagnóstico quedó activo el 2026-09-27. En el tráfico de prueba reportado se usó la ruta bot-options, por lo que la ruta legacy de diagnóstico no emitió; no hay medición operacional ni percentiles de T01. Barber Demo (WX-38N6UG) sigue siendo un perfil de prueba con aislamiento por tenant; no requiere reversión rápida. No se cambió el flujo productivo ni se infirió rendimiento de ese intento.
 - La propuesta previa de colector se retiró: excluía replies iniciales sin `providerEventId`, no cubría transiciones `RECOVERED`/`HANDOFF`, usaba `now()` escrito en la misma transacción para aparentar transición→outbox, y descartaba eventos sin outbox, eliminando fallos del denominador. Por eso sus percentiles no representan una cohorte operacional válida.
 - No se afirma una medición ni percentiles del bot. La prueba del resumen opera sobre fixtures y valida solamente el cálculo matemático.
 - Brecha bloqueante: inspeccionar con una DB aislada las rutas reales y definir cohortes que incluyan replies iniciales, `RECOVERED`/`HANDOFF` y fallos previos a outbox; identificar timestamps persistidos (sin defaults del mismo instante transaccional) para recepción/ACK, encolado, inicio/fin de worker, aceptación del proveedor y callback sintético. Solo después añadir un colector probado contra esa DB y medir cold/sustained load. Aún no hay resultado real para p50/p95/p99 ni cuello de botella.
@@ -105,3 +105,16 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 - Runtime harness: parcial — ejecución del seam con sink capturado; no se ejecutó el webhook de punta a punta, ni DB, tráfico, configuración ni WhatsApp real.
 - Reversión: restaurar el bloque de emisión anterior en `src/services/whatsapp-webhook-service.ts`, retirar `emitWhatsAppLatencyDiagnostic` de `src/services/latency-diagnostic.ts` y eliminar las expectativas conductuales/wiring actualizadas en `scripts/whatsapp-tenant-latency-diagnostics-test.ts` y `scripts/whatsapp-greeting-latency-diagnostic-test.ts`. No afecta la allowlist ni comportamiento de reservas.
 - T01 permanece parcial: esta prueba resuelve el warning de cobertura de emisión, pero no aporta medición operacional, percentiles del flujo real ni cuello de botella demostrado. Sin commit por instrucción del orquestador; revisión/commit quedan a cargo del padre.
+
+## T02 — Primer slice de contratos compartidos
+
+- Estado: parcial; T01 también sigue parcial y su dependencia no está resuelta. Este slice no cierra T02 ni modifica la ruta productiva `bot-options`.
+- Ruta: T02, delegada directa. El núcleo expone contratos genéricos; los fixtures de salón y taller declaran capacidades distintas, y taller admite diagnóstico/cotización sin agenda.
+- Admisión determinística: `admitIntentProposal` recibe el tenant confiable aparte de la propuesta no confiable; acepta solo intents y capacidades declarados, exige entidades requeridas, rechaza `businessId` reservado en `requiredEntities` y proyecta solo los campos requeridos. Devuelve un descriptor ligado al businessId confiable; no ejecuta efectos ni está conectado a una ruta activa.
+- TDD observado: RED del slice inicial por fixtures ausentes; RED de la regresión de seguridad mostró `attacker-tenant` dentro de `entities` cuando el contrato pedía `businessId`. GREEN tras agregar la validación y pasar ambas pruebas.
+- Checks: `npm run test:new-bot-contracts` → OK; `npm run test:booking-v2` → OK (250 pruebas); `npm run test:text-encoding` → OK; `git diff --check` → OK (avisos Git LF/CRLF). Typecheck focal `npx tsc --ignoreConfig --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --types node scripts/new-bot-contracts-contract-test.ts src/new-bot/domain/contracts.ts src/new-bot/domain/admission.ts src/new-bot/domain/verticals/salon.ts src/new-bot/domain/verticals/workshop.ts` → OK.
+- Typecheck global: `npx tsc --noEmit` agotó el heap Node predeterminado; al reintentar con heap de 4 GB aparecieron errores de TypeScript en archivos ajenos al slice. Sigue sin quedar limpio.
+- Runtime harness: N/A; función pura sin routing, DB, Meta/WhatsApp ni configuración remota.
+- Reversión: retirar el módulo, fixtures y test bajo `src/new-bot/domain` y `scripts/new-bot-contracts-contract-test.ts`, el script de `package.json` y esta sección; no modifica datos ni rutas productivas.
+- Cierre: commit pendiente del padre; el review gate también queda a su cargo.
+- Próximo paso: mantener T01/T02 parciales hasta resolver la dependencia de T01 y completar el alcance restante.

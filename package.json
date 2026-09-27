@@ -14,6 +14,7 @@
     "dev": "tsx src/server.ts",
     "start": "prisma generate && prisma migrate deploy && tsx src/server.ts",
     "prisma:generate": "prisma generate",
+    "test:new-bot-contracts": "tsx scripts/new-bot-contracts-contract-test.ts",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
     "test:booking-availability-resolution": "tsx scripts/booking-availability-resolution-contract-test.ts",
     "test:booking-availability-search": "tsx scripts/booking-availability-search-contract-test.ts",
