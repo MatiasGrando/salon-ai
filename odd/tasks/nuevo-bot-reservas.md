@@ -93,6 +93,8 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 - Estrategia elegida: feature-branch-chain; integrar primero en rama del nuevo bot, no en producción.
 - Validación final: test:text-encoding OK. diff --check detectó únicamente una línea vacía final del tracker en el candidato original; este registro normaliza ese final.
 - No se activó el piloto ni se hizo push/despliegue. Próximo paso: prueba conductual del diagnóstico antes de habilitarlo en Barber Demo.
+- Commit 79c3abd: prueba conductual con sink capturado; demuestra emisión para perfil opt-in y ausencia para perfil no listado, sin ejecutar webhook/DB reales. RED/GREEN observado; tests tenant, greeting, shadow, booking-v2 (250), encoding y diff check: PASS.
+- RDD para 79c3abd: riesgo alto por tocar webhook; usuario eligió omitir revisión solo para este candidato (declined_this_candidate). No hay recibo de revisión de este commit; futuras revisiones siguen habilitadas. T01 continúa abierta y no se activó el piloto.
 
 ## Follow-up de revisión R3 — emisión tenant-scoped
 
