@@ -1,3 +1,5 @@
+BEGIN;
+
 CREATE TABLE "BusinessPaymentMethod" (
   "id" TEXT NOT NULL,
   "businessId" TEXT NOT NULL,
@@ -54,10 +56,12 @@ FROM "BusinessPaymentMethod" method
 WHERE method."kind" IN ('TRANSFER'::"CashPaymentMethod", 'CARD'::"CashPaymentMethod")
   AND NOT EXISTS (SELECT 1 FROM "TreasuryAccount" account WHERE account."businessId" = method."businessId" AND account."paymentMethodId" = method."id");
 
+ALTER TABLE "CashEntry" DISABLE TRIGGER "CashEntry_append_only_trigger";
 UPDATE "CashEntry" entry
 SET "businessPaymentMethodId" = method."id"
 FROM "BusinessPaymentMethod" method
 WHERE entry."businessId" = method."businessId" AND entry."paymentMethod" = method."kind" AND method."isDefault" = true;
+ALTER TABLE "CashEntry" ENABLE TRIGGER "CashEntry_append_only_trigger";
 
 CREATE UNIQUE INDEX "TreasuryAccount_businessId_paymentMethodId_key" ON "TreasuryAccount"("businessId", "paymentMethodId");
 CREATE INDEX "TreasuryMovement_businessId_counterpartyId_createdAt_idx" ON "TreasuryMovement"("businessId", "counterpartyId", "createdAt");
@@ -89,3 +93,5 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER "CashEntry_assign_business_payment_method"
 BEFORE INSERT OR UPDATE OF "paymentMethod", "businessPaymentMethodId" ON "CashEntry"
 FOR EACH ROW EXECUTE FUNCTION assign_default_business_payment_method();
+
+COMMIT;
