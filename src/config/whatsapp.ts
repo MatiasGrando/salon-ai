@@ -17,6 +17,20 @@ const configuredMessageBatchMaxWaitMs = nonNegativeInteger(
   DEFAULT_MESSAGE_BATCH_MAX_WAIT_MS
 )
 
+export function parseWhatsAppLatencyDiagnosticBusinessCodes(value: string | undefined) {
+  return new Set((value ?? '')
+    .split(',')
+    .map((code) => code.trim().toUpperCase().replace(/\s+/g, ''))
+    .filter((code) => /^WX-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(code)))
+}
+
+export function isWhatsAppLatencyDiagnosticsEnabledForBusiness(
+  customerCode: string | null | undefined,
+  enabledCodes: ReadonlySet<string> = whatsappConfig.latencyDiagnosticBusinessCodes
+) {
+  const normalizedCode = customerCode?.trim().toUpperCase().replace(/\s+/g, '')
+  return Boolean(normalizedCode && enabledCodes.has(normalizedCode))
+}
 export const whatsappConfig = {
   verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? 'salon_ai_verify_95',
   accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
@@ -30,6 +44,9 @@ export const whatsappConfig = {
   phoneNumberMode: process.env.WHATSAPP_PHONE_NUMBER_MODE ?? 'production_argentina',
   allowInternalFallback: process.env.WHATSAPP_ALLOW_INTERNAL_FALLBACK === 'true',
   latencyDiagnosticsEnabled: process.env.WHATSAPP_LATENCY_DIAGNOSTICS_ENABLED === 'true',
+  latencyDiagnosticBusinessCodes: parseWhatsAppLatencyDiagnosticBusinessCodes(
+    process.env.WHATSAPP_LATENCY_DIAGNOSTIC_BUSINESS_CODES
+  ),
   messageBatchDelayMs,
   messageBatchMaxWaitMs: Math.max(messageBatchDelayMs, configuredMessageBatchMaxWaitMs)
 }

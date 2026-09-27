@@ -1,0 +1,103 @@
+PLAN DE TRABAJO ODD — NUEVO BOT DE RESERVAS
+
+Estado: planificación. Ninguna tarea de implementación está iniciada.
+Objetivo: reemplazar gradualmente Booking V2 con un bot más rápido, escalable y confiable, capaz de comprender lenguaje natural sin ceder a la IA el control de las reservas.
+Alcance: desarrollo local y pruebas. Este plan no autoriza despliegue, acceso a producción ni envíos reales por WhatsApp.
+
+CÓMO EJECUTAR ESTE PLAN EN EL OTRO ENTORNO
+
+Antes de escribir código, inspeccionar el repositorio, confirmar sus reglas y medir la ruta actual del mensaje. Crear allí el documento ODD de seguimiento en odd/tasks/nuevo-bot-reservas.md y su espejo de memoria si el entorno dispone de él. Registrar objetivo, restricciones, tareas, progreso, pruebas, evidencias y próximo paso. Este TXT es la propuesta transportable; no reemplaza la inspección ni el seguimiento real.
+
+Trabajar una tarea coherente por vez. Resolver y registrar el modo de TDD y el comando de pruebas del entorno antes de implementar; si TDD está activo, observar RED -> GREEN -> REFACTOR. Cerrar cada tarea solo con resultado y comprobaciones observadas. Mantener pruebas y documentación junto al cambio. Usar commits convencionales por unidad de trabajo en una rama de la funcionalidad. Push, PR, despliegue y piloto real requieren decisiones y autorizaciones separadas.
+
+DECISIONES DE ARQUITECTURA PROPUESTAS, TODAVÍA POR VALIDAR
+
+ARQUITECTURA MULTI-VERTICAL
+
+El bot tendrá un núcleo compartido para transporte, persistencia, sesión y observabilidad. Cada vertical aportará contratos de dominio, políticas, entidades, acciones y capacidades configurables; no se duplicará el bot ni se codificarán supuestos de salón en el núcleo. Salón será el primer vertical; coaching y mecánica se incorporarán después. Antes de congelar el núcleo, las pruebas deben incluir un contrato de segundo vertical. Mecánica puede necesitar diagnóstico y presupuesto además de agenda, por lo que no se modelará como reserva de turnos únicamente.
+
+Esta separación no altera las prioridades ya establecidas: rapidez de respuesta, persistencia durable, orden por conversación, outbox y manejo confiable de resultados inciertos siguen siendo requisitos centrales. Como contexto de línea base, la ruta legacy tiene batcher en proceso, envío inline y diagnóstico de latencia por mensaje; bot-options ofrece journal durable, jobs/outbox, callbacks de estado y métricas, pero todavía no percentiles end-to-end correlacionados hasta entrega.
+
+
+- PostgreSQL será la fuente de verdad de mensajes, trabajos, estado de conversación, reservas y outbox.
+- Una conversación se procesará en orden; conversaciones distintas podrán avanzar en paralelo.
+- El intérprete, determinístico o de IA, solo propondrá intención y entidades. El dominio validará y ejecutará operaciones.
+- XState controlará estados y transiciones, con snapshots versionados.
+- Un agente lógico compartirá definición entre conversaciones, pero tendrá contexto aislado por cliente y negocio. No habrá un proceso permanente por conversación.
+- Supabase Realtime no estará en el camino crítico de WhatsApp; solo se evaluará para actualización visual del CRM.
+- Redis, Duckling y spaCy entrarán únicamente cuando pruebas y datos justifiquen su costo operativo.
+
+TAREAS ODD PROPUESTAS
+
+T01 — Línea base de latencia y corrección
+Depende de: ninguna.
+Trabajo: trazar un mensaje desde el webhook hasta los estados de envío; separar persistencia, espera, consultas, interpretación, transición, outbox y Meta. Medir p50/p95/p99, tasa de llegada, saturación, errores y condiciones de arranque frío.
+Criterio de cierre: informe reproducible con cuello de botella demostrado y métricas de referencia. No inferir rendimiento solo de la tabla de consumo de Supabase.
+Pruebas: recorridos representativos, concurrencia controlada y verificación de correlación por identificador de mensaje.
+
+T02 — Contratos del nuevo motor
+Depende de: T01.
+Trabajo: definir intenciones, entidades, eventos, estados, aislamiento por negocio, claves de idempotencia y límites de la IA. Separar interpretación, máquina de estados, dominio y redacción.
+Criterio de cierre: escenarios de reserva, consulta intermedia, cambio de datos, ambigüedad y confirmación expresados en pruebas/contratos.
+
+T03 — Ingreso durable
+Depende de: T02.
+Trabajo: validar y deduplicar webhooks; persistir mensaje y trabajo en una transacción; confirmar recepción a Meta solo después del commit.
+Criterio de cierre: entradas duplicadas no duplican trabajo; ante fallo de persistencia no se emite un ACK falso y el error queda visible.
+Pruebas: duplicados, base lenta/caída, commit incierto y reinicio.
+
+T04 — Procesamiento ordenado y escalable
+Depende de: T03.
+Trabajo: workers con orden por conversación, paralelismo entre conversaciones, reclamos temporales recuperables, protección contra workers vencidos, límites de concurrencia y activación inmediata tras commit.
+Criterio de cierre: ninguna conversación altera su orden; una conversación lenta no bloquea globalmente; trabajos pendientes sobreviven reinicios.
+Pruebas: competencia entre workers, recuperación, saturación y aislamiento entre negocios. Evitar llamadas de red a IA dentro de transacciones abiertas.
+
+T05 — Outbox y envío confiable
+Depende de: T03 y T04.
+Trabajo: guardar respuestas pendientes de forma durable, despertar el sender después del commit, registrar la aceptación de Meta y procesar callbacks duplicados o desordenados.
+Criterio de cierre: cada respuesta tiene estado trazable; un timeout no descarta el trabajo; un resultado incierto se reconcilia antes de cualquier reenvío.
+Pruebas: 400/401/429/500, timeouts, aceptación con respuesta HTTP perdida, reinicios y callbacks fuera de orden. No prometer exactamente una entrega externa por el solo uso de outbox.
+
+T06 — Estados y dominio de reservas
+Depende de: T02 a T05.
+Trabajo: implementar XState con snapshots versionados y reglas determinísticas de servicios, duración, precios, disponibilidad, permisos y confirmación. Reutilizar servicios actuales solo tras validar sus contratos.
+Criterio de cierre: una reserva no se crea sin validación; no hay doble reserva en las pruebas concurrentes; propuestas desactualizadas se rechazan o recalculan.
+Pruebas: transiciones, cambios de datos, consultas intermedias, idempotencia y concurrencia sobre horarios.
+
+T07 — Comprensión local inicial
+Depende de: T02 y T06.
+Trabajo: botones, comandos, alias, normalización y matching exacto; fuzzy solo con reglas de desambiguación. Resolver nombres contra el catálogo del negocio. Evaluar Duckling con expresiones temporales rioplatenses, fecha de referencia y zona horaria explícitas.
+Criterio de cierre: casos claros se resuelven sin IA y casos ambiguos preguntan antes de operar.
+Pruebas: corpus de mensajes reales anonimizados, variantes de escritura y colisiones entre servicios/profesionales.
+
+T08 — Agente de IA restringido
+Depende de: T06 y T07.
+Trabajo: usar IA únicamente para mensajes no resueltos o conversación que lo requiera; salida estructurada validada; herramientas y contexto limitados al negocio y cliente autorizados. Separar resumen conversacional del estado oficial.
+Criterio de cierre: el agente puede ayudar a conversar y proponer acciones, pero no eludir confirmaciones ni reglas de disponibilidad.
+Pruebas: salidas inválidas, datos inventados, cambio de intención, preguntas intermedias, aislamiento entre negocios y fallos del proveedor. Elegir modelo según calidad, latencia y costo medidos en el nuevo entorno.
+
+T09 — NLP entrenado y reducción progresiva de IA
+Depende de: T07 y T08; la captura de datos empieza desde T01.
+Trabajo: guardar ejemplos anonimizados y corregidos por personas; entrenar spaCy para intenciones cuando haya datos suficientes; mantener entidades dinámicas en catálogos por negocio. Evaluar con conjunto separado y ejecutar primero en modo sombra.
+Criterio de cierre: habilitación gradual por intención basada en precisión, cobertura y regresiones observadas. Versionar modelo/dataset y poder revertir.
+Pruebas: mensajes difíciles, negativos, paráfrasis no filtradas al entrenamiento y comparación con etiquetas humanas. No fijar de antemano una reducción garantizada de uso de IA.
+
+T10 — Pruebas integrales y piloto
+Depende de: T01 a T09 según alcance del piloto.
+Trabajo: carga con Meta simulado y pruebas reales limitadas con números autorizados; evaluar comportamiento en frío y bajo saturación. Ejecutar piloto en un negocio, primero en sombra y luego con enrutamiento gradual por conversación; definir migración o compatibilidad del estado y reversión.
+Criterio de cierre: evidencia de latencia, tasa de errores, reservas correctas, aislamiento, recuperación y reversión. No duplicar operaciones ni mensajes durante el cambio de motor.
+Pruebas: escenarios end-to-end, fallas de dependencias, ejecución sostenida y verificación manual del piloto.
+
+MÉTRICAS Y POLÍTICA DE ERRORES
+
+Metas iniciales a validar, no garantías: ACK del webhook p95 <= 1 s; camino determinístico p95 <= 3 s y camino con IA p95 <= 5 s desde recepción hasta entrega en pruebas controladas. Definir antes de aceptar esas metas el volumen, infraestructura y condiciones de red. Medir por separado tiempo propio, aceptación HTTP de Meta y entrega al dispositivo. Más de 10 s es alerta; no cancela ni descarta mensajes durables.
+
+Una falla técnica no significa que el usuario escribió algo incomprensible. Una consulta fallida no permite afirmar que no hay disponibilidad. Una reserva no se confirma hasta comprobar el resultado. Las operaciones de resultado incierto se reconcilian antes de repetirse. Los fallos persistentes deben quedar visibles y recuperables.
+
+CAMBIOS RESPECTO DEL PLAN INICIAL
+
+- Outbox y confiabilidad de envío pasan antes de IA y spaCy: la misión principal es tiempo de respuesta sin pérdida.
+- XState se incorpora después de definir contratos y asegurar el camino durable; no se instala una librería como sustituto de medir el problema.
+- Duckling, spaCy y Redis quedan condicionados a evidencia; el MVP usa matching determinístico y agente restringido.
+- Los objetivos de latencia incluyen condiciones de carga y separan desempeño propio de entrega externa.
+- Cada etapa tiene criterio de cierre y pruebas para poder avanzar por unidades ODD verificables.

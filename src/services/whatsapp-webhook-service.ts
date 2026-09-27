@@ -1,4 +1,4 @@
-import { whatsappConfig } from '../config/whatsapp.js'
+import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../config/whatsapp.js'
 import { prisma } from '../config/prisma.js'
 import type { Conversation, Prisma } from '../generated/prisma/client.js'
 import {
@@ -127,6 +127,7 @@ type AutomaticInboundMessage = {
   interactivePromptToken?: string
   hasImageAttachment?: boolean
   latencyDiagnostic?: LatencyDiagnostic
+  tenantLatencyDiagnosticsEnabled: boolean
   legacyClaimToken?: string
 }
 
@@ -195,6 +196,9 @@ export class WhatsAppWebhookService {
       const targetBusiness = await this.resolveTargetBusiness(message)
       latencyDiagnostic?.checkpoint('resolve_business')
       const targetBusinessId = targetBusiness?.businessId ?? null
+      const tenantLatencyDiagnosticsEnabled = isWhatsAppLatencyDiagnosticsEnabledForBusiness(
+        targetBusiness?.business.customerCode
+      )
 
       console.info('[whatsapp-webhook] processing message', {
         messageId: message.id,
@@ -755,6 +759,7 @@ export class WhatsAppWebhookService {
           : {}),
         ...(message.media?.type === 'image' ? { hasImageAttachment: true } : {}),
         ...(latencyDiagnostic ? { latencyDiagnostic } : {}),
+        tenantLatencyDiagnosticsEnabled,
         ...(legacyClaimToken ? { legacyClaimToken } : {})
       }
       if (!automaticMessage.interactivePromptToken && inboundMessage.status === 'received') {
@@ -1132,7 +1137,8 @@ export class WhatsAppWebhookService {
 
     if (
       latencyDiagnostic &&
-      (whatsappConfig.latencyDiagnosticsEnabled ||
+      (firstMessage.tenantLatencyDiagnosticsEnabled ||
+        whatsappConfig.latencyDiagnosticsEnabled ||
         isGreetingLatencyDiagnosticMessage(firstMessage.text) ||
         (conversationResult as { supportBot?: string }).supportBot === TAMARA_OPTIONS_BOT_KEY)
     ) {
@@ -1284,7 +1290,7 @@ export class WhatsAppWebhookService {
           },
           select: {
             businessId: true,
-            business: { select: { accountStatus: true } }
+            business: { select: { accountStatus: true, customerCode: true } }
           }
         })
       : null
@@ -1300,7 +1306,7 @@ export class WhatsAppWebhookService {
         select: {
           businessId: true,
           displayPhoneNumber: true,
-          business: { select: { accountStatus: true } }
+          business: { select: { accountStatus: true, customerCode: true } }
         }
       })
       targetBusiness = candidates.find((candidate) => {
