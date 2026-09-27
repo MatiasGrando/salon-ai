@@ -86,3 +86,10 @@ El plan debe evitar que el núcleo incorpore supuestos exclusivos de salones. La
 - Forecast de funcionalidad completa: >400 líneas propias, estimación inicial no vinculante.
 - Cada tarea sustancial debe cerrarse con una unidad de trabajo y sus pruebas/documentación antes de marcarse completada. Este tracker aún no es una tarea cerrada ni un commit.
 
+## Cierre de primera unidad local
+
+- Commit: 2c90256 — diagnóstico por perfil y resumidor estadístico. T01 continúa abierta; no hay medición operacional.
+- Revisión nativa: aprobada y reconocida (review-b342561edaa3c1fc); sin bloqueantes. Advertencia no bloqueante: agregar prueba conductual de emisión del webhook con sink capturado; las expresiones regulares actuales no prueban ejecución completa.
+- Estrategia elegida: feature-branch-chain; integrar primero en rama del nuevo bot, no en producción.
+- Validación final: test:text-encoding OK. diff --check detectó únicamente una línea vacía final del tracker en el candidato original; este registro normaliza ese final.
+- No se activó el piloto ni se hizo push/despliegue. Próximo paso: prueba conductual del diagnóstico antes de habilitarlo en Barber Demo.
