@@ -12,6 +12,9 @@ const [schema, migration, cashDomain, cashService, repository, treasury, ui] = a
   readFile(path.join(process.cwd(), 'src', 'routes', 'crm-ui', 'cash-register.ts'), 'utf8')
 ])
 
+const incomeMigration = await readFile(path.join(process.cwd(), 'prisma', 'migrations', '20260925020000_operating_income', 'migration.sql'), 'utf8')
+assert.match(incomeMigration, /^BEGIN;\s+ALTER TYPE "CashEntryType" ADD VALUE IF NOT EXISTS 'INCOME';\s+COMMIT;\s+BEGIN;/, 'new enum values must be committed before use in a constraint')
+assert.match(incomeMigration, /COMMIT;\s*$/, 'income constraints must end with an explicit commit')
 assert.match(schema, /enum CashEntryType \{[\s\S]*\bINCOME\b[\s\S]*\bCASH_IN\b/)
 assert.match(migration, /UPDATE "CashEntry"[\s\S]*"type" = 'INCOME'[\s\S]*"type" = 'CASH_IN'/)
 assert.match(cashDomain, /effectiveType === 'PAYMENT' \|\| effectiveType === 'INCOME'/)

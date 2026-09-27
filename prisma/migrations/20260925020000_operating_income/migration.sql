@@ -1,5 +1,8 @@
+BEGIN;
 ALTER TYPE "CashEntryType" ADD VALUE IF NOT EXISTS 'INCOME';
+COMMIT;
 
+BEGIN;
 ALTER TABLE "CashEntry"
   DROP CONSTRAINT IF EXISTS "CashEntry_expense_category_only_for_expense_check";
 
@@ -10,3 +13,4 @@ ALTER TABLE "CashEntry"
     OR
     ("type" NOT IN ('EXPENSE', 'INCOME') AND "expenseCategoryId" IS NULL)
   );
+COMMIT;
