@@ -22208,6 +22208,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function startNewDemoChat() {
+      state.demoChatPreviewRun = null
       state.demoChatSessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
       state.demoChatMessages = []
       els.demoChatInput.value = ''
@@ -22245,6 +22246,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const diagnostics = message.preview ? '<details class="demo-chat-diagnostics"><summary>Datos entendidos y tiempos</summary><pre>' + escapeHtml(JSON.stringify(message.preview, null, 2)) + '</pre></details>' : ''
         return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + diagnostics + '</div>'
       }).join('')
+      if (state.demoChatPreviewRun?.working) {
+        els.demoChatMessages.innerHTML += '<div class="demo-chat-empty" role="status">Pensando... Pod&eacute;s seguir escribiendo.</div>'
+      }
       els.demoChatMessages.scrollTop = els.demoChatMessages.scrollHeight
     }
 
@@ -22274,11 +22278,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    async function drainDemoPreviewMessages(run) {
+      if (run.working) return
+      run.working = true
+      renderDemoChatMessages()
+      try {
+        while (run.queue.length && state.demoChatPreviewRun === run) {
+          const next = run.queue.shift()
+          try {
+            const result = await getJson('/admin/demo-profiles/' + encodeURIComponent(run.profileId) + '/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: next.message,
+                sessionId: run.sessionId,
+                mode: 'conversational-preview',
+                ...(next.interactiveReplyId ? { interactiveReplyId: next.interactiveReplyId } : {})
+              })
+            })
+            if (state.demoChatPreviewRun !== run) break
+            // A later message has already arrived: persist this turn but show only the latest answer.
+            if (run.queue.length) continue
+            state.demoChatMessages.push({
+              role: 'bot',
+              text: result.reply || result.reason || 'El bot no genero una respuesta.',
+              replyButtons: [],
+              ...(result.state && result.timings ? { preview: { estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
+            })
+            renderDemoChatMessages()
+          } catch (error) {
+            if (state.demoChatPreviewRun !== run) break
+            state.demoChatMessages.push({ role: 'bot', text: 'No pude procesar un mensaje: ' + error.message })
+            renderDemoChatMessages()
+          }
+        }
+      } finally {
+        run.working = false
+        if (state.demoChatPreviewRun === run) {
+          renderDemoChatMessages()
+          els.demoChatInput.focus()
+        }
+      }
+    }
+
     async function sendDemoChatMessage(event, selectedReply = null) {
       event?.preventDefault()
       const profileId = els.demoProfileSelect.value
       const message = selectedReply?.title || els.demoChatInput.value.trim()
-      if (!profileId || !message || els.demoChatSend.disabled) return
+      const isPreview = !els.demoPreviewModeRow.hidden && els.demoPreviewMode.value === 'conversational-preview'
+      if (!profileId || !message || (els.demoChatSend.disabled && !isPreview)) return
       if (!state.demoChatSessionId) startNewDemoChat()
       state.demoChatMessages = state.demoChatMessages.map((chatMessage) => {
         if (chatMessage.role !== 'bot' || !chatMessage.replyButtons?.length) return chatMessage
@@ -22286,6 +22334,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
       state.demoChatMessages.push({ role: 'user', text: message })
       if (!selectedReply) els.demoChatInput.value = ''
+      if (isPreview) {
+        const run = state.demoChatPreviewRun || {
+          profileId,
+          sessionId: state.demoChatSessionId,
+          queue: [],
+          working: false
+        }
+        state.demoChatPreviewRun = run
+        run.queue.push({ message, interactiveReplyId: selectedReply?.id })
+        renderDemoChatMessages()
+        void drainDemoPreviewMessages(run)
+        els.demoChatInput.focus()
+        return
+      }
       renderDemoChatMessages()
       if (!setButtonLoading(els.demoChatSend, true, 'Pensando...')) return
       try {

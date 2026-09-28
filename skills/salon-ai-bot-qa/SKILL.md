@@ -337,6 +337,7 @@ Mentally test these conversations:
 - Preview messages may persist only as separate QA test-chat history. Never call the fake Meta webhook, production outbox, booking mutations, AI, or CRM event publishing from this mode.
 - Preserve state across rapid/concurrent turns in one preview session using the QA-only locked row and supportBotState; a new conversation resets it. Show interpreted fields and separated load/context/engine/persist/total times, not an invented end-to-end WhatsApp latency.
 - A proposal is not a reservation. Keep the preview label explicit that no booking or WhatsApp send occurs.
+- In the QA conversational preview only, keep the composer usable while a reply is pending. Queue rapid customer turns in order, persist each turn, and suppress intermediate bot replies when a newer customer turn arrived before display. A failed turn must be visible and must not strand later turns. A new session, profile, or mode must discard old queued UI work and never render its late reply in the new chat. This does not implement production WhatsApp message coalescing.
 
 ## Where To Look
 
