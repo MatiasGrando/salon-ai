@@ -1,3 +1,4 @@
+import { measureAttemptStage } from '../observability/attempt-metrics.js'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js'
 import { parseEstimateOptions, serviceAllowsAutomaticBooking } from '../domain/service-booking.js'
 import {
@@ -89,66 +90,70 @@ export class PrismaCatalogRepository {
   }
 
   async listCategories(input: { businessId: string; page: number }): Promise<CatalogPage<CatalogCategoryItem>> {
-    const where: Prisma.ServiceCategoryWhereInput = {
-      businessId: input.businessId,
-      isActive: true,
-      services: { some: {
-        businessId: input.businessId,
-        parentServiceId: null,
-        OR: [
-          { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
-          { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
-        ]
-      } }
-    }
-    const offset = catalogPageOffset(input.page)
-    const [rows, realCategoryCount, uncategorizedService] = await Promise.all([
-      this.#client.serviceCategory.findMany({
-        where,
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-        skip: offset,
-        take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
-        select: { id: true, name: true }
-      }),
-      this.#client.serviceCategory.count({ where }),
-      this.#client.service.findFirst({
-        where: uncategorizedRootServiceWhere(input.businessId),
-        select: { id: true }
-      })
-    ])
-    if (
-      uncategorizedService &&
-      realCategoryCount >= offset &&
-      realCategoryCount < offset + CATALOG_CONTEXTUAL_PAGE_SIZE + 1
-    ) {
-      rows.push(UNCATEGORIZED_CATEGORY)
-    }
-    return toCatalogPage(rows, input.page)
-  }
-
-  async getCategory(input: { businessId: string; categoryId: string }): Promise<CatalogCategoryItem | null> {
-    if (input.categoryId === UNCATEGORIZED_CATEGORY_ID) {
-      const service = await this.#client.service.findFirst({
-        where: uncategorizedRootServiceWhere(input.businessId),
-        select: { id: true }
-      })
-      return service ? UNCATEGORIZED_CATEGORY : null
-    }
-    return this.#client.serviceCategory.findFirst({
-      where: {
-        id: input.categoryId,
+    return measureAttemptStage('catalog_list_categories', async () => {
+      const where: Prisma.ServiceCategoryWhereInput = {
         businessId: input.businessId,
         isActive: true,
         services: { some: {
           businessId: input.businessId,
           parentServiceId: null,
           OR: [
-            { isBookable: true },
-            { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+            { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
+            { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
           ]
         } }
-      },
-      select: { id: true, name: true }
+      }
+      const offset = catalogPageOffset(input.page)
+      const [rows, realCategoryCount, uncategorizedService] = await Promise.all([
+        this.#client.serviceCategory.findMany({
+          where,
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+          skip: offset,
+          take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
+          select: { id: true, name: true }
+        }),
+        this.#client.serviceCategory.count({ where }),
+        this.#client.service.findFirst({
+          where: uncategorizedRootServiceWhere(input.businessId),
+          select: { id: true }
+        })
+      ])
+      if (
+        uncategorizedService &&
+        realCategoryCount >= offset &&
+        realCategoryCount < offset + CATALOG_CONTEXTUAL_PAGE_SIZE + 1
+      ) {
+        rows.push(UNCATEGORIZED_CATEGORY)
+      }
+      return toCatalogPage(rows, input.page)
+    })
+  }
+
+  async getCategory(input: { businessId: string; categoryId: string }): Promise<CatalogCategoryItem | null> {
+    return measureAttemptStage('catalog_get_category', async () => {
+      if (input.categoryId === UNCATEGORIZED_CATEGORY_ID) {
+        const service = await this.#client.service.findFirst({
+          where: uncategorizedRootServiceWhere(input.businessId),
+          select: { id: true }
+        })
+        return service ? UNCATEGORIZED_CATEGORY : null
+      }
+      return this.#client.serviceCategory.findFirst({
+        where: {
+          id: input.categoryId,
+          businessId: input.businessId,
+          isActive: true,
+          services: { some: {
+            businessId: input.businessId,
+            parentServiceId: null,
+            OR: [
+              { isBookable: true },
+              { isBookable: false, variants: { some: { businessId: input.businessId, isBookable: true } } }
+            ]
+          } }
+        },
+        select: { id: true, name: true }
+      })
     })
   }
 
@@ -158,53 +163,55 @@ export class PrismaCatalogRepository {
     parentServiceId?: string | null
     page: number
   }): Promise<CatalogPage<CatalogServiceItem> | null> {
-    const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
-    const category = uncategorized
-      ? await this.#client.service.findFirst({
-          where: uncategorizedRootServiceWhere(input.businessId),
+    return measureAttemptStage('catalog_list_services', async () => {
+      const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
+      const category = uncategorized
+        ? await this.#client.service.findFirst({
+            where: uncategorizedRootServiceWhere(input.businessId),
+            select: { id: true }
+          })
+        : await this.#client.serviceCategory.findFirst({
+            where: { id: input.categoryId, businessId: input.businessId, isActive: true },
+            select: { id: true }
+          })
+      if (!category) return null
+      const catalogCategoryId = uncategorized ? null : input.categoryId
+      if (input.parentServiceId) {
+        const parent = await this.#client.service.findFirst({
+          where: {
+            id: input.parentServiceId,
+            businessId: input.businessId,
+            catalogCategoryId,
+            parentServiceId: null,
+            isBookable: false,
+            isActive: true
+          },
           select: { id: true }
         })
-      : await this.#client.serviceCategory.findFirst({
-          where: { id: input.categoryId, businessId: input.businessId, isActive: true },
-          select: { id: true }
-        })
-    if (!category) return null
-    const catalogCategoryId = uncategorized ? null : input.categoryId
-    if (input.parentServiceId) {
-      const parent = await this.#client.service.findFirst({
+        if (!parent) return null
+      }
+      const rows = await this.#client.service.findMany({
         where: {
-          id: input.parentServiceId,
           businessId: input.businessId,
+          isActive: true,
           catalogCategoryId,
-          parentServiceId: null,
-          isBookable: false,
-          isActive: true
+          parentServiceId: input.parentServiceId ?? null,
+          ...(input.parentServiceId
+            ? { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) }
+            : {
+                OR: [
+                  { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
+                  { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
+                ]
+              })
         },
-        select: { id: true }
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        skip: catalogPageOffset(input.page),
+        take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
+        select: serviceSelect
       })
-      if (!parent) return null
-    }
-    const rows = await this.#client.service.findMany({
-      where: {
-        businessId: input.businessId,
-        isActive: true,
-        catalogCategoryId,
-        parentServiceId: input.parentServiceId ?? null,
-        ...(input.parentServiceId
-          ? { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) }
-          : {
-              OR: [
-                { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
-                { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
-              ]
-            })
-      },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
-      skip: catalogPageOffset(input.page),
-      take: CATALOG_CONTEXTUAL_PAGE_SIZE + 1,
-      select: serviceSelect
+      return toCatalogPage(rows.map(serviceItem), input.page)
     })
-    return toCatalogPage(rows.map(serviceItem), input.page)
   }
 
   async getSubcategory(input: {
@@ -212,45 +219,49 @@ export class PrismaCatalogRepository {
     categoryId: string
     subcategoryId: string
   }): Promise<{ id: string; categoryId: string; name: string } | null> {
-    const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
-    const catalogCategoryId = uncategorized ? null : input.categoryId
-    const row = await this.#client.service.findFirst({
-      where: {
-        id: input.subcategoryId,
-        businessId: input.businessId,
-        catalogCategoryId,
-        parentServiceId: null,
-        isBookable: false,
-        isActive: true,
-        ...(uncategorized ? {} : { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }),
-        variants: { some: {
+    return measureAttemptStage('catalog_get_subcategory', async () => {
+      const uncategorized = input.categoryId === UNCATEGORIZED_CATEGORY_ID
+      const catalogCategoryId = uncategorized ? null : input.categoryId
+      const row = await this.#client.service.findFirst({
+        where: {
+          id: input.subcategoryId,
           businessId: input.businessId,
           catalogCategoryId,
-          isBookable: true,
+          parentServiceId: null,
+          isBookable: false,
           isActive: true,
-          professionalLinks: eligibleBotProfessionalLinks(input.businessId)
-        } }
-      },
-      select: { id: true, catalogCategoryId: true, name: true }
+          ...(uncategorized ? {} : { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }),
+          variants: { some: {
+            businessId: input.businessId,
+            catalogCategoryId,
+            isBookable: true,
+            isActive: true,
+            professionalLinks: eligibleBotProfessionalLinks(input.businessId)
+          } }
+        },
+        select: { id: true, catalogCategoryId: true, name: true }
+      })
+      return row ? { id: row.id, categoryId: input.categoryId, name: row.name } : null
     })
-    return row ? { id: row.id, categoryId: input.categoryId, name: row.name } : null
   }
 
   async getService(input: { businessId: string; serviceId: string }): Promise<CatalogServiceItem | null> {
-    const row = await this.#client.service.findFirst({
-      where: {
-        id: input.serviceId,
-        businessId: input.businessId,
-        isBookable: true,
-        isActive: true,
-        professionalLinks: eligibleBotProfessionalLinks(input.businessId),
-        OR: [
-          { catalogCategoryId: null },
-          { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }
-        ]
-      },
-      select: serviceSelect
+    return measureAttemptStage('catalog_get_service', async () => {
+      const row = await this.#client.service.findFirst({
+        where: {
+          id: input.serviceId,
+          businessId: input.businessId,
+          isBookable: true,
+          isActive: true,
+          professionalLinks: eligibleBotProfessionalLinks(input.businessId),
+          OR: [
+            { catalogCategoryId: null },
+            { catalogCategory: { is: { businessId: input.businessId, isActive: true } } }
+          ]
+        },
+        select: serviceSelect
+      })
+      return row ? serviceItem(row) : null
     })
-    return row ? serviceItem(row) : null
   }
 }

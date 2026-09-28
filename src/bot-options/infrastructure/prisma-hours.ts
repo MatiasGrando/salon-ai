@@ -7,6 +7,7 @@
  * NO crea draft, NO consulta appointments, NO revela agenda profesional.
  */
 
+import { measureAttemptStage } from '../observability/attempt-metrics.js'
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js'
 import {
   computeExceptionWindow,
@@ -45,16 +46,18 @@ export class PrismaHoursRepository {
   async loadBusinessWeeklyHours(input: {
     businessId: string
   }): Promise<readonly BusinessWeeklyHourRow[]> {
-    const rows = await this.#client.businessHours.findMany({
-      where: { businessId: input.businessId },
-      select: businessHoursSelect,
-      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }]
+    return measureAttemptStage('hours_weekly', async () => {
+      const rows = await this.#client.businessHours.findMany({
+        where: { businessId: input.businessId },
+        select: businessHoursSelect,
+        orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }]
+      })
+      return rows.map((row) => ({
+        dayOfWeek: row.dayOfWeek,
+        startTime: row.startTime,
+        endTime: row.endTime
+      }))
     })
-    return rows.map((row) => ({
-      dayOfWeek: row.dayOfWeek,
-      startTime: row.startTime,
-      endTime: row.endTime
-    }))
   }
 
   /**
@@ -67,26 +70,28 @@ export class PrismaHoursRepository {
     dbNow: Date
     timezone: string
   }): Promise<readonly BusinessOperationalException[]> {
-    const { from, to } = computeExceptionWindow(input.dbNow, input.timezone)
+    return measureAttemptStage('hours_exceptions', async () => {
+      const { from, to } = computeExceptionWindow(input.dbNow, input.timezone)
 
-    const rows = await this.#client.scheduleBlock.findMany({
-      where: {
-        businessId: input.businessId,
-        professionalId: null,
-        startAt: { lt: to },
-        endAt: { gt: from }
-      },
-      select: scheduleBlockSelect,
-      orderBy: { startAt: 'asc' }
+      const rows = await this.#client.scheduleBlock.findMany({
+        where: {
+          businessId: input.businessId,
+          professionalId: null,
+          startAt: { lt: to },
+          endAt: { gt: from }
+        },
+        select: scheduleBlockSelect,
+        orderBy: { startAt: 'asc' }
+      })
+
+      return rows.map((row) => ({
+        startAt: row.startAt,
+        endAt: row.endAt,
+        reason: row.reason,
+        title: row.title,
+        note: row.note
+      }))
     })
-
-    return rows.map((row) => ({
-      startAt: row.startAt,
-      endAt: row.endAt,
-      reason: row.reason,
-      title: row.title,
-      note: row.note
-    }))
   }
 
   // NOTA: La timezone del negocio se lee de BotSession.businessTimezone

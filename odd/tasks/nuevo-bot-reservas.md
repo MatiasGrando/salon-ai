@@ -1,5 +1,37 @@
 # ODD — Nuevo bot de reservas multi-vertical
 
+## Plan activo — bot conversacional sobre la plataforma existente
+
+Este bloque reemplaza el alcance activo T01–T10 de abajo; el historial y los cambios locales anteriores se conservan, pero no autorizan continuar infraestructura paralela. El objetivo actual es construir solo el motor conversacional reutilizando consultas, reservas, sesiones y envío de WhatsApp existentes, y separar sus tiempos antes de optimizar infraestructura.
+
+| ID | Resultado | Estado |
+|---|---|---|
+| C01 | Definir integración con el procesador y servicios existentes | Completado como diseño de solo lectura; sin activación |
+| C02 | Separar consultas existentes de tiempos de Meta | En curso: C02a instrumentación local; C02b mediciones reales pendientes |
+| C03 | Construir motor conversacional con servicios existentes | Pendiente |
+| C04 | Verificar comportamiento, contexto y concurrencia | Pendiente |
+| C05 | Ejecutar piloto autorizado Barber Demo y optimizar con evidencia | Pendiente; requiere autorización operacional |
+
+### C02a — instrumentación local de consultas existentes
+
+- Autorización: paso 2 y reintento local. No DB compartida, red, configuración/env, credenciales, Meta, build, generación, push ni despliegue. T05.3 previo sigue sin cierre independiente; no se toca.
+- Ruta: delegada directa, un writer; preparación/mapeo de más de cuatro archivos y cambios no triviales en repositorios existentes. No se crea infraestructura, logger, esquema ni sender paralelo.
+- Alcance: medir métodos públicos de catálogo (5), horarios (2) y disponibilidad (3) usando `withAttemptMetrics` / `measureAttemptStage` existentes. Preservar argumentos, resultados, errores y retornos tempranos; emisiones sanitizadas y fail-open. Fuera de un attempt no se emiten métricas.
+- Semántica: duración total del método, incluida consulta y proyección, no SQL puro. `availability_search` incluye `availability_compatible_professionals`; los spans anidados se solapan y NO se suman. Aceptación de Meta no equivale a entrega; no se afirma correlación entre `jobRef` y el identificador de eventos del sender.
+- Alcance operacional: la emisión hereda el contexto de métricas existente del worker; no incorpora un nuevo allowlist. Resolver y verificar el gating del piloto antes de desplegar; esta autorización local no permite activación para todos los tenants.
+- TDD estricto conservado de la configuración acordada de este tracker: test offline con clientes falsos, RED conductual antes de instrumentar, GREEN y refactor. Los fixtures prueban instrumentación, no velocidad real.
+- Checks: `.\node_modules\.bin\tsx.cmd scripts/bot-options-query-timing-test.ts`; `.\node_modules\.bin\tsx.cmd scripts/bot-options-attempt-metrics-test.ts`; `.\node_modules\.bin\tsx.cmd scripts/bot-options-hours-queries-pure-test.ts`; `npm run test:bot-options-catalog-display-pure`; `npm run test:bot-options-e2e-latency-summary`; `npm run test:text-encoding`; `git diff --check`.
+- Entrega: `ask-on-risk`, cadena `feature-branch-chain` ya elegida. Forecast inicial del slice: 200–350 líneas propias, orientativo; envolver cuerpos completos puede superar el forecast por indentación necesaria, no por expansión funcional. Commit/revisión a cargo del padre; no hay commit de C02a todavía.
+- Recuperación: espejo Engram pendiente porque las herramientas de memoria no están disponibles; conservar este documento completo como fuente local. RED observado: `tsx scripts/bot-options-query-timing-test.ts` falló por ausencia de `catalog_list_categories` (solo emitía `attempt`), antes de instrumentar los repositorios. GREEN y refactor observados: el runner nuevo pasa; se conservan queries/resultados/identidad del error, spans en retornos tempranos y errores de validación, contexto concurrente aislado y sink fail-open.
+- Verificación local observada: los siete checks enumerados arriba terminaron con exit 0 (solo avisos Git LF→CRLF). Typecheck focal `./node_modules/.bin/tsc.cmd --ignoreConfig --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck --types node scripts/bot-options-query-timing-test.ts src/bot-options/observability/attempt-metrics.ts src/bot-options/infrastructure/prisma-catalog.ts src/bot-options/infrastructure/prisma-hours.ts src/bot-options/infrastructure/prisma-availability.ts` → exit 0. No se ejecutó build ni se midió rendimiento real.
+- Tamaño del slice: repositorios + whitelist = 262 adiciones / 234 eliminaciones (496 líneas propias); ignorando solo whitespace = 29 adiciones / 1 eliminación. La diferencia es indentación de los cuerpos dentro del wrapper explícito, no nuevos flujos de negocio. Se añaden además el test offline y este bloque documental; no se cuentan cambios históricos T05.3 como parte de C02a.
+- Estado C02a: implementación y autoverificación local realizadas; cierre de work-unit/commit y revisión del padre pendientes. C02b sigue pendiente. Próximo paso: verificar y cerrar esta unidad local antes de autorizar captura de tiempos reales.
+- Criterio de C02a: todas las etapas cubiertas con pruebas locales, sin cambio funcional ni datos privados en métricas. C02 permanece abierto hasta C02b: mediciones representativas autorizadas de consultas y Meta por separado, con limitaciones de correlación documentadas.
+
+---
+
+## Historial conservado del plan anterior (no es el alcance activo)
+
 Este documento es el tracker de trabajo de la funcionalidad; `plan-nuevo-bot.txt` es el plan transportable. El usuario autorizó iniciar ODD y el trabajo local del nuevo bot. No autorizó push, despliegue, acceso remoto ni mensajes reales de WhatsApp.
 
 ## Objetivo

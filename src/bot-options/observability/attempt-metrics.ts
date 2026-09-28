@@ -1,7 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 
-const STAGES = ['session_context_load', 'session_effects', 'session_persist_view', 'session_critical_transaction', 'transition_execution', 'worker_processing', 'worker_finalize', 'session_claim_validation', 'session_state_lock', 'session_action_load', 'session_recovery_reconcile', 'session_settlement'] as const
+const STAGES = ['session_context_load', 'session_effects', 'session_persist_view', 'session_critical_transaction', 'transition_execution', 'worker_processing', 'worker_finalize', 'session_claim_validation', 'session_state_lock', 'session_action_load', 'session_recovery_reconcile', 'session_settlement',
+  // Repository durations include projection; nested stages overlap and must not be summed.
+  'catalog_list_categories', 'catalog_get_category', 'catalog_list_services', 'catalog_get_subcategory', 'catalog_get_service',
+  'hours_weekly', 'hours_exceptions',
+  'availability_settings', 'availability_compatible_professionals', 'availability_search'
+] as const
 export type AttemptStage = typeof STAGES[number]
 export type AttemptMetricEvent = {
   event: 'bot_options_attempt_stage'
