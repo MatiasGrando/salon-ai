@@ -61,10 +61,14 @@ function suggestedService(evidence: string, services: readonly DialogueService[]
 function safeCopy(draft: string | null | undefined, reply: string, state: DialogueState, message: string, services: readonly DialogueService[]): string | null {
   if (!draft) return null
   const text = normalized(draft).replace(/^[^a-z]+/, '')
-  const safeWords = new Set('hola buenas buen buenos dia dias tardes noches todo como estas que te gustaria queres quieres necesitas servicio turno reservar para tu con gusto claro dale perfecto entiendo bien ayudo vamos gracias por supuesto cuento el la un una fecha queda cual preferis seria a nombre de quien llamas podemos ver buscar lo siguiente decime contame puedo'.split(' '))
-  if ((text.match(/[a-z]+/g) ?? []).some(word => !safeWords.has(word))) return null
+  // A date question may repeat only the service already selected by the local catalog engine.
+  const selected = state.pending === 'date' && /^¿Para qué día querés/.test(reply) ? services.find(service => service.id === state.serviceId) : undefined
+  const safeText = selected && evidenceWords(text).includes(evidenceWords(selected.name))
+    ? text.replace(normalized(selected.name), ' ').replace(/\s+/g, ' ').trim() : text
+  const safeWords = new Set('hola buenas buen buenos dia dias tardes noches todo muy como estas que te gustaria queres quieres necesitas servicio turno reservar para tu con gusto claro dale perfecto entiendo bien ayudo vamos gracias por supuesto cuento el la un una fecha queda cual preferis seria a nombre de quien llamas podemos ver buscar lo siguiente decime contame puedo'.split(' '))
+  if ((safeText.match(/[a-z]+/g) ?? []).some(word => !safeWords.has(word))) return null
   if (/\d|[$€]|https?:|www\.|\b(?:reservad[oa]|confirmad[oa]|confirmamos|agendad[oa]|agendamos|agende|disponible|agotad[oa]|precio|cuesta|sale|gratis|manana|hoy)\b/i.test(text) ||
-      services.some(service => evidenceWords(text).includes(evidenceWords(service.name)))) return null
+      services.some(service => evidenceWords(safeText).includes(evidenceWords(service.name)))) return null
   const question = /[?¿]/.test(draft)
   const factualRead = /\b(?:precio|cuanto|sale|servicios|catalogo|horarios|direccion|donde|web|pagina|instagram|facebook|telefono)\b/.test(normalized(message))
   if (!factualRead && state.pending === 'service' && !state.serviceId && services.length && /¿qué servicio necesitás\?/i.test(reply)) {
