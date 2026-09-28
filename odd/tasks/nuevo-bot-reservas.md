@@ -2,13 +2,30 @@
 
 ## Plan activo — bot conversacional sobre la plataforma existente
 
-### C03.1b — informational actions and tenant facts (verified locally; commit pending)
+### C03.2 — existing-runtime integration (verified locally)
+
+- Authorized: user explicitly requested advancing integration. Latest constraint: evaluate fragmented-message behavior together later; do not implement grouping, debounce, collection windows or new queues now. Preserve each durable inbound event and existing ordering/retry behavior.
+- Objective: connect the tested conversational engine to existing admission, session persistence and WhatsApp outbox with an explicit versioned configuration marker; existing unmarked configurations retain current behavior. Local implementation only; no activation, remote access, credentials, DB changes, build, deployment or messages.
+- Route: delegated direct; mapping requires 4+ files and implementation touches multiple non-trivial modules. One bounded writer, followed by independent verification. Reuse existing dispatch claims, inbox jobs, session state/CRM projection, context expiry and persistView/sender. Keep deterministic-options transport engine key.
+- [x] C03.2: configuration/session bridge, initial and existing-session routing, snapshot/commit transactions with preparation outside locks, and public worker/admission contract tests verified; work-unit commit recorded in closure below.
+- Acceptance: explicit valid marker only; tenant/config/deployment/revision/human/job/dispatch checks before output; stale preparation retries same durable event; no proposal executes a booking; bot-disabled and human-owned do not auto-reply; state preserved across messages and cleared on expiry/reset/resolved handoff; inbox and reply committed together using existing outbox; legacy regressions pass.
+- TDD: strict retained from project/session tracker, observed RED before implementation, GREEN and refactor. Runner: .\node_modules\.bin\tsx.cmd scripts/conversational-bot-runtime-test.ts (new offline fake-client integration contract); existing admission/context-window/session/dispatch regressions selected from actual dependencies, conversational information+engine suites, focused types and project typecheck, npm run test:text-encoding, git diff --check. No PostgreSQL/network checks without operational authorization.
+- Delivery: ask-on-risk + feature-branch-chain already chosen; estimate 600–1000 authored changed lines including meaningful worker/fake integration tests. One cohesive integration unit may exceed the 400-line heuristic to keep admission and processing consistent; no cosmetic splitting or omitted checks. Commit/publish/review closure owned by parent; no push/PR in this slice. RDD remains ON, known selector-loss issue pending; assess committed work from 2c90256 without broadening scope.
+- Engram tools unavailable: full-document mirror, preference capture and session summary pending; this file is recovery source. No source edits before this tracking entry.
+
+
+- Observed TDD: RED missing runtime-policy module; RED public PROCESS_INBOX legacy routing; RED disabled expiry/config replacement/cutover recovery. GREEN after bounded corrections. Independent verifier confirmed recovery, configuration retry, expiry, human/disabled gates and public worker behavior.
+- Checks exit 0: conversational-bot-runtime-test.ts (actual public worker/admission and recovery), conversational-bot-engine-test.ts, conversational-bot-information-test.ts, bot-options-context-window contract+worker, bot-options-f11-restart-command, npm run test:text-encoding, git diff --check. Full project tsc --noEmit failed baseline with Node 2GB heap OOM before source changes. Focused strict NodeNext typecheck failed only in pre-existing src/services/deposit-operations.ts (null/union errors); no diagnostics in new conversational files. PostgreSQL integration/load, Meta and live timing not run in this local slice.
+- Corrected independently discovered gates: config replacement retries same message with clean draft; disabled expiry emits no greeting; old interactive prompt cannot enter legacy action under marker; initial/legacy selection rechecks config under lock; marker removal clears prior conversational draft and handles human/disabled silence; cutover persists real PROCESS_INBOX job; transition IDs retain sender timing correlation.
+- No fragmented-message gathering yet. Every inbound remains a separate durable event; user asked to evaluate grouping together at integration review. No actual booking effect, AI interpreter or pilot activation. Native RDD assessment/receipt after commit remains pending; Engram mirror/summary tools unavailable.
+
+### C03.1b — informational actions and tenant facts (completed locally)
 
 - Authorized local slice: typed action routing and informational interruptions using existing catalog/canonical hours repositories and public Business fields. Preserve complete booking state for pure questions; mixed messages apply only explicit booking data. Runtime, AI and action execution remain pending.
 - Route: delegated direct, one writer; multiple non-trivial modules/tests. Strict TDD retained: RED, GREEN, refactor. Engram mirror pending (unavailable).
 - Checks: conversational-bot-information-test.ts; conversational-bot-engine-test.ts; bot-options-hours-queries-pure-test.ts; focused strict NodeNext typecheck; npm run test:text-encoding; git diff --check. Parent owns verification/commit.
 - C03.2/C04: handle fragmented messages (Hola / quería un turno / con Rama), preserving order and supplied preferences; review bounded collection behavior during integration. No batching infrastructure in this slice.
-- [ ] C03.1b: local implementation and writer checks observed; independent verification and commit pending.
+- [x] C03.1b: local implementation, independent verification and commit observed.
 
 - Implementation observed: actions.ts routes current inbound categories and pending operations; information.ts formats canonical prices (including STARTING_AT), handles ambiguity and resumes only the pending question; prisma-business-facts.ts scopes the public-field allowlist to the trusted business and reuses PrismaHoursRepository + canonical schedule/exception formatters. Engine wrapper preserves pure-information state/proposal separation; mixed clauses are parsed separately from informational service mentions.
 - TDD evidence: RED module absence initially; behavioral RED price matching rejected "barba?" and mixed price+booking wrongly included both services. GREEN after bounded token/clause handling. Refactor retained original booking engine and modular read adapter.
@@ -20,6 +37,9 @@
 - Parent spotcheck price-mode correction: RED starting-price service in booking catalog rendered as fixed $3000; GREEN after reusing renderServices in both informational and booking catalog. Info+engine suites, focused strict types, encoding and diff exit 0. Parent received independent PASS of four clause regressions; commit remains pending.
 - Parent closure evidence: independent PASS of all four reproduced clause defects, information and engine suites plus focused strict NodeNext typecheck. Parent repeated final information/engine tests, encoding and diff checks: exit 0. Local commit pending; runtime/Meta/AI not tested or activated.
 - Delivery: ask-on-risk with previously chosen feature-branch-chain retained; local work-unit slice only, no push or PR. Engram full-document mirror/session summary unavailable and pending.
+- Work-unit commit: `102593637e5ba9d972f0edc42054556711c648db`, feat(bot): add scoped information actions to conversational engine; seven files, 342 additions / 5 deletions. Unrelated T05.3/workspace edits excluded and preserved.
+- Native review: mode unchanged ON; assessment from reviewed boundary 2c90256 returned high_risk/review_due. Exact STATUS continuation again requires intended-untracked workspace selection and drops committed-only/base-ref selectors; stopped before START to avoid broadening candidate. Native receipt pending, no approval claimed.
+- Session recovery: implemented registry/facts/information interruptions, corrected four independently reproduced mixed-clause defects and starting-price rendering. All stated offline checks passed; no runtime, AI, actual booking, DB or WhatsApp test in this slice. Next C03.2 connects the existing transport/session processor; fragmented ordered messages explicitly pending there and C04. Mirror/save/session-summary tools unavailable.
 
 
 
@@ -31,14 +51,14 @@ Este bloque reemplaza el alcance activo T01–T10 de abajo; el historial y los c
 |---|---|---|
 | C01 | Definir integración con el procesador y servicios existentes | Completado como diseño de solo lectura; sin activación |
 | C02 | Separar consultas existentes de tiempos de Meta | Consultas reales medidas; captura Meta pendiente |
-| C03 | Construir motor conversacional con servicios existentes | C03.1 verificado local; acciones informativas, integración y activación pendientes |
+| C03 | Construir motor conversacional con servicios existentes | C03.1, C03.1b y C03.2 verificados localmente; ejecución de reserva y activación pendientes |
 | C04 | Verificar comportamiento, contexto y concurrencia | Pendiente |
 | C05 | Ejecutar piloto autorizado Barber Demo y optimizar con evidencia | Pendiente; requiere autorización operacional |
 
 ### C03 — motor conversacional reutilizable
 
 - [x] C03.1: motor funcional y adaptador existente verificados offline; propuesta validada, todavía sin reservar. Verificación independiente final PASS de regresiones corroboradas; padre repitió suite con exit 0.
-- [ ] C03.1b: registro de acciones, datos del local y consultas informativas con interrupciones y mensajes mixtos, antes de conectar runtime.
+- [x] C03.1b: registro de acciones, datos del local y consultas informativas con interrupciones y mensajes mixtos verificados localmente; commit 1025936.
 - [ ] C03.2: integración cohesiva con runtime actual (admisión, sesiones iniciales/existentes, expiración, propiedad humana, estado versionado/revisión y textView/outbox existentes).
 - [ ] C03.3: intérprete IA restringido opcional fuera de transacciones y ejecución explícita de reservas mediante efectos existentes.
 - Autorización local del usuario para construir el bot; no activación, DB/red, credenciales, Meta, build, generación ni despliegue.

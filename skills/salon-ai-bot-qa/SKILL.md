@@ -270,6 +270,10 @@ Booking V2 conversational copy may add at most one short social prefix around th
 
 Assistant personality is configured per business, not per conversation. It may control assistant name, role, preset, `vos`/`tú`/`usted`, emoji level, preferred emojis, response length and additional style instructions. It must never override booking facts, validation or confirmation rules. The `none` emoji level must also remove emojis from deterministic Booking V2 copy.
 
+### Conversational runtime integration
+
+When the versioned conversational engine is enabled for the test business, process each admitted message through the existing inbox and outbox. Preserve the validated draft across messages. A revision or configuration change must retry the same durable text without publishing an old reply; a human-owned or bot-disabled conversation must not send a reply, including an expiry or configuration-change greeting. Old prompt buttons must not execute legacy actions under the conversational marker. A cutover recovery must create a durable inbox job for the conversational worker. Do not treat a booking proposal as an actual booking.
+
 ### Tone
 
 Cami should stay warm, attentive, feminine, and professional across all messages, not only the first one.

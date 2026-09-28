@@ -1,3 +1,5 @@
+import { resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
+import { textView } from '../domain/views.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../domain/state.js'
 import { customerActivityAt, decideContextWindow, CONTEXT_WINDOW_MS } from '../domain/context-window.js'
@@ -18,11 +20,12 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
   const rows = await tx.$queryRaw<Array<{
     id: string; revision: bigint; state: Prisma.JsonValue; status: string; deploymentGeneration: number
     draftTouchedAt: Date | null; draftExpiresAt: Date | null; dbNow: Date
-    hasInbox: boolean; durableProtection: boolean
+    hasInbox: boolean; durableProtection: boolean; botEnabled: boolean
   }>>(Prisma.sql`
     /* lazy-context:session */
+    WITH locked_features AS MATERIALIZED (SELECT "botEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = ${input.businessId} FOR SHARE)
     SELECT s."id", s."revision", s."state", s."status"::text AS "status", s."deploymentGeneration",
-      s."draftTouchedAt", s."draftExpiresAt", clock_timestamp() AS "dbNow",
+      s."draftTouchedAt", s."draftExpiresAt", clock_timestamp() AS "dbNow", (b."botEnabled" AND COALESCE((SELECT "botEnabled" FROM locked_features), true)) AS "botEnabled",
       EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."businessId" = ${input.businessId}
         AND i."providerEventId" = ${input.providerEventId} AND i."id" <> ${input.processingInboxId ?? ''}) AS "hasInbox",
       (s."handoffClaimsPausedAt" IS NOT NULL OR EXISTS (
@@ -32,14 +35,15 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
         SELECT 1 FROM "BotHandoff" h WHERE h."businessId" = s."businessId" AND h."sessionId" = s."id"
           AND h."status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
       )) AS "durableProtection"
-    FROM "BotSession" s JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+    FROM "BotSession" s JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId" JOIN "Business" b ON b."id"=s."businessId"
     WHERE s."businessId" = ${input.businessId} AND s."deploymentId" = ${input.deploymentId}
       AND c."phone" = ${input.phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
-    ORDER BY s."id" FOR UPDATE OF s
+    ORDER BY s."id" FOR UPDATE OF s FOR SHARE OF b
   `)
   if (rows.length === 0) return { kind: 'CONTINUE', evaluated: false }
   if (rows.length !== 1) throw new Error('ambiguous context window session')
   const session = rows[0]!
+  if (session.botEnabled === false) return { kind: 'CONTINUE', evaluated: false }
   if (session.hasInbox) return { kind: 'REPLAY' }
   if (session.deploymentGeneration !== input.generation) return { kind: 'CONTINUE', evaluated: false }
   const activityAt = customerActivityAt(input)
@@ -177,9 +181,9 @@ export async function loadConversationGreetingView(
   const canonicalPhone = normalizePhone(input.phone)
   const variants = [...new Set([input.phone.trim(), canonicalPhone, `+${canonicalPhone}`, ...phoneSearchVariants(input.phone)])].filter(Boolean)
   const digits = [...new Set(variants.map((value) => value.replace(/\D/g, '')).filter(Boolean))]
-  const greetings = await tx.$queryRaw<Array<{ businessName: string; customerName: string | null }>>(Prisma.sql`
+  const greetings = await tx.$queryRaw<Array<PolicyRow & { businessName: string; customerName: string | null }>>(Prisma.sql`
     /* lazy-context:greeting */
-    SELECT b."name" AS "businessName", (
+    SELECT b."name" AS "businessName", b."id" AS "businessId", b."customerCode", d."id" AS "deploymentId", d."generation", d."engineKey", cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition", (
       SELECT CASE WHEN count(*) = 1 THEN min(candidate."name") ELSE NULL END
       FROM (
         SELECT c."name" FROM "Customer" c
@@ -190,9 +194,10 @@ export async function loadConversationGreetingView(
         LIMIT 2
       ) candidate
     ) AS "customerName"
-    FROM "Business" b WHERE b."id" = ${input.businessId}
+    FROM "Business" b LEFT JOIN "BotChannelDeployment" d ON d."businessId" = b."id" AND d."channel" = 'WHATSAPP'::"BotChannel" LEFT JOIN "BusinessBotConfiguration" cfg ON cfg."id" = d."activeConfigurationId" AND cfg."businessId" = b."id" WHERE b."id" = ${input.businessId}
   `)
   const greeting = greetings[0]
   if (!greeting) throw new Error('context greeting business unavailable in tenant')
+  if (resolveConversationPolicy(greeting)) return textView('Hola. Empecemos de nuevo. ¿Qué servicio necesitás?')
   return mainMenuView(greeting.businessName, greeting.customerName)
 }

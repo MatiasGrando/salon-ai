@@ -1,3 +1,4 @@
+import { loadConversationPolicy } from '../../conversational-bot/runtime-policy.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { randomUUID } from 'node:crypto'
 import { admitPromptChoice, isRecoverableStalePromptClassification, type BotPromptContract, type PromptExecutionContext } from '../domain/prompts.js'
@@ -323,6 +324,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       route: Extract<AuthoritativeRoute, { kind: 'new' }>
       event: ParsedWebhookEvent
       providerEventId: string
+      conversational?: boolean
       contextWindowEvaluated?: boolean
     }
   ): Promise<ProviderEventClassificationResult> {
@@ -349,7 +351,8 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       inboxId: randomUUID()
     })) return { outboundMessage: null }
 
-    const servicePhotoSession = event.kind === 'message' && (event.messageType === 'image' || event.messageType === 'document')
+    const conversational = await loadConversationPolicy(tx, { businessId: input.route.businessId, deploymentId: input.route.deploymentId, generation: input.route.generation })
+    const servicePhotoSession = !conversational && event.kind === 'message' && (event.messageType === 'image' || event.messageType === 'document')
       ? await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           SELECT s."id" FROM "BotSession" s
           JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
@@ -361,7 +364,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
           LIMIT 1
         `) : []
     if (
-      this.#depositProofIngressEnabled && event.kind === 'message'
+      !conversational && this.#depositProofIngressEnabled && event.kind === 'message'
       && (event.messageType === 'image' || event.messageType === 'document')
       && servicePhotoSession.length === 0
     ) {
@@ -380,10 +383,10 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
 
     const inboxId = randomUUID()
     if (event.kind === 'message' && event.interactiveReplyId) {
-      await this.#admitInteractive(tx, { ...input, event, inboxId })
+      await this.#admitInteractive(tx, { ...input, event, inboxId, conversational: Boolean(conversational) })
       return { outboundMessage: null }
     }
-    if (event.kind === 'message' && await this.#admitFreeTextInput(tx, {
+    if (!conversational && event.kind === 'message' && await this.#admitFreeTextInput(tx, {
       ...input,
       event,
       inboxId
@@ -561,6 +564,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       event: Extract<ParsedWebhookEvent, { kind: 'message' }>
       providerEventId: string
       inboxId: string
+      conversational?: boolean
       contextWindowEvaluated?: boolean
     }
   ) {
@@ -593,6 +597,10 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
     `)
     if (rows.length !== 1) {
       await insertRejectedInbox(tx, input, 'REJECTED', 'unknown prompt or choice')
+      return
+    }
+    if (input.conversational) {
+      await insertRejectedInbox(tx, input, 'REJECTED', 'interactive action not supported by conversational policy')
       return
     }
     const row = rows[0]!

@@ -1,3 +1,6 @@
+import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
+import { parseDialogueState } from '../../conversational-bot/engine.js'
+import { processConversationInbox, type DialogueFactory } from '../../conversational-bot/process-inbox-job.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { applyLazyContextWindowTx, loadConversationGreetingView } from './lazy-context-window.js'
@@ -769,6 +772,7 @@ function parseSelectedPayload(value: Prisma.JsonValue | null): BotOptionsActionP
 export async function processSessionJob(input: {
   client: RuntimeClient
   job: ClaimedBotJob
+  dialogueFactory?: DialogueFactory
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
@@ -786,10 +790,14 @@ export async function processSessionJob(input: {
 async function processSessionJobInternal(input: {
   client: RuntimeClient
   job: ClaimedBotJob
+  dialogueFactory?: DialogueFactory
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
-  if (input.job.kind === 'PROCESS_INBOX') return processInitialInbox(input)
+  if (input.job.kind === 'PROCESS_INBOX') {
+    const conversational = await processConversationInbox({ ...input, writeView: persistView, projectInbound: projectInboundMessage, lockSession: lockExistingInitialSession, isRestart: isConversationRestartCommand })
+    return conversational ?? processInitialInbox(input)
+  }
   if (input.job.kind === 'RECOVER_CUTOVER') return processCutoverRecovery(input)
   const recoveringConfirmation = input.job.kind === 'RECOVER_BOOKING_CONFIRMATION'
   if (input.job.kind !== 'PROCESS_SESSION' && !recoveringConfirmation) throw new Error(`unsupported session job ${input.job.kind}`)
@@ -1168,22 +1176,29 @@ async function processInitialInboxUnderClaim(
   const result = await runProcessInboxTransaction(input.client, async (tx) => {
     await assertClaimedBotJobTx(tx, input.job)
     await assertDispatchClaimTx({ tx, businessId: input.job.businessId, claimToken: dispatchToken })
-    const rows = await tx.$queryRaw<Array<{ id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string; businessName: string; admittedAt: Date; providerOccurredAt: Date | null }>>(Prisma.sql`
+    const rows = await tx.$queryRaw<Array<PolicyRow & { id: string; businessId: string; deploymentId: string; deploymentGeneration: number; payload: Prisma.JsonValue; providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string; businessName: string; admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean }>>(Prisma.sql`
+      WITH locked_features AS MATERIALIZED (SELECT "botEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = ${input.job.businessId} FOR SHARE)
       SELECT i."id", e."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId", i."providerMessageId", i."status"::text AS "status",
-        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone", b."name" AS "businessName", e."admittedAt", e."providerOccurredAt"
+        clock_timestamp() AS "dbNow", settings."timezone" AS "businessTimezone", (b."botEnabled" AND COALESCE((SELECT "botEnabled" FROM locked_features), true)) AS "botEnabled", b."name" AS "businessName", e."admittedAt", e."providerOccurredAt", b."customerCode", d."generation", d."engineKey", cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition"
       FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId"
       JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = e."businessId"
-      JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = e."businessId"
+      JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = e."businessId" JOIN "BusinessBotConfiguration" cfg ON cfg."id" = d."activeConfigurationId" AND cfg."businessId" = d."businessId"
       JOIN "Business" b ON b."id" = e."businessId"
       WHERE i."id" = ${input.job.aggregateId} AND d."generation" = i."deploymentGeneration"
         AND d."activeConfigurationId" IS NOT NULL AND d."claimsPausedAt" IS NULL
-       FOR UPDATE OF i FOR SHARE OF d
+       FOR UPDATE OF i FOR SHARE OF d, cfg, b
     `)
     if (rows.length !== 1 || rows[0]!.deploymentGeneration !== input.job.deploymentGeneration) {
       await completeDispatchClaimTx(tx, dispatchToken)
       return 'STALE_CUTOVER'
     }
     const row = rows[0]!
+    // Recheck under the deployment/config locks: selection may change after preflight.
+    if (resolveConversationPolicy(row)) {
+      await completeDispatchClaimTx(tx, dispatchToken)
+      await rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + 500), { refundClaimAttempt: true })
+      return 'PROCESSED'
+    }
     if (row.status !== 'ADMITTED') {
       await completeDispatchClaimTx(tx, dispatchToken)
       await completeClaimedBotJobTx(tx, input.job)
@@ -1228,6 +1243,29 @@ async function processInitialInboxUnderClaim(
           body,
           messageType: payload.messageType
         }, pendingCrmEvents)
+        // Removal of the opt-in marker never turns a conversational proposal into a legacy booking.
+        if (existingSession.state && typeof existingSession.state === 'object' && !Array.isArray(existingSession.state) && 'conversationDraft' in existingSession.state) {
+          if (row.botEnabled === false || existingSession.status !== 'ACTIVE' || existingSession.handoffClaimsPausedAt) {
+            await tx.$executeRaw(Prisma.sql`UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId}, "status"='PROCESSED'::"BotInboxStatus" WHERE "id"=${row.id}`)
+            await completeDispatchClaimTx(tx, dispatchToken)
+            await completeClaimedBotJobTx(tx, input.job)
+            return 'PROCESSED'
+          }
+          const sidecar = existingSession.state.conversationDraft as { dialogue?: unknown } | null
+          parseDialogueState(sidecar?.dialogue, row.businessId, existingSession.businessTimezone)
+          const fresh = createInitialBotOptionsState()
+          const revision = existingSession.revision + 1n
+          await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET "state"=${JSON.stringify(fresh)}::jsonb, "revision"=${revision}, "updatedAt"=clock_timestamp() WHERE "id"=${existingSession.sessionId} AND "businessId"=${row.businessId} AND "revision"=${existingSession.revision}`)
+          await tx.$executeRaw(Prisma.sql`INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId") VALUES (${randomUUID()}, ${row.businessId}, ${existingSession.sessionId}, ${row.deploymentId}, ${row.deploymentGeneration}, ${existingSession.revision}, ${revision}, 'system.configuration_reset', 'APPLIED', ${row.providerEventId})`)
+          const greeting = await loadConversationGreetingView(tx, { businessId: row.businessId, phone: payload.fromPhone })
+          await persistView(tx, { businessId: row.businessId, sessionId: existingSession.sessionId, revision,
+            transitionId: `transition:${existingSession.sessionId}:${revision}`, toPhone: payload.fromPhone, dbNow: row.dbNow,
+            view: { ...greeting, informativeTexts: ['La configuración cambió. Recibí tu mensaje; elegí una opción del menú para continuar con un borrador nuevo.', ...greeting.informativeTexts] } })
+          await tx.$executeRaw(Prisma.sql`UPDATE "BotActionInbox" SET "sessionId"=${existingSession.sessionId}, "status"='PROCESSED'::"BotInboxStatus" WHERE "id"=${row.id}`)
+          await completeDispatchClaimTx(tx, dispatchToken)
+          await completeClaimedBotJobTx(tx, input.job)
+          return 'PROCESSED'
+        }
         const state = parseBotOptionsState(existingSession.state)
         if (!state.ok) throw new Error(`unknown/corrupt state: ${state.invariant}`)
         if (state.state.flow === 'SERVICE_PHOTOS' && state.state.pendingEntityRef?.type === 'SERVICE' &&
@@ -1452,9 +1490,9 @@ async function processInitialInboxUnderClaim(
  * Serializes initial inbox handling with the pre-existing conversation session.
  * This avoids creating a second ACTIVE session while TAKE changes ownership.
  */
-async function lockExistingInitialSession(tx: Prisma.TransactionClient, businessId: string, phone: string) {
-  const sessions = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; revision: bigint; status: string; state: Prisma.JsonValue; businessTimezone: string }>>(Prisma.sql`
-    SELECT s."id" AS "sessionId", c."id" AS "conversationId", s."revision", s."status"::text AS "status", s."state", s."businessTimezone"
+export async function lockExistingInitialSession(tx: Prisma.TransactionClient, businessId: string, phone: string) {
+  const sessions = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; revision: bigint; status: string; state: Prisma.JsonValue; businessTimezone: string; handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }>>(Prisma.sql`
+    SELECT s."id" AS "sessionId", c."id" AS "conversationId", s."revision", s."status"::text AS "status", s."state", s."businessTimezone", s."handoffFenceEpoch", s."handoffClaimsPausedAt", s."deploymentId", s."deploymentGeneration"
     FROM "Conversation" c
     JOIN "BotSession" s ON s."conversationId"=c."id" AND s."businessId"=c."businessId"
     WHERE c."businessId"=${businessId} AND c."phone"=${phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
@@ -1483,7 +1521,7 @@ function inboundBody(payload: { textBody?: unknown; messageType?: unknown }) {
     : `[${typeof payload.messageType === 'string' ? payload.messageType : 'message'}]`
 }
 
-async function projectInboundMessage(
+export async function projectInboundMessage(
   tx: Prisma.TransactionClient,
   input: {
     businessId: string; conversationId: string; phone: string; providerMessageId: string | null
@@ -1550,8 +1588,15 @@ async function processCutoverRecovery(input: { client: RuntimeClient; job: Claim
           ${row.generation}, ${JSON.stringify(recoveryPayload)}::jsonb, 'ADMITTED'::"BotInboxStatus")
         ON CONFLICT ("id") DO NOTHING
       `)
+      if (await loadConversationPolicy(tx, { businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation })) {
+        await upsertJob(tx, 'PROCESS_INBOX', recoveryInboxId, row.businessId, row.deploymentId, row.generation, null, new Date())
+        await completeDispatchClaimTx(tx, dispatchToken)
+        await completeClaimedBotJobTx(tx, retargeted)
+        return null
+      }
       return retargeted
     })
+    if (!retargetedJob) { markSettled(); return 'PROCESSED' }
     const synthetic = { ...retargetedJob, kind: 'PROCESS_INBOX', aggregateId: recoveryInboxId }
     const result = await processInitialInboxUnderClaim({ client: input.client, job: synthetic }, true, dispatchToken, markSettled)
     if (result === 'STALE_CUTOVER') throw new Error('deployment changed during cutover recovery')
