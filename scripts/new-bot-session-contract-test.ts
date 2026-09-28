@@ -6,7 +6,7 @@ import {
   type ConversationSnapshot,
 } from '../src/new-bot/domain/session.js';
 
-const salonScope = { businessId: 'salon-17', conversationId: 'wa-100', vertical: 'salon' } as const;
+const salonScope = { businessId: 'salon-17', provider: 'whatsapp', conversationId: 'wa-100', vertical: 'salon' } as const;
 const salonSnapshot: ConversationSnapshot = {
   schemaVersion: 1,
   ...salonScope,
@@ -41,7 +41,7 @@ assert.deepEqual(salonResult, {
 assert.equal(Object.hasOwn(salonResult.snapshot, 'processedEventIds'), false,
   'snapshots must not accumulate an unbounded processed-event history');
 
-const workshopScope = { businessId: 'workshop-42', conversationId: 'chat-8', vertical: 'workshop' } as const;
+const workshopScope = { businessId: 'workshop-42', provider: 'instagram', conversationId: 'chat-8', vertical: 'workshop' } as const;
 const workshopSnapshot: ConversationSnapshot = {
   schemaVersion: 1,
   ...workshopScope,
@@ -71,6 +71,7 @@ if (workshopResult.status === 'accepted') {
 
 for (const mismatch of [
   { ...salonScope, businessId: 'other-business' },
+  { ...salonScope, provider: 'instagram' },
   { ...salonScope, conversationId: 'other-conversation' },
   { ...salonScope, vertical: 'workshop' },
 ]) {

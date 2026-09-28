@@ -9,6 +9,7 @@ export type ConversationData =
 
 export interface ConversationIdentity {
   readonly businessId: string;
+  readonly provider: string;
   readonly conversationId: string;
   readonly vertical: string;
 }
@@ -142,8 +143,9 @@ function isNonEmptyString(value: unknown): value is string {
 function isIdentity(value: unknown): value is ConversationIdentity {
   return (
     isPlainRecord(value) &&
-    hasExactDataKeys(value, ['businessId', 'conversationId', 'vertical']) &&
+    hasExactDataKeys(value, ['businessId', 'provider', 'conversationId', 'vertical']) &&
     isNonEmptyString(value.businessId) &&
+    isNonEmptyString(value.provider) &&
     isNonEmptyString(value.conversationId) &&
     isNonEmptyString(value.vertical)
   );
@@ -152,6 +154,7 @@ function isIdentity(value: unknown): value is ConversationIdentity {
 function sameIdentity(left: ConversationIdentity, right: ConversationIdentity): boolean {
   return (
     left.businessId === right.businessId &&
+    left.provider === right.provider &&
     left.conversationId === right.conversationId &&
     left.vertical === right.vertical
   );
@@ -163,11 +166,11 @@ function isRevision(value: unknown): value is number {
 
 function isSnapshot(value: unknown): value is ConversationSnapshot {
   if (!isPlainRecord(value) || !hasExactDataKeys(value, [
-    'schemaVersion', 'businessId', 'conversationId', 'vertical', 'revision', 'state',
+    'schemaVersion', 'businessId', 'provider', 'conversationId', 'vertical', 'revision', 'state',
   ])) return false;
   return (
     value.schemaVersion === 1 &&
-    isIdentity({ businessId: value.businessId, conversationId: value.conversationId, vertical: value.vertical }) &&
+    isIdentity({ businessId: value.businessId, provider: value.provider, conversationId: value.conversationId, vertical: value.vertical }) &&
     isRevision(value.revision) &&
     isJsonData(value.state)
   );
@@ -175,11 +178,11 @@ function isSnapshot(value: unknown): value is ConversationSnapshot {
 
 function isEvent(value: unknown): value is ConversationEvent {
   if (!isPlainRecord(value) || !hasExactDataKeys(value, [
-    'schemaVersion', 'businessId', 'conversationId', 'vertical', 'expectedRevision', 'type', 'payload',
+    'schemaVersion', 'businessId', 'provider', 'conversationId', 'vertical', 'expectedRevision', 'type', 'payload',
   ])) return false;
   return (
     value.schemaVersion === 1 &&
-    isIdentity({ businessId: value.businessId, conversationId: value.conversationId, vertical: value.vertical }) &&
+    isIdentity({ businessId: value.businessId, provider: value.provider, conversationId: value.conversationId, vertical: value.vertical }) &&
     isRevision(value.expectedRevision) &&
     isNonEmptyString(value.type) &&
     isJsonData(value.payload)

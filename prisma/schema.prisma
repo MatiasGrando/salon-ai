@@ -1023,6 +1023,8 @@ model Business {
   publicFormRateLimitBuckets  PublicFormRateLimitBucket[]
   newBotInboxEvents           NewBotInboxEvent[]
   newBotConversationCounters NewBotConversationCounter[]
+  newBotConversationSessions NewBotConversationSession[]
+  newBotOutboxEvents NewBotOutboxEvent[]
 
   createdAt DateTime @default(now())
 
@@ -1053,11 +1055,14 @@ model NewBotInboxEvent {
   retryAt          DateTime? @db.Timestamptz(6)
   completedAt      DateTime? @db.Timestamptz(6)
   processingErrorCode String?
+  sessionsForLastInboxEvent NewBotConversationSession[]
+  outboxItems NewBotOutboxEvent[]
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([businessId, provider, providerEventId])
   @@unique([businessId, provider, conversationId, sequence])
+  @@unique([id, businessId, provider, conversationId, sequence], map: "NewBotInboxEvent_event_partition_sequence_key")
   @@index([businessId, provider, conversationId, processingStatus, sequence])
 }
 
@@ -1071,6 +1076,49 @@ model NewBotConversationCounter {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([businessId, provider, conversationId])
+}
+
+model NewBotConversationSession {
+  businessId        String
+  provider          String
+  conversationId    String
+  vertical          String
+  schemaVersion     Int      @default(1)
+  revision          BigInt
+  state             Json
+  lastInboxEventId  String
+  lastInboxSequence BigInt
+  updatedAt         DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+
+  business       Business        @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  lastInboxEvent NewBotInboxEvent @relation(fields: [lastInboxEventId, businessId, provider, conversationId, lastInboxSequence], references: [id, businessId, provider, conversationId, sequence], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([businessId, provider, conversationId])
+  @@index([businessId, provider, vertical], map: "NewBotConversationSession_business_provider_vertical_idx")
+}
+
+model NewBotOutboxEvent {
+  id                 String   @id
+  eventId            String
+  businessId         String
+  provider           String
+  conversationId     String
+  sequence           BigInt
+  ordinal            Int
+  recipientKey       String
+  action             Json
+  processingStatus   String   @default("PENDING")
+  providerAcceptedAt DateTime? @db.Timestamptz(6)
+  deliveredAt        DateTime? @db.Timestamptz(6)
+  providerMessageId  String?
+  createdAt          DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  inboxEvent NewBotInboxEvent @relation(fields: [eventId, businessId, provider, conversationId, sequence], references: [id, businessId, provider, conversationId, sequence], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([eventId, ordinal], map: "NewBotOutboxEvent_event_ordinal_key")
+  @@unique([businessId, provider, conversationId, sequence, ordinal], map: "NewBotOutboxEvent_partition_sequence_ordinal_key")
+  @@index([processingStatus, createdAt, id], map: "NewBotOutboxEvent_sender_pending_idx")
 }
 model CustomerChannelIdentity {
   id String @id @default(cuid())
