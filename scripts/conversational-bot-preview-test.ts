@@ -29,3 +29,9 @@ assert.equal(stored.get('demo:preview:user:session2')?.schemaVersion, initialDia
 await assert.rejects(() => runConversationalPreview({ ...dependencies, load: async () => ({ ...first.state, businessId: 'another' }) }, businessId, 'demo:preview:user:session1', 'hola'), /invalid dialogue scope/)
 assert.equal(saved.length, 3, 'invalid cross-tenant state must not be persisted')
 console.log('conversational preview: OK')
+const earlyPhone = 'demo:preview:user:early-professional'
+const earlyPreference = await runConversationalPreview(dependencies, businessId, earlyPhone, 'un turno con Ana mañana')
+assert.equal(earlyPreference.state.professionalNameHint, 'ana')
+const earlyRoundtrip = await runConversationalPreview(dependencies, businessId, earlyPhone, 'Corte Hombre')
+assert.equal(earlyRoundtrip.state.professional?.kind === 'specific' ? earlyRoundtrip.state.professional.id : null, 'ana', 'QA preview persists early preference between turns')
+assert.equal(earlyRoundtrip.state.pending, 'time')

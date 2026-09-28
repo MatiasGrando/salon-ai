@@ -349,3 +349,7 @@ Main files:
 - `src/services/bot-copy-service.ts`
 
 If behavior changes, update this skill with the new regression rule before ending the task.
+
+### Early professional preference in the new conversational engine
+
+When a customer explicitly says `con <professional>` before identifying a service or date, retain that name only as an unverified hint across turns. Do not create a professional ID from the text. Once service and date are known, resolve the hint only if exactly one compatible professional matches the actual availability catalog. If several match or none is compatible, ask for clarification rather than silently selecting another professional. Preserve the hint across service selection, clear it after resolution, on reset/rejection, on `cualquier profesional`, or when an explicit new preference replaces it. Older version-1 draft snapshots without this field must remain readable. Regression: `hola queria` → `un turno con ramiro mañana` → `corte hombnre` → `corte hombre` must not ask for Ramiro again when he is uniquely compatible. The misspelled service itself remains unselected until clarified; do not guess it.

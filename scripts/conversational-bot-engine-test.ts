@@ -114,3 +114,44 @@ const singlePort = { ...port, availability: async () => ({ professionals: [profe
 state = { ...initialDialogueState(context.businessId), serviceId: 'cut', date: '2026-09-28', pending: 'professional' }
 await say('si', singlePort)
 assert.equal(state.professional?.kind, 'specific', 'literal affirmative selects only the single compatible professional')
+
+// An explicit professional preference arriving before the service must survive later turns.
+const ramiro = { id: 'ramiro', name: 'Ramiro', priority: 0 }
+const ramiroSlot = { ...slots[0]!, professionalId: ramiro.id, professionalName: ramiro.name }
+const ramiroPort: DialoguePort = {
+  catalog: async () => services,
+  availability: async (_service, date, id) => ({ professionals: [ramiro], slots: date === ramiroSlot.date && (!id || id === ramiro.id) ? [ramiroSlot] : [] })
+}
+let early = initialDialogueState(context.businessId)
+for (const message of ['hola queria', 'un turno con ramiro hoy', 'corte hombnre']) {
+  early = (await respond(context, early, message, ramiroPort)).state
+}
+assert.equal(early.professionalNameHint, 'ramiro', 'explicit early preference survives unrecognized service')
+const selectedEarly = await respond(context, early, 'Corte Hombre', ramiroPort)
+assert.equal(selectedEarly.state.professional?.kind, 'specific', 'service choice resolves stored preference against compatible catalog')
+assert.equal(selectedEarly.state.professional?.kind === 'specific' ? selectedEarly.state.professional.id : null, ramiro.id)
+assert.equal(selectedEarly.state.pending, 'time', 'the bot must not ask for Ramiro again')
+assert.equal(selectedEarly.state.professionalNameHint, null, 'resolved hint is consumed')
+
+let dateLater = (await respond(context, initialDialogueState(context.businessId), 'con Ramiro', ramiroPort)).state
+dateLater = (await respond(context, dateLater, 'Corte Hombre', ramiroPort)).state
+assert.equal(dateLater.professionalNameHint, 'ramiro', 'preference remains pending until date and compatible availability are known')
+dateLater = (await respond(context, dateLater, 'hoy', ramiroPort)).state
+assert.equal(dateLater.professional?.kind === 'specific' ? dateLater.professional.id : null, ramiro.id)
+assert.equal((await respond(context, initialDialogueState(context.businessId), 'con Ramiro', ramiroPort)).state.professional, null, 'name hint is never a trusted professional ID')
+assert.equal((await respond(context, early, 'reset', ramiroPort)).state.professionalNameHint, null)
+assert.equal((await respond(context, early, 'cualquier profesional', ramiroPort)).state.professionalNameHint, null)
+
+const ambiguousPort: DialoguePort = { ...ramiroPort, availability: async () => ({ professionals: [{ id: 'r1', name: 'Ramiro Díaz', priority: 0 }, { id: 'r2', name: 'Ramiro López', priority: 1 }], slots: [{ ...ramiroSlot, professionalId: 'r1' }, { ...ramiroSlot, professionalId: 'r2' }] }) }
+const ambiguous = await respond(context, early, 'Corte Hombre', ambiguousPort)
+assert.equal(ambiguous.state.professional, null, 'ambiguous early name must not choose an ID')
+assert.match(ambiguous.reply, /Ramiro Díaz.*Ramiro López/)
+const incompatible = await respond(context, early, 'Corte Hombre', port)
+assert.equal(incompatible.state.professional, null, 'unavailable early name must not choose another professional')
+assert.match(incompatible.reply, /Ramiro|ramiro/)
+assert.equal(parseDialogueState({ ...early, professionalNameHint: undefined }, context.businessId).professionalNameHint, null, 'older v1 snapshot remains readable')
+assert.throws(() => parseDialogueState({ ...early, professionalNameHint: 'ramiro\nmalicious' }, context.businessId), /professional hint/)
+const switchPort: DialoguePort = { ...ramiroPort, availability: async (_service, date, id) => ({ professionals: [ramiro, { id: 'luz', name: 'Luz', priority: 1 }], slots: [ramiroSlot, { ...ramiroSlot, professionalId: 'luz', professionalName: 'Luz' }].filter(s => s.date === date && (!id || id === s.professionalId)) }) }
+const switched = await respond(context, selectedEarly.state, 'no, mejor con Luz', switchPort)
+assert.equal(switched.state.professional?.kind === 'specific' ? switched.state.professional.id : null, 'luz', 'explicit change overrides previously selected professional')
+assert.equal((await respond(context, early, 'nunca te dije Ramiro', ramiroPort)).state.professionalNameHint, null)

@@ -14,12 +14,14 @@ export type DialogueState = {
   pending: 'service' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
   serviceId: string | null; date: string | null
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
+  /** Unverified name until uniquely matched against the selected service's compatible professionals. */
+  professionalNameHint: string | null
   requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
 export function initialDialogueState(businessId: string): DialogueState {
-  return { schemaVersion: 1, engine: 'conversational-booking-v1', businessId, pending: 'service', serviceId: null, date: null, professional: null, requestedTime: null, slot: null, customerName: null }
+  return { schemaVersion: 1, engine: 'conversational-booking-v1', businessId, pending: 'service', serviceId: null, date: null, professional: null, professionalNameHint: null, requestedTime: null, slot: null, customerName: null }
 }
 const bounded = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\u0000-\u001f]/.test(value)
 function validCalendarDate(value: unknown): value is string {
@@ -37,6 +39,8 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
   if (s.professional !== null && (s.professional.kind !== 'any' && (s.professional.kind !== 'specific' || !bounded(s.professional.id, 128)))) throw new Error('invalid professional')
+  // Older schemaVersion 1 snapshots have no hint; keep them readable without a SQL migration.
+  if (s.professionalNameHint !== undefined && s.professionalNameHint !== null && (!bounded(s.professionalNameHint, 100) || !/^[a-z]+(?: [a-z]+){0,2}$/.test(s.professionalNameHint))) throw new Error('invalid professional hint')
   if (s.slot !== null && (!s.serviceId || !s.date || !s.professional || s.slot.date !== s.date || !bounded(s.slot.professionalId, 128) || !bounded(s.slot.professionalName, 200) || !Number.isFinite(Date.parse(s.slot.startAt)) || parseMinutes(s.slot.time) === null || (s.professional.kind === 'specific' && s.professional.id !== s.slot.professionalId))) throw new Error('invalid slot')
   if ((!s.serviceId && (s.date && s.slot || s.professional || s.slot)) || (!s.date && s.slot) || (s.pending === 'proposal' && (!s.slot || !s.customerName))) throw new Error('invalid dialogue invariants')
   if (s.slot && timezone) {
@@ -44,7 +48,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     const time = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant)
     if (localDateKey(instant, timezone) !== s.slot.date || time !== s.slot.time) throw new Error('invalid slot wall time')
   }
-  return structuredClone(s)
+  return structuredClone({ ...s, professionalNameHint: s.professionalNameHint ?? null })
 }
 const normalize = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9:/-]+/g, ' ').trim()
 const words = (text: string) => normalize(text).split(' ').filter(w => w && w !== 'y').sort()
@@ -56,6 +60,10 @@ function matches<T extends { name: string }>(text: string, items: T[]): T[] {
   if (contained.length) return contained
   const partial = input.filter(word => !['quiero', 'un', 'una', 'turno', 'para', 'hoy', 'manana', 'con', 'el', 'la', 'servicio', 'cambiar'].includes(word))
   return partial.length ? items.filter(item => partial.every(word => words(item.name).includes(word))) : []
+}
+function extractProfessionalHint(text: string): string | null {
+  const match = /\bcon\s+([a-z]+(?:\s+(?!(?:manana|hoy|pasado|para|el|la|a|las|y|pero|no|quiero|un|una|turno|servicio)\b)[a-z]+){0,2})\b/.exec(text)
+  return match?.[1] ?? null
 }
 function extractDate(text: string, context: DialogueContext): string | null {
   if (/\bmanana\b/.test(text)) return localDateKey(context.dbNow, context.timezone, 1)
@@ -88,7 +96,18 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (state.serviceId && !service) { state.serviceId = null; state.professional = null; clearSlot(state); state.pending = 'service' }
   if (/\bcambiar (?:la )?(?:hora|horario)\b/.test(text)) clearSlot(state)
   if (/\bcambiar (?:el )?servicio\b/.test(text)) { state.serviceId = null; service = undefined; state.professional = null; clearSlot(state) }
-  if (/\bnunca te dije\b/.test(text)) { state.professional = null; clearSlot(state); state.pending = 'professional' }
+  const anyProfessional = /\b(cualquiera|cualquier profesional|sin preferencia|me da igual)\b/.test(text)
+  const rejectsProfessional = /\bnunca te dije\b/.test(text)
+  if (rejectsProfessional) { state.professional = null; state.professionalNameHint = null; clearSlot(state); state.pending = 'professional' }
+  if (anyProfessional) state.professionalNameHint = null
+  else if (!rejectsProfessional) {
+    const earlyName = extractProfessionalHint(text)
+    if (earlyName && !matches(earlyName, services).length) {
+      state.professionalNameHint = earlyName
+      state.professional = null
+      clearSlot(state)
+    }
+  }
   const catalogQuestion = /(?:que|cuales|mostrame|mostrar).*servicios/.test(text)
   const found = catalogQuestion ? [] : matches(text, services)
   if (found.length > 1) { state.pending = 'service'; return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`) }
@@ -115,19 +134,28 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const available = await port.availability(service, state.date, state.professional?.kind === 'specific' ? state.professional.id : undefined)
   const professionals = available.professionals
   const professionalText = name ? normalize(message.replace(name[0], '')) : text
-  const negativePreference = /\b(?:no|nunca)\b/.test(professionalText) && matches(professionalText.replace(/\b(?:no|nunca|te|dije|quiero)\b/g, ''), professionals).length > 0
-  if (negativePreference) { state.professional = null; clearSlot(state); state.pending = 'professional' }
+  const negativePreference = !extractProfessionalHint(text) && /\b(?:no|nunca)\b/.test(professionalText) && matches(professionalText.replace(/\b(?:no|nunca|te|dije|quiero)\b/g, ''), professionals).length > 0
+  if (negativePreference) { state.professional = null; state.professionalNameHint = null; clearSlot(state); state.pending = 'professional' }
   if ((previous as DialogueState).pending === 'name' && !name && matches(text, professionals).length) state.customerName = (previous as DialogueState).customerName
   let slots = available.slots.filter(s => s.date === state.date && Date.parse(s.startAt) > context.dbNow.getTime() && professionals.some(p => p.id === s.professionalId))
-  if (/\b(cualquiera|cualquier profesional|sin preferencia|me da igual)\b/.test(text)) { state.professional = { kind: 'any' }; state.slot = null }
-  else if (!negativePreference && !/\bnunca te dije\b/.test(text)) {
-    const named = (previous as DialogueState).pending === 'professional' && professionals.length === 1 && /^(si|dale|perfecto)$/.test(professionalText)
+  if (anyProfessional) { state.professional = { kind: 'any' }; state.professionalNameHint = null; state.slot = null }
+  else if (!negativePreference && !rejectsProfessional) {
+    const namedNow = (previous as DialogueState).pending === 'professional' && professionals.length === 1 && /^(si|dale|perfecto)$/.test(professionalText)
       ? professionals : matches(professionalText, professionals)
-    if (named.length > 1) return finish(`¿Con quién querés atenderte? ${named.map(p => p.name).join(', ')}.`)
-    if (named.length === 1 && (state.professional?.kind !== 'specific' || state.professional.id !== named[0]!.id)) {
-      state.professional = { kind: 'specific', id: named[0]!.id }; state.slot = null
-      const selected = await port.availability(service, state.date, named[0]!.id)
-      slots = selected.slots.filter(s => s.date === state.date && s.professionalId === named[0]!.id && Date.parse(s.startAt) > context.dbNow.getTime())
+    const hint = state.professionalNameHint
+    const named = namedNow.length ? namedNow : hint ? matches(hint, professionals) : []
+    if (named.length > 1) { state.professionalNameHint = null; state.pending = 'professional'; return finish(`¿Con quién querés atenderte? ${named.map(p => p.name).join(', ')}.`) }
+    if (!named.length && hint) {
+      state.professionalNameHint = null; state.pending = 'professional'
+      return finish(`No encuentro a ${hint} para ${service.name}. ¿Con qué profesional querés atenderte? ${professionals.map(p => p.name).join(', ')}. También podés elegir cualquier profesional.`)
+    }
+    if (named.length === 1) {
+      state.professionalNameHint = null
+      if (state.professional?.kind !== 'specific' || state.professional.id !== named[0]!.id) {
+        state.professional = { kind: 'specific', id: named[0]!.id }; state.slot = null
+        const selected = await port.availability(service, state.date, named[0]!.id)
+        slots = selected.slots.filter(s => s.date === state.date && s.professionalId === named[0]!.id && Date.parse(s.startAt) > context.dbNow.getTime())
+      }
     }
   }
   if (state.professional?.kind === 'specific') {
