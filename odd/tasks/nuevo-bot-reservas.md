@@ -19,6 +19,12 @@
 - Corrected independently discovered gates: config replacement retries same message with clean draft; disabled expiry emits no greeting; old interactive prompt cannot enter legacy action under marker; initial/legacy selection rechecks config under lock; marker removal clears prior conversational draft and handles human/disabled silence; cutover persists real PROCESS_INBOX job; transition IDs retain sender timing correlation.
 - No fragmented-message gathering yet. Every inbound remains a separate durable event; user asked to evaluate grouping together at integration review. No actual booking effect, AI interpreter or pilot activation. Native RDD assessment/receipt after commit remains pending; Engram mirror/summary tools unavailable.
 
+- C03.2 work-unit commit: `6c46797d3acf5a5d1a5434e18cbb6b623873e87b`, feat(bot): connect conversational engine to existing inbox runtime; 9 files, 690 additions / 24 deletions. Only this task staged; unrelated T05.3/package/temp changes remain local and excluded.
+- Native RDD after commit: ON, assessment from boundary `2c90256` returned high_risk/review_due. Exact STATUS again requested intended untracked selection with `projection=workspace` and omitted committed-only/base-ref in submission tokens; stopped before START to avoid broadening candidate. No native receipt or approval.
+- Next decision with user: fragmented consecutive messages. Existing C03.2 preserves each event and order; choose whether to collect a bounded burst before replying, based on response-time budget and test examples. Implementation C04 pending this choice.
+
+- Limpieza autorizada antes de C04: T05.3 es un webhook/sender alternativo opt-in no registrado en `src/server.ts`; sus siete archivos de código/prueba/migración se preservarán en un stash de rutas exactas para evitar sumar código inactivo a esta rama. Los cambios productivos actuales del bot conversacional permanecen en commits. No se eliminarán artefactos temporales de otros trabajos sin comprobar propiedad.
+
 ### C03.1b — informational actions and tenant facts (completed locally)
 
 - Authorized local slice: typed action routing and informational interruptions using existing catalog/canonical hours repositories and public Business fields. Preserve complete booking state for pure questions; mixed messages apply only explicit booking data. Runtime, AI and action execution remain pending.
