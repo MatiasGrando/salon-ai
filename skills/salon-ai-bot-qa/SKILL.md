@@ -357,3 +357,11 @@ When a customer explicitly says `con <professional>` before identifying a servic
 ### QA preview preparation lock boundary
 
 For the QA conversational preview, read the saved version and prepare the full response (including any slow interpreter, catalog, or availability query) before opening the row-lock transaction. Under the lock, compare the state owner and complete saved snapshot; persist exactly one inbound/outbound pair and the new state only if unchanged. On a conflict, re-read and recompute the same inbound within a bounded retry count. Failed preparation or exhausted conflicts must never persist that inbound. Within one server process, rapid turns in the same session retain invocation order; across workers, commit ordering is only guaranteed by the version check, not by original network-arrival order. This is not the productive WhatsApp C04 consolidation.
+
+### AI-first interpretation in the QA conversational preview (opt-in)
+
+- Keep the existing preview deterministic unless the QA caller explicitly injects the interpreter. Do not change the old bot's global model or enable AI for a production profile by default.
+- Once enabled, interpret every QA turn with the structured provider; mark `ai` versus `fallback` explicitly and record provider, validation and total timings. A timeout, provider error or invalid output must fall back to the deterministic engine without losing saved booking context.
+- The model's service ID must exist in the current tenant's catalog and its evidence must appear in the customer's current message. A typo such as `corte hombnre` can prompt `¿Te referís a Corte Hombre?` but cannot select that service. Preserve an independently stated date and professional hint while clarifying.
+- A professional mention must be a whole-word literal in the current message (not a substring of another name), and negated or self-identity mentions must not be promoted to a preference. Store it only as an unverified hint until the real availability catalog confirms unique compatibility. Never use AI-generated IDs, dates, prices, slots or booking confirmations as factual authority.
+- Preview/core tests use fake providers only. A real OpenAI request with a QA customer's text and an API credential needs separately explicit remote authorization.

@@ -35,3 +35,8 @@ assert.equal(earlyPreference.state.professionalNameHint, 'ana')
 const earlyRoundtrip = await runConversationalPreview(dependencies, businessId, earlyPhone, 'Corte Hombre')
 assert.equal(earlyRoundtrip.state.professional?.kind === 'specific' ? earlyRoundtrip.state.professional.id : null, 'ana', 'QA preview persists early preference between turns')
 assert.equal(earlyRoundtrip.state.pending, 'time')
+
+let previewAiCalls = 0
+const aiPreview = await runConversationalPreview({ ...dependencies, interpretationProvider: async () => { previewAiCalls++; return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null } } }, businessId, 'demo:preview:user:ai-test', 'hola')
+assert.equal(previewAiCalls, 1)
+assert.equal(aiPreview.interpretation?.mode, 'ai')
