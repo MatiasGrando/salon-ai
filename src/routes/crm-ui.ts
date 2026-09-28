@@ -12166,7 +12166,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .demo-dialog {
       width: min(760px, 100%);
       height: min(720px, calc(100dvh - 36px));
-      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     }
 
     .demo-dialog-toolbar,
@@ -12200,6 +12200,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       background: #fff;
     }
 
+    .demo-preview-mode {
+      padding: 10px 16px;
+      display: grid;
+      gap: 5px;
+      background: #eef5ff;
+      color: #263b62;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .demo-preview-mode[hidden] { display: none; }
+    .demo-preview-mode select { min-height: 38px; padding: 8px 10px; border: 1px solid #b8cbea; border-radius: 8px; background: #fff; }
+    .demo-preview-mode small { font-weight: 500; }
+    .demo-chat-diagnostics { max-width: 100%; font-size: 12px; color: #415274; }
+    .demo-chat-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 5px 0; }
     .demo-chat-messages {
       min-height: 0;
       padding: 18px;
@@ -16974,6 +16988,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <label>Perfil para responder<select id="demo-profile-select"></select></label>
             <button class="secondary" id="demo-new-chat" type="button">Nueva conversaci&oacute;n</button>
           </div>
+          <label class="demo-preview-mode" id="demo-preview-mode-row" hidden>Motor de prueba
+            <select id="demo-preview-mode"><option value="existing">Simulador actual</option><option value="conversational-preview">Bot conversacional nuevo (vista previa)</option></select>
+            <small>Solo QA. Guarda el chat de prueba; no reserva ni env&iacute;a WhatsApp.</small>
+          </label>
           <form class="demo-profile-create" id="demo-profile-create-form" hidden>
             <label>Nombre del perfil<input id="demo-profile-name" maxlength="80" placeholder="Ej: Weex Nails" required></label>
             <label>Rubro<select id="demo-profile-type"><option value="NAILS">Nails</option><option value="BARBERSHOP">Barber&iacute;a</option><option value="HAIR_SALON">Peluquer&iacute;a</option><option value="BEAUTY">Est&eacute;tica</option><option value="PILATES">Pilates</option></select></label>
@@ -20220,6 +20238,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       demoChatForm: document.getElementById('demo-chat-form'),
       demoChatInput: document.getElementById('demo-chat-input'),
       demoChatSend: document.getElementById('demo-chat-send'),
+      demoPreviewModeRow: document.getElementById('demo-preview-mode-row'),
+      demoPreviewMode: document.getElementById('demo-preview-mode'),
       commercialDemoWorkspaceBanner: document.getElementById('commercial-demo-workspace-banner'),
       commercialDemoWorkspaceName: document.getElementById('commercial-demo-workspace-name'),
       commercialDemoWorkspaceAccount: document.getElementById('commercial-demo-workspace-account'),
@@ -22055,6 +22075,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.demoProfileSelect.value = activeIsDemo ? state.businessId : state.demoProfiles[0]?.id || ''
       els.demoChatInput.disabled = !state.demoProfiles.length
       els.demoChatSend.disabled = !state.demoProfiles.length
+      updateDemoPreviewMode()
+    }
+
+    function updateDemoPreviewMode() {
+      const profile = state.demoProfiles.find((item) => item.id === els.demoProfileSelect.value)
+      const eligible = state.currentUser?.role === 'SUPER_ADMIN' && profile?.demoType === 'QA_SANDBOX'
+      els.demoPreviewModeRow.hidden = !eligible
+      els.demoPreviewMode.value = 'existing'
     }
 
     function openDemoSimulator(options = {}) {
@@ -22106,6 +22134,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!state.demoProfiles.some((profile) => profile.id === profileId)) return
       openDemoSimulator()
       els.demoProfileSelect.value = profileId
+      updateDemoPreviewMode()
       startNewDemoChat()
     }
 
@@ -22212,7 +22241,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             }).join('') +
             '</div>'
           : ''
-        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + '</div>'
+        const diagnostics = message.preview ? '<details class="demo-chat-diagnostics"><summary>Datos entendidos y tiempos</summary><pre>' + escapeHtml(JSON.stringify(message.preview, null, 2)) + '</pre></details>' : ''
+        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + diagnostics + '</div>'
       }).join('')
       els.demoChatMessages.scrollTop = els.demoChatMessages.scrollHeight
     }
@@ -22247,7 +22277,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       event?.preventDefault()
       const profileId = els.demoProfileSelect.value
       const message = selectedReply?.title || els.demoChatInput.value.trim()
-      if (!profileId || !message) return
+      if (!profileId || !message || els.demoChatSend.disabled) return
       if (!state.demoChatSessionId) startNewDemoChat()
       state.demoChatMessages = state.demoChatMessages.map((chatMessage) => {
         if (chatMessage.role !== 'bot' || !chatMessage.replyButtons?.length) return chatMessage
@@ -22264,6 +22294,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({
             message,
             sessionId: state.demoChatSessionId,
+            ...(els.demoPreviewModeRow.hidden ? {} : { mode: els.demoPreviewMode.value }),
             ...(selectedReply?.id ? { interactiveReplyId: selectedReply.id } : {})
           })
         })
@@ -22275,7 +22306,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.demoChatMessages.push({
           role: 'bot',
           text: result.reply || result.reason || 'El bot no genero una respuesta.',
-          replyButtons
+          replyButtons,
+          ...(result.state && result.timings ? { preview: { estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
         })
         renderDemoChatMessages()
       } catch (error) {
@@ -37828,7 +37860,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.demoProfileName.value = ''
     })
     els.demoNewChat?.addEventListener('click', startNewDemoChat)
-    els.demoProfileSelect?.addEventListener('change', startNewDemoChat)
+    els.demoProfileSelect?.addEventListener('change', () => { updateDemoPreviewMode(); startNewDemoChat() })
+    els.demoPreviewMode?.addEventListener('change', startNewDemoChat)
     els.demoChatMessages?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-demo-chat-reply-id]')
       if (!button || button.disabled) return

@@ -12,6 +12,7 @@ import {
 import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 import { runDeterministicDemoSimulation } from '../bot-options/application/run-demo-simulation.js'
+import { runPrismaDemoPreview } from '../conversational-bot/demo-preview-prisma.js'
 
 const conversationService = new ConversationService()
 const businessService = new BusinessService()
@@ -178,13 +179,20 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
     }
     const params = request.params as { id: string }
-    const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string }
+    const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string; mode?: string }
     const message = body.message?.trim()
     const sessionId = cleanSessionId(body.sessionId)
     const interactiveReplyId = body.interactiveReplyId?.trim() || undefined
     if (!message || !sessionId) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
     const business = await findAccessibleDemo(user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
+    if (body.mode && body.mode !== 'conversational-preview' && body.mode !== 'existing') return reply.status(400).send({ message: 'Modo de prueba no valido' })
+    if (body.mode === 'conversational-preview') {
+      if (user.role !== 'SUPER_ADMIN' || business.demoType !== 'QA_SANDBOX') {
+        return reply.status(403).send({ message: 'La vista previa conversacional solo esta disponible en QA' })
+      }
+      return runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message)
+    }
     const phone = `demo:${user.id}:${sessionId}`
     const deterministicDemo = await prisma.businessBotConfiguration.findFirst({
       where: {

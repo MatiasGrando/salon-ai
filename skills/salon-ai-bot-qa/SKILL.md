@@ -331,6 +331,13 @@ Mentally test these conversations:
 10. User: "el de las 5"
     Expected: select `17:00` when available.
 
+## Conversational QA preview regression
+
+- The new conversational preview is an explicit opt-in mode of Administración → Demos comerciales → Simular conversación, visible only for SUPER_ADMIN on QA_SANDBOX profiles. Default to the existing mode; switching modes resets the local test session.
+- Preview messages may persist only as separate QA test-chat history. Never call the fake Meta webhook, production outbox, booking mutations, AI, or CRM event publishing from this mode.
+- Preserve state across rapid/concurrent turns in one preview session using the QA-only locked row and supportBotState; a new conversation resets it. Show interpreted fields and separated load/context/engine/persist/total times, not an invented end-to-end WhatsApp latency.
+- A proposal is not a reservation. Keep the preview label explicit that no booking or WhatsApp send occurs.
+
 ## Where To Look
 
 Main files:

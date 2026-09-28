@@ -2,6 +2,17 @@
 
 ## Plan activo — bot conversacional sobre la plataforma existente
 
+### C03.3 — comprensión y chat de prueba (en curso)
+
+- El usuario autorizó avanzar y mostró Administración → Demos comerciales → Simular conversación, incluido un perfil QA “bot nuevo”. Reutilizar esa pantalla; el nombre del perfil no demuestra que el motor conversacional esté activado.
+- [ ] C03.3a: vista previa explícita del motor conversacional en ese simulador, limitada a QA y superadministrador. Conservar contexto entre turnos de prueba y mostrar respuesta, datos entendidos y tiempos. Sin reservar, enviar WhatsApp ni ejecutar efectos; las modalidades actuales no cambian.
+- [ ] C03.3b: intérprete IA opcional y restringido con gpt-6-luna y salida estructurada. Sus sugerencias se validan contra catálogo y disponibilidad; nunca ejecuta reservas. Ante error, volver al determinístico. Proveedor inyectado para pruebas sin llamadas externas y configuración separada del bot anterior.
+- [ ] C03.3c: medir Duckling contra un corpus fijo de fechas y horas argentinas antes de añadirlo; XState queda para mayor complejidad de estados y spaCy para conversaciones reales etiquetadas.
+- [ ] C04: consolidar mensajes ordenados antes del envío, recalculando si entra uno nuevo (hoy → no, mañana → con Rama para teñirme). Sin espera fija de 500 ms. El inicio del envío a Meta es el límite irreversible.
+- Ruta C03.3a: delegada directa por mapeo de más de cuatro archivos y varios cambios no triviales. TDD estricto según tracker; pruebas offline del endpoint y UI, typecheck focal, encoding y diff. Forecast orientativo 250–450 líneas; estrategia ask-on-risk/feature-branch-chain.
+- C03.3a implementación local: el selector QA inicia en modo existente y requiere opt-in; conversación `demo:preview:` con estado en `supportBotState`, turnos serializados por bloqueo de fila, historial QA persistido. No reserva, Meta, outbox ni IA. RED por módulo ausente observado por writer; GREEN: 3 pruebas nuevas (motor, concurrencia, wiring), `demo-profile-access-contract`, `demo-options-bot-sandbox-contract`, motor previo, encoding y diff --check. Typecheck focal de módulos/tests según writer; el grafo completo/endpoint Fastify con PostgreSQL real y visual móvil siguen pendientes. No afirmar latencia de WhatsApp: los tiempos son sólo de vista previa local.
+ Espejo Engram pendiente por herramientas ausentes.
+- Fuentes oficiales verificadas para C03.3b: https://developers.openai.com/api/docs/models/gpt-6-luna y https://developers.openai.com/api/docs/guides/structured-outputs . Ninguna variable Railway ni perfil se modifica en este paso local.
 ### C03.2 — existing-runtime integration (verified locally)
 
 - Authorized: user explicitly requested advancing integration. Latest constraint: evaluate fragmented-message behavior together later; do not implement grouping, debounce, collection windows or new queues now. Preserve each durable inbound event and existing ordering/retry behavior.
