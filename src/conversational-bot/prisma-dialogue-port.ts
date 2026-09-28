@@ -1,3 +1,4 @@
+import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
@@ -5,7 +6,7 @@ import { localDateKey, type AvailabilitySettings } from '../bot-options/applicat
 import type { CatalogPage, CatalogServiceItem } from '../bot-options/application/catalog-queries.js'
 import type { DialogueContext, DialoguePort, DialogueService } from './engine.js'
 
-type DialogueClient = ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
+type DialogueClient = FactsClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
 export async function createPrismaDialoguePort(client: DialogueClient, businessId: string): Promise<{ context: DialogueContext; port: DialoguePort }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
@@ -28,6 +29,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     throw new Error('catalog pagination exceeds supported bound')
   }
   return { context, port: {
+    information: actions => loadBusinessFacts(client, context, actions),
     async catalog() {
       const categories = await collect(page => catalog.listCategories({ businessId, page }))
       const services: CatalogServiceItem[] = []
@@ -39,7 +41,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           if (services.length > 200) throw new Error('catalog exceeds supported bound')
         }
       }
-      return services.map(item => ({ id: item.id, name: item.name, durationMinutes: item.durationMinutes, price: item.price,
+      return services.map(item => ({ id: item.id, name: item.name, durationMinutes: item.durationMinutes, price: item.price, priceMode: item.priceMode,
         requiresConsultation: item.requiresConsultation || item.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || Boolean(item.bookingPolicy?.requiresPhoto || item.bookingPolicy?.validationEnabled)
       }))
     },
