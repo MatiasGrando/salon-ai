@@ -365,3 +365,10 @@ For the QA conversational preview, read the saved version and prepare the full r
 - The model's service ID must exist in the current tenant's catalog and its evidence must appear in the customer's current message. A typo such as `corte hombnre` can prompt `¿Te referís a Corte Hombre?` but cannot select that service. Preserve an independently stated date and professional hint while clarifying.
 - A professional mention must be a whole-word literal in the current message (not a substring of another name), and negated or self-identity mentions must not be promoted to a preference. Store it only as an unverified hint until the real availability catalog confirms unique compatibility. Never use AI-generated IDs, dates, prices, slots or booking confirmations as factual authority.
 - Preview/core tests use fake providers only. A real OpenAI request with a QA customer's text and an API credential needs separately explicit remote authorization.
+
+## QA Conversational Preview AI Regression
+
+- The new interpreter is opt-in only for SUPER_ADMIN + QA_SANDBOX preview. `CONVERSATIONAL_QA_AI_ENABLED` defaults off and must not affect Booking V2, normal demo, Meta, or existing `OPENAI_MODEL`.
+- Enabled preview invokes AI on each turn, then validates service/professional evidence against the actual message and tenant catalog. A typo is a suggestion, never an automatic booking-critical selection.
+- Disabled, failed, timed-out, or invalid AI output must show deterministic/fallback mode and safe reason/timings. Do not persist credentials, raw prompt, model output, or exception text in diagnostic metadata.
+- No AI interpretation alone creates a reservation or sends WhatsApp. Preview replies are still produced from validated deterministic facts; do not call this free-form generative conversation.

@@ -28,7 +28,7 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
     reply: response.reply,
     state: response.state,
     proposalReady: response.proposal !== null,
-    interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : null,
+    interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0 },
     timings: {
       loadMs: ms(loadedAt - started),
       contextMs: ms(contextAt - loadedAt),

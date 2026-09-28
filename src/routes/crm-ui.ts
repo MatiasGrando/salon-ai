@@ -22243,8 +22243,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             }).join('') +
             '</div>'
           : ''
+        const interpretation = message.preview?.interpretacion
+        const modeLabel = interpretation?.mode === 'ai' ? 'IA' : interpretation?.mode === 'fallback' ? 'Respaldo determinista' : 'Determinista (IA apagada)'
+        const modeLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de interpretaci&oacute;n: ' + escapeHtml(modeLabel) + (interpretation.reason && interpretation.reason !== 'disabled' ? ' (' + escapeHtml(interpretation.reason) + ')' : '') + '</div>' : ''
         const diagnostics = message.preview ? '<details class="demo-chat-diagnostics"><summary>Datos entendidos y tiempos</summary><pre>' + escapeHtml(JSON.stringify(message.preview, null, 2)) + '</pre></details>' : ''
-        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + diagnostics + '</div>'
+        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + modeLine + diagnostics + '</div>'
       }).join('')
       if (state.demoChatPreviewRun?.working) {
         els.demoChatMessages.innerHTML += '<div class="demo-chat-empty" role="status">Pensando... Pod&eacute;s seguir escribiendo.</div>'
@@ -22303,7 +22306,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               role: 'bot',
               text: result.reply || result.reason || 'El bot no genero una respuesta.',
               replyButtons: [],
-              ...(result.state && result.timings ? { preview: { estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
+              ...(result.state && result.timings ? { preview: { interpretacion: result.interpretation, estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
             })
             renderDemoChatMessages()
           } catch (error) {

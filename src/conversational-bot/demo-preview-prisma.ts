@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { runConversationalPreview, type PreviewDependencies } from './demo-preview.js'
-import type { DialogueState } from './engine.js'
+import type { AiInterpretationProvider } from './ai-interpreter.js'
 
 const PREVIEW_OWNER = 'conversational-preview'
 const MAX_PREVIEW_ATTEMPTS = 4
@@ -20,7 +20,8 @@ function sameSnapshot(left: PreviewSnapshot, right: PreviewSnapshot) {
 /** QA-only store. Prepare outside the row lock, then compare/commit one turn atomically. */
 export async function runPrismaDemoPreview(
   client: any, businessId: string, userId: string, sessionId: string, message: string,
-  createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id)
+  createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id),
+  interpretationProvider?: AiInterpretationProvider
 ) {
   const phone = `demo:preview:${userId}:${sessionId}`
   const started = performance.now()
@@ -31,7 +32,7 @@ export async function runPrismaDemoPreview(
   pendingBySession.set(queueKey, finished)
   await preceding
   try {
-    return await processPreviewTurn(client, businessId, phone, message, createPort, started)
+    return await processPreviewTurn(client, businessId, phone, message, createPort, started, interpretationProvider)
   } finally {
     release()
     if (pendingBySession.get(queueKey) === finished) pendingBySession.delete(queueKey)
@@ -42,7 +43,7 @@ export async function runPrismaDemoPreview(
 const pendingBySession = new Map<string, Promise<void>>()
 async function processPreviewTurn(
   client: any, businessId: string, phone: string, message: string,
-  createPort: PreviewDependencies['createPort'], started: number
+  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider
 ) {
   const key = { businessId_phone: { businessId, phone } }
   for (let attempt = 0; attempt < MAX_PREVIEW_ATTEMPTS; attempt++) {
@@ -57,7 +58,8 @@ async function processPreviewTurn(
     const prepared = await runConversationalPreview({
       load: async () => snapshot?.supportBotState ?? null,
       save: async () => {},
-      createPort
+      createPort,
+      interpretationProvider
     }, businessId, phone, message)
     // A failing provider/engine never opens a write transaction or creates an empty QA chat.
     const committingAt = performance.now()
@@ -75,7 +77,7 @@ async function processPreviewTurn(
       await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'INBOUND', body: message,
         status: 'conversational_preview', metadata: { provider: 'conversational_preview' } } })
       await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: prepared.reply,
-        status: 'conversational_preview', metadata: { provider: 'conversational_preview' } } })
+        status: 'conversational_preview', metadata: { provider: 'conversational_preview', interpretation: prepared.interpretation } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: {
         supportBotKey: PREVIEW_OWNER, supportBotState: prepared.state as unknown as Prisma.InputJsonValue
       } })

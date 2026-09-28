@@ -16,6 +16,8 @@ const first = await runConversationalPreview(dependencies, businessId, 'demo:pre
 assert.equal(first.state.serviceId, 'cut')
 assert.equal(first.state.pending, 'date')
 assert.equal(first.proposalReady, false)
+assert.equal(first.interpretation.mode, 'deterministic', 'AI disabled is explicit')
+assert.equal(first.interpretation.reason, 'disabled')
 assert.equal(first.timings.totalMs >= 0, true)
 assert.equal(first.timings.engineMs >= 0, true)
 const second = await runConversationalPreview(dependencies, businessId, 'demo:preview:user:session1', 'mañana')
@@ -40,3 +42,10 @@ let previewAiCalls = 0
 const aiPreview = await runConversationalPreview({ ...dependencies, interpretationProvider: async () => { previewAiCalls++; return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null } } }, businessId, 'demo:preview:user:ai-test', 'hola')
 assert.equal(previewAiCalls, 1)
 assert.equal(aiPreview.interpretation?.mode, 'ai')
+
+const fallbackPreview = await runConversationalPreview({ ...dependencies, interpretationProvider: async () => { throw new Error('secret must not leak') } }, businessId, 'demo:preview:user:fallback-test', 'hola')
+assert.equal(fallbackPreview.interpretation.mode, 'fallback')
+assert.equal(fallbackPreview.interpretation.reason, 'provider_error')
+assert.equal(JSON.stringify(fallbackPreview).includes('secret must not leak'), false)
+
+console.log('conversational preview: OK')

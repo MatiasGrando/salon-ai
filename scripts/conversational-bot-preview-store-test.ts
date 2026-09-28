@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { runPrismaDemoPreview } from '../src/conversational-bot/demo-preview-prisma.js'
 import type { DialogueState } from '../src/conversational-bot/engine.js'
 const rows = new Map<string, { id: string; supportBotKey: string | null; supportBotState: DialogueState | null }>()
-const messages: Array<{ phone: string; direction: string; body: string }> = []
+const messages: Array<{ phone: string; direction: string; body: string; metadata: any }> = []
 let lockTail = Promise.resolve()
 const client = {
   conversation: { findUnique: async ({ where }: any) => structuredClone(rows.get(where.id ?? `${where.businessId_phone.businessId}:${where.businessId_phone.phone}`) ?? null) },
@@ -25,7 +25,7 @@ const client = {
         findUnique: async ({ where }: any) => structuredClone(rows.get(where.id)),
         update: async ({ where, data }: any) => { Object.assign(rows.get(where.id)!, data) }
       },
-      message: { create: async ({ data }: any) => { messages.push({ phone: data.phone, direction: data.direction, body: data.body }) } }
+      message: { create: async ({ data }: any) => { messages.push({ phone: data.phone, direction: data.direction, body: data.body, metadata: data.metadata }) } }
     }
     try { return await work(tx) } finally { unlock() }
   }
@@ -52,4 +52,24 @@ assert.equal(second.timings.lockMs >= 0, true)
 const fresh = await runPrismaDemoPreview(client, 'qa', 'admin', 'another', 'hola', factory)
 assert.equal(fresh.state.serviceId, null)
 assert.equal(messages.length, 6)
+
+let aiCalls = 0
+const aiTurn = await runPrismaDemoPreview(client, 'qa', 'admin', 'ai-session', 'hola', factory, async () => { aiCalls++; return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null } })
+assert.equal(aiCalls, 1)
+assert.equal(aiTurn.interpretation.mode, 'ai')
+const outbound = messages.find(m => m.phone.endsWith('ai-session') && m.direction === 'OUTBOUND')!
+assert.equal(outbound.metadata.interpretation.mode, 'ai')
+assert.equal(typeof outbound.metadata.interpretation.providerMs, 'number')
+assert.equal(JSON.stringify(outbound.metadata).includes('hola'), false, 'diagnostic metadata excludes message content')
+
+const aiSecond = await runPrismaDemoPreview(client, 'qa', 'admin', 'ai-session', 'mañana', factory, async () => { aiCalls++; return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null } })
+assert.equal(aiCalls, 2, 'enabled interpreter runs on every QA turn')
+assert.equal(aiSecond.interpretation.mode, 'ai')
+const fallbackTurn = await runPrismaDemoPreview(client, 'qa', 'admin', 'fallback-session', 'hola', factory, async () => { throw new Error('private detail') })
+assert.equal(fallbackTurn.interpretation.mode, 'fallback')
+assert.equal(fallbackTurn.interpretation.reason, 'provider_error')
+const fallbackMetadata = messages.find(m => m.phone.endsWith('fallback-session') && m.direction === 'OUTBOUND')!.metadata
+assert.equal(fallbackMetadata.interpretation.mode, 'fallback')
+assert.equal(JSON.stringify(fallbackMetadata).includes('private detail'), false)
+
 console.log('conversational preview transactional store: OK')
