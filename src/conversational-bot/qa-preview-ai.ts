@@ -14,3 +14,10 @@ export function resolveQaPreviewAi(
     ...(fetchImpl ? { fetchImpl } : {})
   })
 }
+
+/** Bounded QA-only interpreter deadline; invalid values use the observed-latency default. */
+export function resolveQaPreviewAiTimeoutMs(env: Record<string, string | undefined>): number {
+  const value = env.CONVERSATIONAL_QA_AI_TIMEOUT_MS
+  if (value === undefined || !/^\d+$/.test(value)) return 4500
+  return Math.min(5000, Math.max(1000, Number(value)))
+}

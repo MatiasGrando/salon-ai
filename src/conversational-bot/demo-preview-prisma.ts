@@ -21,7 +21,8 @@ function sameSnapshot(left: PreviewSnapshot, right: PreviewSnapshot) {
 export async function runPrismaDemoPreview(
   client: any, businessId: string, userId: string, sessionId: string, message: string,
   createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id),
-  interpretationProvider?: AiInterpretationProvider
+  interpretationProvider?: AiInterpretationProvider,
+  interpretationTimeoutMs?: number
 ) {
   const phone = `demo:preview:${userId}:${sessionId}`
   const started = performance.now()
@@ -32,7 +33,7 @@ export async function runPrismaDemoPreview(
   pendingBySession.set(queueKey, finished)
   await preceding
   try {
-    return await processPreviewTurn(client, businessId, phone, message, createPort, started, interpretationProvider)
+    return await processPreviewTurn(client, businessId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs)
   } finally {
     release()
     if (pendingBySession.get(queueKey) === finished) pendingBySession.delete(queueKey)
@@ -43,7 +44,7 @@ export async function runPrismaDemoPreview(
 const pendingBySession = new Map<string, Promise<void>>()
 async function processPreviewTurn(
   client: any, businessId: string, phone: string, message: string,
-  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider
+  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number
 ) {
   const key = { businessId_phone: { businessId, phone } }
   for (let attempt = 0; attempt < MAX_PREVIEW_ATTEMPTS; attempt++) {
@@ -59,7 +60,8 @@ async function processPreviewTurn(
       load: async () => snapshot?.supportBotState ?? null,
       save: async () => {},
       createPort,
-      interpretationProvider
+      interpretationProvider,
+      interpretationTimeoutMs
     }, businessId, phone, message)
     // A failing provider/engine never opens a write transaction or creates an empty QA chat.
     const committingAt = performance.now()

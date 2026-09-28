@@ -30,7 +30,6 @@ assert.equal(separate.state.serviceId, null, 'new chat is isolated')
 assert.equal(stored.get('demo:preview:user:session2')?.schemaVersion, initialDialogueState(businessId).schemaVersion)
 await assert.rejects(() => runConversationalPreview({ ...dependencies, load: async () => ({ ...first.state, businessId: 'another' }) }, businessId, 'demo:preview:user:session1', 'hola'), /invalid dialogue scope/)
 assert.equal(saved.length, 3, 'invalid cross-tenant state must not be persisted')
-console.log('conversational preview: OK')
 const earlyPhone = 'demo:preview:user:early-professional'
 const earlyPreference = await runConversationalPreview(dependencies, businessId, earlyPhone, 'un turno con Ana mañana')
 assert.equal(earlyPreference.state.professionalNameHint, 'ana')
@@ -47,5 +46,4 @@ const fallbackPreview = await runConversationalPreview({ ...dependencies, interp
 assert.equal(fallbackPreview.interpretation.mode, 'fallback')
 assert.equal(fallbackPreview.interpretation.reason, 'provider_error')
 assert.equal(JSON.stringify(fallbackPreview).includes('secret must not leak'), false)
-
 console.log('conversational preview: OK')

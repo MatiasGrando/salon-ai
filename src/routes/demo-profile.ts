@@ -13,7 +13,7 @@ import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 import { runDeterministicDemoSimulation } from '../bot-options/application/run-demo-simulation.js'
 import { runPrismaDemoPreview } from '../conversational-bot/demo-preview-prisma.js'
-import { resolveQaPreviewAi } from '../conversational-bot/qa-preview-ai.js'
+import { resolveQaPreviewAi, resolveQaPreviewAiTimeoutMs } from '../conversational-bot/qa-preview-ai.js'
 
 const conversationService = new ConversationService()
 const businessService = new BusinessService()
@@ -192,7 +192,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       if (user.role !== 'SUPER_ADMIN' || business.demoType !== 'QA_SANDBOX') {
         return reply.status(403).send({ message: 'La vista previa conversacional solo esta disponible en QA' })
       }
-      return runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env))
+      return runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env))
     }
     const phone = `demo:${user.id}:${sessionId}`
     const deterministicDemo = await prisma.businessBotConfiguration.findFirst({

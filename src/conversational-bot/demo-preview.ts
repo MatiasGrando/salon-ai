@@ -7,6 +7,7 @@ export type PreviewDependencies = {
   save(phone: string, inbound: string, reply: string, state: DialogueState): Promise<void>
   createPort(businessId: string): Promise<{ context: DialogueContext; port: DialoguePort }>
   interpretationProvider?: AiInterpretationProvider
+  interpretationTimeoutMs?: number
 }
 
 export async function runConversationalPreview(deps: PreviewDependencies, businessId: string, phone: string, message: string) {
@@ -18,7 +19,7 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   const contextAt = performance.now()
   const state = previous === null ? initialDialogueState(businessId) : parseDialogueState(previous, businessId, context.timezone)
   const response = deps.interpretationProvider
-    ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider)
+    ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider, { timeoutMs: deps.interpretationTimeoutMs ?? 4500 })
     : await respond(context, state, message, port)
   const computedAt = performance.now()
   await deps.save(phone, message, response.reply, response.state)

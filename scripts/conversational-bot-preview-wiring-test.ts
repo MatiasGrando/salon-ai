@@ -7,6 +7,7 @@ const preview = route.slice(route.indexOf("if (body.mode === 'conversational-pre
 assert.match(route, /body.mode !== 'existing'/, 'explicit existing mode must preserve the original simulator')
 assert.match(preview, /user.role !== 'SUPER_ADMIN' \|\| business.demoType !== 'QA_SANDBOX'/)
 assert.match(preview, /resolveQaPreviewAi\(process\.env\)/)
+assert.match(preview, /resolveQaPreviewAiTimeoutMs\(process\.env\)/)
 assert.match(preview, /runPrismaDemoPreview/)
 assert.match(store, /demo:preview:/)
 assert.match(store, /FOR UPDATE/)

@@ -72,4 +72,8 @@ const fallbackMetadata = messages.find(m => m.phone.endsWith('fallback-session')
 assert.equal(fallbackMetadata.interpretation.mode, 'fallback')
 assert.equal(JSON.stringify(fallbackMetadata).includes('private detail'), false)
 
+
+const quickTimeout = await runPrismaDemoPreview(client, 'qa', 'admin', 'quick-timeout', 'hola', factory, async () => new Promise(() => {}), 20)
+assert.equal(quickTimeout.interpretation.mode, 'fallback')
+assert.equal(quickTimeout.interpretation.reason, 'timeout', 'QA timeout is propagated through Prisma store')
 console.log('conversational preview transactional store: OK')

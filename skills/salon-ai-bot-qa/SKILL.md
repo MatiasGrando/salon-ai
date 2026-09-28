@@ -372,3 +372,4 @@ For the QA conversational preview, read the saved version and prepare the full r
 - Enabled preview invokes AI on each turn, then validates service/professional evidence against the actual message and tenant catalog. A typo is a suggestion, never an automatic booking-critical selection.
 - Disabled, failed, timed-out, or invalid AI output must show deterministic/fallback mode and safe reason/timings. Do not persist credentials, raw prompt, model output, or exception text in diagnostic metadata.
 - No AI interpretation alone creates a reservation or sends WhatsApp. Preview replies are still produced from validated deterministic facts; do not call this free-form generative conversation.
+- QA-only AI timeout defaults to 4500 ms and is configurable from 1000 to 5000 ms; keep a regression where a fake provider resolving after 3500 ms is recorded as AI, not timeout fallback. Real model latency still needs operational measurement.
