@@ -18,6 +18,7 @@
     "test:new-bot-session-contract": "tsx scripts/new-bot-session-contract-test.ts",
     "test:new-bot-ingress": "tsx scripts/new-bot-ingress-test.ts",
     "test:new-bot-webhook": "tsx scripts/new-bot-webhook-test.ts",
+    "test:new-bot-queue": "tsx scripts/new-bot-queue-test.ts",
     "test:new-bot-runtime-core": "tsx scripts/new-bot-runtime-core-test.ts",
     "test:booking-v2": "tsx scripts/booking-v2-contract-test.ts",
     "test:booking-availability-resolution": "tsx scripts/booking-availability-resolution-contract-test.ts",

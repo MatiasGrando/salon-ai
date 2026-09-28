@@ -1022,6 +1022,7 @@ model Business {
   rewardClaims                RewardClaim[]
   publicFormRateLimitBuckets  PublicFormRateLimitBucket[]
   newBotInboxEvents           NewBotInboxEvent[]
+  newBotConversationCounters NewBotConversationCounter[]
 
   createdAt DateTime @default(now())
 
@@ -1046,10 +1047,30 @@ model NewBotInboxEvent {
   admittedAt       DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
   processingStatus String   @default("PENDING")
   attemptCount     Int      @default(0)
+  sequence         BigInt
+  leaseToken       String?
+  leaseExpiresAt   DateTime? @db.Timestamptz(6)
+  retryAt          DateTime? @db.Timestamptz(6)
+  completedAt      DateTime? @db.Timestamptz(6)
+  processingErrorCode String?
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([businessId, provider, providerEventId])
+  @@unique([businessId, provider, conversationId, sequence])
+  @@index([businessId, provider, conversationId, processingStatus, sequence])
+}
+
+model NewBotConversationCounter {
+  businessId     String
+  provider       String
+  conversationId String
+  lastSequence   BigInt
+  updatedAt      DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([businessId, provider, conversationId])
 }
 model CustomerChannelIdentity {
   id String @id @default(cuid())

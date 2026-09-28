@@ -6,6 +6,7 @@ import { ingestNewBotEvent, type NewBotIngressEvent } from '../src/new-bot/appli
 import { createNewBotIngressRepository } from '../src/new-bot/infrastructure/ingress-repository.js'
 
 const migration = await readFile(new URL('../prisma/migrations/20260927010000_new_bot_durable_ingress/migration.sql', import.meta.url), 'utf8')
+const queueMigration = await readFile(new URL('../prisma/migrations/20260928010000_new_bot_ordered_queue/migration.sql', import.meta.url), 'utf8')
 const db = new PGlite()
 const tenantA = { businessId: 'tenant-a', vertical: 'salon' }
 const tenantB = { businessId: 'tenant-b', vertical: 'workshop' }
@@ -13,6 +14,7 @@ const tenantB = { businessId: 'tenant-b', vertical: 'workshop' }
 try {
   await db.exec('CREATE TABLE "Business" ("id" text PRIMARY KEY); INSERT INTO "Business" VALUES (\'tenant-a\'), (\'tenant-b\');')
   await db.exec(migration)
+  await db.exec(queueMigration)
 
   const client = {
     async $transaction<T>(operation: (tx: unknown) => Promise<T>): Promise<T> {
@@ -77,10 +79,12 @@ try {
   assert.equal(getterCalls, 0, 'validation must not execute trusted-context accessors')
   assert.deepEqual(await ingestNewBotEvent(tenantA, { ...event('payload-tenant'), businessId: 'tenant-b' } as never, repository), { status: 'rejected', reason: 'invalid-event' })
 
+  const beforeInsertRollback = (await db.query<{ lastSequence: number }>('SELECT "lastSequence" FROM "NewBotConversationCounter" WHERE "businessId"=$1 AND "provider"=$2 AND "conversationId"=$3', ['tenant-a', 'whatsapp', 'conversation-1'])).rows[0]?.lastSequence
   await db.exec(`CREATE FUNCTION fail_ingress() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture insert failure'; END $$;
     CREATE TRIGGER fail_ingress_before_insert BEFORE INSERT ON "NewBotInboxEvent" FOR EACH ROW EXECUTE FUNCTION fail_ingress();`)
   await assert.rejects(ingestNewBotEvent(tenantA, event('rollback'), repository), /fixture insert failure/)
   assert.equal((await db.query('SELECT 1 FROM "NewBotInboxEvent" WHERE "providerEventId"=$1', ['rollback'])).rows.length, 0)
+  assert.equal((await db.query<{ lastSequence: number }>('SELECT "lastSequence" FROM "NewBotConversationCounter" WHERE "businessId"=$1 AND "provider"=$2 AND "conversationId"=$3', ['tenant-a', 'whatsapp', 'conversation-1'])).rows[0]?.lastSequence, beforeInsertRollback, 'failed inbox insert rolls back its sequence increment')
   await db.exec('DROP TRIGGER fail_ingress_before_insert ON "NewBotInboxEvent"; DROP FUNCTION fail_ingress();')
 
   await db.exec('CREATE TABLE "IngressCommitGate" ("id" text PRIMARY KEY)')
@@ -99,6 +103,7 @@ try {
       })
     },
   }
+  const beforeCommitFailure = (await db.query<{ lastSequence: number }>('SELECT "lastSequence" FROM "NewBotConversationCounter" WHERE "businessId"=$1 AND "provider"=$2 AND "conversationId"=$3', ['tenant-a', 'whatsapp', 'conversation-1'])).rows[0]?.lastSequence
   const commitOutcome = await ingestNewBotEvent(tenantA, event('commit-failure'), createNewBotIngressRepository(deferredCommitClient as never)).then(
     (result) => ({ status: 'resolved' as const, result }),
     (error: unknown) => ({ status: 'rejected' as const, message: error instanceof Error ? error.message : String(error) }),
@@ -108,6 +113,7 @@ try {
   assert.equal(commitOutcome.status, 'rejected', 'a COMMIT failure must not resolve with ACK-eligible success')
   assert.match(commitOutcome.status === 'rejected' ? commitOutcome.message : '', /foreign key|commit/i)
   assert.equal((await db.query('SELECT 1 FROM "NewBotInboxEvent" WHERE "providerEventId"=$1', ['commit-failure'])).rows.length, 0)
+  assert.equal((await db.query<{ lastSequence: number }>('SELECT "lastSequence" FROM "NewBotConversationCounter" WHERE "businessId"=$1 AND "provider"=$2 AND "conversationId"=$3', ['tenant-a', 'whatsapp', 'conversation-1'])).rows[0]?.lastSequence, beforeCommitFailure, 'failed COMMIT rolls back its sequence increment')
 
   console.log('new-bot-ingress-test: OK')
 } finally {

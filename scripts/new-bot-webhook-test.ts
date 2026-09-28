@@ -8,6 +8,7 @@ import { createNewBotIngressRepository } from '../src/new-bot/infrastructure/ing
 import { newBotWhatsAppWebhookRoutes } from '../src/new-bot/infrastructure/whatsapp-webhook.js'
 
 const migration = await readFile(new URL('../prisma/migrations/20260927010000_new_bot_durable_ingress/migration.sql', import.meta.url), 'utf8')
+const queueMigration = await readFile(new URL('../prisma/migrations/20260928010000_new_bot_ordered_queue/migration.sql', import.meta.url), 'utf8')
 const database = new PGlite()
 const secrets = { 'phone-a': 'secret-a', 'phone-b': 'secret-b' }
 const contexts = {
@@ -76,6 +77,7 @@ async function countEvents() {
 
 await database.exec('CREATE TABLE "Business" ("id" text PRIMARY KEY); INSERT INTO "Business" VALUES (\'tenant-a\'), (\'tenant-b\');')
 await database.exec(migration)
+await database.exec(queueMigration)
 const app = makeApp()
 try {
   await app.ready()
