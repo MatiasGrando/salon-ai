@@ -12166,7 +12166,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .demo-dialog {
       width: min(760px, 100%);
       height: min(720px, calc(100dvh - 36px));
-      grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
     }
 
     .demo-dialog-toolbar,
@@ -22210,6 +22210,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function startNewDemoChat() {
       state.demoChatSessionId = 'session-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
       state.demoChatMessages = []
+      els.demoChatInput.value = ''
       renderDemoChatMessages()
       els.demoChatInput.focus()
     }
