@@ -17,6 +17,7 @@
     "test:new-bot-contracts": "tsx scripts/new-bot-contracts-contract-test.ts",
     "test:new-bot-session-contract": "tsx scripts/new-bot-session-contract-test.ts",
     "test:new-bot-commit": "tsx scripts/new-bot-commit-test.ts",
+    "test:new-bot-sender": "tsx scripts/new-bot-sender-test.ts",
     "test:new-bot-ingress": "tsx scripts/new-bot-ingress-test.ts",
     "test:new-bot-webhook": "tsx scripts/new-bot-webhook-test.ts",
     "test:new-bot-queue": "tsx scripts/new-bot-queue-test.ts",

@@ -1111,6 +1111,13 @@ model NewBotOutboxEvent {
   providerAcceptedAt DateTime? @db.Timestamptz(6)
   deliveredAt        DateTime? @db.Timestamptz(6)
   providerMessageId  String?
+  claimToken         String?
+  claimExpiresAt     DateTime? @db.Timestamptz(6)
+  retryAt            DateTime? @db.Timestamptz(6)
+  attemptCount       Int      @default(0)
+  dispatchStartedAt  DateTime? @db.Timestamptz(6)
+  lastErrorCode      String?
+  deliveryStatus     String   @default("PENDING")
   createdAt          DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
 
   business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -3717,4 +3724,34 @@ model PublicFormRateLimitBucket {
 
   @@unique([businessId, formId, scopeHash, windowStart])
   @@index([expiresAt])
+}
+
+model NewBotOutboxReceipt {
+  idempotencyKey   String
+  businessId       String
+  provider         String
+  recipientKey     String
+  providerMessageId String
+  status           String
+  safeReasonCode   String?
+  outboxEventId    String?
+  receivedAt       DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+
+  @@unique([businessId, provider, idempotencyKey])
+  @@index([businessId, provider, providerMessageId, recipientKey], map: "NewBotOutboxReceipt_match_idx")
+}
+
+model NewBotOutboxReconciliation {
+  id                          String   @id
+  businessId                  String
+  outboxEventId               String
+  requestKey                  String
+  operatorId                  String
+  reason                      String
+  action                      String
+  providerMessageId           String?
+  duplicateRiskAcknowledged   Boolean  @default(false)
+  createdAt                   DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+
+  @@unique([businessId, outboxEventId, requestKey])
 }
