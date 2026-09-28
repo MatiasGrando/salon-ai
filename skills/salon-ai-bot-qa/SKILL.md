@@ -334,7 +334,7 @@ Mentally test these conversations:
 ## Conversational QA preview regression
 
 - The new conversational preview is an explicit opt-in mode of Administración → Demos comerciales → Simular conversación, visible only for SUPER_ADMIN on QA_SANDBOX profiles. Default to the existing mode; switching modes resets the local test session.
-- Preview messages may persist only as separate QA test-chat history. Never call the fake Meta webhook, production outbox, booking mutations, AI, or CRM event publishing from this mode.
+- Preview messages may persist only as separate QA test-chat history. Never call the fake Meta webhook, production outbox, booking mutations or CRM event publishing from this mode. AI is allowed only under the explicit QA preview opt-in described below.
 - Preserve state across rapid/concurrent turns in one preview session using the QA-only locked row and supportBotState; a new conversation resets it. Show interpreted fields and separated load/context/engine/persist/total times, not an invented end-to-end WhatsApp latency.
 - A proposal is not a reservation. Keep the preview label explicit that no booking or WhatsApp send occurs.
 - In the QA conversational preview only, keep the composer usable while a reply is pending. Queue rapid customer turns in order, persist each turn, and suppress intermediate bot replies when a newer customer turn arrived before display. A failed turn must be visible and must not strand later turns. A new session, profile, or mode must discard old queued UI work and never render its late reply in the new chat. This does not implement production WhatsApp message coalescing.
@@ -373,3 +373,12 @@ For the QA conversational preview, read the saved version and prepare the full r
 - Disabled, failed, timed-out, or invalid AI output must show deterministic/fallback mode and safe reason/timings. Do not persist credentials, raw prompt, model output, or exception text in diagnostic metadata.
 - No AI interpretation alone creates a reservation or sends WhatsApp. Preview replies are still produced from validated deterministic facts; do not call this free-form generative conversation.
 - QA-only AI timeout defaults to 4500 ms and is configurable from 1000 to 5000 ms; keep a regression where a fake provider resolving after 3500 ms is recorded as AI, not timeout fallback. Real model latency still needs operational measurement.
+
+### QA AI conversational copy (single-call experiment)
+
+- The opt-in QA provider returns interpretation and `replyDraft` in one structured Responses call per turn. Do not add a second serial prose call to the QA latency path without measuring it.
+- The local engine always computes and owns booking state, catalog values, availability, and proposal. AI text may replace only a simple pending service/date/name question when it asks for that same field and contains no business fact, or add a short, validated social lead before canonical factual text. Prices, `Desde`, real slots and proposal facts remain verbatim. Invalid/missing drafts use canonical copy and display copy fallback separately from interpretation mode.
+- A simple greeting draft without a question, such as `¡Hola! Todo bien, gracias.`, may be used only after safe-copy validation and must receive the canonical service question once. Never duplicate a question or drop factual information requests.
+- QA `gpt-6-luna` requests use `reasoning.effort: none` as an initial latency experiment; this is not a quality/p95 conclusion. Other explicitly configured QA models do not inherit this setting blindly.
+- A literal misspelled service evidence with null service ID is valid AI interpretation. A unique near-match can prompt a confirmation question, but never silently select the service. `quiero un corte de hombnre` must not produce `invalid_output` or a full service dump.
+- Regression: `hola como estas` can receive a short model-written service question without a catalog dump; a service-selection turn can receive a short model-written date question; factual price/slot replies retain their canonical data; attempted invented prices, times or bookings are rejected. Show both interpretation and copy modes in the QA chat. No production WhatsApp/reservation effects or automatic learning.

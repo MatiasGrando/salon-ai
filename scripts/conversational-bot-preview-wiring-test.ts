@@ -24,5 +24,6 @@ assert.match(ui, /function startNewDemoChat\(\) \{[\s\S]*?els\.demoChatInput\.va
 assert.match(ui, /Datos entendidos y tiempos/)
 assert.match(ui, /result\.interpretation/)
 assert.match(ui, /modo de interpretaci/i)
+assert.match(ui, /Modo de redacci&oacute;n:/, 'QA explains whether prose came from AI or canonical fallback')
 assert.match(ui, /escapeHtml\(JSON\.stringify\(message\.preview/)
 console.log('conversational preview wiring: OK')

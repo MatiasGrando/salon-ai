@@ -3,12 +3,13 @@ import type { AiInterpretationProvider } from './ai-interpreter.js'
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'replyDraft'],
   properties: {
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
     serviceEvidence: { type: ['string', 'null'] },
-    professionalMention: { type: ['string', 'null'] }
+    professionalMention: { type: ['string', 'null'] },
+    replyDraft: { type: ['string', 'null'] }
   }
 } as const
 
@@ -20,6 +21,7 @@ export function createOpenAiInterpretationProvider(options: {
 }): AiInterpretationProvider {
   if (!options.apiKey || options.apiKey.length > 4096) throw new Error('OpenAI key required')
   const fetchImpl = options.fetchImpl ?? fetch
+  const model = options.model ?? 'gpt-6-luna'
   return async (input, signal) => {
     if (input.message.length > 2000 || input.services.length > 200) throw new Error('AI input too large')
     const response = await fetchImpl('https://api.openai.com/v1/responses', {
@@ -27,10 +29,11 @@ export function createOpenAiInterpretationProvider(options: {
       headers: { Authorization: 'Bearer ' + options.apiKey, 'Content-Type': 'application/json' },
       signal,
       body: JSON.stringify({
-        model: options.model ?? 'gpt-6-luna',
+        model,
+        ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}), // QA Luna experiment only.
         store: false,
-        max_output_tokens: 300,
-        instructions: 'Interpretá SOLO el mensaje actual para un bot de turnos. No respondas al cliente ni inventes hechos. Devolvé serviceId solo si corresponde a un servicio de la lista y serviceEvidence es un fragmento textual exacto del mensaje; si es un posible typo, es candidato para aclarar, nunca confirmación. professionalMention debe ser un fragmento literal del mensaje, no un ID inventado. No infieras fechas, precios, horarios ni disponibilidad.',
+        max_output_tokens: 400,
+        instructions: 'Interpretá SOLO el mensaje actual para un bot de turnos. Devolvé serviceId solo si corresponde a un servicio de la lista y serviceEvidence es un fragmento textual exacto del mensaje; si es un posible typo, podés devolver serviceId null con serviceEvidence literal para pedir aclaración, nunca confirmación. professionalMention debe ser literal. Además redactá replyDraft breve (máximo 90 caracteres): si luego falta servicio, fecha o nombre, una pregunta cálida sobre ese dato; en otros casos, solo una introducción social muy corta sin preguntas. Si no hay introducción útil, null. Jamás incluyas precios, fechas, horarios, disponibilidad, nombres de servicios/profesionales ni afirmes una reserva o confirmación. El motor agrega todos los hechos y preguntas canónicas después. No infieras ni redactes hechos.',
         input: JSON.stringify({
           message: input.message,
           pending: input.state.pending,
