@@ -5,11 +5,7 @@ const rows = new Map<string, { id: string; supportBotKey: string | null; support
 const messages: Array<{ phone: string; direction: string; body: string }> = []
 let lockTail = Promise.resolve()
 const client = {
-  conversation: { upsert: async ({ where, create }: any) => {
-    const key = `${create.businessId}:${where.businessId_phone.phone}`
-    if (!rows.has(key)) rows.set(key, { id: key, supportBotKey: null, supportBotState: null })
-    return rows.get(key)!
-  } },
+  conversation: { findUnique: async ({ where }: any) => structuredClone(rows.get(where.id ?? `${where.businessId_phone.businessId}:${where.businessId_phone.phone}`) ?? null) },
   async $transaction<T>(work: (tx: any) => Promise<T>, options: any): Promise<T> {
     assert.equal(options.timeout, 10_000)
     let unlock = () => {}
@@ -21,7 +17,12 @@ const client = {
         return [{ id: 'locked' }]
       },
       conversation: {
-        findUnique: async ({ where }: any) => rows.get(where.id),
+        upsert: async ({ where, create }: any) => {
+          const key = `${create.businessId}:${where.businessId_phone.phone}`
+          if (!rows.has(key)) rows.set(key, { id: key, supportBotKey: null, supportBotState: null })
+          return rows.get(key)!
+        },
+        findUnique: async ({ where }: any) => structuredClone(rows.get(where.id)),
         update: async ({ where, data }: any) => { Object.assign(rows.get(where.id)!, data) }
       },
       message: { create: async ({ data }: any) => { messages.push({ phone: data.phone, direction: data.direction, body: data.body }) } }
@@ -30,7 +31,12 @@ const client = {
   }
 }
 const context = { businessId: 'qa', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-09-28T15:00:00Z') }
-const port = { catalog: async () => [{ id: 'cut', name: 'Corte Hombre', durationMinutes: 30, price: 5000, requiresConsultation: false }], availability: async () => ({ professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ startAt: '2026-09-29T20:00:00.000Z', date: '2026-09-29', time: '17:00', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] }) }
+let catalogCalls = 0
+let firstCatalogSettled = false
+const port = { catalog: async () => {
+  if (++catalogCalls === 1) { await new Promise(resolve => setTimeout(resolve, 25)); firstCatalogSettled = true }
+  else assert.equal(firstCatalogSettled, true, 'same-process second turn must wait for first slow compute')
+  return [{ id: 'cut', name: 'Corte Hombre', durationMinutes: 30, price: 5000, requiresConsultation: false }] }, availability: async () => ({ professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ startAt: '2026-09-29T20:00:00.000Z', date: '2026-09-29', time: '17:00', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] }) }
 const factory = async () => ({ context, port })
 const [first, second] = await Promise.all([
   runPrismaDemoPreview(client, 'qa', 'admin', 'same', 'quiero Corte Hombre', factory),
