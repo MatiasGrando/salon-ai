@@ -1021,6 +1021,7 @@ model Business {
   formRewards                 FormReward[]
   rewardClaims                RewardClaim[]
   publicFormRateLimitBuckets  PublicFormRateLimitBucket[]
+  newBotInboxEvents           NewBotInboxEvent[]
 
   createdAt DateTime @default(now())
 
@@ -1031,6 +1032,25 @@ model Business {
   @@index([isDemo, createdByUserId])
 }
 
+
+model NewBotInboxEvent {
+  id               String   @id
+  businessId       String
+  schemaVersion    Int      @default(1)
+  vertical         String
+  provider         String
+  providerEventId  String
+  conversationId   String
+  message          Json
+  receivedAt       DateTime @db.Timestamptz(6)
+  admittedAt       DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  processingStatus String   @default("PENDING")
+  attemptCount     Int      @default(0)
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([businessId, provider, providerEventId])
+}
 model CustomerChannelIdentity {
   id String @id @default(cuid())
 
