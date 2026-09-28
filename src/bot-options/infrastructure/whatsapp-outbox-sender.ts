@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../../config/whatsapp.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { acquireDispatchClaim, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
@@ -12,19 +13,46 @@ import {
 export const META_SEND_TIMEOUT_MS = 10_000
 export const OUTBOX_RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 240_000, 480_000] as const
 export type Jitter = (baseMs: number, attempt: number, outboxId: string) => number
+const MAX_POSTGRES_BIGINT = 9_223_372_036_854_775_807n
 
+export function parseOutboxTransitionId(transitionId: string, expectedSessionId: string): {
+  kind: 'transition' | 'initial' | 'cutover-recovery'
+  revision: bigint
+} | null {
+  const parts = transitionId.split(':')
+  if (parts.length !== 3 || !expectedSessionId || parts[1] !== expectedSessionId) return null
+  if (parts[0] !== 'transition' && parts[0] !== 'initial' && parts[0] !== 'cutover-recovery') return null
+  if (!/^(0|[1-9][0-9]*)$/.test(parts[2])) return null
+  const revision = BigInt(parts[2])
+  if (revision > MAX_POSTGRES_BIGINT) return null
+  return { kind: parts[0], revision }
+}
+
+export function admissionToAcceptanceDurationMs(admittedAt: Date | null | undefined, acceptedAt: Date | null | undefined): number | null {
+  if (!(admittedAt instanceof Date) || !(acceptedAt instanceof Date)) return null
+  const start = admittedAt.getTime()
+  const end = acceptedAt.getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  return end - start
+}
 export type ClaimedOutbox = {
   id: string; businessId: string; sessionId: string; payload: Prisma.JsonValue
   attempts: number; maxAttempts: number; claimToken: string; generation: number; fenceEpoch: number
   queueWaitMs: number
+  diagnosticCustomerCode?: string | null
+  sourceProviderEventId?: string | null
+  sourceProviderEventAdmittedAt?: Date | null
 }
 
 export type OutboxLatencyDiagnostic = {
   resource: 'outbox'
   resourceId: string
-  phase: 'claim' | 'queue' | 'preflight' | 'meta_request' | 'finalize'
-  durationMs: number
-  outcome: 'ok' | 'error' | 'retry' | 'poison' | 'unknown' | 'stale'
+  phase: 'claim' | 'queue' | 'preflight' | 'meta_request' | 'finalize' | 'admission_to_meta_acceptance'
+  durationMs: number | null
+  outcome: 'ok' | 'error' | 'retry' | 'poison' | 'unknown' | 'stale' | 'accepted' | 'unavailable'
+  cohort: 'outbox_only'
+  correlation: 'linked' | 'unavailable'
+  sourceProviderEventId: string | null
 }
 
 type OutboxClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
@@ -38,8 +66,12 @@ export async function claimOutbox(
 ): Promise<ClaimedOutbox | null> {
   const candidateScope = scope ? Prisma.sql`AND o."businessId" = ${scope.businessId}` : Prisma.empty
   const claimed = await client.$transaction(async (tx) => {
-    const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string }>>(Prisma.sql`
-      SELECT o."id", o."businessId" FROM "BotOutbox" o
+    const diagnosticsConfigured = whatsappConfig.latencyDiagnosticBusinessCodes.size > 0
+    const candidateBusinessCode = diagnosticsConfigured ? Prisma.sql`, b."customerCode"` : Prisma.sql`, NULL::text AS "customerCode"`
+    const businessJoin = diagnosticsConfigured ? Prisma.sql`JOIN "Business" b ON b."id" = o."businessId"` : Prisma.empty
+    const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string; sessionId: string; transitionId: string; customerCode: string | null }>>(Prisma.sql`
+      SELECT o."id", o."businessId", o."sessionId", o."transitionId" ${candidateBusinessCode} FROM "BotOutbox" o
+      ${businessJoin}
       JOIN "BotSession" s ON s."id" = o."sessionId"
       JOIN "BotChannelDeployment" d ON d."id" = s."deploymentId" AND d."businessId" = o."businessId"
       WHERE (o."status" IN ('PENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus")
@@ -59,13 +91,31 @@ export async function claimOutbox(
     `)
     const candidate = candidates[0]
     if (!candidate) return null
+    const parsedTransition = parseOutboxTransitionId(candidate.transitionId, candidate.sessionId)
+    const telemetry = isWhatsAppLatencyDiagnosticsEnabledForBusiness(candidate.customerCode)
+      ? parsedTransition
+        ? Prisma.sql`
+          SELECT ${candidate.customerCode}::text AS "customerCode", event."id" AS "providerEventId", event."admittedAt"
+          FROM "BotOutbox" source
+          LEFT JOIN "BotTransitionLog" transition ON transition."businessId" = source."businessId"
+            AND transition."sessionId" = source."sessionId"
+            AND transition."revisionTo" = ${parsedTransition.revision}
+            AND source."transitionId" = ${candidate.transitionId}
+          LEFT JOIN "BotProviderEvent" event ON event."id" = transition."providerEventId"
+            AND event."businessId" = transition."businessId"
+          WHERE source."id" = ${candidate.id} AND source."businessId" = ${candidate.businessId}
+            AND source."sessionId" = ${candidate.sessionId} AND source."transitionId" = ${candidate.transitionId}
+        `
+        : Prisma.sql`SELECT ${candidate.customerCode}::text AS "customerCode", NULL::text AS "providerEventId", NULL::timestamptz AS "admittedAt"`
+      : Prisma.sql`SELECT NULL::text AS "customerCode", NULL::text AS "providerEventId", NULL::timestamptz AS "admittedAt"`
     await tx.$executeRaw(Prisma.sql`
       SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${candidate.businessId}:WHATSAPP`}, 0))
     `)
     const rows = await tx.$queryRaw<ClaimedOutbox[]>(Prisma.sql`
+      WITH telemetry AS (${telemetry})
       UPDATE "BotOutbox" o SET "status" = 'CLAIMED'::"BotOutboxStatus", "attempts" = o."attempts" + 1,
         "leaseToken" = ${token}, "leasedUntil" = clock_timestamp() + (${leaseMs} * interval '1 millisecond'), "updatedAt" = clock_timestamp()
-      FROM "BotSession" s, "BotChannelDeployment" d
+      FROM "BotSession" s, "BotChannelDeployment" d, telemetry
       WHERE o."id" = ${candidate.id} AND s."id" = o."sessionId" AND s."businessId" = o."businessId"
         AND d."id" = s."deploymentId" AND d."businessId" = o."businessId"
         AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
@@ -73,7 +123,10 @@ export async function claimOutbox(
         AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus" AND s."handoffClaimsPausedAt" IS NULL
       RETURNING o."id", o."businessId", o."sessionId", o."payload", o."attempts", o."maxAttempts",
         o."leaseToken" AS "claimToken", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch",
-        (EXTRACT(EPOCH FROM (clock_timestamp() - o."createdAt")) * 1000)::double precision AS "queueWaitMs"
+        (EXTRACT(EPOCH FROM (clock_timestamp() - o."createdAt")) * 1000)::double precision AS "queueWaitMs",
+        telemetry."customerCode" AS "diagnosticCustomerCode",
+        telemetry."providerEventId" AS "sourceProviderEventId",
+        telemetry."admittedAt" AS "sourceProviderEventAdmittedAt"
     `)
     return rows[0] ?? null
   })
@@ -226,8 +279,16 @@ export async function sendClaimedOutbox(input: {
   jitter?: Jitter
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
 }): Promise<'ACCEPTED' | 'RETRY' | 'POISON' | 'UNKNOWN' | 'STALE'> {
-  const emit = (diagnostic: OutboxLatencyDiagnostic) => {
-    try { input.onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
+  const emit = (diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>) => {
+    if (!isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode)) return
+    try {
+      input.onDiagnostic?.({
+        ...diagnostic,
+        cohort: 'outbox_only',
+        correlation: input.item.sourceProviderEventId ? 'linked' : 'unavailable',
+        sourceProviderEventId: input.item.sourceProviderEventId ?? null
+      })
+    } catch { /* diagnostics never affect delivery */ }
   }
   const preflightStartedAt = performance.now()
   const dispatchToken = await acquireDispatchClaim({
@@ -301,20 +362,21 @@ export async function sendClaimedOutbox(input: {
     if (result.kind === 'accepted') {
       const finalizeStartedAt = performance.now()
       const pendingCrmEvents: OutboundConversationMessageProjection[] = []
-      await input.client.$transaction(async (tx) => {
-        const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
+      const acceptedAt = await input.client.$transaction(async (tx) => {
+        const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint; sentAt: Date | null }>>(Prisma.sql`
           WITH outbox AS (
             UPDATE "BotOutbox" SET "status" = 'ACCEPTED'::"BotOutboxStatus", "providerMessageId" = ${result.providerMessageId},
               "sentAt" = clock_timestamp(), "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
             WHERE "id" = ${input.item.id} AND "status" = 'SENDING'::"BotOutboxStatus" AND "leaseToken" = ${input.item.claimToken}
-            RETURNING "id"
+            RETURNING "id", "sentAt"
           ), dispatch AS (
             UPDATE "BotDispatchClaim" SET "status" = 'DONE'::"BotDispatchStatus", "providerMessageId" = ${result.providerMessageId},
               "updatedAt" = clock_timestamp()
             WHERE "claimToken" = ${dispatchToken} AND "status" = 'SENDING'::"BotDispatchStatus"
             RETURNING "id"
           ) SELECT (SELECT count(*) FROM outbox)::bigint AS "outboxCount",
-            (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount"
+            (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount",
+            (SELECT "sentAt" FROM outbox LIMIT 1) AS "sentAt"
         `)
         if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('accepted result lost sender fence')
         const projection = await projectOutboundMessageTx(tx, {
@@ -324,11 +386,17 @@ export async function sendClaimedOutbox(input: {
           errorCode: null
         })
         if (projection) collectOutboundConversationMessage(pendingCrmEvents, projection)
+        return counts[0]?.sentAt ?? null
       })
       flushOutboundConversationMessages(pendingCrmEvents)
       const finalizeMs = performance.now() - finalizeStartedAt
       botOptionsMetrics.observe('outbox_finalize', finalizeMs)
       emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: 'ok' })
+      const admissionToAcceptanceMs = admissionToAcceptanceDurationMs(input.item.sourceProviderEventAdmittedAt, acceptedAt)
+      emit({
+        resource: 'outbox', resourceId: input.item.id, phase: 'admission_to_meta_acceptance',
+        durationMs: admissionToAcceptanceMs, outcome: admissionToAcceptanceMs === null ? 'unavailable' : 'accepted'
+      })
       return 'ACCEPTED'
     }
     const poison = !result.retryable || input.item.attempts >= input.item.maxAttempts
@@ -446,8 +514,16 @@ export function startOutboxSenderLoop(input: {
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
 }): { stop(): Promise<void> } {
   let stopped = false
-  const emit = (diagnostic: OutboxLatencyDiagnostic) => {
-    try { input.onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
+  const emit = (item: ClaimedOutbox, diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>) => {
+    if (!isWhatsAppLatencyDiagnosticsEnabledForBusiness(item.diagnosticCustomerCode)) return
+    try {
+      input.onDiagnostic?.({
+        ...diagnostic,
+        cohort: 'outbox_only',
+        correlation: item.sourceProviderEventId ? 'linked' : 'unavailable',
+        sourceProviderEventId: item.sourceProviderEventId ?? null
+      })
+    } catch { /* diagnostics never affect delivery */ }
   }
   const maintenance = createMaintenanceCadence({
     intervalMs: input.maintenanceIntervalMs ?? OUTBOX_MAINTENANCE_INTERVAL_MS,
@@ -463,8 +539,8 @@ export function startOutboxSenderLoop(input: {
         if (item) {
           const claimMs = performance.now() - claimStartedAt
           botOptionsMetrics.observe('outbox_claim', claimMs)
-          emit({ resource: 'outbox', resourceId: item.id, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
-          emit({ resource: 'outbox', resourceId: item.id, phase: 'queue', durationMs: item.queueWaitMs, outcome: 'ok' })
+          emit(item, { resource: 'outbox', resourceId: item.id, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
+          emit(item, { resource: 'outbox', resourceId: item.id, phase: 'queue', durationMs: item.queueWaitMs, outcome: 'ok' })
           await sendClaimedOutbox({ client: input.client, item, provider: input.provider, onDiagnostic: input.onDiagnostic })
           continue
         }

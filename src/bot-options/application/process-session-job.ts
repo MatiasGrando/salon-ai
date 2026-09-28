@@ -1422,9 +1422,9 @@ async function processInitialInboxUnderClaim(
       }
       const transitionId = `${forceFreshView ? 'cutover-recovery' : 'initial'}:${session.id}:${revisionTo}`
       await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome")
+        INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId")
         VALUES (${randomUUID()}, ${row.businessId}, ${session.id}, ${row.deploymentId}, ${row.deploymentGeneration}, ${revisionFrom}, ${revisionTo},
-          ${forceFreshView ? 'system.cutover_recovery' : 'system.initial_view'}, 'APPLIED')
+          ${forceFreshView ? 'system.cutover_recovery' : 'system.initial_view'}, 'APPLIED', ${row.providerEventId})
         ON CONFLICT ("sessionId", "revisionTo") DO NOTHING
       `)
       await persistView(tx, {

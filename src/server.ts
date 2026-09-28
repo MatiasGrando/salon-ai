@@ -256,7 +256,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       }
     }
     const onWorkerDiagnostic = (diagnostic: BotJobLatencyDiagnostic) => {
-      console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: Math.round(diagnostic.durationMs) }))
+      console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: diagnostic.durationMs === null ? null : Math.round(diagnostic.durationMs) }))
     }
     // Every successful branch above settles its own lease in the same business
     // transaction (DONE, READY after reschedule, or POISON). Exceptions are the
@@ -277,7 +277,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       provider,
       onError: (error) => app.log.error(error),
       onDiagnostic: (diagnostic) => {
-        console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: Math.round(diagnostic.durationMs) }))
+        console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: diagnostic.durationMs === null ? null : Math.round(diagnostic.durationMs) }))
       }
     }))
   }

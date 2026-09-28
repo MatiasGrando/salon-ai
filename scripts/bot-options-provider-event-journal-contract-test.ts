@@ -9,11 +9,13 @@ import {
 } from '../src/services/crm-realtime-events.js'
 import type { ClaimedBotJob } from '../src/bot-options/infrastructure/postgres-worker.js'
 import { PrismaAuthoritativeAdmissionRepository } from '../src/bot-options/infrastructure/prisma-admission.js'
+import { admissionToAcceptanceDurationMs, parseOutboxTransitionId } from '../src/bot-options/infrastructure/whatsapp-outbox-sender.js'
 
 const serverSource = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')
 const workerSource = readFileSync(new URL('../src/bot-options/infrastructure/postgres-worker.ts', import.meta.url), 'utf8')
 const processorSource = readFileSync(new URL('../src/bot-options/application/process-provider-event-job.ts', import.meta.url), 'utf8')
 const sessionProcessorSource = readFileSync(new URL('../src/bot-options/application/process-session-job.ts', import.meta.url), 'utf8')
+const outboxSenderSource = readFileSync(new URL('../src/bot-options/infrastructure/whatsapp-outbox-sender.ts', import.meta.url), 'utf8')
 assert.match(serverSource, /job\.kind === 'PROCESS_PROVIDER_EVENT'[\s\S]*?processProviderEventJob/,
   'the production worker handler must dispatch provider-event jobs')
 assert.equal(
@@ -250,4 +252,27 @@ assert.ok(committedSql.some((sql) => sql.includes('INSERT INTO "Message"')),
 assert.deepEqual(visibleMessages, ['provider-event-a'],
   'a committed inbound message must reach the CRM even when classification fails afterward')
 
+assert.match(sessionProcessorSource, /INSERT INTO "BotTransitionLog" \("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId"\)[\s\S]*?\$\{forceFreshView \? 'system\.cutover_recovery' : 'system\.initial_view'\}, 'APPLIED', \$\{row\.providerEventId\}/,
+  'initial-view transition evidence must retain its originating provider event for outbox correlation')
+assert.match(outboxSenderSource, /latencyDiagnosticBusinessCodes\.size > 0[\s\S]*?businessJoin[\s\S]*?providerEventId/,
+  'outbox correlation lookup must be opt-in behind the existing tenant allowlist')
+assert.match(outboxSenderSource, /cohort: 'outbox_only'[\s\S]*?correlation:[\s\S]*?sourceProviderEventId/,
+  'diagnostic records must explicitly scope the cohort and report missing correlation')
+assert.match(outboxSenderSource, /admission_to_meta_acceptance[\s\S]*?accepted/,
+  'outbox acceptance latency must be named as provider acceptance, not delivery')
+assert.match(outboxSenderSource, /SELECT \$\{candidate\.customerCode\}::text AS "customerCode", event\."id" AS "providerEventId", event\."admittedAt"[\s\S]*?LEFT JOIN "BotProviderEvent" event ON event\."id" = transition\."providerEventId"[\s\S]*?event\."businessId" = transition\."businessId"/,
+  'diagnostic correlation must return only the provider event that passed the tenant-scoped join')
+assert.doesNotMatch(outboxSenderSource, /SELECT \$\{candidate\.customerCode\}::text AS "customerCode", transition\."providerEventId"/,
+  'the unvalidated transition event id must never be reported when the joined event is absent')
+assert.deepEqual(parseOutboxTransitionId('transition:session-a:12', 'session-a'), { kind: 'transition', revision: 12n })
+assert.deepEqual(parseOutboxTransitionId('initial:session-a:0', 'session-a'), { kind: 'initial', revision: 0n })
+for (const malformed of [
+  'transition:session-b:12', 'transition:session-a:12:extra', 'transition::12', 'transition:session-a:',
+  'transition:session-a:-1', 'transition:session-a:+1', 'transition:session-a:01',
+  'transition:session-a:9223372036854775808', 'restart:session-a:12'
+]) assert.equal(parseOutboxTransitionId(malformed, 'session-a'), null, `malformed transition must not correlate: ${malformed}`)
+assert.equal(admissionToAcceptanceDurationMs(new Date(1000), new Date(1025)), 25)
+assert.equal(admissionToAcceptanceDurationMs(new Date(1025), new Date(1000)), null)
+assert.equal(admissionToAcceptanceDurationMs(new Date(Number.NaN), new Date(1025)), null)
+assert.equal(admissionToAcceptanceDurationMs(new Date(1000), null), null)
 console.log('OK provider-event journal: inbound CRM evidence survives classification failure.')
