@@ -100,7 +100,7 @@ for (const broken of [
   { ...env, OPENAI_API_KEY: undefined }
 ]) assert.throws(() => validateBarberLocalConfig(broken))
 const scopes: unknown[] = []
-const loops = startBarberWorkerLoops({
+const loops = await startBarberWorkerLoops({
   scope: { mode: 'include', businessId: barber },
   client: {} as never, provider: { async send() { return { kind: 'accepted' as const, providerMessageId: 'fake' } } },
   handle: async () => {},

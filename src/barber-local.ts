@@ -57,7 +57,7 @@ export async function startBarberLocal() {
     await processSessionJob({ client: prisma, job, conversationalAi })
   }
 
-  let loops: ReturnType<typeof startBarberWorkerLoops> | null = null
+  let loops: Awaited<ReturnType<typeof startBarberWorkerLoops>> | null = null
   let stopping: Promise<void> | null = null
   const stop = () => {
     if (stopping) return stopping
@@ -71,7 +71,7 @@ export async function startBarberLocal() {
   }
   try {
     await internal.listen({ port: internalPort, host: '127.0.0.1' })
-    loops = startBarberWorkerLoops({
+    loops = await startBarberWorkerLoops({
       scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler,
       onError: (error) => internal.log.error(error),
       onWorkerDiagnostic: (diagnostic) => {

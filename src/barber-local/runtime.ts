@@ -34,7 +34,7 @@ export function validateBarberLocalConfig(env: Record<string, string | undefined
 }
 
 /** Test seam: production injects real Prisma/provider/handler; scopes are never optional here. */
-export function startBarberWorkerLoops(input: {
+export async function startBarberWorkerLoops(input: {
   scope: BotWorkerScope
   client: WorkerInput['client'] & SenderInput['client']
   provider: SenderInput['provider']
@@ -44,7 +44,7 @@ export function startBarberWorkerLoops(input: {
   onOutboxDiagnostic?: SenderInput['onDiagnostic']
   startWorker?: (input: WorkerInput) => Loop
   startSender?: (input: SenderInput) => Loop
-}): Loop {
+}): Promise<Loop> {
   if (input.scope.mode !== 'include' || input.scope.businessId !== BARBER_DEMO_BUSINESS_ID) {
     throw new Error('Barber worker scope must include Barber exclusively')
   }
@@ -66,7 +66,9 @@ export function startBarberWorkerLoops(input: {
       ...(input.onOutboxDiagnostic ? { onDiagnostic: input.onOutboxDiagnostic } : {})
     }))
   } catch (error) {
-    void Promise.all(loops.map((loop) => loop.stop()))
+    // A factory can throw after earlier loops have begun polling. Do not let
+    // the caller disconnect Prisma until every started loop has stopped.
+    await Promise.allSettled(loops.map((loop) => Promise.resolve().then(() => loop.stop())))
     throw error
   }
   return { async stop() { await Promise.all(loops.map((loop) => loop.stop())) } }
