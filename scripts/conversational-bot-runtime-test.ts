@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
+import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
 
@@ -155,10 +156,10 @@ function runtimeFixture() {
     } }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX') => processSessionJob({ client: client as never, dialogueFactory, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
-    hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
+    assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
 const runtime = runtimeFixture()
 await runtime.run()
@@ -282,3 +283,59 @@ const oldGeneration = runtimeFixture(); await oldGeneration.run(); oldGeneration
 assert.equal(oldGeneration.session.deploymentGeneration, 1)
 assert.equal((oldGeneration.session.state as typeof projected).conversationDraft.dialogue.serviceId, null)
 assert.equal(oldGeneration.row.status, 'PROCESSED')
+
+// WhatsApp opt-in must use both AI stages through the public worker, with no lock retained.
+const aiRuntime = runtimeFixture()
+let interpretationCalls = 0
+let responseCalls = 0
+const diagnostics: unknown[] = []
+const provider: AiInterpretationProvider = async input => {
+  aiRuntime.assertOutside(); interpretationCalls++
+  assert.equal(input.message, 'Corte')
+  return { intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null }
+}
+provider.respond = async input => {
+  aiRuntime.assertOutside(); responseCalls++
+  return { opening: 'Dale.', factIds: input.facts.map(fact => fact.id), closing: null }
+}
+await aiRuntime.run('PROCESS_INBOX', { provider, timeoutMs: 4500, onDiagnostic: value => diagnostics.push(value) })
+assert.equal(interpretationCalls, 1, 'runtime must call the injected interpreter')
+assert.equal(responseCalls, 1, 'runtime must compose verified facts with AI')
+assert.match(aiRuntime.replies[0]!, /^Dale\./)
+assert.equal((aiRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
+assert.equal(diagnostics.length, 1)
+const measured = diagnostics[0] as Record<string, unknown>
+assert.equal(measured.mode, 'ai'); assert.equal(measured.copyMode, 'ai')
+assert.equal(measured.providerEventId, 'event'); assert.equal(measured.result, 'PROCESSED')
+for (const key of ['contextMs', 'computeMs', 'interpretationMs', 'validationMs', 'engineMs', 'responseMs']) assert.ok(Number(measured[key]) >= 0, key)
+assert.ok(!JSON.stringify(measured).includes('Corte') && !JSON.stringify(measured).includes('phone'), 'diagnostics exclude content and recipient')
+const fallbackRuntime = runtimeFixture()
+await fallbackRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('SECRET raw provider failure') }, timeoutMs: 4500, onDiagnostic: value => {
+  assert.ok(!JSON.stringify(value).includes('SECRET')); assert.equal((value as Record<string, unknown>).mode, 'fallback')
+  throw new Error('observability unavailable')
+} })
+assert.equal(fallbackRuntime.replies.length, 1, 'provider/sink errors cannot prevent the safe reply')
+for (const type of ['image', 'restart'] as const) {
+  const bypass = runtimeFixture(); bypass.next(type === 'restart' ? '/reiniciar' : '', type === 'restart' ? 'text' : type)
+  await bypass.run('PROCESS_INBOX', { provider: async () => { throw new Error('AI should not run') }, timeoutMs: 4500, onDiagnostic: () => { throw new Error('bypass should not emit AI trace') } })
+  assert.equal(bypass.replies.length, 1)
+}
+const handoffDuringAi = runtimeFixture()
+await handoffDuringAi.run('PROCESS_INBOX', { provider: async () => {
+  handoffDuringAi.assertOutside(); handoffDuringAi.session.status = 'HUMAN_TAKEN'
+  return { intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null }
+}, timeoutMs: 4500 })
+assert.equal(handoffDuringAi.replies.length, 0, 'handoff acquired during AI suppresses outbox')
+console.log('conversational WhatsApp AI injection/fallback/fencing: PASS')
+const wrongTenantAi = runtimeFixture(); wrongTenantAi.row.customerCode = 'OTHER'
+let crossTenantCalls = 0
+await assert.rejects(wrongTenantAi.run('PROCESS_INBOX', { provider: async () => { crossTenantCalls++; return null }, timeoutMs: 4500 }), /invalid conversational runtime policy/)
+assert.equal(crossTenantCalls, 0, 'provider must never receive another tenant')
+const expiredAi = runtimeFixture()
+const timeoutTraces: unknown[] = []
+await expiredAi.run('PROCESS_INBOX', { provider: () => new Promise(() => {}), timeoutMs: 1, onDiagnostic: value => { timeoutTraces.push(value) } })
+assert.equal((timeoutTraces[0] as Record<string, unknown>).reason, 'timeout')
+assert.equal(expiredAi.replies.length, 1, 'deadline must yield fallback, not drop the message')
+const commitFailureAi = runtimeFixture(); commitFailureAi.failCommit()
+await assert.rejects(commitFailureAi.run('PROCESS_INBOX', { provider: async () => ({ intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null }), timeoutMs: 4500, onDiagnostic: () => { throw new Error('uncommitted trace emitted') } }), /COMMIT failed/)
+assert.equal(commitFailureAi.replies.length, 0)

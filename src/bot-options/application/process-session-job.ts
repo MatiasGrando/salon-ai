@@ -1,3 +1,4 @@
+import type { WhatsAppConversationAi } from '../../conversational-bot/whatsapp-ai.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
 import { parseDialogueState } from '../../conversational-bot/engine.js'
 import { processConversationInbox, type DialogueFactory } from '../../conversational-bot/process-inbox-job.js'
@@ -773,6 +774,7 @@ export async function processSessionJob(input: {
   client: RuntimeClient
   job: ClaimedBotJob
   dialogueFactory?: DialogueFactory
+  conversationalAi?: WhatsAppConversationAi
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
@@ -791,6 +793,7 @@ async function processSessionJobInternal(input: {
   client: RuntimeClient
   job: ClaimedBotJob
   dialogueFactory?: DialogueFactory
+  conversationalAi?: WhatsAppConversationAi
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {

@@ -1,3 +1,4 @@
+import { resolveWhatsAppConversationAi } from './conversational-bot/whatsapp-ai.js'
 import Fastify from 'fastify'
 import { pathToFileURL } from 'node:url'
 import { healthRoutes } from './routes/health.js'
@@ -201,6 +202,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
 
   const loops: WorkerLoop[] = []
   if (botOptionsConfig.workersEnabled) {
+    const conversationalAi = resolveWhatsAppConversationAi(process.env)
+    if (conversationalAi) conversationalAi.onDiagnostic = value => {
+      console.info('[conversational-bot-latency]', JSON.stringify(value))
+    }
     const handler = async (job: Parameters<typeof processSessionJob>[0]['job']) => {
       const startedAt = performance.now()
       let outcome: 'ok' | 'error' = 'ok'
@@ -233,7 +238,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           await bridgeDepositNotificationJob(prisma, job)
           return
         }
-        await processSessionJob({ client: prisma, job })
+        await processSessionJob({ client: prisma, job, conversationalAi })
       } catch (error) {
         outcome = 'error'
         throw error

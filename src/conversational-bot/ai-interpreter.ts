@@ -113,7 +113,7 @@ function assembledReply(raw: unknown, facts: readonly { id: string; text: string
   return text.length > 0 && text.length <= 5000 ? text : null
 }
 
-/** QA only: interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
+/** Interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
 export async function respondWithAiInterpreter(
   context: DialogueContext, previous: unknown, message: string, port: DialoguePort,
   provider: AiInterpretationProvider, options: { timeoutMs?: number; responseProvider?: AiResponseProvider } = {}

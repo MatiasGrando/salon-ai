@@ -1,3 +1,5 @@
+import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai-interpreter.js'
+import type { WhatsAppConversationAi } from './whatsapp-ai.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
 import { initialDialogueState, respond, type DialogueContext, type DialoguePort } from './engine.js'
@@ -27,9 +29,9 @@ type Row = PolicyRow & { id: string; deploymentGeneration: number; fenceEpoch: n
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
 
-/** Uses the existing inbox/job/outbox. Only deterministic preparation runs outside locks. */
+/** Uses the existing inbox/job/outbox. Catalog queries and optional AI preparation run outside locks. */
 export async function processConversationInbox(input: {
-  client: Client; job: ClaimedBotJob; dialogueFactory?: DialogueFactory;
+  client: Client; job: ClaimedBotJob; dialogueFactory?: DialogueFactory; conversationalAi?: WhatsAppConversationAi;
   writeView: typeof persistView; projectInbound: typeof projectInboundMessage;
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
@@ -172,11 +174,17 @@ export async function processConversationInbox(input: {
     flushInboundConversationMessages(events)
     if (!snapshot) { markSettled(); return 'PROCESSED' }
     // No transaction/client lock is retained while repositories compute the reply.
+    const contextStarted = performance.now()
     const prepared = await (input.dialogueFactory ?? defaultFactory)(input.client, policy.businessId)
     if (prepared.context.businessId !== policy.businessId || prepared.context.timezone !== snapshot.row.businessTimezone) throw new Error('dialogue context mismatch')
+    const computedStarted = performance.now()
+    const useAi = input.conversationalAi && !snapshot.reset && snapshot.payload.messageType === 'text'
     const response = snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
+      : useAi ? await respondWithAiInterpreter(prepared.context, snapshot.draft, String(snapshot.payload.textBody ?? ''), prepared.port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
       : await respond(prepared.context, snapshot.draft, String(snapshot.payload.textBody ?? ''), prepared.port)
+    const computedAt = performance.now()
+    let committedTransitionId: string | null = null
     const result = await input.client.$transaction(async tx => {
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
@@ -207,9 +215,23 @@ export async function processConversationInbox(input: {
       await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
         toPhone: snapshot.phone, view: textView((snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply), dbNow: row.dbNow })
       await finish(tx, row)
+      committedTransitionId = transitionId
       return 'PROCESSED' as const
     }, txOptions)
     markSettled()
+    if (useAi && input.conversationalAi?.onDiagnostic) {
+      const diagnostic = (response as InterpretedDialogueResponse).interpretation
+      const ms = (value: number) => Math.round(value * 10) / 10
+      try {
+        await input.conversationalAi.onDiagnostic({
+          jobId: input.job.id, businessId: policy.businessId, providerEventId: snapshot.row.providerEventId,
+          transitionId: committedTransitionId, result, contextMs: ms(computedStarted - contextStarted), computeMs: ms(computedAt - computedStarted),
+          mode: diagnostic.mode, reason: diagnostic.reason, copyMode: diagnostic.copyMode, copyReason: diagnostic.copyReason,
+          interpretationMs: diagnostic.providerMs, validationMs: diagnostic.validationMs,
+          engineMs: diagnostic.engineMs ?? 0, responseMs: diagnostic.responseMs ?? 0, usage: diagnostic.usage ?? null
+        })
+      } catch { /* Observability is fail-open after the durable transaction committed. */ }
+    }
     for (const update of updates) publishConversationUpdated(update)
     return result
   })
