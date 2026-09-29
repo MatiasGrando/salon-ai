@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
 import { recoverStaleTakeOperations } from '../application/handoff-operations.js'
+import { tenantScopeSql, type BotWorkerScope } from './tenant-scope.js'
 
 export type ClaimedBotJob = {
   id: string
@@ -98,9 +99,10 @@ export async function claimBotJob(
   client: WorkerClient,
   leaseMs = 30_000,
   token = randomUUID(),
-  scope?: { businessId: string }
+  scope?: BotWorkerScope
 ): Promise<ClaimedBotJob | null> {
-  const candidateScope = scope ? Prisma.sql`AND j."businessId" = ${scope.businessId}` : Prisma.empty
+  const candidateScope = tenantScopeSql(scope, 'j')
+  const claimScope = tenantScopeSql(scope, 'j')
   const claimed = await client.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<ClaimedBotJob[]>(Prisma.sql`
       WITH candidate AS MATERIALIZED (
@@ -130,7 +132,10 @@ export async function claimBotJob(
         "leaseToken" = ${token}, "leasedUntil" = clock_timestamp() + (${leaseMs} * interval '1 millisecond'),
         "updatedAt" = clock_timestamp()
       FROM cutover_lock c
-      WHERE j."id" = c."id" AND EXISTS (
+      WHERE j."id" = c."id" ${claimScope}
+        AND ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
+          OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
+        AND j."attempts" < j."maxAttempts" AND EXISTS (
         SELECT 1 FROM "BotChannelDeployment" d WHERE d."id" = j."deploymentId" AND d."businessId" = j."businessId"
           AND (${systemRecoveryJobSql('j')} OR (${cutoverRetargetableJobSql('j')}
             AND j."deploymentGeneration" <= d."generation"
@@ -154,8 +159,8 @@ export async function claimBotJob(
   return claimed
 }
 
-export async function maintainBotJobs(client: WorkerClient, scope?: { businessId: string }): Promise<number> {
-  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
+export async function maintainBotJobs(client: WorkerClient, scope?: BotWorkerScope): Promise<number> {
+  const maintenanceScope = tenantScopeSql(scope, '"BotJob"')
   const rows = await client.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     WITH changed AS (
     UPDATE "BotJob" SET
@@ -350,6 +355,7 @@ export function startPostgresWorkerLoop(input: {
   leaseMs?: number
   maintenanceIntervalMs?: number
   maintenanceEnabled?: boolean
+  scope?: BotWorkerScope | undefined
   now?: () => number
   handlerSettlesJob?: boolean
   onError?: (error: unknown) => void
@@ -365,8 +371,8 @@ export function startPostgresWorkerLoop(input: {
     intervalMs: input.maintenanceIntervalMs ?? WORKER_MAINTENANCE_INTERVAL_MS,
     now: input.now,
     run: async () => {
-      await maintainBotJobs(input.client)
-      await recoverStaleTakeOperations({ client: input.client })
+      await maintainBotJobs(input.client, input.scope)
+      await recoverStaleTakeOperations({ client: input.client, scope: input.scope })
     }
   })
 
@@ -375,7 +381,7 @@ export function startPostgresWorkerLoop(input: {
       try {
         await maintenance?.runIfDue()
         const claimStartedAt = performance.now()
-        const job = await claimBotJob(input.client, input.leaseMs)
+        const job = await claimBotJob(input.client, input.leaseMs, undefined, input.scope)
         if (!job) {
           await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
           continue

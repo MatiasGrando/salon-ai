@@ -397,6 +397,7 @@ export type StaleTakeCandidate = {
  */
 export async function recoverStaleTakeOperations(input: {
   client: Client
+  scope?: { mode?: 'include' | 'exclude'; businessId: string } | undefined
   staleMs?: number
   limit?: number
   /** Deterministic seam for focused recovery contracts; production omits it. */
@@ -408,6 +409,11 @@ export async function recoverStaleTakeOperations(input: {
 }): Promise<{ completed: number; waiting: number; blockedUnknown: number; aborted: number }> {
   const staleMs = input.staleMs ?? STALE_HANDOFF_TAKE_MS
   if (!Number.isFinite(staleMs) || staleMs < STALE_HANDOFF_TAKE_MS) throw new Error('stale take threshold is below the safe window')
+  const recoveryScope = input.scope
+    ? input.scope.mode !== 'exclude'
+      ? Prisma.sql`AND op."businessId" = ${input.scope.businessId}`
+      : Prisma.sql`AND op."businessId" <> ${input.scope.businessId}`
+    : Prisma.empty
   const candidates = await input.client.$queryRaw<StaleTakeCandidate[]>(Prisma.sql`
     SELECT op."operationKey",op."businessId",op."sessionId",op."resultRef" AS "handoffId",
       s."conversationId",a."actorUserId",s."handoffFenceEpoch" AS "epoch"
@@ -417,6 +423,7 @@ export async function recoverStaleTakeOperations(input: {
     JOIN "BotHandoffAudit" a ON a."handoffId"=h."id" AND a."businessId"=h."businessId"
       AND a."sessionId"=s."id" AND a."operationKey"=op."operationKey" AND a."action"='TAKE_STARTED'
     WHERE op."type"='HANDOFF_TAKE' AND op."status"='STARTED'
+      ${recoveryScope}
       AND op."updatedAt" < clock_timestamp() - (${staleMs} * interval '1 millisecond')
       AND s."handoffClaimsPausedAt" IS NOT NULL AND s."status"='HUMAN_QUEUED'::"BotSessionStatus"
       AND s."conversationId" IS NOT NULL

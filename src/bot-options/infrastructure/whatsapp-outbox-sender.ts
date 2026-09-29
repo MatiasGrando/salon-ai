@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { acquireDispatchClaim, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
+import { tenantScopeSql, type BotWorkerScope } from './tenant-scope.js'
 import {
   collectOutboundConversationMessage,
   flushOutboundConversationMessages,
@@ -62,9 +63,10 @@ export async function claimOutbox(
   client: OutboxClient,
   leaseMs = 30_000,
   token = randomUUID(),
-  scope?: { businessId: string }
+  scope?: BotWorkerScope
 ): Promise<ClaimedOutbox | null> {
-  const candidateScope = scope ? Prisma.sql`AND o."businessId" = ${scope.businessId}` : Prisma.empty
+  const candidateScope = tenantScopeSql(scope, 'o')
+  const claimScope = tenantScopeSql(scope, 'o')
   const claimed = await client.$transaction(async (tx) => {
     const diagnosticsConfigured = whatsappConfig.latencyDiagnosticBusinessCodes.size > 0
     const candidateBusinessCode = diagnosticsConfigured ? Prisma.sql`, b."customerCode"` : Prisma.sql`, NULL::text AS "customerCode"`
@@ -116,11 +118,21 @@ export async function claimOutbox(
       UPDATE "BotOutbox" o SET "status" = 'CLAIMED'::"BotOutboxStatus", "attempts" = o."attempts" + 1,
         "leaseToken" = ${token}, "leasedUntil" = clock_timestamp() + (${leaseMs} * interval '1 millisecond'), "updatedAt" = clock_timestamp()
       FROM "BotSession" s, "BotChannelDeployment" d, telemetry
-      WHERE o."id" = ${candidate.id} AND s."id" = o."sessionId" AND s."businessId" = o."businessId"
+      WHERE o."id" = ${candidate.id} ${claimScope}
+        AND (o."status" IN ('PENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus")
+          OR (o."status" = 'CLAIMED'::"BotOutboxStatus" AND o."leasedUntil" < clock_timestamp()))
+        AND o."availableAt" <= clock_timestamp() AND o."attempts" < o."maxAttempts"
+        AND s."id" = o."sessionId" AND s."businessId" = o."businessId"
         AND d."id" = s."deploymentId" AND d."businessId" = o."businessId"
         AND d."generation" = s."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
         AND d."engineKey" = 'deterministic-options' AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
         AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus" AND s."handoffClaimsPausedAt" IS NULL
+        AND (o."dependsOnSequence" IS NULL OR EXISTS (
+          SELECT 1 FROM "BotOutbox" predecessor
+          WHERE predecessor."sessionId" = o."sessionId" AND predecessor."deliveryGroupId" = o."deliveryGroupId"
+            AND predecessor."sequence" = o."dependsOnSequence"
+            AND predecessor."status" IN ('ACCEPTED'::"BotOutboxStatus", 'DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+        ))
       RETURNING o."id", o."businessId", o."sessionId", o."payload", o."attempts", o."maxAttempts",
         o."leaseToken" AS "claimToken", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch",
         (EXTRACT(EPOCH FROM (clock_timestamp() - o."createdAt")) * 1000)::double precision AS "queueWaitMs",
@@ -134,11 +146,11 @@ export async function claimOutbox(
   return claimed
 }
 
-export async function maintainOutbox(client: OutboxClient, scope?: { businessId: string }): Promise<{
+export async function maintainOutbox(client: OutboxClient, scope?: BotWorkerScope): Promise<{
   staleSending: number
   exhausted: number
 }> {
-  const maintenanceScope = scope ? Prisma.sql`AND "businessId" = ${scope.businessId}` : Prisma.empty
+  const maintenanceScope = tenantScopeSql(scope, '"BotOutbox"')
   const rows = await client.$queryRaw<Array<{ staleSending: bigint; exhausted: bigint }>>(Prisma.sql`
     WITH stale AS (
       UPDATE "BotOutbox" SET "status" = 'UNKNOWN'::"BotOutboxStatus", "leaseToken" = NULL,
@@ -518,6 +530,7 @@ export function startOutboxSenderLoop(input: {
   provider: OutboxProvider
   pollMs?: number
   maintenanceIntervalMs?: number
+  scope?: BotWorkerScope | undefined
   now?: () => number
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
@@ -537,14 +550,14 @@ export function startOutboxSenderLoop(input: {
   const maintenance = createMaintenanceCadence({
     intervalMs: input.maintenanceIntervalMs ?? OUTBOX_MAINTENANCE_INTERVAL_MS,
     now: input.now,
-    run: async () => { await maintainOutbox(input.client) }
+    run: async () => { await maintainOutbox(input.client, input.scope) }
   })
   const running = (async () => {
     while (!stopped) {
       try {
         await maintenance.runIfDue()
         const claimStartedAt = performance.now()
-        const item = await claimOutbox(input.client)
+        const item = await claimOutbox(input.client, undefined, undefined, input.scope)
         if (item) {
           const claimMs = performance.now() - claimStartedAt
           botOptionsMetrics.observe('outbox_claim', claimMs)

@@ -77,6 +77,7 @@ import { processProviderEventJob } from './bot-options/application/process-provi
 import { expireDepositHold } from './bot-options/application/expire-deposit-hold.js'
 import { startOutboxSenderLoop, type OutboxProvider } from './bot-options/infrastructure/whatsapp-outbox-sender.js'
 import { MetaOutboxProvider } from './bot-options/infrastructure/meta-outbox-provider.js'
+import { botWorkerScopeFromEnv } from './bot-options/infrastructure/tenant-scope.js'
 import { startBotOptionsMetricsLoop } from './bot-options/observability/metrics.js'
 import { processDepositProofJob } from './bot-options/application/process-deposit-proof-job.js'
 import { bridgeDepositNotificationJob } from './bot-options/application/bridge-deposit-notification-job.js'
@@ -111,6 +112,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
+  const workerScope = botWorkerScopeFromEnv(process.env)
   const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
   const instagramReelsRuntime = options.instagramReelsRuntime ?? await createInstagramReelsRuntime({
     config: resolveInstagramReelsRuntimeConfig(process.env),
@@ -267,11 +269,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
     // transaction (DONE, READY after reschedule, or POISON). Exceptions are the
     // only branches intentionally left leased for the loop's fenced retry.
     loops.push(startPostgresWorkerLoop({
-      client: prisma, handle: handler, handlerSettlesJob: true,
+      client: prisma, handle: handler, handlerSettlesJob: true, scope: workerScope,
       onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
     }))
     loops.push(startPostgresWorkerLoop({
-      client: prisma, handle: handler, handlerSettlesJob: true, maintenanceEnabled: false,
+      client: prisma, handle: handler, handlerSettlesJob: true, scope: workerScope, maintenanceEnabled: false,
       onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
     }))
   }
@@ -280,6 +282,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     loops.push(startOutboxSenderLoop({
       client: prisma,
       provider,
+      scope: workerScope,
       onError: (error) => app.log.error(error),
       onDiagnostic: (diagnostic) => {
         console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: diagnostic.durationMs === null ? null : Math.round(diagnostic.durationMs) }))
