@@ -1,15 +1,16 @@
+import { attachAiUsage } from './ai-usage.js'
 import type { AiInterpretationProvider } from './ai-interpreter.js'
 
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'replyDraft'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence'],
   properties: {
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
     serviceEvidence: { type: ['string', 'null'] },
     professionalMention: { type: ['string', 'null'] },
-    replyDraft: { type: ['string', 'null'] }
+    serviceConfidence: { type: 'string', enum: ['certain', 'uncertain'] }
   }
 } as const
 
@@ -33,7 +34,7 @@ export function createOpenAiInterpretationProvider(options: {
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}), // QA Luna experiment only.
         store: false,
         max_output_tokens: 400,
-        instructions: 'Interpretá SOLO el mensaje actual para un bot de turnos. Devolvé serviceId solo si corresponde a un servicio de la lista y serviceEvidence es un fragmento textual exacto del mensaje; si es un posible typo, podés devolver serviceId null con serviceEvidence literal para pedir aclaración, nunca confirmación. professionalMention debe ser literal. Además redactá replyDraft breve (máximo 90 caracteres): ante un saludo simple podés dar un saludo social corto, con un emoji simple; el motor sumará la pregunta faltante. Si el mensaje selecciona un servicio del catálogo y falta fecha, podés preguntar por el día y repetir exactamente el nombre del servicio ya validado. En otros casos, solo una introducción social muy corta sin preguntas, o null si no aporta. Jamás incluyas precios, fechas concretas, horarios, disponibilidad, nombres de otros servicios o profesionales, ni afirmes una reserva o confirmación. El motor agrega todos los hechos y preguntas canónicas después. No infieras ni redactes hechos.',
+        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Una segunda llamada redactará la respuesta tras verificar resultados del motor. No inventes hechos ni confirmes reservas.',
         input: JSON.stringify({
           message: input.message,
           pending: input.state.pending,
@@ -55,6 +56,6 @@ export function createOpenAiInterpretationProvider(options: {
     const texts = contents.filter(part => part && typeof part === 'object' && (part as { type?: unknown }).type === 'output_text')
       .map(part => (part as { text?: unknown }).text)
     if (texts.length !== 1 || typeof texts[0] !== 'string' || texts[0].length > 4096) throw new Error('OpenAI response invalid')
-    return JSON.parse(texts[0])
+    return attachAiUsage(JSON.parse(texts[0]), body)
   }
 }

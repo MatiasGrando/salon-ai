@@ -1,7 +1,11 @@
+import { readAiUsage, type AiUsage } from './ai-usage.js'
+import { pendingQuestion } from './information.js'
 import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState } from './engine.js'
 
 export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[] }
-export type AiInterpretationProvider = (input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>
+export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
+export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
+export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type InterpretationDiagnostics = {
   mode: 'ai' | 'fallback'
   reason: 'provider_error' | 'timeout' | 'invalid_output' | null
@@ -9,10 +13,13 @@ export type InterpretationDiagnostics = {
   validationMs: number
   totalMs: number
   copyMode: 'ai' | 'fallback'
-  copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | null
+  copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
+  engineMs?: number
+  responseMs?: number
+  usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; replyDraft?: string | null }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain' }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -21,12 +28,12 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (!['intent,professionalMention,serviceEvidence,serviceId', 'intent,professionalMention,replyDraft,serviceEvidence,serviceId'].includes(Object.keys(item).sort().join(','))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
   }
-  if (item.replyDraft !== undefined && item.replyDraft !== null && (typeof item.replyDraft !== 'string' || item.replyDraft.length < 1 || item.replyDraft.length > 180 || /[\u0000-\u001f]/.test(item.replyDraft))) throw new Error('invalid AI draft')
+  if (item.serviceConfidence !== undefined && !['certain', 'uncertain'].includes(String(item.serviceConfidence))) throw new Error('invalid AI confidence')
   if (item.serviceId !== null && item.serviceEvidence === null) throw new Error('missing service evidence')
   if (item.serviceId === null && item.serviceEvidence !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded service evidence')
   if (item.serviceId !== null && (!services.some(s => s.id === item.serviceId) || !containsEvidence(message, item.serviceEvidence as string))) throw new Error('ungrounded AI service')
@@ -57,39 +64,40 @@ function suggestedService(evidence: string, services: readonly DialogueService[]
   return candidates.length === 1 ? candidates[0]! : null
 }
 
-/** Permit a short social draft only; all business facts remain in canonical engine text. */
-function safeCopy(draft: string | null | undefined, reply: string, state: DialogueState, message: string, services: readonly DialogueService[]): string | null {
-  if (!draft) return null
-  const text = normalized(draft).replace(/^[^a-z]+/, '')
-  // A date question may repeat only the service already selected by the local catalog engine.
-  const selected = state.pending === 'date' && /^¿Para qué día querés/.test(reply) ? services.find(service => service.id === state.serviceId) : undefined
-  const safeText = selected && evidenceWords(text).includes(evidenceWords(selected.name))
-    ? text.replace(normalized(selected.name), ' ').replace(/\s+/g, ' ').trim() : text
-  const safeWords = new Set('hola buenas buen buenos dia dias tardes noches todo muy como estas que te gustaria queres quieres necesitas servicio turno reservar para tu con gusto claro dale perfecto entiendo bien ayudo vamos gracias por supuesto cuento el la un una fecha queda cual preferis seria a nombre de quien llamas podemos ver buscar lo siguiente decime contame puedo'.split(' '))
-  if ((safeText.match(/[a-z]+/g) ?? []).some(word => !safeWords.has(word))) return null
-  if (/\d|[$€]|https?:|www\.|\b(?:reservad[oa]|confirmad[oa]|confirmamos|agendad[oa]|agendamos|agende|disponible|agotad[oa]|precio|cuesta|sale|gratis|manana|hoy)\b/i.test(text) ||
-      services.some(service => evidenceWords(safeText).includes(evidenceWords(service.name)))) return null
-  const question = /[?¿]/.test(draft)
-  const factualRead = /\b(?:precio|cuanto|sale|servicios|catalogo|horarios|direccion|donde|web|pagina|instagram|facebook|telefono)\b/.test(normalized(message))
-  if (!factualRead && state.pending === 'service' && !state.serviceId && services.length && /¿qué servicio necesitás\?/i.test(reply)) {
-    if (!/^(?:hola|buenas|buen dia|claro|dale|te ayudo|que servicio)/.test(text)) return null
-    if (question) return /\b(?:servicio|turno)\b/.test(text) ? draft : null
-    return /^(?:hola|buenas)/.test(text) && /^(?:hola|buenas)/.test(normalized(message)) ? `${draft}\n¿Qué servicio necesitás?` : null
-  }
-  if (state.pending === 'date' && /^¿Para qué día querés/.test(reply)) {
-    return question && /\b(?:dia|fecha)\b/.test(text) && /^(?:claro|dale|perfecto|que dia|para que dia)/.test(text) ? draft : null
-  }
-  if (state.pending === 'name' && /^¿A nombre de quién/.test(reply)) {
-    return question && /\b(?:nombre|llamas)\b/.test(text) ? draft : null
-  }
-  if (draft.length > 90 || question || !/^(?:hola|claro|dale|perfecto|entiendo|bien|te ayudo|vamos|con gusto|gracias|por supuesto)\b/.test(text)) return null
-  return `${draft}\n${reply}`
+function responseFacts(reply: string, state: DialogueState, intent: Candidate['intent'] | null, message: string): { id: string; text: string }[] {
+  if (intent === 'other' && state.pending === 'service' && !state.serviceId &&
+      reply === '¿En qué te puedo ayudar con el local?') return []
+  const lines = reply.split('\n').map(line => line.trim()).filter(Boolean)
+  const catalogRequested = /\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message)
+  // The deterministic menu is a fallback, not a fact that must be dumped after social messages.
+  if (state.pending === 'service' && !state.serviceId && !catalogRequested && (reply.startsWith('¿Qué servicio necesitás?\n') || reply.startsWith('Hola. Te ayudo con tu turno.\n¿Qué servicio necesitás?') || reply === 'Hola, ¿qué servicio necesitás?'))
+    return intent === 'other' ? [] : [{ id: 'next', text: '¿Qué servicio necesitás?' }]
+  const pending = pendingQuestion(state)
+  if (lines.at(-1) === pending && lines.length > 1) lines.pop()
+  return lines.map((text, index) => ({ id: String(index), text }))
+}
+function assembledReply(raw: unknown, facts: readonly { id: string; text: string }[], services: readonly DialogueService[]): string | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const value = raw as Record<string, unknown>
+  if (Object.keys(value).sort().join(',') !== 'closing,factIds,opening' || !Array.isArray(value.factIds)) return null
+  if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
+      value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return null
+  const framing = [value.opening, value.closing]
+  if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 ||
+      /[\u0000-\u001f\d$€]|https?:|www\./i.test(part)))) return null
+  // Catalog entities may appear only in server-inserted facts, never in free model text.
+  if (framing.some(part => typeof part === 'string' && services.some(service => evidenceWords(part).includes(evidenceWords(service.name))))) return null
+  // Free style is allowed, but unverified business assertions and actions are never accepted in the frame.
+  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return null
+  const text = [value.opening, ...value.factIds.map(id => facts.find(fact => fact.id === id)!.text), value.closing]
+    .filter(part => typeof part === 'string' && part.trim()).join('\n')
+  return text.length > 0 && text.length <= 5000 ? text : null
 }
 
-/** AI interprets each enabled QA turn; the deterministic engine remains the only factual and proposal authority. */
+/** QA only: interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
 export async function respondWithAiInterpreter(
   context: DialogueContext, previous: unknown, message: string, port: DialoguePort,
-  provider: AiInterpretationProvider, options: { timeoutMs?: number } = {}
+  provider: AiInterpretationProvider, options: { timeoutMs?: number; responseProvider?: AiResponseProvider } = {}
 ): Promise<InterpretedDialogueResponse> {
   const started = performance.now()
   const state = parseDialogueState(previous, context.businessId, context.timezone)
@@ -102,15 +110,12 @@ export async function respondWithAiInterpreter(
   let reason: InterpretationDiagnostics['reason'] = null
   const providerStarted = performance.now()
   try {
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs)
-    })
-    raw = await Promise.race([provider({ message, state, services }, controller.signal), deadline])
-  } catch {
-    reason = controller.signal.aborted ? 'timeout' : 'provider_error'
-  } finally {
-    clearTimeout(timer)
-  }
+    raw = await Promise.race([
+      provider({ message, state, services }, controller.signal),
+      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
+    ])
+  } catch { reason = controller.signal.aborted ? 'timeout' : 'provider_error' }
+  finally { clearTimeout(timer) }
   const providerAt = performance.now()
   let candidate: Candidate | null = null
   if (!reason) {
@@ -121,40 +126,68 @@ export async function respondWithAiInterpreter(
   const professionalMention = candidate?.professionalMention
   const safeProfessionalMention = professionalMention && !/\bcon\s+[a-z]/i.test(normalized(message)) &&
     !/\b(?:no|nunca|sin|soy|llamo|nombre)\b/.test(normalized(message))
-  const interpretedMessage = safeProfessionalMention ? message + ' con ' + professionalMention : message
+  let interpretedMessage = safeProfessionalMention ? message + ' con ' + professionalMention : message
   let response: DialogueResponse
   const typoService = candidate?.serviceId ? null :
     suggestedService(candidate?.serviceEvidence ?? '', services) ?? suggestedService(message, services)
-  if (candidate?.serviceId && candidate.serviceEvidence) {
-    const service = services.find(s => s.id === candidate.serviceId)!
-    if (normalized(candidate.serviceEvidence) !== normalized(service.name)) {
-      const partial = await respond(context, state, interpretedMessage, cachedPort)
-      // Keep independently stated date/name/professional hint, but never accept a guessed service.
-      if (partial.state.serviceId !== state.serviceId) {
-        partial.state.serviceId = state.serviceId
-        partial.state.professional = state.professional
-        partial.state.slot = null
-        partial.state.requestedTime = null
-      }
-      response = { state: partial.state, proposal: null, reply: '¿Te referís a ' + service.name + '? Escribí el nombre del servicio para confirmarlo.' }
-    } else {
-      response = await respond(context, state, interpretedMessage, cachedPort)
+  const selected = candidate?.serviceId ? services.find(s => s.id === candidate.serviceId) : undefined
+  const semantic = selected && candidate?.serviceEvidence && normalized(candidate.serviceEvidence) !== normalized(selected.name)
+  const overlap = semantic ? services.filter(service => evidenceWords(service.name).includes(evidenceWords(candidate!.serviceEvidence!)) ||
+    evidenceWords(candidate!.serviceEvidence!).includes(evidenceWords(service.name))) : []
+  const uncertain = Boolean(semantic && (candidate?.serviceConfidence !== 'certain' || overlap.length > 1))
+  const engineStarted = performance.now()
+  if (selected && semantic && uncertain) {
+    const partial = await respond(context, state, interpretedMessage, cachedPort)
+    if (partial.state.serviceId !== state.serviceId) {
+      partial.state.serviceId = state.serviceId
+      partial.state.professional = state.professional
+      partial.state.slot = null
+      partial.state.requestedTime = null
     }
-
+    response = { state: partial.state, proposal: null, reply: '¿Te referís a ' + selected.name + '? Confirmame cuál servicio querés.' }
   } else {
+    if (selected && semantic && candidate?.serviceEvidence) interpretedMessage += ' ' + selected.name
     response = await respond(context, state, interpretedMessage, cachedPort)
-    if (typoService && !response.state.serviceId) response = { ...response, proposal: null, reply: '¿Te referís a ' + typoService.name + '? Escribí el nombre del servicio para confirmarlo.' }
+    if (typoService && !response.state.serviceId) response = { ...response, proposal: null,
+      reply: '¿Te referís a ' + typoService.name + '? Confirmame cuál servicio querés.' }
   }
-  const simpleGreeting = /^(?:hola|buenas|buen dia|buenas tardes|buenas noches)(?:\b|$)/.test(normalized(message)) &&
-    !/\b(?:servicios|catalogo|precios|cuanto|sale|horarios|direccion)\b/.test(normalized(message))
-  const safeReply = simpleGreeting && response.state.pending === 'service' && !response.state.serviceId &&
-    /¿qué servicio necesitás\?/i.test(response.reply) && services.length ? 'Hola, ¿qué servicio necesitás?' : response.reply
-  const canonicalOnly = response.proposal !== null || Boolean(typoService) || Boolean(candidate?.serviceId && candidate.serviceEvidence && normalized(candidate.serviceEvidence) !== normalized(services.find(s => s.id === candidate.serviceId)?.name ?? ''))
-  const authored = !reason && !canonicalOnly ? safeCopy(candidate?.replyDraft, safeReply, response.state, message, services) : null
-  const copyReason = reason ? 'canonical_only' : canonicalOnly ? 'canonical_only' : !candidate?.replyDraft ? 'missing_draft' : authored ? null : 'unsafe_draft'
+  const engineAt = performance.now()
+  const simpleGreeting = /^(?:hola|buenas|buen dia|buenas tardes|buenas noches)(?:\b|$)/.test(normalized(message))
+  const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&
+    !/\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message) &&
+    /^(?:Hola\. Te ayudo con tu turno\.\n)?¿Qué servicio necesitás\?\n/.test(response.reply)
+  const safeReply = defaultServiceMenu && candidate?.intent === 'other' ? '¿En qué te puedo ayudar con el local?'
+    : defaultServiceMenu ? (simpleGreeting ? 'Hola, ¿qué servicio necesitás?' : '¿Qué servicio necesitás?') : response.reply
+  const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain
+  const responseProvider = options.responseProvider ?? provider.respond
+  let authored: string | null = null
+  let copyReason: InterpretationDiagnostics['copyReason'] = 'canonical_only'
+  let responseMs = 0
+  let responseUsage: AiUsage | null = null
+  if (!reason && !canonicalOnly && responseProvider) {
+    const facts = responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
+    const responseController = new AbortController()
+    let responseTimer: ReturnType<typeof setTimeout> | undefined
+    const responseStarted = performance.now()
+    try {
+      const output = await Promise.race([
+        responseProvider({ message, intent: candidate!.intent, state: response.state, facts }, responseController.signal),
+        new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
+      ])
+      responseUsage = readAiUsage(output)
+      authored = assembledReply(output, facts, services)
+      copyReason = authored ? null : 'invalid_response'
+    } catch { copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error' }
+    finally { clearTimeout(responseTimer); responseMs = ms(performance.now() - responseStarted) }
+  } else if (!reason && !canonicalOnly && !responseProvider) {
+    // Legacy one-call test callers retain the existing canonical fallback; QA runtime supplies a second call.
+    copyReason = 'missing_draft'
+  }
   return { ...response, reply: authored ?? safeReply, interpretation: {
     mode: reason ? 'fallback' : 'ai', reason,
-    providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt), totalMs: ms(performance.now() - started),
+    providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
+    engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),
+    usage: { interpretation: readAiUsage(raw), response: responseUsage },
     copyMode: authored ? 'ai' : 'fallback', copyReason
   } }
 }

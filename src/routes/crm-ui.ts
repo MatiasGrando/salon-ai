@@ -22246,7 +22246,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const interpretation = message.preview?.interpretacion
         const modeLabel = interpretation?.mode === 'ai' ? 'IA' : interpretation?.mode === 'fallback' ? 'Respaldo determinista' : 'Determinista (IA apagada)'
         const modeLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de interpretaci&oacute;n: ' + escapeHtml(modeLabel) + (interpretation.reason && interpretation.reason !== 'disabled' ? ' (' + escapeHtml(interpretation.reason) + ')' : '') + '</div>' : ''
-        const copyLabel = interpretation?.copyMode === 'ai' ? 'IA controlada' : interpretation?.mode === 'ai' ? 'Motor (borrador no usado)' : 'Motor'
+        const copyLabel = interpretation?.copyMode === 'ai' ? 'IA controlada' : interpretation?.mode === 'ai' ? 'Respaldo del motor' : 'Motor'
         const copyLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de redacci&oacute;n: ' + escapeHtml(copyLabel) + (interpretation.copyReason ? ' (' + escapeHtml(interpretation.copyReason) + ')' : '') + '</div>' : ''
         const diagnostics = message.preview ? '<details class="demo-chat-diagnostics"><summary>Datos entendidos y tiempos</summary><pre>' + escapeHtml(JSON.stringify(message.preview, null, 2)) + '</pre></details>' : ''
         return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + modeLine + copyLine + diagnostics + '</div>'
