@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
@@ -70,9 +71,10 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
-type Query = { sql: string; values: unknown[] }
-function runtimeFixture() {
-  const now = new Date('2026-10-01T12:00:00Z')
+type Query = { sql: string; text: string; values: unknown[] }
+function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean } = {}) {
+  const now = options.now ?? new Date('2026-10-01T12:00:00Z')
+  let sessionSql: Transaction | undefined
   let inTransaction = false
   let row = { ...config, id: 'inbox', deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true },
     providerEventId: 'event', providerMessageId: 'msg', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
@@ -92,13 +94,19 @@ function runtimeFixture() {
       const backup = structuredClone({ row, session, replies, settled, retried, messages })
       inTransaction = true
       try {
-        const result = await operation(client)
-        if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
-        return result
+        const execute = async () => {
+          const result = await operation(client)
+          if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
+          return result
+        }
+        return options.sessionDb ? await options.sessionDb.transaction(async tx => {
+          sessionSql = tx
+          return execute()
+        }) : await execute()
       } catch (error) {
         ;({ row, session, replies, settled, retried, messages } = backup)
         throw error
-      } finally { inTransaction = false }
+      } finally { inTransaction = false; sessionSql = undefined }
     },
     async $queryRaw(q: Query) {
       statements.push(q)
@@ -120,8 +128,11 @@ function runtimeFixture() {
       if (q.sql.includes('AS "conversationId" FROM "Conversation"')) return [{ conversationId: 'conversation' }]
       if (q.sql.includes('INSERT INTO "Message"')) { messages++; return [] }
       if (q.sql.includes('conversation-create-session')) {
-        session = { sessionId: 'session', conversationId: 'conversation', revision: 0n, status: 'ACTIVE', state: createInitialBotOptionsState(), businessTimezone: 'UTC', handoffFenceEpoch: 0, handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
-        return [{ id: session.sessionId }]
+        // Execute the parameterized production statement, not a copy of its SQL.
+        const inserted = sessionSql ? (await sessionSql.query<{ id: string }>(q.text, q.values)).rows : [{ id: 'session' }]
+        if (options.failAfterSessionCreate) throw new Error('session creation interrupted')
+        session = { sessionId: inserted[0]!.id, conversationId: 'conversation', revision: 0n, status: 'ACTIVE', state: createInitialBotOptionsState(), businessTimezone: 'UTC', handoffFenceEpoch: 0, handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
+        return inserted
       }
       if (q.sql.includes('UPDATE "Conversation" conversation')) return []
       if (q.sql.includes('inserted_outbox')) {
@@ -161,6 +172,48 @@ function runtimeFixture() {
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+// Only session creation executes against real PostgreSQL/WASM; other fixture paths stay offline.
+// Default PGlite storage is memory-only: no DATABASE_URL, persistent files or remote effects.
+const sessionDb = new PGlite()
+try {
+  await sessionDb.exec(`
+    SET TIME ZONE 'UTC';
+    CREATE TABLE "BotSession" (
+      "id" text PRIMARY KEY, "businessId" text NOT NULL, "conversationId" text,
+      "deploymentId" text NOT NULL, "deploymentGeneration" integer NOT NULL,
+      "businessTimezone" text NOT NULL, "state" jsonb NOT NULL, "revision" bigint NOT NULL,
+      "updatedAt" timestamp(3) NOT NULL, "draftTouchedAt" timestamp(3), "draftExpiresAt" timestamp(3)
+    );
+  `)
+  const admittedAt = new Date('2026-10-01T23:45:12.345Z')
+  const midnight = runtimeFixture({ sessionDb, now: admittedAt })
+  try { await midnight.run() } catch (error) {
+    console.error('real conversation-create-session SQL failure:', (error as { code?: string }).code)
+    throw error
+  }
+  const saved = (await sessionDb.query<{ id: string; draftTouchedAt: Date; draftExpiresAt: Date }>(
+    `SELECT "id", "draftTouchedAt" AT TIME ZONE 'UTC' AS "draftTouchedAt",
+      "draftExpiresAt" AT TIME ZONE 'UTC' AS "draftExpiresAt" FROM "BotSession"`
+  )).rows
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0]!.id, midnight.session.sessionId, 'fixture and SQL share the actual inserted ID')
+  assert.equal(saved[0]!.draftTouchedAt.toISOString(), admittedAt.toISOString(), 'admitted time persists exactly')
+  assert.equal(saved[0]!.draftExpiresAt.toISOString(), '2026-10-02T23:45:12.345Z', 'expiry advances into the next day')
+  assert.equal(saved[0]!.draftExpiresAt.getTime() - admittedAt.getTime(), 24 * 60 * 60 * 1000)
+  assert.equal(midnight.row.status, 'PROCESSED')
+  assert.equal(midnight.replies.length, 1, 'successful SQL creation reaches the reply')
+
+  await sessionDb.exec('TRUNCATE "BotSession"')
+  const interrupted = runtimeFixture({ sessionDb, now: admittedAt, failAfterSessionCreate: true })
+  await assert.rejects(interrupted.run(), /session creation interrupted/)
+  assert.equal((await sessionDb.query('SELECT "id" FROM "BotSession"')).rows.length, 0, 'SQL creation rolls back with the fixture transaction')
+  assert.equal(interrupted.session, null)
+  assert.equal(interrupted.row.status, 'ADMITTED')
+  assert.equal(interrupted.messages, 0)
+  assert.equal(interrupted.replies.length, 0)
+  console.log('conversational real PostgreSQL session timestamps/rollback: PASS')
+} finally { await sessionDb.close() }
+
 const runtime = runtimeFixture()
 await runtime.run()
 assert.equal(runtime.session.state && (runtime.session.state as typeof projected).flow, 'DATE_SELECT')

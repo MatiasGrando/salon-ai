@@ -135,7 +135,7 @@ export async function processConversationInbox(input: {
           /* conversation-create-session */
           INSERT INTO "BotSession" ("id", "businessId", "conversationId", "deploymentId", "deploymentGeneration", "businessTimezone", "state", "revision", "updatedAt", "draftTouchedAt", "draftExpiresAt")
           VALUES (${randomUUID()}, ${row.businessId}, ${conversationId}, ${row.deploymentId}, ${row.generation}, ${row.businessTimezone},
-            ${JSON.stringify(createInitialBotOptionsState())}::jsonb, 0, clock_timestamp(), ${row.admittedAt}, ${row.admittedAt} + interval '24 hours') RETURNING "id"
+            ${JSON.stringify(createInitialBotOptionsState())}::jsonb, 0, clock_timestamp(), ${row.admittedAt}::timestamptz, ${row.admittedAt}::timestamptz + interval '24 hours') RETURNING "id"
         `)
         if (!inserted[0]) throw new Error('conversation session creation failed')
       }
