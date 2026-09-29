@@ -1,4 +1,5 @@
 import { readAiUsage, type AiUsage } from './ai-usage.js'
+import { routeActions } from './actions.js'
 import { pendingQuestion } from './information.js'
 import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
 
@@ -6,7 +7,19 @@ export type AiInterpretationInput = { message: string; state: DialogueState; ser
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
+export type DecisionTrace = {
+  proposedIntent: Candidate['intent'] | 'unknown'
+  acceptedAction: 'select_service' | 'clarify_service' | 'no_service_change' | 'information_read' | 'pending_action_unavailable' | 'booking_proposal' | 'deterministic_fallback'
+  candidateCount: number
+  pendingBefore: DialogueState['pending']
+  pendingAfter: DialogueState['pending']
+  outcome: 'selected' | 'ambiguous' | 'corrected' | 'fallback' | 'unchanged'
+  reason: 'validated_service' | 'multiple_catalog_candidates' | 'service_correction' | 'no_service_decision' | 'not_applied' |
+    'information_route' | 'pending_action' | 'proposal_only' | 'provider_error' | 'timeout' | 'invalid_output'
+}
+
 export type InterpretationDiagnostics = {
+  decision: DecisionTrace
   mode: 'ai' | 'fallback'
   reason: 'provider_error' | 'timeout' | 'invalid_output' | null
   providerMs: number
@@ -189,7 +202,28 @@ export async function respondWithAiInterpreter(
     // Legacy one-call test callers retain the existing canonical fallback; QA runtime supplies a second call.
     copyReason = 'missing_draft'
   }
+  // Only fixed codes, counts and workflow states leave this function as QA decision diagnostics.
+  // Never copy model evidence, catalog IDs/names, chat text or provider output into metadata.
+  const route = routeActions(message)
+  const decisionTrace: DecisionTrace = {
+    proposedIntent: candidate?.intent ?? 'unknown',
+    candidateCount: candidates.length || (selected ? 1 : 0),
+    pendingBefore: state.pending,
+    pendingAfter: response.state.pending,
+    acceptedAction: reason ? 'deterministic_fallback' : candidates.length > 1 || uncertain ? 'clarify_service'
+      : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
+        ? 'select_service' : response.proposal ? 'booking_proposal' : route.pendingAction ? 'pending_action_unavailable'
+          : route.information.length ? 'information_read' : 'no_service_change',
+    outcome: reason ? 'fallback' : decision?.correction ? 'corrected' : candidates.length > 1 || uncertain ? 'ambiguous'
+      : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
+        ? 'selected' : 'unchanged',
+    reason: reason ?? (decision?.correction ? 'service_correction' : candidates.length > 1 ? 'multiple_catalog_candidates'
+      : uncertain ? 'not_applied' : decision?.serviceId && response.state.serviceId === decision.serviceId
+        ? 'validated_service' : decision?.serviceId ? 'not_applied' : response.proposal ? 'proposal_only'
+          : route.pendingAction ? 'pending_action' : route.information.length ? 'information_route' : 'no_service_decision')
+  }
   return { ...response, reply: authored ?? safeReply, interpretation: {
+    decision: decisionTrace,
     mode: reason ? 'fallback' : 'ai', reason,
     providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
     engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),

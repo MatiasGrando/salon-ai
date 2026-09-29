@@ -31,11 +31,19 @@ assert.equal(greeting.interpretation.copyMode, 'ai')
 assert.equal(greeting.reply, '¡Hola! ¿Cómo estás?\n¿En qué te ayudo con el local?')
 assert.doesNotMatch(greeting.reply, /27\.000|Iluminación|¿Qué servicio necesitás/)
 assert.ok(greeting.interpretation.engineMs! >= 0 && greeting.interpretation.responseMs! >= 0)
+assert.deepEqual(greeting.interpretation.decision, { proposedIntent: 'other', acceptedAction: 'no_service_change', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'unchanged', reason: 'no_service_decision' })
 
 const address = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'donde estan?', port,
   async () => ({ ...empty, intent: 'information' }), { responseProvider: writer })
 assert.match(address.reply, /Monroe 5252, Villa Urquiza/)
+assert.equal(address.interpretation.decision.acceptedAction, 'information_read')
+assert.equal(address.interpretation.decision.reason, 'information_route')
 assert.doesNotMatch(address.reply, /¿Qué servicio necesitás|27\.000/)
+const unavailableAction = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero cancelar mi turno', port,
+  async () => ({ ...empty, intent: 'booking' }), { responseProvider: writer })
+assert.equal(unavailableAction.interpretation.decision.acceptedAction, 'pending_action_unavailable')
+assert.equal(unavailableAction.interpretation.decision.reason, 'pending_action')
+assert.equal(unavailableAction.proposal, null)
 const price = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'cuanto sale iluminación', port,
   async () => ({ ...empty, intent: 'information' }), { responseProvider: writer })
 assert.match(price.reply, /160\.000/)
@@ -61,10 +69,13 @@ assert.match(greetingCut.reply, /Corte Hombre/)
 assert.match(greetingCut.reply, /Corte y barba/)
 assert.match(greetingCut.reply, /Corte Mujer/)
 assert.doesNotMatch(greetingCut.reply, /Iluminación/)
+assert.deepEqual(greetingCut.interpretation.decision, { proposedIntent: 'booking', acceptedAction: 'clarify_service', candidateCount: 3, pendingBefore: 'service', pendingAfter: 'service', outcome: 'ambiguous', reason: 'multiple_catalog_candidates' })
 const selectedCut = await respondWithAiInterpreter(context, greetingCut.state, 'el corte de hombre', port,
   async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte de hombre', serviceConfidence: 'certain' }), { responseProvider: writer })
 assert.equal(selectedCut.state.serviceId, 'cut')
 assert.equal(selectedCut.state.pending, 'date')
+assert.equal(selectedCut.interpretation.decision.acceptedAction, 'select_service')
+assert.equal(selectedCut.interpretation.decision.outcome, 'selected')
 const earlyFields = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola quería un corte con Ramiro mañana', port,
   async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], professionalMention: 'Ramiro' }), { responseProvider: writer })
 assert.equal(earlyFields.state.date, '2026-09-29')
@@ -75,6 +86,8 @@ assert.equal(consultation.state.serviceId, 'lights')
 const correction = await respondWithAiInterpreter(context, consultation.state, 'no mejor un corte', port,
   async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceCorrection: true }), { responseProvider: writer })
 assert.equal(correction.state.serviceId, null)
+assert.equal(correction.interpretation.decision.acceptedAction, 'clarify_service')
+assert.equal(correction.interpretation.decision.outcome, 'corrected')
 assert.match(correction.reply, /Corte Hombre/)
 assert.doesNotMatch(correction.reply, /requiere una consulta/)
 const uncertain = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
@@ -87,6 +100,7 @@ const fabricatedCandidates = await respondWithAiInterpreter(context, initialDial
   async () => ({ ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'not-in-catalog'] }), { responseProvider: writer })
 assert.equal(fabricatedCandidates.interpretation.reason, 'invalid_output')
 assert.equal(fabricatedCandidates.state.serviceId, null)
+assert.deepEqual(fabricatedCandidates.interpretation.decision, { proposedIntent: 'unknown', acceptedAction: 'deterministic_fallback', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'fallback', reason: 'invalid_output' })
 
 const inventedPrice = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'cuanto sale iluminación', port,
   async () => ({ ...empty, intent: 'information' }), { responseProvider: async () => ({ opening: 'Cuesta $ 1', factIds: ['0'], closing: null }) })
@@ -112,6 +126,7 @@ assert.equal(timeout.interpretation.copyReason, 'response_timeout')
 const interpreterFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
   async () => { throw new Error('offline') }, { responseProvider: writer })
 assert.equal(interpreterFailure.interpretation.mode, 'fallback')
+assert.equal(interpreterFailure.interpretation.decision.reason, 'provider_error')
 
 let requests: Array<{ url: string; body: any }> = []
 const fetchImpl: typeof fetch = async (url, init) => {
@@ -152,4 +167,47 @@ for (const [message, interpretation] of turns) {
 assert.equal(consecutive.serviceId, 'cut')
 assert.equal(consecutive.professional?.kind === 'specific' ? consecutive.professional.id : null, 'ramiro')
 assert.equal(consecutive.pending, 'name')
-console.log('conversational AI two-stage: offline PASS')
+// Labeled, synthetic conversation evaluation. These are reported failure shapes, not exported customer chats.
+const syntheticScenarios: Array<{ label: string; turns: Array<{
+  message: string; candidate: unknown; expectedAction: string; expectedOutcome: string;
+  candidateCount: number; pending: string; service: boolean; date?: boolean; professional?: boolean
+}> }> = [
+  { label: 'greeting plus ambiguous service and selection', turns: [
+    { message: 'hola quería un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'] }, expectedAction: 'clarify_service', expectedOutcome: 'ambiguous', candidateCount: 3, pending: 'service', service: false },
+    { message: 'un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'woman'] }, expectedAction: 'clarify_service', expectedOutcome: 'ambiguous', candidateCount: 3, pending: 'service', service: false },
+    { message: 'el corte de hombre', candidate: { ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte de hombre', serviceConfidence: 'certain' }, expectedAction: 'select_service', expectedOutcome: 'selected', candidateCount: 1, pending: 'date', service: true }
+  ] },
+  { label: 'correction leaves consultation', turns: [
+    { message: 'claritos', candidate: { ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }, expectedAction: 'select_service', expectedOutcome: 'selected', candidateCount: 1, pending: 'date', service: true },
+    { message: 'no mejor un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceCorrection: true }, expectedAction: 'clarify_service', expectedOutcome: 'corrected', candidateCount: 3, pending: 'service', service: false }
+  ] },
+  { label: 'fragmented professional and date', turns: [
+    { message: 'hola quería un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'] }, expectedAction: 'clarify_service', expectedOutcome: 'ambiguous', candidateCount: 3, pending: 'service', service: false },
+    { message: 'con Ramiro', candidate: { ...empty, intent: 'booking', professionalMention: 'Ramiro' }, expectedAction: 'no_service_change', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false },
+    { message: 'mañana', candidate: { ...empty, intent: 'booking' }, expectedAction: 'no_service_change', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false, date: true },
+    { message: 'corte hombre', candidate: { ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre', serviceConfidence: 'certain' }, expectedAction: 'select_service', expectedOutcome: 'selected', candidateCount: 1, pending: 'time', service: true, date: true, professional: true }
+  ] },
+  { label: 'invalid model output falls back', turns: [
+    { message: 'hola', candidate: { ...empty, serviceId: 'not-in-catalog', serviceEvidence: 'hola' }, expectedAction: 'deterministic_fallback', expectedOutcome: 'fallback', candidateCount: 0, pending: 'service', service: false }
+  ] }
+]
+let evaluated = 0
+for (const scenario of syntheticScenarios) {
+  let state = initialDialogueState('qa')
+  for (const item of scenario.turns) {
+    const result = await respondWithAiInterpreter(context, state, item.message, port, async () => item.candidate, { responseProvider: writer })
+    const trace = result.interpretation.decision
+    assert.equal(trace.acceptedAction, item.expectedAction, scenario.label)
+    assert.equal(trace.outcome, item.expectedOutcome, scenario.label)
+    assert.equal(trace.candidateCount, item.candidateCount, scenario.label)
+    assert.equal(trace.pendingBefore, state.pending, scenario.label)
+    assert.equal(trace.pendingAfter, item.pending, scenario.label)
+    assert.equal(Boolean(result.state.serviceId), item.service, scenario.label)
+    if (item.date !== undefined) assert.equal(Boolean(result.state.date), item.date, scenario.label)
+    if (item.professional !== undefined) assert.equal(result.state.professional?.kind === 'specific', item.professional, scenario.label)
+    state = result.state
+    evaluated++
+  }
+}
+assert.equal(evaluated, 10)
+console.log(`conversational AI two-stage: offline PASS; ${evaluated} labeled synthetic turns`)

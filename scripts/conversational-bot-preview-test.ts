@@ -41,6 +41,10 @@ let previewAiCalls = 0
 const aiPreview = await runConversationalPreview({ ...dependencies, interpretationProvider: async () => { previewAiCalls++; return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null } } }, businessId, 'demo:preview:user:ai-test', 'hola')
 assert.equal(previewAiCalls, 1)
 assert.equal(aiPreview.interpretation?.mode, 'ai')
+assert.ok('decision' in aiPreview.interpretation)
+assert.equal(aiPreview.interpretation.decision.proposedIntent, 'booking')
+assert.equal(aiPreview.interpretation.decision.pendingBefore, 'service')
+assert.equal(aiPreview.interpretation.decision.pendingAfter, 'service')
 
 const fallbackPreview = await runConversationalPreview({ ...dependencies, interpretationProvider: async () => { throw new Error('secret must not leak') } }, businessId, 'demo:preview:user:fallback-test', 'hola')
 assert.equal(fallbackPreview.interpretation.mode, 'fallback')

@@ -57,9 +57,14 @@ let aiCalls = 0
 const aiTurn = await runPrismaDemoPreview(client, 'qa', 'admin', 'ai-session', 'hola', factory, async () => { aiCalls++; return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null } })
 assert.equal(aiCalls, 1)
 assert.equal(aiTurn.interpretation.mode, 'ai')
+assert.ok('decision' in aiTurn.interpretation)
 const outbound = messages.find(m => m.phone.endsWith('ai-session') && m.direction === 'OUTBOUND')!
 assert.equal(outbound.metadata.interpretation.mode, 'ai')
 assert.equal(typeof outbound.metadata.interpretation.providerMs, 'number')
+assert.deepEqual(outbound.metadata.interpretation.decision, aiTurn.interpretation.decision, 'safe decision codes survive QA persistence')
+assert.deepEqual(Object.keys(outbound.metadata.interpretation.decision).sort(), ['acceptedAction', 'candidateCount', 'outcome', 'pendingAfter', 'pendingBefore', 'proposedIntent', 'reason'])
+assert.equal(outbound.metadata.interpretation.decision.pendingBefore, 'service')
+assert.equal(outbound.metadata.interpretation.decision.pendingAfter, 'service')
 assert.equal(JSON.stringify(outbound.metadata).includes('hola'), false, 'diagnostic metadata excludes message content')
 
 const aiSecond = await runPrismaDemoPreview(client, 'qa', 'admin', 'ai-session', 'mañana', factory, async () => { aiCalls++; return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null } })
@@ -70,6 +75,8 @@ assert.equal(fallbackTurn.interpretation.mode, 'fallback')
 assert.equal(fallbackTurn.interpretation.reason, 'provider_error')
 const fallbackMetadata = messages.find(m => m.phone.endsWith('fallback-session') && m.direction === 'OUTBOUND')!.metadata
 assert.equal(fallbackMetadata.interpretation.mode, 'fallback')
+assert.equal(fallbackMetadata.interpretation.decision.reason, 'provider_error')
+assert.equal(fallbackMetadata.interpretation.decision.acceptedAction, 'deterministic_fallback')
 assert.equal(JSON.stringify(fallbackMetadata).includes('private detail'), false)
 
 
