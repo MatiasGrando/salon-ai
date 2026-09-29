@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
+import type { AttemptMetricEvent } from '../src/bot-options/observability/attempt-metrics.js'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
+
+// Keep stage logs quiet outside explicit metric assertions; production logging is unchanged.
+const runtimeInfo = console.info
+console.info = (...args: unknown[]) => { if (args[0] !== '[bot-options-attempt-stage]') runtimeInfo(...args) }
 
 const config = { businessId: 'biz', customerCode: 'WX-38N6UG', deploymentId: 'dep', generation: 1,
   configurationId: 'cfg', configurationBusinessId: 'biz', configurationStatus: 'ACTIVE', engineKey: 'deterministic-options',
@@ -161,10 +166,11 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     assert.equal(inTransaction, false, 'repository preparation must execute outside transaction')
     prepareHook?.()
     const outside = () => assert.equal(inTransaction, false, 'engine repository query must execute outside transaction')
-    return { context: { businessId: 'biz', timezone: 'UTC', dbNow: now }, port: {
-      catalog: async () => { outside(); return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
-      availability: async () => { outside(); return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
-    } }
+    const port = {
+      catalog: async function () { assert.equal(this, port, 'catalog receiver must be preserved'); outside(); return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
+      availability: async function () { assert.equal(this, port, 'availability receiver must be preserved'); outside(); return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
+    }
+    return { context: { businessId: 'biz', timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
@@ -172,6 +178,65 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+async function captureRuntimeMetrics<T>(operation: () => Promise<T>, events: AttemptMetricEvent[], throwingSink = false): Promise<T> {
+  const original = console.info
+  console.info = (...args: unknown[]) => {
+    if (args[0] === '[bot-options-attempt-stage]') {
+      events.push(JSON.parse(String(args[1])) as AttemptMetricEvent)
+      if (throwingSink) throw new Error('metrics sink private unavailable')
+    }
+  }
+  try { return await operation() } finally { console.info = original }
+}
+const { processConversationInbox } = await import('../src/conversational-bot/process-inbox-job.js')
+const { withAttemptMetrics } = await import('../src/bot-options/observability/attempt-metrics.js')
+const absentPolicy: AttemptMetricEvent[] = []
+assert.equal(await withAttemptMetrics({ jobId: 'missing-policy', attempt: 1 }, () => processConversationInbox({
+  client: { $queryRaw: async () => [] }, job: { businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1 }
+} as never), { emit: event => absentPolicy.push(event) }), null)
+assert.deepEqual(absentPolicy.map(event => event.stage), ['conversation_policy_load', 'attempt'], 'absent policy never begins claims or transactions')
+const spanRuntime = runtimeFixture()
+const spans: AttemptMetricEvent[] = []
+await captureRuntimeMetrics(() => spanRuntime.run(), spans)
+const stages = spans.map(event => event.stage)
+for (const stage of [
+  'conversation_policy_load', 'conversation_target_read', 'conversation_dispatch_acquire',
+  'conversation_snapshot_transaction_start_wait', 'conversation_snapshot_transaction_body',
+  'conversation_snapshot_transaction_tail', 'conversation_snapshot_transaction_total',
+  'conversation_claim_assert', 'conversation_dispatch_assert', 'conversation_feature_lock', 'conversation_inbox_lock',
+  'conversation_order_read', 'conversation_conversation_upsert', 'conversation_session_lock', 'conversation_inbound_project',
+  'conversation_session_create', 'conversation_inbox_attach', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',
+  'conversation_final_transaction_start_wait', 'conversation_final_transaction_body',
+  'conversation_final_transaction_tail', 'conversation_final_transaction_total',
+  'conversation_session_save', 'conversation_transition_insert', 'conversation_step_project', 'conversation_view_persist',
+  'conversation_inbox_settle', 'conversation_event_settle', 'conversation_dispatch_complete', 'conversation_job_complete'
+]) assert.ok(stages.includes(stage as never), `missing runtime span: ${stage}`)
+assert.ok(spans.every(event => event.durationMs >= 0 && event.outcome === 'ok'))
+assert.doesNotMatch(JSON.stringify(spans), /phone|Corte|SELECT|INSERT|job-0|dispatch-token/, 'metrics must exclude values, recipient and SQL')
+assert.equal(spanRuntime.replies.length, 1)
+const cleanRuntime = runtimeFixture()
+await captureRuntimeMetrics(() => cleanRuntime.run(), [], true)
+assert.deepEqual(cleanRuntime.statements.map(q => q.sql), spanRuntime.statements.map(q => q.sql), 'failed metric sink must not alter SQL or ordering')
+assert.deepEqual(cleanRuntime.replies, spanRuntime.replies)
+for (const failure of ['commit', 'body'] as const) {
+  const failed = runtimeFixture({ failAfterSessionCreate: failure === 'body' })
+  if (failure === 'commit') failed.failCommit()
+  const errors: AttemptMetricEvent[] = []
+  await assert.rejects(captureRuntimeMetrics(() => failed.run(), errors, true), failure === 'commit' ? /COMMIT failed/ : /session creation interrupted/)
+  const phase = failure === 'commit' ? 'final' : 'snapshot'
+  assert.equal(errors.find(event => event.stage === `conversation_${phase}_transaction_tail`)!.outcome, 'error')
+  assert.equal(errors.find(event => event.stage === `conversation_${phase}_transaction_total`)!.outcome, 'error')
+  assert.equal(errors.find(event => event.stage === 'conversation_dispatch_release')!.outcome, 'ok')
+  assert.equal(failed.row.status, 'ADMITTED'); assert.equal(failed.replies.length, 0)
+}
+const metricRetry = runtimeFixture()
+metricRetry.block(true)
+const retrySpans: AttemptMetricEvent[] = []
+await captureRuntimeMetrics(() => metricRetry.run(), retrySpans)
+assert.ok(retrySpans.some(event => event.stage === 'conversation_job_reschedule'))
+assert.ok(!retrySpans.some(event => event.stage === 'conversation_final_transaction_total'))
+assert.equal(metricRetry.retried, 1)
+console.log('conversational detailed runtime spans/rollback/fail-open: PASS')
 // Only session creation executes against real PostgreSQL/WASM; other fixture paths stay offline.
 // Default PGlite storage is memory-only: no DATABASE_URL, persistent files or remote effects.
 const sessionDb = new PGlite()
