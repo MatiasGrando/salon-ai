@@ -47,7 +47,7 @@ export type ClaimedOutbox = {
 export type OutboxLatencyDiagnostic = {
   resource: 'outbox'
   resourceId: string
-  phase: 'claim' | 'queue' | 'preflight' | 'meta_request' | 'finalize' | 'admission_to_meta_acceptance'
+  phase: 'claim' | 'queue' | 'preflight' | 'meta_request' | 'provider_credentials' | 'meta_http' | 'meta_response_parse' | 'finalize' | 'admission_to_meta_acceptance'
   durationMs: number | null
   outcome: 'ok' | 'error' | 'retry' | 'poison' | 'unknown' | 'stale' | 'accepted' | 'unavailable'
   cohort: 'outbox_only'
@@ -164,8 +164,14 @@ export async function maintainOutbox(client: OutboxClient, scope?: { businessId:
   return { staleSending: Number(rows[0]?.staleSending ?? 0n), exhausted: Number(rows[0]?.exhausted ?? 0n) }
 }
 
+export type OutboxProviderDiagnostic = {
+  phase: 'provider_credentials' | 'meta_http' | 'meta_response_parse'
+  durationMs: number
+  outcome: 'ok' | 'error'
+}
+
 export type OutboxProvider = {
-  send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal): Promise<
+  send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal, onDiagnostic?: (diagnostic: OutboxProviderDiagnostic) => void): Promise<
     | { kind: 'accepted'; providerMessageId: string }
     | { kind: 'clear_failure'; code: string; retryable: boolean; retryAfterMs?: number }
   >
@@ -354,7 +360,10 @@ export async function sendClaimedOutbox(input: {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => { controller.abort(); reject(new Error('meta_timeout_unknown')) }, timeoutMs)
     })
-    const result = await Promise.race([input.provider.send({ businessId: input.item.businessId, payload: input.item.payload }, controller.signal), timeout])
+    const result = await Promise.race([input.provider.send({ businessId: input.item.businessId, payload: input.item.payload }, controller.signal,
+      isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode) && input.onDiagnostic
+        ? (diagnostic) => emit({ resource: 'outbox', resourceId: input.item.id, ...diagnostic })
+        : undefined), timeout])
     const providerMs = performance.now() - providerStartedAt
     providerObserved = true
     botOptionsMetrics.observe('meta_request', providerMs)

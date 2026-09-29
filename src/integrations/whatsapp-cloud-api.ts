@@ -1,6 +1,32 @@
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
 import { normalizeArgentineMobilePhone } from '../services/phone-normalization-service.js'
 
+export type WhatsAppSendLatencyDiagnostic = {
+  phase: 'meta_http' | 'meta_response_parse'
+  durationMs: number
+  outcome: 'ok' | 'error'
+}
+export type WhatsAppSendLatencySink = (diagnostic: WhatsAppSendLatencyDiagnostic) => void
+
+// Request-scoped only; callers without a sink keep their original path.
+async function measureSendPhase<T>(
+  sink: WhatsAppSendLatencySink | undefined,
+  phase: WhatsAppSendLatencyDiagnostic['phase'],
+  operation: () => Promise<T>,
+  outcome: (result: T) => 'ok' | 'error' = () => 'ok'
+): Promise<T> {
+  if (!sink) return operation()
+  const startedAt = performance.now()
+  let status: 'ok' | 'error' = 'error'
+  try {
+    const result = await operation()
+    status = outcome(result)
+    return result
+  } finally {
+    try { sink({ phase, durationMs: performance.now() - startedAt, outcome: status }) }
+    catch { /* diagnostics never affect delivery or the original error */ }
+  }
+}
 const MAX_INBOUND_MEDIA_BYTES = 25 * 1024 * 1024
 
 type SendTextMessageInput = {
@@ -365,7 +391,7 @@ export class WhatsAppCloudApi {
     }
   }
 
-  async sendTextMessage(input: SendTextMessageInput) {
+  async sendTextMessage(input: SendTextMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -377,7 +403,7 @@ export class WhatsAppCloudApi {
       }
     }
 
-    const response = await fetch(
+    const response = await measureSendPhase(onDiagnostic, 'meta_http', () => fetch(
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
@@ -395,11 +421,13 @@ export class WhatsAppCloudApi {
           }
         })
       }
-    )
+    ), (response) => response.ok ? 'ok' : 'error')
 
     if (!response.ok) {
-      const errorBody = await response.text()
-      const parsedError = parseWhatsAppError(errorBody)
+      const { errorBody, parsedError } = await measureSendPhase(onDiagnostic, 'meta_response_parse', async () => {
+        const errorBody = await response.text()
+        return { errorBody, parsedError: parseWhatsAppError(errorBody) }
+      })
 
       return {
         sent: false,
@@ -417,11 +445,11 @@ export class WhatsAppCloudApi {
     return {
       sent: true,
       to: recipientPhone,
-      response: await response.json()
+      response: await measureSendPhase(onDiagnostic, 'meta_response_parse', () => response.json())
     }
   }
 
-  async sendReplyButtonsMessage(input: SendReplyButtonsMessageInput) {
+  async sendReplyButtonsMessage(input: SendReplyButtonsMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -429,7 +457,7 @@ export class WhatsAppCloudApi {
       return { sent: false, to: recipientPhone, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado' }
     }
 
-    const response = await fetch(
+    const response = await measureSendPhase(onDiagnostic, 'meta_http', () => fetch(
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
@@ -440,11 +468,13 @@ export class WhatsAppCloudApi {
         },
         body: JSON.stringify(buildWhatsAppReplyButtonsPayload({ ...input, to: recipientPhone }))
       }
-    )
+    ), (response) => response.ok ? 'ok' : 'error')
 
     if (!response.ok) {
-      const errorBody = await response.text()
-      const parsedError = parseWhatsAppError(errorBody)
+      const { errorBody, parsedError } = await measureSendPhase(onDiagnostic, 'meta_response_parse', async () => {
+        const errorBody = await response.text()
+        return { errorBody, parsedError: parseWhatsAppError(errorBody) }
+      })
       return {
         sent: false,
         to: recipientPhone,
@@ -458,10 +488,10 @@ export class WhatsAppCloudApi {
       }
     }
 
-    return { sent: true, to: recipientPhone, response: await response.json() }
+    return { sent: true, to: recipientPhone, response: await measureSendPhase(onDiagnostic, 'meta_response_parse', () => response.json()) }
   }
 
-  async sendInteractiveListMessage(input: SendInteractiveListMessageInput) {
+  async sendInteractiveListMessage(input: SendInteractiveListMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -469,7 +499,7 @@ export class WhatsAppCloudApi {
       return { sent: false, to: recipientPhone, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado' }
     }
 
-    const response = await fetch(
+    const response = await measureSendPhase(onDiagnostic, 'meta_http', () => fetch(
       `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`,
       {
         method: 'POST',
@@ -480,11 +510,13 @@ export class WhatsAppCloudApi {
         },
         body: JSON.stringify(buildWhatsAppInteractiveListPayload({ ...input, to: recipientPhone }))
       }
-    )
+    ), (response) => response.ok ? 'ok' : 'error')
 
     if (!response.ok) {
-      const errorBody = await response.text()
-      const parsedError = parseWhatsAppError(errorBody)
+      const { errorBody, parsedError } = await measureSendPhase(onDiagnostic, 'meta_response_parse', async () => {
+        const errorBody = await response.text()
+        return { errorBody, parsedError: parseWhatsAppError(errorBody) }
+      })
       return {
         sent: false,
         to: recipientPhone,
@@ -498,7 +530,7 @@ export class WhatsAppCloudApi {
       }
     }
 
-    return { sent: true, to: recipientPhone, response: await response.json() }
+    return { sent: true, to: recipientPhone, response: await measureSendPhase(onDiagnostic, 'meta_response_parse', () => response.json()) }
   }
 
   async sendTemplateMessage(input: SendTemplateMessageInput) {

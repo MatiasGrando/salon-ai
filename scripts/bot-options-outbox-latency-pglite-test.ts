@@ -79,13 +79,14 @@ try {
   const prismaRows = (rows: Array<Record<string, unknown>>) => rows.map((row) => Object.fromEntries(
     Object.entries(row).map(([key, value]) => [key, /Count$/.test(key) && (typeof value === 'string' || typeof value === 'number') ? BigInt(value) : value])
   ))
+  let sqlOperations = 0
   const client = {
-    async $queryRaw(query: Prisma.Sql) { return prismaRows((await db.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
-    async $executeRaw(query: Prisma.Sql) { return (await db.query(query.text, query.values)).affectedRows ?? 0 },
+    async $queryRaw(query: Prisma.Sql) { sqlOperations += 1; return prismaRows((await db.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
+    async $executeRaw(query: Prisma.Sql) { sqlOperations += 1; return (await db.query(query.text, query.values)).affectedRows ?? 0 },
     async $transaction<T>(operation: (tx: unknown) => Promise<T>) {
       return db.transaction(async (pg) => operation({
-        async $queryRaw(query: Prisma.Sql) { return prismaRows((await pg.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
-        async $executeRaw(query: Prisma.Sql) { return (await pg.query(query.text, query.values)).affectedRows ?? 0 }
+        async $queryRaw(query: Prisma.Sql) { sqlOperations += 1; return prismaRows((await pg.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
+        async $executeRaw(query: Prisma.Sql) { sqlOperations += 1; return (await pg.query(query.text, query.values)).affectedRows ?? 0 }
       }))
     }
   }
@@ -149,19 +150,80 @@ try {
   whatsappConfig.latencyDiagnosticBusinessCodes.add(diagnosticCode)
   const acceptanceItem = await claimed('outbox-sent-at')
   const diagnostics: Array<{ phase: string; durationMs: number | null; outcome: string; sourceProviderEventId: string | null }> = []
+  const beforeSendSql = sqlOperations
+  let providerSignal: AbortSignal | undefined
   const sendResult = await sendClaimedOutbox({
     client: client as never,
     item: acceptanceItem,
-    provider: { async send() { return { kind: 'accepted', providerMessageId: 'synthetic-meta-acceptance' } } },
+    provider: { async send(input, signal, onDiagnostic) {
+      assert.deepEqual(input, { businessId: acceptanceItem.businessId, payload: acceptanceItem.payload })
+      providerSignal = signal
+      for (const phase of ['provider_credentials', 'meta_http', 'meta_response_parse'] as const) onDiagnostic?.({ phase, durationMs: 1, outcome: 'ok' })
+      return { kind: 'accepted', providerMessageId: 'synthetic-meta-acceptance' }
+    } },
     onDiagnostic(diagnostic) { diagnostics.push(diagnostic) }
   })
   assert.equal(sendResult, 'ACCEPTED')
+  const measuredSendSql = sqlOperations - beforeSendSql
+  assert.equal(providerSignal?.aborted, false)
+  const providerPhases = diagnostics.filter((event) => ['provider_credentials', 'meta_http', 'meta_response_parse'].includes(event.phase))
+  assert.equal(providerPhases.length, 3, 'provider subspans reach the existing sender diagnostic sink')
+  for (const event of providerPhases) {
+    assert.equal(event.sourceProviderEventId, 'event-normal')
+    assert.deepEqual(Object.keys(event).sort(), ['cohort', 'correlation', 'durationMs', 'outcome', 'phase', 'resource', 'resourceId', 'sourceProviderEventId'])
+  }
+  assert.ok(diagnostics.find((event) => event.phase === 'meta_request'), 'inclusive provider total remains present')
   const sentAt = (await db.query<{ sentAt: Date }>(`SELECT "sentAt" FROM "BotOutbox" WHERE "id"='outbox-sent-at'`)).rows[0]!.sentAt
   const acceptance = diagnostics.find((diagnostic) => diagnostic.phase === 'admission_to_meta_acceptance')!
   assert.equal(acceptance.outcome, 'accepted')
   assert.equal(acceptance.sourceProviderEventId, 'event-normal')
   assert.equal(acceptance.durationMs, sentAt.getTime() - admittedAt.getTime(), 'latency uses the sentAt returned by acceptance SQL')
 
+  let disabledDiagnostics = 0
+  const disabledSendSqlStart = sqlOperations
+  assert.equal(await sendClaimedOutbox({
+    client: client as never, item: off,
+    provider: { async send(_input, _signal, onDiagnostic) {
+      assert.equal(onDiagnostic, undefined, 'unlisted tenant never receives a provider diagnostic callback')
+      return { kind: 'accepted', providerMessageId: 'synthetic-off' }
+    } },
+    onDiagnostic() { disabledDiagnostics += 1 }
+  }), 'ACCEPTED')
+  assert.equal(sqlOperations - disabledSendSqlStart, measuredSendSql, 'diagnostics perform no additional SQL')
+  assert.equal(disabledDiagnostics, 0)
+
+  await addOutbox('outbox-throwing-sink','transition:session-a:11',12)
+  const throwingSinkItem = await claimed('outbox-throwing-sink')
+  assert.equal(await sendClaimedOutbox({
+    client: client as never, item: throwingSinkItem,
+    provider: { async send(_input, _signal, onDiagnostic) {
+      onDiagnostic?.({ phase: 'meta_http', durationMs: 2, outcome: 'ok' })
+      return { kind: 'accepted', providerMessageId: 'synthetic-sink' }
+    } },
+    onDiagnostic() { throw new Error('synthetic_sink_failure') }
+  }), 'ACCEPTED', 'sink failure cannot change acceptance or rollback')
+
+  await addOutbox('outbox-timeout','transition:session-a:11',13)
+  const timeoutItem = await claimed('outbox-timeout')
+  let timeoutSignal: AbortSignal | undefined
+  let finishLate: (() => void) | undefined
+  const timeoutDiagnostics: string[] = []
+  assert.equal(await sendClaimedOutbox({
+    client: client as never, item: timeoutItem, timeoutMs: 10,
+    provider: { async send(_input, signal, onDiagnostic) {
+      timeoutSignal = signal
+      await new Promise<void>((resolve) => { finishLate = resolve })
+      onDiagnostic?.({ phase: 'meta_http', durationMs: 20, outcome: 'error' })
+      return { kind: 'accepted', providerMessageId: 'synthetic-late' }
+    } },
+    onDiagnostic(event) { timeoutDiagnostics.push(event.phase) }
+  }), 'UNKNOWN', 'existing timeout semantics remain conservative')
+  assert.equal(timeoutSignal?.aborted, true)
+  finishLate!()
+  await new Promise<void>((resolve) => setTimeout(resolve, 5))
+  assert.equal((await db.query<{ status: string }>(`SELECT "status"::text FROM "BotOutbox" WHERE "id"='outbox-timeout'`)).rows[0]!.status, 'UNKNOWN', 'late provider completion never finalizes accepted')
+  assert.ok(timeoutDiagnostics.includes('meta_request'))
+  assert.ok(timeoutDiagnostics.includes('meta_http'))
   console.log('bot-options-outbox-latency-pglite-test: OK')
 } finally {
   await db.close()

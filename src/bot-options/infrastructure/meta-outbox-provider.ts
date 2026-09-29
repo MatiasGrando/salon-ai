@@ -1,7 +1,7 @@
 import type { Prisma } from '../../generated/prisma/client.js'
-import { WhatsAppCloudApi } from '../../integrations/whatsapp-cloud-api.js'
+import { WhatsAppCloudApi, type WhatsAppSendLatencyDiagnostic } from '../../integrations/whatsapp-cloud-api.js'
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../../services/business-whatsapp-settings.js'
-import type { OutboxProvider } from './whatsapp-outbox-sender.js'
+import type { OutboxProvider, OutboxProviderDiagnostic } from './whatsapp-outbox-sender.js'
 
 type OutboxPayload = {
   to: string
@@ -34,10 +34,21 @@ export class MetaOutboxProvider implements OutboxProvider {
       ?? ((businessId) => resolveBusinessWhatsAppCredentials(businessId, { allowInternalFallback: false }))
   }
 
-  async send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal) {
+  async send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal, onDiagnostic?: (diagnostic: OutboxProviderDiagnostic) => void) {
     const value = input.payload as unknown as OutboxPayload
     if (!value?.to || !value.item) return { kind: 'clear_failure' as const, code: 'invalid_outbox_payload', retryable: false }
-    const credentials = await this.#resolveCredentials(input.businessId)
+    const emit = (diagnostic: OutboxProviderDiagnostic) => {
+      try { onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
+    }
+    const credentialsStartedAt = performance.now()
+    let credentialsOutcome: 'ok' | 'error' = 'error'
+    let credentials: WhatsAppCloudCredentials
+    try {
+      credentials = await this.#resolveCredentials(input.businessId)
+      credentialsOutcome = 'ok'
+    } finally {
+      emit({ phase: 'provider_credentials', durationMs: performance.now() - credentialsStartedAt, outcome: credentialsOutcome })
+    }
     if (!credentials.accessToken || !credentials.phoneNumberId) {
       return { kind: 'clear_failure' as const, code: 'tenant_whatsapp_credentials_missing', retryable: false }
     }
@@ -49,23 +60,42 @@ export class MetaOutboxProvider implements OutboxProvider {
         return { kind: 'clear_failure' as const, code: 'provider_identity_mismatch', retryable: true }
       }
     }
-    const item = value.item
-    const result = item.type === 'informative_text'
-      ? await this.#api.sendTextMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, signal })
-      : item.mode === 'buttons'
-        ? await this.#api.sendReplyButtonsMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, buttons: item.buttons ?? [], signal })
-        : await this.#api.sendInteractiveListMessage({
-            businessId: input.businessId, credentials, to: value.to, text: item.body, rows: item.rows ?? [], signal,
-            ...(item.buttonText ? { buttonText: item.buttonText } : {}),
-            ...(item.sectionTitle ? { sectionTitle: item.sectionTitle } : {})
-          })
-    if (!result.sent) {
-      const status = 'status' in result && typeof result.status === 'number' ? result.status : 400
-      const code = 'errorCode' in result && result.errorCode ? String(result.errorCode) : ('reason' in result ? result.reason : `http_${status}`)
-      return { kind: 'clear_failure' as const, code, retryable: status === 429 || status >= 500 }
+    // Include the provider's existing ID validation in the body-read span, not in HTTP headers.
+    let parseDiagnostic: WhatsAppSendLatencyDiagnostic | undefined
+    const apiDiagnostic = onDiagnostic ? (diagnostic: WhatsAppSendLatencyDiagnostic) => {
+      if (diagnostic.phase === 'meta_response_parse') parseDiagnostic = diagnostic
+      else emit(diagnostic)
+    } : undefined
+    let validationStartedAt: number | undefined
+    let validationOutcome: 'ok' | 'error' = 'error'
+    try {
+      const item = value.item
+      const result = item.type === 'informative_text'
+        ? await this.#api.sendTextMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, signal }, apiDiagnostic)
+        : item.mode === 'buttons'
+          ? await this.#api.sendReplyButtonsMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, buttons: item.buttons ?? [], signal }, apiDiagnostic)
+          : await this.#api.sendInteractiveListMessage({
+              businessId: input.businessId, credentials, to: value.to, text: item.body, rows: item.rows ?? [], signal,
+              ...(item.buttonText ? { buttonText: item.buttonText } : {}),
+              ...(item.sectionTitle ? { sectionTitle: item.sectionTitle } : {})
+            }, apiDiagnostic)
+      validationStartedAt = performance.now()
+      if (!result.sent) {
+        validationOutcome = 'ok'
+        const status = 'status' in result && typeof result.status === 'number' ? result.status : 400
+        const code = 'errorCode' in result && result.errorCode ? String(result.errorCode) : ('reason' in result ? result.reason : `http_${status}`)
+        return { kind: 'clear_failure' as const, code, retryable: status === 429 || status >= 500 }
+      }
+      const id = providerId(result.response)
+      if (!id) throw new Error('accepted_without_provider_id')
+      validationOutcome = 'ok'
+      return { kind: 'accepted' as const, providerMessageId: id }
+    } finally {
+      if (parseDiagnostic) emit({
+        ...parseDiagnostic,
+        durationMs: parseDiagnostic.durationMs + (validationStartedAt === undefined ? 0 : performance.now() - validationStartedAt),
+        outcome: validationOutcome === 'error' ? 'error' : parseDiagnostic.outcome
+      })
     }
-    const id = providerId(result.response)
-    if (!id) throw new Error('accepted_without_provider_id')
-    return { kind: 'accepted' as const, providerMessageId: id }
   }
 }
