@@ -20,6 +20,8 @@ export type DialogueState = {
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
+/** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
+export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean }
 export function initialDialogueState(businessId: string): DialogueState {
   return { schemaVersion: 1, engine: 'conversational-booking-v1', businessId, pending: 'service', serviceId: null, date: null, professional: null, professionalNameHint: null, requestedTime: null, slot: null, customerName: null }
 }
@@ -83,7 +85,7 @@ function extractTime(text: string): string | null {
 }
 function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null }
 const serviceList = renderServices
-async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort): Promise<DialogueResponse> {
+async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const text = normalize(message)
@@ -109,8 +111,16 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     }
   }
   const catalogQuestion = /(?:que|cuales|mostrame|mostrar).*servicios/.test(text)
-  const found = catalogQuestion ? [] : matches(text, services)
-  if (found.length > 1) { state.pending = 'service'; return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`) }
+  if (decision?.correction) { state.serviceId = null; service = undefined; state.professional = null; clearSlot(state) }
+  const found = decision ? services.filter(item => decision.candidateIds.includes(item.id) || item.id === decision.serviceId)
+    : catalogQuestion ? [] : matches(text, services)
+  if (decision && found.length !== new Set([...decision.candidateIds, ...(decision.serviceId ? [decision.serviceId] : [])]).size) throw new Error('invalid decision catalog')
+  if (found.length > 1) {
+    const earlyDate = extractDate(text, context)
+    if (earlyDate) state.date = earlyDate
+    state.pending = 'service'
+    return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`)
+  }
   if (found.length === 1 && found[0]!.id !== state.serviceId) { service = found[0]!; state.serviceId = service.id; state.professional = null; clearSlot(state) }
   const date = extractDate(text, context)
   if (/\b\d{1,2}[/-]\d{1,2}[/-](?:\d{4}|\d{2})\b/.test(text) && !date) {
@@ -178,12 +188,12 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 }
 
 /** Route current-message reads before booking extraction; reads never publish a proposal. */
-export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort): Promise<DialogueResponse> {
+export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const route = routeActions(message)
   if (route.pendingAction && ACTION_REGISTRY[route.pendingAction].status === 'pending') return { state, proposal: null, reply: 'Esa operación todavía no está disponible en este motor. Necesitás solicitarla al equipo.' }
-  if (!route.information.length) return respondBooking(context, state, message, port)
+  if (!route.information.length) return respondBooking(context, state, message, port, decision)
   let facts: BusinessFacts | null = null
   const needsFacts = route.information.some(action => !['SERVICES', 'PRICES'].includes(action))
   if (needsFacts && port.information) {
@@ -195,7 +205,7 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0))) throw new Error('invalid information catalog')
   const answer = renderInformation(route.information, route.informationMessage, facts, services)
   if (route.bookingMessage) {
-    const next = await respondBooking(context, state, route.bookingMessage, services.length ? { ...port, catalog: async () => services } : port)
+    const next = await respondBooking(context, state, route.bookingMessage, services.length ? { ...port, catalog: async () => services } : port, decision)
     return { ...next, proposal: JSON.stringify(next.state) === JSON.stringify(state) ? null : next.proposal, reply: answer + '\n' + next.reply }
   }
   return { state, reply: answer + '\n' + pendingQuestion(state), proposal: null }

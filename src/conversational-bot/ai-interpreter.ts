@@ -1,6 +1,6 @@
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { pendingQuestion } from './information.js'
-import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState } from './engine.js'
+import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
 
 export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[] }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
@@ -19,7 +19,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain' }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -28,12 +28,18 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
   }
   if (item.serviceConfidence !== undefined && !['certain', 'uncertain'].includes(String(item.serviceConfidence))) throw new Error('invalid AI confidence')
+  if (item.serviceCorrection !== undefined && typeof item.serviceCorrection !== 'boolean') throw new Error('invalid AI correction')
+  if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
+      new Set(item.serviceCandidateIds).size !== item.serviceCandidateIds.length ||
+      item.serviceCandidateIds.some(id => typeof id !== 'string' || !services.some(s => s.id === id)))) throw new Error('invalid AI candidates')
+  if (Array.isArray(item.serviceCandidateIds) && item.serviceCandidateIds.length && (item.serviceId !== null || item.serviceEvidence === null)) throw new Error('invalid AI candidate evidence')
+  if (item.serviceCorrection === true && item.serviceEvidence === null) throw new Error('invalid AI correction evidence')
   if (item.serviceId !== null && item.serviceEvidence === null) throw new Error('missing service evidence')
   if (item.serviceId === null && item.serviceEvidence !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded service evidence')
   if (item.serviceId !== null && (!services.some(s => s.id === item.serviceId) || !containsEvidence(message, item.serviceEvidence as string))) throw new Error('ungrounded AI service')
@@ -123,34 +129,34 @@ export async function respondWithAiInterpreter(
     catch { reason = 'invalid_output' }
   }
   const validationAt = performance.now()
-  const professionalMention = candidate?.professionalMention
-  const safeProfessionalMention = professionalMention && !/\bcon\s+[a-z]/i.test(normalized(message)) &&
-    !/\b(?:no|nunca|sin|soy|llamo|nombre)\b/.test(normalized(message))
-  let interpretedMessage = safeProfessionalMention ? message + ' con ' + professionalMention : message
-  let response: DialogueResponse
-  const typoService = candidate?.serviceId ? null :
-    suggestedService(candidate?.serviceEvidence ?? '', services) ?? suggestedService(message, services)
   const selected = candidate?.serviceId ? services.find(s => s.id === candidate.serviceId) : undefined
-  const semantic = selected && candidate?.serviceEvidence && normalized(candidate.serviceEvidence) !== normalized(selected.name)
-  const overlap = semantic ? services.filter(service => evidenceWords(service.name).includes(evidenceWords(candidate!.serviceEvidence!)) ||
-    evidenceWords(candidate!.serviceEvidence!).includes(evidenceWords(service.name))) : []
-  const uncertain = Boolean(semantic && (candidate?.serviceConfidence !== 'certain' || overlap.length > 1))
+  const evidence = candidate?.serviceEvidence ?? ''
+  // Compare only grounded service evidence with catalog names, never the full utterance.
+  const evidenceTerms = evidenceWords(evidence).trim().split(' ').filter(word => word && !['un', 'una', 'el', 'la', 'de', 'del'].includes(word))
+  const overlap = evidenceTerms.length ? services.filter(service => {
+    const nameTerms = evidenceWords(service.name).trim().split(' ')
+    return evidenceTerms.every(term => nameTerms.includes(term))
+  }) : []
+  // A model-proposed subset cannot hide other catalog matches for the same grounded phrase.
+  const candidates = overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
+    ? services.filter(service => candidate.serviceCandidateIds!.includes(service.id)) : []
+  const uncertain = Boolean(selected && !candidates.length &&
+    candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
+  const decision: DialogueDecision | undefined = candidate ? {
+    serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
+    candidateIds: candidates.map(service => service.id), correction: candidate.serviceCorrection === true ||
+      Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
+        selected && selected.id !== state.serviceId))
+  } : undefined
   const engineStarted = performance.now()
-  if (selected && semantic && uncertain) {
-    const partial = await respond(context, state, interpretedMessage, cachedPort)
-    if (partial.state.serviceId !== state.serviceId) {
-      partial.state.serviceId = state.serviceId
-      partial.state.professional = state.professional
-      partial.state.slot = null
-      partial.state.requestedTime = null
-    }
-    response = { state: partial.state, proposal: null, reply: '¿Te referís a ' + selected.name + '? Confirmame cuál servicio querés.' }
-  } else {
-    if (selected && semantic && candidate?.serviceEvidence) interpretedMessage += ' ' + selected.name
-    response = await respond(context, state, interpretedMessage, cachedPort)
-    if (typoService && !response.state.serviceId) response = { ...response, proposal: null,
-      reply: '¿Te referís a ' + typoService.name + '? Confirmame cuál servicio querés.' }
-  }
+  let response = await respond(context, state, message, cachedPort, decision)
+  if (uncertain && selected) response = { ...response, proposal: null,
+    reply: '¿Te referís a ' + selected.name + '? Confirmame cuál servicio querés.' }
+  const typoService = candidate?.serviceId || candidates.length ? null :
+    candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
+    !candidate ? suggestedService(message, services) : null
+  if (typoService && !response.state.serviceId) response = { ...response, proposal: null,
+    reply: '¿Te referís a ' + typoService.name + '? Confirmame cuál servicio querés.' }
   const engineAt = performance.now()
   const simpleGreeting = /^(?:hola|buenas|buen dia|buenas tardes|buenas noches)(?:\b|$)/.test(normalized(message))
   const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&

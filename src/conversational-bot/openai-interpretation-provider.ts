@@ -4,13 +4,15 @@ import type { AiInterpretationProvider } from './ai-interpreter.js'
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection'],
   properties: {
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
     serviceEvidence: { type: ['string', 'null'] },
     professionalMention: { type: ['string', 'null'] },
-    serviceConfidence: { type: 'string', enum: ['certain', 'uncertain'] }
+    serviceConfidence: { type: 'string', enum: ['certain', 'uncertain'] },
+    serviceCandidateIds: { type: 'array', items: { type: 'string' } },
+    serviceCorrection: { type: 'boolean' }
   }
 } as const
 
@@ -34,7 +36,7 @@ export function createOpenAiInterpretationProvider(options: {
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}), // QA Luna experiment only.
         store: false,
         max_output_tokens: 400,
-        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Una segunda llamada redactará la respuesta tras verificar resultados del motor. No inventes hechos ni confirmes reservas.',
+        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. Si el mensaje combina saludo con pedido de turno, intent es booking. Si el servicio es ambiguo, devolvé serviceId null y los IDs plausibles en serviceCandidateIds; no elijas uno arbitrariamente. Si es inequívoco, devolvé serviceId y serviceCandidateIds vacío. serviceCorrection true indica que el cliente corrige o reemplaza el servicio anterior. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Una segunda llamada redactará la respuesta tras verificar resultados del motor. No inventes hechos ni confirmes reservas.',
         input: JSON.stringify({
           message: input.message,
           pending: input.state.pending,

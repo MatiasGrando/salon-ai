@@ -7,6 +7,7 @@ import { initialDialogueState, type DialoguePort } from '../src/conversational-b
 const context = { businessId: 'qa', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-09-28T15:00:00Z') }
 const services = [
   { id: 'cut', name: 'Corte Hombre', durationMinutes: 30, requiresConsultation: false, price: 27000 },
+  { id: 'woman', name: 'Corte Mujer', durationMinutes: 30, requiresConsultation: false, price: 37000 },
   { id: 'beard', name: 'Corte y barba', durationMinutes: 45, requiresConsultation: false, price: 32000 },
   { id: 'lights', name: 'Iluminación', durationMinutes: 60, requiresConsultation: false, price: 160000 }
 ]
@@ -18,7 +19,7 @@ const port: DialoguePort = {
   information: async () => ({ businessId: 'qa', name: 'Glow', address: 'Monroe 5252', area: 'Villa Urquiza', mapsUrl: null,
     website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null, description: null, hours: null })
 }
-const empty = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, serviceConfidence: 'uncertain' }
+const empty = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, serviceConfidence: 'uncertain', serviceCandidateIds: [] as string[], serviceCorrection: false }
 const writer: AiResponseProvider = async ({ facts }) => ({
   opening: '¡Hola! ¿Cómo estás?', factIds: facts.map(fact => fact.id), closing: facts.length ? null : '¿En qué te ayudo con el local?'
 })
@@ -48,15 +49,44 @@ const semantic = await respondWithAiInterpreter(context, initialDialogueState('q
 assert.equal(semantic.state.serviceId, 'lights', 'AI semantic choice reaches deterministic engine')
 assert.match(semantic.reply, /Iluminación/)
 const ambiguous = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero un corte', port,
-  async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte', serviceConfidence: 'certain' }), { responseProvider: writer })
+  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceConfidence: 'uncertain' }), { responseProvider: writer })
 assert.equal(ambiguous.state.serviceId, null, 'overlap is not silently selected')
-assert.match(ambiguous.reply, /referís a Corte Hombre/)
+assert.match(ambiguous.reply, /Corte Hombre/)
+assert.match(ambiguous.reply, /Corte y barba/)
+assert.match(ambiguous.reply, /Corte Mujer/, 'do not trust a plausible but incomplete AI candidate subset')
+const greetingCut = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola quería un corte', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceConfidence: 'uncertain' }), { responseProvider: writer })
+assert.equal(greetingCut.state.pending, 'service')
+assert.match(greetingCut.reply, /Corte Hombre/)
+assert.match(greetingCut.reply, /Corte y barba/)
+assert.match(greetingCut.reply, /Corte Mujer/)
+assert.doesNotMatch(greetingCut.reply, /Iluminación/)
+const selectedCut = await respondWithAiInterpreter(context, greetingCut.state, 'el corte de hombre', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte de hombre', serviceConfidence: 'certain' }), { responseProvider: writer })
+assert.equal(selectedCut.state.serviceId, 'cut')
+assert.equal(selectedCut.state.pending, 'date')
+const earlyFields = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola quería un corte con Ramiro mañana', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], professionalMention: 'Ramiro' }), { responseProvider: writer })
+assert.equal(earlyFields.state.date, '2026-09-29')
+assert.equal(earlyFields.state.professionalNameHint, 'ramiro')
+const consultation = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }), { responseProvider: writer })
+assert.equal(consultation.state.serviceId, 'lights')
+const correction = await respondWithAiInterpreter(context, consultation.state, 'no mejor un corte', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceCorrection: true }), { responseProvider: writer })
+assert.equal(correction.state.serviceId, null)
+assert.match(correction.reply, /Corte Hombre/)
+assert.doesNotMatch(correction.reply, /requiere una consulta/)
 const uncertain = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
   async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'uncertain' }), { responseProvider: writer })
 assert.equal(uncertain.state.serviceId, null)
 const foreign = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
   async () => ({ ...empty, serviceId: 'foreign', serviceEvidence: 'claritos' }), { responseProvider: writer })
 assert.equal(foreign.interpretation.mode, 'fallback')
+const fabricatedCandidates = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'un corte', port,
+  async () => ({ ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'not-in-catalog'] }), { responseProvider: writer })
+assert.equal(fabricatedCandidates.interpretation.reason, 'invalid_output')
+assert.equal(fabricatedCandidates.state.serviceId, null)
 
 const inventedPrice = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'cuanto sale iluminación', port,
   async () => ({ ...empty, intent: 'information' }), { responseProvider: async () => ({ opening: 'Cuesta $ 1', factIds: ['0'], closing: null }) })
@@ -106,6 +136,8 @@ assert.ok(requests.every(request => request.url === 'https://api.openai.com/v1/r
   request.body.model === 'gpt-6-luna' && request.body.reasoning.effort === 'none' &&
   request.body.store === false && request.body.text.format.strict === true))
 assert.ok(requests[0]!.body.text.format.schema.required.includes('serviceConfidence'))
+assert.ok(requests[0]!.body.text.format.schema.required.includes('serviceCandidateIds'))
+assert.ok(requests[0]!.body.text.format.schema.required.includes('serviceCorrection'))
 assert.ok(requests[1]!.body.text.format.schema.required.includes('factIds'))
 let consecutive = initialDialogueState('qa')
 const turns = [
