@@ -1606,7 +1606,7 @@ async function processCutoverRecovery(input: { client: RuntimeClient; job: Claim
         ON CONFLICT ("id") DO NOTHING
       `)
       if (await loadConversationPolicy(tx, { businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation })) {
-        await upsertJob(tx, 'PROCESS_INBOX', recoveryInboxId, row.businessId, row.deploymentId, row.generation, null, new Date())
+        await upsertJob(tx, 'PROCESS_INBOX', recoveryInboxId, row.businessId, row.deploymentId, row.generation, null, 'immediate')
         await completeDispatchClaimTx(tx, dispatchToken)
         await completeClaimedBotJobTx(tx, retargeted)
         return null

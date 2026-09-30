@@ -338,7 +338,7 @@ async function fallbackToInitialInboxTx(tx: Prisma.TransactionClient, job: Claim
       'ADMITTED'::"BotInboxStatus"
     ) ON CONFLICT ("id") DO NOTHING
   `)
-  await upsertJob(tx, 'PROCESS_INBOX', inboxId, event.businessId, job.deploymentId, job.deploymentGeneration, null, new Date())
+  await upsertJob(tx, 'PROCESS_INBOX', inboxId, event.businessId, job.deploymentId, job.deploymentGeneration, null, 'immediate')
   await completeClaimedBotJobTx(tx, job)
   return 'FALLBACK'
 }

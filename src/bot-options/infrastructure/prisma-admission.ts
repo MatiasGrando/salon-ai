@@ -295,7 +295,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
           input.route.deploymentId,
           input.route.generation,
           null,
-          new Date()
+          'immediate'
         )
       }
 
@@ -380,7 +380,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
         input.route.deploymentId,
         input.route.generation,
         null,
-        new Date()
+        'immediate'
       )
       return { outboundMessage: null }
     }
@@ -417,7 +417,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       input.route.deploymentId,
       input.route.generation,
       null,
-      new Date()
+      'immediate'
     )
     return { outboundMessage: null }
   }
@@ -715,11 +715,13 @@ export async function upsertJob(
   deploymentId: string,
   generation: number,
   expectedRevision: bigint | null,
-  availableAt: Date
+  availableAt: Date | 'immediate'
 ) {
+  // Immediate eligibility shares the consumer DB clock; explicit schedules remain bound Dates.
+  const scheduledAt = availableAt === 'immediate' ? Prisma.sql`clock_timestamp()` : Prisma.sql`${availableAt}`
   const count = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "availableAt", "status", "updatedAt")
-    VALUES (${randomUUID()}, ${kind}, ${aggregateId}, ${businessId}, ${deploymentId}, ${generation}, ${expectedRevision}, ${availableAt}, 'READY'::"BotJobStatus", clock_timestamp())
+    VALUES (${randomUUID()}, ${kind}, ${aggregateId}, ${businessId}, ${deploymentId}, ${generation}, ${expectedRevision}, ${scheduledAt}, 'READY'::"BotJobStatus", clock_timestamp())
     ON CONFLICT ("kind", "aggregateId") DO UPDATE SET
       "businessId" = EXCLUDED."businessId", "deploymentId" = EXCLUDED."deploymentId",
       "deploymentGeneration" = EXCLUDED."deploymentGeneration", "expectedRevision" = EXCLUDED."expectedRevision",
