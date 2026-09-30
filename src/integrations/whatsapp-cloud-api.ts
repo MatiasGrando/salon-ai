@@ -391,6 +391,19 @@ export class WhatsAppCloudApi {
     }
   }
 
+  /** Meta combines this ephemeral typing hint with a read receipt for the inbound message. */
+  async sendTypingIndicator(input: { credentials: WhatsAppCloudCredentials; providerMessageId: string; signal: AbortSignal }): Promise<boolean> {
+    const config = input.credentials
+    if (input.signal.aborted || !config.accessToken || !config.phoneNumberId || !input.providerMessageId.trim()) return false
+    const response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
+      method: 'POST', signal: input.signal,
+      headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: input.providerMessageId, typing_indicator: { type: 'text' } })
+    })
+    // Drain the body under the same abort deadline; never log or return raw provider data.
+    await response.arrayBuffer()
+    return response.ok
+  }
   async sendTextMessage(input: SendTextMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)

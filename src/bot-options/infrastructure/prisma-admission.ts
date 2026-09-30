@@ -399,26 +399,35 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
     const actionType = event.kind === 'message' && event.messageType === 'unsupported'
       ? 'input.unsupported'
       : event.kind === 'unsupported_change' ? 'input.unsupported' : 'input.initial'
-    await tx.$executeRaw(Prisma.sql`
-      INSERT INTO "BotActionInbox" (
-        "id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId",
-        "deploymentGeneration", "payload", "status"
-      ) VALUES (
-        ${inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
-        ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
-        ${JSON.stringify({ ...eventPayload(event), contextWindowEvaluated: input.contextWindowEvaluated === true })}::jsonb, 'ADMITTED'::"BotInboxStatus"
+    const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; jobCount: bigint }>>(Prisma.sql`
+      /* initial-classification-batch */
+      WITH inserted_inbox AS (
+        INSERT INTO "BotActionInbox" (
+          "id", "businessId", "providerEventId", "providerMessageId", "actionType", "deploymentId",
+          "deploymentGeneration", "payload", "status"
+        ) VALUES (
+          ${inboxId}, ${input.route.businessId}, ${input.providerEventId}, ${event.kind === 'message' ? event.providerMessageId : null},
+          ${actionType}, ${input.route.deploymentId}, ${input.route.generation},
+          ${JSON.stringify({ ...eventPayload(event), contextWindowEvaluated: input.contextWindowEvaluated === true })}::jsonb, 'ADMITTED'::"BotInboxStatus"
+        )
+        RETURNING "id", "businessId", "deploymentId", "deploymentGeneration"
+      ), produced_job AS (
+        INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "availableAt", "status", "updatedAt")
+        SELECT ${randomUUID()}, ${'PROCESS_INBOX'}, i."id", i."businessId", i."deploymentId", i."deploymentGeneration",
+          NULL, clock_timestamp(), 'READY'::"BotJobStatus", clock_timestamp()
+        FROM inserted_inbox i
+        ${jobUpsertConflictSql()}
+        RETURNING "id"
       )
+      SELECT (SELECT count(*) FROM inserted_inbox)::bigint AS "inboxCount",
+        (SELECT count(*) FROM produced_job)::bigint AS "jobCount"
     `)
-    await upsertJob(
-      tx,
-      'PROCESS_INBOX',
-      inboxId,
-      input.route.businessId,
-      input.route.deploymentId,
-      input.route.generation,
-      null,
-      'immediate'
-    )
+    if (rows[0]?.inboxCount !== 1n || (rows[0].jobCount !== 0n && rows[0].jobCount !== 1n)) {
+      throw new Error('initial classification batch row count mismatch')
+    }
+    if (rows[0].jobCount === 1n) {
+      recordProducedJob(tx, { businessId: input.route.businessId, kind: 'PROCESS_INBOX', aggregateId: inboxId })
+    }
     return { outboundMessage: null }
   }
 
@@ -707,6 +716,18 @@ async function insertRejectedInbox(
   `)
 }
 
+/** Identical conflict behavior for standalone and inbox-dependent enqueue. */
+function jobUpsertConflictSql(): Prisma.Sql {
+  return Prisma.sql`
+    ON CONFLICT ("kind", "aggregateId") DO UPDATE SET
+      "businessId" = EXCLUDED."businessId", "deploymentId" = EXCLUDED."deploymentId",
+      "deploymentGeneration" = EXCLUDED."deploymentGeneration", "expectedRevision" = EXCLUDED."expectedRevision",
+      "availableAt" = EXCLUDED."availableAt", "status" = 'READY'::"BotJobStatus",
+      "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
+    WHERE "BotJob"."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus")
+  `
+}
+
 export async function upsertJob(
   tx: Prisma.TransactionClient,
   kind: string,
@@ -722,12 +743,7 @@ export async function upsertJob(
   const count = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "availableAt", "status", "updatedAt")
     VALUES (${randomUUID()}, ${kind}, ${aggregateId}, ${businessId}, ${deploymentId}, ${generation}, ${expectedRevision}, ${scheduledAt}, 'READY'::"BotJobStatus", clock_timestamp())
-    ON CONFLICT ("kind", "aggregateId") DO UPDATE SET
-      "businessId" = EXCLUDED."businessId", "deploymentId" = EXCLUDED."deploymentId",
-      "deploymentGeneration" = EXCLUDED."deploymentGeneration", "expectedRevision" = EXCLUDED."expectedRevision",
-      "availableAt" = EXCLUDED."availableAt", "status" = 'READY'::"BotJobStatus",
-      "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
-    WHERE "BotJob"."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus")
+    ${jobUpsertConflictSql()}
   `)
   if (count === 1) recordProducedJob(tx, { businessId, kind, aggregateId })
 }

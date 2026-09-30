@@ -22,6 +22,11 @@ const adapter = (pg: { query: PGlite['query'] }) => ({
     return (await pg.query(query.text, values)).affectedRows ?? 0
   },
   async $queryRaw(query: Prisma.Sql) {
+    if (query.text.includes('initial-classification-batch')) {
+      statements.push(query)
+      const result = await pg.query<{ inboxCount: number | bigint; jobCount: number | bigint }>(query.text, query.values)
+      return result.rows.map(row => ({ inboxCount: BigInt(row.inboxCount), jobCount: BigInt(row.jobCount) }))
+    }
     if (query.text.includes('INSERT INTO "BotProviderEvent"')) return [{ id: query.values[0] }]
     if (query.text.includes('SELECT "id", "generation"')) return [{ id: route.deploymentId, generation: 1 }]
     if (query.text.includes('conversation-policy') || query.text.includes('"BotSession"')) return []
@@ -35,6 +40,10 @@ async function eligible(kind: string) {
 try {
   await db.exec(`
     CREATE TYPE "BotJobStatus" AS ENUM ('READY','RETRY','LEASED','DONE','POISON');
+    CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED');
+    CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY, "businessId" text NOT NULL, "providerEventId" text NOT NULL,
+      "providerMessageId" text, "actionType" text NOT NULL, "deploymentId" text NOT NULL,
+      "deploymentGeneration" int NOT NULL, "payload" jsonb NOT NULL, "status" "BotInboxStatus" NOT NULL);
     CREATE TABLE "BotJob" ("id" text PRIMARY KEY, "kind" text NOT NULL, "aggregateId" text NOT NULL,
       "businessId" text NOT NULL, "deploymentId" text NOT NULL, "deploymentGeneration" int NOT NULL,
       "expectedRevision" bigint, "availableAt" timestamptz NOT NULL, "status" "BotJobStatus" NOT NULL,

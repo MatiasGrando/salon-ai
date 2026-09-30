@@ -19,6 +19,7 @@ import { flushInboundConversationMessages, publishConversationUpdated, type Inbo
 import type { persistView, projectInboundMessage, lockExistingInitialSession, isConversationRestartCommand } from '../bot-options/application/process-session-job.js'
 
 type Client = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
+export type ReplyPreparationHook = (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>
 export type DialogueFactory = (client: Client, businessId: string) => Promise<{ context: DialogueContext; port: DialoguePort }>
 const defaultFactory: DialogueFactory = (client, businessId) => {
   // Runtime receives the existing full Prisma client. No singleton or second connection.
@@ -26,7 +27,7 @@ const defaultFactory: DialogueFactory = (client, businessId) => {
   return createPrismaDialoguePort(client as Parameters<typeof createPrismaDialoguePort>[0], businessId)
 }
 type Row = PolicyRow & { id: string; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
-  providerEventId: string; providerMessageId: string | null; status: string; dbNow: Date; businessTimezone: string;
+  providerEventId: string; providerMessageId: string | null; providerPhoneNumberId: string | null; status: string; dbNow: Date; businessTimezone: string;
   admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean }
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
@@ -81,7 +82,7 @@ async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: Cla
 /** Uses the existing inbox/job/outbox. Catalog queries and optional AI preparation run outside locks. */
 export async function processConversationInbox(input: {
   client: Client; job: ClaimedBotJob; dialogueFactory?: DialogueFactory; conversationalAi?: WhatsAppConversationAi;
-  queueMilestones?: QueueMilestoneTracker | undefined;
+  queueMilestones?: QueueMilestoneTracker | undefined; onPreparingReply?: ReplyPreparationHook | undefined;
   writeView: typeof persistView; projectInbound: typeof projectInboundMessage;
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
@@ -109,7 +110,7 @@ export async function processConversationInbox(input: {
       const rows = await measureAttemptStage('conversation_inbox_lock', () => tx.$queryRaw<Row[]>(Prisma.sql`
         /* conversation-inbox-lock */
         SELECT i."id", i."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId",
-          i."providerMessageId", i."status"::text AS "status", clock_timestamp() AS "dbNow", e."admittedAt", e."providerOccurredAt",
+          i."providerMessageId", e."phoneNumberId" AS "providerPhoneNumberId", i."status"::text AS "status", clock_timestamp() AS "dbNow", e."admittedAt", e."providerOccurredAt",
           settings."timezone" AS "businessTimezone", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch", d."engineKey",
           cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition", b."customerCode",
           (b."botEnabled" AND COALESCE(f."botEnabled", true)) AS "botEnabled"
@@ -257,6 +258,14 @@ export async function processConversationInbox(input: {
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { markSettled(); return 'PROCESSED' }
+    // This is a best-effort notification, not part of the durable computation or its latency.
+    if (input.onPreparingReply && snapshot.payload.messageType === 'text' && !snapshot.reset &&
+        snapshot.row.providerPhoneNumberId && snapshot.row.providerMessageId) {
+      try {
+        void Promise.resolve(input.onPreparingReply({ businessId: snapshot.row.businessId,
+          providerPhoneNumberId: snapshot.row.providerPhoneNumberId, providerMessageId: snapshot.row.providerMessageId })).catch(() => {})
+      } catch { /* Optional provider feedback cannot prevent a reply. */ }
+    }
     // No transaction/client lock is retained while repositories compute the reply.
     const contextStarted = performance.now()
     const prepared = await measureAttemptStage('conversation_context_load', () => (input.dialogueFactory ?? defaultFactory)(input.client, policy.businessId))

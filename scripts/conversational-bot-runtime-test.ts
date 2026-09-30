@@ -54,6 +54,7 @@ async function admit(marked: boolean, type = 'text', interactiveReplyId?: string
   const writes: Array<{ sql: string; values: unknown[] }> = []
   let nameReads = 0
   const tx = { $queryRaw: async (q: { sql: string; values: unknown[] }) => {
+    if (q.sql.includes('initial-classification-batch')) { writes.push(q); return [{ inboxCount: 1n, jobCount: 1n }] }
     if (q.sql.includes('conversation-policy')) return [{ ...config, definition: marked ? config.definition : {} }]
     if (q.sql.includes('FROM "BotPrompt" p')) return [{ promptId: 'old' }]
     if (q.sql.includes('AS "flow"')) { nameReads++; return [{ sessionId: 'session', revision: 5n, flow: 'NAME_INPUT', dbNow: new Date() }] }
@@ -79,12 +80,12 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let inTransaction = false
   let row = { ...config, id: 'inbox', deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true },
-    providerEventId: 'event', providerMessageId: 'msg', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
+    providerEventId: 'event', providerMessageId: 'msg', providerPhoneNumberId: 'channel', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
   let session: { sessionId: string; conversationId: string; revision: bigint; status: string; state: unknown; businessTimezone: string; handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number } | null = null
   let replies: string[] = []
   let settled = 0
@@ -103,6 +104,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       try {
         const execute = async () => {
           const result = await operation(client)
+          if (options.failSnapshotCommit && messages > backup.messages) throw new Error('SNAPSHOT COMMIT failed')
           if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
           return result
         }
@@ -186,11 +188,45 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     return { context: { businessId: 'biz', timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+// Typing starts only after a durable active text snapshot; it never delays computation.
+let typingCalls = 0
+const typing = runtimeFixture({ onPreparingReply(context) {
+  typing.assertOutside(); typingCalls++
+  assert.equal(typing.messages, 1, 'snapshot projection committed before hook')
+  assert.deepEqual(context, { businessId: 'biz', providerPhoneNumberId: 'channel', providerMessageId: 'msg' })
+  return new Promise<void>(() => {})
+} })
+await typing.run()
+assert.equal(typingCalls, 1, 'public entry forwards the optional post-snapshot hook')
+assert.equal(typing.replies.length, 1, 'an unresolved typing request must not block the reply')
+for (const fail of ['throw', 'reject'] as const) {
+  const broken = runtimeFixture({ onPreparingReply() {
+    if (fail === 'throw') throw new Error('typing failure')
+    return Promise.reject(new Error('typing failure'))
+  } })
+  await broken.run(); await Promise.resolve()
+  assert.equal(broken.replies.length, 1, 'typing errors are fail-open')
+}
+for (const guard of ['image', 'processed', 'handoff', 'disabled', 'rollback'] as const) {
+  let calls = 0
+  const guarded = runtimeFixture({ failSnapshotCommit: guard === 'rollback', onPreparingReply() { calls++ } })
+  if (guard === 'image') guarded.next('', 'image')
+  if (guard === 'processed') guarded.row.status = 'PROCESSED'
+  if (guard === 'disabled') guarded.row.botEnabled = false
+  if (guard === 'handoff') {
+    await guarded.run(); calls = 0
+    guarded.next('hola'); guarded.session.status = 'HUMAN_TAKEN'
+  }
+  if (guard === 'rollback') await assert.rejects(guarded.run(), /SNAPSHOT COMMIT failed/)
+  else await guarded.run()
+  assert.equal(calls, 0, `typing must skip ${guard}`)
+}
+console.log('conversational post-snapshot typing guard/fail-open: PASS')
 // Final ACK evidence comes from the existing final transaction, never snapshot or rollback.
 for (const fail of [false, true]) {
   const queueMilestones = createQueueMilestoneTracker({ businessId: 'biz', now: () => 100, emit() {} })

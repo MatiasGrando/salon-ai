@@ -108,7 +108,7 @@ for (const mode of ['commit', 'bad-count', 'rollback'] as const) {
 
 // Real classifier creates inbox in its second independent transaction only.
 for (const failCommit of [false, true]) {
-  let transactions = 0, aggregate = '', writes = 0
+  let transactions = 0, aggregate = '', writes = 0, batchQueries = 0
   const job = { id: 'provider-job', kind: 'PROCESS_PROVIDER_EVENT', aggregateId: 'provider-event', businessId: tenant,
     deploymentId: 'deployment', deploymentGeneration: 1, expectedRevision: null, attempts: 1, maxAttempts: 5,
     claimToken: 'claim-token', claimedUntil: new Date(), queueWaitMs: 999 } satisfies ClaimedBotJob
@@ -122,6 +122,11 @@ for (const failCommit of [false, true]) {
       },
       async $queryRaw(query: Query) {
         const sql = query.strings.join('?')
+        if (sql.includes('initial-classification-batch')) {
+          aggregate = String(query.values[0])
+          batchQueries++
+          return [{ inboxCount: 1n, jobCount: 1n }]
+        }
         if (sql.includes('conversation-policy')) return []
         if (sql.includes('SELECT j."id" FROM "BotJob"')) return [{ id: job.id }]
         if (sql.includes('FROM "BotChannelDeployment"')) return [{ id: job.deploymentId, generation: 1 }]
@@ -138,7 +143,8 @@ for (const failCommit of [false, true]) {
   if (failCommit) await assert.rejects(operation, error => error === original)
   else assert.equal(await operation, 'PROCESSED')
   assert.equal(transactions, 2)
-  assert.equal(writes, 5)
+  assert.equal(writes, 3)
+  assert.equal(batchQueries, 1, 'inbox and enqueue use one returning statement')
   assert.equal(consume(jobQueueKey({ businessId: tenant, kind: 'PROCESS_INBOX', aggregateId: aggregate })).readiness,
     failCommit ? 'unavailable' : 'observed')
 }

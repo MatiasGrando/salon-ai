@@ -1,3 +1,4 @@
+import { createBarberTypingIndicator } from './barber-local/typing-indicator.js'
 import { createQueueMilestoneTracker } from './bot-options/observability/queue-milestones.js'
 import { enablePrismaClientDiagnostics } from './config/prisma-client.js'
 import { createProviderDiagnosticProbe } from './bot-options/observability/provider-diagnostic-probe.js'
@@ -60,6 +61,7 @@ export async function startBarberLocal() {
   const { internal, gateway } = await createBarberWebhookApps({
     repository, verifyToken, onAdmissionCommitted: () => notifyWorkerWake(wakeSignals.jobs)
   })
+  const typingIndicator = createBarberTypingIndicator()
   const handler = async (job: ClaimedBotJob) => {
     if (job.businessId !== BARBER_DEMO_BUSINESS_ID) throw new Error('non-Barber local job denied')
     if (job.kind === 'PROCESS_PROVIDER_EVENT') {
@@ -73,13 +75,14 @@ export async function startBarberLocal() {
       return
     }
     if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') { await bridgeDepositNotificationJob(prisma, job); return }
-    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones })
+    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones, onPreparingReply: typingIndicator.notify })
   }
 
   let loops: Awaited<ReturnType<typeof startBarberWorkerLoops>> | null = null
   let stopping: Promise<void> | null = null
   const stop = () => {
     if (stopping) return stopping
+    typingIndicator.stop()
     stopping = (async () => {
       await gateway.close()
       await loops?.stop()
