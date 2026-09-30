@@ -1,3 +1,4 @@
+import { observeQueueProducerTransaction, recordProducedJob, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import { loadConversationPolicy } from '../../conversational-bot/runtime-policy.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { randomUUID } from 'node:crypto'
@@ -175,10 +176,12 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
   readonly #client: AuthoritativePrismaClient
   readonly #depositProofIngressEnabled: boolean
   readonly #authoritativeTransactionTimeoutMs: number
+  readonly #queueMilestones: QueueMilestoneTracker | undefined
 
   constructor(client: AuthoritativePrismaClient, options: {
     depositProofIngressEnabled?: boolean
     authoritativeTransactionTimeoutMs?: number
+    queueMilestones?: QueueMilestoneTracker | undefined
   } = {}) {
     const authoritativeTransactionTimeoutMs = options.authoritativeTransactionTimeoutMs
       ?? DEFAULT_AUTHORITATIVE_TRANSACTION_TIMEOUT_MS
@@ -192,6 +195,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
     this.#client = client
     this.#depositProofIngressEnabled = options.depositProofIngressEnabled ?? false
     this.#authoritativeTransactionTimeoutMs = authoritativeTransactionTimeoutMs
+    this.#queueMilestones = options.queueMilestones
   }
 
   async resolveRoute(phoneNumberId: string): Promise<AuthoritativeRoute> {
@@ -239,7 +243,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
   }): Promise<AuthoritativeAdmissionResult> {
     const startedAt = performance.now()
     try {
-      const result = await this.#client.$transaction(async (tx) => {
+      const result = await observeQueueProducerTransaction(this.#queueMilestones, body => this.#client.$transaction(body, { timeout: this.#authoritativeTransactionTimeoutMs }), async (tx: Prisma.TransactionClient) => {
       // Cross-region production traffic needs a wider interactive transaction
       // envelope than the local load fixture. Individual statements and lock
       // acquisition remain tightly bounded, so this does not permit a query to
@@ -296,7 +300,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       }
 
       return { eventCount: input.events.length, insertedCount }
-      }, { timeout: this.#authoritativeTransactionTimeoutMs })
+      })
       botOptionsMetrics.observe('webhook_ack', performance.now() - startedAt)
       return result
     } catch (error) {
@@ -713,7 +717,7 @@ export async function upsertJob(
   expectedRevision: bigint | null,
   availableAt: Date
 ) {
-  await tx.$executeRaw(Prisma.sql`
+  const count = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotJob" ("id", "kind", "aggregateId", "businessId", "deploymentId", "deploymentGeneration", "expectedRevision", "availableAt", "status", "updatedAt")
     VALUES (${randomUUID()}, ${kind}, ${aggregateId}, ${businessId}, ${deploymentId}, ${generation}, ${expectedRevision}, ${availableAt}, 'READY'::"BotJobStatus", clock_timestamp())
     ON CONFLICT ("kind", "aggregateId") DO UPDATE SET
@@ -723,6 +727,7 @@ export async function upsertJob(
       "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
     WHERE "BotJob"."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus")
   `)
+  if (count === 1) recordProducedJob(tx, { businessId, kind, aggregateId })
 }
 
 export async function applyStatusCallbackTx(

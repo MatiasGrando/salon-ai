@@ -1,3 +1,4 @@
+import { outboxQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
 import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../../config/whatsapp.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
@@ -296,8 +297,11 @@ export async function sendClaimedOutbox(input: {
   provider: OutboxProvider
   timeoutMs?: number
   jitter?: Jitter
+  queueClaim?: QueueClaimWindow | undefined
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
+  queueMilestones?: QueueMilestoneTracker | undefined
 }): Promise<'ACCEPTED' | 'RETRY' | 'POISON' | 'UNKNOWN' | 'STALE'> {
+  if (input.queueClaim) input.queueMilestones?.handlerStarted(input.queueClaim)
   const emit = (diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>) => {
     if (!isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode)) return
     try {
@@ -540,6 +544,7 @@ export function startOutboxSenderLoop(input: {
   now?: () => number
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
+  queueMilestones?: QueueMilestoneTracker | undefined
 }): { stop(): Promise<void> } {
   let stopped = false
   const idleStop = new AbortController()
@@ -565,14 +570,16 @@ export function startOutboxSenderLoop(input: {
       let failed = false
       try {
         await maintenance.runIfDue()
+        const queueClaim = input.queueMilestones?.beginClaim()
         const claimStartedAt = performance.now()
         const item = await claimOutbox(input.client, undefined, undefined, input.scope)
         if (item) {
+          if (queueClaim) input.queueMilestones?.claimEnded(queueClaim, outboxQueueKey({ businessId: item.businessId, id: item.id }), item.attempts)
           const claimMs = performance.now() - claimStartedAt
           botOptionsMetrics.observe('outbox_claim', claimMs)
           emit(item, { resource: 'outbox', resourceId: item.id, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
           emit(item, { resource: 'outbox', resourceId: item.id, phase: 'queue', durationMs: item.queueWaitMs, outcome: 'ok' })
-          await sendClaimedOutbox({ client: input.client, item, provider: input.provider, onDiagnostic: input.onDiagnostic })
+          await sendClaimedOutbox({ client: input.client, item, provider: input.provider, onDiagnostic: input.onDiagnostic, queueMilestones: input.queueMilestones, queueClaim })
           continue
         }
       } catch (error) {

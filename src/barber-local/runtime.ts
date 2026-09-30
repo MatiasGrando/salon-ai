@@ -1,3 +1,4 @@
+import type { QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { resolveBotOptionsConfig } from '../config/bot-options.js'
 import { parseWhatsAppLatencyDiagnosticBusinessCodes } from '../config/whatsapp.js'
 import { botWorkerScopeFromEnv, type BotWorkerScope } from '../bot-options/infrastructure/tenant-scope.js'
@@ -41,6 +42,7 @@ export async function startBarberWorkerLoops(input: {
   provider: SenderInput['provider']
   handle: WorkerInput['handle']
   wakeSignals?: { jobs: WorkerWakeSignal; outbox: WorkerWakeSignal }
+  queueMilestones?: QueueMilestoneTracker | undefined
   onError?: (error: unknown) => void
   onWorkerDiagnostic?: WorkerInput['onDiagnostic']
   onOutboxDiagnostic?: SenderInput['onDiagnostic']
@@ -60,7 +62,7 @@ export async function startBarberWorkerLoops(input: {
       notifyWorkerWake(input.wakeSignals?.jobs)
       notifyWorkerWake(input.wakeSignals?.outbox)
     },
-    handlerSettlesJob: true, wakeSignal: input.wakeSignals?.jobs,
+    handlerSettlesJob: true, queueMilestones: input.queueMilestones, wakeSignal: input.wakeSignals?.jobs,
     scope: input.scope,
     ...(input.onError ? { onError: input.onError } : {}),
     ...(input.onWorkerDiagnostic ? { onDiagnostic: input.onWorkerDiagnostic } : {})
@@ -71,7 +73,7 @@ export async function startBarberWorkerLoops(input: {
     loops.push(worker({ ...sharedWorker, maintenanceEnabled: false }))
     loops.push(sender({
       client: input.client, provider: input.provider, scope: input.scope,
-      wakeSignal: input.wakeSignals?.outbox,
+      wakeSignal: input.wakeSignals?.outbox, queueMilestones: input.queueMilestones,
       ...(input.onError ? { onError: input.onError } : {}),
       ...(input.onOutboxDiagnostic ? { onDiagnostic: input.onOutboxDiagnostic } : {})
     }))

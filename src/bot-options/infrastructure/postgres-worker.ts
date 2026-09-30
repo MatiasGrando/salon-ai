@@ -1,3 +1,4 @@
+import { jobQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
@@ -305,8 +306,10 @@ export type WorkerLoop = { stop(): Promise<void> }
 export async function runClaimedBotJob(input: {
   client: WorkerClient
   job: ClaimedBotJob
+  queueClaim?: QueueClaimWindow | undefined
   handle(job: ClaimedBotJob): Promise<void>
   handlerSettlesJob?: boolean
+  queueMilestones?: QueueMilestoneTracker | undefined
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): Promise<void> {
@@ -315,6 +318,7 @@ export async function runClaimedBotJob(input: {
   }
   const processingStartedAt = performance.now()
   try {
+    if (input.queueClaim) input.queueMilestones?.handlerStarted(input.queueClaim)
     await input.handle(input.job)
   } catch (error) {
     const processingMs = performance.now() - processingStartedAt
@@ -360,6 +364,7 @@ export function startPostgresWorkerLoop(input: {
   scope?: BotWorkerScope | undefined
   now?: () => number
   handlerSettlesJob?: boolean
+  queueMilestones?: QueueMilestoneTracker | undefined
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): WorkerLoop {
@@ -384,6 +389,7 @@ export function startPostgresWorkerLoop(input: {
       try {
         await maintenance?.runIfDue()
         const wakeVersion = input.wakeSignal?.version
+        const queueClaim = input.queueMilestones?.beginClaim()
         const claimStartedAt = performance.now()
         const job = await claimBotJob(input.client, input.leaseMs, undefined, input.scope)
         if (!job) {
@@ -391,12 +397,13 @@ export function startPostgresWorkerLoop(input: {
           else await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
           continue
         }
+        if (queueClaim) input.queueMilestones?.claimEnded(queueClaim, jobQueueKey({ businessId: job.businessId, kind: job.kind, aggregateId: job.aggregateId }), job.attempts)
         const claimMs = performance.now() - claimStartedAt
         botOptionsMetrics.observe('worker_claim', claimMs)
         emit({ resource: 'job', resourceId: job.id, kind: job.kind, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
         emit({ resource: 'job', resourceId: job.id, kind: job.kind, phase: 'queue', durationMs: job.queueWaitMs, outcome: 'ok' })
         await runClaimedBotJob({
-          client: input.client, job, handle: input.handle,
+          client: input.client, job, handle: input.handle, queueMilestones: input.queueMilestones, queueClaim,
           handlerSettlesJob: input.handlerSettlesJob,
           onError: input.onError,
           onDiagnostic: input.onDiagnostic

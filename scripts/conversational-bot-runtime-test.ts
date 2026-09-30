@@ -1,3 +1,4 @@
+import { createQueueMilestoneTracker, type QueueMilestoneTracker } from '../src/bot-options/observability/queue-milestones.js'
 import assert from 'node:assert/strict'
 import { subscribeToCrmRealtimeEvents } from '../src/services/crm-realtime-events.js'
 import type { AttemptMetricEvent } from '../src/bot-options/observability/attempt-metrics.js'
@@ -78,7 +79,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean } = {}) {
+function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let inTransaction = false
@@ -185,10 +186,26 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     return { context: { businessId: 'biz', timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
+}
+// Final ACK evidence comes from the existing final transaction, never snapshot or rollback.
+for (const fail of [false, true]) {
+  const queueMilestones = createQueueMilestoneTracker({ businessId: 'biz', now: () => 100, emit() {} })
+  const measured = runtimeFixture({ queueMilestones })
+  const unmeasured = runtimeFixture()
+  if (fail) { measured.failCommit(); unmeasured.failCommit() }
+  if (fail) {
+    await assert.rejects(measured.run(), /COMMIT failed/)
+    await assert.rejects(unmeasured.run(), /COMMIT failed/)
+  } else {
+    assert.equal(await measured.run(), await unmeasured.run())
+  }
+  assert.equal(queueMilestones.retainedCount, fail ? 0 : 1, 'only committed outbox gains an ACK marker')
+  assert.deepEqual(measured.statements.map(q => q.sql), unmeasured.statements.map(q => q.sql), 'queue instrumentation does not change SQL/ordering')
+  assert.deepEqual(measured.replies, unmeasured.replies)
 }
 // The combined write projects CRM data, but the public entry only emits after commit.
 for (const fail of [false, true]) {

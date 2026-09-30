@@ -1,3 +1,4 @@
+import { recordProducedOutbox, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import type { WhatsAppConversationAi } from '../../conversational-bot/whatsapp-ai.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
 import { parseDialogueState } from '../../conversational-bot/engine.js'
@@ -775,6 +776,7 @@ export async function processSessionJob(input: {
   job: ClaimedBotJob
   dialogueFactory?: DialogueFactory
   conversationalAi?: WhatsAppConversationAi
+  queueMilestones?: QueueMilestoneTracker | undefined
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
@@ -794,6 +796,7 @@ async function processSessionJobInternal(input: {
   job: ClaimedBotJob
   dialogueFactory?: DialogueFactory
   conversationalAi?: WhatsAppConversationAi
+  queueMilestones?: QueueMilestoneTracker | undefined
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
@@ -1737,4 +1740,5 @@ export async function persistView(
   if (persisted[0]?.choiceCount !== BigInt(plan.choiceRows.length) || persisted[0]?.outboxCount !== BigInt(plan.outboxRows.length)) {
     throw new Error('persist view row count mismatch')
   }
+  for (const row of plan.outboxRows) recordProducedOutbox(tx, { businessId: input.businessId, id: row.id })
 }

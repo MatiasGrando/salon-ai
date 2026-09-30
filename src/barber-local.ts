@@ -1,3 +1,4 @@
+import { createQueueMilestoneTracker } from './bot-options/observability/queue-milestones.js'
 import { enablePrismaClientDiagnostics } from './config/prisma-client.js'
 import { withAttemptMetrics } from './bot-options/observability/attempt-metrics.js'
 import { pathToFileURL } from 'node:url'
@@ -46,8 +47,11 @@ export async function startBarberLocal() {
     await ingressClient.$disconnect()
     throw new Error('Barber pool diagnostics require unused clients')
   }
+  const queueMilestones = createQueueMilestoneTracker({ businessId: BARBER_DEMO_BUSINESS_ID,
+    emit: diagnostic => { console.info('[barber-local-queue-milestones]', JSON.stringify(diagnostic)) }
+  })
   const repository = new PrismaAuthoritativeAdmissionRepository(ingressClient, {
-    depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled
+    depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled, queueMilestones
   })
   const wakeSignals = { jobs: createWorkerWakeSignal(), outbox: createWorkerWakeSignal() }
   const { internal, gateway } = await createBarberWebhookApps({
@@ -56,7 +60,7 @@ export async function startBarberLocal() {
   const handler = async (job: ClaimedBotJob) => {
     if (job.businessId !== BARBER_DEMO_BUSINESS_ID) throw new Error('non-Barber local job denied')
     if (job.kind === 'PROCESS_PROVIDER_EVENT') {
-      await withAttemptMetrics({ jobId: job.id, attempt: job.attempts }, () => processProviderEventJob({ client: prisma, job, depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled }))
+      await withAttemptMetrics({ jobId: job.id, attempt: job.attempts }, () => processProviderEventJob({ client: prisma, job, depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled, queueMilestones }))
       return
     }
     if (job.kind === 'RECONCILE_PROMPT') { await reconcileActions(prisma, job); return }
@@ -66,7 +70,7 @@ export async function startBarberLocal() {
       return
     }
     if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') { await bridgeDepositNotificationJob(prisma, job); return }
-    await processSessionJob({ client: prisma, job, conversationalAi })
+    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones })
   }
 
   let loops: Awaited<ReturnType<typeof startBarberWorkerLoops>> | null = null
@@ -84,7 +88,7 @@ export async function startBarberLocal() {
   try {
     await internal.listen({ port: internalPort, host: '127.0.0.1' })
     loops = await startBarberWorkerLoops({
-      scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler, wakeSignals,
+      scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler, wakeSignals, queueMilestones,
       onError: (error) => internal.log.error(error),
       onWorkerDiagnostic: (diagnostic) => {
         console.info('[barber-local-job-latency]', JSON.stringify(diagnostic))

@@ -1,3 +1,4 @@
+import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../observability/attempt-metrics.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { applyLazyContextWindowTx } from './lazy-context-window.js'
@@ -240,6 +241,7 @@ export async function processProviderEventJob(input: {
   client: ProviderEventClient
   job: ClaimedBotJob
   depositProofIngressEnabled?: boolean
+  queueMilestones?: QueueMilestoneTracker | undefined
 }): Promise<'PROCESSED' | 'STALE' | 'DEFERRED'> {
   if (input.job.kind !== 'PROCESS_PROVIDER_EVENT') {
     throw new Error(`unsupported provider event job ${input.job.kind}`)
@@ -248,7 +250,7 @@ export async function processProviderEventJob(input: {
   const pendingCrmEvents = await projectInboundBeforeClassification(input.client, input.job)
   flushInboundConversationMessages(pendingCrmEvents)
 
-  const result = await measureAttemptTransaction('provider_classification', body => input.client.$transaction(body, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS), async (tx: Prisma.TransactionClient) => {
+  const result = await measureAttemptTransaction('provider_classification', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS), body), async (tx: Prisma.TransactionClient) => {
     await measureAttemptStage('provider_job_assert', () => assertClaimedBotJobTx(tx, input.job, { requireCurrentDeployment: false }))
     const deployment = await measureAttemptStage('provider_deployment_load', () => currentDeploymentTx(tx, input.job))
     const activeJob = deployment.id === input.job.deploymentId

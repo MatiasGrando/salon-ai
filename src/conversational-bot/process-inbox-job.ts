@@ -1,3 +1,4 @@
+import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../bot-options/observability/attempt-metrics.js'
 import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import type { WhatsAppConversationAi } from './whatsapp-ai.js'
@@ -80,6 +81,7 @@ async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: Cla
 /** Uses the existing inbox/job/outbox. Catalog queries and optional AI preparation run outside locks. */
 export async function processConversationInbox(input: {
   client: Client; job: ClaimedBotJob; dialogueFactory?: DialogueFactory; conversationalAi?: WhatsAppConversationAi;
+  queueMilestones?: QueueMilestoneTracker | undefined;
   writeView: typeof persistView; projectInbound: typeof projectInboundMessage;
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
@@ -273,7 +275,7 @@ export async function processConversationInbox(input: {
       : await respond(prepared.context, snapshot.draft, String(snapshot.payload.textBody ?? ''), port))
     const computedAt = performance.now()
     let committedTransitionId: string | null = null
-    const result = await measureAttemptTransaction('conversation_final', body => input.client.$transaction(body, txOptions), async (tx: Prisma.TransactionClient) => {
+    const result = await measureAttemptTransaction('conversation_final', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, txOptions), body), async (tx: Prisma.TransactionClient) => {
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return 'PROCESSED' as const }
