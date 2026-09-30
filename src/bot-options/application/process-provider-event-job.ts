@@ -1,3 +1,4 @@
+import { lockConversationPhoneTx } from '../../conversational-bot/inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../observability/attempt-metrics.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
@@ -155,13 +156,23 @@ async function loadProviderEventTx(
   return rows[0]!
 }
 
+/** Admission and send preflight share this gate. Identity reads never lock rows or reuse a pre-wait snapshot. */
+async function lockProviderConversationTx(tx: Prisma.TransactionClient, job: ClaimedBotJob): Promise<void> {
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${job.businessId}:WHATSAPP`}, 0))`)
+  const rows = await tx.$queryRaw<Array<{ eventType: string; payload: Prisma.JsonValue }>>(Prisma.sql`
+    /* provider-consolidation-identity */ SELECT e."eventType"::text AS "eventType", e."payload"
+    FROM "BotProviderEvent" e WHERE e."id" = ${job.aggregateId} AND e."businessId" = ${job.businessId}
+  `)
+  if (rows.length !== 1) throw new Error('provider event identity unavailable')
+  if (rows[0]!.eventType === 'MESSAGE') {
+    await lockConversationPhoneTx(tx, job.businessId, requiredString(record(rows[0]!.payload)['fromPhone'], 'fromPhone'))
+  }
+}
 async function loadClaimedProviderEventTx(
   tx: Prisma.TransactionClient,
   job: ClaimedBotJob
 ): Promise<ProviderEventRow> {
-  await tx.$executeRaw(Prisma.sql`
-    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${job.businessId}:WHATSAPP`}, 0))
-  `)
+  await lockProviderConversationTx(tx, job)
   const rows = await tx.$queryRaw<ProviderEventRow[]>(Prisma.sql`
     SELECT e."id", e."eventKey", e."eventType"::text AS "eventType", e."businessId", e."phoneNumberId",
       e."providerMessageId", e."payload", e."status"::text AS "status"
@@ -206,6 +217,13 @@ async function projectInboundBeforeClassification(
     if (row.eventType !== 'MESSAGE') return []
     const payload = record(row.payload)
     const phone = requiredString(payload['fromPhone'], 'fromPhone')
+    // Human ownership uses session -> Conversation; do not invert that order during CRM upsert.
+    await tx.$queryRaw(Prisma.sql`
+      /* provider-consolidation-session-lock */ SELECT s."id" FROM "BotSession" s
+      JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId"
+      WHERE s."businessId" = ${row.businessId} AND c."phone" = ${phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
+      ORDER BY s."id" FOR UPDATE OF s
+    `)
     const conversationId = `provider-conversation:${row.id}`
     const conversations = await measureAttemptStage('provider_projection_conversation', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
@@ -251,6 +269,7 @@ export async function processProviderEventJob(input: {
   flushInboundConversationMessages(pendingCrmEvents)
 
   const result = await measureAttemptTransaction('provider_classification', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS), body), async (tx: Prisma.TransactionClient) => {
+    await lockProviderConversationTx(tx, input.job)
     await measureAttemptStage('provider_job_assert', () => assertClaimedBotJobTx(tx, input.job, { requireCurrentDeployment: false }))
     const deployment = await measureAttemptStage('provider_deployment_load', () => currentDeploymentTx(tx, input.job))
     const activeJob = deployment.id === input.job.deploymentId

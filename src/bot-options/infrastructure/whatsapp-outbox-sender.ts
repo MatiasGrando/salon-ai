@@ -1,3 +1,4 @@
+import { guardConsolidatedOutboxTx, lockConversationInputTx, readConsolidationEnvelope } from '../../conversational-bot/inbound-consolidation.js'
 import { outboxQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
 import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../../config/whatsapp.js'
@@ -318,6 +319,27 @@ export async function sendClaimedOutbox(input: {
   let dispatchToken: string | null = null
   try {
     await input.client.$transaction(async (tx) => {
+      const payload = input.item.payload as { to?: unknown; consolidation?: unknown } | null
+      if (readConsolidationEnvelope(payload?.consolidation)) {
+        if (typeof payload?.to !== 'string' || !payload.to.trim()) throw new Error('consolidation recipient unavailable')
+        // Same admission fence, taken before any dispatch/deployment/outbox row lock.
+        await lockConversationInputTx(tx, input.item.businessId, payload.to)
+        const consolidation = await guardConsolidatedOutboxTx(tx, input.item)
+        if (consolidation !== 'ready') {
+          if (consolidation === 'defer') await tx.$executeRaw(Prisma.sql`
+            /* consolidation-sender-defer */ WITH owned AS MATERIALIZED (
+              SELECT "id" FROM "BotOutbox" WHERE "id" = ${input.item.id} AND "businessId" = ${input.item.businessId}
+                AND "sessionId" = ${input.item.sessionId} AND "status" = 'CLAIMED'::"BotOutboxStatus"
+                AND "leaseToken" = ${input.item.claimToken} FOR UPDATE SKIP LOCKED
+            ) UPDATE "BotOutbox" o SET "status" = 'PENDING'::"BotOutboxStatus",
+              "attempts" = GREATEST(0, o."attempts" - 1), "availableAt" = clock_timestamp(),
+              "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
+            FROM owned WHERE o."id" = owned."id" AND o."businessId" = ${input.item.businessId}
+              AND o."status" = 'CLAIMED'::"BotOutboxStatus" AND o."leaseToken" = ${input.item.claimToken}
+          `)
+          return
+        }
+      }
       dispatchToken = await acquireDispatchClaimTx(tx, {
         businessId: input.item.businessId, sessionId: input.item.sessionId,
         resourceId: input.item.id, generation: input.item.generation, fenceEpoch: input.item.fenceEpoch,

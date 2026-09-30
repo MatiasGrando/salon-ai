@@ -96,6 +96,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
   let invalidClaim = false
   const statements: Query[] = []
   let prepareHook: (() => void) | undefined
+  let inputs: Array<{ id: string; text: string }> | undefined
   const client = {
     async $transaction<T>(operation: (tx: unknown) => Promise<T>): Promise<T> {
       assert.equal(inTransaction, false)
@@ -119,6 +120,11 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     },
     async $queryRaw(q: Query) {
       statements.push(q)
+      if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: row.payload.fromPhone }]
+      if (q.sql.includes('consolidation-previous')) return []
+      if (q.sql.includes('consolidation-candidates') && blocked) return [{ id: 'barrier', admittedAt: now, payload: { messageType: 'image' }, actionType: 'input.initial' }]
+      if (q.sql.includes('consolidation-candidates')) return (inputs ?? [{ id: row.providerEventId, text: row.payload.textBody }]).map(part => ({ id: part.id, admittedAt: now,
+        payload: { ...row.payload, textBody: part.text }, actionType: 'input.initial' }))
       if (q.sql.includes('conversation-policy')) return [row]
       if (q.sql.includes('FROM "BotProviderEvent" e') && q.sql.includes('d."id" AS "deploymentId"')) return [row]
       if (q.sql.includes('SELECT e."businessId", d."generation"')) return [row]
@@ -190,6 +196,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
+    inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
@@ -227,6 +234,67 @@ for (const guard of ['image', 'processed', 'handoff', 'disabled', 'rollback'] as
   assert.equal(calls, 0, `typing must skip ${guard}`)
 }
 console.log('conversational post-snapshot typing guard/fail-open: PASS')
+// Five durable parts are one computation; a new durable input during compute invalidates it.
+const five = runtimeFixture()
+five.inputs([{ id: 'event', text: 'quiero' }, { id: 'b', text: 'corte' }, { id: 'c', text: 'hoy' },
+  { id: 'd', text: 'no, mañana' }, { id: 'e', text: 'con Ana' }])
+let fullText = ''
+await five.run('PROCESS_INBOX', { provider: async input => {
+  fullText = input.message
+  return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+    firstReply: { opening: 'Entendido', factIds: [], closing: null } }
+}, timeoutMs: 4500 })
+assert.equal(fullText, 'quiero corte hoy no, mañana con Ana', 'all durable text belongs to one input, not five replies')
+assert.equal(five.replies.length, 1)
+// Execute the exact production settlement statement, including covered unclassified journal rows.
+const settlementSql = five.statements.find(q => q.sql.includes('conversation-settle-batch'))!
+const settlementDb = new PGlite()
+try {
+  await settlementDb.exec(`
+    CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','CLAIMED','SELECTED','CONFLICT','PROCESSED');
+    CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED');
+    CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','DONE');
+    CREATE TYPE "BotJobStatus" AS ENUM ('LEASED','DONE');
+    CREATE TABLE "BotActionInbox" ("id" text,"businessId" text,"providerEventId" text,"status" "BotInboxStatus","error" text);
+    CREATE TABLE "BotProviderEvent" ("id" text,"businessId" text,"status" "BotProviderEventStatus");
+    CREATE TABLE "BotDispatchClaim" ("id" text,"claimToken" text,"status" "BotDispatchStatus","updatedAt" timestamptz);
+    CREATE TABLE "BotJob" ("id" text,"status" "BotJobStatus","leaseToken" text,"leasedUntil" timestamptz,"lastError" text,"updatedAt" timestamptz);
+    INSERT INTO "BotActionInbox" VALUES ('inbox','biz','event','ADMITTED',NULL),('other-inbox','biz','b','CLAIMED',NULL),('foreign-inbox','foreign','c','ADMITTED',NULL);
+    INSERT INTO "BotProviderEvent" VALUES ('event','biz','ADMITTED'),('b','biz','ADMITTED'),('c','biz','ADMITTED'),('d','biz','ADMITTED'),('e','biz','ADMITTED'),('c','foreign','ADMITTED');
+    INSERT INTO "BotDispatchClaim" VALUES ('own','dispatch-token','CLAIMED',clock_timestamp()),('other','other-token','CLAIMED',clock_timestamp());
+    INSERT INTO "BotJob" VALUES ('job-0','LEASED','job-token',clock_timestamp(),NULL,clock_timestamp()),('other-job','LEASED','other-lease',clock_timestamp(),NULL,clock_timestamp());
+  `)
+  const before = await settlementDb.query(`SELECT * FROM "BotProviderEvent" ORDER BY "businessId","id"`)
+  await assert.rejects(settlementDb.transaction(async tx => { await tx.query(settlementSql.text,settlementSql.values); throw new Error('settlement rollback') }), /settlement rollback/)
+  assert.deepEqual((await settlementDb.query(`SELECT * FROM "BotProviderEvent" ORDER BY "businessId","id"`)).rows,before.rows)
+  const counts=(await settlementDb.query<{inboxCount:number;dispatchCount:number;jobCount:number}>(settlementSql.text,settlementSql.values)).rows[0]!
+  assert.equal(Number(counts.inboxCount),1);assert.equal(Number(counts.dispatchCount),1);assert.equal(Number(counts.jobCount),1)
+  assert.deepEqual((await settlementDb.query<{status:string}>(`SELECT "status" FROM "BotProviderEvent" WHERE "businessId"='biz'`)).rows.map(r=>r.status),Array(5).fill('PROCESSED'))
+  assert.equal((await settlementDb.query<{status:string}>(`SELECT "status" FROM "BotActionInbox" WHERE "id"='other-inbox'`)).rows[0]!.status,'PROCESSED')
+  assert.equal((await settlementDb.query<{status:string}>(`SELECT "status" FROM "BotActionInbox" WHERE "id"='foreign-inbox'`)).rows[0]!.status,'ADMITTED')
+  assert.equal((await settlementDb.query<{status:string}>(`SELECT "status" FROM "BotJob" WHERE "id"='other-job'`)).rows[0]!.status,'LEASED')
+  assert.equal((await settlementDb.query<{status:string}>(`SELECT "status" FROM "BotDispatchClaim" WHERE "id"='other'`)).rows[0]!.status,'CLAIMED')
+  console.log('conversational exact settlement SQL: coverage, raw journal, foreign leases, tenant, rollback PASS')
+} finally { await settlementDb.close() }
+const during = runtimeFixture()
+let release!: () => void
+let entered!: () => void
+const computing = new Promise<void>(resolve => { entered = resolve })
+const aiGate = new Promise<void>(resolve => { release = resolve })
+const pending = during.run('PROCESS_INBOX', { provider: async () => {
+  entered(); await aiGate
+  return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+    firstReply: { opening: 'Obsolete', factIds: [], closing: null } }
+}, timeoutMs: 4500 })
+await computing
+during.inputs([{ id: 'event', text: 'hoy' }, { id: 'late', text: 'no, mañana' }])
+release()
+assert.equal(await pending, 'STALE_REVISION')
+assert.equal(during.replies.length, 0, 'no outbox survives a changed coverage set')
+assert.equal(during.retried, 1)
+await during.run()
+assert.equal(during.replies.length, 1, 'the existing durable job can retry the latest complete input')
+console.log('conversational consolidation public worker/compute invalidation: PASS')
 // Final ACK evidence comes from the existing final transaction, never snapshot or rollback.
 for (const fail of [false, true]) {
   const queueMilestones = createQueueMilestoneTracker({ businessId: 'biz', now: () => 100, emit() {} })

@@ -28,7 +28,7 @@ const run = async (overrides: Partial<Parameters<typeof persistConversationTurnT
 const reset = async () => {
   await db.exec(`TRUNCATE "Audit","BotTransitionLog","BotSession","Conversation";
     INSERT INTO "Conversation" VALUES ('conv','biz','OTHER',clock_timestamp()),('foreign','foreign','OTHER',clock_timestamp());
-    INSERT INTO "BotSession" VALUES ('session','biz','conv',3,'ACTIVE',NULL,2,'{}',clock_timestamp());`)
+    INSERT INTO "BotSession" ("id","businessId","conversationId","revision","status","handoffClaimsPausedAt","handoffFenceEpoch","state","updatedAt") VALUES ('session','biz','conv',3,'ACTIVE',NULL,2,'{}',clock_timestamp());`)
   statements = 0
 }
 const state = async () => (await db.query<Record<string, unknown>>(`SELECT s."revision",s."state",c."currentStep",
@@ -94,5 +94,18 @@ try {
   await assert.rejects(persistConversationTurnTx({ async $queryRaw() {
     return [{ sessionCount: 1n, stepCount: 2n, conversationId: 'conv', updatedAt: new Date() }]
   } } as never, input), /ambiguous bot options conversation projection/)
+  await db.exec(`ALTER TABLE "BotTransitionLog" ADD COLUMN "detail" jsonb;
+    ALTER TABLE "BotSession" ADD COLUMN "draftTouchedAt" timestamptz;
+    ALTER TABLE "BotSession" ADD COLUMN "draftExpiresAt" timestamptz;`)
+  const consolidation = { version: 1 as const, businessId: 'biz', sessionId: 'session', deploymentId: 'dep', generation: 1,
+    handoffFenceEpoch: 2, baseState: { original: true }, eventIds: ['event','late-commit'], sealed: false }
+  const admittedAt = new Date('2026-09-30T23:59:00Z')
+  await reset(); await run({ consolidation, admittedAt })
+  assert.deepEqual((await db.query<{detail:unknown}>(`SELECT "detail" FROM "BotTransitionLog"`)).rows[0]!.detail,{consolidation})
+  const activity=(await db.query<{draftTouchedAt:Date;draftExpiresAt:Date}>(`SELECT "draftTouchedAt","draftExpiresAt" FROM "BotSession"`)).rows[0]!
+  assert.equal(activity.draftTouchedAt.toISOString(),admittedAt.toISOString())
+  assert.equal(activity.draftExpiresAt.toISOString(),'2026-10-01T23:59:00.000Z')
+  await reset(); await assert.rejects(run({ consolidation, admittedAt },'outbox'), /outbox/)
+  assert.equal((await state())?.['transitions'],0)
   console.log('OK conversation turn SQL: one statement, fences, dependency order, optional step, rollback and COMMIT failure.')
 } finally { await db.close() }

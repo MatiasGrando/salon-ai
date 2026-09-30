@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import {
   AUTHORITATIVE_LOCK_TIMEOUT_MS,
   AUTHORITATIVE_STATEMENT_TIMEOUT_MS,
@@ -156,3 +157,73 @@ new PrismaAuthoritativeAdmissionRepository({} as never)
 new PrismaAuthoritativeAdmissionRepository({} as never, { authoritativeTransactionTimeoutMs: 5_000 })
 
 console.log('OK authoritative admission transaction timeout: production default is fixed and test overrides are validated.')
+
+// A webhook batch must fence all message identities before locking deployment/journal rows.
+// Adapters exercise the real repository; model rollback by publishing staged writes only after success.
+const expectedGate = (tenant: string, phone: string) => `bot-conversation-input:${createHash('sha256').update(JSON.stringify([tenant, phone])).digest('hex')}`
+const message = (fromPhone: string, index: number, messageType: 'text' | 'image' | 'interactive' = 'text') => ({
+  kind: 'message' as const, eventKey: `batch-${index}`, providerMessageId: `batch-${index}`,
+  phoneNumberId: 'phone-a', displayPhoneNumber: null, fromPhone, textBody: 'synthetic', messageType,
+  interactiveReplyId: messageType === 'interactive' ? `b1.${promptToken}.${choiceToken}` : null,
+  mediaType: messageType === 'image' ? 'image' as const : null, mediaMimeType: null, mediaId: null, filename: null,
+  providerOccurredAtIso: null
+})
+async function admissionTrace(tenant: string, phones: string[], failGate = false, statusOnly = false) {
+  const trace: Array<{ sql: string; values: unknown[] }> = []
+  let committedWrites = 0
+  let stagedWrites = 0
+  const unpack = (q: { strings?: readonly string[]; values?: readonly unknown[] } | readonly string[], bound: unknown[]) => {
+    const sql = q as { strings?: readonly string[]; values?: readonly unknown[] }
+    return { sql: Array.isArray(q) ? q.join('?') : sql.strings!.join('?'), values: Array.isArray(q) ? bound : [...(sql.values ?? [])] }
+  }
+  const repository = new PrismaAuthoritativeAdmissionRepository({
+    async $transaction(body: (tx: unknown) => Promise<unknown>) {
+      const result = await body({
+        async $executeRaw(q: Parameters<typeof unpack>[0], ...bound: unknown[]) {
+          const item = unpack(q,bound); trace.push(item)
+          if (item.sql.includes('pg_advisory_xact_lock(') && failGate) throw new Error('injected conversation fence timeout')
+          if (item.sql.includes('INSERT INTO')) stagedWrites++
+          return 1
+        },
+        async $queryRaw(q: Parameters<typeof unpack>[0], ...bound: unknown[]) {
+          const item = unpack(q,bound); trace.push(item)
+          if (item.sql.includes('FROM "BotChannelDeployment"')) return [{ id: 'deployment-a',generation: 1 }]
+          if (item.sql.includes('INSERT INTO "BotProviderEvent"')) { stagedWrites++; return [{ id: item.values[0] }] }
+          throw new Error(`unexpected admission query: ${item.sql}`)
+        }
+      })
+      committedWrites = stagedWrites
+      return result
+    }
+  } as never)
+  const events = statusOnly ? [{ kind: 'status' as const,eventKey: 'status',providerMessageId: 'status',phoneNumberId: 'phone-a',
+    status: 'read' as const,recipientPhone: '5491100000000',providerOccurredAtIso: null,errorMessage: null }] :
+    phones.map((phone,index) => message(phone,index,index === 1 ? 'image' : index === 2 ? 'interactive' : 'text'))
+  const run = repository.admitAuthoritative({ route: { kind: 'new',businessId: tenant,deploymentId: 'deployment-a',generation: 1,
+    appSecret: null,appSecretPrevious: null,appSecretPreviousValidUntil: null },phoneNumberId: 'phone-a',events })
+  if (failGate) {
+    const saved = console.error; console.error = () => {}
+    try { await assert.rejects(run,/injected conversation fence timeout/) } finally { console.error = saved }
+    assert.equal(committedWrites,0)
+    assert.equal(stagedWrites,0,'fence rejection happens before any journal/job write')
+    assert.equal(trace.some(item => item.sql.includes('FOR SHARE')),false,'deployment lock must not precede phone fence')
+  } else await run
+  return trace
+}
+const firstBatch = await admissionTrace('business-a',['549222','+549 111','549111','549333'])
+const exclusive = firstBatch.filter(item => item.sql.includes('pg_advisory_xact_lock('))
+assert.deepEqual(exclusive.map(item => item.values[0]),['549111','549222','549333'].map(phone => expectedGate('business-a',phone)),
+  'canonical phones must be deduplicated, sorted and exclusively fenced')
+const cutoverIndex = firstBatch.findIndex(item => item.sql.includes('pg_advisory_xact_lock_shared'))
+const deploymentIndex = firstBatch.findIndex(item => item.sql.includes('FOR SHARE'))
+for (const item of exclusive) assert.ok(firstBatch.indexOf(item)>cutoverIndex && firstBatch.indexOf(item)<deploymentIndex,
+  'standalone shared cutover -> exclusive conversation locks -> deployment FOR SHARE')
+const reverseBatch = await admissionTrace('business-a',['549333','549111','549222'])
+assert.deepEqual(reverseBatch.filter(item => item.sql.includes('pg_advisory_xact_lock(')).map(item => item.values[0]),exclusive.map(item => item.values[0]))
+const otherTenant = await admissionTrace('business-b',['549111'])
+assert.notEqual(otherTenant.find(item => item.sql.includes('pg_advisory_xact_lock('))?.values[0],exclusive[0]!.values[0])
+for (const trace of [await admissionTrace('business-a',[]),await admissionTrace('business-a',[],false,true)]) {
+  assert.equal(trace.some(item => item.sql.includes('pg_advisory_xact_lock(')),false,'empty/status-only batch adds no conversation lock')
+}
+await admissionTrace('business-a',['549111'],true)
+console.log('PASS admission consolidation fence: canonical sorted batch locks, media/interactive, tenant, fail-before-write and no-message path.')

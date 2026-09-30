@@ -1685,7 +1685,7 @@ export async function persistView(
   tx: Prisma.TransactionClient,
   input: {
     businessId: string; sessionId: string; revision: bigint; transitionId: string; toPhone: string | null; view: BotOptionsViewModel; dbNow: Date
-    promptToken?: string; idFactory?: () => string
+    promptToken?: string; idFactory?: () => string; consolidation?: import('../../conversational-bot/inbound-consolidation.js').ConsolidationEnvelope | undefined
   }
 ) {
   if (!input.toPhone) throw new Error('cannot render outbox without destination phone')
@@ -1730,7 +1730,7 @@ export async function persistView(
           "idempotencyKey", "status", "dependsOnSequence", "availableAt", "updatedAt")
         VALUES ${Prisma.join(plan.outboxRows.map((row) => Prisma.sql`(
           ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}, ${row.kind},
-          ${JSON.stringify({ to: input.toPhone, item: row.item })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
+          ${JSON.stringify({ to: input.toPhone, item: row.item, ...(input.consolidation ? { consolidation: input.consolidation } : {}) })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
           ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
         )`))}
         RETURNING "id"

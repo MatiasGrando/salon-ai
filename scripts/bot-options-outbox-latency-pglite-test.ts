@@ -88,6 +88,7 @@ try {
   let lastTransactionOptions: unknown
   const statements: string[] = []
   let beforeStatement: ((query: Prisma.Sql, pg: Pick<PGlite, 'query'>) => Promise<void>) | undefined
+  let omitConsolidationLockedRow = false
   let beforeCommit: (() => void) | undefined
   let afterCommit: (() => void) | undefined
   const client = {
@@ -103,7 +104,9 @@ try {
             sqlOperations += 1
             statements.push(query.text)
             await beforeStatement?.(query, pg)
-            return pg.query(query.text, query.values)
+            const result = await pg.query(query.text, query.values)
+            if (omitConsolidationLockedRow && query.text.includes('consolidation-outbox-lock')) result.rows = result.rows.filter(row => (row as { id: string }).id !== 'peer-part')
+            return result
           }
           const value = await operation({
             async $queryRaw(query: Prisma.Sql) { return prismaRows((await queryRaw(query)).rows as Array<Record<string, unknown>>) },
@@ -366,6 +369,90 @@ try {
   assert.equal((await statuses(ambiguous.id)).outbox, 'UNKNOWN', 'durable SENDING remains subject to conservative recovery')
   assert.equal(sends, 2, 'all preflight faults call no provider')
 
+  // C11: exercise the actual sender and consolidation SQL before irreversible SENDING.
+  await db.exec(`
+    ALTER TABLE "BotProviderEvent" ADD COLUMN "eventType" text DEFAULT 'MESSAGE';
+    ALTER TABLE "BotProviderEvent" ADD COLUMN "payload" jsonb DEFAULT '{}';
+    ALTER TABLE "BotProviderEvent" ADD COLUMN "status" text DEFAULT 'PROCESSED';
+    CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"providerEventId" text,"actionType" text,"status" text,"deploymentId" text,"deploymentGeneration" int);
+  `)
+  const consolidated = async (name: string, newcomer = true) => {
+    await db.exec(`DELETE FROM "BotOutbox"; DELETE FROM "BotDispatchClaim"; DELETE FROM "BotProviderEvent" WHERE "id"='new-fragment';`)
+    const envelope = { version: 1, businessId, sessionId: 'session-a', deploymentId, generation: 0,
+      handoffFenceEpoch: 0, baseState: {}, eventIds: ['event-normal'], sealed: false }
+    const body = { fromPhone: '5491100000000', messageType: 'text', textBody: 'quiero corte' }
+    await db.query(`UPDATE "BotProviderEvent" SET "payload"=$1::jsonb WHERE "id"='event-normal'`, [JSON.stringify(body)])
+    if (newcomer) await db.query(`INSERT INTO "BotProviderEvent" ("id","businessId","admittedAt","eventType","payload","status") VALUES ('new-fragment',$1,clock_timestamp(),'MESSAGE',$2::jsonb,'ADMITTED')`,
+      [businessId,JSON.stringify({ ...body, textBody: 'mañana' })])
+    const item = await fresh(name)
+    const payload = { to: '5491100000000', item: { type: 'text', body: 'respuesta anterior' }, consolidation: envelope }
+    await db.query(`UPDATE "BotOutbox" SET "payload"=$1::jsonb WHERE "id"=$2`, [JSON.stringify(payload),item.id])
+    return { ...item, payload }
+  }
+  const preSendNewcomer = await consolidated('consolidation-newcomer')
+  const beforeNewcomerSends = sends
+  const guardStart = statements.length
+  assert.equal(await send(preSendNewcomer), 'STALE', 'durable unclassified newcomer must suppress the old reply before provider call')
+  assert.equal(sends, beforeNewcomerSends)
+  assert.deepEqual(await statuses(preSendNewcomer.id), { outbox: 'SKIPPED', dispatch: [] })
+  const guardStatements = statements.slice(guardStart)
+  assert.match(guardStatements[0]!, /pg_advisory_xact_lock_shared/)
+  assert.match(guardStatements[1]!, /pg_advisory_xact_lock\(/)
+  assert.ok(!guardStatements.some(sql => sql.includes('INSERT INTO "BotDispatchClaim"')), 'superseded reply never acquires SEND')
+  const rollbackGroup = await consolidated('consolidation-rollback')
+  beforeCommit = () => { throw new Error('consolidation rollback') }
+  await assert.rejects(send(rollbackGroup), /consolidation rollback/)
+  beforeCommit = undefined
+  assert.deepEqual(await statuses(rollbackGroup.id), { outbox: 'CLAIMED', dispatch: [] }, 'group invalidation is transactional')
+  assert.equal(sends, beforeNewcomerSends)
+
+  // PGlite is single-connection: deterministically omit a locked peer from SKIP LOCKED results.
+  // The remaining selection, exact-count check and defer UPDATE all execute production SQL.
+  const partial = await consolidated('consolidation-partial')
+  await db.query(`INSERT INTO "BotOutbox" ("id","businessId","sessionId","transitionId","deliveryGroupId","sequence","kind","payload","idempotencyKey","status","leaseToken","leasedUntil","attempts")
+    VALUES ('peer-part',$1,'session-a','transition:session-a:11','peer-group',1,'text','{}','peer-key','CLAIMED','peer-lease',clock_timestamp()+interval '1 minute',2)`, [businessId])
+  omitConsolidationLockedRow = true
+  assert.equal(await send(partial), 'STALE')
+  omitConsolidationLockedRow = false
+  assert.match(statements.findLast(sql => sql.includes('consolidation-sender-defer'))!, /FOR UPDATE SKIP LOCKED/, 'defer must not block on an outbox row held by a concurrent claimer')
+  const deferredRows = (await db.query<{ id: string; status: string; attempts: number; leaseToken: string | null; eligible: boolean }>(`
+    SELECT "id","status","attempts","leaseToken","availableAt"<=clock_timestamp() AS eligible FROM "BotOutbox" ORDER BY "id"`)).rows
+  assert.deepEqual(deferredRows.find(row => row.id === partial.id), { id: partial.id, status: 'PENDING', attempts: 0, leaseToken: null, eligible: true })
+  assert.deepEqual(deferredRows.find(row => row.id === 'peer-part'), { id: 'peer-part', status: 'CLAIMED', attempts: 2, leaseToken: 'peer-lease', eligible: true }, 'defer must not complete or refund another lease')
+  assert.deepEqual((await statuses(partial.id)).dispatch, [])
+  assert.equal(sends, beforeNewcomerSends)
+
+  const staleLease = await consolidated('consolidation-stale-lease')
+  assert.equal(await send({ ...staleLease, claimToken: 'replaced-lease' }), 'STALE')
+  assert.deepEqual(await statuses(staleLease.id), { outbox: 'CLAIMED', dispatch: [] }, 'stale claimant cannot cancel the current lease')
+  assert.equal((await db.query<{attempts:number}>(`SELECT "attempts" FROM "BotOutbox" WHERE "id"=$1`,[staleLease.id])).rows[0]!.attempts, 1)
+
+  const racedLease = await consolidated('consolidation-lease-race')
+  beforeStatement = async (query, pg) => {
+    if (query.text.includes('consolidation-sender-owned')) await pg.query(`UPDATE "BotOutbox" SET "leaseToken"='replacement-owner' WHERE "id"=$1`, [racedLease.id])
+  }
+  assert.equal(await send(racedLease), 'STALE')
+  beforeStatement = undefined
+  assert.deepEqual(await statuses(racedLease.id), { outbox: 'CLAIMED', dispatch: [] })
+  assert.equal((await db.query<{leaseToken:string}>(`SELECT "leaseToken" FROM "BotOutbox" WHERE "id"=$1`,[racedLease.id])).rows[0]!.leaseToken,'replacement-owner','lease replaced just before ownership lock cannot be cancelled')
+  for (const irreversible of ['SENDING','UNKNOWN','ACCEPTED','DELIVERED','READ']) {
+    const old = await consolidated(`consolidation-${irreversible}`)
+    await db.query(`UPDATE "BotOutbox" SET "status"=$1::"BotOutboxStatus" WHERE "id"=$2`, [irreversible, old.id])
+    assert.equal(await send(old), 'STALE')
+    assert.deepEqual(await statuses(old.id), { outbox: irreversible, dispatch: [] }, 'cannot retract or resend after irreversible boundary')
+  }
+  assert.equal(sends, beforeNewcomerSends)
+
+  const unchanged = await consolidated('consolidation-current', false)
+  const orderStart = statements.length
+  assert.equal(await send(unchanged), 'ACCEPTED', 'unchanged group uses the established sender exactly once')
+  const order = statements.slice(orderStart)
+  assert.ok(order.findIndex(sql => sql.includes('pg_advisory_xact_lock(')) < order.findIndex(sql => sql.includes('INSERT INTO "BotDispatchClaim"')))
+  assert.equal(sends, beforeNewcomerSends + 1)
+  const optedOut = await consolidated('consolidation-absent')
+  const { consolidation: ignored, ...plainPayload } = optedOut.payload
+  assert.equal(await send({ ...optedOut, payload: plainPayload }), 'ACCEPTED', 'absence of opt-in marker preserves existing profiles')
+  assert.equal(sends, beforeNewcomerSends + 2)
   console.log('bot-options-outbox-latency-pglite-test: OK')
 } finally {
   await db.close()

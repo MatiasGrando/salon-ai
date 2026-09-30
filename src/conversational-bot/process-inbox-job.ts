@@ -1,3 +1,4 @@
+import { lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx } from './inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../bot-options/observability/attempt-metrics.js'
 import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai-interpreter.js'
@@ -142,17 +143,24 @@ export async function processConversationInbox(input: {
       if (!rows[0]) throw new Error('conversation order guard unavailable')
       return !rows[0].blocked
     }
-    const finish = (tx: Prisma.TransactionClient, row: Row) => measureAttemptStage('conversation_settlement', async () => {
+    const finish = (tx: Prisma.TransactionClient, row: Row, coveredIds: string[] = [row.providerEventId]) => measureAttemptStage('conversation_settlement', async () => {
       const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; dispatchCount: bigint; jobCount: bigint }>>(Prisma.sql`
         /* conversation-settle-batch */
         WITH settled_inbox AS (
           UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "error" = NULL
           WHERE "id" = ${row.id} AND "businessId" = ${row.businessId} AND "status" = 'ADMITTED'::"BotInboxStatus"
           RETURNING "id"
+        ), covered_inbox AS (
+          -- Only lifecycle rows are settled; jobs/dispatch leases belonging to other workers stay untouched.
+          UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "error" = NULL
+          WHERE "businessId" = ${row.businessId} AND "providerEventId" IN (${Prisma.join(coveredIds)})
+            AND "id" <> ${row.id} AND "status"::text IN ('ADMITTED','CLAIMED','SELECTED','CONFLICT')
+            AND (SELECT count(*) FROM settled_inbox) = 1
+          RETURNING "id"
         ), settled_event AS (
           UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus"
-          WHERE "id" = ${row.providerEventId} AND "businessId" = ${row.businessId}
-            AND (SELECT count(*) FROM settled_inbox) = 1
+          WHERE "id" IN (${Prisma.join(coveredIds)}) AND "businessId" = ${row.businessId}
+            AND (SELECT count(*) FROM settled_inbox) = 1 AND (SELECT count(*) FROM covered_inbox) >= 0
           RETURNING "id"
         ), event_done AS MATERIALIZED (
           -- Consume event completion even when no row matched: the existing event update has no required count.
@@ -178,11 +186,20 @@ export async function processConversationInbox(input: {
       if (rows[0]?.dispatchCount !== 1n) throw new Error('cannot complete stale dispatch claim')
       if (rows[0]?.jobCount !== 1n) throw new Error('cannot complete stale bot job claim')
     })
-    const retry = async (tx: Prisma.TransactionClient, row: Row) => {
+    const retry = async (tx: Prisma.TransactionClient, row: Row, immediate = false) => {
       await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
-      await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + 500), { refundClaimAttempt: true }))
+      await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + (immediate ? 0 : 500)), { refundClaimAttempt: true }))
     }
     const snapshot = await measureAttemptTransaction('conversation_snapshot', body => input.client.$transaction(body, txOptions), async (tx: Prisma.TransactionClient) => {
+      // Take the conversation mutex before any job/deployment/event/session row lock.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
+      const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
+        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone" FROM "BotActionInbox" i
+        JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
+        WHERE i."id" = ${input.job.aggregateId} AND i."businessId" = ${policy.businessId}
+      `)
+      if (!identity[0]?.phone) throw new Error('conversation identity unavailable')
+      await lockConversationPhoneTx(tx, policy.businessId, identity[0].phone)
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
       if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row); return null }
@@ -190,7 +207,9 @@ export async function processConversationInbox(input: {
       const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown }
       if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('conversation phone unavailable')
       const phone = payload.fromPhone
-      if (!await ordered(tx, row, phone)) { await retry(tx, row); return null }
+      const eligibleText = payload.messageType === 'text' && !input.isRestart(payload.textBody)
+      if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
+      let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
       // Serialize first creation on the existing conversation row, not a new queue.
       const conversations = await measureAttemptStage('conversation_conversation_upsert', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
@@ -199,7 +218,6 @@ export async function processConversationInbox(input: {
       `))
       const conversationId = conversations[0]?.id
       if (!conversationId) throw new Error('conversation unavailable')
-      let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
       await measureAttemptStage('conversation_inbound_project', () => input.projectInbound(tx, { businessId: row.businessId, conversationId, phone, providerMessageId: row.providerMessageId,
         body: typeof payload.textBody === 'string' && payload.textBody.trim() ? payload.textBody.trim() : `[${String(payload.messageType ?? 'message')}]`, messageType: payload.messageType }, events))
       if (!row.botEnabled || (session && (session.status !== 'ACTIVE' || session.handoffClaimsPausedAt))) { await finish(tx, row); return null }
@@ -252,9 +270,14 @@ export async function processConversationInbox(input: {
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
       const reset = payload.messageType === 'text' && input.isRestart(payload.textBody)
-      const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(session.state, policy, row.businessTimezone)
+      const consolidation = eligibleText ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
+        sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
+        handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
+        phone, currentEventId: row.providerEventId, isRestart: input.isRestart })) : null
+      if (eligibleText && !consolidation) { await retry(tx, row, true); return null }
+      const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, policyReset: reconciled.reset }
+      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { markSettled(); return 'PROCESSED' }
@@ -280,11 +303,20 @@ export async function processConversationInbox(input: {
     const useAi = input.conversationalAi && !snapshot.reset && snapshot.payload.messageType === 'text'
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
-      : useAi ? await respondWithAiInterpreter(prepared.context, snapshot.draft, String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
-      : await respond(prepared.context, snapshot.draft, String(snapshot.payload.textBody ?? ''), port))
+      : useAi ? await respondWithAiInterpreter(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
+      : await respond(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
     const computedAt = performance.now()
     let committedTransitionId: string | null = null
     const result = await measureAttemptTransaction('conversation_final', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, txOptions), body), async (tx: Prisma.TransactionClient) => {
+      // Take the conversation mutex before any job/deployment/event/session row lock.
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
+      const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
+        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone" FROM "BotActionInbox" i
+        JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
+        WHERE i."id" = ${input.job.aggregateId} AND i."businessId" = ${policy.businessId}
+      `)
+      if (!identity[0]?.phone) throw new Error('conversation identity unavailable')
+      await lockConversationPhoneTx(tx, policy.businessId, identity[0].phone)
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return 'PROCESSED' as const }
@@ -293,20 +325,29 @@ export async function processConversationInbox(input: {
       if (!session || JSON.stringify(currentPolicy) !== JSON.stringify(policy) || session.sessionId !== snapshot.session.sessionId ||
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
-          !await ordered(tx, row, snapshot.phone)) { await retry(tx, row); return 'STALE_REVISION' as const }
+          (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
+      if (snapshot.consolidation) {
+        const fresh = await selectConsolidationGroupTx(tx, { businessId: row.businessId, sessionId: session.sessionId,
+          deploymentId: policy.deploymentId, generation: policy.generation, handoffFenceEpoch: session.handoffFenceEpoch,
+          revision: session.revision, state: session.state, phone: snapshot.phone, currentEventId: row.providerEventId, isRestart: input.isRestart })
+        if (!fresh || fresh.signature !== snapshot.consolidation.signature || fresh.previousTransitionId !== snapshot.consolidation.previousTransitionId ||
+            (fresh.previousTransitionId && !await supersedeConsolidationOutboxTx(tx, row.businessId, session.sessionId, fresh.previousTransitionId))) {
+          await retry(tx, row, true); return 'STALE_REVISION' as const
+        }
+      }
       const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
       const revision = session.revision + 1n
       const transitionId = `transition:${session.sessionId}:${revision}`
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
-        generation: row.generation, providerEventId: row.providerEventId, actionType: snapshot.reset ? 'system.conversation_restart' : 'conversation.message',
+        generation: row.generation, providerEventId: row.providerEventId, consolidation: snapshot.consolidation?.envelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : 'conversation.message',
         step: conversationStepForBotOptionsState(state)
       }))
       if (update) updates.push(update)
       await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
-        toPhone: snapshot.phone, view: textView((snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply), dbNow: row.dbNow }))
-      await finish(tx, row)
+        toPhone: snapshot.phone, consolidation: snapshot.consolidation?.envelope, view: textView((snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply), dbNow: row.dbNow }))
+      await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
       committedTransitionId = transitionId
       return 'PROCESSED' as const
     })

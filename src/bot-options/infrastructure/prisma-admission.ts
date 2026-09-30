@@ -1,3 +1,4 @@
+import { canonicalConversationPhone, lockConversationPhoneTx } from '../../conversational-bot/inbound-consolidation.js'
 import { observeQueueProducerTransaction, recordProducedJob, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import { loadConversationPolicy } from '../../conversational-bot/runtime-policy.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
@@ -251,6 +252,12 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       await tx.$executeRaw`SET LOCAL lock_timeout = '1s'`
       await tx.$executeRaw`SET LOCAL statement_timeout = '3s'`
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.route.businessId}:WHATSAPP`}, 0))`
+
+      // Fence the entire batch in one canonical order before taking any row lock.
+      // Media and interactive inputs participate too: they are consolidation barriers.
+      const phones = [...new Set(input.events.flatMap(event => event.kind === 'message'
+        ? [canonicalConversationPhone(event.fromPhone)] : []))].sort()
+      for (const phone of phones) await lockConversationPhoneTx(tx, input.route.businessId, phone)
 
       const current = await tx.$queryRaw<Array<{ id: string; generation: number }>>(Prisma.sql`
         SELECT "id", "generation"

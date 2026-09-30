@@ -143,7 +143,7 @@ for (const failCommit of [false, true]) {
   if (failCommit) await assert.rejects(operation, error => error === original)
   else assert.equal(await operation, 'PROCESSED')
   assert.equal(transactions, 2)
-  assert.equal(writes, 3)
+  assert.equal(writes, 4, 'each independent provider phase has its standalone cutover gate')
   assert.equal(batchQueries, 1, 'inbox and enqueue use one returning statement')
   assert.equal(consume(jobQueueKey({ businessId: tenant, kind: 'PROCESS_INBOX', aggregateId: aggregate })).readiness,
     failCommit ? 'unavailable' : 'observed')
