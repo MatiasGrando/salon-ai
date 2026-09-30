@@ -7,7 +7,7 @@ const STAGES = ['session_context_load', 'session_effects', 'session_persist_view
   'hours_weekly', 'hours_exceptions',
   // Conversation helpers and SQL awaits are inclusive; SQL labels include driver/network wait.
   'conversation_policy_load', 'conversation_target_read', 'conversation_dispatch_acquire', 'conversation_dispatch_release',
-  'conversation_claim_assert', 'conversation_dispatch_assert', 'conversation_feature_lock', 'conversation_inbox_lock',
+  'conversation_claim_assert', 'conversation_dispatch_assert', 'conversation_claims_assert', 'conversation_feature_lock', 'conversation_inbox_lock',
   'conversation_order_read', 'conversation_conversation_upsert', 'conversation_session_lock', 'conversation_inbound_project',
   'conversation_context_window', 'conversation_session_create', 'conversation_inbox_attach', 'conversation_generation_reset',
   'conversation_transition_insert', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',

@@ -123,6 +123,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       if (q.sql.includes('conversation-feature-lock')) return []
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch }]
       if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('conversation-claims-assert')) return [{ jobCount: invalidClaim ? 0n : 1n, dispatchCount: invalidClaim ? 0n : 1n }]
       if (q.sql.includes('SELECT j."id" FROM "BotJob"')) return invalidClaim ? [] : [{ id: 'job' }]
       if (q.sql.includes('SELECT c."id" FROM "BotDispatchClaim"')) return invalidClaim ? [] : [{ id: 'claim' }]
       if (q.sql.includes('conversation-inbox-lock')) return [structuredClone(row)]
@@ -199,11 +200,19 @@ const spanRuntime = runtimeFixture()
 const spans: AttemptMetricEvent[] = []
 await captureRuntimeMetrics(() => spanRuntime.run(), spans)
 const stages = spans.map(event => event.stage)
+assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert')).length, 2,
+  'snapshot and final each batch claim guards into one query')
+for (const guard of spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert'))) {
+  const position = spanRuntime.statements.indexOf(guard)
+  const gate = spanRuntime.statements[position - 1]
+  assert.ok(gate?.sql.includes('pg_advisory_xact_lock_shared'), 'standalone gate precedes each fresh guard snapshot')
+  assert.ok(!guard.sql.includes('pg_advisory_xact_lock_shared'), 'guard SQL must not take its snapshot before the gate wait')
+}
 for (const stage of [
   'conversation_policy_load', 'conversation_target_read', 'conversation_dispatch_acquire',
   'conversation_snapshot_transaction_start_wait', 'conversation_snapshot_transaction_body',
   'conversation_snapshot_transaction_tail', 'conversation_snapshot_transaction_total',
-  'conversation_claim_assert', 'conversation_dispatch_assert', 'conversation_feature_lock', 'conversation_inbox_lock',
+  'conversation_claims_assert', 'conversation_feature_lock', 'conversation_inbox_lock',
   'conversation_order_read', 'conversation_conversation_upsert', 'conversation_session_lock', 'conversation_inbound_project',
   'conversation_session_create', 'conversation_inbox_attach', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body',

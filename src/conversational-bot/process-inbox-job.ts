@@ -12,8 +12,8 @@ import { textView } from '../bot-options/domain/views.js'
 import { conversationStepForBotOptionsState } from '../bot-options/domain/conversation-status.js'
 import { projectBotOptionsConversationStepTx } from '../bot-options/infrastructure/prisma-conversation-status.js'
 import { applyLazyContextWindowTx } from '../bot-options/application/lazy-context-window.js'
-import { acquireDispatchClaim, assertDispatchClaimTx, completeDispatchClaimTx, withDispatchClaimCleanup } from '../bot-options/infrastructure/dispatch-claims.js'
-import { assertClaimedBotJobTx, completeClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../bot-options/infrastructure/postgres-worker.js'
+import { acquireDispatchClaim, completeDispatchClaimTx, withDispatchClaimCleanup } from '../bot-options/infrastructure/dispatch-claims.js'
+import { completeClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../bot-options/infrastructure/postgres-worker.js'
 import { flushInboundConversationMessages, publishConversationUpdated, type InboundConversationMessageProjection, type ConversationUpdatedEvent } from '../services/crm-realtime-events.js'
 import type { persistView, projectInboundMessage, lockExistingInitialSession, isConversationRestartCommand } from '../bot-options/application/process-session-job.js'
 
@@ -29,6 +29,53 @@ type Row = PolicyRow & { id: string; deploymentGeneration: number; fenceEpoch: n
   admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean }
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
+
+/** Private PROCESS claim guard: this caller acquires its dispatch with sessionId null.
+ * Keep the first gate in a separate statement: the validation snapshot must be taken after any cutover wait.
+ * LATERAL tenant dependency + OFFSET barrier evaluates the job lock before dispatch lease predicates.
+ * Both tenant inputs originate from the same job-scoped policy. Global/session-bound helpers are unchanged.
+ */
+async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: ClaimedBotJob, businessId: string, claimToken: string): Promise<void> {
+  await tx.$executeRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${job.businessId}:WHATSAPP`}, 0))
+  `)
+  const rows = await tx.$queryRaw<Array<{ jobCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
+    /* conversation-claims-assert */
+    WITH locked_job AS MATERIALIZED (
+      SELECT j."id", j."businessId" FROM "BotJob" j
+      JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
+      WHERE j."id" = ${job.id} AND j."status" = 'LEASED'::"BotJobStatus" AND j."leaseToken" = ${job.claimToken}
+        AND j."leasedUntil" > clock_timestamp() AND j."businessId" = ${job.businessId}
+        AND j."deploymentId" = ${job.deploymentId} AND j."deploymentGeneration" = ${job.deploymentGeneration}
+        AND d."generation" = j."deploymentGeneration" AND d."activeConfigurationId" IS NOT NULL
+        AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+      FOR UPDATE OF j
+    ), locked_dispatch AS MATERIALIZED (
+      SELECT validated_claim."id" FROM locked_job validated_job
+      CROSS JOIN LATERAL (
+        SELECT c."id" FROM "BotDispatchClaim" c
+        JOIN "BotChannelDeployment" d ON d."businessId" = c."businessId" AND d."channel" = c."channel"
+        WHERE c."claimToken" = ${claimToken} AND c."businessId" = ${businessId}
+          AND c."businessId" = validated_job."businessId"
+          AND c."status" = 'CLAIMED'::"BotDispatchStatus"
+          AND c."claimedUntil" > clock_timestamp() AND d."generation" = c."generation"
+          AND d."dispatchFenceEpoch" = c."fenceEpoch" AND d."claimsPausedAt" IS NULL
+          AND d."activeConfigurationId" IS NOT NULL AND d."legacyDispatchCoverageVersion" >= 1
+          AND (c."sessionId" IS NULL OR EXISTS (
+            SELECT 1 FROM "BotSession" s WHERE s."id" = c."sessionId" AND s."businessId" = c."businessId"
+              AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
+              AND s."handoffClaimsPausedAt" IS NULL AND s."handoffFenceEpoch" = c."handoffFenceEpoch"
+          ))
+        OFFSET 0
+        FOR UPDATE OF c
+      ) validated_claim
+    )
+    SELECT (SELECT count(*) FROM locked_job)::bigint AS "jobCount",
+      (SELECT count(*) FROM locked_dispatch)::bigint AS "dispatchCount"
+  `)
+  if (rows[0]?.jobCount !== 1n) throw new Error('stale or fenced bot job claim')
+  if (rows[0]?.dispatchCount !== 1n) throw new Error('stale or fenced dispatch claim')
+}
 
 /** Uses the existing inbox/job/outbox. Catalog queries and optional AI preparation run outside locks. */
 export async function processConversationInbox(input: {
@@ -55,8 +102,7 @@ export async function processConversationInbox(input: {
     const events: InboundConversationMessageProjection[] = []
     const updates: Array<Omit<ConversationUpdatedEvent, 'type'>> = []
     const readRow = async (tx: Prisma.TransactionClient): Promise<Row> => {
-      await measureAttemptStage('conversation_claim_assert', () => assertClaimedBotJobTx(tx, input.job))
-      await measureAttemptStage('conversation_dispatch_assert', () => assertDispatchClaimTx({ tx, businessId: policy.businessId, claimToken: token }))
+      await measureAttemptStage('conversation_claims_assert', () => assertConversationClaimsTx(tx, input.job, policy.businessId, token))
       await measureAttemptStage('conversation_feature_lock', () => tx.$queryRaw(Prisma.sql`/* conversation-feature-lock */ SELECT "botEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = ${policy.businessId} FOR SHARE`))
       const rows = await measureAttemptStage('conversation_inbox_lock', () => tx.$queryRaw<Row[]>(Prisma.sql`
         /* conversation-inbox-lock */
