@@ -5,7 +5,6 @@ import { Prisma } from '../generated/prisma/client.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
 import { localDateKey, type AvailabilitySettings } from '../bot-options/application/availability-queries.js'
-import type { CatalogPage, CatalogServiceItem } from '../bot-options/application/catalog-queries.js'
 import type { DialogueContext, DialoguePort, DialogueService } from './engine.js'
 
 type DialogueClient = FactsClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
@@ -19,17 +18,6 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   const dbNow = clock[0]?.now
   if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) throw new Error('database clock unavailable')
   const context = { businessId, timezone: settings.timezone, dbNow }
-  const collect = async <T>(load: (page: number) => Promise<CatalogPage<T> | null>): Promise<T[]> => {
-    const result: T[] = []
-    for (let page = 0; page < 30; page++) {
-      const response = await load(page)
-      if (!response || response.page !== page) throw new Error('catalog unavailable')
-      result.push(...response.items)
-      if (result.length > 200) throw new Error('catalog exceeds supported bound')
-      if (!response.hasNext) return result
-    }
-    throw new Error('catalog pagination exceeds supported bound')
-  }
   const cacheDiagnostics: PublicCacheDiagnostics = { hits: 0, misses: 0, bypasses: 0, stampReads: 0, stampMs: 0, loadMs: 0 }
   const cache = publicCacheFor(client)
   const readStamp = async (source: DialogueClient = client) => {
@@ -69,16 +57,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   }
   const loadCatalog = async (source: DialogueClient) => {
     const catalog = new PrismaCatalogRepository(source)
-    const categories = await collect(page => catalog.listCategories({ businessId, page }))
-    const services: CatalogServiceItem[] = []
-    for (const category of categories) {
-      const roots = await collect(page => catalog.listServices({ businessId, categoryId: category.id, page }))
-      for (const item of roots) {
-        if (item.kind === 'SUBCATEGORY') services.push(...await collect(page => catalog.listServices({ businessId, categoryId: category.id, parentServiceId: item.id, page })))
-        else services.push(item)
-        if (services.length > 200) throw new Error('catalog exceeds supported bound')
-      }
-    }
+    const services = await catalog.loadPublicCatalogSnapshot(businessId)
     return services.map(item => ({ id: item.id, name: item.name, durationMinutes: item.durationMinutes, price: item.price, priceMode: item.priceMode,
       requiresConsultation: item.requiresConsultation || item.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || Boolean(item.bookingPolicy?.requiresPhoto || item.bookingPolicy?.validationEnabled)
     }))

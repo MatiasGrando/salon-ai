@@ -36,6 +36,21 @@ function uncategorizedRootServiceWhere(businessId: string): Prisma.ServiceWhereI
   }
 }
 
+function eligibleCategoryWhere(businessId: string): Prisma.ServiceCategoryWhereInput {
+  return {
+    businessId: businessId,
+    isActive: true,
+    services: { some: {
+      businessId: businessId,
+      parentServiceId: null,
+      OR: [
+        { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(businessId) },
+        { isBookable: false, isActive: true, variants: { some: { businessId: businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(businessId) } } }
+      ]
+    } }
+  }
+}
+
 const serviceSelect = {
   id: true,
   businessId: true,
@@ -91,18 +106,7 @@ export class PrismaCatalogRepository {
 
   async listCategories(input: { businessId: string; page: number }): Promise<CatalogPage<CatalogCategoryItem>> {
     return measureAttemptStage('catalog_list_categories', async () => {
-      const where: Prisma.ServiceCategoryWhereInput = {
-        businessId: input.businessId,
-        isActive: true,
-        services: { some: {
-          businessId: input.businessId,
-          parentServiceId: null,
-          OR: [
-            { isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) },
-            { isBookable: false, isActive: true, variants: { some: { businessId: input.businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(input.businessId) } } }
-          ]
-        } }
-      }
+      const where = eligibleCategoryWhere(input.businessId)
       const offset = catalogPageOffset(input.page)
       const [rows, realCategoryCount, uncategorizedService] = await Promise.all([
         this.#client.serviceCategory.findMany({
@@ -129,6 +133,71 @@ export class PrismaCatalogRepository {
     })
   }
 
+  /** Complete bounded public catalogue; called inside the existing read-only snapshot. */
+  async loadPublicCatalogSnapshot(businessId: string): Promise<CatalogServiceItem[]> {
+    return measureAttemptStage('catalog_list_services', async () => {
+      const categories: CatalogCategoryItem[] = await this.#client.serviceCategory.findMany({
+        where: eligibleCategoryWhere(businessId),
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        take: 201,
+        select: { id: true, name: true }
+      })
+      const uncategorized = await this.#client.service.findFirst({
+        where: uncategorizedRootServiceWhere(businessId), select: { id: true }
+      })
+      if (uncategorized) categories.push(UNCATEGORIZED_CATEGORY)
+      if (categories.length > 200) throw new Error('catalog exceeds supported bound')
+      if (!categories.length) return []
+      const categoryIds = categories.filter(category => category.id !== UNCATEGORIZED_CATEGORY_ID).map(category => category.id)
+      const roots = await this.#client.service.findMany({
+        where: {
+          businessId, isActive: true, parentServiceId: null,
+          OR: [{ catalogCategoryId: { in: categoryIds } }, ...(uncategorized ? [{ catalogCategoryId: null }] : [])],
+          AND: { OR: [
+            { isBookable: true, professionalLinks: eligibleBotProfessionalLinks(businessId) },
+            { isBookable: false, variants: { some: { businessId, isBookable: true, isActive: true, professionalLinks: eligibleBotProfessionalLinks(businessId) } } }
+          ] }
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        // Each of at most 200 categories permits 200 roots; one extra detects overflow.
+        take: 40001,
+        select: serviceSelect
+      })
+      const groups = new Map<string, CatalogServiceItem[]>()
+      for (const row of roots) {
+        const item = serviceItem(row)
+        const group = groups.get(item.categoryId) ?? []
+        group.push(item)
+        if (group.length > 200) throw new Error('catalog exceeds supported bound')
+        groups.set(item.categoryId, group)
+      }
+      const childScopes = categories.flatMap(category => {
+        const parentIds = (groups.get(category.id) ?? []).filter(item => item.kind === 'SUBCATEGORY').map(item => item.id)
+        return parentIds.length ? [{ catalogCategoryId: category.id === UNCATEGORIZED_CATEGORY_ID ? null : category.id, parentServiceId: { in: parentIds } }] : []
+      })
+      const children = childScopes.length ? await this.#client.service.findMany({
+        where: { businessId, isActive: true, isBookable: true, professionalLinks: eligibleBotProfessionalLinks(businessId), OR: childScopes },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+        take: 201,
+        select: serviceSelect
+      }) : []
+      if (children.length > 200) throw new Error('catalog exceeds supported bound')
+      const byParent = new Map<string, CatalogServiceItem[]>()
+      for (const row of children) {
+        const parentId = row.parentServiceId!
+        const group = byParent.get(parentId) ?? []
+        group.push(serviceItem(row)); byParent.set(parentId, group)
+      }
+      const result: CatalogServiceItem[] = []
+      for (const category of categories) {
+        for (const root of groups.get(category.id) ?? []) {
+          result.push(...(root.kind === 'SUBCATEGORY' ? byParent.get(root.id) ?? [] : [root]))
+          if (result.length > 200) throw new Error('catalog exceeds supported bound')
+        }
+      }
+      return result
+    })
+  }
   async getCategory(input: { businessId: string; categoryId: string }): Promise<CatalogCategoryItem | null> {
     return measureAttemptStage('catalog_get_category', async () => {
       if (input.categoryId === UNCATEGORIZED_CATEGORY_ID) {
