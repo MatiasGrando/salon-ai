@@ -7,8 +7,7 @@ export type DispatchKind = 'PROCESS' | 'SEND'
 /** Explicit timeout prevents the default 5s Prisma budget from killing dispatch claims under contention. */
 export const DISPATCH_CLAIM_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
 
-export async function acquireDispatchClaim(input: {
-  client: DispatchClient
+type DispatchClaimInput = {
   businessId: string
   sessionId: string | null
   resourceId?: string | null
@@ -17,50 +16,55 @@ export async function acquireDispatchClaim(input: {
   kind: DispatchKind
   leaseMs?: number
   claimToken?: string
-}): Promise<string | null> {
+}
+
+export async function acquireDispatchClaim(input: DispatchClaimInput & { client: DispatchClient }): Promise<string | null> {
+  return input.client.$transaction((tx) => acquireDispatchClaimTx(tx, input), DISPATCH_CLAIM_TRANSACTION_OPTIONS)
+}
+
+/** Caller owns the commit; keep the lock statement separate for a fresh gate snapshot. */
+export async function acquireDispatchClaimTx(tx: Prisma.TransactionClient, input: DispatchClaimInput): Promise<string | null> {
   const token = input.claimToken ?? randomUUID()
-  return input.client.$transaction(async (tx) => {
+  await tx.$executeRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))
+  `)
+  if (input.resourceId) {
     await tx.$executeRaw(Prisma.sql`
-      SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))
+      UPDATE "BotDispatchClaim" SET "status" = CASE
+          WHEN "status" = 'SENDING'::"BotDispatchStatus" THEN 'UNKNOWN'::"BotDispatchStatus"
+          ELSE 'DONE'::"BotDispatchStatus" END,
+        "updatedAt" = clock_timestamp()
+      WHERE "businessId" = ${input.businessId} AND "kind" = ${input.kind}::"BotDispatchKind"
+        AND "resourceId" = ${input.resourceId} AND "status" IN ('CLAIMED'::"BotDispatchStatus", 'SENDING'::"BotDispatchStatus")
+        AND "claimedUntil" < clock_timestamp()
     `)
-    if (input.resourceId) {
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE "BotDispatchClaim" SET "status" = CASE
-            WHEN "status" = 'SENDING'::"BotDispatchStatus" THEN 'UNKNOWN'::"BotDispatchStatus"
-            ELSE 'DONE'::"BotDispatchStatus" END,
-          "updatedAt" = clock_timestamp()
-        WHERE "businessId" = ${input.businessId} AND "kind" = ${input.kind}::"BotDispatchKind"
-          AND "resourceId" = ${input.resourceId} AND "status" IN ('CLAIMED'::"BotDispatchStatus", 'SENDING'::"BotDispatchStatus")
-          AND "claimedUntil" < clock_timestamp()
-      `)
-    }
-    const rows = await tx.$queryRaw<Array<{ claimToken: string }>>(Prisma.sql`
-      INSERT INTO "BotDispatchClaim" (
-        "id", "businessId", "channel", "sessionId", "resourceId", "engineKey", "generation", "fenceEpoch",
-        "handoffFenceEpoch", "kind", "status", "claimToken", "claimedUntil", "updatedAt"
-      )
-      SELECT ${randomUUID()}, d."businessId", d."channel", ${input.sessionId}, ${input.resourceId ?? null}, d."engineKey", d."generation",
-        d."dispatchFenceEpoch", CASE WHEN ${input.sessionId}::text IS NULL THEN NULL ELSE s."handoffFenceEpoch" END,
-        ${input.kind}::"BotDispatchKind", 'CLAIMED'::"BotDispatchStatus", ${token},
-        clock_timestamp() + (${input.leaseMs ?? 30_000} * interval '1 millisecond'), clock_timestamp()
-      FROM "BotChannelDeployment" d
-      LEFT JOIN "BotSession" s ON s."id" = ${input.sessionId} AND s."businessId" = d."businessId"
-      WHERE d."businessId" = ${input.businessId} AND d."channel" = 'WHATSAPP'::"BotChannel"
-        AND d."engineKey" = 'deterministic-options' AND d."activeConfigurationId" IS NOT NULL
-        AND d."legacyDispatchCoverageVersion" >= 1
-        AND d."claimsPausedAt" IS NULL AND d."generation" = ${input.generation}
-        AND d."dispatchFenceEpoch" = ${input.fenceEpoch}
-        AND (${input.sessionId}::text IS NULL OR EXISTS (
-          SELECT 1 FROM "BotSession" s WHERE s."id" = ${input.sessionId}
-            AND s."businessId" = d."businessId" AND s."deploymentId" = d."id"
-            AND s."deploymentGeneration" = d."generation" AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
-            AND s."handoffClaimsPausedAt" IS NULL
-        ))
-      ON CONFLICT DO NOTHING
-      RETURNING "claimToken"
-    `)
-    return rows[0]?.claimToken ?? null
-  }, DISPATCH_CLAIM_TRANSACTION_OPTIONS)
+  }
+  const rows = await tx.$queryRaw<Array<{ claimToken: string }>>(Prisma.sql`
+    INSERT INTO "BotDispatchClaim" (
+      "id", "businessId", "channel", "sessionId", "resourceId", "engineKey", "generation", "fenceEpoch",
+      "handoffFenceEpoch", "kind", "status", "claimToken", "claimedUntil", "updatedAt"
+    )
+    SELECT ${randomUUID()}, d."businessId", d."channel", ${input.sessionId}, ${input.resourceId ?? null}, d."engineKey", d."generation",
+      d."dispatchFenceEpoch", CASE WHEN ${input.sessionId}::text IS NULL THEN NULL ELSE s."handoffFenceEpoch" END,
+      ${input.kind}::"BotDispatchKind", 'CLAIMED'::"BotDispatchStatus", ${token},
+      clock_timestamp() + (${input.leaseMs ?? 30_000} * interval '1 millisecond'), clock_timestamp()
+    FROM "BotChannelDeployment" d
+    LEFT JOIN "BotSession" s ON s."id" = ${input.sessionId} AND s."businessId" = d."businessId"
+    WHERE d."businessId" = ${input.businessId} AND d."channel" = 'WHATSAPP'::"BotChannel"
+      AND d."engineKey" = 'deterministic-options' AND d."activeConfigurationId" IS NOT NULL
+      AND d."legacyDispatchCoverageVersion" >= 1
+      AND d."claimsPausedAt" IS NULL AND d."generation" = ${input.generation}
+      AND d."dispatchFenceEpoch" = ${input.fenceEpoch}
+      AND (${input.sessionId}::text IS NULL OR EXISTS (
+        SELECT 1 FROM "BotSession" s WHERE s."id" = ${input.sessionId}
+          AND s."businessId" = d."businessId" AND s."deploymentId" = d."id"
+          AND s."deploymentGeneration" = d."generation" AND s."status" <> 'HUMAN_TAKEN'::"BotSessionStatus"
+          AND s."handoffClaimsPausedAt" IS NULL
+      ))
+    ON CONFLICT DO NOTHING
+    RETURNING "claimToken"
+  `)
+  return rows[0]?.claimToken ?? null
 }
 
 export async function assertDispatchClaimTx(input: {

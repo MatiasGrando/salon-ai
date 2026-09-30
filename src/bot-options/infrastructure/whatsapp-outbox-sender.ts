@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../../config/whatsapp.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
-import { acquireDispatchClaim, releaseDispatchClaim } from './dispatch-claims.js'
+import { acquireDispatchClaimTx, DISPATCH_CLAIM_TRANSACTION_OPTIONS, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
 import type { WorkerWakeSignal } from './worker-wake.js'
@@ -310,21 +310,17 @@ export async function sendClaimedOutbox(input: {
     } catch { /* diagnostics never affect delivery */ }
   }
   const preflightStartedAt = performance.now()
-  const dispatchToken = await acquireDispatchClaim({
-    client: input.client, businessId: input.item.businessId, sessionId: input.item.sessionId,
-    resourceId: input.item.id, generation: input.item.generation, fenceEpoch: input.item.fenceEpoch, kind: 'SEND'
-  })
-  if (!dispatchToken) {
-    const durationMs = performance.now() - preflightStartedAt
-    botOptionsMetrics.observe('outbox_preflight', durationMs, 'error')
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'stale' })
-    return 'STALE'
-  }
+  const token = randomUUID()
+  let dispatchToken: string | null = null
   try {
     await input.client.$transaction(async (tx) => {
-      await tx.$executeRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.item.businessId}:WHATSAPP`}, 0))
-      `)
+      dispatchToken = await acquireDispatchClaimTx(tx, {
+        businessId: input.item.businessId, sessionId: input.item.sessionId,
+        resourceId: input.item.id, generation: input.item.generation, fenceEpoch: input.item.fenceEpoch,
+        kind: 'SEND', claimToken: token
+      })
+      // A null acquisition still commits expiry cleanup, including durable UNKNOWN.
+      if (!dispatchToken) return
       const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
         WITH outbox AS (
           UPDATE "BotOutbox" SET "status" = 'SENDING'::"BotOutboxStatus", "updatedAt" = clock_timestamp()
@@ -352,15 +348,23 @@ export async function sendClaimedOutbox(input: {
           (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount"
       `)
       if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('sender preflight lost fence')
-    })
+    }, DISPATCH_CLAIM_TRANSACTION_OPTIONS)
     const durationMs = performance.now() - preflightStartedAt
+    if (!dispatchToken) {
+      botOptionsMetrics.observe('outbox_preflight', durationMs, 'error')
+      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'stale' })
+      return 'STALE'
+    }
     botOptionsMetrics.observe('outbox_preflight', durationMs)
     emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'ok' })
-  } catch {
+  } catch (error) {
+    // Acquisition errors still propagate. Marker/commit failures never reach Meta.
+    // Marker rollback also rolls back expiry cleanup; the next attempt recovers it.
+    if (!dispatchToken) throw error
     const durationMs = performance.now() - preflightStartedAt
     botOptionsMetrics.observe('outbox_preflight', durationMs, 'error')
     emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'error' })
-    await releaseDispatchClaim(input.client, dispatchToken)
+    await releaseDispatchClaim(input.client, token)
     return 'STALE'
   }
 

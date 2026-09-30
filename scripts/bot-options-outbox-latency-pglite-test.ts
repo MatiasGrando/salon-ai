@@ -4,7 +4,7 @@ import { PGlite } from '@electric-sql/pglite'
 import { Prisma } from '../src/generated/prisma/client.js'
 
 process.env.WHATSAPP_LATENCY_DIAGNOSTIC_BUSINESS_CODES = 'WX-38N6UG'
-const { claimOutbox, sendClaimedOutbox } = await import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js')
+const { claimOutbox, sendClaimedOutbox, maintainOutbox } = await import('../src/bot-options/infrastructure/whatsapp-outbox-sender.js')
 const { whatsappConfig } = await import('../src/config/whatsapp.js')
 const db = new PGlite()
 const businessId = 'business-integration'
@@ -61,6 +61,9 @@ try {
       "claimedUntil" timestamptz NOT NULL, "updatedAt" timestamptz NOT NULL,
       "providerMessageId" text
     );
+    CREATE UNIQUE INDEX "BotDispatchClaim_active_resource_key"
+      ON "BotDispatchClaim" ("kind", "engineKey", "resourceId")
+      WHERE "resourceId" IS NOT NULL AND "status" IN ('CLAIMED','SENDING','UNKNOWN');
     CREATE TABLE "Message" (
       "id" text PRIMARY KEY, "conversationId" text NOT NULL, "phone" text NOT NULL,
       "direction" "MessageDirection" NOT NULL, "body" text NOT NULL, "providerMessageId" text,
@@ -80,14 +83,38 @@ try {
     Object.entries(row).map(([key, value]) => [key, /Count$/.test(key) && (typeof value === 'string' || typeof value === 'number') ? BigInt(value) : value])
   ))
   let sqlOperations = 0
+  let transactions = 0
+  let transactionOpen = false
+  let lastTransactionOptions: unknown
+  const statements: string[] = []
+  let beforeStatement: ((query: Prisma.Sql, pg: Pick<PGlite, 'query'>) => Promise<void>) | undefined
+  let beforeCommit: (() => void) | undefined
+  let afterCommit: (() => void) | undefined
   const client = {
     async $queryRaw(query: Prisma.Sql) { sqlOperations += 1; return prismaRows((await db.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
     async $executeRaw(query: Prisma.Sql) { sqlOperations += 1; return (await db.query(query.text, query.values)).affectedRows ?? 0 },
-    async $transaction<T>(operation: (tx: unknown) => Promise<T>) {
-      return db.transaction(async (pg) => operation({
-        async $queryRaw(query: Prisma.Sql) { sqlOperations += 1; return prismaRows((await pg.query(query.text, query.values)).rows as Array<Record<string, unknown>>) },
-        async $executeRaw(query: Prisma.Sql) { sqlOperations += 1; return (await pg.query(query.text, query.values)).affectedRows ?? 0 }
-      }))
+    async $transaction<T>(operation: (tx: unknown) => Promise<T>, options?: unknown) {
+      transactions += 1
+      lastTransactionOptions = options
+      transactionOpen = true
+      try {
+        const result = await db.transaction(async (pg) => {
+          const queryRaw = async (query: Prisma.Sql) => {
+            sqlOperations += 1
+            statements.push(query.text)
+            await beforeStatement?.(query, pg)
+            return pg.query(query.text, query.values)
+          }
+          const value = await operation({
+            async $queryRaw(query: Prisma.Sql) { return prismaRows((await queryRaw(query)).rows as Array<Record<string, unknown>>) },
+            async $executeRaw(query: Prisma.Sql) { return (await queryRaw(query)).affectedRows ?? 0 }
+          })
+          beforeCommit?.()
+          return value
+        })
+        afterCommit?.()
+        return result
+      } finally { transactionOpen = false }
     }
   }
   const insert = async (sql: Prisma.Sql) => { await db.query(sql.text, sql.values) }
@@ -151,11 +178,23 @@ try {
   const acceptanceItem = await claimed('outbox-sent-at')
   const diagnostics: Array<{ phase: string; durationMs: number | null; outcome: string; sourceProviderEventId: string | null }> = []
   const beforeSendSql = sqlOperations
+  const beforeSendTransactions = transactions
+  const beforeSendStatements = statements.length
+  let observedPreflightTransactions = 0
   let providerSignal: AbortSignal | undefined
   const sendResult = await sendClaimedOutbox({
     client: client as never,
     item: acceptanceItem,
     provider: { async send(input, signal, onDiagnostic) {
+      assert.equal(transactionOpen, false, 'provider runs only after confirmed commit')
+      observedPreflightTransactions = transactions - beforeSendTransactions
+      assert.deepEqual(lastTransactionOptions, { maxWait: 2_000, timeout: 8_000 })
+      const preflight = statements.slice(beforeSendStatements)
+      assert.equal(preflight.length, 4, 'lock, expiry, acquisition and markers stay separate')
+      assert.match(preflight[0]!, /SELECT pg_advisory_xact_lock_shared/)
+      assert.doesNotMatch(preflight[0]!, /BotDispatchClaim/)
+      assert.equal((await db.query<{ status: string }>(`SELECT "status" FROM "BotOutbox" WHERE "id"='outbox-sent-at'`)).rows[0]!.status, 'SENDING')
+      assert.equal((await db.query<{ status: string }>(`SELECT "status" FROM "BotDispatchClaim" WHERE "resourceId"='outbox-sent-at'`)).rows[0]!.status, 'SENDING')
       assert.deepEqual(input, { businessId: acceptanceItem.businessId, payload: acceptanceItem.payload })
       providerSignal = signal
       for (const phase of ['provider_credentials', 'meta_http', 'meta_response_parse'] as const) onDiagnostic?.({ phase, durationMs: 1, outcome: 'ok' })
@@ -163,6 +202,7 @@ try {
     } },
     onDiagnostic(diagnostic) { diagnostics.push(diagnostic) }
   })
+  assert.equal(observedPreflightTransactions, 1, 'one preflight transaction before provider')
   assert.equal(sendResult, 'ACCEPTED')
   const measuredSendSql = sqlOperations - beforeSendSql
   assert.equal(providerSignal?.aborted, false)
@@ -224,6 +264,108 @@ try {
   assert.equal((await db.query<{ status: string }>(`SELECT "status"::text FROM "BotOutbox" WHERE "id"='outbox-timeout'`)).rows[0]!.status, 'UNKNOWN', 'late provider completion never finalizes accepted')
   assert.ok(timeoutDiagnostics.includes('meta_request'))
   assert.ok(timeoutDiagnostics.includes('meta_http'))
+  // These hooks inject state/faults in a single PGlite session, not concurrent PostgreSQL sessions.
+  const fresh = async (name: string) => {
+    await addOutbox(name, 'transition:session-a:11', 20)
+    return claimed(name)
+  }
+  const statuses = async (name: string) => ({
+    outbox: (await db.query<{ status: string }>('SELECT "status"::text FROM "BotOutbox" WHERE "id"=$1', [name])).rows[0]!.status,
+    dispatch: (await db.query<{ status: string }>('SELECT "status"::text FROM "BotDispatchClaim" WHERE "resourceId"=$1 ORDER BY "claimToken"', [name])).rows.map((row) => row.status)
+  })
+  let sends = 0
+  const provider = { async send() { sends += 1; return { kind: 'accepted' as const, providerMessageId: 'synthetic-regression' } } }
+  const send = (item: typeof acceptanceItem) => sendClaimedOutbox({ client: client as never, item, provider })
+  const expired = async (name: string, status: 'CLAIMED' | 'SENDING') => {
+    await insert(Prisma.sql`INSERT INTO "BotDispatchClaim" ("id","businessId","channel","sessionId","resourceId","engineKey","generation","fenceEpoch","handoffFenceEpoch","kind","status","claimToken","claimedUntil","updatedAt")
+      VALUES (${`old-${name}`},${businessId},'WHATSAPP','session-a',${name},'deterministic-options',0,0,0,'SEND',${status}::"BotDispatchStatus",${`old-${name}`},clock_timestamp()-interval '1 second',clock_timestamp())`)
+  }
+  const unknown = await fresh('null-cleanup')
+  await expired(unknown.id, 'SENDING')
+  assert.equal(await send(unknown), 'STALE')
+  assert.deepEqual(await statuses(unknown.id), { outbox: 'CLAIMED', dispatch: ['UNKNOWN'] }, 'null acquisition commits UNKNOWN cleanup; real partial index blocks reacquisition')
+  assert.equal(await send(unknown), 'STALE')
+  assert.equal(sends, 0)
+
+  const reusable = await fresh('expired-reuse')
+  await expired(reusable.id, 'CLAIMED')
+  assert.equal(await send(reusable), 'ACCEPTED')
+  assert.deepEqual(await statuses(reusable.id), { outbox: 'ACCEPTED', dispatch: ['DONE', 'DONE'] })
+  assert.equal(await send(reusable), 'STALE', 'repeated caller cannot resend an accepted outbox')
+  assert.equal(sends, 1)
+
+  const duplicate = await fresh('duplicate-active')
+  await expired(duplicate.id, 'CLAIMED')
+  await db.query(`UPDATE "BotDispatchClaim" SET "claimedUntil"=clock_timestamp()+interval '1 minute' WHERE "resourceId"=$1`, [duplicate.id])
+  assert.equal(await send(duplicate), 'STALE', 'active resource uniqueness rejects a competing sender')
+  assert.equal(sends, 1)
+
+  for (const [name, overrides] of [
+    ['wrong-tenant', { businessId: foreignBusinessId }],
+    ['wrong-generation', { generation: 1 }],
+    ['wrong-fence', { fenceEpoch: 1 }],
+    ['wrong-lease', { claimToken: 'stale-token' }]
+  ] as const) {
+    const item = await fresh(name)
+    assert.equal(await send({ ...item, ...overrides }), 'STALE', name)
+    assert.deepEqual(await statuses(item.id), { outbox: 'CLAIMED', dispatch: [] }, name)
+  }
+  // Change each gate immediately before the production marker statement. Rollback restores it.
+  for (const [name, mutation] of [
+    ['deployment-paused', 'UPDATE "BotChannelDeployment" SET "claimsPausedAt"=clock_timestamp()'],
+    ['deployment-fenced', 'UPDATE "BotChannelDeployment" SET "dispatchFenceEpoch"=1'],
+    ['handoff-paused', 'UPDATE "BotSession" SET "handoffClaimsPausedAt"=clock_timestamp()'],
+    ['handoff-fenced', 'UPDATE "BotSession" SET "handoffFenceEpoch"=1'],
+    ['human-taken', `UPDATE "BotSession" SET "status"='HUMAN_TAKEN'`],
+    ['dispatch-expired', `UPDATE "BotDispatchClaim" SET "claimedUntil"=clock_timestamp()-interval '1 second'`]
+  ]) {
+    const item = await fresh(name!)
+    beforeStatement = async (query, pg) => { if (query.text.includes('WITH outbox AS')) await pg.query(mutation!) }
+    assert.equal(await send(item), 'STALE', name)
+    beforeStatement = undefined
+    assert.deepEqual(await statuses(item.id), { outbox: 'CLAIMED', dispatch: [] }, `${name}: both markers rollback`)
+  }
+  assert.equal(sends, 1)
+
+  const recoverable = await fresh('marker-rollback')
+  await expired(recoverable.id, 'CLAIMED')
+  beforeStatement = async (query) => { if (query.text.includes('WITH outbox AS')) throw new Error('marker failed') }
+  assert.equal(await send(recoverable), 'STALE')
+  beforeStatement = undefined
+  assert.deepEqual(await statuses(recoverable.id), { outbox: 'CLAIMED', dispatch: ['CLAIMED'] }, 'expiry cleanup rolls back conservatively with marker failure')
+  const drain = await db.query<{ active: number }>(`SELECT count(*)::int AS active FROM (
+    SELECT "id" FROM "BotDispatchClaim" WHERE "resourceId"=$1 AND "status" IN ('CLAIMED','SENDING')
+    UNION ALL SELECT "id" FROM "BotOutbox" WHERE "id"=$1 AND "status" IN ('CLAIMED','SENDING')
+  ) active`, [recoverable.id])
+  assert.equal(drain.rows[0]!.active, 2, 'handoff drain still sees committed work after rollback')
+  assert.equal(await send(recoverable), 'ACCEPTED', 'next attempt recovers expired claim')
+  assert.equal(await send(recoverable), 'STALE', 'recovery cannot duplicate delivery')
+  assert.equal(sends, 2)
+
+  const acquisitionFailure = await fresh('acquisition-failure')
+  const acquisitionError = new Error('acquisition failed')
+  beforeStatement = async (query) => { if (query.text.includes('INSERT INTO "BotDispatchClaim"')) throw acquisitionError }
+  await assert.rejects(send(acquisitionFailure), (error) => error === acquisitionError, 'acquisition failures still propagate')
+  beforeStatement = undefined
+  assert.deepEqual(await statuses(acquisitionFailure.id), { outbox: 'CLAIMED', dispatch: [] })
+  for (const name of ['preflight-rollback', 'preflight-timeout']) {
+    const item = await fresh(name)
+    beforeCommit = () => { throw new Error(name === 'preflight-timeout' ? 'Transaction already closed: timeout' : 'rollback') }
+    assert.equal(await send(item), 'STALE')
+    beforeCommit = undefined
+    assert.deepEqual(await statuses(item.id), { outbox: 'CLAIMED', dispatch: [] })
+  }
+  const ambiguous = await fresh('commit-ack-lost')
+  afterCommit = () => { throw new Error('commit acknowledgement lost') }
+  assert.equal(await send(ambiguous), 'STALE')
+  afterCommit = undefined
+  assert.deepEqual(await statuses(ambiguous.id), { outbox: 'SENDING', dispatch: ['DONE'] }, 'captured token cleanup preserves existing no-provider ambiguous-commit behavior')
+  assert.equal(await send(ambiguous), 'STALE', 'even explicit replay cannot resend durable SENDING')
+  await db.query(`UPDATE "BotOutbox" SET "leasedUntil"=clock_timestamp()-interval '1 second' WHERE "id"=$1`, [ambiguous.id])
+  await maintainOutbox(client as never, { businessId })
+  assert.equal((await statuses(ambiguous.id)).outbox, 'UNKNOWN', 'durable SENDING remains subject to conservative recovery')
+  assert.equal(sends, 2, 'all preflight faults call no provider')
+
   console.log('bot-options-outbox-latency-pglite-test: OK')
 } finally {
   await db.close()
