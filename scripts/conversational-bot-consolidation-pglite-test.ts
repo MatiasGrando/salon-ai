@@ -149,6 +149,40 @@ try {
   assert.equal(await transaction(tx=>guardConsolidatedOutboxTx(tx,{...item,payload:{to:'5491100000000',consolidation:large.envelope}})),'ready','an impossible combined group cannot supersede forever')
   await db.exec(`UPDATE "BotOutbox" SET "status"='ACCEPTED';`)
   assert.equal((await group('b'))!.text,'y'.repeat(101))
+  // R3-1: earlier-timestamp arrivals cannot evict only part of an existing bounded group.
+  const overflowOutcomes: Array<{ bound: string; guard: string; status: string }> = []
+  for (const bound of ['text', 'events'] as const) {
+    await db.exec(`TRUNCATE "BotProviderEvent","BotActionInbox","BotTransitionLog","BotOutbox";`)
+    if (bound === 'text') await add('old', 'x'.repeat(1900))
+    else for (let n = 0; n < 128; n++) await add('old-'+String(n).padStart(3,'0'), 'x')
+    const currentId = bound === 'text' ? 'old' : 'old-000'
+    const existing = (await group(currentId))!
+    assert.equal(existing.envelope.sealed, false, 'group was unsealed before the late commit')
+    await save(existing.envelope)
+    await db.exec(`UPDATE "BotProviderEvent" SET "status"='PROCESSED'; UPDATE "BotActionInbox" SET "status"='PROCESSED';
+      UPDATE "BotOutbox" SET "status"='CLAIMED',"leaseToken"='token';`)
+    const lateText = bound === 'text' ? 'y'.repeat(101) : 'late'
+    await add('earlier-commit', lateText, { inbox: false, admittedAt: '2026-09-30T09:59:00Z' })
+    assert.equal(await group('earlier-commit'), null, 'replacement cannot cover every previous event within the bound')
+    const guard = await transaction(tx => guardConsolidatedOutboxTx(tx, {
+      ...item, payload: { to: '5491100000000', consolidation: existing.envelope }
+    }))
+    const status = (await db.query<{ status: string }>(`SELECT "status" FROM "BotOutbox"`)).rows[0]!.status
+    overflowOutcomes.push({ bound, guard, status })
+    // Acceptance closes the original group; the untouched journal event then uses derived state.
+    await db.exec(`UPDATE "BotOutbox" SET "status"='ACCEPTED';`)
+    const derivedState = { conversationDraft: { value: 'derived-after-old-group' } }
+    const next = await transaction(tx => selectConsolidationGroupTx(tx, { ...session, revision: 2n,
+      state: derivedState, phone: '5491100000000', currentEventId: 'earlier-commit', isRestart: () => false }))
+    assert.deepEqual(next!.envelope.eventIds, ['earlier-commit'])
+    assert.deepEqual(next!.envelope.baseState, derivedState)
+    assert.equal(next!.text, lateText, 'the remainder is neither truncated nor replayed with old text')
+    assert.equal(next!.previousTransitionId, null)
+  }
+  assert.deepEqual(overflowOutcomes, [
+    { bound: 'text', guard: 'ready', status: 'CLAIMED' },
+    { bound: 'events', guard: 'ready', status: 'CLAIMED' }
+  ], 'both overflow bounds preserve a deliverable original group until acceptance')
   // A stale token never supersedes a newly owned group, even with newer journal input.
   await db.exec(`TRUNCATE "BotProviderEvent","BotActionInbox","BotTransitionLog","BotOutbox";`)
   await add('a','hola'); const owned=(await group())!; await save(owned.envelope)

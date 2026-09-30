@@ -154,6 +154,9 @@ export async function guardConsolidatedOutboxTx(tx: Prisma.TransactionClient, it
     if (text === null || (prefix.length && (prefix.length >= MAX_EVENTS || textSize + text.length + 1 > MAX_TEXT))) break
     prefix.push(row.id); textSize += text.length + 1
   }
+  // A bounded replacement must retain the entire old group, including late commits sorted before it.
+  // Otherwise send the existing group and leave the newcomer durable for the next turn.
+  if (envelope.eventIds.some(id => !prefix.includes(id))) return 'ready'
   if (!prefix.some(id => !envelope.eventIds.includes(id))) return 'ready'
   return await supersedeConsolidationOutboxTx(tx, item.businessId, envelope.sessionId, owned[0].transitionId) ? 'superseded' : 'defer'
 }
