@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
+import type { WorkerWakeSignal } from './worker-wake.js'
 import { recoverStaleTakeOperations } from '../application/handoff-operations.js'
 import { tenantScopeSql, type BotWorkerScope } from './tenant-scope.js'
 
@@ -355,6 +356,7 @@ export function startPostgresWorkerLoop(input: {
   leaseMs?: number
   maintenanceIntervalMs?: number
   maintenanceEnabled?: boolean
+  wakeSignal?: WorkerWakeSignal | undefined
   scope?: BotWorkerScope | undefined
   now?: () => number
   handlerSettlesJob?: boolean
@@ -362,6 +364,7 @@ export function startPostgresWorkerLoop(input: {
   onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): WorkerLoop {
   let stopped = false
+  const idleStop = new AbortController()
   let running: Promise<void> | null = null
   const pollMs = input.pollMs ?? 250
   const emit = (diagnostic: BotJobLatencyDiagnostic) => {
@@ -380,10 +383,12 @@ export function startPostgresWorkerLoop(input: {
     while (!stopped) {
       try {
         await maintenance?.runIfDue()
+        const wakeVersion = input.wakeSignal?.version
         const claimStartedAt = performance.now()
         const job = await claimBotJob(input.client, input.leaseMs, undefined, input.scope)
         if (!job) {
-          await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
+          if (input.wakeSignal) await input.wakeSignal.waitSince(wakeVersion!, pollMs, idleStop.signal)
+          else await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
           continue
         }
         const claimMs = performance.now() - claimStartedAt
@@ -406,6 +411,7 @@ export function startPostgresWorkerLoop(input: {
   return {
     async stop() {
       stopped = true
+      idleStop.abort()
       await running
     }
   }

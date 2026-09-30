@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { acquireDispatchClaim, releaseDispatchClaim } from './dispatch-claims.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
 import { createMaintenanceCadence } from './maintenance-cadence.js'
+import type { WorkerWakeSignal } from './worker-wake.js'
 import { tenantScopeSql, type BotWorkerScope } from './tenant-scope.js'
 import {
   collectOutboundConversationMessage,
@@ -530,12 +531,14 @@ export function startOutboxSenderLoop(input: {
   provider: OutboxProvider
   pollMs?: number
   maintenanceIntervalMs?: number
+  wakeSignal?: WorkerWakeSignal | undefined
   scope?: BotWorkerScope | undefined
   now?: () => number
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
 }): { stop(): Promise<void> } {
   let stopped = false
+  const idleStop = new AbortController()
   const emit = (item: ClaimedOutbox, diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>) => {
     if (!isWhatsAppLatencyDiagnosticsEnabledForBusiness(item.diagnosticCustomerCode)) return
     try {
@@ -554,6 +557,8 @@ export function startOutboxSenderLoop(input: {
   })
   const running = (async () => {
     while (!stopped) {
+      const wakeVersion = input.wakeSignal?.version
+      let failed = false
       try {
         await maintenance.runIfDue()
         const claimStartedAt = performance.now()
@@ -567,10 +572,12 @@ export function startOutboxSenderLoop(input: {
           continue
         }
       } catch (error) {
+        failed = true
         input.onError?.(error)
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, input.pollMs ?? 250))
+      if (!failed && input.wakeSignal) await input.wakeSignal.waitSince(wakeVersion!, input.pollMs ?? 250, idleStop.signal)
+      else await new Promise<void>((resolve) => setTimeout(resolve, input.pollMs ?? 250))
     }
   })()
-  return { async stop() { stopped = true; await running } }
+  return { async stop() { stopped = true; idleStop.abort(); await running } }
 }

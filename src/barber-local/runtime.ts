@@ -4,6 +4,7 @@ import { botWorkerScopeFromEnv, type BotWorkerScope } from '../bot-options/infra
 import { startPostgresWorkerLoop } from '../bot-options/infrastructure/postgres-worker.js'
 import { startOutboxSenderLoop } from '../bot-options/infrastructure/whatsapp-outbox-sender.js'
 import { BARBER_DEMO_BUSINESS_ID } from './ingress.js'
+import { notifyWorkerWake, type WorkerWakeSignal } from '../bot-options/infrastructure/worker-wake.js'
 
 type WorkerInput = Parameters<typeof startPostgresWorkerLoop>[0]
 type SenderInput = Parameters<typeof startOutboxSenderLoop>[0]
@@ -39,6 +40,7 @@ export async function startBarberWorkerLoops(input: {
   client: WorkerInput['client'] & SenderInput['client']
   provider: SenderInput['provider']
   handle: WorkerInput['handle']
+  wakeSignals?: { jobs: WorkerWakeSignal; outbox: WorkerWakeSignal }
   onError?: (error: unknown) => void
   onWorkerDiagnostic?: WorkerInput['onDiagnostic']
   onOutboxDiagnostic?: SenderInput['onDiagnostic']
@@ -51,7 +53,14 @@ export async function startBarberWorkerLoops(input: {
   const worker = input.startWorker ?? startPostgresWorkerLoop
   const sender = input.startSender ?? startOutboxSenderLoop
   const sharedWorker = {
-    client: input.client, handle: input.handle, handlerSettlesJob: true,
+    client: input.client,
+    handle: async (job: Parameters<WorkerInput['handle']>[0]) => {
+      await input.handle(job)
+      // These handlers settle durably before returning; no hint on failure.
+      notifyWorkerWake(input.wakeSignals?.jobs)
+      notifyWorkerWake(input.wakeSignals?.outbox)
+    },
+    handlerSettlesJob: true, wakeSignal: input.wakeSignals?.jobs,
     scope: input.scope,
     ...(input.onError ? { onError: input.onError } : {}),
     ...(input.onWorkerDiagnostic ? { onDiagnostic: input.onWorkerDiagnostic } : {})
@@ -62,6 +71,7 @@ export async function startBarberWorkerLoops(input: {
     loops.push(worker({ ...sharedWorker, maintenanceEnabled: false }))
     loops.push(sender({
       client: input.client, provider: input.provider, scope: input.scope,
+      wakeSignal: input.wakeSignals?.outbox,
       ...(input.onError ? { onError: input.onError } : {}),
       ...(input.onOutboxDiagnostic ? { onDiagnostic: input.onOutboxDiagnostic } : {})
     }))

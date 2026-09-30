@@ -14,6 +14,7 @@ import { bridgeDepositNotificationJob } from './bot-options/application/bridge-d
 import type { ClaimedBotJob } from './bot-options/infrastructure/postgres-worker.js'
 import { BARBER_DEMO_BUSINESS_ID, createBarberWebhookApps } from './barber-local/ingress.js'
 import { startBarberWorkerLoops, validateBarberLocalConfig } from './barber-local/runtime.js'
+import { createWorkerWakeSignal, notifyWorkerWake } from './bot-options/infrastructure/worker-wake.js'
 
 function port(value: string | undefined, fallback: number): number {
   const parsed = value === undefined ? fallback : Number(value)
@@ -38,7 +39,10 @@ export async function startBarberLocal() {
   const repository = new PrismaAuthoritativeAdmissionRepository(ingressClient, {
     depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled
   })
-  const { internal, gateway } = await createBarberWebhookApps({ repository, verifyToken })
+  const wakeSignals = { jobs: createWorkerWakeSignal(), outbox: createWorkerWakeSignal() }
+  const { internal, gateway } = await createBarberWebhookApps({
+    repository, verifyToken, onAdmissionCommitted: () => notifyWorkerWake(wakeSignals.jobs)
+  })
   const handler = async (job: ClaimedBotJob) => {
     if (job.businessId !== BARBER_DEMO_BUSINESS_ID) throw new Error('non-Barber local job denied')
     if (job.kind === 'PROCESS_PROVIDER_EVENT') {
@@ -72,7 +76,7 @@ export async function startBarberLocal() {
   try {
     await internal.listen({ port: internalPort, host: '127.0.0.1' })
     loops = await startBarberWorkerLoops({
-      scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler,
+      scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler, wakeSignals,
       onError: (error) => internal.log.error(error),
       onWorkerDiagnostic: (diagnostic) => {
         console.info('[barber-local-job-latency]', JSON.stringify(diagnostic))

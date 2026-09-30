@@ -9,7 +9,7 @@ import { whatsappWebhookRoutes } from '../routes/whatsapp-webhook.js'
 export const BARBER_DEMO_BUSINESS_ID = 'cmpvr0oqo0000o0vcnhgyv054'
 
 /** The local process must never admit another WABA or fall back to the legacy handler. */
-export function barberOnlyRepository(repository: AuthoritativeAdmissionRepository): AuthoritativeAdmissionRepository {
+export function barberOnlyRepository(repository: AuthoritativeAdmissionRepository, onCommitted?: () => void): AuthoritativeAdmissionRepository {
   return {
     async resolveRoute(phoneNumberId) {
       const route = await repository.resolveRoute(phoneNumberId)
@@ -22,7 +22,11 @@ export function barberOnlyRepository(repository: AuthoritativeAdmissionRepositor
         || input.events.some((event) => event.kind !== 'unsupported_change' && event.phoneNumberId !== input.phoneNumberId)) {
         throw new Error('non-Barber local admission denied')
       }
-      return repository.admitAuthoritative(input)
+      const result = await repository.admitAuthoritative(input)
+      if (result.insertedCount > 0) {
+        try { onCommitted?.() } catch { /* durable polling recovers a lost hint */ }
+      }
+      return result
     }
   }
 }
@@ -49,12 +53,13 @@ const ingressConfig: BotOptionsConfig = {
 export async function createBarberWebhookApps(input: {
   repository: AuthoritativeAdmissionRepository
   verifyToken: string
+  onAdmissionCommitted?: () => void
 }): Promise<{ internal: FastifyInstance; gateway: FastifyInstance }> {
   if (!input.verifyToken.trim()) throw new Error('Barber webhook verify token required')
   const internal = Fastify({ bodyLimit: META_WEBHOOK_BODY_LIMIT })
   await internal.register(whatsappWebhookRoutes, {
     botOptionsConfig: ingressConfig,
-    authoritativeAdmission: createAuthoritativeWebhookAdmission(barberOnlyRepository(input.repository)),
+    authoritativeAdmission: createAuthoritativeWebhookAdmission(barberOnlyRepository(input.repository, input.onAdmissionCommitted)),
     legacyWebhookService: {
       verifyWebhook: ({ mode, token, challenge }: { mode: string | undefined; token: string | undefined; challenge: string | undefined }) => ({
         verified: mode === 'subscribe' && Boolean(challenge) && tokenMatches(input.verifyToken, token),
