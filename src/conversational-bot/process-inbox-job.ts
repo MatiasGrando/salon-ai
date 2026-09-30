@@ -139,16 +139,42 @@ export async function processConversationInbox(input: {
       if (!rows[0]) throw new Error('conversation order guard unavailable')
       return !rows[0].blocked
     }
-    const finish = async (tx: Prisma.TransactionClient, row: Row) => {
-      const count = await measureAttemptStage('conversation_inbox_settle', () => tx.$executeRaw(Prisma.sql`
-        /* conversation-settle */ UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "error" = NULL
-        WHERE "id" = ${row.id} AND "businessId" = ${row.businessId} AND "status" = 'ADMITTED'::"BotInboxStatus"
-      `))
-      if (count !== 1) throw new Error('conversation inbox settlement lost')
-      await measureAttemptStage('conversation_event_settle', () => tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus" WHERE "id" = ${row.providerEventId} AND "businessId" = ${row.businessId}`))
-      await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
-      await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job))
-    }
+    const finish = (tx: Prisma.TransactionClient, row: Row) => measureAttemptStage('conversation_settlement', async () => {
+      const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; dispatchCount: bigint; jobCount: bigint }>>(Prisma.sql`
+        /* conversation-settle-batch */
+        WITH settled_inbox AS (
+          UPDATE "BotActionInbox" SET "status" = 'PROCESSED'::"BotInboxStatus", "error" = NULL
+          WHERE "id" = ${row.id} AND "businessId" = ${row.businessId} AND "status" = 'ADMITTED'::"BotInboxStatus"
+          RETURNING "id"
+        ), settled_event AS (
+          UPDATE "BotProviderEvent" SET "status" = 'PROCESSED'::"BotProviderEventStatus"
+          WHERE "id" = ${row.providerEventId} AND "businessId" = ${row.businessId}
+            AND (SELECT count(*) FROM settled_inbox) = 1
+          RETURNING "id"
+        ), event_done AS MATERIALIZED (
+          -- Consume event completion even when no row matched: the existing event update has no required count.
+          SELECT count(*) AS "completed" FROM settled_event
+        ), settled_dispatch AS (
+          UPDATE "BotDispatchClaim" SET "status" = 'DONE'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
+          FROM event_done
+          WHERE "claimToken" = ${token} AND "status" = 'CLAIMED'::"BotDispatchStatus"
+            AND (SELECT count(*) FROM settled_inbox) = 1 AND event_done."completed" >= 0
+          RETURNING "id"
+        ), settled_job AS (
+          UPDATE "BotJob" SET "status" = 'DONE'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
+            "lastError" = NULL, "updatedAt" = clock_timestamp()
+          WHERE "id" = ${input.job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${input.job.claimToken}
+            AND (SELECT count(*) FROM settled_dispatch) = 1
+          RETURNING "id"
+        )
+        SELECT (SELECT count(*) FROM settled_inbox)::bigint AS "inboxCount",
+          (SELECT count(*) FROM settled_dispatch)::bigint AS "dispatchCount",
+          (SELECT count(*) FROM settled_job)::bigint AS "jobCount"
+      `)
+      if (rows[0]?.inboxCount !== 1n) throw new Error('conversation inbox settlement lost')
+      if (rows[0]?.dispatchCount !== 1n) throw new Error('cannot complete stale dispatch claim')
+      if (rows[0]?.jobCount !== 1n) throw new Error('cannot complete stale bot job claim')
+    })
     const retry = async (tx: Prisma.TransactionClient, row: Row) => {
       await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
       await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + 500), { refundClaimAttempt: true }))

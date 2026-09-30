@@ -123,6 +123,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       if (q.sql.includes('conversation-feature-lock')) return []
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch }]
       if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('conversation-settle-batch')) { row.status = 'PROCESSED'; settled++; return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }] }
       if (q.sql.includes('conversation-claims-assert')) return [{ jobCount: invalidClaim ? 0n : 1n, dispatchCount: invalidClaim ? 0n : 1n }]
       if (q.sql.includes('SELECT j."id" FROM "BotJob"')) return invalidClaim ? [] : [{ id: 'job' }]
       if (q.sql.includes('SELECT c."id" FROM "BotDispatchClaim"')) return invalidClaim ? [] : [{ id: 'claim' }]
@@ -218,10 +219,12 @@ for (const stage of [
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body',
   'conversation_final_transaction_tail', 'conversation_final_transaction_total',
   'conversation_session_save', 'conversation_transition_insert', 'conversation_step_project', 'conversation_view_persist',
-  'conversation_inbox_settle', 'conversation_event_settle', 'conversation_dispatch_complete', 'conversation_job_complete'
+  'conversation_settlement'
 ]) assert.ok(stages.includes(stage as never), `missing runtime span: ${stage}`)
 assert.ok(spans.every(event => event.durationMs >= 0 && event.outcome === 'ok'))
 assert.doesNotMatch(JSON.stringify(spans), /phone|Corte|SELECT|INSERT|job-0|dispatch-token/, 'metrics must exclude values, recipient and SQL')
+assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-settle-batch')).length, 1,
+  'successful final transaction settles inbox/event/dispatch/job in one query')
 assert.equal(spanRuntime.replies.length, 1)
 const cleanRuntime = runtimeFixture()
 await captureRuntimeMetrics(() => cleanRuntime.run(), [], true)
