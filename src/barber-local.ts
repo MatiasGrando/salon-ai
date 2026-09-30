@@ -1,6 +1,6 @@
 import { createQueueMilestoneTracker } from './bot-options/observability/queue-milestones.js'
 import { enablePrismaClientDiagnostics } from './config/prisma-client.js'
-import { withAttemptMetrics } from './bot-options/observability/attempt-metrics.js'
+import { createProviderDiagnosticProbe } from './bot-options/observability/provider-diagnostic-probe.js'
 import { pathToFileURL } from 'node:url'
 import { prisma } from './config/prisma.js'
 import { createPrismaIngressClient } from './config/prisma-ingress.js'
@@ -39,9 +39,12 @@ export async function startBarberLocal() {
   }
 
   const ingressClient = createPrismaIngressClient()
-  const emitPoolDiagnostic: Parameters<typeof enablePrismaClientDiagnostics>[1]['emit'] = event => {
-    console.info('[barber-local-pool-latency]', JSON.stringify(event))
-  }
+  const providerDiagnosticProbe = createProviderDiagnosticProbe({
+    emitAttempt: event => { console.info('[bot-options-attempt-stage]', JSON.stringify(event)) },
+    emitPool: event => { console.info('[barber-local-pool-latency]', JSON.stringify(event)) },
+    emitSummary: event => { console.info('[barber-local-provider-sink-cost]', JSON.stringify(event)) }
+  })
+  const emitPoolDiagnostic = providerDiagnosticProbe.emitPool
   if (!enablePrismaClientDiagnostics(prisma, { role: 'worker', emit: emitPoolDiagnostic })
     || !enablePrismaClientDiagnostics(ingressClient, { role: 'ingress', emit: emitPoolDiagnostic })) {
     await ingressClient.$disconnect()
@@ -60,7 +63,7 @@ export async function startBarberLocal() {
   const handler = async (job: ClaimedBotJob) => {
     if (job.businessId !== BARBER_DEMO_BUSINESS_ID) throw new Error('non-Barber local job denied')
     if (job.kind === 'PROCESS_PROVIDER_EVENT') {
-      await withAttemptMetrics({ jobId: job.id, attempt: job.attempts }, () => processProviderEventJob({ client: prisma, job, depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled, queueMilestones }))
+      await providerDiagnosticProbe.run({ jobId: job.id, attempt: job.attempts }, () => processProviderEventJob({ client: prisma, job, depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled, queueMilestones }))
       return
     }
     if (job.kind === 'RECONCILE_PROMPT') { await reconcileActions(prisma, job); return }
