@@ -9,6 +9,7 @@ export type ConversationAiDiagnostic = {
   mode: InterpretationDiagnostics['mode']; reason: InterpretationDiagnostics['reason']
   copyMode: InterpretationDiagnostics['copyMode']; copyReason: InterpretationDiagnostics['copyReason']
   interpretationMs: number; validationMs: number; engineMs: number; responseMs: number
+  aiCalls?: InterpretationDiagnostics['aiCalls']; replyRoute?: InterpretationDiagnostics['replyRoute']
   usage: InterpretationDiagnostics['usage'] | null
 }
 export type WhatsAppConversationAi = {

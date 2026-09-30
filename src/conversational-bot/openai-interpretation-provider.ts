@@ -4,7 +4,7 @@ import type { AiInterpretationProvider } from './ai-interpreter.js'
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection', 'firstReply'],
   properties: {
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
@@ -12,7 +12,16 @@ const schema = {
     professionalMention: { type: ['string', 'null'] },
     serviceConfidence: { type: 'string', enum: ['certain', 'uncertain'] },
     serviceCandidateIds: { type: 'array', items: { type: 'string' } },
-    serviceCorrection: { type: 'boolean' }
+    serviceCorrection: { type: 'boolean' },
+    firstReply: {
+      type: ['object', 'null'], additionalProperties: false,
+      required: ['opening', 'factIds', 'closing'],
+      properties: {
+        opening: { type: ['string', 'null'] },
+        factIds: { type: 'array', items: { type: 'string' } },
+        closing: { type: ['string', 'null'] }
+      }
+    }
   }
 } as const
 
@@ -26,7 +35,8 @@ export function createOpenAiInterpretationProvider(options: {
   const fetchImpl = options.fetchImpl ?? fetch
   const model = options.model ?? 'gpt-6-luna'
   return async (input, signal) => {
-    if (input.message.length > 2000 || input.services.length > 200) throw new Error('AI input too large')
+    if (input.message.length > 2000 || input.services.length > 200 ||
+        input.firstReplyFacts && (input.firstReplyFacts.length > 100 || input.firstReplyFacts.some(fact => fact.text.length > 1000))) throw new Error('AI input too large')
     const response = await fetchImpl('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + options.apiKey, 'Content-Type': 'application/json' },
@@ -35,13 +45,14 @@ export function createOpenAiInterpretationProvider(options: {
         model,
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}), // QA Luna experiment only.
         store: false,
-        max_output_tokens: 400,
-        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. Si el mensaje combina saludo con pedido de turno, intent es booking. Si el servicio es ambiguo, devolvé serviceId null y los IDs plausibles en serviceCandidateIds; no elijas uno arbitrariamente. Si es inequívoco, devolvé serviceId y serviceCandidateIds vacío. serviceCorrection true indica que el cliente corrige o reemplaza el servicio anterior. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Una segunda llamada redactará la respuesta tras verificar resultados del motor. No inventes hechos ni confirmes reservas.',
+        max_output_tokens: 600,
+        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. Si el mensaje combina saludo con pedido de turno, intent es booking. serviceCandidateIds describe únicamente alternativas para un servicio particular pedido en el mensaje actual, nunca los servicios que vas a listar como información. En una consulta general de catálogo o precios, serviceCandidateIds es vacío. Si no se menciona un servicio particular, serviceId y serviceEvidence son null y serviceCorrection es false. No repitas el serviceId del estado sin evidencia literal en el mensaje actual. Si el servicio particular solicitado es ambiguo, devolvé serviceId null y los IDs plausibles en serviceCandidateIds; no elijas uno arbitrariamente. Si es inequívoco, devolvé serviceId y serviceCandidateIds vacío. serviceCorrection true indica que el cliente corrige o reemplaza el servicio anterior. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Si firstReplyFacts está presente y es information u other, podés redactar firstReply breve en español rioplatense. Incluí cada fact exactamente una vez por factIds; el servidor insertará sus textos literalmente. opening y closing contienen solo charla social o transiciones, nunca hechos del negocio, precios, horarios, direcciones, servicios, profesionales ni afirmaciones de reservas o acciones. Si firstReplyFacts es [] y es other, respondé al saludo o charla casual sin menú; ante pedidos ajenos ofrecé ayuda del local. Si faltan firstReplyFacts, es booking, hay corrección o ambigüedad, firstReply es null: una segunda llamada redactará después de verificar resultados del motor. No inventes hechos ni confirmes reservas.',
         input: JSON.stringify({
           message: input.message,
           pending: input.state.pending,
           serviceId: input.state.serviceId,
           professionalNameHint: input.state.professionalNameHint,
+          ...(input.firstReplyFacts !== undefined ? { firstReplyFacts: input.firstReplyFacts } : {}),
           services: input.services.slice(0, 100).map(s => ({ id: s.id, name: s.name }))
         }),
         text: { format: { type: 'json_schema', name: 'conversational_turn_interpretation', strict: true, schema } }

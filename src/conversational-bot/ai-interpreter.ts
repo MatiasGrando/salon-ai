@@ -1,9 +1,10 @@
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { routeActions } from './actions.js'
-import { pendingQuestion } from './information.js'
+import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
 import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
 
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[] }
+export type ReplyFact = { id: string; text: string }
+export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; firstReplyFacts?: readonly ReplyFact[] }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -27,12 +28,14 @@ export type InterpretationDiagnostics = {
   totalMs: number
   copyMode: 'ai' | 'fallback'
   copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
+  aiCalls?: number
+  replyRoute?: 'first_call' | 'second_call' | 'motor'
   engineMs?: number
   responseMs?: number
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -41,7 +44,7 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
@@ -121,7 +124,32 @@ export async function respondWithAiInterpreter(
   const started = performance.now()
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const services = await port.catalog()
-  const cachedPort = { ...port, catalog: async () => services }
+  const route = routeActions(message)
+  const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
+  let firstReplyFacts: ReplyFact[] | undefined = !route.information.length && !route.pendingAction ? [] : undefined
+  let availabilityCalls = 0
+  const cachedPort: DialoguePort = { ...port, catalog: async () => services,
+    availability: async (...args) => { availabilityCalls++; return port.availability(...args) } }
+  if (pureInformation) {
+    let publicFacts: BusinessFacts | null = null
+    let informationError: unknown
+    let informationFailed = false
+    const needsInformation = route.information.some(action => !['SERVICES', 'PRICES'].includes(action))
+    if (needsInformation && port.information) {
+      try { publicFacts = await port.information(route.information); validateFacts(publicFacts, context.businessId) }
+      catch (error) { informationFailed = true; informationError = error }
+      cachedPort.information = async () => {
+        if (informationFailed) throw informationError
+        return publicFacts!
+      }
+    }
+    if (!informationFailed) {
+      const answer = renderInformation(route.information, route.informationMessage, publicFacts, services)
+      firstReplyFacts = responseFacts(answer + '\n' + pendingQuestion(state), state, 'information', message)
+      // Preserve existing composition input bounds; oversized data takes the usual two-stage route.
+      if (firstReplyFacts.length > 100 || firstReplyFacts.some(fact => fact.text.length > 1000)) firstReplyFacts = undefined
+    }
+  }
   const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 2500, 1), 5000)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -130,7 +158,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services }, controller.signal),
+      provider({ message, state, services, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch { reason = controller.signal.aborted ? 'timeout' : 'provider_error' }
@@ -180,11 +208,27 @@ export async function respondWithAiInterpreter(
   const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
+  let aiCalls = 1
+  let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
+  const finalFacts = responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
+  const sameState = JSON.stringify(response.state) === JSON.stringify(state)
+  const eligibleFirstReply = !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
+    availabilityCalls === 0 && sameState && firstReplyFacts !== undefined &&
+    (pureInformation && candidate?.intent === 'information' || !route.information.length &&
+      !route.pendingAction && candidate?.intent === 'other' && !candidate.serviceId && !candidate.serviceEvidence &&
+      !candidate.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
+  if (eligibleFirstReply) {
+    // Fact identity and motor outcome are authoritative. Free social framing retains the existing heuristic guard.
+    authored = assembledReply(candidate?.firstReply, finalFacts, services)
+    if (authored) replyRoute = 'first_call'
+  }
   let copyReason: InterpretationDiagnostics['copyReason'] = 'canonical_only'
   let responseMs = 0
   let responseUsage: AiUsage | null = null
-  if (!reason && !canonicalOnly && responseProvider) {
-    const facts = responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
+  if (!authored && !reason && !canonicalOnly && responseProvider) {
+    const facts = finalFacts
+    aiCalls++
+    replyRoute = 'second_call'
     const responseController = new AbortController()
     let responseTimer: ReturnType<typeof setTimeout> | undefined
     const responseStarted = performance.now()
@@ -198,13 +242,14 @@ export async function respondWithAiInterpreter(
       copyReason = authored ? null : 'invalid_response'
     } catch { copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error' }
     finally { clearTimeout(responseTimer); responseMs = ms(performance.now() - responseStarted) }
+  } else if (authored) {
+    copyReason = null
   } else if (!reason && !canonicalOnly && !responseProvider) {
     // Legacy one-call test callers retain the existing canonical fallback; QA runtime supplies a second call.
     copyReason = 'missing_draft'
   }
   // Only fixed codes, counts and workflow states leave this function as QA decision diagnostics.
   // Never copy model evidence, catalog IDs/names, chat text or provider output into metadata.
-  const route = routeActions(message)
   const decisionTrace: DecisionTrace = {
     proposedIntent: candidate?.intent ?? 'unknown',
     candidateCount: candidates.length || (selected ? 1 : 0),
@@ -226,6 +271,7 @@ export async function respondWithAiInterpreter(
     decision: decisionTrace,
     mode: reason ? 'fallback' : 'ai', reason,
     providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
+    aiCalls, replyRoute,
     engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),
     usage: { interpretation: readAiUsage(raw), response: responseUsage },
     copyMode: authored ? 'ai' : 'fallback', copyReason

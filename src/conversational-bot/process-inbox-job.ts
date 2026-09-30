@@ -240,6 +240,7 @@ export async function processConversationInbox(input: {
           jobId: input.job.id, businessId: policy.businessId, providerEventId: snapshot.row.providerEventId,
           transitionId: committedTransitionId, result, contextMs: ms(computedStarted - contextStarted), computeMs: ms(computedAt - computedStarted),
           mode: diagnostic.mode, reason: diagnostic.reason, copyMode: diagnostic.copyMode, copyReason: diagnostic.copyReason,
+          aiCalls: diagnostic.aiCalls, replyRoute: diagnostic.replyRoute,
           interpretationMs: diagnostic.providerMs, validationMs: diagnostic.validationMs,
           engineMs: diagnostic.engineMs ?? 0, responseMs: diagnostic.responseMs ?? 0, usage: diagnostic.usage ?? null
         })

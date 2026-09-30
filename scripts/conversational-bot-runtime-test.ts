@@ -427,6 +427,25 @@ assert.equal(measured.mode, 'ai'); assert.equal(measured.copyMode, 'ai')
 assert.equal(measured.providerEventId, 'event'); assert.equal(measured.result, 'PROCESSED')
 for (const key of ['contextMs', 'computeMs', 'interpretationMs', 'validationMs', 'engineMs', 'responseMs']) assert.ok(Number(measured[key]) >= 0, key)
 assert.ok(!JSON.stringify(measured).includes('Corte') && !JSON.stringify(measured).includes('phone'), 'diagnostics exclude content and recipient')
+assert.equal(measured.aiCalls, 2, 'WhatsApp diagnostics must expose both AI calls')
+assert.equal(measured.replyRoute, 'second_call')
+const singleCallRuntime = runtimeFixture()
+singleCallRuntime.next('hola')
+const singleCallDiagnostics: unknown[] = []
+let singleCallCount = 0
+const singleCallProvider: AiInterpretationProvider = async () => {
+  singleCallRuntime.assertOutside(); singleCallCount++
+  return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+    firstReply: { opening: 'Hola', factIds: [], closing: null } }
+}
+singleCallProvider.respond = async () => { throw new Error('one-call greeting must not compose again') }
+await singleCallRuntime.run('PROCESS_INBOX', { provider: singleCallProvider, timeoutMs: 4500,
+  onDiagnostic: value => singleCallDiagnostics.push(value) })
+assert.equal(singleCallCount, 1)
+assert.equal(singleCallRuntime.replies[0], 'Hola')
+assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).aiCalls, 1)
+assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).replyRoute, 'first_call')
+
 const fallbackRuntime = runtimeFixture()
 await fallbackRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('SECRET raw provider failure') }, timeoutMs: 4500, onDiagnostic: value => {
   assert.ok(!JSON.stringify(value).includes('SECRET')); assert.equal((value as Record<string, unknown>).mode, 'fallback')

@@ -31,7 +31,8 @@ export function renderInformation(actions: readonly InformationAction[], message
       // Partial labels must be disambiguated rather than giving a falsely exact price.
       if (found.length === 1 && full.length === 1) replies.push(renderServices(found))
       else if (found.length) replies.push(`¿Cuál de estos servicios querés consultar? ${found.map(s => s.name).join(', ')}.`)
-      else replies.push('¿De qué servicio querés consultar el precio?')
+      // SERVICES already includes each public price; a generic price read adds no separate question.
+      else if (!actions.includes('SERVICES')) replies.push('¿De qué servicio querés consultar el precio?')
     }
     if (action === 'HOURS') replies.push(facts?.hours || 'No tengo horarios publicados.')
     if (action === 'ADDRESS') replies.push([facts?.address, facts?.area, facts?.mapsUrl].filter(Boolean).join(', ') || 'No tengo una dirección publicada.')
