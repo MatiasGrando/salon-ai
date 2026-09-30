@@ -15,6 +15,9 @@ const STAGES = ['session_context_load', 'session_effects', 'session_persist_view
   'conversation_event_settle', 'conversation_dispatch_complete', 'conversation_job_complete', 'conversation_job_reschedule',
   'conversation_snapshot_transaction_start_wait', 'conversation_snapshot_transaction_body', 'conversation_snapshot_transaction_tail', 'conversation_snapshot_transaction_total',
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body', 'conversation_final_transaction_tail', 'conversation_final_transaction_total',
+  'provider_projection_transaction_start_wait', 'provider_projection_transaction_body', 'provider_projection_transaction_tail', 'provider_projection_transaction_total',
+  'provider_classification_transaction_start_wait', 'provider_classification_transaction_body', 'provider_classification_transaction_tail', 'provider_classification_transaction_total',
+  'provider_claim_load', 'provider_projection_conversation', 'provider_projection_message', 'provider_job_assert', 'provider_deployment_load', 'provider_event_load', 'provider_context_window', 'provider_classify', 'provider_job_complete',
   'availability_settings', 'availability_compatible_professionals', 'availability_search'
 ] as const
 export type AttemptStage = typeof STAGES[number]
@@ -27,10 +30,10 @@ export type AttemptMetricEvent = {
   outcome: 'ok' | 'error'
   errorCode: string | null
 }
-type Context = { jobRef: string; attempt: number; emit: (event: AttemptMetricEvent) => void }
+type Context = { jobRef: string; attempt: number; stage?: AttemptMetricEvent['stage']; emit: (event: AttemptMetricEvent) => void }
 const storage = new AsyncLocalStorage<Context>()
 
-function safeErrorCode(error: unknown): string {
+export function safeAttemptErrorCode(error: unknown): string {
   // Never stringify exceptions: Prisma messages can include SQL and customer data.
   try {
     const code = error && typeof error === 'object' && 'code' in error ? error.code : null
@@ -44,9 +47,9 @@ async function measure<T>(stage: AttemptMetricEvent['stage'], operation: () => P
   const startedAt = performance.now()
   let outcome: 'ok' | 'error' = 'ok'
   let errorCode: string | null = null
-  try { return await operation() } catch (error) {
+  try { return await storage.run({ ...context, stage }, operation) } catch (error) {
     outcome = 'error'
-    errorCode = safeErrorCode(error)
+    errorCode = safeAttemptErrorCode(error)
     throw error
   } finally {
     try {
@@ -71,7 +74,14 @@ export async function measureAttemptStage<T>(stage: AttemptStage, operation: () 
   return measure(stage, operation)
 }
 
+export function getAttemptDiagnosticContext() {
+  const context = storage.getStore()
+  return context ? { jobRef: context.jobRef, attempt: context.attempt, stage: context.stage ?? 'attempt' as const } : null
+}
+
 const TRANSACTION_STAGES = {
+  provider_projection: ['provider_projection_transaction_start_wait', 'provider_projection_transaction_body', 'provider_projection_transaction_tail', 'provider_projection_transaction_total'],
+  provider_classification: ['provider_classification_transaction_start_wait', 'provider_classification_transaction_body', 'provider_classification_transaction_tail', 'provider_classification_transaction_total'],
   conversation_snapshot: ['conversation_snapshot_transaction_start_wait', 'conversation_snapshot_transaction_body', 'conversation_snapshot_transaction_tail', 'conversation_snapshot_transaction_total'],
   conversation_final: ['conversation_final_transaction_start_wait', 'conversation_final_transaction_body', 'conversation_final_transaction_tail', 'conversation_final_transaction_total']
 } as const satisfies Record<string, readonly AttemptStage[]>
@@ -99,7 +109,7 @@ export async function measureAttemptTransaction<T, Tx>(
     try {
       context.emit({ event: 'bot_options_attempt_stage', jobRef: context.jobRef, attempt: context.attempt,
         stage: label, durationMs: Math.max(0, Math.round(performance.now() - since)), outcome,
-        errorCode: outcome === 'error' ? safeErrorCode(failure) : null })
+        errorCode: outcome === 'error' ? safeAttemptErrorCode(failure) : null })
     } catch { /* Metrics cannot change transaction settlement or the original exception. */ }
   }
   return measure(totalStage, async () => {

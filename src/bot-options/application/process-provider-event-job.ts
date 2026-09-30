@@ -1,3 +1,4 @@
+import { measureAttemptStage, measureAttemptTransaction } from '../observability/attempt-metrics.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { applyLazyContextWindowTx } from './lazy-context-window.js'
 import { persistView } from './process-session-job.js'
@@ -199,22 +200,22 @@ async function projectInboundBeforeClassification(
   client: ProviderEventClient,
   job: ClaimedBotJob
 ): Promise<InboundConversationMessageProjection[]> {
-  return client.$transaction(async (tx) => {
-    const row = await loadClaimedProviderEventTx(tx, job)
+  return measureAttemptTransaction('provider_projection', body => client.$transaction(body, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS), async (tx: Prisma.TransactionClient) => {
+    const row = await measureAttemptStage('provider_claim_load', () => loadClaimedProviderEventTx(tx, job))
     if (row.eventType !== 'MESSAGE') return []
     const payload = record(row.payload)
     const phone = requiredString(payload['fromPhone'], 'fromPhone')
     const conversationId = `provider-conversation:${row.id}`
-    const conversations = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    const conversations = await measureAttemptStage('provider_projection_conversation', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
       VALUES (${conversationId}, ${phone}, ${row.businessId}, clock_timestamp())
       ON CONFLICT ("businessId", "phone") DO UPDATE SET "updatedAt" = "Conversation"."updatedAt"
       RETURNING "id"
-    `)
+    `))
     if (conversations.length !== 1) throw new Error('provider event conversation projection failed')
     const body = inboundBody(payload)
     const metadata = providerEventInboundMessageMetadata(payload)
-    const projected = await tx.$queryRaw<Array<{ conversationId: string; messageId: string }>>(Prisma.sql`
+    const projected = await measureAttemptStage('provider_projection_message', () => tx.$queryRaw<Array<{ conversationId: string; messageId: string }>>(Prisma.sql`
       WITH inserted_message AS (
         INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
         VALUES (${row.id}, ${conversations[0]!.id}, ${phone}, 'INBOUND'::"MessageDirection", ${body},
@@ -229,10 +230,10 @@ async function projectInboundBeforeClassification(
       )
       SELECT m."conversationId", m."id" AS "messageId"
       FROM inserted_message m JOIN updated_conversation c ON c."id" = m."conversationId"
-    `)
+    `))
     if (projected.length === 0) return []
     return [{ businessId: row.businessId, conversationId: projected[0]!.conversationId, messageId: projected[0]!.messageId }]
-  }, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS)
+  })
 }
 
 export async function processProviderEventJob(input: {
@@ -247,9 +248,9 @@ export async function processProviderEventJob(input: {
   const pendingCrmEvents = await projectInboundBeforeClassification(input.client, input.job)
   flushInboundConversationMessages(pendingCrmEvents)
 
-  const result = await input.client.$transaction(async (tx) => {
-    await assertClaimedBotJobTx(tx, input.job, { requireCurrentDeployment: false })
-    const deployment = await currentDeploymentTx(tx, input.job)
+  const result = await measureAttemptTransaction('provider_classification', body => input.client.$transaction(body, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS), async (tx: Prisma.TransactionClient) => {
+    await measureAttemptStage('provider_job_assert', () => assertClaimedBotJobTx(tx, input.job, { requireCurrentDeployment: false }))
+    const deployment = await measureAttemptStage('provider_deployment_load', () => currentDeploymentTx(tx, input.job))
     const activeJob = deployment.id === input.job.deploymentId
       && deployment.generation === input.job.deploymentGeneration
       ? input.job
@@ -257,26 +258,26 @@ export async function processProviderEventJob(input: {
           deploymentId: deployment.id,
           generation: deployment.generation
         })
-    const row = await loadProviderEventTx(tx, activeJob, true)
+    const row = await measureAttemptStage('provider_event_load', () => loadProviderEventTx(tx, activeJob, true))
     if (row.status !== 'ADMITTED') {
-      await completeClaimedBotJobTx(tx, activeJob)
+      await measureAttemptStage('provider_job_complete', () => completeClaimedBotJobTx(tx, activeJob))
       return { outcome: 'PROCESSED' as const, outboundMessage: null }
     }
     const event = hydrateProviderEvent(row)
     const window = event.kind === 'message'
-      ? await applyLazyContextWindowTx(tx, {
+      ? await measureAttemptStage('provider_context_window', () => applyLazyContextWindowTx(tx, {
           businessId: activeJob.businessId, deploymentId: activeJob.deploymentId,
           generation: activeJob.deploymentGeneration, providerEventId: row.id,
           phone: event.fromPhone, admittedAt: row.admittedAt, providerOccurredAt: row.providerOccurredAt,
           isMedia: event.messageType === 'image' || event.messageType === 'document'
-        }, persistView)
+        }, persistView))
       : null
     if (window?.kind === 'WAIT') {
       await rescheduleClaimedBotJobTx(tx, activeJob, window.retryAt, { refundClaimAttempt: true })
       return { outcome: 'DEFERRED' as const, outboundMessage: null }
     }
     if (window?.kind === 'EXPIRED' || window?.kind === 'REPLAY') {
-      await completeClaimedBotJobTx(tx, activeJob)
+      await measureAttemptStage('provider_job_complete', () => completeClaimedBotJobTx(tx, activeJob))
       return { outcome: 'PROCESSED' as const, outboundMessage: null }
     }
     const route: Extract<AuthoritativeRoute, { kind: 'new' }> = {
@@ -291,15 +292,15 @@ export async function processProviderEventJob(input: {
     const classifier = new PrismaAuthoritativeAdmissionRepository(input.client as never, {
       depositProofIngressEnabled: input.depositProofIngressEnabled ?? false
     })
-    const classification = await classifier.classifyProviderEventTx(tx, {
+    const classification = await measureAttemptStage('provider_classify', () => classifier.classifyProviderEventTx(tx, {
       route,
       event,
       providerEventId: row.id,
       contextWindowEvaluated: window?.kind === 'CONTINUE' && window.evaluated
-    })
-    await completeClaimedBotJobTx(tx, activeJob)
+    }))
+    await measureAttemptStage('provider_job_complete', () => completeClaimedBotJobTx(tx, activeJob))
     return { outcome: 'PROCESSED' as const, outboundMessage: classification.outboundMessage }
-  }, PROCESS_PROVIDER_EVENT_TRANSACTION_OPTIONS)
+  })
   if (result.outboundMessage) {
     const outbound: OutboundConversationMessageProjection[] = []
     collectOutboundConversationMessage(outbound, result.outboundMessage)
