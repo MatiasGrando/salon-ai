@@ -64,6 +64,7 @@ const row = (id: string, name: string, parentServiceId: string | null = null, is
   estimateOptions: null, requiresPhoto: false, validationEnabled: false
 })
 const client = {
+  business: { findFirst: async () => ({ id: context.businessId }) },
   serviceCategory: {
     findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); return [{ id: 'cat', name: 'Servicios' }] },
     count: async () => 1, findFirst: async () => ({ id: 'cat' })
