@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { subscribeToCrmRealtimeEvents } from '../src/services/crm-realtime-events.js'
 import type { AttemptMetricEvent } from '../src/bot-options/observability/attempt-metrics.js'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
@@ -126,6 +127,12 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       if (q.sql.includes('conversation-feature-lock')) return []
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch }]
       if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('conversation-turn-persist')) {
+        assert.ok(session)
+        session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
+        session.revision = q.values.find(v => typeof v === 'bigint') as bigint
+        return [{ sessionCount: 1n, stepCount: 1n, conversationId: 'conversation', updatedAt: now }]
+      }
       if (q.sql.includes('conversation-settle-batch')) { row.status = 'PROCESSED'; settled++; return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }] }
       if (q.sql.includes('conversation-claims-assert')) return [{ jobCount: invalidClaim ? 0n : 1n, dispatchCount: invalidClaim ? 0n : 1n }]
       if (q.sql.includes('SELECT j."id" FROM "BotJob"')) return invalidClaim ? [] : [{ id: 'job' }]
@@ -183,6 +190,21 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+// The combined write projects CRM data, but the public entry only emits after commit.
+for (const fail of [false, true]) {
+  const projected = runtimeFixture()
+  if (fail) projected.failCommit()
+  let events = 0
+  const unsubscribe = subscribeToCrmRealtimeEvents({ businessId: 'biz', send(event) {
+    if (event.type === 'conversation_updated') { projected.assertOutside(); events++ }
+  } })
+  try {
+    if (fail) await assert.rejects(projected.run(), /COMMIT failed/)
+    else await projected.run()
+    assert.equal(events, fail ? 0 : 1)
+  } finally { unsubscribe() }
+}
+
 // C09: creation and lazy context retain the second lock; an unchanged locked session does not need it.
 const snapshotLocks = runtimeFixture()
 const sessionLockCount = () => snapshotLocks.statements.filter(q => q.sql.includes('s."id" AS "sessionId", c."id" AS "conversationId"')).length
@@ -219,6 +241,7 @@ const spanRuntime = runtimeFixture()
 const spans: AttemptMetricEvent[] = []
 await captureRuntimeMetrics(() => spanRuntime.run(), spans)
 const stages = spans.map(event => event.stage)
+assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-turn-persist')).length, 1, 'final session/transition/step use one production statement')
 assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert')).length, 2,
   'snapshot and final each batch claim guards into one query')
 for (const guard of spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert'))) {
@@ -236,10 +259,11 @@ for (const stage of [
   'conversation_session_create', 'conversation_inbox_attach', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body',
   'conversation_final_transaction_tail', 'conversation_final_transaction_total',
-  'conversation_session_save', 'conversation_transition_insert', 'conversation_step_project', 'conversation_view_persist',
+  'conversation_turn_persist', 'conversation_view_persist',
   'conversation_settlement'
 ]) assert.ok(stages.includes(stage as never), `missing runtime span: ${stage}`)
 assert.ok(spans.every(event => event.durationMs >= 0 && event.outcome === 'ok'))
+assert.ok(!stages.some(stage => ['conversation_session_save', 'conversation_step_project', 'conversation_transition_insert'].includes(stage)), 'combined final write has no fictitious individual timings')
 assert.doesNotMatch(JSON.stringify(spans), /phone|Corte|SELECT|INSERT|job-0|dispatch-token/, 'metrics must exclude values, recipient and SQL')
 assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-settle-batch')).length, 1,
   'successful final transaction settles inbox/event/dispatch/job in one query')

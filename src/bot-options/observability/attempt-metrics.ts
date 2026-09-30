@@ -11,7 +11,7 @@ const STAGES = ['session_context_load', 'session_effects', 'session_persist_view
   'conversation_order_read', 'conversation_conversation_upsert', 'conversation_session_lock', 'conversation_inbound_project',
   'conversation_context_window', 'conversation_session_create', 'conversation_inbox_attach', 'conversation_generation_reset',
   'conversation_transition_insert', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',
-  'conversation_session_save', 'conversation_step_project', 'conversation_view_persist', 'conversation_settlement', 'conversation_inbox_settle',
+  'conversation_session_save', 'conversation_step_project', 'conversation_turn_persist', 'conversation_view_persist', 'conversation_settlement', 'conversation_inbox_settle',
   'conversation_event_settle', 'conversation_dispatch_complete', 'conversation_job_complete', 'conversation_job_reschedule',
   'conversation_snapshot_transaction_start_wait', 'conversation_snapshot_transaction_body', 'conversation_snapshot_transaction_tail', 'conversation_snapshot_transaction_total',
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body', 'conversation_final_transaction_tail', 'conversation_final_transaction_total',

@@ -10,7 +10,7 @@ import { reconcileConversationDraft, projectConversationDraft } from './session-
 import { createInitialBotOptionsState, parseBotOptionsState } from '../bot-options/domain/state.js'
 import { textView } from '../bot-options/domain/views.js'
 import { conversationStepForBotOptionsState } from '../bot-options/domain/conversation-status.js'
-import { projectBotOptionsConversationStepTx } from '../bot-options/infrastructure/prisma-conversation-status.js'
+import { persistConversationTurnTx } from './persist-conversation-turn.js'
 import { applyLazyContextWindowTx } from '../bot-options/application/lazy-context-window.js'
 import { acquireDispatchClaim, completeDispatchClaimTx, withDispatchClaimCleanup } from '../bot-options/infrastructure/dispatch-claims.js'
 import { completeClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../bot-options/infrastructure/postgres-worker.js'
@@ -285,20 +285,13 @@ export async function processConversationInbox(input: {
           !await ordered(tx, row, snapshot.phone)) { await retry(tx, row); return 'STALE_REVISION' as const }
       const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
       const revision = session.revision + 1n
-      const changed = await measureAttemptStage('conversation_session_save', () => tx.$executeRaw(Prisma.sql`
-        /* conversation-save */ UPDATE "BotSession" SET "state" = ${JSON.stringify(state)}::jsonb, "revision" = ${revision}, "updatedAt" = clock_timestamp()
-        WHERE "id" = ${session.sessionId} AND "businessId" = ${row.businessId} AND "revision" = ${session.revision}
-          AND "status" = 'ACTIVE'::"BotSessionStatus" AND "handoffClaimsPausedAt" IS NULL AND "handoffFenceEpoch" = ${session.handoffFenceEpoch}
-      `))
-      if (changed !== 1) throw new Error('conversation revision lost')
       const transitionId = `transition:${session.sessionId}:${revision}`
-      await measureAttemptStage('conversation_transition_insert', () => tx.$executeRaw(Prisma.sql`
-        INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId")
-        VALUES (${transitionId}, ${row.businessId}, ${session.sessionId}, ${row.deploymentId}, ${row.generation}, ${session.revision}, ${revision},
-          ${snapshot.reset ? 'system.conversation_restart' : 'conversation.message'}, 'APPLIED', ${row.providerEventId})
-      `))
-      const step = conversationStepForBotOptionsState(state)
-      const update = step ? await measureAttemptStage('conversation_step_project', () => projectBotOptionsConversationStepTx(tx, { businessId: row.businessId, sessionId: session.sessionId, step })) : null
+      const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
+        businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
+        handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
+        generation: row.generation, providerEventId: row.providerEventId, actionType: snapshot.reset ? 'system.conversation_restart' : 'conversation.message',
+        step: conversationStepForBotOptionsState(state)
+      }))
       if (update) updates.push(update)
       await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
         toPhone: snapshot.phone, view: textView((snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply), dbNow: row.dbNow }))

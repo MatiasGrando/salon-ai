@@ -38,6 +38,7 @@ const client = {
     return 1
   },
   async $queryRaw(q: Query) {
+    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('conversation-policy')) return [config]
     if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1 }]
     if (txNumber === 1 && q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]

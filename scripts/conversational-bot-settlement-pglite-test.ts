@@ -41,6 +41,7 @@ const client = {
   },
   async $executeRaw(_q: Prisma.Sql) { if (!activeTx) releases++; return 1 }, // Non-settlement orchestration is stubbed.
   async $queryRaw(q: Prisma.Sql) {
+    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('conversation-policy')) return [config]
     if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1 }]
     if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
