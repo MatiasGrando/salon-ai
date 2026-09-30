@@ -1533,13 +1533,28 @@ export async function projectInboundMessage(
   pendingCrmEvents: InboundConversationMessageProjection[]
 ) {
   const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
-    VALUES (${randomUUID()}, ${input.conversationId}, ${input.phone}, 'INBOUND'::"MessageDirection", ${input.body},
-      ${input.providerMessageId}, 'received', ${JSON.stringify({
-        provider: 'whatsapp', source: input.source ?? 'bot-options', messageType: input.messageType
-      })}::jsonb)
-    ON CONFLICT ("providerMessageId") DO NOTHING
-    RETURNING "id"
+    /* inbound-message-projection */
+    WITH inserted_message AS (
+      INSERT INTO "Message" ("id", "conversationId", "phone", "direction", "body", "providerMessageId", "status", "metadata")
+      VALUES (${randomUUID()}, ${input.conversationId}, ${input.phone}, 'INBOUND'::"MessageDirection", ${input.body},
+        ${input.providerMessageId}, 'received', ${JSON.stringify({
+          provider: 'whatsapp', source: input.source ?? 'bot-options', messageType: input.messageType
+        })}::jsonb)
+      ON CONFLICT ("providerMessageId") DO NOTHING
+      RETURNING "id"
+    ), message_done AS MATERIALIZED (
+      -- Consume INSERT even when duplicate; Conversation still updates in that case.
+      SELECT count(*) AS "completed" FROM inserted_message
+    ), updated_conversation AS (
+      UPDATE "Conversation" SET "lastMessage"=${input.body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
+      FROM message_done
+      WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId} AND message_done."completed" >= 0
+      RETURNING "id"
+    ), conversation_done AS MATERIALIZED (
+      SELECT count(*) AS "completed" FROM updated_conversation
+    )
+    SELECT inserted_message."id" FROM inserted_message CROSS JOIN conversation_done
+    WHERE conversation_done."completed" >= 0
   `)
   if (inserted.length === 1) {
     // Recorded only after a row was actually committed-capable. The flush
@@ -1551,10 +1566,6 @@ export async function projectInboundMessage(
       messageId: inserted[0]!.id
     })
   }
-  await tx.$executeRaw(Prisma.sql`
-    UPDATE "Conversation" SET "lastMessage"=${input.body},"archivedAt"=NULL,"updatedAt"=clock_timestamp()
-    WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}
-  `)
 }
 
 async function processCutoverRecovery(input: { client: RuntimeClient; job: ClaimedBotJob }): Promise<'PROCESSED' | 'STALE_CUTOVER'> {

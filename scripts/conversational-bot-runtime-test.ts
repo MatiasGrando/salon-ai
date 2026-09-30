@@ -119,6 +119,9 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       if (q.sql.includes('FROM "BotProviderEvent" e') && q.sql.includes('d."id" AS "deploymentId"')) return [row]
       if (q.sql.includes('SELECT e."businessId", d."generation"')) return [row]
       if (q.sql.includes('b."name" AS "businessName"') && q.sql.includes('FROM "BotActionInbox"')) return [row]
+      if (q.sql.includes('lazy-context:session')) return session ? [{ ...structuredClone(session), id: session.sessionId,
+        draftTouchedAt: null, draftExpiresAt: new Date(now.getTime() + 86_400_000), dbNow: now,
+        hasInbox: false, durableProtection: false, botEnabled: true }] : []
       if (q.sql.includes('lazy-context:greeting')) return [{ ...row, businessName: 'Salon', customerName: null }]
       if (q.sql.includes('conversation-feature-lock')) return []
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch }]
@@ -180,6 +183,21 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+// C09: creation and lazy context retain the second lock; an unchanged locked session does not need it.
+const snapshotLocks = runtimeFixture()
+const sessionLockCount = () => snapshotLocks.statements.filter(q => q.sql.includes('s."id" AS "sessionId", c."id" AS "conversationId"')).length
+await snapshotLocks.run()
+assert.equal(sessionLockCount(), 3, 'new session snapshot must reload after insertion plus final lock')
+snapshotLocks.next('hola')
+const locksBeforeExisting = sessionLockCount()
+await snapshotLocks.run()
+assert.equal(sessionLockCount() - locksBeforeExisting, 2, 'existing evaluated context reuses locked session; final transaction still locks freshly')
+snapshotLocks.next('hola')
+snapshotLocks.row.payload.contextWindowEvaluated = false
+const locksBeforeLazy = sessionLockCount()
+await snapshotLocks.run()
+assert.equal(sessionLockCount() - locksBeforeLazy, 3, 'lazy context path always reloads session')
+
 async function captureRuntimeMetrics<T>(operation: () => Promise<T>, events: AttemptMetricEvent[], throwingSink = false): Promise<T> {
   const original = console.info
   console.info = (...args: unknown[]) => {

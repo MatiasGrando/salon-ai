@@ -217,7 +217,10 @@ export async function processConversationInbox(input: {
         `))
         if (!inserted[0]) throw new Error('conversation session creation failed')
       }
-      session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
+      // A pre-existing session remains locked; only creation/lazy context can have changed it here.
+      if (!session || payload.contextWindowEvaluated !== true) {
+        session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
+      }
       if (!session || session.status !== 'ACTIVE' || session.handoffClaimsPausedAt) throw new Error('conversation session fenced')
       const activeSession = session
       await measureAttemptStage('conversation_inbox_attach', () => tx.$executeRaw(Prisma.sql`
