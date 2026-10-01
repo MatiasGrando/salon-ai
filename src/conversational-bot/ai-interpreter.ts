@@ -1,10 +1,10 @@
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { routeActions } from './actions.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
-import { parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
+import { parseDialogueState, respond, socialQuestion, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
 
 export type ReplyFact = { id: string; text: string }
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; firstReplyFacts?: readonly ReplyFact[] }
+export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -35,7 +35,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -44,7 +44,7 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
@@ -116,6 +116,28 @@ function assembledReply(raw: unknown, facts: readonly { id: string; text: string
   return text.length > 0 && text.length <= 5000 ? text : null
 }
 
+/** Predict only an intake step; all questions and catalog alternatives remain server facts. */
+function assembledIntakeReply(raw: unknown, facts: readonly ReplyFact[], state: DialogueState,
+  candidates: readonly DialogueService[], services: readonly DialogueService[]): string | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const value = raw as Record<string, unknown>
+  if (Object.keys(value).sort().join(',') !== 'candidateIds,closing,opening,pending,serviceId' ||
+      !['service', 'date'].includes(String(value.pending)) || value.pending !== state.pending ||
+      value.serviceId !== state.serviceId || !Array.isArray(value.candidateIds) ||
+      value.candidateIds.some(id => typeof id !== 'string') ||
+      JSON.stringify([...value.candidateIds].sort()) !== JSON.stringify(candidates.map(service => service.id).sort())) return null
+  return assembledReply({ opening: value.opening, closing: value.closing, factIds: facts.map(fact => fact.id) }, facts, services)
+}
+
+/** A bounded incidental calculation is a verified fact, never permission for numeric model assertions. */
+function incidentalArithmetic(message: string): string | null {
+  const match = /^(?:(?:(?:decime|dime)\s+)?cuanto (?:es|da)\s+|calcula\s+)?(-?\d{1,6})\s*([+*/-])\s*(-?\d{1,6})[?!.]*$/.exec(normalized(message))
+  if (!match) return null
+  const left = Number(match[1]), right = Number(match[3])
+  const result = match[2] === '+' ? left + right : match[2] === '-' ? left - right : match[2] === '*' ? left * right : right === 0 ? NaN : left / right
+  return Number.isSafeInteger(result) ? left + ' ' + match[2] + ' ' + right + ' es ' + result + '.' : null
+}
+
 /** Interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
 export async function respondWithAiInterpreter(
   context: DialogueContext, previous: unknown, message: string, port: DialoguePort,
@@ -126,7 +148,12 @@ export async function respondWithAiInterpreter(
   const services = await port.catalog()
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
-  let firstReplyFacts: ReplyFact[] | undefined = !route.information.length && !route.pendingAction ? [] : undefined
+  const intakeReplyAllowed = !route.information.length && !route.pendingAction
+  const arithmetic = intakeReplyAllowed ? incidentalArithmetic(message) : null
+  const incidentalFacts: ReplyFact[] | null = arithmetic ? [{ id: 'calculation', text: arithmetic },
+    { id: 'next', text: state.pending === 'service' && !state.serviceId ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }] : null
+  let firstReplyFacts: ReplyFact[] | undefined = intakeReplyAllowed ? incidentalFacts ??
+    (state.pending === 'service' && !state.serviceId ? [] : [{ id: '0', text: socialQuestion(state) }]) : undefined
   let availabilityCalls = 0
   const cachedPort: DialoguePort = { ...port, catalog: async () => services,
     availability: async (...args) => { availabilityCalls++; return port.availability(...args) } }
@@ -158,7 +185,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
+      provider({ message, state, services, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch { reason = controller.signal.aborted ? 'timeout' : 'provider_error' }
@@ -184,7 +211,7 @@ export async function respondWithAiInterpreter(
   const uncertain = Boolean(selected && !candidates.length &&
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
   const decision: DialogueDecision | undefined = candidate ? {
-    serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
+    intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
         selected && selected.id !== state.serviceId))
@@ -210,14 +237,21 @@ export async function respondWithAiInterpreter(
   let authored: string | null = null
   let aiCalls = 1
   let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
-  const finalFacts = responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
+  const finalFacts = candidate?.intent === 'other' && incidentalFacts ? incidentalFacts :
+    responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
+  if (!reason && !canonicalOnly && !decision?.correction && availabilityCalls === 0 &&
+      intakeReplyAllowed && candidate?.intent === 'booking' &&
+      !services.find(service => service.id === response.state.serviceId)?.requiresConsultation) {
+    authored = assembledIntakeReply(candidate.intakeReply, finalFacts, response.state, candidates, services)
+    if (authored) replyRoute = 'first_call'
+  }
   const sameState = JSON.stringify(response.state) === JSON.stringify(state)
   const eligibleFirstReply = !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
     availabilityCalls === 0 && sameState && firstReplyFacts !== undefined &&
     (pureInformation && candidate?.intent === 'information' || !route.information.length &&
       !route.pendingAction && candidate?.intent === 'other' && !candidate.serviceId && !candidate.serviceEvidence &&
       !candidate.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
-  if (eligibleFirstReply) {
+  if (!authored && eligibleFirstReply) {
     // Fact identity and motor outcome are authoritative. Free social framing retains the existing heuristic guard.
     authored = assembledReply(candidate?.firstReply, finalFacts, services)
     if (authored) replyRoute = 'first_call'

@@ -7,13 +7,15 @@
 - Mapping delegado simple_turn_stage1_map: saludo con borrador completo consulta agenda; first_call exige sameState y facts previos insuficientes. Cache pública existente; diagnóstico pico2352ms observado. Mantener tenant/handoff/dedupe/contexto/outbox/grupos antesSENDING.
 - Ruta delegated direct por4+files/preparación/writer2+files. TDDstrict heredadoC11, runner .\node_modules\.bin\tsx.cmd, RED→GREEN/refactor. Checks funcionales/UTF8/diff/tiposbaseline; PGlite no pruebaPGmultisesión.
 - Delivery feature-branch-chain retenida, base41dc030, boundaryRDD310c2e2/docs41dc030passive; modoONglobal observado. Forecast800–1400authored,400heurística; commits/conteos/assess por unidad, consentimiento nativo por candidato. SinPRpedido.
-- [ ] E1.1 Contratos/pruebas información/intake/mixtos/contexto/ambigüedad/offtopic. Writerdelegado; RED previoE1.3, cierre coherente compartido.
+- [x] E1.1 Contratos/pruebas información/intake/mixtos/contexto/ambigüedad/offtopic. Writerdelegado; RED previoE1.3, cierre coherente compartido.
 - [ ] E1.2 Diagnóstico asíncrono acotado; writerdelegado; bloqueo/saturación/error/lifecycle.
-- [ ] E1.3 Una IA info/intake y digresiónbreve; writerdelegado2+fuentes/tests; validar resultado motor, no quitar guardas globales.
+- [x] E1.3 Una IA info/intake y digresiónbreve; writerdelegado2+fuentes/tests; validar resultado motor, no quitar guardas globales.
 - [x] E1.4 Cache/consultas comunes: redundancias mismaTX, settings+DBclock, lecturas agrupadas; writerdelegado, tenant/rollback/freshness.
 - [ ] E1.5 Un cálculo vigente por conversación/revisión, consolidación5partes/corrección/restart/UNKNOWN; writerdelegado, no500msfijos.
 - [ ] E1.6 Checks/piloto y medición comparable; parentinline. Objetivo<=5s sujeto prueba real; interno/IA/HTTP/entrega separados.
 - E1.4 verificado: RED settings-clock2!=1 y cutover2!=1; GREEN SQLPGlite/claims22cases+EXPLAIN/runtime/cache/bulk. Padre repitió settings-clock/claims/UTF8 PASS. Tres consultas menos por turno: settings+DBclock juntos y no repetir sharedgate dentro snapshot/final. Tipos comparación41dc030 baseline15/current15/new0; focalprocess-inbox conserva1preexistente TS2532, no fulltypegreen. Sin ms reales ni PGmultisesión. Fuentes congeladas, commit local próximo; E1.5 después de este boundary.
+- E1.4 commit f6d2bd4: 150authored/9files; assessment medium/under_budget desde41dc030 con temporales excluidos inventarioaaf2f665. No review/receipt ni activación inventadas; RDDON y boundary41dc030 retenido.
+- E1.1/E1.3 RED observado saludo avanzado availability1!=0 y pregunta social implicaba horarios vigentes. GREEN single-call/interpreter10turns/engine/information; padre repitió single-call/information/UTF8 PASS. Intake estructurado validado por pending/servicio/candidatos, hechos insertados por motor; firstReply antiguo sameState conserva guardas. Other mantiene borrador sinagenda/propuesta, pregunta social no afirma slots antiguos; reset preservado. Aritmética incidental acotada sin eval devuelve factservidor y redirección. Tipos3fuentes baseline0/current0/new0 strict. Fixturesclock/variantes adaptadas sin debilitar asserts. Código congelado, commit siguiente; sin mediciónIAreal niWhatsApp.
 - Progreso: unidades en implementación; inicio tracked limpioHEAD41dc030, ajenos intactos. Engramtools ausentes, espejo odd/nuevo-bot-reservas/tasks pendiente; documento leído, commits/checks se registrarán al observarlos.
 
 

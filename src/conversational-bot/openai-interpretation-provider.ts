@@ -4,7 +4,7 @@ import type { AiInterpretationProvider } from './ai-interpreter.js'
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection', 'firstReply'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection', 'firstReply', 'intakeReply'],
   properties: {
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
@@ -13,6 +13,15 @@ const schema = {
     serviceConfidence: { type: 'string', enum: ['certain', 'uncertain'] },
     serviceCandidateIds: { type: 'array', items: { type: 'string' } },
     serviceCorrection: { type: 'boolean' },
+    intakeReply: {
+      type: ['object', 'null'], additionalProperties: false,
+      required: ['opening', 'closing', 'pending', 'serviceId', 'candidateIds'],
+      properties: {
+        opening: { type: ['string', 'null'] }, closing: { type: ['string', 'null'] },
+        pending: { type: 'string', enum: ['service', 'date'] },
+        serviceId: { type: ['string', 'null'] }, candidateIds: { type: 'array', items: { type: 'string' } }
+      }
+    },
     firstReply: {
       type: ['object', 'null'], additionalProperties: false,
       required: ['opening', 'factIds', 'closing'],
@@ -46,12 +55,14 @@ export function createOpenAiInterpretationProvider(options: {
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}), // QA Luna experiment only.
         store: false,
         max_output_tokens: 600,
-        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. Si el mensaje combina saludo con pedido de turno, intent es booking. serviceCandidateIds describe únicamente alternativas para un servicio particular pedido en el mensaje actual, nunca los servicios que vas a listar como información. En una consulta general de catálogo o precios, serviceCandidateIds es vacío. Si no se menciona un servicio particular, serviceId y serviceEvidence son null y serviceCorrection es false. No repitas el serviceId del estado sin evidencia literal en el mensaje actual. Si el servicio particular solicitado es ambiguo, devolvé serviceId null y los IDs plausibles en serviceCandidateIds; no elijas uno arbitrariamente. Si es inequívoco, devolvé serviceId y serviceCandidateIds vacío. serviceCorrection true indica que el cliente corrige o reemplaza el servicio anterior. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Si firstReplyFacts está presente y es information u other, podés redactar firstReply breve en español rioplatense. Incluí cada fact exactamente una vez por factIds; el servidor insertará sus textos literalmente. opening y closing contienen solo charla social o transiciones, nunca hechos del negocio, precios, horarios, direcciones, servicios, profesionales ni afirmaciones de reservas o acciones. Si firstReplyFacts es [] y es other, respondé al saludo o charla casual sin menú; ante pedidos ajenos ofrecé ayuda del local. Si faltan firstReplyFacts, es booking, hay corrección o ambigüedad, firstReply es null: una segunda llamada redactará después de verificar resultados del motor. No inventes hechos ni confirmes reservas.',
+        instructions: 'Interpretá SOLO el mensaje actual para un bot del local. Devolvé serviceId únicamente de la lista, con serviceEvidence como fragmento textual exacto del cliente. Entendé sinónimos semánticos por contexto, no por coincidencia literal. Si el mensaje combina saludo con pedido de turno, intent es booking. serviceCandidateIds describe únicamente alternativas para un servicio particular pedido en el mensaje actual, nunca los servicios que vas a listar como información. En una consulta general de catálogo o precios, serviceCandidateIds es vacío. Si no se menciona un servicio particular, serviceId y serviceEvidence son null y serviceCorrection es false. No repitas el serviceId del estado sin evidencia literal en el mensaje actual. Si el servicio particular solicitado es ambiguo, devolvé serviceId null y los IDs plausibles en serviceCandidateIds; no elijas uno arbitrariamente. Si es inequívoco, devolvé serviceId y serviceCandidateIds vacío. serviceCorrection true indica que el cliente corrige o reemplaza el servicio anterior. serviceConfidence es certain solo si la equivalencia no es ambigua; si hay dudas usá uncertain o serviceId null. Nunca inventes IDs ni profesionales. professionalMention debe ser literal. Clasificá saludo, charla casual y pedidos ajenos al negocio como other; consultas del local como information. Si firstReplyFacts está presente y es information u other, podés redactar firstReply breve en español rioplatense. Incluí cada fact exactamente una vez por factIds; el servidor insertará sus textos literalmente. opening y closing contienen solo charla social o transiciones, nunca hechos del negocio, precios, horarios, direcciones, servicios, profesionales ni afirmaciones de reservas o acciones. Si firstReplyFacts es [] y es other, respondé al saludo o charla casual sin menú; ante pedidos ajenos ofrecé ayuda del local. Para booking firstReply es null. Si intakeReplyAllowed es true y no hay corrección, podés anticipar intakeReply únicamente para preguntar servicio o día, sin resultados de agenda. pending y serviceId deben describir el próximo estado esperado; candidateIds incluye todas las alternativas ambiguas de serviceCandidateIds o es vacío. El servidor verificará el estado y agregará literalmente preguntas y datos del catálogo; opening y closing solo saludo o transición social, sin cifras, servicios ni afirmaciones del negocio. Si no podés anticipar ese resultado, intakeReply es null. Para other o information intakeReply es null. Las preguntas incidentales sencillas solo se responden mediante hechos verificados de firstReplyFacts; pedidos largos o ajenos se encauzan brevemente a la ayuda del local, conservando la pregunta pendiente. Ante intent other no completes ni modifiques una reserva. No inventes hechos ni confirmes reservas.',
         input: JSON.stringify({
           message: input.message,
           pending: input.state.pending,
           serviceId: input.state.serviceId,
           professionalNameHint: input.state.professionalNameHint,
+          date: input.state.date,
+          intakeReplyAllowed: input.intakeReplyAllowed === true,
           ...(input.firstReplyFacts !== undefined ? { firstReplyFacts: input.firstReplyFacts } : {}),
           services: input.services.slice(0, 100).map(s => ({ id: s.id, name: s.name }))
         }),

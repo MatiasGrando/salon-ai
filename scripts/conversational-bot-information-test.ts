@@ -82,7 +82,7 @@ const client: any = {
   businessHours: { findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); return [{ dayOfWeek: 1, startTime: '09:00', endTime: '18:00' }] } },
   scheduleBlock: { findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); assert.equal(args.where.professionalId, null); return [{ startAt: new Date('2026-09-29T12:00:00Z'), endAt: new Date('2026-09-29T15:00:00Z'), reason: 'MAINTENANCE', title: 'Cierre especial', note: 'PRIVATE INTERNAL NOTE' }] } },
   serviceCategory: {}, service: {},
-  $queryRaw: async (query: any) => query.strings.join(' ').includes('CURRENT_TIMESTAMP') ? [{ now: context.dbNow }] : [{ timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }]
+  $queryRaw: async (query: any) => query.strings.join(' ').includes('BusinessBotOptionsSettings') ? [{ now: context.dbNow, timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }] : [{ now: context.dbNow }]
 }
 const actual = await createPrismaDialoguePort(client, context.businessId)
 const actualFacts = await actual.port.information!()

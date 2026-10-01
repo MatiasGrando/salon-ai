@@ -71,12 +71,12 @@ const client = {
   },
   service: {
     findFirst: async (args: any) => args.where.id ? row(args.where.id, 'Corte Hombre') : null,
-    findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); return args.where.parentServiceId ? [row('child', 'Variante', 'parent')] : [row('cut', 'Corte Hombre'), row('parent', 'Variantes', null, false)] }
+    findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); return args.where.parentServiceId || args.where.OR?.some((scope: any) => scope.parentServiceId?.in?.includes('parent')) ? [row('child', 'Variante', 'parent')] : [row('cut', 'Corte Hombre'), row('parent', 'Variantes', null, false)] }
   },
   async $queryRaw(query: any) {
     const sql = query.strings.join(' '); seen.push(sql)
+    if (sql.includes('BusinessBotOptionsSettings')) return [{ now: context.dbNow, timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }]
     if (sql.includes('CURRENT_TIMESTAMP')) return [{ now: context.dbNow }]
-    if (sql.includes('BusinessBotOptionsSettings')) return [{ timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }]
     if (sql.includes('FROM "Professional" p')) return professionals
     if (sql.includes('FROM "BusinessHours"')) return [{ ownerId: context.businessId, dayOfWeek: 1, startTime: '17:00', endTime: '18:00' }]
     if (sql.includes('FROM "ProfessionalHours"')) return professionals.map(p => ({ ownerId: p.id, dayOfWeek: 1, startTime: '17:00', endTime: '18:00' }))

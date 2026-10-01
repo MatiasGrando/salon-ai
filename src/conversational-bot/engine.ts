@@ -21,7 +21,11 @@ export type DialogueState = {
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
-export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean }
+export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other' }
+/** Resume context without presenting an old availability result as freshly checked. */
+export function socialQuestion(state: DialogueState): string {
+  return state.pending === 'time' ? '¿Querés que consultemos los horarios para tu turno?' : pendingQuestion(state)
+}
 export function initialDialogueState(businessId: string): DialogueState {
   return { schemaVersion: 1, engine: 'conversational-booking-v1', businessId, pending: 'service', serviceId: null, date: null, professional: null, professionalNameHint: null, requestedTime: null, slot: null, customerName: null }
 }
@@ -193,6 +197,9 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const route = routeActions(message)
   if (route.pendingAction && ACTION_REGISTRY[route.pendingAction].status === 'pending') return { state, proposal: null, reply: 'Esa operación todavía no está disponible en este motor. Necesitás solicitarla al equipo.' }
+  if (!route.information.length && decision?.intent === 'other' &&
+      !/^(reset|volver a empezar|empezar de nuevo|no quiero nada|nada gracias)$/.test(normalize(message))) return { state, proposal: null,
+    reply: state.pending === 'service' && !state.serviceId ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }
   if (!route.information.length) return respondBooking(context, state, message, port, decision)
   let facts: BusinessFacts | null = null
   const needsFacts = route.information.some(action => !['SERVICES', 'PRICES'].includes(action))
