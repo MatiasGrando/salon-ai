@@ -1,4 +1,6 @@
 import { readAiUsage, type AiUsage } from './ai-usage.js'
+import { providerFailure, type ProviderFailure } from './provider-error.js'
+import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
 import { parseDialogueState, respond, socialQuestion, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
@@ -28,6 +30,12 @@ export type InterpretationDiagnostics = {
   totalMs: number
   copyMode: 'ai' | 'fallback'
   copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
+  proposal?: ProposalSummary
+  validation?: ValidationSummary
+  stateBefore?: StateSummary
+  stateAfter?: StateSummary
+  interpretationProviderError?: ProviderFailure | null
+  responseProviderError?: ProviderFailure | null
   aiCalls?: number
   replyRoute?: 'first_call' | 'second_call' | 'motor'
   engineMs?: number
@@ -58,7 +66,8 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   if (item.serviceCorrection === true && item.serviceEvidence === null) throw new Error('invalid AI correction evidence')
   if (item.serviceId !== null && item.serviceEvidence === null) throw new Error('missing service evidence')
   if (item.serviceId === null && item.serviceEvidence !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded service evidence')
-  if (item.serviceId !== null && (!services.some(s => s.id === item.serviceId) || !containsEvidence(message, item.serviceEvidence as string))) throw new Error('ungrounded AI service')
+  if (item.serviceId !== null && !services.some(s => s.id === item.serviceId)) throw new Error('service not in catalog')
+  if (item.serviceId !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded AI service')
   if (item.professionalMention !== null && !containsEvidence(message, item.professionalMention as string)) throw new Error('ungrounded AI professional')
   return item as Candidate
 }
@@ -182,20 +191,27 @@ export async function respondWithAiInterpreter(
   let timer: ReturnType<typeof setTimeout> | undefined
   let raw: unknown
   let reason: InterpretationDiagnostics['reason'] = null
+  let interpretationProviderError: ProviderFailure | null = null
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
       provider({ message, state, services, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
-  } catch { reason = controller.signal.aborted ? 'timeout' : 'provider_error' }
-  finally { clearTimeout(timer) }
+  } catch (error) {
+    reason = controller.signal.aborted ? 'timeout' : 'provider_error'
+    interpretationProviderError = controller.signal.aborted
+      ? { code: 'timeout', httpStatus: null, requestId: null } : providerFailure(error)
+  } finally { clearTimeout(timer) }
   const providerAt = performance.now()
   let candidate: Candidate | null = null
+  let validationError: unknown
   if (!reason) {
     try { candidate = validateCandidate(raw, message, services) }
-    catch { reason = 'invalid_output' }
+    catch (error) { validationError = error; reason = 'invalid_output' }
   }
+  const proposal = summarizeProposal(raw)
+  const validation = summarizeValidation(proposal, candidate !== null, validationError, interpretationProviderError === null)
   const validationAt = performance.now()
   const selected = candidate?.serviceId ? services.find(s => s.id === candidate.serviceId) : undefined
   const evidence = candidate?.serviceEvidence ?? ''
@@ -259,6 +275,7 @@ export async function respondWithAiInterpreter(
   let copyReason: InterpretationDiagnostics['copyReason'] = 'canonical_only'
   let responseMs = 0
   let responseUsage: AiUsage | null = null
+  let responseProviderError: ProviderFailure | null = null
   if (!authored && !reason && !canonicalOnly && responseProvider) {
     const facts = finalFacts
     aiCalls++
@@ -274,7 +291,11 @@ export async function respondWithAiInterpreter(
       responseUsage = readAiUsage(output)
       authored = assembledReply(output, facts, services)
       copyReason = authored ? null : 'invalid_response'
-    } catch { copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error' }
+    } catch (error) {
+      copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error'
+      responseProviderError = responseController.signal.aborted
+        ? { code: 'timeout', httpStatus: null, requestId: null } : providerFailure(error)
+    }
     finally { clearTimeout(responseTimer); responseMs = ms(performance.now() - responseStarted) }
   } else if (authored) {
     copyReason = null
@@ -308,6 +329,8 @@ export async function respondWithAiInterpreter(
     aiCalls, replyRoute,
     engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),
     usage: { interpretation: readAiUsage(raw), response: responseUsage },
+    proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(response.state),
+    interpretationProviderError, responseProviderError,
     copyMode: authored ? 'ai' : 'fallback', copyReason
   } }
 }
