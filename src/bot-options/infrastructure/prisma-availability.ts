@@ -7,6 +7,16 @@ import {
 } from '../application/availability-queries.js'
 
 type AvailabilityClient = { $queryRaw<T>(query: Prisma.Sql): Promise<T> }
+type SettingsRow = {
+  timezone: string; bookingHorizonDays: number; bookingLeadTimeHours: number; morningCutTime: string; eveningCutTime: string
+}
+function settingsFromRow(row: SettingsRow | undefined): AvailabilitySettings {
+  if (!row) throw new Error('bot availability settings unavailable for tenant')
+  return validateAvailabilitySettings({
+    timezone: row.timezone, horizonDays: row.bookingHorizonDays, leadTimeHours: row.bookingLeadTimeHours,
+    morningCutTime: row.morningCutTime, eveningCutTime: row.eveningCutTime
+  })
+}
 type HoursRow = { ownerId: string; dayOfWeek: number; startTime: string; endTime: string }
 type BusyRow = { professionalId: string; startAt: Date; duration: number }
 type BlockRow = { professionalId: string | null; startAt: Date; endAt: Date }
@@ -16,18 +26,27 @@ export class PrismaAvailabilityRepository {
 
   async loadSettings(businessId: string): Promise<AvailabilitySettings> {
     return measureAttemptStage('availability_settings', async () => {
-      const rows = await this.client.$queryRaw<Array<{
-        timezone: string; bookingHorizonDays: number; bookingLeadTimeHours: number; morningCutTime: string; eveningCutTime: string
-      }>>(Prisma.sql`
+      const rows = await this.client.$queryRaw<SettingsRow[]>(Prisma.sql`
         SELECT "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime"
         FROM "BusinessBotOptionsSettings" WHERE "businessId" = ${businessId}
       `)
+      return settingsFromRow(rows[0])
+    })
+  }
+
+  /** A single tenant-scoped snapshot supplies validated settings and the database clock. */
+  async loadSettingsWithClock(businessId: string): Promise<{ settings: AvailabilitySettings; dbNow: Date }> {
+    return measureAttemptStage('availability_settings', async () => {
+      const rows = await this.client.$queryRaw<Array<SettingsRow & { now: Date }>>(Prisma.sql`
+        SELECT "timezone", "bookingHorizonDays", "bookingLeadTimeHours", "morningCutTime", "eveningCutTime",
+          CURRENT_TIMESTAMP AS now
+        FROM "BusinessBotOptionsSettings" WHERE "businessId" = ${businessId}
+      `)
       const row = rows[0]
-      if (!row) throw new Error('bot availability settings unavailable for tenant')
-      return validateAvailabilitySettings({
-        timezone: row.timezone, horizonDays: row.bookingHorizonDays, leadTimeHours: row.bookingLeadTimeHours,
-        morningCutTime: row.morningCutTime, eveningCutTime: row.eveningCutTime
-      })
+      const settings = settingsFromRow(row)
+      const dbNow = row?.now
+      if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) throw new Error('database clock unavailable')
+      return { settings, dbNow }
     })
   }
 

@@ -1,10 +1,9 @@
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
 import { readPublicSourceStamp, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
-import { Prisma } from '../generated/prisma/client.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
-import { localDateKey, type AvailabilitySettings } from '../bot-options/application/availability-queries.js'
+import { localDateKey } from '../bot-options/application/availability-queries.js'
 import type { DialogueContext, DialoguePort, DialogueService } from './engine.js'
 
 type DialogueClient = FactsClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
@@ -13,10 +12,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
   const catalog = new PrismaCatalogRepository(client)
   const availability = new PrismaAvailabilityRepository(client)
-  const settings: AvailabilitySettings = await availability.loadSettings(businessId)
-  const clock = await client.$queryRaw<Array<{ now: Date }>>(Prisma.sql`SELECT CURRENT_TIMESTAMP AS now`)
-  const dbNow = clock[0]?.now
-  if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) throw new Error('database clock unavailable')
+  const { settings, dbNow } = await availability.loadSettingsWithClock(businessId)
   const context = { businessId, timezone: settings.timezone, dbNow }
   const cacheDiagnostics: PublicCacheDiagnostics = { hits: 0, misses: 0, bypasses: 0, stampReads: 0, stampMs: 0, loadMs: 0 }
   const cache = publicCacheFor(client)

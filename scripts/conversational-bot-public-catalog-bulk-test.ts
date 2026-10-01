@@ -55,8 +55,7 @@ const client: any = {
   $queryRaw: async (sql: any) => {
     const text = sql.strings.join(' ')
     if (text.includes('conversational-public-source-stamp')) return [{ businessId: tenant, timezone: 'UTC', stamp: 'a'.repeat(64) }]
-    if (text.includes('CURRENT_TIMESTAMP')) return [{ now: new Date('2026-09-30T12:00:00Z') }]
-    if (text.includes('BusinessBotOptionsSettings')) return [{ timezone: 'UTC', bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }]
+    if (text.includes('BusinessBotOptionsSettings')) return [{ timezone: 'UTC', bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00', now: new Date('2026-09-30T12:00:00Z') }]
     throw new Error('unexpected query')
   },
   $executeRaw: async () => 0

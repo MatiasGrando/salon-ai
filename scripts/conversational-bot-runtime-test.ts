@@ -367,8 +367,12 @@ assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-cla
   'snapshot and final each batch claim guards into one query')
 for (const guard of spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert'))) {
   const position = spanRuntime.statements.indexOf(guard)
-  const gate = spanRuntime.statements[position - 1]
-  assert.ok(gate?.sql.includes('pg_advisory_xact_lock_shared'), 'standalone gate precedes each fresh guard snapshot')
+  const gate = spanRuntime.statements[position - 3]
+  const identity = spanRuntime.statements[position - 2]
+  const phoneGate = spanRuntime.statements[position - 1]
+  assert.ok(gate?.sql.includes('pg_advisory_xact_lock_shared'), 'one standalone cutover gate precedes identity and phone acquisition')
+  assert.ok(identity?.sql.includes('consolidation-inbox-identity'))
+  assert.ok(phoneGate?.sql.includes('pg_advisory_xact_lock('), 'fresh claims validation follows phone acquisition without reacquiring cutover')
   assert.ok(!guard.sql.includes('pg_advisory_xact_lock_shared'), 'guard SQL must not take its snapshot before the gate wait')
 }
 for (const stage of [

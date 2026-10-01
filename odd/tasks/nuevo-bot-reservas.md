@@ -2,6 +2,21 @@
 
 ## Plan activo — bot conversacional sobre la plataforma existente
 
+### E1 — consultas simples rápidas (2026-09-30)
+- Autorización: «arranca» después del plan aprobado. Sólo implementación local y piloto Barber WX-38N6UG; etapa2/librerías después. Sin push/deploy/variables automáticas.
+- Mapping delegado simple_turn_stage1_map: saludo con borrador completo consulta agenda; first_call exige sameState y facts previos insuficientes. Cache pública existente; diagnóstico pico2352ms observado. Mantener tenant/handoff/dedupe/contexto/outbox/grupos antesSENDING.
+- Ruta delegated direct por4+files/preparación/writer2+files. TDDstrict heredadoC11, runner .\node_modules\.bin\tsx.cmd, RED→GREEN/refactor. Checks funcionales/UTF8/diff/tiposbaseline; PGlite no pruebaPGmultisesión.
+- Delivery feature-branch-chain retenida, base41dc030, boundaryRDD310c2e2/docs41dc030passive; modoONglobal observado. Forecast800–1400authored,400heurística; commits/conteos/assess por unidad, consentimiento nativo por candidato. SinPRpedido.
+- [ ] E1.1 Contratos/pruebas información/intake/mixtos/contexto/ambigüedad/offtopic. Writerdelegado; RED previoE1.3, cierre coherente compartido.
+- [ ] E1.2 Diagnóstico asíncrono acotado; writerdelegado; bloqueo/saturación/error/lifecycle.
+- [ ] E1.3 Una IA info/intake y digresiónbreve; writerdelegado2+fuentes/tests; validar resultado motor, no quitar guardas globales.
+- [x] E1.4 Cache/consultas comunes: redundancias mismaTX, settings+DBclock, lecturas agrupadas; writerdelegado, tenant/rollback/freshness.
+- [ ] E1.5 Un cálculo vigente por conversación/revisión, consolidación5partes/corrección/restart/UNKNOWN; writerdelegado, no500msfijos.
+- [ ] E1.6 Checks/piloto y medición comparable; parentinline. Objetivo<=5s sujeto prueba real; interno/IA/HTTP/entrega separados.
+- E1.4 verificado: RED settings-clock2!=1 y cutover2!=1; GREEN SQLPGlite/claims22cases+EXPLAIN/runtime/cache/bulk. Padre repitió settings-clock/claims/UTF8 PASS. Tres consultas menos por turno: settings+DBclock juntos y no repetir sharedgate dentro snapshot/final. Tipos comparación41dc030 baseline15/current15/new0; focalprocess-inbox conserva1preexistente TS2532, no fulltypegreen. Sin ms reales ni PGmultisesión. Fuentes congeladas, commit local próximo; E1.5 después de este boundary.
+- Progreso: unidades en implementación; inicio tracked limpioHEAD41dc030, ajenos intactos. Engramtools ausentes, espejo odd/nuevo-bot-reservas/tasks pendiente; documento leído, commits/checks se registrarán al observarlos.
+
+
 - Prioridad confirmada por el usuario (2026-09-30): posponer la capa determinista para evitar llamadas comunes a IA (punto 5). Hay conversaciones disponibles para evaluar y preparar entrenamiento más adelante; no iniciar ese trabajo ahora. Priorizar consultas a la base, caché existente y consolidación de mensajes; indicador de escritura como mejora de experiencia. No asumir que las conversaciones entrenan automáticamente al motor. Memoria Engram no disponible; preferencia preservada en este plan.
 
 ### C11 — optimizar recorrido y completar consolidación WhatsApp (2026-09-30)

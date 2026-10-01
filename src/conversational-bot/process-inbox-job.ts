@@ -34,14 +34,12 @@ type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
 
 /** Private PROCESS claim guard: this caller acquires its dispatch with sessionId null.
- * Keep the first gate in a separate statement: the validation snapshot must be taken after any cutover wait.
+ * Snapshot/final callers already take the standalone shared cutover gate before identity/phone and row locks.
+ * Never reacquire it here: validate from a new statement after the caller finishes that gate wait.
  * LATERAL tenant dependency + OFFSET barrier evaluates the job lock before dispatch lease predicates.
  * Both tenant inputs originate from the same job-scoped policy. Global/session-bound helpers are unchanged.
  */
 async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: ClaimedBotJob, businessId: string, claimToken: string): Promise<void> {
-  await tx.$executeRaw(Prisma.sql`
-    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${job.businessId}:WHATSAPP`}, 0))
-  `)
   const rows = await tx.$queryRaw<Array<{ jobCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
     /* conversation-claims-assert */
     WITH locked_job AS MATERIALIZED (

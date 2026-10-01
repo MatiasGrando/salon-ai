@@ -31,13 +31,15 @@ const client = {
   async $executeRaw(q: Query) {
     if (!activeTx) { releases++; operations.push('cleanup'); return 1 }
     if (txNumber === 1) return 1 // Existing acquisition is outside this focused regression.
-    assert.ok(q.sql.includes('pg_advisory_xact_lock_shared'), 'only standalone gate may precede guard query')
-    operations.push('gate')
+    const shared = q.sql.includes('pg_advisory_xact_lock_shared')
+    assert.ok(shared || q.sql.includes('pg_advisory_xact_lock('), 'only the cutover and phone gates precede guard query')
+    operations.push(shared ? 'gate' : 'phone')
     await activeTx.query(q.text, q.values)
-    await afterGate?.()
+    if (shared) await afterGate?.()
     return 1
   },
   async $queryRaw(q: Query) {
+    if (q.sql.includes('consolidation-inbox-identity')) { operations.push('identity'); return [{ phone: 'phone' }] }
     if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('conversation-policy')) return [config]
     if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1 }]
@@ -45,7 +47,8 @@ const client = {
     if (q.sql.includes('conversation-claims-assert')) {
       assert.ok(activeTx)
       guardCalls++
-      assert.equal(operations.at(-1), 'gate', 'fresh validation follows the completed standalone gate')
+      assert.equal(operations.filter(step => step === 'gate').length, 1, 'one standalone cutover acquisition per transaction')
+      assert.deepEqual(operations, ['gate', 'identity', 'phone'], 'fresh validation follows shared cutover then identity and phone lock')
       assert.ok(!q.sql.includes('pg_advisory_xact_lock_shared'))
       assert.match(q.sql, /locked_job AS MATERIALIZED/)
       assert.match(q.sql, /locked_dispatch AS MATERIALIZED/)
@@ -126,7 +129,7 @@ try {
   await reset()
   await assert.rejects(run(), /GUARDS_PASSED/)
   assert.equal(guardCalls, 1)
-  assert.deepEqual(operations, ['gate', 'guards', 'features', 'cleanup'])
+  assert.deepEqual(operations, ['gate', 'identity', 'phone', 'guards', 'features', 'cleanup'])
   assert.equal(releases, 1, 'unsettled transaction releases dispatch through existing cleanup')
 
   const cases: ReadonlyArray<readonly [string, string, RegExp]> = [
