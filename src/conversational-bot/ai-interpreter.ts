@@ -3,6 +3,7 @@ import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
+import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
 import { parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
@@ -13,13 +14,13 @@ export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) =
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
   proposedIntent: Candidate['intent'] | 'unknown'
-  acceptedAction: 'select_service' | 'clarify_service' | 'no_service_change' | 'information_read' | 'pending_action_unavailable' | 'booking_proposal' | 'deterministic_fallback'
+  acceptedAction: 'select_service' | 'clarify_service' | 'no_service_change' | 'information_read' | 'pending_action_unavailable' | 'booking_proposal' | 'turn_plan_routed' | 'deterministic_fallback'
   candidateCount: number
   pendingBefore: DialogueState['pending']
   pendingAfter: DialogueState['pending']
   outcome: 'selected' | 'ambiguous' | 'corrected' | 'fallback' | 'unchanged'
   reason: 'validated_service' | 'multiple_catalog_candidates' | 'service_correction' | 'no_service_decision' | 'not_applied' |
-    'information_route' | 'pending_action' | 'proposal_only' | 'provider_error' | 'timeout' | 'invalid_output'
+    'information_route' | 'pending_action' | 'proposal_only' | 'turn_plan' | 'provider_error' | 'timeout' | 'invalid_output'
 }
 
 export type InterpretationDiagnostics = {
@@ -44,7 +45,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -53,13 +54,35 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
+  let turnPlan: TurnPlan | null | undefined
+  if (Object.hasOwn(item, 'turnPlan')) {
+    if (item.turnPlan === null) turnPlan = null
+    else {
+      try {
+        const parsed = parseTurnPlan(item.turnPlan, message, services.map(service => service.id))
+        turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
+          if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
+          const matches = catalogEvidenceMatches(operation.evidence, services)
+          // A model-proposed single/subset cannot hide other matches for its grounded phrase.
+          return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
+        }) }, message, services.map(service => service.id))
+      } catch { throw new Error('invalid AI turn plan') }
+    }
+  }
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
   }
   if (item.serviceConfidence !== undefined && !['certain', 'uncertain'].includes(String(item.serviceConfidence))) throw new Error('invalid AI confidence')
   if (item.serviceCorrection !== undefined && typeof item.serviceCorrection !== 'boolean') throw new Error('invalid AI correction')
+  // Plan and legacy entities must not offer competing representations, even for an empty plan.
+  if (turnPlan) {
+    if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
+        item.serviceCorrection === true || item.informationTarget != null ||
+        item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new Error('invalid AI turn plan')
+    return { ...item, turnPlan } as Candidate
+  }
   if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
       new Set(item.serviceCandidateIds).size !== item.serviceCandidateIds.length ||
       item.serviceCandidateIds.some(id => typeof id !== 'string' || !services.some(s => s.id === id)))) throw new Error('invalid AI candidates')
@@ -83,6 +106,13 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   return item as Candidate
 }
 
+function catalogEvidenceMatches(evidence: string, services: readonly DialogueService[]): DialogueService[] {
+  const terms = evidenceWords(evidence).trim().split(' ').filter(term => term && !['un', 'una', 'el', 'la', 'de', 'del'].includes(term))
+  return terms.length ? services.filter(service => {
+    const nameTerms = evidenceWords(service.name).trim().split(' ')
+    return terms.every(term => nameTerms.includes(term))
+  }) : []
+}
 /** A unique near-match may only produce a question; it is never a service selection. */
 function suggestedService(evidence: string, services: readonly DialogueService[]): DialogueService | null {
   const tokens = (value: string) => evidenceWords(value).trim().split(' ').filter(word => word && !['quiero', 'un', 'una', 'de', 'del', 'el', 'la', 'para', 'turno', 'servicio'].includes(word))
@@ -228,20 +258,21 @@ export async function respondWithAiInterpreter(
   const proposal = summarizeProposal(raw)
   const validation = summarizeValidation(proposal, candidate !== null, validationError, interpretationProviderError === null)
   const validationAt = performance.now()
-  const selected = candidate?.serviceId ? services.find(s => s.id === candidate.serviceId) : undefined
-  const evidence = candidate?.serviceEvidence ?? ''
+  const turnPlan = candidate?.turnPlan
+  const serviceOperation = turnPlan?.operations.find(operation => operation.kind === 'service')
+  const selectedId = turnPlan ? serviceOperation?.mode === 'single' ? serviceOperation.serviceIds[0] : null : candidate?.serviceId
+  const selected = selectedId ? services.find(service => service.id === selectedId) : undefined
+  const evidence = serviceOperation?.evidence ?? candidate?.serviceEvidence ?? ''
   // Compare only grounded service evidence with catalog names, never the full utterance.
-  const evidenceTerms = evidenceWords(evidence).trim().split(' ').filter(word => word && !['un', 'una', 'el', 'la', 'de', 'del'].includes(word))
-  const overlap = evidenceTerms.length ? services.filter(service => {
-    const nameTerms = evidenceWords(service.name).trim().split(' ')
-    return evidenceTerms.every(term => nameTerms.includes(term))
-  }) : []
+  const overlap = turnPlan ? [] : catalogEvidenceMatches(evidence, services)
   // A model-proposed subset cannot hide other catalog matches for the same grounded phrase.
-  const candidates = overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
+  const candidates = turnPlan ? serviceOperation?.mode === 'alternatives'
+    ? services.filter(service => serviceOperation.serviceIds.includes(service.id)) : []
+    : overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
     ? services.filter(service => candidate.serviceCandidateIds!.includes(service.id)) : []
-  const uncertain = Boolean(selected && !candidates.length &&
+  const uncertain = !turnPlan && Boolean(selected && !candidates.length &&
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
-  const decision: DialogueDecision | undefined = candidate ? {
+  const decision: DialogueDecision | undefined = candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, informationTarget: candidate.informationTarget, correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
@@ -251,7 +282,7 @@ export async function respondWithAiInterpreter(
   let response = await respond(context, state, message, cachedPort, decision)
   if (uncertain && selected) response = { ...response, proposal: null,
     reply: '¿Te referís a ' + selected.name + '? Confirmame cuál servicio querés.' }
-  const typoService = candidate?.serviceId || candidates.length ? null :
+  const typoService = turnPlan || candidate?.serviceId || candidates.length ? null :
     candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
     !candidate ? suggestedService(message, services) : null
   if (typoService && !response.state.serviceId) response = { ...response, proposal: null,
@@ -261,16 +292,20 @@ export async function respondWithAiInterpreter(
   const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&
     !/\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message) &&
     /^(?:Hola\. Te ayudo con tu turno\.\n)?¿Qué servicio necesitás\?\n/.test(response.reply)
-  const safeReply = defaultServiceMenu && candidate?.intent === 'other' ? '¿En qué te puedo ayudar con el local?'
+  const planHasUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information'))
+  const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information'))
+  const replyIntent = planHasUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
+  const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
+  const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? (simpleGreeting ? 'Hola, ¿qué servicio necesitás?' : '¿Qué servicio necesitás?') : response.reply
   const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let aiCalls = 1
   let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
-  const finalFacts = candidate?.intent === 'other' && incidentalFacts ? incidentalFacts :
-    responseFacts(safeReply, response.state, candidate?.intent ?? null, message)
-  if (!reason && !canonicalOnly && !decision?.correction && availabilityCalls === 0 &&
+  const finalFacts = !planHasUpdates && !planHasInformation && replyIntent === 'other' && incidentalFacts ? incidentalFacts :
+    responseFacts(safeReply, response.state, replyIntent, message)
+  if (!turnPlan && !reason && !canonicalOnly && !decision?.correction && availabilityCalls === 0 &&
       intakeReplyAllowed && candidate?.intent === 'booking' &&
       !services.find(service => service.id === response.state.serviceId)?.requiresConsultation) {
     authored = assembledIntakeReply(candidate.intakeReply, finalFacts, response.state, candidates, services)
@@ -280,11 +315,11 @@ export async function respondWithAiInterpreter(
   const bookingFacts = (value: DialogueState) => ({ ...value, ...(value.dialogueContext
     ? { dialogueContext: { ...value.dialogueContext, lastQuestion: null } } : {}) })
   const sameState = JSON.stringify(bookingFacts(response.state)) === JSON.stringify(bookingFacts(state))
-  const eligibleFirstReply = !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
+  const eligibleFirstReply = !planHasUpdates && !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
     availabilityCalls === 0 && sameState && firstReplyFacts !== undefined &&
-    (pureInformation && candidate?.intent === 'information' || !route.information.length &&
-      !route.pendingAction && candidate?.intent === 'other' && !candidate.serviceId && !candidate.serviceEvidence &&
-      !candidate.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
+    (pureInformation && replyIntent === 'information' || !route.information.length &&
+      !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
+      !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
   if (!authored && eligibleFirstReply) {
     // Fact identity and motor outcome are authoritative. Free social framing retains the existing heuristic guard.
     authored = assembledReply(candidate?.firstReply, finalFacts, services)
@@ -303,11 +338,11 @@ export async function respondWithAiInterpreter(
     const responseStarted = performance.now()
     try {
       const output = await Promise.race([
-        responseProvider({ message, intent: candidate!.intent, state: response.state, facts }, responseController.signal),
+        responseProvider({ message, intent: replyIntent!, state: response.state, facts }, responseController.signal),
         new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
       ])
       responseUsage = readAiUsage(output)
-      authored = assembledReply(output, facts, services, candidate?.informationTarget?.kind === 'presented_offer')
+      authored = assembledReply(output, facts, services, presentedOfferRead)
       copyReason = authored ? null : 'invalid_response'
     } catch (error) {
       copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error'
@@ -328,14 +363,14 @@ export async function respondWithAiInterpreter(
     candidateCount: candidates.length || (selected ? 1 : 0),
     pendingBefore: state.pending,
     pendingAfter: response.state.pending,
-    acceptedAction: reason ? 'deterministic_fallback' : candidates.length > 1 || uncertain ? 'clarify_service'
+    acceptedAction: reason ? 'deterministic_fallback' : turnPlan?.operations.length ? 'turn_plan_routed' : candidates.length > 1 || uncertain ? 'clarify_service'
       : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
         ? 'select_service' : response.proposal ? 'booking_proposal' : route.pendingAction ? 'pending_action_unavailable'
           : candidate?.informationTarget || route.information.length ? 'information_read' : 'no_service_change',
-    outcome: reason ? 'fallback' : decision?.correction ? 'corrected' : candidates.length > 1 || uncertain ? 'ambiguous'
+    outcome: reason ? 'fallback' : serviceOperation?.correction ? 'corrected' : decision?.correction ? 'corrected' : candidates.length > 1 || uncertain ? 'ambiguous'
       : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
         ? 'selected' : 'unchanged',
-    reason: reason ?? (decision?.correction ? 'service_correction' : candidates.length > 1 ? 'multiple_catalog_candidates'
+    reason: reason ?? (turnPlan?.operations.length ? 'turn_plan' : decision?.correction ? 'service_correction' : candidates.length > 1 ? 'multiple_catalog_candidates'
       : uncertain ? 'not_applied' : decision?.serviceId && response.state.serviceId === decision.serviceId
         ? 'validated_service' : decision?.serviceId ? 'not_applied' : response.proposal ? 'proposal_only'
           : route.pendingAction ? 'pending_action' : candidate?.informationTarget || route.information.length ? 'information_route' : 'no_service_decision')
