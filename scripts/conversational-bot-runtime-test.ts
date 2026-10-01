@@ -144,9 +144,16 @@ function runtimeFixture(options: { sessionDb?: PGlite; computeDb?: PGlite; jobPr
         assert.ok(session)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
         session.revision = q.values.find(v => typeof v === 'bigint') as bigint
-        return [{ sessionCount: 1n, stepCount: 1n, conversationId: 'conversation', updatedAt: now }]
+        const payloads = q.values.filter(v => typeof v === 'string' && v.startsWith('{')).map(v => JSON.parse(v as string)).filter(v => v.item)
+        for (const payload of payloads) replies.push(payload.item.body)
+        if (q.sql.includes('settled_inbox')) {
+          if (computeSql) await computeSql.query(`UPDATE "BotDispatchClaim" SET "status"='DONE' WHERE "claimToken"=ANY($1::text[])`, [q.values.filter(value => typeof value === 'string')])
+          row.status = 'PROCESSED'; settled++
+        }
+        return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 1n, outboxCount: BigInt(payloads.length),
+          inboxCount: 1n, dispatchCount: 1n, jobCount: 1n, conversationId: 'conversation', updatedAt: now }]
       }
-      if (q.sql.includes('conversation-settle-batch')) {
+      if (q.sql.includes('settled_inbox')) {
         if (computeSql) await computeSql.query(`UPDATE "BotDispatchClaim" SET "status"='DONE' WHERE "claimToken"=ANY($1::text[])`, [q.values.filter(value => typeof value === 'string')])
         row.status = 'PROCESSED'; settled++; return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }] }
       if (q.sql.includes('conversation-claims-assert')) {
@@ -266,10 +273,25 @@ await five.run('PROCESS_INBOX', { provider: async input => {
 assert.equal(fullText, 'quiero corte hoy no, mañana con Ana', 'all durable text belongs to one input, not five replies')
 assert.equal(five.replies.length, 1)
 // Execute the exact production settlement statement, including covered unclassified journal rows.
-const settlementSql = five.statements.find(q => q.sql.includes('conversation-settle-batch'))!
+const settlementSql = five.statements.find(q => q.sql.includes('settled_inbox'))!
 const settlementDb = new PGlite()
 try {
   await settlementDb.exec(`
+
+    CREATE TYPE "BotSessionStatus" AS ENUM ('ACTIVE','HUMAN_TAKEN');
+    CREATE TYPE "ConversationStep" AS ENUM ('BOOKING_IN_PROGRESS','IDLE');
+    CREATE TYPE "BotPromptStatus" AS ENUM ('OPEN','STABILIZING','INVALIDATED','RESOLVED');
+    CREATE TYPE "BotOutboxStatus" AS ENUM ('PENDING','SENDING','UNKNOWN');
+    CREATE TABLE "BotSession" ("id" text PRIMARY KEY,"businessId" text,"conversationId" text,"state" jsonb,"revision" bigint,"status" "BotSessionStatus",
+      "handoffClaimsPausedAt" timestamptz,"handoffFenceEpoch" integer,"updatedAt" timestamptz,"draftTouchedAt" timestamptz,"draftExpiresAt" timestamptz);
+    CREATE TABLE "BotTransitionLog" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" integer,
+      "revisionFrom" bigint,"revisionTo" bigint,"actionType" text,"outcome" text,"providerEventId" text,"detail" jsonb);
+    CREATE TABLE "Conversation" ("id" text PRIMARY KEY,"businessId" text,"currentStep" "ConversationStep","updatedAt" timestamptz);
+    CREATE TABLE "BotPrompt" ("id" text PRIMARY KEY,"sessionId" text,"status" "BotPromptStatus","resolvedAt" timestamptz);
+    CREATE TABLE "BotOutbox" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"transitionId" text,"deliveryGroupId" text,"sequence" integer,
+      "kind" text,"payload" jsonb,"idempotencyKey" text UNIQUE,"status" "BotOutboxStatus","dependsOnSequence" integer,"availableAt" timestamptz,"updatedAt" timestamptz);
+    INSERT INTO "BotSession" VALUES ('session','biz','conversation','{}',0,'ACTIVE',NULL,0,NULL,NULL,NULL);
+    INSERT INTO "Conversation" VALUES ('conversation','biz','IDLE',NULL);
     CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','CLAIMED','SELECTED','CONFLICT','PROCESSED');
     CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED');
     CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','DONE');
@@ -381,6 +403,7 @@ const spanRuntime = runtimeFixture()
 const spans: AttemptMetricEvent[] = []
 await captureRuntimeMetrics(() => spanRuntime.run(), spans)
 const stages = spans.map(event => event.stage)
+assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-turn-persist') || q.sql.includes('inserted_outbox') || q.sql.includes('settled_inbox')).length, 1, 'final text persistence uses one SQL trip, not three')
 assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-turn-persist')).length, 1, 'final session/transition/step use one production statement')
 assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-claims-assert')).length, 2,
   'snapshot and final each batch claim guards into one query')
@@ -403,13 +426,12 @@ for (const stage of [
   'conversation_session_create', 'conversation_inbox_attach', 'conversation_context_load', 'conversation_catalog_load', 'conversation_compute',
   'conversation_final_transaction_start_wait', 'conversation_final_transaction_body',
   'conversation_final_transaction_tail', 'conversation_final_transaction_total',
-  'conversation_turn_persist', 'conversation_view_persist',
-  'conversation_settlement'
+  'conversation_turn_persist'
 ]) assert.ok(stages.includes(stage as never), `missing runtime span: ${stage}`)
 assert.ok(spans.every(event => event.durationMs >= 0 && event.outcome === 'ok'))
 assert.ok(!stages.some(stage => ['conversation_session_save', 'conversation_step_project', 'conversation_transition_insert'].includes(stage)), 'combined final write has no fictitious individual timings')
 assert.doesNotMatch(JSON.stringify(spans), /phone|Corte|SELECT|INSERT|job-0|dispatch-token/, 'metrics must exclude values, recipient and SQL')
-assert.equal(spanRuntime.statements.filter(q => q.sql.includes('conversation-settle-batch')).length, 1,
+assert.equal(spanRuntime.statements.filter(q => q.sql.includes('settled_inbox')).length, 1,
   'successful final transaction settles inbox/event/dispatch/job in one query')
 assert.equal(spanRuntime.replies.length, 1)
 const cleanRuntime = runtimeFixture()

@@ -41,9 +41,10 @@ const client = {
   },
   async $executeRaw(_q: Prisma.Sql) { if (!activeTx) releases++; return 1 }, // Non-settlement orchestration is stubbed.
   async $queryRaw(q: Prisma.Sql) {
-    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
+    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
+    if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: 'phone' }]
     if (q.sql.includes('conversation-policy')) return [config]
-    if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1 }]
+    if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1, phone: 'phone' }]
     if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
     if (q.sql.includes('conversation-claims-assert')) return [{ jobCount: 1n, dispatchCount: 1n }]
     if (q.sql.includes('conversation-feature-lock')) return []
@@ -85,7 +86,7 @@ const run = () => withAttemptMetrics({ jobId: job.id, attempt: 1 }, () => proces
 }), { emit: event => { metrics.push(event) } })
 const reset = async () => {
   await db.exec(`TRUNCATE "Audit", "BotActionInbox", "BotProviderEvent", "BotDispatchClaim", "BotJob", "BotOutbox";
-    INSERT INTO "BotActionInbox" VALUES ('inbox','biz','ADMITTED','old-error'),('foreign-inbox','foreign','ADMITTED','untouched');
+    INSERT INTO "BotActionInbox" VALUES ('inbox','biz','ADMITTED','old-error','event'),('foreign-inbox','foreign','ADMITTED','untouched','foreign-event');
     INSERT INTO "BotProviderEvent" VALUES ('event','biz','ADMITTED'),('foreign-event','foreign','ADMITTED');
     INSERT INTO "BotDispatchClaim" VALUES ('claim','dispatch-token','CLAIMED',NULL),('foreign-claim','foreign-token','CLAIMED',NULL);
     INSERT INTO "BotJob" VALUES ('job','job-token','LEASED',clock_timestamp()+interval '1 hour','old-error',NULL),
@@ -108,7 +109,7 @@ try {
     CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED','REJECTED');
     CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','SENDING','DONE');
     CREATE TYPE "BotJobStatus" AS ENUM ('LEASED','DONE');
-    CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"status" "BotInboxStatus","error" text);
+    CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"status" "BotInboxStatus","error" text,"providerEventId" text);
     CREATE TABLE "BotProviderEvent" ("id" text PRIMARY KEY,"businessId" text,"status" "BotProviderEventStatus");
     CREATE TABLE "BotDispatchClaim" ("id" text PRIMARY KEY,"claimToken" text,"status" "BotDispatchStatus","updatedAt" timestamptz);
     CREATE TABLE "BotJob" ("id" text PRIMARY KEY,"leaseToken" text,"status" "BotJobStatus","leasedUntil" timestamptz,"lastError" text,"updatedAt" timestamptz);

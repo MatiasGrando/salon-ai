@@ -42,7 +42,7 @@ const client = {
   },
   async $queryRaw(q: Query) {
     if (q.sql.includes('consolidation-inbox-identity')) { operations.push('identity'); return [{ phone: 'phone' }] }
-    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
+    if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('conversation-policy')) return [config]
     if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1, phone: 'phone' }]
     if (txNumber === 1 && q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]

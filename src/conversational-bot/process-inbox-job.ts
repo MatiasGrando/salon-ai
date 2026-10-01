@@ -17,7 +17,7 @@ import { applyLazyContextWindowTx } from '../bot-options/application/lazy-contex
 import { acquireDispatchClaim, completeDispatchClaimTx, withDispatchClaimCleanup } from '../bot-options/infrastructure/dispatch-claims.js'
 import { completeClaimedBotJobTx, rescheduleClaimedBotJobTx, type ClaimedBotJob } from '../bot-options/infrastructure/postgres-worker.js'
 import { flushInboundConversationMessages, publishConversationUpdated, type InboundConversationMessageProjection, type ConversationUpdatedEvent } from '../services/crm-realtime-events.js'
-import type { persistView, projectInboundMessage, lockExistingInitialSession, isConversationRestartCommand } from '../bot-options/application/process-session-job.js'
+import { persistView, type projectInboundMessage, type lockExistingInitialSession, type isConversationRestartCommand } from '../bot-options/application/process-session-job.js'
 
 type Client = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 export type ReplyPreparationHook = (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>
@@ -370,16 +370,24 @@ export async function processConversationInbox(input: {
       const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
       const revision = session.revision + 1n
       const transitionId = `transition:${session.sessionId}:${revision}`
+      // Preserve injected view writers; the production TEXT path batches only its known renderer.
+      const atomicText = input.writeView === persistView
+      const reply = (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
         generation: row.generation, providerEventId: row.providerEventId, consolidation: snapshot.consolidation?.envelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : 'conversation.message',
-        step: conversationStepForBotOptionsState(state)
+        step: conversationStepForBotOptionsState(state),
+        ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
+          coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],
+          dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken } } : {})
       }))
       if (update) updates.push(update)
-      await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
-        toPhone: snapshot.phone, consolidation: snapshot.consolidation?.envelope, view: textView((snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply), dbNow: row.dbNow }))
-      await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
+      if (!atomicText) {
+        await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
+          toPhone: snapshot.phone, consolidation: snapshot.consolidation?.envelope, view: textView(reply), dbNow: row.dbNow }))
+        await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
+      }
       committedTransitionId = transitionId
       return 'PROCESSED' as const
     })
