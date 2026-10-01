@@ -1,5 +1,5 @@
 import { guardConsolidatedOutboxTx, lockConversationInputTx, readConsolidationEnvelope } from '../../conversational-bot/inbound-consolidation.js'
-import { outboxQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
+import { monotonicInterval, type MonotonicInterval, outboxQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
 import { isWhatsAppLatencyDiagnosticsEnabledForBusiness, whatsappConfig } from '../../config/whatsapp.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
@@ -57,6 +57,7 @@ export type OutboxLatencyDiagnostic = {
   cohort: 'outbox_only'
   correlation: 'linked' | 'unavailable'
   sourceProviderEventId: string | null
+  monotonic?: MonotonicInterval
 }
 
 type OutboxClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
@@ -183,6 +184,7 @@ export type OutboxProviderDiagnostic = {
   phase: 'provider_credentials' | 'meta_http' | 'meta_response_parse'
   durationMs: number
   outcome: 'ok' | 'error'
+  monotonic?: MonotonicInterval
 }
 
 export type OutboxProvider = {
@@ -301,9 +303,14 @@ export async function sendClaimedOutbox(input: {
   queueClaim?: QueueClaimWindow | undefined
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
   queueMilestones?: QueueMilestoneTracker | undefined
+  monotonicBoundaries?: boolean | undefined
 }): Promise<'ACCEPTED' | 'RETRY' | 'POISON' | 'UNKNOWN' | 'STALE'> {
   if (input.queueClaim) input.queueMilestones?.handlerStarted(input.queueClaim)
-  const emit = (diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>) => {
+  const includeBoundaries = Boolean(input.monotonicBoundaries && input.onDiagnostic
+    && isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode))
+  const emit = (diagnostic: Omit<OutboxLatencyDiagnostic, 'cohort' | 'correlation' | 'sourceProviderEventId'>,
+    interval?: [number, number], extra?: Partial<MonotonicInterval>) => {
+    if (includeBoundaries && interval) diagnostic.monotonic = { ...monotonicInterval(...interval), ...extra }
     if (!isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode)) return
     try {
       input.onDiagnostic?.({
@@ -375,21 +382,23 @@ export async function sendClaimedOutbox(input: {
       `)
       if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('sender preflight lost fence')
     }, DISPATCH_CLAIM_TRANSACTION_OPTIONS)
-    const durationMs = performance.now() - preflightStartedAt
+    const preflightEndedAt = performance.now()
+    const durationMs = preflightEndedAt - preflightStartedAt
     if (!dispatchToken) {
       botOptionsMetrics.observe('outbox_preflight', durationMs, 'error')
-      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'stale' })
+      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'stale' }, includeBoundaries ? [preflightStartedAt, preflightEndedAt] : undefined)
       return 'STALE'
     }
     botOptionsMetrics.observe('outbox_preflight', durationMs)
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'ok' })
+    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'ok' }, includeBoundaries ? [preflightStartedAt, preflightEndedAt] : undefined)
   } catch (error) {
     // Acquisition errors still propagate. Marker/commit failures never reach Meta.
     // Marker rollback also rolls back expiry cleanup; the next attempt recovers it.
     if (!dispatchToken) throw error
-    const durationMs = performance.now() - preflightStartedAt
+    const preflightEndedAt = performance.now()
+    const durationMs = preflightEndedAt - preflightStartedAt
     botOptionsMetrics.observe('outbox_preflight', durationMs, 'error')
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'error' })
+    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'preflight', durationMs, outcome: 'error' }, includeBoundaries ? [preflightStartedAt, preflightEndedAt] : undefined)
     await releaseDispatchClaim(input.client, token)
     return 'STALE'
   }
@@ -407,13 +416,16 @@ export async function sendClaimedOutbox(input: {
       isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode) && input.onDiagnostic
         ? (diagnostic) => emit({ resource: 'outbox', resourceId: input.item.id, ...diagnostic })
         : undefined), timeout])
-    const providerMs = performance.now() - providerStartedAt
+    const providerEndedAt = performance.now()
+    const providerMs = providerEndedAt - providerStartedAt
     providerObserved = true
     botOptionsMetrics.observe('meta_request', providerMs)
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'meta_request', durationMs: providerMs, outcome: 'ok' })
+    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'meta_request', durationMs: providerMs, outcome: 'ok' }, includeBoundaries ? [providerStartedAt, providerEndedAt] : undefined,
+      includeBoundaries && result.kind === 'accepted' ? { providerAcceptedLocalMonoMs: providerEndedAt } : undefined)
     if (result.kind === 'accepted') {
       const finalizeStartedAt = performance.now()
       const pendingCrmEvents: OutboundConversationMessageProjection[] = []
+      let firstPersistReturnMonoMs: number | null = null
       const acceptedAt = await input.client.$transaction(async (tx) => {
         const counts = await tx.$queryRaw<Array<{ outboxCount: bigint; dispatchCount: bigint; sentAt: Date | null }>>(Prisma.sql`
           WITH outbox AS (
@@ -430,6 +442,8 @@ export async function sendClaimedOutbox(input: {
             (SELECT count(*) FROM dispatch)::bigint AS "dispatchCount",
             (SELECT "sentAt" FROM outbox LIMIT 1) AS "sentAt"
         `)
+        // This is the client's statement return, NOT the server's sentAt instant.
+        if (includeBoundaries) firstPersistReturnMonoMs = performance.now()
         if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('accepted result lost sender fence')
         const projection = await projectOutboundMessageTx(tx, {
           item: input.item,
@@ -440,10 +454,13 @@ export async function sendClaimedOutbox(input: {
         if (projection) collectOutboundConversationMessage(pendingCrmEvents, projection)
         return counts[0]?.sentAt ?? null
       })
+      const commitAckMonoMs = includeBoundaries ? performance.now() : null
       flushOutboundConversationMessages(pendingCrmEvents)
-      const finalizeMs = performance.now() - finalizeStartedAt
+      const finalizeEndedAt = performance.now()
+      const finalizeMs = finalizeEndedAt - finalizeStartedAt
       botOptionsMetrics.observe('outbox_finalize', finalizeMs)
-      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: 'ok' })
+      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: 'ok' }, includeBoundaries ? [finalizeStartedAt, finalizeEndedAt] : undefined,
+        includeBoundaries ? { firstPersistReturnMonoMs, commitAckMonoMs } : undefined)
       const admissionToAcceptanceMs = admissionToAcceptanceDurationMs(input.item.sourceProviderEventAdmittedAt, acceptedAt)
       emit({
         resource: 'outbox', resourceId: input.item.id, phase: 'admission_to_meta_acceptance',
@@ -482,15 +499,17 @@ export async function sendClaimedOutbox(input: {
       if (projection) collectOutboundConversationMessage(pendingCrmEvents, projection)
     })
     flushOutboundConversationMessages(pendingCrmEvents)
-    const finalizeMs = performance.now() - finalizeStartedAt
+    const finalizeEndedAt = performance.now()
+    const finalizeMs = finalizeEndedAt - finalizeStartedAt
     botOptionsMetrics.observe('outbox_finalize', finalizeMs)
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: poison ? 'poison' : 'retry' })
+    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: poison ? 'poison' : 'retry' }, includeBoundaries ? [finalizeStartedAt, finalizeEndedAt] : undefined)
     return status
   } catch {
     if (!providerObserved) {
-      const providerMs = performance.now() - providerStartedAt
+      const providerEndedAt = performance.now()
+      const providerMs = providerEndedAt - providerStartedAt
       botOptionsMetrics.observe('meta_request', providerMs, 'error')
-      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'meta_request', durationMs: providerMs, outcome: 'error' })
+      emit({ resource: 'outbox', resourceId: input.item.id, phase: 'meta_request', durationMs: providerMs, outcome: 'error' }, includeBoundaries ? [providerStartedAt, providerEndedAt] : undefined)
     }
     const finalizeStartedAt = performance.now()
     await input.client.$transaction(async (tx) => {
@@ -509,9 +528,10 @@ export async function sendClaimedOutbox(input: {
       `)
       if (counts[0]?.outboxCount !== 1n || counts[0]?.dispatchCount !== 1n) throw new Error('ambiguous result lost sender fence')
     })
-    const finalizeMs = performance.now() - finalizeStartedAt
+    const finalizeEndedAt = performance.now()
+    const finalizeMs = finalizeEndedAt - finalizeStartedAt
     botOptionsMetrics.observe('outbox_finalize', finalizeMs)
-    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: 'unknown' })
+    emit({ resource: 'outbox', resourceId: input.item.id, phase: 'finalize', durationMs: finalizeMs, outcome: 'unknown' }, includeBoundaries ? [finalizeStartedAt, finalizeEndedAt] : undefined)
     return 'UNKNOWN'
   } finally {
     if (timer) clearTimeout(timer)
@@ -567,6 +587,7 @@ export function startOutboxSenderLoop(input: {
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: OutboxLatencyDiagnostic) => void
   queueMilestones?: QueueMilestoneTracker | undefined
+  monotonicBoundaries?: boolean | undefined
 }): { stop(): Promise<void> } {
   let stopped = false
   const idleStop = new AbortController()
@@ -601,7 +622,7 @@ export function startOutboxSenderLoop(input: {
           botOptionsMetrics.observe('outbox_claim', claimMs)
           emit(item, { resource: 'outbox', resourceId: item.id, phase: 'claim', durationMs: claimMs, outcome: 'ok' })
           emit(item, { resource: 'outbox', resourceId: item.id, phase: 'queue', durationMs: item.queueWaitMs, outcome: 'ok' })
-          await sendClaimedOutbox({ client: input.client, item, provider: input.provider, onDiagnostic: input.onDiagnostic, queueMilestones: input.queueMilestones, queueClaim })
+          await sendClaimedOutbox({ client: input.client, item, provider: input.provider, onDiagnostic: input.onDiagnostic, queueMilestones: input.queueMilestones, queueClaim, monotonicBoundaries: input.monotonicBoundaries })
           continue
         }
       } catch (error) {

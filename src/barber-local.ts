@@ -54,7 +54,7 @@ export async function startBarberLocal() {
     await ingressClient.$disconnect()
     throw new Error('Barber pool diagnostics require unused clients')
   }
-  const queueMilestones = createQueueMilestoneTracker({ businessId: BARBER_DEMO_BUSINESS_ID,
+  const queueMilestones = createQueueMilestoneTracker({ businessId: BARBER_DEMO_BUSINESS_ID, monotonicBoundaries: true,
     emit: diagnostic => { diagnosticSink.emit('barber-local-queue-milestones', diagnostic) }
   })
   const repository = new PrismaAuthoritativeAdmissionRepository(ingressClient, {
@@ -99,7 +99,7 @@ export async function startBarberLocal() {
   try {
     await internal.listen({ port: internalPort, host: '127.0.0.1' })
     loops = await startBarberWorkerLoops({
-      scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler, wakeSignals, queueMilestones,
+      scope, client: prisma, provider: new MetaOutboxProvider({ monotonicBoundaries: true }), handle: handler, wakeSignals, queueMilestones, monotonicBoundaries: true,
       onError: (error) => internal.log.error(error),
       onWorkerDiagnostic: (diagnostic) => {
         diagnosticSink.emit('barber-local-job-latency', diagnostic)

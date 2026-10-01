@@ -1,4 +1,4 @@
-import { jobQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
+import { monotonicInterval, processMonotonicRunRef, type MonotonicInterval, jobQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { botOptionsMetrics } from '../observability/metrics.js'
@@ -29,6 +29,7 @@ export type BotJobLatencyDiagnostic = {
   phase: 'claim' | 'queue' | 'processing' | 'finalize'
   durationMs: number
   outcome: 'ok' | 'error' | 'retry' | 'poison' | 'stale' | 'handler_settled'
+  monotonic?: MonotonicInterval
 }
 
 type WorkerClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
@@ -310,10 +311,16 @@ export async function runClaimedBotJob(input: {
   handle(job: ClaimedBotJob): Promise<void>
   handlerSettlesJob?: boolean
   queueMilestones?: QueueMilestoneTracker | undefined
+  monotonicBoundaries?: boolean | undefined
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): Promise<void> {
-  const emit = (diagnostic: BotJobLatencyDiagnostic) => {
+  const emit = (diagnostic: BotJobLatencyDiagnostic, interval?: [number, number]) => {
+    if (input.monotonicBoundaries && input.onDiagnostic && interval) {
+      diagnostic.monotonic = monotonicInterval(...interval)
+      if (diagnostic.phase === 'processing') diagnostic.monotonic.producerAckMonoMs = input.queueClaim
+        ? input.queueMilestones?.producerAckMonoMs(input.queueClaim, processMonotonicRunRef) ?? null : null
+    }
     try { input.onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
   }
   const processingStartedAt = performance.now()
@@ -321,23 +328,26 @@ export async function runClaimedBotJob(input: {
     if (input.queueClaim) input.queueMilestones?.handlerStarted(input.queueClaim)
     await input.handle(input.job)
   } catch (error) {
-    const processingMs = performance.now() - processingStartedAt
+    const processingEndedAt = performance.now()
+    const processingMs = processingEndedAt - processingStartedAt
     botOptionsMetrics.observe('worker_processing', processingMs, 'error')
-    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'error' })
+    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'error' }, input.monotonicBoundaries && input.onDiagnostic ? [processingStartedAt, processingEndedAt] : undefined)
     const message = error instanceof Error ? error.message : String(error)
     const finalizeStartedAt = performance.now()
     const retry = await retryBotJob(input.client, input.job.id, input.job.claimToken, message, 1000)
-    const finalizeMs = performance.now() - finalizeStartedAt
+    const finalizeEndedAt = performance.now()
+    const finalizeMs = finalizeEndedAt - finalizeStartedAt
     botOptionsMetrics.observe('worker_finalize', finalizeMs, retry === 'STALE' ? 'error' : 'ok')
     const outcome = retry === 'STALE' ? 'stale' : retry === 'POISON' ? 'poison' : 'retry'
-    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome })
+    emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome }, input.monotonicBoundaries && input.onDiagnostic ? [finalizeStartedAt, finalizeEndedAt] : undefined)
     input.onError?.(error)
     return
   }
 
-  const processingMs = performance.now() - processingStartedAt
+  const processingEndedAt = performance.now()
+  const processingMs = processingEndedAt - processingStartedAt
   botOptionsMetrics.observe('worker_processing', processingMs)
-  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'ok' })
+  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'processing', durationMs: processingMs, outcome: 'ok' }, input.monotonicBoundaries && input.onDiagnostic ? [processingStartedAt, processingEndedAt] : undefined)
   if (input.handlerSettlesJob) {
     // Successful return guarantees that this handler already completed,
     // rescheduled, or poisoned the leased job transactionally.
@@ -348,9 +358,10 @@ export async function runClaimedBotJob(input: {
 
   const finalizeStartedAt = performance.now()
   const completed = await completeBotJob(input.client, input.job.id, input.job.claimToken)
-  const finalizeMs = performance.now() - finalizeStartedAt
+  const finalizeEndedAt = performance.now()
+  const finalizeMs = finalizeEndedAt - finalizeStartedAt
   botOptionsMetrics.observe('worker_finalize', finalizeMs, completed ? 'ok' : 'error')
-  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome: completed ? 'ok' : 'stale' })
+  emit({ resource: 'job', resourceId: input.job.id, kind: input.job.kind, phase: 'finalize', durationMs: finalizeMs, outcome: completed ? 'ok' : 'stale' }, input.monotonicBoundaries && input.onDiagnostic ? [finalizeStartedAt, finalizeEndedAt] : undefined)
 }
 
 export function startPostgresWorkerLoop(input: {
@@ -365,6 +376,7 @@ export function startPostgresWorkerLoop(input: {
   now?: () => number
   handlerSettlesJob?: boolean
   queueMilestones?: QueueMilestoneTracker | undefined
+  monotonicBoundaries?: boolean | undefined
   onError?: (error: unknown) => void
   onDiagnostic?: (diagnostic: BotJobLatencyDiagnostic) => void
 }): WorkerLoop {
@@ -404,7 +416,7 @@ export function startPostgresWorkerLoop(input: {
         emit({ resource: 'job', resourceId: job.id, kind: job.kind, phase: 'queue', durationMs: job.queueWaitMs, outcome: 'ok' })
         await runClaimedBotJob({
           client: input.client, job, handle: input.handle, queueMilestones: input.queueMilestones, queueClaim,
-          handlerSettlesJob: input.handlerSettlesJob,
+          handlerSettlesJob: input.handlerSettlesJob, monotonicBoundaries: input.monotonicBoundaries,
           onError: input.onError,
           onDiagnostic: input.onDiagnostic
         })

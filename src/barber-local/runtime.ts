@@ -43,6 +43,7 @@ export async function startBarberWorkerLoops(input: {
   handle: WorkerInput['handle']
   wakeSignals?: { jobs: WorkerWakeSignal; outbox: WorkerWakeSignal }
   queueMilestones?: QueueMilestoneTracker | undefined
+  monotonicBoundaries?: boolean | undefined
   onError?: (error: unknown) => void
   onWorkerDiagnostic?: WorkerInput['onDiagnostic']
   onOutboxDiagnostic?: SenderInput['onDiagnostic']
@@ -63,6 +64,7 @@ export async function startBarberWorkerLoops(input: {
       notifyWorkerWake(input.wakeSignals?.outbox)
     },
     handlerSettlesJob: true, queueMilestones: input.queueMilestones, wakeSignal: input.wakeSignals?.jobs,
+    ...(input.monotonicBoundaries ? { monotonicBoundaries: true } : {}),
     scope: input.scope,
     ...(input.onError ? { onError: input.onError } : {}),
     ...(input.onWorkerDiagnostic ? { onDiagnostic: input.onWorkerDiagnostic } : {})
@@ -74,6 +76,7 @@ export async function startBarberWorkerLoops(input: {
     loops.push(sender({
       client: input.client, provider: input.provider, scope: input.scope,
       wakeSignal: input.wakeSignals?.outbox, queueMilestones: input.queueMilestones,
+      ...(input.monotonicBoundaries ? { monotonicBoundaries: true } : {}),
       ...(input.onError ? { onError: input.onError } : {}),
       ...(input.onOutboxDiagnostic ? { onDiagnostic: input.onOutboxDiagnostic } : {})
     }))

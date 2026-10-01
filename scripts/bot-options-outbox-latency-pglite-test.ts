@@ -1,6 +1,7 @@
 /** Disposable in-memory PostgreSQL/WASM coverage for the production outbox claim SQL. */
 import assert from 'node:assert/strict'
 import { PGlite } from '@electric-sql/pglite'
+import type { OutboxLatencyDiagnostic } from '../src/bot-options/infrastructure/whatsapp-outbox-sender.js'
 import { Prisma } from '../src/generated/prisma/client.js'
 
 process.env.WHATSAPP_LATENCY_DIAGNOSTIC_BUSINESS_CODES = 'WX-38N6UG'
@@ -179,7 +180,7 @@ try {
   await addOutbox('outbox-sent-at','transition:session-a:11',11)
   whatsappConfig.latencyDiagnosticBusinessCodes.add(diagnosticCode)
   const acceptanceItem = await claimed('outbox-sent-at')
-  const diagnostics: Array<{ phase: string; durationMs: number | null; outcome: string; sourceProviderEventId: string | null }> = []
+  const diagnostics: OutboxLatencyDiagnostic[] = []
   const beforeSendSql = sqlOperations
   const beforeSendTransactions = transactions
   const beforeSendStatements = statements.length
@@ -188,6 +189,7 @@ try {
   const sendResult = await sendClaimedOutbox({
     client: client as never,
     item: acceptanceItem,
+    monotonicBoundaries: true,
     provider: { async send(input, signal, onDiagnostic) {
       assert.equal(transactionOpen, false, 'provider runs only after confirmed commit')
       observedPreflightTransactions = transactions - beforeSendTransactions
@@ -216,16 +218,32 @@ try {
     assert.deepEqual(Object.keys(event).sort(), ['cohort', 'correlation', 'durationMs', 'outcome', 'phase', 'resource', 'resourceId', 'sourceProviderEventId'])
   }
   assert.ok(diagnostics.find((event) => event.phase === 'meta_request'), 'inclusive provider total remains present')
+  const preflightTiming = diagnostics.find(event => event.phase === 'preflight')!.monotonic!
+  const request = diagnostics.find(event => event.phase === 'meta_request')!
+  const requestTiming = request.monotonic!
+  const final = diagnostics.find(event => event.phase === 'finalize')!
+  const finalTiming = final.monotonic!
+  assert.ok(preflightTiming.endMonoMs <= requestTiming.startMonoMs)
+  assert.equal(requestTiming.endMonoMs - requestTiming.startMonoMs, request.durationMs)
+  assert.equal(requestTiming.providerAcceptedLocalMonoMs, requestTiming.endMonoMs, 'local accepted result endpoint, not DB sentAt')
+  assert.equal(preflightTiming.runRef, requestTiming.runRef)
+  assert.equal(requestTiming.runRef, finalTiming.runRef)
+  assert.ok(requestTiming.endMonoMs <= finalTiming.startMonoMs)
+  assert.ok(finalTiming.startMonoMs <= finalTiming.firstPersistReturnMonoMs!)
+  assert.ok(finalTiming.firstPersistReturnMonoMs! <= finalTiming.commitAckMonoMs!)
+  assert.ok(finalTiming.commitAckMonoMs! <= finalTiming.endMonoMs)
+  assert.equal(finalTiming.endMonoMs - finalTiming.startMonoMs, final.durationMs)
   const sentAt = (await db.query<{ sentAt: Date }>(`SELECT "sentAt" FROM "BotOutbox" WHERE "id"='outbox-sent-at'`)).rows[0]!.sentAt
   const acceptance = diagnostics.find((diagnostic) => diagnostic.phase === 'admission_to_meta_acceptance')!
   assert.equal(acceptance.outcome, 'accepted')
+  assert.equal(acceptance.monotonic, undefined, 'DB epoch subtraction never masquerades as monotonic time')
   assert.equal(acceptance.sourceProviderEventId, 'event-normal')
   assert.equal(acceptance.durationMs, sentAt.getTime() - admittedAt.getTime(), 'latency uses the sentAt returned by acceptance SQL')
 
   let disabledDiagnostics = 0
   const disabledSendSqlStart = sqlOperations
   assert.equal(await sendClaimedOutbox({
-    client: client as never, item: off,
+    client: client as never, item: off, monotonicBoundaries: true,
     provider: { async send(_input, _signal, onDiagnostic) {
       assert.equal(onDiagnostic, undefined, 'unlisted tenant never receives a provider diagnostic callback')
       return { kind: 'accepted', providerMessageId: 'synthetic-off' }

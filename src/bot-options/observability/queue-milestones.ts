@@ -1,4 +1,17 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+
+// Shared process-clock identity, never a DB/client calibration.
+export const processMonotonicRunRef = randomUUID()
+export type MonotonicInterval = {
+  runRef: string; startMonoMs: number; endMonoMs: number
+  producerAckMonoMs?: number | null
+  providerAcceptedLocalMonoMs?: number
+  firstPersistReturnMonoMs?: number | null
+  commitAckMonoMs?: number | null
+}
+export function monotonicInterval(startMonoMs: number, endMonoMs: number): MonotonicInterval {
+  return { runRef: processMonotonicRunRef, startMonoMs, endMonoMs }
+}
 
 export type QueueMilestoneKey = Readonly<{
   businessId: string
@@ -16,6 +29,10 @@ export type QueueMilestoneDiagnostic = {
   readyWaitMs: number | null
   claimMs: number | null
   dispatchMs: number | null
+  monotonic?: {
+    runRef: string; producerAckMonoMs: number | null
+    claimStartMonoMs: number | null; claimEndMonoMs: number | null; handlerStartMonoMs: number | null
+  }
 }
 // These references never contain IDs, messages or other source values.
 function reference(parts: readonly string[]): string {
@@ -39,12 +56,15 @@ declare const claimBrand: unique symbol
 export type QueueClaimWindow = { readonly [claimBrand]: true }
 type ClaimState = {
   start: number | null; end: number | null
+  entry?: Entry
   key: QueueMilestoneKey | null; attempt: number
   readiness: QueueMilestoneDiagnostic['readiness']; readyWait: number | null; emitted: boolean
 }
 type Options = {
   businessId: string
   now?: () => number
+  monotonicBoundaries?: boolean
+  monotonicRunRef?: string
   emit: (diagnostic: QueueMilestoneDiagnostic) => void | Promise<void>
   ttlMs?: number
   capacity?: number
@@ -71,6 +91,19 @@ export class QueueMilestoneTracker {
       ? Math.min(options.capacity!, 10_000) : 2048
     this.#ttlMs = Number.isFinite(options.ttlMs) && options.ttlMs! > 0
       ? Math.min(options.ttlMs!, 600_000) : 120_000
+  }
+  get monotonicRunRef(): string | undefined {
+    if (!this.#options.monotonicBoundaries) return undefined
+    return this.#options.now ? this.#options.monotonicRunRef : processMonotonicRunRef
+  }
+  // No clock sample, wait or revival of expired/evicted evidence.
+  producerAckMonoMs(window: QueueClaimWindow, runRef: string): number | null {
+    if (this.monotonicRunRef !== runRef) return null
+    const state = this.#claims.get(window)
+    const entry = state?.entry
+    if (!state?.key || !entry || this.#entries.get(state.key.resourceRef) !== entry
+      || this.#lastNow === null || entry.expiresAt <= this.#lastNow) return null
+    return entry.readyAt
   }
   get retainedCount(): number { return this.#entries.size }
 
@@ -115,7 +148,12 @@ export class QueueMilestoneTracker {
     if (now !== null) this.#purge(now)
     for (const { ref, entry } of collector.registrations.values()) {
       entry.pending--
-      if (this.#entries.get(ref) !== entry || entry.consumed) continue
+      if (this.#entries.get(ref) !== entry) continue
+      if (entry.consumed) {
+        // Metadata only: keep readiness/wait and the consumed tombstone unchanged.
+        if (this.monotonicRunRef && committed && now !== null && entry.readyAt === null) entry.readyAt = now
+        continue
+      }
       // A missing/broken clock cannot fabricate commit evidence.
       if (committed && now !== null && entry.readyAt === null) entry.readyAt = now
       if (entry.readyAt === null && entry.pending === 0) this.#entries.delete(ref)
@@ -137,6 +175,7 @@ export class QueueMilestoneTracker {
     if (state.end !== null) this.#purge(state.end)
     const entry = this.#entries.get(key.resourceRef)
     if (!entry || entry.consumed) return
+    if (this.monotonicRunRef) state.entry = entry
     entry.consumed = true
     if (state.attempt !== 1 || state.start === null || state.end === null) return
     if (entry.readyAt === null || entry.readyAt > state.start) {
@@ -155,6 +194,11 @@ export class QueueMilestoneTracker {
       event: 'bot_queue_milestones', resource: state.key.resource, resourceRef: state.key.resourceRef,
       kind: state.key.kind, attempt: state.attempt, readiness: state.readiness,
       readyWaitMs: state.readyWait, claimMs: duration(state.start, state.end), dispatchMs: duration(state.end, end)
+    }
+    const runRef = this.monotonicRunRef
+    if (runRef) diagnostic.monotonic = {
+      runRef, producerAckMonoMs: this.producerAckMonoMs(window, runRef),
+      claimStartMonoMs: state.start, claimEndMonoMs: state.end, handlerStartMonoMs: end
     }
     try {
       const pending = this.#options.emit(diagnostic)

@@ -1,3 +1,4 @@
+import { monotonicInterval } from '../observability/queue-milestones.js'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { WhatsAppCloudApi, type WhatsAppSendLatencyDiagnostic } from '../../integrations/whatsapp-cloud-api.js'
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../../services/business-whatsapp-settings.js'
@@ -24,11 +25,14 @@ function providerId(response: unknown): string | null {
 export class MetaOutboxProvider implements OutboxProvider {
   readonly #api: Pick<WhatsAppCloudApi, 'sendTextMessage' | 'sendReplyButtonsMessage' | 'sendInteractiveListMessage'>
   readonly #resolveCredentials: (businessId: string) => Promise<WhatsAppCloudCredentials>
+  readonly #monotonicBoundaries: boolean
 
   constructor(dependencies: {
+    monotonicBoundaries?: boolean
     api?: Pick<WhatsAppCloudApi, 'sendTextMessage' | 'sendReplyButtonsMessage' | 'sendInteractiveListMessage'>
     resolveCredentials?: (businessId: string) => Promise<WhatsAppCloudCredentials>
   } = {}) {
+    this.#monotonicBoundaries = dependencies.monotonicBoundaries ?? false
     this.#api = dependencies.api ?? new WhatsAppCloudApi()
     this.#resolveCredentials = dependencies.resolveCredentials
       ?? ((businessId) => resolveBusinessWhatsAppCredentials(businessId, { allowInternalFallback: false }))
@@ -47,7 +51,10 @@ export class MetaOutboxProvider implements OutboxProvider {
       credentials = await this.#resolveCredentials(input.businessId)
       credentialsOutcome = 'ok'
     } finally {
-      emit({ phase: 'provider_credentials', durationMs: performance.now() - credentialsStartedAt, outcome: credentialsOutcome })
+      const credentialsEndedAt = performance.now()
+      emit({ phase: 'provider_credentials', durationMs: credentialsEndedAt - credentialsStartedAt, outcome: credentialsOutcome,
+        ...(this.#monotonicBoundaries && onDiagnostic ? { monotonic: monotonicInterval(credentialsStartedAt, credentialsEndedAt) } : {})
+      })
     }
     if (!credentials.accessToken || !credentials.phoneNumberId) {
       return { kind: 'clear_failure' as const, code: 'tenant_whatsapp_credentials_missing', retryable: false }
