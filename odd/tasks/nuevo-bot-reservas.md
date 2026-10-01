@@ -2,6 +2,40 @@
 
 ## Plan activo — bot conversacional sobre la plataforma existente
 
+### E2.3 - Pase para Sol 6.1 (2026-10-01)
+Alcance actual: guardar este análisis y plan. El usuario cambiará a Sol y pedirá iniciar la implementación; no empezar cambios de código en este turno. Prioridad: comprensión, contexto y correcciones. Nombre, tono y personalidad quedan al final, reutilizando el editor existente.
+
+Hallazgos confirmados (investigación sin cambios ni API/DB):
+- Profesional: professionalMention se valida, pero no se pasa en DialogueDecision (ai-interpreter.ts:213). El proveedor recibe pending/servicio/fecha/hint, no opciones profesionales ni última pregunta. Reproducción en memoria: mismo "ramiro", intent=booking selecciona; intent=other vuelve a preguntar. No tenemos el JSON original del turno real: no afirmar qué clasificó Luna.
+- Servicio: corrección ambigua válida con candidatos y serviceCorrection=true limpia el anterior y pide aclaración; prueba existente PASS. Si esos datos no llegan, conserva el servicio que requiere consulta. Comprobar política/duración del catálogo para Baño de crema antes de atribuirlo a comprensión. Consulta comercial no equivale a transferencia humana.
+- Fecha: extractDate sólo reconoce hoy/mañana/fecha numérica; no weekdays. El contrato IA no transporta fechas interpretadas. Reproducción "mejor el martes" esperando nombre conserva fecha/slot antiguos. "Estos horarios son del sábado?" dispara HOURS comercial por palabras, no consulta la oferta vigente.
+- Respuesta: saludo canónico + opening IA duplica saludo. responseFacts elimina pregunta pendiente tras información, aunque el motor la añade. Dirección+mapsUrl se concatenan; slots no incluyen fecha explícita.
+- Diagnóstico: provider_error agrupa excepciones y pierde causa; invalid_response rechaza redacción, no demuestra fallo interpretativo. Las 25 pruebas controladas de E2.2 no validan comprensión de IA real ni cubren todos estos recorridos.
+
+Plan pendiente (IDs estables; ejecutar con TDD estricto heredado C11):
+- [ ] E2.3a Diagnóstico: propuesta IA, decisión validada, campos aceptados/rechazados y motivo, estado antes/después; categoría/status del error del proveedor sin secretos. Verificar que cada caso se pueda explicar sin inferir el JSON.
+- [ ] E2.3b Contrato contextual: transportar profesional, expresión temporal/hora y cambios de servicio; reconocer respuesta al dato pendiente y preguntas sobre opciones ofrecidas. Dar contexto mínimo y opciones verificadas; no reenviar historia ilimitada ni añadir alias para Ramiro.
+- [ ] E2.3c Correcciones globales: aplicar cambios antes de calcular siguiente dato pendiente, incluso en name. Validar tenant/servicio/profesional; invalidar dependencias (slot al cambiar fecha, etc.). Conservar hora sólo como preferencia y volver a comprobar disponibilidad; no confirmar el slot viejo.
+- [ ] E2.3d Fechas: resolutor central con reloj/zona del negocio y ambigüedad explícita; sábado/martes/mañana/fechas. Preguntas referenciales responden sobre fecha de slots ofrecidos, distinguiendo horario comercial. No parches por frase.
+- [ ] E2.3e Composición funcional: un saludo; mostrar día y fecha de disponibilidad; responder información y retomar sólo si había reserva en curso. No forzar reserva desde una consulta aislada.
+- [ ] E2.3f Dirección: mostrar SIEMPRE dirección textual y barrio/localidad cargados en el negocio, además de Maps. "Monroe 2266, Villa Urquiza" es ejemplo de formato, NO valor fijo ni orden de modificar datos (el chat anterior mostraba otra numeración). Evitar barrio duplicado. En CRM usar enlace etiquetado; en WhatsApp los botones actuales son reply-buttons, no URL: ampliar contrato/emisor y verificar soporte antes de ofrecer botón Maps.
+- [ ] E2.3g Regresión y QA real: incluir los cinco chats completos, respuesta aislada "ramiro", corrección ambigua/exacta desde consulta, dirección intercalada y cambio de día tras elegir 14:00/pending=name. Verificar resultado semántico/estado, no frase exacta. Casos negativos de profesional ajeno, fechas inválidas y acciones no disponibles. Luego IA real dentro del alcance QA, sin reservas/envíos automáticos.
+
+Fuentes principales: src/conversational-bot/{openai-interpretation-provider,ai-interpreter,engine,actions,information,prisma-dialogue-port}.ts; emisor src/bot-options/infrastructure/meta-outbox-provider.ts. Checks existentes: tsx scripts/conversational-bot-{ai-interpreter,engine,single-call,information,preview,behavior-eval}-test.ts; tipos focales comparados, npm run test:text-encoding antes de commit y git diff --check. RED significativo -> GREEN, sin inventar precisión IA por mocks. Ruta: mapear 4+ archivos y delegar writer 2+ no triviales según AGENTS. Mantener feature-branch-chain y revisión nativa vigente, sin push/deploy implícito.
+
+Mejora continua/entrenamiento (revisar este circuito al terminar, según pedido del usuario):
+Chats fallidos -> contexto y resultado esperado -> causa (comprensión/motor/datos/redacción/proveedor) -> regresión -> corrección -> evaluación. Los fallos de comprensión aportan ejemplos etiquetados; los fallos de estado/contrato exigen código. spaCy no aprende por acumular chats. Reservar conversaciones completas para evaluación separada; 50-100 chats sirven para iniciar, no garantizan suficiencia. Librerías/capa determinista se eligen después con evidencia. Guía: https://spacy.io/usage/training
+
+Pendiente para revisar AL TERMINAR la parte funcional:
+- Posponer proyección visual inbound CRM sólo tras separar dependencias actuales con identidad/Conversation/handoff; medir su coste aislado primero.
+- Conservar registro mínimo durable+dedupe antes ACK, contexto antes IA, estado+outbox y guardas antes Meta. No enviar primero y guardar luego.
+- Proyección outbound ya ocurre después de aceptación; typing/parte diagnóstico ya asíncronos. No atribuir 1.073s completos del provider a ahorro de CRM ni sumar subintervalos.
+- QA lockMs está incluido en persistMs/totalMs. E1.6 WhatsApp fragmentado y objetivo <=5s siguen pendientes.
+- Referencia de durabilidad: https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html
+
+Recuperación: alcance actual sólo documentación. CRM3000 fue iniciado con launcher tmp/qa-local-server.ts, root14568/child11716; comprobar vigencia al retomar. Usuario eligió NO activar piloto WhatsApp/callback/túnel. Engram no disponible: mem_save/session_summary y espejo odd/nuevo-bot-reservas/tasks pendientes. Objetivo próximo: Sol recibe este plan y comienza sólo cuando el usuario lo pida.
+
+
 ### E2 — comportamiento y comprensión: inicio autorizado 01/10/2026
 - Usuario autoriza etapa2 si E1.1–E1.5 terminadas: code/checks/commits completos. E1.6 sigue pendiente (WhatsApp cinco partes y <=5s no cumplido); etapa1 no totalmente validada.
 - Objetivo corregido por el usuario: nombre, tono, tipo de respuesta y estilo se ajustan iterativamente desde la sección editable existente; no fijarlos en código ni duplicar configuración. Preservar comprensión, contexto/correcciones, hechos y acciones verificadas. Multi-vertical; catálogo contextual, sin parches de palabras.
