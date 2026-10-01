@@ -29,7 +29,7 @@ const defaultFactory: DialogueFactory = (client, businessId) => {
 }
 type Row = PolicyRow & { id: string; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
   providerEventId: string; providerMessageId: string | null; providerPhoneNumberId: string | null; status: string; dbNow: Date; businessTimezone: string;
-  admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean }
+  admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean; projectedConversationId: string | null }
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
 
@@ -145,7 +145,14 @@ export async function processConversationInbox(input: {
           i."providerMessageId", e."phoneNumberId" AS "providerPhoneNumberId", i."status"::text AS "status", clock_timestamp() AS "dbNow", e."admittedAt", e."providerOccurredAt",
           settings."timezone" AS "businessTimezone", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch", d."engineKey",
           cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition", b."customerCode",
-          (b."botEnabled" AND COALESCE(f."botEnabled", true)) AS "botEnabled"
+          (b."botEnabled" AND COALESCE(f."botEnabled", true)) AS "botEnabled",
+          (SELECT projected."id" FROM "Message" message
+            JOIN "Conversation" projected ON projected."id" = message."conversationId"
+            WHERE message."id" = e."id" AND message."providerMessageId" = e."providerMessageId"
+              AND message."providerMessageId" = i."providerMessageId" AND message."direction" = 'INBOUND'::"MessageDirection"
+              AND projected."businessId" = i."businessId" AND projected."phone" = i."payload"->>'fromPhone'
+              AND projected."phone" = e."payload"->>'fromPhone' AND message."phone" = projected."phone"
+          ) AS "projectedConversationId"
         FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
         JOIN "BotChannelDeployment" d ON d."id" = i."deploymentId" AND d."businessId" = i."businessId"
         JOIN "BusinessBotConfiguration" cfg ON cfg."id" = d."activeConfigurationId" AND cfg."businessId" = d."businessId"
@@ -242,16 +249,23 @@ export async function processConversationInbox(input: {
       const eligibleText = payload.messageType === 'text' && !input.isRestart(payload.textBody)
       if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
       let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
-      // Serialize first creation on the existing conversation row, not a new queue.
-      const conversations = await measureAttemptStage('conversation_conversation_upsert', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
-        VALUES (${randomUUID()}, ${phone}, ${row.businessId}, clock_timestamp())
-        ON CONFLICT ("businessId", "phone") DO UPDATE SET "updatedAt" = "Conversation"."updatedAt" RETURNING "id"
-      `))
-      const conversationId = conversations[0]?.id
-      if (!conversationId) throw new Error('conversation unavailable')
-      await measureAttemptStage('conversation_inbound_project', () => input.projectInbound(tx, { businessId: row.businessId, conversationId, phone, providerMessageId: row.providerMessageId,
-        body: typeof payload.textBody === 'string' && payload.textBody.trim() ? payload.textBody.trim() : `[${String(payload.messageType ?? 'message')}]`, messageType: payload.messageType }, events))
+      // The provider worker already committed CRM before classification. Reuse only its exact
+      // journal/message/tenant/phone identity; synthetic or incomplete projections retain the old path.
+      let conversationId = row.projectedConversationId && (!session || session.conversationId === row.projectedConversationId)
+        ? row.projectedConversationId : null
+      if (!conversationId) {
+        // Serialize first creation on the existing conversation row, not a new queue.
+        const conversations = await measureAttemptStage('conversation_conversation_upsert', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
+          VALUES (${randomUUID()}, ${phone}, ${row.businessId}, clock_timestamp())
+          ON CONFLICT ("businessId", "phone") DO UPDATE SET "updatedAt" = "Conversation"."updatedAt" RETURNING "id"
+        `))
+        const fallbackConversationId = conversations[0]?.id
+        if (!fallbackConversationId) throw new Error('conversation unavailable')
+        conversationId = fallbackConversationId
+        await measureAttemptStage('conversation_inbound_project', () => input.projectInbound(tx, { businessId: row.businessId, conversationId: fallbackConversationId, phone, providerMessageId: row.providerMessageId,
+          body: typeof payload.textBody === 'string' && payload.textBody.trim() ? payload.textBody.trim() : `[${String(payload.messageType ?? 'message')}]`, messageType: payload.messageType }, events))
+      }
       if (!row.botEnabled || (session && (session.status !== 'ACTIVE' || session.handoffClaimsPausedAt))) { await finish(tx, row); return null }
       if (session && (session.deploymentId !== policy.deploymentId || session.deploymentGeneration > policy.generation)) throw new Error('conversation session requires cutover')
       if (payload.contextWindowEvaluated !== true) {
