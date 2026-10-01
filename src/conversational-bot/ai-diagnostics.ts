@@ -13,7 +13,7 @@ export type ProposalSummary = {
 export type ValidationReason = 'not_run' | 'shape' | 'keys' | 'intent' | 'field' | 'confidence' |
   'correction' | 'candidates' | 'candidate_evidence' | 'correction_evidence' |
   'service_evidence_missing' | 'service_evidence_not_in_message' | 'service_not_in_catalog' |
-  'professional_evidence_not_in_message'
+  'professional_evidence_not_in_message' | 'information_target' | 'information_target_conflict'
 export type ValidationSummary = {
   outcome: 'accepted' | 'rejected' | 'not_run'
   reason: ValidationReason | null
@@ -62,7 +62,9 @@ const reasonByMessage: Record<string, ValidationReason> = {
   'ungrounded service evidence': 'service_evidence_not_in_message',
   'service not in catalog': 'service_not_in_catalog',
   'ungrounded AI service': 'service_evidence_not_in_message',
-  'ungrounded AI professional': 'professional_evidence_not_in_message'
+  'ungrounded AI professional': 'professional_evidence_not_in_message',
+  'invalid AI information target': 'information_target',
+  'conflicting AI information target': 'information_target_conflict'
 }
 export function summarizeValidation(proposal: ProposalSummary, accepted: boolean, error?: unknown, ran = true): ValidationSummary {
   const outcome = !ran ? 'not_run' : accepted ? 'accepted' : 'rejected'

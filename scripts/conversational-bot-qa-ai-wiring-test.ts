@@ -1,3 +1,4 @@
+import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import assert from 'node:assert/strict'
 import { resolveQaPreviewAi } from '../src/conversational-bot/qa-preview-ai.js'
 
@@ -15,11 +16,11 @@ const fakeFetch = async (_url: string, options: any) => {
 }
 const enabled = resolveQaPreviewAi({ CONVERSATIONAL_QA_AI_ENABLED: 'true', OPENAI_API_KEY: 'secret', CONVERSATIONAL_QA_AI_MODEL: 'qa-model' }, fakeFetch as typeof fetch)
 assert.ok(enabled)
-assert.deepEqual(await enabled!({ message: 'hola', state: {} as any, services: [] }, new AbortController().signal), { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null })
+assert.deepEqual(await enabled!({ message: 'hola', state: initialDialogueState('qa'), services: [] }, new AbortController().signal), { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null })
 assert.ok(enabled!.respond)
-assert.deepEqual(await enabled!.respond!({ message: 'hola', intent: 'other', state: {} as any, facts: [] }, new AbortController().signal), { opening: 'Hola', factIds: [], closing: null })
+assert.deepEqual(await enabled!.respond!({ message: 'hola', intent: 'other', state: initialDialogueState('qa'), facts: [] }, new AbortController().signal), { opening: 'Hola', factIds: [], closing: null })
 assert.equal(requests, 2)
 const missing = resolveQaPreviewAi({ CONVERSATIONAL_QA_AI_ENABLED: 'true' })
 assert.ok(missing, 'enabled without key stays observable as fallback')
-await assert.rejects(missing!({ message: 'hola', state: {} as any, services: [] }, new AbortController().signal), /configuration unavailable/)
+await assert.rejects(missing!({ message: 'hola', state: initialDialogueState('qa'), services: [] }, new AbortController().signal), /configuration unavailable/)
 console.log('QA AI config: OK')

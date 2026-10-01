@@ -1,12 +1,13 @@
+import { localDateKey } from '../bot-options/application/availability-queries.js'
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
-import { parseDialogueState, respond, socialQuestion, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision } from './engine.js'
+import { parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = { id: string; text: string }
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean }
+export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -43,7 +44,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -52,7 +53,7 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[]): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
@@ -69,6 +70,16 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   if (item.serviceId !== null && !services.some(s => s.id === item.serviceId)) throw new Error('service not in catalog')
   if (item.serviceId !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded AI service')
   if (item.professionalMention !== null && !containsEvidence(message, item.professionalMention as string)) throw new Error('ungrounded AI professional')
+  if (item.informationTarget !== undefined && item.informationTarget !== null) {
+    const target = item.informationTarget as InformationTarget
+    if (!target || typeof target !== 'object' || Array.isArray(target) || Object.keys(target).sort().join(',') !== 'actions,kind' ||
+      item.intent !== 'information' || !Array.isArray(target.actions) || new Set(target.actions).size !== target.actions.length ||
+      (target.kind === 'presented_offer' ? target.actions.length !== 0 :
+        target.kind !== 'business' || target.actions.length < 1 || target.actions.length > 5 ||
+        target.actions.some(action => !['SERVICES', 'PRICES', 'HOURS', 'ADDRESS', 'BUSINESS_INFO'].includes(action)))) throw new Error('invalid AI information target')
+    if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
+      item.serviceCorrection === true || Array.isArray(item.serviceCandidateIds) && item.serviceCandidateIds.length) throw new Error('conflicting AI information target')
+  }
   return item as Candidate
 }
 
@@ -104,15 +115,18 @@ function responseFacts(reply: string, state: DialogueState, intent: Candidate['i
   if (state.pending === 'service' && !state.serviceId && !catalogRequested && (reply.startsWith('¿Qué servicio necesitás?\n') || reply.startsWith('Hola. Te ayudo con tu turno.\n¿Qué servicio necesitás?') || reply === 'Hola, ¿qué servicio necesitás?'))
     return intent === 'other' ? [] : [{ id: 'next', text: '¿Qué servicio necesitás?' }]
   const pending = pendingQuestion(state)
-  if (lines.at(-1) === pending && lines.length > 1) lines.pop()
-  return lines.map((text, index) => ({ id: String(index), text }))
+  if (lines.at(-1) === pending && lines.length > 1 && !hasActiveBooking(state)) lines.pop()
+  return lines.map((text, index) => ({ id: text === pending ? 'next' : String(index), text }))
 }
-function assembledReply(raw: unknown, facts: readonly { id: string; text: string }[], services: readonly DialogueService[]): string | null {
+function assembledReply(raw: unknown, facts: readonly { id: string; text: string }[], services: readonly DialogueService[], neutral = false): string | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const value = raw as Record<string, unknown>
   if (Object.keys(value).sort().join(',') !== 'closing,factIds,opening' || !Array.isArray(value.factIds)) return null
   if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
       value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return null
+  // A required continuation is delivered last; it cannot be replaced or moved into model framing.
+  if (facts.some(fact => fact.id === 'next') && (value.factIds.at(-1) !== 'next' || value.closing !== null)) return null
+  if (neutral && value.opening !== null) return null
   const framing = [value.opening, value.closing]
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 ||
       /[\u0000-\u001f\d$€]|https?:|www\./i.test(part)))) return null
@@ -162,11 +176,11 @@ export async function respondWithAiInterpreter(
   const incidentalFacts: ReplyFact[] | null = arithmetic ? [{ id: 'calculation', text: arithmetic },
     { id: 'next', text: state.pending === 'service' && !state.serviceId ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }] : null
   let firstReplyFacts: ReplyFact[] | undefined = intakeReplyAllowed ? incidentalFacts ??
-    (state.pending === 'service' && !state.serviceId ? [] : [{ id: '0', text: socialQuestion(state) }]) : undefined
+    (state.pending === 'service' && !state.serviceId ? [] : [{ id: socialQuestion(state) === pendingQuestion(state) ? 'next' : '0', text: socialQuestion(state) }]) : undefined
   let availabilityCalls = 0
   const cachedPort: DialoguePort = { ...port, catalog: async () => services,
     availability: async (...args) => { availabilityCalls++; return port.availability(...args) } }
-  if (pureInformation) {
+  if (pureInformation && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
     let publicFacts: BusinessFacts | null = null
     let informationError: unknown
     let informationFailed = false
@@ -174,7 +188,8 @@ export async function respondWithAiInterpreter(
     if (needsInformation && port.information) {
       try { publicFacts = await port.information(route.information); validateFacts(publicFacts, context.businessId) }
       catch (error) { informationFailed = true; informationError = error }
-      cachedPort.information = async () => {
+      cachedPort.information = async actions => {
+        if (!actions || actions.some(action => !route.information.includes(action))) return port.information!(actions)
         if (informationFailed) throw informationError
         return publicFacts!
       }
@@ -195,7 +210,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
+      provider({ message, state, services, businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch (error) {
@@ -228,7 +243,7 @@ export async function respondWithAiInterpreter(
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
   const decision: DialogueDecision | undefined = candidate ? {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
-    candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, correction: candidate.serviceCorrection === true ||
+    candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, informationTarget: candidate.informationTarget, correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
         selected && selected.id !== state.serviceId))
   } : undefined
@@ -261,7 +276,10 @@ export async function respondWithAiInterpreter(
     authored = assembledIntakeReply(candidate.intakeReply, finalFacts, response.state, candidates, services)
     if (authored) replyRoute = 'first_call'
   }
-  const sameState = JSON.stringify(response.state) === JSON.stringify(state)
+  // Updating the last delivered question does not change the booking facts or the offer evidence.
+  const bookingFacts = (value: DialogueState) => ({ ...value, ...(value.dialogueContext
+    ? { dialogueContext: { ...value.dialogueContext, lastQuestion: null } } : {}) })
+  const sameState = JSON.stringify(bookingFacts(response.state)) === JSON.stringify(bookingFacts(state))
   const eligibleFirstReply = !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
     availabilityCalls === 0 && sameState && firstReplyFacts !== undefined &&
     (pureInformation && candidate?.intent === 'information' || !route.information.length &&
@@ -289,7 +307,7 @@ export async function respondWithAiInterpreter(
         new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
       ])
       responseUsage = readAiUsage(output)
-      authored = assembledReply(output, facts, services)
+      authored = assembledReply(output, facts, services, candidate?.informationTarget?.kind === 'presented_offer')
       copyReason = authored ? null : 'invalid_response'
     } catch (error) {
       copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error'
@@ -313,14 +331,14 @@ export async function respondWithAiInterpreter(
     acceptedAction: reason ? 'deterministic_fallback' : candidates.length > 1 || uncertain ? 'clarify_service'
       : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
         ? 'select_service' : response.proposal ? 'booking_proposal' : route.pendingAction ? 'pending_action_unavailable'
-          : route.information.length ? 'information_read' : 'no_service_change',
+          : candidate?.informationTarget || route.information.length ? 'information_read' : 'no_service_change',
     outcome: reason ? 'fallback' : decision?.correction ? 'corrected' : candidates.length > 1 || uncertain ? 'ambiguous'
       : decision?.serviceId && response.state.serviceId === decision.serviceId && state.serviceId !== response.state.serviceId
         ? 'selected' : 'unchanged',
     reason: reason ?? (decision?.correction ? 'service_correction' : candidates.length > 1 ? 'multiple_catalog_candidates'
       : uncertain ? 'not_applied' : decision?.serviceId && response.state.serviceId === decision.serviceId
         ? 'validated_service' : decision?.serviceId ? 'not_applied' : response.proposal ? 'proposal_only'
-          : route.pendingAction ? 'pending_action' : route.information.length ? 'information_route' : 'no_service_decision')
+          : route.pendingAction ? 'pending_action' : candidate?.informationTarget || route.information.length ? 'information_route' : 'no_service_decision')
   }
   return { ...response, reply: authored ?? safeReply, interpretation: {
     decision: decisionTrace,
