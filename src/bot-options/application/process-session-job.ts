@@ -32,7 +32,7 @@ import {
 import type { BotOptionsActionType } from '../domain/actions.js'
 import { botOptionsMetrics, type BotOptionsStage } from '../observability/metrics.js'
 import { reuseCurrentPromptTx } from './reuse-current-prompt.js'
-import { measureAttemptStage, withAttemptMetrics } from '../observability/attempt-metrics.js'
+import { measureAttemptStage, withAttemptMetrics, type AttemptMetricEvent } from '../observability/attempt-metrics.js'
 import { PrismaHoursRepository } from '../infrastructure/prisma-hours.js'
 import { PrismaProfessionalHoursRepository } from '../infrastructure/prisma-professional-hours.js'
 import { formatBusinessWeeklySchedule, formatProfessionalWeeklySchedule, formatProfessionalListLabel } from './hours-queries.js'
@@ -777,13 +777,14 @@ export async function processSessionJob(input: {
   dialogueFactory?: DialogueFactory
   conversationalAi?: WhatsAppConversationAi
   queueMilestones?: QueueMilestoneTracker | undefined
+  onAttemptDiagnostic?: ((event: AttemptMetricEvent) => void) | undefined
   onPreparingReply?: import('../../conversational-bot/process-inbox-job.js').ReplyPreparationHook | undefined
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
   const startedAt = performance.now()
   try {
-    const result = await withAttemptMetrics({ jobId: input.job.id, attempt: input.job.attempts }, () => processSessionJobInternal(input))
+    const result = await withAttemptMetrics({ jobId: input.job.id, attempt: input.job.attempts }, () => processSessionJobInternal(input), input.onAttemptDiagnostic ? { emit: input.onAttemptDiagnostic } : undefined)
     botOptionsMetrics.observe('transition_execution', performance.now() - startedAt)
     return result
   } catch (error) {

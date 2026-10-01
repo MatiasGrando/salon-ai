@@ -1,3 +1,4 @@
+import { createBoundedDiagnosticSink } from './bot-options/observability/bounded-diagnostic-sink.js'
 import { createBarberTypingIndicator } from './barber-local/typing-indicator.js'
 import { createQueueMilestoneTracker } from './bot-options/observability/queue-milestones.js'
 import { enablePrismaClientDiagnostics } from './config/prisma-client.js'
@@ -35,24 +36,26 @@ export async function startBarberLocal() {
   const botOptionsConfig = resolveBotOptionsConfig(process.env)
   const conversationalAi = resolveWhatsAppConversationAi(process.env)
   if (!conversationalAi) throw new Error('Barber WhatsApp AI unavailable')
+  const diagnosticSink = createBoundedDiagnosticSink()
   conversationalAi.onDiagnostic = (diagnostic) => {
-    console.info('[barber-local-conversation-latency]', JSON.stringify(diagnostic))
+    diagnosticSink.emit('barber-local-conversation-latency', diagnostic)
   }
 
   const ingressClient = createPrismaIngressClient()
   const providerDiagnosticProbe = createProviderDiagnosticProbe({
-    emitAttempt: event => { console.info('[bot-options-attempt-stage]', JSON.stringify(event)) },
-    emitPool: event => { console.info('[barber-local-pool-latency]', JSON.stringify(event)) },
-    emitSummary: event => { console.info('[barber-local-provider-sink-cost]', JSON.stringify(event)) }
+    emitAttempt: event => { diagnosticSink.emit('bot-options-attempt-stage', event) },
+    emitPool: event => { diagnosticSink.emit('barber-local-pool-latency', event) },
+    emitSummary: event => { diagnosticSink.emit('barber-local-provider-sink-cost', event) }
   })
   const emitPoolDiagnostic = providerDiagnosticProbe.emitPool
   if (!enablePrismaClientDiagnostics(prisma, { role: 'worker', emit: emitPoolDiagnostic })
     || !enablePrismaClientDiagnostics(ingressClient, { role: 'ingress', emit: emitPoolDiagnostic })) {
+    await diagnosticSink.stop()
     await ingressClient.$disconnect()
     throw new Error('Barber pool diagnostics require unused clients')
   }
   const queueMilestones = createQueueMilestoneTracker({ businessId: BARBER_DEMO_BUSINESS_ID,
-    emit: diagnostic => { console.info('[barber-local-queue-milestones]', JSON.stringify(diagnostic)) }
+    emit: diagnostic => { diagnosticSink.emit('barber-local-queue-milestones', diagnostic) }
   })
   const repository = new PrismaAuthoritativeAdmissionRepository(ingressClient, {
     depositProofIngressEnabled: botOptionsConfig.depositsCapabilityEnabled, queueMilestones
@@ -75,7 +78,8 @@ export async function startBarberLocal() {
       return
     }
     if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') { await bridgeDepositNotificationJob(prisma, job); return }
-    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones, onPreparingReply: typingIndicator.notify })
+    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones, onPreparingReply: typingIndicator.notify,
+      onAttemptDiagnostic: event => { diagnosticSink.emit('bot-options-attempt-stage', event) } })
   }
 
   let loops: Awaited<ReturnType<typeof startBarberWorkerLoops>> | null = null
@@ -87,6 +91,7 @@ export async function startBarberLocal() {
       await gateway.close()
       await loops?.stop()
       await internal.close()
+      await diagnosticSink.stop()
       await Promise.all([ingressClient.$disconnect(), prisma.$disconnect()])
     })()
     return stopping
@@ -97,10 +102,10 @@ export async function startBarberLocal() {
       scope, client: prisma, provider: new MetaOutboxProvider(), handle: handler, wakeSignals, queueMilestones,
       onError: (error) => internal.log.error(error),
       onWorkerDiagnostic: (diagnostic) => {
-        console.info('[barber-local-job-latency]', JSON.stringify(diagnostic))
+        diagnosticSink.emit('barber-local-job-latency', diagnostic)
       },
       onOutboxDiagnostic: (diagnostic) => {
-        console.info('[barber-local-outbox-latency]', JSON.stringify(diagnostic))
+        diagnosticSink.emit('barber-local-outbox-latency', diagnostic)
       }
     })
     await gateway.listen({ port: gatewayPort, host: '127.0.0.1' })

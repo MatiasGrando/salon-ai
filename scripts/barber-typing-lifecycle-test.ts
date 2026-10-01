@@ -38,13 +38,16 @@ for (const failureAt of [null, 'internal', 'loops', 'gateway'] as const) {
     validateBarberLocalConfig: () => ({ scope: { mode: 'include', businessId }, verifyToken: 'fake-token' }),
     resolveBotOptionsConfig: () => ({}), resolveWhatsAppConversationAi: () => ({}),
     prisma: fakeClient, createPrismaIngressClient: () => fakeClient,
+    createBoundedDiagnosticSink: () => ({ emit() {}, async stop() { events.push('diagnostic:stop') } }),
     createProviderDiagnosticProbe: () => ({ emitPool() {}, run: (_input: unknown, work: () => unknown) => work() }),
     enablePrismaClientDiagnostics: () => true,
     createQueueMilestoneTracker: () => ({}), PrismaAuthoritativeAdmissionRepository: class {},
     createWorkerWakeSignal: () => ({}), notifyWorkerWake() {},
     createBarberWebhookApps: async () => ({ internal: app('internal'), gateway: app('gateway') }),
     createBarberTypingIndicator: () => { creates++; return { notify, stop() { stops++; closed = true; events.push('typing:stop') } } },
-    processSessionJob: async (input: { onPreparingReply?: (context: typeof preparing) => void }) => {
+    processSessionJob: async (input: { onPreparingReply?: (context: typeof preparing) => void; onAttemptDiagnostic?: (event: unknown) => void }) => {
+      assert.equal(typeof input.onAttemptDiagnostic, 'function', 'conversation metrics must receive bounded output callback')
+      input.onAttemptDiagnostic?.({ event: 'offline_stage' })
       sessionHook = input.onPreparingReply
       input.onPreparingReply?.(preparing)
     },
