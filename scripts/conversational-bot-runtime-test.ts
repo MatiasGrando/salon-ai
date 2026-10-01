@@ -80,11 +80,13 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
+  let computeSql: Transaction | undefined
+  const businessId = options.businessId ?? 'biz'
   let inTransaction = false
-  let row = { ...config, id: 'inbox', deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true },
+  let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true },
     providerEventId: 'event', providerMessageId: 'msg', providerPhoneNumberId: 'channel', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
   let session: { sessionId: string; conversationId: string; revision: bigint; status: string; state: unknown; businessTimezone: string; handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number } | null = null
   let replies: string[] = []
@@ -109,6 +111,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
           if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
           return result
         }
+        if (options.computeDb) return await options.computeDb.transaction(async tx => { computeSql = tx; return execute() })
         return options.sessionDb ? await options.sessionDb.transaction(async tx => {
           sessionSql = tx
           return execute()
@@ -116,7 +119,7 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       } catch (error) {
         ;({ row, session, replies, settled, retried, messages } = backup)
         throw error
-      } finally { inTransaction = false; sessionSql = undefined }
+      } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined }
     },
     async $queryRaw(q: Query) {
       statements.push(q)
@@ -134,16 +137,25 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
         hasInbox: false, durableProtection: false, botEnabled: true }] : []
       if (q.sql.includes('lazy-context:greeting')) return [{ ...row, businessName: 'Salon', customerName: null }]
       if (q.sql.includes('conversation-feature-lock')) return []
-      if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch }]
-      if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch, phone: row.payload.fromPhone }]
+      if (q.sql.includes('conversation-compute-defer')) return (await computeSql!.query(q.text, q.values)).rows
+      if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return computeSql ? (await computeSql.query(q.text, q.values)).rows : [{ claimToken: 'dispatch-token' }]
       if (q.sql.includes('conversation-turn-persist')) {
         assert.ok(session)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
         session.revision = q.values.find(v => typeof v === 'bigint') as bigint
         return [{ sessionCount: 1n, stepCount: 1n, conversationId: 'conversation', updatedAt: now }]
       }
-      if (q.sql.includes('conversation-settle-batch')) { row.status = 'PROCESSED'; settled++; return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }] }
-      if (q.sql.includes('conversation-claims-assert')) return [{ jobCount: invalidClaim ? 0n : 1n, dispatchCount: invalidClaim ? 0n : 1n }]
+      if (q.sql.includes('conversation-settle-batch')) {
+        if (computeSql) await computeSql.query(`UPDATE "BotDispatchClaim" SET "status"='DONE' WHERE "claimToken"=ANY($1::text[])`, [q.values.filter(value => typeof value === 'string')])
+        row.status = 'PROCESSED'; settled++; return [{ inboxCount: 1n, dispatchCount: 1n, jobCount: 1n }] }
+      if (q.sql.includes('conversation-claims-assert')) {
+        if (computeSql) {
+          const result = await computeSql.query<{jobCount: string | number | bigint; dispatchCount: string | number | bigint}>(q.text,q.values)
+          return result.rows.map(row => ({jobCount:BigInt(row.jobCount),dispatchCount:BigInt(row.dispatchCount)}))
+        }
+        return [{ jobCount: invalidClaim ? 0n : 1n, dispatchCount: invalidClaim ? 0n : 1n }]
+      }
       if (q.sql.includes('SELECT j."id" FROM "BotJob"')) return invalidClaim ? [] : [{ id: 'job' }]
       if (q.sql.includes('SELECT c."id" FROM "BotDispatchClaim"')) return invalidClaim ? [] : [{ id: 'claim' }]
       if (q.sql.includes('conversation-inbox-lock')) return [structuredClone(row)]
@@ -170,6 +182,10 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
     },
     async $executeRaw(q: Query) {
       statements.push(q)
+      if (options.computeDb && (q.sql.includes('pg_advisory') || q.sql.includes('UPDATE "BotDispatchClaim"'))) {
+        const result = computeSql ? await computeSql.query(q.text, q.values) : await options.computeDb.query(q.text, q.values)
+        return result.affectedRows ?? 1
+      }
       assert.ok(!q.sql.includes('INSERT INTO "Appointment"') && !q.sql.includes('INSERT INTO "BookingVisit"'), 'proposal must never create bookings')
       if (q.sql.includes('conversation-generation-reset')) { assert.ok(session); session.deploymentGeneration = 1; session.state = createInitialBotOptionsState(); session.revision++ }
       if (q.sql.includes('conversation-save') || (q.sql.includes('UPDATE "BotSession" SET "state"') && q.values.some(v => typeof v === 'string' && v.includes('schemaVersion')))) {
@@ -179,7 +195,10 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       }
       if (q.sql.includes('conversation-settle')) row.status = 'PROCESSED'
       if (q.sql.includes('UPDATE "BotJob" SET "status" = \'DONE\'')) settled++
-      if (q.sql.includes('UPDATE "BotJob" SET "status" = \'READY\'')) retried++
+      if (q.sql.includes('UPDATE "BotJob" SET "status" = \'READY\'')) {
+        if (computeSql) await computeSql.query(q.text,q.values)
+        retried++
+      }
       return 1
     }
   }
@@ -191,10 +210,10 @@ function runtimeFixture(options: { sessionDb?: PGlite; now?: Date; failAfterSess
       catalog: async function () { assert.equal(this, port, 'catalog receiver must be preserved'); outside(); return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
       availability: async function () { assert.equal(this, port, 'availability receiver must be preserved'); outside(); return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
     }
-    return { context: { businessId: 'biz', timezone: 'UTC', dbNow: now }, port }
+    return { context: { businessId, timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `job-${number}`, kind, businessId: 'biz', deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
@@ -655,3 +674,148 @@ assert.equal(expiredAi.replies.length, 1, 'deadline must yield fallback, not dro
 const commitFailureAi = runtimeFixture(); commitFailureAi.failCommit()
 await assert.rejects(commitFailureAi.run('PROCESS_INBOX', { provider: async () => ({ intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null }), timeoutMs: 4500, onDiagnostic: () => { throw new Error('uncommitted trace emitted') } }), /COMMIT failed/)
 assert.equal(commitFailureAi.replies.length, 0)
+
+// The real partial unique dispatch index arbitrates computations across independent worker clients.
+// PGlite serializes short transactions: this proves SQL outcomes, not cross-connection contention.
+const computeDb = new PGlite()
+try {
+  await computeDb.exec(`
+    CREATE TYPE "BotProviderEventType" AS ENUM ('MESSAGE','STATUS');
+    CREATE TYPE "BotChannel" AS ENUM ('WHATSAPP');
+    CREATE TYPE "BotDispatchKind" AS ENUM ('PROCESS','SEND');
+    CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','SENDING','UNKNOWN','DONE');
+    CREATE TYPE "BotJobStatus" AS ENUM ('LEASED','READY','DONE');
+    CREATE TYPE "BotSessionStatus" AS ENUM ('ACTIVE','HUMAN_TAKEN');
+    CREATE TABLE "BotChannelDeployment" ("id" text,"businessId" text,"channel" "BotChannel","engineKey" text,
+      "generation" int,"dispatchFenceEpoch" int,"claimsPausedAt" timestamptz,"activeConfigurationId" text,"legacyDispatchCoverageVersion" int);
+    CREATE TABLE "BotActionInbox" ("id" text,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"providerEventId" text);
+    CREATE TABLE "BotProviderEvent" ("id" text,"businessId" text,"eventType" "BotProviderEventType","payload" jsonb);
+    CREATE TABLE "BotSession" ("id" text,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"status" "BotSessionStatus",
+      "handoffClaimsPausedAt" timestamptz,"handoffFenceEpoch" int);
+    CREATE TABLE "BotDispatchClaim" ("id" text PRIMARY KEY,"businessId" text,"channel" "BotChannel","sessionId" text,"resourceId" text,
+      "engineKey" text,"generation" int,"fenceEpoch" int,"handoffFenceEpoch" int,"kind" "BotDispatchKind","status" "BotDispatchStatus",
+      "claimToken" text UNIQUE,"claimedUntil" timestamptz,"updatedAt" timestamptz);
+    CREATE UNIQUE INDEX "BotDispatchClaim_active_resource_key" ON "BotDispatchClaim" ("kind","engineKey","resourceId")
+      WHERE "resourceId" IS NOT NULL AND "status" IN ('CLAIMED','SENDING','UNKNOWN');
+    CREATE TABLE "BotJob" ("id" text PRIMARY KEY,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"aggregateId" text,"status" "BotJobStatus",
+      "leaseToken" text,"leasedUntil" timestamptz,"attempts" int,"availableAt" timestamptz,"updatedAt" timestamptz);
+    INSERT INTO "BotChannelDeployment" VALUES ('dep','biz','WHATSAPP','deterministic-options',1,1,NULL,'cfg',1),
+      ('dep','other','WHATSAPP','deterministic-options',1,1,NULL,'cfg',1);
+  `)
+  const seedJob = async (prefix: string, businessId = 'biz') => computeDb.query(`INSERT INTO "BotJob" VALUES
+    ($1,$2,'dep',1,'inbox','LEASED','job-token',clock_timestamp()+interval '1 minute',1,clock_timestamp(),clock_timestamp())`, [prefix+'-0',businessId])
+  await seedJob('owner'); await seedJob('contender'); await seedJob('other-phone'); await seedJob('other-business', 'other')
+  const owner = runtimeFixture({ computeDb, jobPrefix: 'owner', phone: '+54 9 11 1234-5678' })
+  const contender = runtimeFixture({ computeDb, jobPrefix: 'contender', phone: '5491112345678' })
+  let started!: () => void, unblock!: () => void, calls = 0
+  const startedPromise = new Promise<void>(resolve => { started = resolve })
+  const blockedPromise = new Promise<void>(resolve => { unblock = resolve })
+  const answer = { intent: 'other' as const, serviceId: null, serviceEvidence: null, professionalMention: null,
+    firstReply: { opening: 'Hola', factIds: [], closing: null } }
+  const ownerPending = owner.run('PROCESS_INBOX', { provider: async () => { calls++; started(); await blockedPromise; return answer }, timeoutMs: 4500 })
+  await startedPromise
+  const targetSql=owner.statements.find(q=>q.sql.includes('conversation-target'))!
+  await computeDb.exec(`INSERT INTO "BotActionInbox" VALUES ('inbox','biz','dep',1,'target-event');
+    INSERT INTO "BotProviderEvent" VALUES ('target-event','biz','MESSAGE','{"fromPhone":"+54 9 11 1234-5678"}'::jsonb);`)
+  assert.deepEqual((await computeDb.query(targetSql.text,targetSql.values)).rows,[{fenceEpoch:1,phone:'+54 9 11 1234-5678'}])
+  for(const mutation of [`UPDATE "BotActionInbox" SET "businessId"='foreign'`,`UPDATE "BotActionInbox" SET "deploymentGeneration"=2`,`UPDATE "BotProviderEvent" SET "eventType"='STATUS'`]) {
+    await computeDb.transaction(async tx=>{await tx.exec(mutation);assert.equal((await tx.query(targetSql.text,targetSql.values)).rows.length,0);throw Error('TARGET_FIXTURE_ROLLBACK')}).catch(error=>{assert.match(String(error),/TARGET_FIXTURE_ROLLBACK/)})
+  }
+  try {
+    const { runClaimedBotJob } = await import('../src/bot-options/infrastructure/postgres-worker.js')
+    let contenderOutcome: unknown
+    const workerDiagnostics: Array<{phase:string;outcome:string}>=[]
+    await runClaimedBotJob({client:{} as never,job:{id:'contender-0',kind:'PROCESS_INBOX'} as never,handlerSettlesJob:true,
+      handle:async()=>{ contenderOutcome=await contender.run('PROCESS_INBOX',{provider:async()=>{calls++;return answer},timeoutMs:4500}) },
+      onDiagnostic:value=>{workerDiagnostics.push(value)} })
+    assert.equal(contenderOutcome,'STALE_REVISION')
+    assert.equal(workerDiagnostics.at(-1)!.outcome,'handler_settled','worker must not complete/retry the handler-rescheduled job')
+    assert.equal(calls, 1, 'another job for this conversation must not enter AI while the owner is valid')
+    const deferred = (await computeDb.query<{status:string;attempts:number}>(`SELECT "status","attempts" FROM "BotJob" WHERE "id"='contender-0'`)).rows[0]!
+    assert.equal(deferred.status, 'READY', 'content stays represented by the existing durable job')
+    assert.equal(deferred.attempts, 0, 'ordinary contention must not poison the job by exhausting attempts')
+    assert.equal(contender.row.status, 'ADMITTED'); assert.equal(contender.replies.length, 0)
+    assert.equal(contender.statements.filter(q=>q.sql.includes('conversation-target')).length,1)
+    assert.ok(!contender.statements.some(q=>q.sql.includes('conversation-inbox-lock')), 'contended work skips snapshot/context/catalog entirely')
+    const peer = runtimeFixture({ computeDb, jobPrefix: 'other-phone', phone: 'another-phone' })
+    await peer.run('PROCESS_INBOX', { provider: async () => { calls++; return answer }, timeoutMs: 4500 })
+    const tenant = runtimeFixture({ computeDb, jobPrefix: 'other-business', businessId: 'other', phone: '5491112345678' })
+    await tenant.run('PROCESS_INBOX', { provider: async () => { calls++; return answer }, timeoutMs: 4500 })
+    assert.equal(calls, 3, 'other conversations and tenants must remain independent')
+  } finally { unblock() }
+  assert.equal(await ownerPending, 'PROCESSED'); assert.equal(owner.replies.length, 1)
+  assert.equal((await computeDb.query<{count:number}>(`SELECT count(*)::int AS count FROM "BotDispatchClaim" WHERE "status"='CLAIMED'`)).rows[0]!.count, 0)
+
+  await seedJob('stale-peer')
+  await computeDb.exec(`UPDATE "BotJob" SET "leaseToken"='another-worker' WHERE "id"='stale-peer-0'`)
+  const stalePeer=runtimeFixture({computeDb,jobPrefix:'stale-peer',phone:'5491112345678'})
+  // A foreign PROCESS owner makes acquisition contend, but our stale job token cannot refund it.
+  const {acquireDispatchClaim}=await import('../src/bot-options/infrastructure/dispatch-claims.js')
+  const {createHash}=await import('node:crypto')
+  const sharedResource='conversation-compute:'+createHash('sha256').update(JSON.stringify(['biz','5491112345678'])).digest('hex')
+  const externalClient={
+    $transaction: <T>(operation:(tx:unknown)=>Promise<T>)=>computeDb.transaction(tx=>operation({
+      $queryRaw:async(q:Query)=>(await tx.query(q.text,q.values)).rows,
+      $executeRaw:async(q:Query)=>(await tx.query(q.text,q.values)).affectedRows??1
+    })),
+  } as never
+  const externalToken=await acquireDispatchClaim({client:externalClient,businessId:'biz',sessionId:null,resourceId:sharedResource,generation:1,fenceEpoch:1,kind:'PROCESS'})
+  assert.ok(externalToken)
+  await assert.rejects(stalePeer.run(),/conversation dispatch gate closed or stale job claim/)
+  const unchanged=(await computeDb.query<{status:string;attempts:number;leaseToken:string}>(`SELECT "status","attempts","leaseToken" FROM "BotJob" WHERE "id"='stale-peer-0'`)).rows[0]!
+  assert.deepEqual(unchanged,{status:'LEASED',attempts:1,leaseToken:'another-worker'})
+  await computeDb.query(`UPDATE "BotDispatchClaim" SET "status"='DONE' WHERE "claimToken"=$1`,[externalToken])
+
+  // New input stays admitted while the owner computes; only a changed block needs another call.
+  await seedJob('parts'); await seedJob('parts-peer')
+  const parts = runtimeFixture({ computeDb, jobPrefix: 'parts', phone: 'parts-phone' })
+  const partsPeer = runtimeFixture({ computeDb, jobPrefix: 'parts-peer', phone: 'parts-phone' })
+  parts.inputs([{id:'event',text:'hoy'}])
+  let partsStarted!: () => void, partsRelease!: () => void, partsCalls = 0
+  const partsEntered = new Promise<void>(resolve => { partsStarted = resolve })
+  const partsBlocked = new Promise<void>(resolve => { partsRelease = resolve })
+  const oldParts = parts.run('PROCESS_INBOX', { provider: async () => { partsCalls++; partsStarted(); await partsBlocked; return answer }, timeoutMs: 10_000 })
+  await partsEntered
+  parts.inputs([{id:'event',text:'hoy'},{id:'later',text:'no, mañana'}])
+  try {
+    assert.equal(await partsPeer.run('PROCESS_INBOX', { provider: async () => { partsCalls++; return answer }, timeoutMs: 10_000 }), 'STALE_REVISION')
+    assert.equal(partsCalls, 1)
+  } finally { partsRelease() }
+  assert.equal(await oldParts, 'STALE_REVISION'); assert.equal(parts.replies.length, 0)
+  await computeDb.exec(`UPDATE "BotJob" SET "status"='LEASED',"attempts"=1,"leaseToken"='job-token',"leasedUntil"=clock_timestamp()+interval '1 minute' WHERE "id"='parts-0'`)
+  let revisedText = ''
+  await parts.run('PROCESS_INBOX', { provider: async input => { partsCalls++; revisedText=input.message; return answer }, timeoutMs: 10_000 })
+  assert.equal(revisedText, 'hoy no, mañana'); assert.equal(partsCalls, 2); assert.equal(parts.replies.length, 1)
+
+  // Expiration permits recovery; the late old owner cannot persist or release the new owner's claim.
+  await seedJob('expired'); await seedJob('successor')
+  const expired = runtimeFixture({ computeDb, jobPrefix: 'expired', phone: 'expired-phone' })
+  const successor = runtimeFixture({ computeDb, jobPrefix: 'successor', phone: 'expired-phone' })
+  let oldEntered!: () => void, oldRelease!: () => void, newEntered!: () => void, newRelease!: () => void
+  const oldStarted = new Promise<void>(resolve => { oldEntered=resolve })
+  const oldBlocked = new Promise<void>(resolve => { oldRelease=resolve })
+  const newStarted = new Promise<void>(resolve => { newEntered=resolve })
+  const newBlocked = new Promise<void>(resolve => { newRelease=resolve })
+  const oldResult = expired.run('PROCESS_INBOX', { provider: async () => { oldEntered(); await oldBlocked; return answer }, timeoutMs: 10_000 })
+    .then(value => ({value,error:null}), error => ({value:null,error}))
+  await oldStarted
+  const oldToken=(await computeDb.query<{claimToken:string}>(`SELECT "claimToken" FROM "BotDispatchClaim" WHERE "status"='CLAIMED'`)).rows[0]!.claimToken
+  await computeDb.query(`UPDATE "BotDispatchClaim" SET "claimedUntil"=clock_timestamp()-interval '1 second' WHERE "claimToken"=$1`,[oldToken])
+  const newResult = successor.run('PROCESS_INBOX', { provider: async () => { newEntered(); await newBlocked; return answer }, timeoutMs: 10_000 })
+  await newStarted
+  try {
+    oldRelease()
+    assert.match(String((await oldResult).error), /stale or fenced dispatch claim/)
+    assert.equal(expired.replies.length,0)
+    const current=(await computeDb.query<{claimToken:string}>(`SELECT "claimToken" FROM "BotDispatchClaim" WHERE "status"='CLAIMED'`)).rows
+    assert.equal(current.length,1); assert.notEqual(current[0]!.claimToken,oldToken,'old cleanup must preserve the successor lease')
+  } finally { newRelease() }
+  assert.equal(await newResult,'PROCESSED'); assert.equal(successor.replies.length,1)
+  // If the deployment gate closes after target read, it must not fall through to the legacy engine.
+  await seedJob('closed')
+  await computeDb.exec(`UPDATE "BotChannelDeployment" SET "claimsPausedAt"=clock_timestamp() WHERE "businessId"='biz'`)
+  const closed = runtimeFixture({ computeDb, jobPrefix: 'closed' })
+  await assert.rejects(closed.run(), /conversation dispatch gate closed/)
+  assert.equal(closed.messages, 0); assert.equal(closed.retried, 0)
+  console.log('conversational shared compute claim SQL/independent workers/deferred durable job/tenant/closed gate: PASS')
+} finally { await computeDb.close() }

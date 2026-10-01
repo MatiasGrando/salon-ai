@@ -1,9 +1,9 @@
-import { lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx } from './inbound-consolidation.js'
+import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx } from './inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../bot-options/observability/attempt-metrics.js'
 import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import type { WhatsAppConversationAi } from './whatsapp-ai.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
 import { initialDialogueState, respond, type DialogueContext, type DialoguePort } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
@@ -39,7 +39,7 @@ const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
  * LATERAL tenant dependency + OFFSET barrier evaluates the job lock before dispatch lease predicates.
  * Both tenant inputs originate from the same job-scoped policy. Global/session-bound helpers are unchanged.
  */
-async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: ClaimedBotJob, businessId: string, claimToken: string): Promise<void> {
+async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: ClaimedBotJob, businessId: string, claimToken: string, resourceId: string): Promise<void> {
   const rows = await tx.$queryRaw<Array<{ jobCount: bigint; dispatchCount: bigint }>>(Prisma.sql`
     /* conversation-claims-assert */
     WITH locked_job AS MATERIALIZED (
@@ -57,7 +57,7 @@ async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: Cla
         SELECT c."id" FROM "BotDispatchClaim" c
         JOIN "BotChannelDeployment" d ON d."businessId" = c."businessId" AND d."channel" = c."channel"
         WHERE c."claimToken" = ${claimToken} AND c."businessId" = ${businessId}
-          AND c."businessId" = validated_job."businessId"
+          AND c."businessId" = validated_job."businessId" AND c."kind" = 'PROCESS'::"BotDispatchKind" AND c."resourceId" = ${resourceId}
           AND c."status" = 'CLAIMED'::"BotDispatchStatus"
           AND c."claimedUntil" > clock_timestamp() AND d."generation" = c."generation"
           AND d."dispatchFenceEpoch" = c."fenceEpoch" AND d."claimsPausedAt" IS NULL
@@ -87,14 +87,47 @@ export async function processConversationInbox(input: {
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
   const policy = await measureAttemptStage('conversation_policy_load', () => loadConversationPolicy(input.client, { businessId: input.job.businessId, deploymentId: input.job.deploymentId, generation: input.job.deploymentGeneration }))
   if (!policy) return null
-  const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number }>>(Prisma.sql`
-    /* conversation-target */ SELECT "dispatchFenceEpoch" AS "fenceEpoch" FROM "BotChannelDeployment"
-    WHERE "id" = ${policy.deploymentId} AND "businessId" = ${policy.businessId} AND "generation" = ${policy.generation}
+  const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number; phone: string | null }>>(Prisma.sql`
+    /* conversation-target */ SELECT d."dispatchFenceEpoch" AS "fenceEpoch", e."payload"->>'fromPhone' AS "phone"
+    FROM "BotChannelDeployment" d
+    JOIN "BotActionInbox" i ON i."deploymentId" = d."id" AND i."businessId" = d."businessId" AND i."deploymentGeneration" = d."generation"
+    JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
+    WHERE d."id" = ${policy.deploymentId} AND d."businessId" = ${policy.businessId} AND d."generation" = ${policy.generation}
+      AND i."id" = ${input.job.aggregateId} AND e."eventType" = 'MESSAGE'::"BotProviderEventType"
   `))
-  if (!targets[0]) throw new Error('conversational target unavailable')
+  const target = targets[0]
+  if (targets.length !== 1 || !target?.phone) throw new Error('conversational target unavailable')
+  const targetPhone = target.phone
+  // One durable owner across workers; new inbound messages remain independently admissible.
+  const resourceId = 'conversation-compute:' + createHash('sha256')
+    .update(JSON.stringify([policy.businessId, canonicalConversationPhone(targetPhone)])).digest('hex')
   const token = await measureAttemptStage('conversation_dispatch_acquire', () => acquireDispatchClaim({ client: input.client, businessId: policy.businessId, sessionId: null,
-    resourceId: input.job.id, generation: policy.generation, fenceEpoch: targets[0].fenceEpoch, kind: 'PROCESS' }))
-  if (!token) throw new Error('conversation dispatch gate closed')
+    resourceId, generation: policy.generation, fenceEpoch: target.fenceEpoch, kind: 'PROCESS' }))
+  if (!token) {
+    // An owner can finish between acquisition and this transaction. A still-current gate permits
+    // the same safe retry; a closed gate or lost job lease does not silently enter the old engine.
+    const deferred = await input.client.$transaction(async tx => {
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
+      return tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        /* conversation-compute-defer */
+        WITH owned AS MATERIALIZED (
+          SELECT j."id" FROM "BotJob" j JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
+          WHERE j."id" = ${input.job.id} AND j."businessId" = ${policy.businessId} AND j."aggregateId" = ${input.job.aggregateId}
+            AND j."status" = 'LEASED'::"BotJobStatus" AND j."leaseToken" = ${input.job.claimToken} AND j."leasedUntil" > clock_timestamp()
+            AND j."deploymentId" = ${policy.deploymentId} AND j."deploymentGeneration" = ${policy.generation}
+            AND d."generation" = j."deploymentGeneration" AND d."dispatchFenceEpoch" = ${target.fenceEpoch}
+            AND d."channel" = 'WHATSAPP'::"BotChannel" AND d."engineKey" = 'deterministic-options'
+            AND d."activeConfigurationId" IS NOT NULL AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
+          FOR UPDATE OF j
+        )
+        UPDATE "BotJob" j SET "status" = 'READY'::"BotJobStatus", "attempts" = GREATEST(j."attempts" - 1, 0),
+          "availableAt" = clock_timestamp() + interval '250 milliseconds', "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
+        FROM owned WHERE j."id" = owned."id" RETURNING j."id"
+      `)
+    }, txOptions)
+    if (deferred.length !== 1) throw new Error('conversation dispatch gate closed or stale job claim')
+    return 'STALE_REVISION'
+  }
   // Cleanup uses only executeRaw to release an unsettled claim; no global client proxy.
   const cleanupClient = {
     $queryRaw: input.client.$queryRaw.bind(input.client), $transaction: input.client.$transaction.bind(input.client),
@@ -104,7 +137,7 @@ export async function processConversationInbox(input: {
     const events: InboundConversationMessageProjection[] = []
     const updates: Array<Omit<ConversationUpdatedEvent, 'type'>> = []
     const readRow = async (tx: Prisma.TransactionClient): Promise<Row> => {
-      await measureAttemptStage('conversation_claims_assert', () => assertConversationClaimsTx(tx, input.job, policy.businessId, token))
+      await measureAttemptStage('conversation_claims_assert', () => assertConversationClaimsTx(tx, input.job, policy.businessId, token, resourceId))
       await measureAttemptStage('conversation_feature_lock', () => tx.$queryRaw(Prisma.sql`/* conversation-feature-lock */ SELECT "botEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = ${policy.businessId} FOR SHARE`))
       const rows = await measureAttemptStage('conversation_inbox_lock', () => tx.$queryRaw<Row[]>(Prisma.sql`
         /* conversation-inbox-lock */
@@ -205,6 +238,7 @@ export async function processConversationInbox(input: {
       const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown }
       if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('conversation phone unavailable')
       const phone = payload.fromPhone
+      if (canonicalConversationPhone(phone) !== canonicalConversationPhone(targetPhone)) throw new Error('conversation computation identity changed')
       const eligibleText = payload.messageType === 'text' && !input.isRestart(payload.textBody)
       if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
       let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null

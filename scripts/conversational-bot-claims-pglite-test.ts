@@ -1,5 +1,6 @@
 /** Real production guard SQL, disposable memory-only PostgreSQL/WASM; no remote connection. */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { processConversationInbox } from '../src/conversational-bot/process-inbox-job.js'
@@ -10,6 +11,7 @@ const config = { businessId: 'biz', customerCode: 'WX-38N6UG', deploymentId: 'de
 const job = { id: 'job', kind: 'PROCESS_INBOX', aggregateId: 'inbox', businessId: 'biz', deploymentId: 'dep',
   deploymentGeneration: 1, expectedRevision: null, attempts: 1, maxAttempts: 5, claimToken: 'job-token',
   claimedUntil: new Date('2100-01-01'), queueWaitMs: 0 }
+const resourceId = 'conversation-compute:' + createHash('sha256').update(JSON.stringify(['biz', 'phone'])).digest('hex')
 const db = new PGlite()
 type Query = Prisma.Sql
 let activeTx: Transaction | undefined
@@ -42,7 +44,7 @@ const client = {
     if (q.sql.includes('consolidation-inbox-identity')) { operations.push('identity'); return [{ phone: 'phone' }] }
     if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('conversation-policy')) return [config]
-    if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1 }]
+    if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1, phone: 'phone' }]
     if (txNumber === 1 && q.sql.includes('INSERT INTO "BotDispatchClaim"')) return [{ claimToken: 'dispatch-token' }]
     if (q.sql.includes('conversation-claims-assert')) {
       assert.ok(activeTx)
@@ -107,7 +109,7 @@ const reset = async () => {
   await db.exec(`TRUNCATE "BotJob", "BotDispatchClaim", "BotSession", "BotChannelDeployment";
     INSERT INTO "BotChannelDeployment" VALUES ('dep','biz','WHATSAPP',1,'cfg',1,NULL,1);
     INSERT INTO "BotJob" VALUES ('job','biz','dep',1,'LEASED','job-token',clock_timestamp()+interval '1 hour');
-    INSERT INTO "BotDispatchClaim" VALUES ('claim','biz','WHATSAPP',NULL,1,1,NULL,'CLAIMED','dispatch-token',clock_timestamp()+interval '1 hour');`)
+    INSERT INTO "BotDispatchClaim" VALUES ('claim','biz','WHATSAPP',NULL,1,1,NULL,'CLAIMED','dispatch-token',clock_timestamp()+interval '1 hour','PROCESS','${resourceId}');`)
   txNumber = releases = guardCalls = reachedInbox = 0
   operations.length = 0
   afterGate = undefined
@@ -116,6 +118,7 @@ try {
   await db.exec(`
     CREATE TYPE "BotJobStatus" AS ENUM ('LEASED','DONE');
     CREATE TYPE "BotChannel" AS ENUM ('WHATSAPP');
+    CREATE TYPE "BotDispatchKind" AS ENUM ('PROCESS','SEND');
     CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','SENDING','DONE');
     CREATE TYPE "BotSessionStatus" AS ENUM ('ACTIVE','HUMAN_TAKEN');
     CREATE TABLE "BotChannelDeployment" ("id" text PRIMARY KEY,"businessId" text,"channel" "BotChannel",
@@ -123,7 +126,7 @@ try {
     CREATE TABLE "BotJob" ("id" text PRIMARY KEY,"businessId" text,"deploymentId" text,"deploymentGeneration" int,
       "status" "BotJobStatus","leaseToken" text,"leasedUntil" timestamptz);
     CREATE TABLE "BotDispatchClaim" ("id" text PRIMARY KEY,"businessId" text,"channel" "BotChannel","sessionId" text,
-      "generation" int,"fenceEpoch" int,"handoffFenceEpoch" int,"status" "BotDispatchStatus","claimToken" text,"claimedUntil" timestamptz);
+      "generation" int,"fenceEpoch" int,"handoffFenceEpoch" int,"status" "BotDispatchStatus","claimToken" text,"claimedUntil" timestamptz,"kind" "BotDispatchKind","resourceId" text);
     CREATE TABLE "BotSession" ("id" text PRIMARY KEY,"businessId" text,"status" "BotSessionStatus","handoffClaimsPausedAt" timestamptz,"handoffFenceEpoch" int);
   `)
   await reset()
@@ -144,6 +147,8 @@ try {
     ['deployment config', `UPDATE "BotChannelDeployment" SET "activeConfigurationId"=NULL`, /stale or fenced bot job claim/],
     ['deployment coverage', `UPDATE "BotChannelDeployment" SET "legacyDispatchCoverageVersion"=0`, /stale or fenced bot job claim/],
     ['deployment paused', `UPDATE "BotChannelDeployment" SET "claimsPausedAt"=clock_timestamp()`, /stale or fenced bot job claim/],
+    ['dispatch resource', `UPDATE "BotDispatchClaim" SET "resourceId"='foreign-resource'`, /stale or fenced dispatch claim/],
+    ['dispatch kind', `UPDATE "BotDispatchClaim" SET "kind"='SEND'`, /stale or fenced dispatch claim/],
     ['dispatch token', `UPDATE "BotDispatchClaim" SET "claimToken"='other'`, /stale or fenced dispatch claim/],
     ['dispatch tenant', `UPDATE "BotDispatchClaim" SET "businessId"='foreign'`, /stale or fenced dispatch claim/],
     ['dispatch status', `UPDATE "BotDispatchClaim" SET "status"='SENDING'`, /stale or fenced dispatch claim/],
