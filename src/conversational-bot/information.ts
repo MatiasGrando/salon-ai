@@ -10,6 +10,21 @@ export function validateFacts(facts: BusinessFacts, businessId: string): void {
   if (!facts || facts.businessId !== businessId) throw new Error('invalid information scope')
   for (const value of Object.values(facts)) if (value !== null && (typeof value !== 'string' || value.length > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))) throw new Error('invalid public facts')
 }
+function validMapsUrl(value: string | null | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase()
+    return url.protocol === 'https:' && (host === 'maps.google.com' || host === 'www.google.com' || host === 'google.com') ? url.toString() : null
+  } catch { return null }
+}
+function addressLabel(facts: BusinessFacts | null): string | null {
+  const address = facts?.address?.trim()
+  const area = facts?.area?.trim()
+  if (!address && !area) return null
+  if (address && area && address.toLowerCase().includes(area.toLowerCase())) return address
+  return [address, area].filter(Boolean).join(', ')
+}
 export function renderServices(services: readonly DialogueService[]): string {
   return services.map(service => {
     const price = formatCatalogPrice(service.price, service.priceMode ?? 'FIXED') ?? 'precio a consultar'
@@ -35,7 +50,11 @@ export function renderInformation(actions: readonly InformationAction[], message
       else if (!actions.includes('SERVICES')) replies.push('¿De qué servicio querés consultar el precio?')
     }
     if (action === 'HOURS') replies.push(facts?.hours || 'No tengo horarios publicados.')
-    if (action === 'ADDRESS') replies.push([facts?.address, facts?.area, facts?.mapsUrl].filter(Boolean).join(', ') || 'No tengo una dirección publicada.')
+    if (action === 'ADDRESS') {
+      const label = addressLabel(facts)
+      const maps = validMapsUrl(facts?.mapsUrl)
+      replies.push(label ? [label, maps ? 'Maps: ' + maps : null].filter(Boolean).join('\n') : 'No tengo una dirección publicada.')
+    }
     if (action === 'BUSINESS_INFO') {
       const selected: string[] = []
       const add = (label: string, value: string | null | undefined) => selected.push(value ? `${label}: ${value}` : `No tengo ${label.toLowerCase()} publicado.`)

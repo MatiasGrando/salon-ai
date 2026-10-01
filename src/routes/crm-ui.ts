@@ -22249,7 +22249,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const copyLabel = interpretation?.copyMode === 'ai' ? 'IA controlada' : interpretation?.mode === 'ai' ? 'Respaldo del motor' : 'Motor'
         const copyLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de redacci&oacute;n: ' + escapeHtml(copyLabel) + (interpretation.copyReason ? ' (' + escapeHtml(interpretation.copyReason) + ')' : '') + '</div>' : ''
         const diagnostics = message.preview ? '<details class="demo-chat-diagnostics"><summary>Datos entendidos y tiempos</summary><pre>' + escapeHtml(JSON.stringify(message.preview, null, 2)) + '</pre></details>' : ''
-        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + escapeHtml(message.text) + '</div>' + (interactiveList || quickReplies) + modeLine + copyLine + diagnostics + '</div>'
+        return '<div class="demo-chat-message ' + message.role + '"><div class="demo-chat-bubble ' + message.role + '">' + renderDemoChatText(message.text) + '</div>' + (interactiveList || quickReplies) + modeLine + copyLine + diagnostics + '</div>'
       }).join('')
       if (state.demoChatPreviewRun?.working) {
         els.demoChatMessages.innerHTML += '<div class="demo-chat-empty" role="status">Pensando... Pod&eacute;s seguir escribiendo.</div>'
@@ -37131,6 +37131,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
     }
 
+    function renderDemoChatText(value) {
+      return escapeHtml(value).replace(/Maps: (https:\\\/\\\/(?:www\\.google\\.com|google\\.com|maps\\.google\\.com)\\\/[^\\s<]+)/g, (_match, url) => {
+        return 'Maps: <a href="' + url + '" target="_blank" rel="noopener noreferrer">Ver en Maps</a>'
+      })
+    }
     function escapeHtml(value) {
       return String(value ?? '')
         .replace(/&/g, '&amp;')

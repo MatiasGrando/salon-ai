@@ -156,3 +156,15 @@ const switchPort: DialoguePort = { ...ramiroPort, availability: async (_service,
 const switched = await respond(context, selectedEarly.state, 'no, mejor con Luz', switchPort)
 assert.equal(switched.state.professional?.kind === 'specific' ? switched.state.professional.id : null, 'luz', 'explicit change overrides previously selected professional')
 assert.equal((await respond(context, early, 'nunca te dije Ramiro', ramiroPort)).state.professionalNameHint, null)
+let changeDate = (await respond(context, initialDialogueState(context.businessId), 'Corte Hombre hoy', ramiroPort)).state
+changeDate = (await respond(context, changeDate, 'Ramiro', ramiroPort)).state
+changeDate = (await respond(context, changeDate, '17:00', ramiroPort)).state
+assert.equal(changeDate.pending, 'name')
+const tuesdaySlot = { ...ramiroSlot, date: '2026-09-29', startAt: '2026-09-29T20:00:00.000Z' }
+const tuesdayPort: DialoguePort = { ...ramiroPort, availability: async (_service, date, id) => ({ professionals: [ramiro], slots: date === tuesdaySlot.date && (!id || id === ramiro.id) ? [tuesdaySlot] : [] }) }
+const changedTuesday = await respond(context, changeDate, 'mejor el martes', tuesdayPort)
+assert.equal(changedTuesday.state.date, '2026-09-29', 'weekday correction updates date while pending name')
+assert.equal(changedTuesday.state.slot, null, 'date correction invalidates old slot')
+assert.equal(changedTuesday.state.pending, 'time')
+assert.match(changedTuesday.reply, /martes 29\/09/)
+assert.match(changedTuesday.reply, /horarios disponibles/i)

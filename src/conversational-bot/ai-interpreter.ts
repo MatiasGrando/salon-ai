@@ -228,7 +228,7 @@ export async function respondWithAiInterpreter(
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
   const decision: DialogueDecision | undefined = candidate ? {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
-    candidateIds: candidates.map(service => service.id), correction: candidate.serviceCorrection === true ||
+    candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
         selected && selected.id !== state.serviceId))
   } : undefined

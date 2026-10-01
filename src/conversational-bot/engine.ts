@@ -1,6 +1,7 @@
 import { ACTION_REGISTRY, routeActions, type InformationAction } from './actions.js'
 import { pendingQuestion, renderInformation, renderServices, validateFacts, type BusinessFacts } from './information.js'
 import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
+import { resolveDialogueDate } from './dialogue-date.js'
 
 export type DialogueService = { id: string; name: string; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT' }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date }
@@ -21,7 +22,7 @@ export type DialogueState = {
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
-export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other' }
+export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null }
 /** Resume context without presenting an old availability result as freshly checked. */
 export function socialQuestion(state: DialogueState): string {
   return state.pending === 'time' ? '¿Querés que consultemos los horarios para tu turno?' : pendingQuestion(state)
@@ -72,13 +73,13 @@ function extractProfessionalHint(text: string): string | null {
   return match?.[1] ?? null
 }
 function extractDate(text: string, context: DialogueContext): string | null {
-  if (/\bmanana\b/.test(text)) return localDateKey(context.dbNow, context.timezone, 1)
-  if (/\bhoy\b/.test(text)) return localDateKey(context.dbNow, context.timezone)
-  const explicit = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})\b/.exec(text)
-  if (!explicit) return null
-  const year = explicit[3]!.length === 2 ? `20${explicit[3]}` : explicit[3]!
-  const date = `${year}-${explicit[2]!.padStart(2, '0')}-${explicit[1]!.padStart(2, '0')}`
-  return validCalendarDate(date) && localDateTimeToInstants(date, 720, context.timezone).length ? date : null
+  const result = resolveDialogueDate(text, localDateKey(context.dbNow, context.timezone))
+  return result.kind === 'resolved' && localDateTimeToInstants(result.date, 720, context.timezone).length ? result.date : null
+}
+function containsInvalidDateExpression(text: string, context: DialogueContext): boolean {
+  if (!/\b(?:hoy|manana|pasado\s+manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|\d{1,4}[/-]\d{1,2}(?:[/-]\d{1,4})?)\b/.test(text)) return false
+  const result = resolveDialogueDate(text, localDateKey(context.dbNow, context.timezone))
+  return result.kind === 'invalid' || result.kind === 'ambiguous'
 }
 function extractTime(text: string): string | null {
   const match = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(text)
@@ -88,6 +89,12 @@ function extractTime(text: string): string | null {
   return null
 }
 function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null }
+function dateLabel(date: string, timezone: string): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number]
+  const instant = new Date(Date.UTC(year, month - 1, day, 12))
+  const weekday = new Intl.DateTimeFormat('es-AR', { timeZone: timezone, weekday: 'long' }).format(instant)
+  return weekday + ' ' + String(day).padStart(2, '0') + '/' + String(month).padStart(2, '0')
+}
 const serviceList = renderServices
 async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
@@ -102,12 +109,13 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (state.serviceId && !service) { state.serviceId = null; state.professional = null; clearSlot(state); state.pending = 'service' }
   if (/\bcambiar (?:la )?(?:hora|horario)\b/.test(text)) clearSlot(state)
   if (/\bcambiar (?:el )?servicio\b/.test(text)) { state.serviceId = null; service = undefined; state.professional = null; clearSlot(state) }
+  const decisionProfessional = decision?.professionalMention ? normalize(decision.professionalMention) : null
   const anyProfessional = /\b(cualquiera|cualquier profesional|sin preferencia|me da igual)\b/.test(text)
   const rejectsProfessional = /\bnunca te dije\b/.test(text)
   if (rejectsProfessional) { state.professional = null; state.professionalNameHint = null; clearSlot(state); state.pending = 'professional' }
   if (anyProfessional) state.professionalNameHint = null
   else if (!rejectsProfessional) {
-    const earlyName = extractProfessionalHint(text)
+    const earlyName = decisionProfessional ?? extractProfessionalHint(text)
     if (earlyName && !matches(earlyName, services).length) {
       state.professionalNameHint = earlyName
       state.professional = null
@@ -127,7 +135,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   }
   if (found.length === 1 && found[0]!.id !== state.serviceId) { service = found[0]!; state.serviceId = service.id; state.professional = null; clearSlot(state) }
   const date = extractDate(text, context)
-  if (/\b\d{1,2}[/-]\d{1,2}[/-](?:\d{4}|\d{2})\b/.test(text) && !date) {
+  if (containsInvalidDateExpression(text, context) && !date) {
     state.date = null; clearSlot(state); state.pending = 'date'
     return finish('Esa fecha no es válida. ¿Qué día querés consultar?')
   }
@@ -184,7 +192,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any') state.slot = selected[0]!
     else if (selected.length > 1) return finish(`Ese horario tiene varias opciones: ${selected.map(s => `${s.time} con ${s.professionalName}`).join(', ')}. Indicá el profesional.`)
   }
-  if (!state.slot) { state.pending = 'time'; return finish(`${prefix}Estos son todos los horarios disponibles:\n${slots.map(s => `${s.time} con ${s.professionalName}`).join('\n')}\n¿Cuál elegís?`) }
+  if (!state.slot) { state.pending = 'time'; return finish(`${prefix}Horarios disponibles para ${dateLabel(state.date, context.timezone)}:\n${slots.map(s => `${s.time} con ${s.professionalName}`).join('\n')}\n¿Cuál elegís?`) }
   if (!state.customerName) { state.pending = 'name'; return finish(`${prefix}¿A nombre de quién sería el turno?`) }
   state.pending = 'proposal'
   const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName }
@@ -197,7 +205,7 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const route = routeActions(message)
   if (route.pendingAction && ACTION_REGISTRY[route.pendingAction].status === 'pending') return { state, proposal: null, reply: 'Esa operación todavía no está disponible en este motor. Necesitás solicitarla al equipo.' }
-  if (!route.information.length && decision?.intent === 'other' &&
+  if (!route.information.length && decision?.intent === 'other' && !decision.serviceId && !decision.candidateIds.length && !decision.professionalMention &&
       !/^(reset|volver a empezar|empezar de nuevo|no quiero nada|nada gracias)$/.test(normalize(message))) return { state, proposal: null,
     reply: state.pending === 'service' && !state.serviceId ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }
   if (!route.information.length) return respondBooking(context, state, message, port, decision)

@@ -167,7 +167,14 @@ for (const [message, interpretation] of turns) {
 assert.equal(consecutive.serviceId, 'cut')
 assert.equal(consecutive.professional?.kind === 'specific' ? consecutive.professional.id : null, 'ramiro')
 assert.equal(consecutive.pending, 'name')
-// Labeled, synthetic conversation evaluation. These are reported failure shapes, not exported customer chats.
+let bareProfessional = initialDialogueState('qa')
+bareProfessional = (await respondWithAiInterpreter(context, bareProfessional, 'corte hombre mañana', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre', serviceConfidence: 'certain' }), { responseProvider: writer })).state
+assert.equal(bareProfessional.pending, 'professional')
+const bareProfessionalTurn = await respondWithAiInterpreter(context, bareProfessional, 'ramiro', port,
+  async () => ({ ...empty, intent: 'booking', professionalMention: 'ramiro' }), { responseProvider: writer })
+assert.equal(bareProfessionalTurn.state.professional?.kind === 'specific' ? bareProfessionalTurn.state.professional.id : null, 'ramiro')
+assert.equal(bareProfessionalTurn.state.pending, 'time')// Labeled, synthetic conversation evaluation. These are reported failure shapes, not exported customer chats.
 const syntheticScenarios: Array<{ label: string; turns: Array<{
   message: string; candidate: unknown; expectedAction: string; expectedOutcome: string;
   candidateCount: number; pending: string; service: boolean; date?: boolean; professional?: boolean
