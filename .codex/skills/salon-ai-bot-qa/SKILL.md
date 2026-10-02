@@ -38,3 +38,8 @@ description: Disenar, implementar y revisar pruebas de regresion del bot de Salo
 ## Criterio de aprobacion
 
 No aprobar si el bot pierde datos validos, pregunta por datos confirmados, salta el primer campo faltante, guarda una interpretacion dudosa, modifica datos ante una correccion ambigua, inventa opciones, reserva sin confirmacion o falla sin OpenAI.
+
+## Regresiones E2.11: lectura IA y respaldo contextual
+
+- Lectura Responses: probar offline ambos providers. Aceptar un unico final assistant completado con phase final_answer junto a commentary validado y acotado, y conservar el unico mensaje legacy sin phase. Rechazar finales competidores, multiples o ambiguos sin fase, refusal, incomplete y JSON invalido; no concatenar mensajes independientes ni elegir el ultimo arbitrariamente. Diagnosticos de fases/tipos y contadores sanitizados, nunca texto bruto del proveedor.
+- Respaldo contextual: probar cesta singular y multiple ante timeout/provider_error/invalid_output. Resolver solo opciones realmente presentadas, en contexto tipado vigente, catalogo actual y un integrante objetivo: nombre exacto o token distintivo cerrado e inequivoco. Aproximaciones requieren candidato y confirmacion explicita fresca; ambiguedad muestra opciones concretas. Cubrir negaciones, preguntas, contexto ausente/incompleto/vencido/ajeno y opciones retiradas o renombradas. Snapshots antiguos deben volver a mostrar opciones antes de elegir. Conservar companeros y datos independientes, respetar guias/estimaciones y no confundir un si de aclaracion con consentimiento de reserva; mantener AI-first y diagnostico fallback honesto.

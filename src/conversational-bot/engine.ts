@@ -1,5 +1,5 @@
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
-import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
+import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, matchPresentedServiceAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
 import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
 import { resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPolicy } from '../bot-options/domain/service-booking.js'
 import { guidanceBlockMessage, guidanceQuestion, parseServiceEstimates, renderGuidedEstimates, resolveGuidance, serviceGuidance, type GuidanceBlock, type GuidedSelection, type ServiceEstimates } from './service-guidance.js'
@@ -120,8 +120,11 @@ function matches<T extends { id: string; name: string; aliases?: readonly string
   const result = matchNamedItems({ businessId, category }, text, items)
   return result.kind === 'exact' && result.complete ? items.filter(item => result.items.some(found => found.id === item.id)) : []
 }
-type MatchRequest = { category: MatchingCategory; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean }
+type MatchRequest = { category: MatchingCategory; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean; eligibleIds?: readonly string[] }
 function requestedNamedMatch(request: MatchRequest, scope: MatchingScope, items: readonly { id: string; name: string; aliases?: readonly string[] }[]): MatchingResult | null {
+  if (request.eligibleIds) items = items.filter(item => request.eligibleIds!.includes(item.id))
+  if (request.eligibleIds && request.query) return matchPresentedServiceAnswer(scope, request.query,
+    items.map(item => ({ ...scope, id: item.id, label: item.name })))
   if (request.candidateIds) return { kind: 'candidates', complete: true,
     items: items.filter(item => request.candidateIds!.includes(item.id)).map(item => ({ ...scope, id: item.id, label: item.name })) }
   return request.query ? matchNamedItems(scope, request.query, items) : null
@@ -130,7 +133,24 @@ function exactNamedAnswer<T extends { name: string; aliases?: readonly string[] 
   return proposed && (!request.answerOnly || [proposed.name, ...(proposed.aliases ?? [])].some(label => normalizeAnswer(label) === normalizeAnswer(request.query ?? ''))) ? proposed : undefined
 }
 const socialMessage = (message: string) => /^(hola|buenas|buen dia|buenos dias|buenas tardes|buenas noches|como estas|gracias|muchas gracias|chau|hasta luego)$/.test(normalize(message))
-function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, context: DialogueContext): { plan: TurnPlan; matching?: MatchRequest } {
+
+/** Typed presentation plus unchanged catalog labels binds retrieval to one basket member. */
+function presentedBasketChoices(state: DialogueState, services: readonly DialogueService[]) {
+  const question = state.questionContext
+  if (state.pending !== 'service' || question?.role !== 'service' || !question.complete || !question.options.length) return null
+  const groups = selectionBasket(state).members.filter(member =>
+    (!question.matchTargetMemberId || question.matchTargetMemberId === member.memberId) &&
+    (member.mode === 'alternatives' && question.options.every(option => member.serviceIds.includes(option.id)) ||
+      member.mode === 'unresolved' && question.matchTargetMemberId === member.memberId &&
+      question.matchCandidateIds?.length === 1 && question.options.length === 1))
+  if (groups.length !== 1) return null
+  const choices = question.options.flatMap(option => services.filter(service =>
+    service.id === option.id && normalizeAnswer(service.name) === normalizeAnswer(option.label)))
+  if (choices.length !== question.options.length) return null
+  return { member: groups[0]!, choices }
+}
+
+function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, context: DialogueContext, services: readonly DialogueService[]): { plan: TurnPlan; matching?: MatchRequest } {
   let matching: MatchRequest | undefined
   // Semantic IDs already passed catalog/evidence validation. Retrieval must not police synonyms or typos.
   const operations = raw.operations
@@ -139,9 +159,13 @@ function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, cont
   if (unresolved?.kind === 'service' || unresolvedMember) matching = { category: 'service', query: unresolved?.evidence ?? unresolvedMember!.evidence }
   const scopedChange = operations.some(op => ['service','basket','date','professional','estimate'].includes(op.kind))
   const question = state.questionContext
-  if (!matching && !scopedChange && question?.matchCandidateIds && affirmativeMatchAnswer(message, operations.map(op => op.evidence))) {
+  const basketChoices = presentedBasketChoices(state, services)
+  const basketServiceQuestion = question?.field === 'service' && hasBasketSelection(state)
+  if (!matching && !scopedChange && question?.matchCandidateIds &&
+      (!basketServiceQuestion || basketChoices && !/[?¿]/.test(message)) && affirmativeMatchAnswer(message, operations.map(op => op.evidence))) {
     matching = { category: question.field as MatchingCategory, ...(question.matchCandidateIds.length === 1 ? { confirmationId: question.matchCandidateIds[0]! } : { candidateIds: question.matchCandidateIds }),
-      ...(question.targetServiceId ? { targetServiceId: question.targetServiceId } : {}), ...(question.matchConfigurationKey ? { configurationKey: question.matchConfigurationKey } : {}), ...(question.matchTargetMemberId ? { targetMemberId: question.matchTargetMemberId } : {}) }
+      ...(question.targetServiceId ? { targetServiceId: question.targetServiceId } : {}), ...(question.matchConfigurationKey ? { configurationKey: question.matchConfigurationKey } : {}), ...(question.matchTargetMemberId ? { targetMemberId: question.matchTargetMemberId } : {}),
+      ...(basketChoices ? { eligibleIds: basketChoices.choices.map(item => item.id), targetMemberId: basketChoices.member.memberId } : {}) }
   }
   const identity = operations.find(op => op.kind === 'name')
   if (!matching && state.pending === 'professional' && identity?.kind === 'name' && !explicitIdentity(message, identity.value) && !operations.some(op => op.kind === 'professional')) {
@@ -152,6 +176,18 @@ function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, cont
     if (state.pending === 'professional') matching = { category: 'professional', query: message, answerOnly: true }
     if (state.pending === 'estimate' && question?.targetServiceId) matching = { category: 'estimate', query: message, targetServiceId: question.targetServiceId, answerOnly: true }
     if (state.pending === 'service' && !operations.length && !hasBasketSelection(state) && (!state.customerName || normalize(message) !== normalize(state.customerName))) matching = { category: 'service', query: message, answerOnly: true }
+  }
+  if (!matching && !operations.length && basketChoices && !socialMessage(message) &&
+      !extractDate(normalize(message), context) && !extractTime(normalize(message)) && !routeActions(message).information.length &&
+      !routeActions(message).pendingAction) {
+    const result = matchPresentedServiceAnswer({ businessId: state.businessId, category: 'service' }, message,
+      basketChoices.choices.map(item => ({ businessId: state.businessId, category: 'service', id: item.id, label: item.name })))
+    if (result.kind === 'exact' && result.items.length === 1 && result.complete) {
+      const replacement = { kind: 'basket', mutation: 'replace', scope: 'members', targetMemberIds: [basketChoices.member.memberId],
+        members: [{ mode: 'single', serviceIds: [result.items[0]!.id], evidence: message, confidence: 1 }], evidence: message, confidence: 1 }
+      return { plan: parseTurnPlan({ version: 1, operations: [replacement] }, message, services.map(service => service.id)) }
+    }
+    if (result.items.length) matching = { category: 'service', query: message, eligibleIds: basketChoices.choices.map(item => item.id), targetMemberId: basketChoices.member.memberId }
   }
   return { plan: { ...raw, operations }, ...(matching ? { matching } : {}) }
 }
@@ -208,6 +244,17 @@ function basketQuestion(state: DialogueState, services: readonly DialogueService
   return pending.mode === 'unresolved' ? 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
     : '¿Cuál de estos servicios querés?\n' + serviceList(services.filter(service => pending.serviceIds.includes(service.id))) + retained
 }
+
+/** Persist only the concrete alternatives actually rendered, never the whole catalog. */
+function rememberBasketClarification(state: DialogueState, services: readonly DialogueService[], reply: string): void {
+  const member = selectionBasket(state).members.find(item => item.mode !== 'single')
+  if (!member) return
+  const question = reply.slice(reply.indexOf('¿'), reply.indexOf('?') + 1)
+  const options = services.filter(item => member.serviceIds.includes(item.id)).map(item => ({ id: item.id, label: item.name }))
+  state.dialogueContext = { lastQuestion: question, presentedOffer: state.dialogueContext?.presentedOffer ?? null }
+  rememberDialogueQuestion(state, question, options)
+}
+
 function validBookableService(service: DialogueService, allowDual = false): boolean {
   return serviceGuidance(service).kind !== 'blocked' && Number.isSafeInteger(service.durationMinutes) && Number(service.durationMinutes) > 0 &&
     (service.professionalDurationMinutes === undefined || Number.isSafeInteger(service.professionalDurationMinutes) && service.professionalDurationMinutes === service.durationMinutes) &&
@@ -294,7 +341,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (matching?.category === 'service') {
     const unresolvedMember = selectionBasket(state).members.find(member => member.mode !== 'single')
     if (!matching.targetMemberId && unresolvedMember) matching.targetMemberId = unresolvedMember.memberId
-    const found = matching.confirmationId ? services.filter(service => service.id === matching!.confirmationId) : []
+    const found = matching.confirmationId ? services.filter(service => service.id === matching!.confirmationId && (!matching!.eligibleIds || matching!.eligibleIds.includes(service.id))) : []
     const result = requestedNamedMatch(matching, { businessId: context.businessId, category: 'service' }, services)
     const proposed = result?.kind === 'exact' && result.items.length === 1 ? services.find(service => service.id === result.items[0]!.id) : undefined
     const exact = found[0] ?? exactNamedAnswer(matching, proposed)
@@ -545,7 +592,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   parseTurnPlan(raw, message, services.map(service => service.id))
-  const matched = matchingTurn(state, message, raw, context)
+  const matched = matchingTurn(state, message, raw, context, services)
   const contextual = contextualizeIdentity(matched.plan, state, message)
   const plan = contextual.plan
   const clarificationReply = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
@@ -627,11 +674,19 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     answers.push(renderInformation(op.target.actions, op.evidence, facts, services))
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply, clarificationReply].filter(Boolean).join('\n'), proposal: null })
-  if (!matched.matching && !plan.operations.length && hasActiveBooking(state)) return finishWithoutAgenda(socialQuestion(state))
+  if (!matched.matching && !plan.operations.length && hasActiveBooking(state)) {
+    const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
+    if (clarification) {
+      rememberBasketClarification(state, services, clarification)
+      return finishWithoutAgenda(clarification)
+    }
+    return finishWithoutAgenda(socialQuestion(state))
+  }
   if (!matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
   const clarification = basketQuestion(state, services)
   if (!matched.matching && (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved')) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
+    if (clarification) rememberBasketClarification(state, services, clarification)
     return finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services))
   }
   if (uncertainDate) {

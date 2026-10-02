@@ -43,3 +43,18 @@ export function affirmativeMatchAnswer(message: string, independentEvidence: rea
   for (const evidence of independentEvidence) answer = answer.replace(' ' + normalizeAnswer(evidence) + ' ', ' ')
   return /^(?:si|correcto|dale|ese|esa|exacto)$/.test(answer.trim())
 }
+
+/** A presented service answer is closed: unknown words cannot authorize an exact choice. */
+export function matchPresentedServiceAnswer(scope: MatchingScope, query: string, items: readonly MatchingItem[]): MatchingResult {
+  const none: MatchingResult = { kind: 'none', items: [], complete: true }
+  const answer = normalizeAnswer(query)
+  if (scope.category !== 'service' || /[?¿]/.test(query) ||
+      /\b(no|pero|mejor|antes|depende|quizas|tal vez|soy|nombre|llamo)\b/.test(answer) ||
+      affirmativeMatchAnswer(query)) return none
+  const result = matchContextualItems(scope, query, items)
+  if (result.kind !== 'exact') return result
+  const input = answer.split(' ')
+  const closed = result.items.filter(item => [item.label, ...(item.aliases ?? [])].some(label =>
+    input.every(word => normalizeAnswer(label).split(' ').includes(word))))
+  return { kind: closed.length ? 'exact' : 'none', items: closed, complete: result.complete }
+}
