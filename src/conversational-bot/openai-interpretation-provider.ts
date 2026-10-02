@@ -1,5 +1,6 @@
 import { attachAiUsage } from './ai-usage.js'
 import { providerError } from './provider-error.js'
+import { extractResponsesJson } from './responses-json.js'
 import { parseDialogueState } from './engine.js'
 import { TURN_PLAN_JSON_SCHEMA, TURN_PLAN_LIMITS } from './turn-plan.js'
 import { selectionBasket } from './service-basket.js'
@@ -98,18 +99,9 @@ export function createOpenAiInterpretationProvider(options: {
     })
     if (!response.ok) throw providerError('http', response)
     let body: unknown
-    try { body = await response.json() } catch { throw providerError('json', response) }
-    if (!body || typeof body !== 'object' || (body as { status?: unknown }).status !== 'completed') throw providerError('incomplete', response)
-    const output = (body as { output?: unknown }).output
-    if (!Array.isArray(output)) throw providerError('shape', response)
-    const contents = output.filter(item => item && typeof item === 'object' && (item as { type?: unknown }).type === 'message')
-      .flatMap(item => Array.isArray((item as { content?: unknown }).content) ? (item as { content: unknown[] }).content : [])
-    if (contents.some(part => part && typeof part === 'object' && (part as { type?: unknown }).type === 'refusal')) throw providerError('refusal', response)
-    const texts = contents.filter(part => part && typeof part === 'object' && (part as { type?: unknown }).type === 'output_text')
-      .map(part => (part as { text?: unknown }).text)
-    if (texts.length !== 1 || typeof texts[0] !== 'string' || texts[0].length > TURN_PLAN_LIMITS.serialized + 4096) throw providerError('shape', response)
-    let parsed: unknown
-    try { parsed = JSON.parse(texts[0]) } catch { throw providerError('json', response) }
-    return attachAiUsage(parsed, body)
+    try { body = await response.json() } catch { throw providerError('json', response, { reason: 'response_json_invalid', responseStatus: 'unknown' }) }
+    const result = extractResponsesJson(body, TURN_PLAN_LIMITS.serialized + 4096)
+    if (!result.ok) throw providerError(result.code, response, result.responseFormat)
+    return attachAiUsage(result.value, body)
   }
 }

@@ -6,6 +6,8 @@ import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
+import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { resolveGuidance } from '../src/conversational-bot/service-guidance.js'
 import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
@@ -775,6 +777,40 @@ assert.equal(singleCallRuntime.replies[0], 'Hola')
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).aiCalls, 1)
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).replyRoute, 'first_call')
 
+// New rejection detail reaches the existing post-commit sink, using only the fake runtime client.
+const shapeFetch = (output: unknown): typeof fetch => (async () => new Response(JSON.stringify({
+  status: 'completed', output, privateBody: 'PRIVATE_PROVIDER_BODY'
+}), { status: 200, headers: { 'x-request-id': 'req_shape-worker' } })) as typeof fetch
+const shapeRuntime = runtimeFixture()
+shapeRuntime.next('hola')
+const shapeTraces: unknown[] = []
+await shapeRuntime.run('PROCESS_INBOX', {
+  provider: createOpenAiInterpretationProvider({ apiKey: 'fake-key', fetchImpl: shapeFetch(null) }), timeoutMs: 15000,
+  onDiagnostic: value => { shapeTraces.push(value) }
+})
+const shapeTrace = shapeTraces[0] as { interpretationProviderError?: { responseFormat?: { reason: string } } }
+assert.equal(shapeTrace.interpretationProviderError?.responseFormat?.reason, 'output_not_array')
+assert.equal(shapeRuntime.singularAgendaCalls + shapeRuntime.basketAgendaCalls, 0)
+assert.equal((shapeRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, null)
+assert.equal(shapeRuntime.replies.length, 1)
+assert.doesNotMatch(JSON.stringify(shapeTrace), /PRIVATE_PROVIDER_BODY|fake-key|Corte|phone/)
+const copyShapeRuntime = runtimeFixture()
+const copyShapeTraces: unknown[] = []
+const copyShapeProvider: AiInterpretationProvider = async () => ({
+  intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null
+})
+copyShapeProvider.respond = createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: shapeFetch([
+  { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{}' }, { type: 'output_text', text: '{}' }] }
+]) })
+await copyShapeRuntime.run('PROCESS_INBOX', { provider: copyShapeProvider, timeoutMs: 15000,
+  onDiagnostic: value => { copyShapeTraces.push(value) } })
+const copyShapeTrace = copyShapeTraces[0] as { responseProviderError?: { responseFormat?: { reason: string } } }
+assert.equal(copyShapeTrace.responseProviderError?.responseFormat?.reason, 'invalid_json')
+assert.equal((copyShapeRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
+assert.equal(copyShapeRuntime.singularAgendaCalls + copyShapeRuntime.basketAgendaCalls, 0)
+assert.equal(copyShapeRuntime.replies.length, 1)
+assert.doesNotMatch(JSON.stringify(copyShapeTrace), /PRIVATE_PROVIDER_BODY|fake-key|Corte|phone/)
+console.log('conversational worker Responses diagnostics: fake-client no agenda/leak PASS')
 const fallbackRuntime = runtimeFixture()
 await fallbackRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('SECRET raw provider failure') }, timeoutMs: 4500, onDiagnostic: value => {
   assert.ok(!JSON.stringify(value).includes('SECRET')); assert.equal((value as Record<string, unknown>).mode, 'fallback')
