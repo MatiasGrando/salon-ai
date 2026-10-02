@@ -1,3 +1,4 @@
+import { reservationFitsAvailabilityWindow } from '../../services/service-duration.js'
 import { measureAttemptStage } from '../observability/attempt-metrics.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import {
@@ -70,10 +71,14 @@ export class PrismaAvailabilityRepository {
   async search(input: {
     businessId: string; serviceIds: readonly string[]; durationMinutes: number; dbNow: Date
     settings: AvailabilitySettings; professionalId?: string | null
+    /** Optional customer occupancy; legacy callers keep the professional interval. */
+    customerDurationMinutes?: number
     /** Reprogramación: el turno que se moverá no ocupa su propio nuevo slot. */
     excludeAppointmentId?: string
   }): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }> {
     return measureAttemptStage('availability_search', async () => {
+      if (input.customerDurationMinutes !== undefined && (!Number.isSafeInteger(input.customerDurationMinutes) || input.customerDurationMinutes <= 0 || input.customerDurationMinutes > 1440)) throw new Error('invalid availability customer duration')
+      const customerDurationMinutes = Math.max(input.durationMinutes, input.customerDurationMinutes ?? input.durationMinutes)
       const allProfessionals = await this.compatibleProfessionals(input)
       const professionals = input.professionalId ? allProfessionals.filter((item) => item.id === input.professionalId) : allProfessionals
       if (!professionals.length) return { professionals, slots: [] }
@@ -112,12 +117,18 @@ export class PrismaAvailabilityRepository {
           const occupiedMinutes = dayBusy.reduce((sum, row) => sum + row.duration, 0)
           for (const businessWindow of businessWindows) for (const proWindow of proWindows) {
             const start = Math.max(parseMinutes(businessWindow.startTime) ?? 1440, parseMinutes(proWindow.startTime) ?? 1440)
-            const end = Math.min(parseMinutes(businessWindow.endTime) ?? 0, parseMinutes(proWindow.endTime) ?? 0)
-            for (let minute = Math.ceil(start / BOOKING_GRID_MINUTES) * BOOKING_GRID_MINUTES; minute + input.durationMinutes <= end; minute += BOOKING_GRID_MINUTES) {
+            const businessEnd = parseMinutes(businessWindow.endTime) ?? 0
+            const professionalEnd = parseMinutes(proWindow.endTime) ?? 0
+            for (let minute = Math.ceil(start / BOOKING_GRID_MINUTES) * BOOKING_GRID_MINUTES;
+              reservationFitsAvailabilityWindow({
+                service: { duration: input.durationMinutes, customerDurationMin: customerDurationMinutes, customerDurationMax: customerDurationMinutes },
+                startMinutes: minute, professionalEndMinutes: professionalEnd, businessEndMinutes: businessEnd
+              }); minute += BOOKING_GRID_MINUTES) {
               for (const instant of localDateTimeToInstants(date, minute, input.settings.timezone)) {
                 const finish = new Date(instant.getTime() + input.durationMinutes * 60_000)
+                const customerFinish = new Date(instant.getTime() + customerDurationMinutes * 60_000)
                 if (instant.getTime() < leadInstant) continue
-                if (blocks.some((block) => (block.professionalId === null || block.professionalId === professional.id) && block.startAt < finish && block.endAt > instant)) continue
+                if (blocks.some((block) => (block.professionalId === null || block.professionalId === professional.id) && block.startAt < (block.professionalId === null ? customerFinish : finish) && block.endAt > instant)) continue
                 if (dayBusy.some((row) => row.startAt < finish && new Date(row.startAt.getTime() + row.duration * 60_000) > instant)) continue
                 const key = instant.toISOString()
                 const candidates = perStart.get(key) ?? []

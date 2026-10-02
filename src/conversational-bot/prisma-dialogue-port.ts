@@ -1,4 +1,4 @@
-import { loadPrismaBasketAvailability } from './prisma-basket-availability.js'
+import { loadPrismaBasketAvailability, projectDialogueService } from './prisma-basket-availability.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
 import { readPublicSourceStamp, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
@@ -55,14 +55,12 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   const loadCatalog = async (source: DialogueClient) => {
     const catalog = new PrismaCatalogRepository(source)
     const services = await catalog.loadPublicCatalogSnapshot(businessId)
-    return services.map(item => ({ id: item.id, name: item.name, durationMinutes: item.durationMinutes, price: item.price, priceMode: item.priceMode,
-      requiresConsultation: item.requiresConsultation || item.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || Boolean(item.bookingPolicy?.requiresPhoto || item.bookingPolicy?.validationEnabled)
-    }))
+    return services.map(projectDialogueService)
   }
   return { context, cacheDiagnostics, port: {
     information: actions => cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions)),
     catalog: () => cached('catalog', loadCatalog),
-    availabilityBasket: (services, date, professionalId) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId)),
+    availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {
       const service = await catalog.getService({ businessId, serviceId: selected.id })
       if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')

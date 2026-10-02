@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { PGlite } from '@electric-sql/pglite'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
 import type { DialogueService } from '../src/conversational-bot/engine.js'
+import { serviceConfigurationKey } from '../src/bot-options/domain/service-booking.js'
 
 const db = new PGlite()
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
@@ -111,7 +112,39 @@ try {
   assert.equal(blocked.ok, true)
   if (blocked.ok) assert.deepEqual(blocked.slots.map(slot => slot.time), ['10:00', '10:30', '11:00'], 'business schedule block checks the full duration')
   await db.exec(`DELETE FROM "ScheduleBlock"; UPDATE "Service" SET "customerDurationMin"=90,"customerDurationMax"=120 WHERE "id"='straightening'`)
-  assert.deepEqual(await request(), { ok: false, reason: 'UNSUPPORTED_OCCUPANCY' })
+  const dual = await request()
+  assert.equal(dual.ok, true)
+  if (dual.ok) { assert.equal(dual.customerDurationMinutes, 150); assert.deepEqual(dual.slots.map(slot => slot.time), ['10:00', '10:30', '11:00', '11:30']) }
+  await db.exec(`UPDATE "Service" SET "attentionMode"='GUIDED_ESTIMATE',"estimateAllowsBooking"=true,"priceMode"='STARTING_AT',"customerDurationMax"=150,
+    "estimateQuestion"='Which length?',"estimateOptions"='[{"id":"short","label":"Short","priceMin":85000,"priceMax":95000,"note":null}]'::jsonb WHERE "id"='straightening'`)
+  const pending = await request()
+  if (pending.ok || pending.reason !== 'GUIDANCE_REQUIRED') throw new Error('guided pending not returned')
+  const choice = { straightening: { configurationKey: serviceConfigurationKey(pending.services[1]!.bookingPolicy!), optionId: 'short' } }
+  const guidedRequest = () => port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02', 'ramiro', choice)
+  const guided = await guidedRequest()
+  assert.equal(guided.ok, true)
+  if (guided.ok) {
+    assert.equal(guided.durationMinutes, 120); assert.equal(guided.customerDurationMinutes, 180); assert.equal(guided.totalPrice, null)
+    assert.deepEqual(guided.slots.map(slot => slot.time), ['10:00', '10:30', '11:00'])
+  }
+  await db.exec(`INSERT INTO "ScheduleBlock" ("id","businessId","startAt","endAt") VALUES ('presence','tenant','2026-10-02T16:00:00Z','2026-10-02T16:30:00Z')`)
+  const customerBlock = await guidedRequest()
+  if (customerBlock.ok) assert.deepEqual(customerBlock.slots.map(slot => slot.time), ['10:00'], 'business block includes client presence after professional finishes')
+  else throw new Error('customer block fixture rejected')
+  await db.exec(`UPDATE "ScheduleBlock" SET "professionalId"='ramiro' WHERE "id"='presence'`)
+  const professionalBlock = await guidedRequest()
+  if (professionalBlock.ok) assert.deepEqual(professionalBlock.slots.map(slot => slot.time), ['10:00', '10:30', '11:00'], 'professional block does not reserve client-only tail')
+  else throw new Error('professional block fixture rejected')
+  await db.exec(`DELETE FROM "ScheduleBlock"; INSERT INTO "Appointment" ("id","professionalId","startAt","totalDurationMinutes","status") VALUES ('tail','ramiro','2026-10-02T16:00:00Z',30,'CONFIRMED')`)
+  const tailAppointment = await guidedRequest()
+  if (tailAppointment.ok) assert.deepEqual(tailAppointment.slots.map(slot => slot.time), ['10:00', '10:30', '11:00'])
+  else throw new Error('tail appointment fixture rejected')
+  await db.exec(`DELETE FROM "Appointment"; UPDATE "Service" SET "estimateQuestion"='New question?' WHERE "id"='straightening'`)
+  const stale = await guidedRequest()
+  if (stale.ok || stale.reason !== 'GUIDANCE_REQUIRED') throw new Error('stale estimate did not reopen')
+  assert.deepEqual(stale.services.map(service => service.id), ['cut', 'straightening'])
+  assert.equal(stale.services[1]!.bookingPolicy?.estimateQuestion, 'New question?')
+  await db.exec(`UPDATE "Service" SET "attentionMode"='DIRECT_BOOKING',"estimateAllowsBooking"=false,"priceMode"='FIXED',"estimateQuestion"=NULL,"estimateOptions"=NULL WHERE "id"='straightening'`)
   await db.exec(`UPDATE "Service" SET "customerDurationMin"=NULL,"customerDurationMax"=NULL WHERE "id"='straightening';
     UPDATE "BusinessBotOptionsSettings" SET "bookingLeadTimeHours"=26 WHERE "businessId"='tenant'`)
   const leadPort = await createPrismaDialoguePort(client, 'tenant')

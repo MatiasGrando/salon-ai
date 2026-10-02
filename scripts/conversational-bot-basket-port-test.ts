@@ -9,7 +9,7 @@ const row = (id: string, duration: number, extra: Record<string, unknown> = {}) 
   id, businessId: 'tenant', catalogCategoryId: null, parentServiceId: null, name: id,
   duration, customerDurationMin: null, customerDurationMax: null, price: 10, priceMode: 'FIXED',
   isBookable: true, isActive: true, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, validationEnabled: false,
-  estimateAllowsBooking: false, ...extra
+  estimateAllowsBooking: false, estimateQuestion: null, estimateOptions: null, estimateExplanation: null, estimateDisclaimer: null, validationMessage: null, validationQuestion: null, ...extra
 })
 const professional = { id: 'ramiro', name: 'Ramiro', priority: 0 }
 const selected = (id: string): DialogueService => ({ id, name: 'stale name', durationMinutes: 1, price: 1, requiresConsultation: false })
@@ -80,14 +80,19 @@ async function rejects(reason: string, change: (testFixture: ReturnType<typeof f
 }
 await rejects('SERVICE_UNAVAILABLE', test => { test.rows.get('straightening')!.isActive = false })
 await rejects('SERVICE_UNAVAILABLE', test => { test.rows.get('straightening')!.businessId = 'foreign' })
-await rejects('DOMAIN_REVIEW', test => { test.rows.get('straightening')!.requiresPhoto = true })
-await rejects('DOMAIN_REVIEW', test => { test.rows.get('straightening')!.validationEnabled = true })
+await rejects('PHOTO_REQUIRED', test => { test.rows.get('straightening')!.requiresPhoto = true })
+await rejects('VALIDATION_REQUIRED', test => { test.rows.get('straightening')!.validationEnabled = true })
 await rejects('DOMAIN_REVIEW', test => { test.rows.get('straightening')!.attentionMode = 'ADVISOR' })
-await rejects('DOMAIN_REVIEW', test => { test.rows.get('straightening')!.attentionMode = 'GUIDED_ESTIMATE'; test.rows.get('straightening')!.estimateAllowsBooking = true })
+await rejects('INVALID_CONFIGURATION', test => { test.rows.get('straightening')!.attentionMode = 'GUIDED_ESTIMATE'; test.rows.get('straightening')!.estimateAllowsBooking = true })
 for (const duration of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER]) {
   await rejects('INVALID_DURATION', test => { test.rows.get('straightening')!.duration = duration })
 }
-await rejects('UNSUPPORTED_OCCUPANCY', test => { Object.assign(test.rows.get('straightening')!, { customerDurationMin: 90, customerDurationMax: 120 }) })
+const dual = fixture()
+Object.assign(dual.rows.get('straightening')!, { customerDurationMin: 90, customerDurationMax: 120 })
+const dualPort = await createPrismaDialoguePort(dual.client, 'tenant')
+const dualResult = await dualPort.port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02')
+assert.equal(dualResult.ok, true, 'customer occupancy is now represented without bypassing professional agenda')
+if (dualResult.ok) { assert.equal(dualResult.customerDurationMinutes, 150); assert.equal(dualResult.slots.at(-1)?.time, '11:30') }
 for (const range of [{ customerDurationMin: 0 }, { customerDurationMax: 120 }, { customerDurationMin: 90, customerDurationMax: 60 }, { customerDurationMin: 90.5 }, { customerDurationMin: 90, customerDurationMax: Number.NaN }]) {
   await rejects('INVALID_DURATION', test => { Object.assign(test.rows.get('straightening')!, range) })
 }
