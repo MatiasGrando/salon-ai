@@ -1,3 +1,4 @@
+import { loadPrismaBasketAvailability } from './prisma-basket-availability.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
 import { readPublicSourceStamp, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
@@ -61,6 +62,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   return { context, cacheDiagnostics, port: {
     information: actions => cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions)),
     catalog: () => cached('catalog', loadCatalog),
+    availabilityBasket: (services, date, professionalId) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {
       const service = await catalog.getService({ businessId, serviceId: selected.id })
       if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')

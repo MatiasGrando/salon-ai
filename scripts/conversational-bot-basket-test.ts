@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { initialDialogueState, parseDialogueState, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
 import { parseTurnPlan, type TurnOperation } from '../src/conversational-bot/turn-plan.js'
-import { basketServiceIds, type BasketMutation } from '../src/conversational-bot/service-basket.js'
+import { basketServiceIds, selectionSummary, type BasketMutation } from '../src/conversational-bot/service-basket.js'
 import { projectConversationDraft, readConversationDraft } from '../src/conversational-bot/session-state.js'
 const context = { businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-01T15:00:00Z') }
 const catalog: DialogueService[] = [
@@ -114,5 +114,14 @@ assert.equal(addUnknown.state.basket?.members.length,3,'distinct unrecognized me
 const luz = { id:'luz',name:'Luz',priority:0 }
 const incompatible = await say(proposed.state,'agrega baño de crema',[basket('add',[member('single',['cream'],'baño de crema')],'agrega baño de crema')],{...port,availabilityBasket:async(services,date)=>({ok:true,services,...{durationMinutes:150,totalPrice:18000},professionals:[luz],slots:[{...slot(date),professionalId:'luz',professionalName:'Luz'}]})})
 assert.equal(incompatible.state.professional,null);assert.equal(incompatible.state.date,'2026-10-02');assert.equal(incompatible.state.customerName,'Matias');assert.equal(incompatible.state.pending,'professional');assert.equal(incompatible.proposal,null)
+
+
+const overflowServices = catalog.filter(s => s.id === 'cut' || s.id === 'smooth').map(s => ({...s, price: s.id === 'cut' ? 10 : Number.MAX_SAFE_INTEGER}))
+assert.deepEqual(selectionSummary(overflowServices),{durationMinutes:120,totalPrice:null},'a non-representable aggregate never advertises a fabricated fixed price')
+assert.deepEqual(selectionSummary([catalog[0]!,catalog[3]!]),{durationMinutes:120,totalPrice:15000})
+assert.equal(selectionSummary([{...catalog[0]!,priceMode:'STARTING_AT'},catalog[3]!]).totalPrice,null)
+assert.equal(selectionSummary([{...catalog[0]!,price:null},catalog[3]!]).totalPrice,null)
+const overflowProposal = await say(proposed.state,'17hs',[time],{...port,catalog:async()=>[...catalog.filter(s=>s.id!=='cut'&&s.id!=='smooth'),...overflowServices],availabilityBasket:async(services,date)=>({ok:true,services,durationMinutes:120,totalPrice:null,professionals,slots:[slot(date)]})})
+assert.deepEqual(overflowProposal.proposal?.serviceIds,['cut','smooth']);assert.equal(overflowProposal.proposal?.durationMinutes,120);assert.equal(overflowProposal.proposal?.totalPrice,null);assert.match(overflowProposal.reply,/precio total a consultar/)
 
 console.log('conversational basket: mixed ambiguity, mutations, joint proposal, scope and fail-closed PASS')

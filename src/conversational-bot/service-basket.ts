@@ -75,5 +75,8 @@ export function selectionSummary(services: readonly DialogueService[]): { durati
     priceMode: service.priceMode ?? 'FIXED', professionalIds: []
   }))
   const summary = buildCartSnapshot(inputs)
-  return { durationMinutes: summary.totalDurationMinutes, totalPrice: summary.totalPriceMinor }
+  // The aggregate can exceed the number contract even when each fixed price was representable.
+  const totalPrice = summary.totalPriceMinor !== null && Number.isSafeInteger(summary.totalPriceMinor) && summary.totalPriceMinor >= 0
+    ? summary.totalPriceMinor : null
+  return { durationMinutes: summary.totalDurationMinutes, totalPrice }
 }
