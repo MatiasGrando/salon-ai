@@ -418,6 +418,7 @@ export async function processConversationInbox(input: {
           aiCalls: diagnostic.aiCalls, replyRoute: diagnostic.replyRoute,
           ...(diagnostic.interpretationProviderError ? { interpretationProviderError: diagnostic.interpretationProviderError } : {}),
           ...(diagnostic.responseProviderError ? { responseProviderError: diagnostic.responseProviderError } : {}),
+          ...(diagnostic.availability ? { availability: diagnostic.availability } : {}),
           interpretationMs: diagnostic.providerMs, validationMs: diagnostic.validationMs,
           engineMs: diagnostic.engineMs ?? 0, responseMs: diagnostic.responseMs ?? 0, usage: diagnostic.usage ?? null
         })

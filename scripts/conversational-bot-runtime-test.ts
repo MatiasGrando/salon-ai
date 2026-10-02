@@ -83,7 +83,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -235,6 +235,7 @@ function runtimeFixture(options: { basketCatalog?: boolean; guidedCatalog?: bool
     }
     if (options.basketCatalog || options.guidedCatalog) port.availabilityBasket = async function (services, date, _professional, selections) {
       assert.equal(this, port, 'basket availability receiver must be preserved'); outside(); basketAgendaCalls++
+      if (options.availabilityReason) return { ok: false, reason: options.availabilityReason }
       if (options.guidedCatalog) {
         assert.equal(selections?.smooth?.optionId, 'short', 'worker wrapper preserves fourth argument')
         assert.equal(resolveGuidance(services, selections).pending, null)
@@ -811,6 +812,35 @@ assert.equal(copyShapeRuntime.singularAgendaCalls + copyShapeRuntime.basketAgend
 assert.equal(copyShapeRuntime.replies.length, 1)
 assert.doesNotMatch(JSON.stringify(copyShapeTrace), /PRIVATE_PROVIDER_BODY|fake-key|Corte|phone/)
 console.log('conversational worker Responses diagnostics: fake-client no agenda/leak PASS')
+
+const availabilityRuntime = runtimeFixture({ basketCatalog: true, availabilityReason: 'COMBINATION_REVIEW' })
+availabilityRuntime.next('Corte hombre y alisado mañana cualquiera 14:00 soy Matias')
+const availabilityTraces: unknown[] = []
+await availabilityRuntime.run('PROCESS_INBOX', { timeoutMs: 15000,
+  provider: async () => runtimeCandidate(
+    runtimeBasket('set', [runtimeMember('single', ['cut'], 'Corte hombre'), runtimeMember('single', ['smooth'], 'alisado')], 'Corte hombre y alisado'),
+    { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
+    { kind: 'professional', mode: 'any', ...runtimeEv('cualquiera') },
+    { kind: 'time', value: '14:00', ...runtimeEv('14:00') },
+    { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }),
+  onDiagnostic: value => { availabilityTraces.push(value) } })
+const availabilityTrace = availabilityTraces[0] as { availability?: unknown }
+assert.deepEqual(availabilityTrace.availability, { outcome: 'blocked', phase: 'query', reason: 'COMBINATION_REVIEW', scope: 'all_compatible' })
+assert.equal(availabilityRuntime.basketAgendaCalls, 1); assert.equal(availabilityRuntime.singularAgendaCalls, 0)
+const blockedDraft = readConversationDraft(availabilityRuntime.session.state, policy, 'UTC')
+assert.equal(blockedDraft.requestedTime, '14:00'); assert.equal(blockedDraft.slot, null); assert.equal(blockedDraft.customerName, 'Matias')
+assert.equal(blockedDraft.basket?.members.length, 2)
+assert.equal(Object.hasOwn(blockedDraft, 'availability'), false, 'diagnostics must never become durable availability state')
+assert.deepEqual((availabilityRuntime.session.state as typeof projected).cart, [{ serviceId: 'cut' }, { serviceId: 'smooth' }], 'an exact basket remains projected without a verified slot')
+assert.doesNotMatch(JSON.stringify(availabilityTrace), /Corte|alisado|Matias|phone|SELECT/)
+availabilityRuntime.next('hola')
+await availabilityRuntime.run('PROCESS_INBOX', { timeoutMs: 15000,
+  provider: async () => runtimeCandidate(), onDiagnostic: value => { availabilityTraces.push(value) } })
+assert.equal((availabilityTraces[1] as { availability?: unknown }).availability, undefined)
+assert.equal(availabilityRuntime.basketAgendaCalls, 1, 'social turn does not refresh or replay agenda')
+assert.match(availabilityRuntime.replies.at(-1)!, /cambiar|quitar|equipo/)
+console.log('conversational worker availability diagnostics: closed cause, no persistence/query/leak PASS')
+
 const fallbackRuntime = runtimeFixture()
 await fallbackRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('SECRET raw provider failure') }, timeoutMs: 4500, onDiagnostic: value => {
   assert.ok(!JSON.stringify(value).includes('SECRET')); assert.equal((value as Record<string, unknown>).mode, 'fallback')

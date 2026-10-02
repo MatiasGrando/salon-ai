@@ -13,6 +13,7 @@ export type ConversationAiDiagnostic = {
   aiCalls?: InterpretationDiagnostics['aiCalls']; replyRoute?: InterpretationDiagnostics['replyRoute']
   interpretationProviderError?: InterpretationDiagnostics['interpretationProviderError']
   responseProviderError?: InterpretationDiagnostics['responseProviderError']
+  availability?: InterpretationDiagnostics['availability']
   usage: InterpretationDiagnostics['usage'] | null
 }
 export type WhatsAppConversationAi = {

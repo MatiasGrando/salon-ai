@@ -1,3 +1,4 @@
+import { summarizeAvailability } from './ai-diagnostics.js'
 import { initialDialogueState, parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueState } from './engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import { DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS } from './ai-timeout.js'
@@ -26,11 +27,12 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   await deps.save(phone, message, response.reply, response.state)
   const savedAt = performance.now()
   const ms = (duration: number) => Math.round(duration * 10) / 10
+  const availability = summarizeAvailability(response.availability)
   return {
     reply: response.reply,
     state: response.state,
     proposalReady: response.proposal !== null,
-    interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0 },
+    interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
     timings: {
       loadMs: ms(loadedAt - started),
       contextMs: ms(contextAt - loadedAt),

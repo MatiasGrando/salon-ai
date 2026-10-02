@@ -1,5 +1,6 @@
 import { formatCatalogPrice } from '../bot-options/application/catalog-queries.js'
 import { normalizeMessage, type InformationAction } from './actions.js'
+import { basketIsResolved } from './service-basket.js'
 import type { DialogueService, DialogueState } from './engine.js'
 export type BusinessFacts = {
   businessId: string; name: string; address: string | null; area: string | null; mapsUrl: string | null
@@ -71,6 +72,8 @@ export function renderInformation(actions: readonly InformationAction[], message
 }
 export function pendingQuestion(state: DialogueState): string {
   if (state.pending === 'service' && state.basket?.members.some(member => member.mode !== 'single')) return '¿Cuál de las opciones del servicio pendiente querés?'
+  if (state.pending === 'service' && basketIsResolved(state)) return '¿Querés cambiar o quitar algún servicio del pedido, o consultarlo con el equipo?'
+  if (state.pending === 'time' && !state.dialogueContext?.presentedOffer) return '¿Querés que consultemos los horarios para tu turno?'
   const questions = { estimate: '¿Qué opción del presupuesto del servicio querés?', service: '¿Qué servicio necesitás?', date: '¿Para qué día querés el turno?', professional: '¿Con qué profesional querés atenderte?', time: '¿Qué horario de los disponibles elegís?', name: '¿A nombre de quién sería el turno?', proposal: 'La propuesta sigue pendiente; todavía no está reservado.' }
   return questions[state.pending]
 }

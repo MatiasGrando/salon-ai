@@ -1,4 +1,4 @@
-import type { DialogueState } from './engine.js'
+import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
 import { TURN_PLAN_LIMITS, type TurnOperation } from './turn-plan.js'
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
 
@@ -133,4 +133,35 @@ export function summarizeState(state: DialogueState): StateSummary {
       basketUnresolved: state.basket.members.filter(member => member.mode === 'unresolved').length,
       basketResolved: basketIsResolved(state) } : {})
   }
+}
+
+/** Closed, own-data-only diagnostics: no arbitrary strings, IDs, provider text or exceptions. */
+export function summarizeAvailability(value: unknown): AvailabilityDiagnostic | undefined {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    const keys = Object.keys(value).sort().join(',')
+    if (keys !== 'outcome,phase,reason' && keys !== 'outcome,phase,reason,scope') return undefined
+    const outcome = dataField(value, 'outcome')
+    const phase = dataField(value, 'phase')
+    const reason = dataField(value, 'reason')
+    const scope = dataField(value, 'scope')
+    const blocked = ['SERVICE_UNAVAILABLE', 'INVALID_CONFIGURATION', 'DOMAIN_REVIEW', 'PHOTO_REQUIRED', 'VALIDATION_REQUIRED', 'ESTIMATE_NOT_BOOKABLE', 'INVALID_DURATION', 'COMBINATION_BLOCKED', 'COMBINATION_REVIEW', 'NO_COMMON_PROFESSIONAL']
+    const unsupported = ['UNSUPPORTED_OCCUPANCY', 'PORT_UNAVAILABLE', 'CUSTOMER_DURATION_PROOF_MISSING', 'GUIDANCE_RESULT_NOT_PENDING']
+    if (!['verified', 'no_slots', 'guidance_required', 'blocked', 'unsupported'].includes(outcome as string) ||
+        !['preflight', 'query', 'fresh_guidance', 'contract', 'slots'].includes(phase as string) ||
+        (scope !== undefined && scope !== 'all_compatible' && scope !== 'preferred') ||
+        (keys.includes('scope') && scope === undefined) ||
+        (phase === 'preflight' ? scope !== undefined : scope === undefined)) return undefined
+    if (outcome === 'verified' || outcome === 'no_slots') {
+      if (reason !== null || phase !== 'slots') return undefined
+    } else if (phase === 'slots' ||
+      (outcome === 'guidance_required' ? reason !== 'GUIDANCE_REQUIRED' || (phase !== 'preflight' && phase !== 'fresh_guidance')
+        : outcome === 'blocked' ? !blocked.includes(reason as string) || phase === 'contract'
+        : !unsupported.includes(reason as string))) return undefined
+    if (reason === 'PORT_UNAVAILABLE' && phase !== 'preflight' ||
+        reason === 'CUSTOMER_DURATION_PROOF_MISSING' && phase !== 'contract' ||
+        reason === 'GUIDANCE_RESULT_NOT_PENDING' && phase !== 'fresh_guidance' ||
+        phase === 'contract' && reason !== 'CUSTOMER_DURATION_PROOF_MISSING') return undefined
+    return { outcome, phase, reason, ...(scope ? { scope } : {}) } as AvailabilityDiagnostic
+  } catch { return undefined }
 }

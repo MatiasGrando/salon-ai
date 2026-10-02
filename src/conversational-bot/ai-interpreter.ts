@@ -2,7 +2,7 @@ import { localDateKey } from '../bot-options/application/availability-queries.js
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
-import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
+import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
@@ -39,6 +39,7 @@ export type InterpretationDiagnostics = {
   validation?: ValidationSummary
   stateBefore?: StateSummary
   stateAfter?: StateSummary
+  availability?: DialogueResponse['availability']
   interpretationProviderError?: ProviderFailure | null
   responseProviderError?: ProviderFailure | null
   aiCalls?: number
@@ -416,6 +417,7 @@ export async function respondWithAiInterpreter(
         ? 'validated_service' : decision?.serviceId ? 'not_applied' : response.proposal ? 'proposal_only'
           : route.pendingAction ? 'pending_action' : candidate?.informationTarget || route.information.length ? 'information_route' : 'no_service_decision')
   }
+  const availability = summarizeAvailability(response.availability)
   return { ...response, reply: authored ?? safeReply, interpretation: {
     decision: decisionTrace,
     mode: reason ? 'fallback' : 'ai', reason,
@@ -425,6 +427,7 @@ export async function respondWithAiInterpreter(
     usage: { interpretation: readAiUsage(raw), response: responseUsage },
     proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(response.state),
     interpretationProviderError, responseProviderError,
+    ...(availability ? { availability } : {}),
     copyMode: authored ? 'ai' : 'fallback', copyReason
   } }
 }
