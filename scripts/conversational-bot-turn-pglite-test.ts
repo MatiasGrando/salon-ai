@@ -17,7 +17,7 @@ const run = async (overrides: Partial<Parameters<typeof persistConversationTurnT
       }
       statements++; return (await pg.query(q.text, q.values)).rows.map(r => {
       const row = r as Record<string, unknown>
-      return { ...row, sessionCount: BigInt(row['sessionCount'] as number), stepCount: BigInt(row['stepCount'] as number) }
+      return { ...row, sessionCount: BigInt(row['sessionCount'] as number), transitionCount: BigInt(row['transitionCount'] as number), stepCount: BigInt(row['stepCount'] as number) }
     }) } }
     const update = await persistConversationTurnTx(tx as never, { ...input, ...overrides })
     if (failAfter === 'outbox') throw new Error('outbox rejected')
@@ -92,7 +92,7 @@ try {
   await assert.rejects(run({ actionType: 'invalid-action' }), /deferred_action/)
   assert.deepEqual(await state(), beforeCommit)
   await assert.rejects(persistConversationTurnTx({ async $queryRaw() {
-    return [{ sessionCount: 1n, stepCount: 2n, conversationId: 'conv', updatedAt: new Date() }]
+    return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 2n, conversationId: 'conv', updatedAt: new Date() }]
   } } as never, input), /ambiguous bot options conversation projection/)
   await db.exec(`ALTER TABLE "BotTransitionLog" ADD COLUMN "detail" jsonb;
     ALTER TABLE "BotSession" ADD COLUMN "draftTouchedAt" timestamptz;

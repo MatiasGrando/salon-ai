@@ -343,6 +343,7 @@ export async function processConversationInbox(input: {
     const port: DialoguePort = {
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
+      ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
       ...(prepared.port.information ? { information: (actions?: Parameters<NonNullable<DialoguePort['information']>>[0]) => prepared.port.information!(actions) } : {})
     }
     const computedStarted = performance.now()

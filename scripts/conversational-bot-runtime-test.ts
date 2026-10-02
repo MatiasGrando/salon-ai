@@ -6,7 +6,7 @@ import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
-import { initialDialogueState } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
 
 // Keep stage logs quiet outside explicit metric assertions; production logging is unchanged.
@@ -80,7 +80,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { basketCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -209,23 +209,75 @@ function runtimeFixture(options: { sessionDb?: PGlite; computeDb?: PGlite; jobPr
       return 1
     }
   }
+  let basketAgendaCalls = 0, singularAgendaCalls = 0
   const dialogueFactory = async () => {
     assert.equal(inTransaction, false, 'repository preparation must execute outside transaction')
     prepareHook?.()
     const outside = () => assert.equal(inTransaction, false, 'engine repository query must execute outside transaction')
-    const port = {
-      catalog: async function () { assert.equal(this, port, 'catalog receiver must be preserved'); outside(); return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
-      availability: async function () { assert.equal(this, port, 'availability receiver must be preserved'); outside(); return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
+    const port: DialoguePort = {
+      catalog: async function () { assert.equal(this, port, 'catalog receiver must be preserved'); outside(); return options.basketCatalog ? [{ id: 'cut', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 1000 }, { id: 'woman', name: 'Corte mujer', durationMinutes: 30, requiresConsultation: false, price: 1000 }, { id: 'smooth', name: 'Alisado', durationMinutes: 90, requiresConsultation: false, price: 9000 }] : [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
+      availability: async function () { assert.equal(this, port, 'availability receiver must be preserved'); outside(); singularAgendaCalls++; return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
+    }
+    if (options.basketCatalog) port.availabilityBasket = async function (services, date) {
+      assert.equal(this, port, 'basket availability receiver must be preserved'); outside(); basketAgendaCalls++
+      return { ok: true, services, durationMinutes: services.reduce((sum, service) => sum + service.durationMinutes!, 0), totalPrice: services.reduce((sum, service) => sum + service.price!, 0),
+        professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date, time: '14:00', startAt: date + 'T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON', occupiedMinutes: 0 }] }
     }
     return { context: { businessId, timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
-  return { run, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
+  return { run, get basketAgendaCalls() { return basketAgendaCalls }, get singularAgendaCalls() { return singularAgendaCalls }, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+// Full basket runs through the public worker, real interpreter/motor and production state projection.
+const basketRuntime = runtimeFixture({ basketCatalog: true })
+let basketOutput: unknown
+let basketInterpretations = 0, basketCopies = 0
+const runtimeEv = (evidence: string) => ({ evidence, confidence: .99 })
+const runtimeMember = (mode: string, serviceIds: string[], evidence: string) => ({ mode, serviceIds, ...runtimeEv(evidence) })
+const runtimeBasket = (mutation: string, members: object[], evidence: string, targets: string[] = []) => ({ kind: 'basket', mutation, members, scope: targets.length ? 'members' : 'all', targetMemberIds: targets, ...runtimeEv(evidence) })
+const runtimeCandidate = (...operations: object[]) => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } })
+const basketProvider: AiInterpretationProvider = Object.assign(async () => { basketRuntime.assertOutside(); basketInterpretations++; return basketOutput }, {
+  respond: async (input: { facts: readonly { id: string; text: string }[] }) => { basketRuntime.assertOutside(); basketCopies++; return { opening: null, closing: null, factIds: input.facts.map(fact => fact.id) } }
+})
+basketRuntime.next('Matias corte y alisado mañana con Ana')
+basketOutput = runtimeCandidate(runtimeBasket('set', [runtimeMember('single', ['cut'], 'corte'), runtimeMember('single', ['smooth'], 'alisado')], 'corte y alisado'),
+  { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }, { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
+  { kind: 'professional', mode: 'specific', mention: 'Ana', ...runtimeEv('Ana') })
+await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
+const runtimeFirst = readConversationDraft(basketRuntime.session.state, policy, 'UTC')
+assert.equal(runtimeFirst.basket?.members.length, 2, 'public runtime must preserve every requested basket member')
+assert.equal(runtimeFirst.basket!.members[0]!.mode, 'alternatives')
+assert.deepEqual(runtimeFirst.basket!.members[1]!.serviceIds, ['smooth'])
+assert.deepEqual((basketRuntime.session.state as typeof projected).cart, [], 'public runtime cannot project a partial basket')
+assert.equal(basketRuntime.basketAgendaCalls, 0)
+assert.equal(basketRuntime.singularAgendaCalls, 0)
+assert.equal(runtimeFirst.customerName, 'Matias')
+basketRuntime.next('corte hombre')
+basketOutput = runtimeCandidate(runtimeBasket('replace', [runtimeMember('single', ['cut'], 'corte hombre')], 'corte hombre', [runtimeFirst.basket!.members[0]!.memberId]))
+await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
+assert.deepEqual((basketRuntime.session.state as typeof projected).cart.map(item => item.serviceId), ['cut', 'smooth'])
+const copiesBeforeProposal = basketCopies
+basketRuntime.next('14hs')
+basketOutput = runtimeCandidate({ kind: 'time', value: '14:00', ...runtimeEv('14hs') })
+await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
+const runtimeComplete = readConversationDraft(JSON.parse(JSON.stringify(basketRuntime.session.state)), policy, 'UTC')
+assert.equal(runtimeComplete.pending, 'proposal', JSON.stringify({ date: runtimeComplete.date, hasName: Boolean(runtimeComplete.customerName), hasProfessional: Boolean(runtimeComplete.professional), memberCount: runtimeComplete.basket?.members.length, memberModes: runtimeComplete.basket?.members.map(member => member.mode), hasSlot: Boolean(runtimeComplete.slot), lastReply: basketRuntime.replies.at(-1) }))
+assert.equal(runtimeComplete.basket?.members.length, 2)
+assert.equal(runtimeComplete.slot?.startAt, '2026-10-02T14:00:00Z')
+assert.deepEqual((basketRuntime.session.state as typeof projected).cart.map(item => item.serviceId), ['cut', 'smooth'])
+assert.match(basketRuntime.replies.at(-1)!, /Corte hombre.*Alisado/)
+assert.match(basketRuntime.replies.at(-1)!, /120 min/)
+assert.match(basketRuntime.replies.at(-1)!, /Todavía no está reservado/)
+assert.equal(basketCopies, copiesBeforeProposal, 'complete runtime proposal bypasses model framing')
+assert.equal(basketInterpretations, 3)
+assert.equal(basketRuntime.singularAgendaCalls, 0)
+assert.ok(basketRuntime.basketAgendaCalls > 0)
+assert.ok(!basketRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)), 'public basket worker never reserves')
+console.log('conversational public runtime complete basket/ambiguity/sidecar/proposal-only: PASS')
 // Typing starts only after a durable active text snapshot; it never delays computation.
 let typingCalls = 0
 const typing = runtimeFixture({ onPreparingReply(context) {

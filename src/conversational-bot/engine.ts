@@ -392,6 +392,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     answers.push(renderInformation(op.target.actions, op.evidence, facts, services))
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply].filter(Boolean).join('\n'), proposal: null })
+  if (!plan.operations.length && hasActiveBooking(state)) return finishWithoutAgenda(socialQuestion(state))
   if (!updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
   const clarification = basketQuestion(state, services)
   if (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved') {
