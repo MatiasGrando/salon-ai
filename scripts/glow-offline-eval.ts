@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { respondWithAiInterpreter, type AiInterpretationProvider, type InterpretationDiagnostics } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, parseDialogueState, type DialogueState, type DialogueService, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { basketServiceIds } from '../src/conversational-bot/service-basket.js'
 import type { AvailabilitySlot } from '../src/bot-options/application/availability-queries.js'
@@ -82,11 +82,11 @@ function fixturePort(fixture: EvalFixture): DialoguePort {
     }
   }
 }
-export async function evaluateCases(input: unknown, corpus: CorpusConversation[]) {
+export async function evaluateCases(input: unknown, corpus: CorpusConversation[], options: { provider?: AiInterpretationProvider; timeoutMs?: number } = {}) {
   const bundle = structuredClone(input) as EvalBundle
   validate(bundle, corpus)
   const cases: Array<{ caseId: string; sourceConversationId: string; explicitInitialContext: boolean; turns: Array<{
-    messageId: string; passed: boolean; failures: string[]; reply: string | null; state: DialogueState | null; proposal: boolean; action: string | null; interpretationMode: string | null
+    messageId: string; passed: boolean; failures: string[]; reply: string | null; state: DialogueState | null; proposal: boolean; action: string | null; interpretationMode: string | null; diagnostics?: InterpretationDiagnostics
   }> }> = []
   for (const scenario of bundle.cases) {
     const fixture = bundle.fixtures[scenario.fixtureId]!
@@ -96,12 +96,12 @@ export async function evaluateCases(input: unknown, corpus: CorpusConversation[]
     const result: (typeof cases)[number] = { caseId: scenario.id, sourceConversationId: source.conversationId, explicitInitialContext: !!scenario.initialState, turns: [] }
     for (const turn of scenario.turns) {
       const message = source.messages.find(x => x.messageId === turn.sourceMessageId)!
-      const provider: AiInterpretationProvider = Object.assign(async (request: { firstReplyFacts?: readonly { id: string }[] }) => ({
+      const provider: AiInterpretationProvider = options.provider ?? Object.assign(async (request: { firstReplyFacts?: readonly { id: string }[] }) => ({
         ...structuredClone(turn.oracle), firstReply: { opening: null, factIds: request.firstReplyFacts?.map(f => f.id) ?? [], closing: null }
       }), { respond: async (request: { facts: readonly { id: string }[] }) => ({ opening: null, factIds: request.facts.map(f => f.id), closing: null }) })
       const failures: string[] = []
       try {
-        const response = await respondWithAiInterpreter({ businessId: fixture.businessId, timezone: fixture.timezone, dbNow: new Date(message.createdAt) }, state, message.body, port, provider)
+        const response = await respondWithAiInterpreter({ businessId: fixture.businessId, timezone: fixture.timezone, dbNow: new Date(message.createdAt) }, state, message.body, port, provider, options)
         for (const [key, value] of Object.entries(turn.expected.state ?? {})) if (!isDeepStrictEqual(response.state[key as keyof DialogueState], value)) failures.push('state.'+key)
         if (turn.expected.basketServiceIds && !isDeepStrictEqual([...basketServiceIds(response.state)].sort(), [...turn.expected.basketServiceIds].sort())) failures.push('basketServiceIds')
         if (turn.expected.proposal !== undefined && (response.proposal !== null) !== turn.expected.proposal) failures.push('proposal')
@@ -110,7 +110,7 @@ export async function evaluateCases(input: unknown, corpus: CorpusConversation[]
         if (turn.expected.replyIncludes?.some(s => !response.reply.includes(s))) failures.push('replyIncludes')
         if (turn.expected.replyExcludes?.some(s => response.reply.includes(s))) failures.push('replyExcludes')
         state = response.state
-        result.turns.push({ messageId: message.messageId, passed: !failures.length, failures, reply: response.reply, state: structuredClone(state), proposal: response.proposal !== null, action: response.interpretation.decision.acceptedAction, interpretationMode: response.interpretation.mode })
+        result.turns.push({ messageId: message.messageId, passed: !failures.length, failures, reply: response.reply, state: structuredClone(state), proposal: response.proposal !== null, action: response.interpretation.decision.acceptedAction, interpretationMode: response.interpretation.mode, ...(options.provider ? { diagnostics: structuredClone(response.interpretation) } : {}) })
       } catch {
         result.turns.push({ messageId: message.messageId, passed: false, failures: ['runtime_error'], reply: null, state: null, proposal: false, action: null, interpretationMode: null })
         break // Later turns would inherit a state that was never produced.
@@ -120,8 +120,8 @@ export async function evaluateCases(input: unknown, corpus: CorpusConversation[]
   }
   const turns = cases.flatMap(c => c.turns)
   const sourceFiles = ['ai-interpreter.ts','engine.ts','turn-plan.ts','service-basket.ts']
-  return { schemaVersion: 1, mode: 'controlled_interpretation_real_motor', comprehensionEvaluated: false,
-    limitations: ['Annotated interpretation oracle; no real-model comprehension or style measurement.', 'Synthetic catalog and agenda; no production pricing, booking, batching or session-expiry proof.'],
+  return { schemaVersion: 1, mode: options.provider ? 'external_provider_real_motor' : 'controlled_interpretation_real_motor', comprehensionEvaluated: !!options.provider && turns.some(t => t.interpretationMode === 'ai'),
+    limitations: [options.provider ? 'External provider evaluated; fallback turns do not establish model comprehension.' : 'Annotated interpretation oracle; no real-model comprehension or style measurement.', 'Synthetic catalog and agenda; no production pricing, booking, batching or session-expiry proof.'],
     runtimeSources: sourceFiles.map(name => ({ path: 'src/conversational-bot/'+name, sha256: digest(readFileSync(new URL('../src/conversational-bot/'+name, import.meta.url))) })),
     casesPlanned: bundle.cases.length, turnsPlanned: bundle.cases.reduce((n,c) => n+c.turns.length,0), turnsRun: turns.length,
     passed: turns.filter(t => t.passed).length, failed: turns.filter(t => !t.passed).length, cases }

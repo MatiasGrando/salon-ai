@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { evaluateCases } from './glow-offline-eval.js'
+import { evaluateCases, type EvalBundle } from './glow-offline-eval.js'
 const other = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
 const booking = { ...other, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte' }
 const corpus = [{ conversationId: 'glow-001', customerCode: 'WX-QG5FQA', cutoffExclusive: '2026-09-02T16:28:39.631Z', messages: [
@@ -79,3 +79,30 @@ unsupported.cases[0].turns[0].oracle = { ...other, turnPlan: { version: 1, opera
 unsupported.cases[0].turns[0].expected = { proposal: false, replyIncludes: ['todavía no está disponible'] }
 assert.equal((await evaluateCases(unsupported, unsupportedCorpus)).failed, 0, 'pending operations must be disclosed without real effects')
 console.log('Glow offline evaluator: PASS (isolation, reproducibility, failure reporting, source and cutoff guards)')
+
+const injectedBundle = structuredClone(bundle) as EvalBundle
+injectedBundle.cases = [injectedBundle.cases[0]!]; injectedBundle.cases[0]!.turns = [injectedBundle.cases[0]!.turns[0]!]
+injectedBundle.cases[0]!.turns[0]!.oracle = other // Poison the oracle: the supplied provider must be the only interpretation source.
+let providerCalls = 0
+const spyProvider = async (request: unknown) => {
+  providerCalls++
+  assert.deepEqual(Object.keys(request as object).sort(), ['businessDate','firstReplyFacts','intakeReplyAllowed','message','services','state','timezone'].sort())
+  return booking
+}
+const injected = await evaluateCases(injectedBundle, corpus, { provider: spyProvider, timeoutMs: 4500 })
+assert.equal(providerCalls, 1, 'injected provider must run instead of the annotation oracle')
+assert.equal(injected.failed, 0)
+assert.equal(injected.mode, 'external_provider_real_motor')
+assert.equal(injected.comprehensionEvaluated, true)
+assert.equal(injected.cases[0]!.turns[0]!.diagnostics?.reason, null)
+const unavailable = await evaluateCases(injectedBundle, corpus, { provider: async () => { throw new Error('do not expose') } })
+assert.equal(unavailable.comprehensionEvaluated, false, 'fallback cannot count as model comprehension')
+assert.equal(unavailable.cases[0]!.turns[0]!.diagnostics?.reason, 'provider_error')
+assert.ok(unavailable.cases[0]!.turns[0]!.failures.includes('interpretationMode'))
+assert.equal(JSON.stringify(unavailable).includes('do not expose'), false)
+let invalidCalls = 0
+await assert.rejects(evaluateCases(outbound, corpus, { provider: async () => { invalidCalls++; return booking } }), /inbound/)
+assert.equal(invalidCalls, 0, 'source guards must run before external provider invocation')
+const timedOut = await evaluateCases(injectedBundle, corpus, { provider: async () => new Promise(resolve => setTimeout(() => resolve(booking), 30)), timeoutMs: 1 })
+assert.equal(timedOut.cases[0]!.turns[0]!.diagnostics?.reason, 'timeout', 'caller timeout must be preserved and reported')
+console.log('Glow provider injection: PASS (oracle isolation, source guards, diagnostics, fallback, caller timeout)')
