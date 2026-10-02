@@ -18,9 +18,10 @@ const callsBefore = agendaCalls
 const confirm = await respond(context, shown.state, 'sí', port)
 assert.equal(confirm.bookingCommand?.kind, 'CONFIRM_SANDBOX_BOOKING')
 assert.equal(agendaCalls, callsBefore, 'confirmation adapter, not dialogue, revalidates atomically')
-assert.doesNotMatch(confirm.reply, /turno de prueba reservado/i)
+assert.doesNotMatch(shown.reply, /La reserva fue confirmada|Te esperamos en/)
+assert.doesNotMatch(confirm.reply, /turno de prueba reservado|La reserva fue confirmada|Te esperamos en/i)
 const committed = finalizeSandboxBooking(confirm, { kind: 'COMMITTED', appointmentId: 'simqa_appointment_test', proposalNonce: confirm.bookingCommand!.presented.nonce, fingerprint: confirm.bookingCommand!.presented.fingerprint })
-assert.match(committed.reply, /Turno de prueba reservado/)
+assert.match(committed.reply, /La reserva fue confirmada/)
 assert.match(committed.reply, /simqa_appointment_test/)
 parseDialogueState(committed.state, 'qa', context.timezone)
 const replay = await respond(context, committed.state, 'quiero reservar', port)
@@ -129,3 +130,27 @@ assert.throws(() => buildSandboxBookingTerms(context, multiple, [service,cream],
 for (const phrase of ['¿sí?', 'sí?', 'sí, pero mejor mañana', 'sí y cuál es la dirección']) {
   assert.equal((await respond(context, shown.state, phrase, port)).bookingCommand, undefined)
 }
+
+// Only a committed receipt owns confirmation copy and its bounded address snapshot.
+const addressResult = { kind: 'COMMITTED' as const, appointmentId: 'simqa_appointment_test', proposalNonce: confirm.bookingCommand!.presented.nonce, fingerprint: confirm.bookingCommand!.presented.fingerprint, businessAddress: 'Calle Nueva 123, Centro' }
+const withAddress = finalizeSandboxBooking(confirm, addressResult)
+assert.match(withAddress.reply, /La reserva fue confirmada\.\nTe esperamos en Calle Nueva 123, Centro\./)
+assert.match(withAddress.reply, /sábado 03\/10\/2026 a las 17:00/)
+assert.match(withAddress.reply, /Corte hombre/)
+assert.deepEqual(withAddress.state.sandboxReservation!.presented, committed.state.sandboxReservation!.presented, 'location is not a booking term or nonce input')
+parseDialogueState(withAddress.state, 'qa', context.timezone)
+assert.equal((await respond(context, withAddress.state, 'confirmo', port)).reply, withAddress.reply)
+assert.doesNotMatch(committed.reply, /Te esperamos en/, 'legacy result has no invented address')
+const maxAddress = finalizeSandboxBooking(confirm, { ...addressResult, businessAddress: 'a'.repeat(1000) })
+parseDialogueState(maxAddress.state, 'qa', context.timezone)
+assert.equal(maxAddress.state.sandboxReservation!.receipt!.businessAddress!.length, 1000)
+for (const invalid of [undefined, null, 123, {}, '', '   ', 'a'.repeat(1001), 'Calle\n123', ' Calle 123 ']) {
+  assert.throws(() => finalizeSandboxBooking(confirm, { ...addressResult, businessAddress: invalid } as any), /address/)
+  const snapshot = structuredClone(withAddress.state) as any
+  snapshot.sandboxReservation.receipt.businessAddress = invalid
+  assert.throws(() => parseDialogueState(snapshot, 'qa', context.timezone), /receipt|address/)
+}
+for (const result of [{ kind: 'SLOT_CONFLICT' }, { kind: 'REQUOTE' }, { kind: 'BLOCKED', reason: 'TEMPORARILY_UNAVAILABLE' }, { kind: 'BLOCKED', reason: 'DEPOSIT_REQUIRED' }] as const) {
+  assert.doesNotMatch(finalizeSandboxBooking(confirm, result).reply, /La reserva fue confirmada|Te esperamos en/)
+}
+console.log('sandbox confirmed receipt address snapshot and legacy contract: OK')

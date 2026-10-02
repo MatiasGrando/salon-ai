@@ -18,7 +18,9 @@ export type SandboxBookingTerms = {
   services: SandboxBookingService[]
 }
 export type PresentedSandboxProposal = { schemaVersion: 1; nonce: string; fingerprint: string; terms: SandboxBookingTerms }
-export type SandboxBookingReceipt = { appointmentId: string; proposalNonce: string; fingerprint: string }
+export const SANDBOX_RECEIPT_ADDRESS_MAX_LENGTH = 1000
+/** Optional commit-time location snapshot; legacy receipts deliberately have none. */
+export type SandboxBookingReceipt = { appointmentId: string; proposalNonce: string; fingerprint: string; businessAddress?: string }
 export type SandboxReservation = { schemaVersion: 1; presented: PresentedSandboxProposal; receipt?: SandboxBookingReceipt }
 export type SandboxBookingCommand = { kind: 'CONFIRM_SANDBOX_BOOKING'; presented: PresentedSandboxProposal }
 export type SandboxBookingBlockReason = 'DEPOSIT_REQUIRED' | 'POLICY_BLOCKED' | 'SERVICE_UNAVAILABLE' | 'SCOPE_REJECTED' | 'TEMPORARILY_UNAVAILABLE'
@@ -34,6 +36,7 @@ function canonical(value: unknown): unknown {
 }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')
 const text = (value: unknown, length: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= length && !/[\u0000-\u001f]/.test(value)
+const validReceiptAddress = (value: unknown): value is string => text(value, SANDBOX_RECEIPT_ADDRESS_MAX_LENGTH) && value.trim() === value && value.trim().length > 0
 const minutes = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0 && Number(value) <= 1440
 const money = (value: unknown): value is number | null => value === null || Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 2147483647
 const keys = (value: object, expected: string) => Object.keys(value).sort().join(',') === expected
@@ -98,7 +101,12 @@ export function parseSandboxReservation(value: unknown, state: DialogueState): S
   if (!p || !keys(p, 'fingerprint,nonce,schemaVersion,terms') || p.schemaVersion !== 1 || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) throw new Error('invalid sandbox proposal')
   validateTerms(p.terms)
   if (sandboxProposalFingerprint(p.terms) !== p.fingerprint || !sandboxProposalMatchesState(p, state)) throw new Error('stale sandbox proposal')
-  if (reservation.receipt && (!keys(reservation.receipt, 'appointmentId,fingerprint,proposalNonce') || !text(reservation.receipt.appointmentId, 128) || !reservation.receipt.appointmentId.startsWith('simqa_appointment_') || reservation.receipt.proposalNonce !== p.nonce || reservation.receipt.fingerprint !== p.fingerprint)) throw new Error('invalid sandbox receipt')
+  if (reservation.receipt) {
+    const receipt = reservation.receipt, hasAddress = Object.hasOwn(receipt, 'businessAddress')
+    if (!keys(receipt, hasAddress ? 'appointmentId,businessAddress,fingerprint,proposalNonce' : 'appointmentId,fingerprint,proposalNonce') ||
+        hasAddress && !validReceiptAddress(receipt.businessAddress) || !text(receipt.appointmentId, 128) || !receipt.appointmentId.startsWith('simqa_appointment_') ||
+        receipt.proposalNonce !== p.nonce || receipt.fingerprint !== p.fingerprint) throw new Error('invalid sandbox receipt')
+  }
   return structuredClone(reservation)
 }
 export function presentSandboxProposal(context: DialogueContext, state: DialogueState, services: readonly DialogueService[], proposal: BookingProposal, previous?: SandboxReservation): string {
@@ -125,7 +133,7 @@ export function renderSandboxTerms(terms: SandboxBookingTerms): string {
 }
 export function sandboxReceiptReply(reservation: SandboxReservation): string {
   if (!reservation.receipt) throw new Error('sandbox receipt missing')
-  return 'Turno de prueba reservado.\n' + renderSandboxTerms(reservation.presented.terms) + '\nCódigo: ' + reservation.receipt.appointmentId
+  return 'La reserva fue confirmada.\n' + (reservation.receipt.businessAddress ? 'Te esperamos en ' + reservation.receipt.businessAddress + '.\n' : '') + renderSandboxTerms(reservation.presented.terms) + '\nCódigo: ' + reservation.receipt.appointmentId
 }
 /** Buffered result only: the transactional caller must commit the effect, receipt and chat before returning it. */
 export function finalizeSandboxBooking(response: DialogueResponse, result: SandboxBookingResult): DialogueResponse {
@@ -133,8 +141,9 @@ export function finalizeSandboxBooking(response: DialogueResponse, result: Sandb
   if (!command || !response.state.sandboxReservation || command.presented.fingerprint !== response.state.sandboxReservation.presented.fingerprint || command.presented.nonce !== response.state.sandboxReservation.presented.nonce) throw new Error('sandbox command missing')
   const state = structuredClone(response.state)
   if (result.kind === 'COMMITTED') {
+    if (Object.hasOwn(result, 'businessAddress') && !validReceiptAddress(result.businessAddress)) throw new Error('invalid sandbox receipt address')
     if (result.proposalNonce !== command.presented.nonce || result.fingerprint !== command.presented.fingerprint || !text(result.appointmentId, 128) || !result.appointmentId.startsWith('simqa_appointment_')) throw new Error('sandbox committed result mismatch')
-    state.sandboxReservation!.receipt = { appointmentId: result.appointmentId, proposalNonce: result.proposalNonce, fingerprint: result.fingerprint }
+    state.sandboxReservation!.receipt = { appointmentId: result.appointmentId, proposalNonce: result.proposalNonce, fingerprint: result.fingerprint, ...(result.businessAddress ? { businessAddress: result.businessAddress } : {}) }
     delete state.questionContext
     if (state.dialogueContext) state.dialogueContext.lastQuestion = null
     return { state, proposal: null, reply: sandboxReceiptReply(state.sandboxReservation!) }

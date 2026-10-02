@@ -42,6 +42,7 @@ INSERT INTO "BusinessHours" ("id","businessId","dayOfWeek","startTime","endTime"
 INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('prohours','cin',6,'11:00','20:00');
 `)
 const clock = new Date('2026-10-02T12:00:00Z'), queries: string[] = []
+let scopeAddressOverride: { value: unknown } | null = null
 let messageSequence=0, rejectMessage=false, revokeInTransaction=false, casInjection=false, transactionCount=0
 function orm(sql: { query: PGlite['query'] }): any {
   const query = async (text: string, values: unknown[] = []) => (await sql.query(text, values.map(value => value instanceof Date ? value.toISOString() : value !== null && typeof value === 'object' ? JSON.stringify(value) : value))).rows as any[]
@@ -84,6 +85,7 @@ function orm(sql: { query: PGlite['query'] }): any {
       // PGlite is one connection: inspect exact advisory hierarchy, not pretend to prove cross-process contention.
       if(input.text.includes('pg_advisory_xact_lock')) { assert.match(String(input.values[0]),/^salon-ai:agenda:v1:(business:qa|professional:cin)$/); return [{locked:1}] }
       const rows = await query(input.text,input.values)
+      if(scopeAddressOverride && input.text.includes('"publicAddress"')) for(const row of rows) row.publicAddress=scopeAddressOverride.value
       for(const row of rows) { if(input.text.includes('CURRENT_TIMESTAMP AS now') || input.text.includes('clock_timestamp() AS now')) row.now=clock; for(const field of ['startAt','endAt']) if(row[field]!=null) row[field]=new Date(row[field]) }
       return rows
     }
@@ -128,7 +130,9 @@ try {
   await db.exec(`UPDATE "Service" SET "duration"=30 WHERE "id"='cut'; INSERT INTO "Appointment" ("id","businessId","professionalId","startAt","totalDurationMinutes","status") VALUES ('ordinary','qa','cin','2026-10-03T20:00:00Z',60,'CONFIRMED')`)
   assert.deepEqual(await execute(),{kind:'SLOT_CONFLICT'})
   await db.exec(`DELETE FROM "Appointment" WHERE "id"='ordinary'`)
+  await db.exec(`UPDATE "Business" SET "publicAddress"='Calle Fresca 456',"publicAddressArea"='Centro' WHERE "id"='qa'`)
   const first=await execute(); assert.equal(first.kind,'COMMITTED'); if(first.kind!=='COMMITTED') throw new Error('not committed')
+  assert.equal(first.businessAddress,'Calle Fresca 456, Centro','address comes from locked business, not conversational facts')
   assert.equal(await count('Appointment'),1); assert.equal(await count('Customer'),1); assert.equal(await count('AppointmentServiceItem'),2)
   const appointment=(await db.query<any>('SELECT * FROM "Appointment"')).rows[0]; assert.equal(appointment.quotedPrice,null); assert.equal(appointment.totalDurationMinutes,60)
   const items=(await db.query<any>('SELECT * FROM "AppointmentServiceItem" ORDER BY "sortOrder"')).rows; assert.deepEqual(items.map(item=>[item.serviceId,item.durationMinutes,item.price]),[['cut',30,27000],['cream',30,null]])
@@ -163,13 +167,31 @@ try {
   parseDialogueState(oversized,'qa',context.timezone)
   await seed(oversized);await assert.rejects(()=>store(),/invalid dialogue scope/)
   assert.equal(await count('Appointment'),0);assert.equal(await count('Customer'),0);assert.equal(await count('Message'),0,'oversized receipt rolls back effect and chat')
+  const { businessAddress: _address, ...legacyResult } = first
+  const boundedState:any=structuredClone(state)
+  boundedState.futureStatePadding=''
+  const withoutLocation=finalizeSandboxBooking({...response,state:boundedState},legacyResult)
+  boundedState.futureStatePadding='x'.repeat(16384-JSON.stringify(withoutLocation.state).length)
+  parseDialogueState(boundedState,'qa',context.timezone)
+  parseDialogueState(finalizeSandboxBooking({...response,state:boundedState},legacyResult).state,'qa',context.timezone)
+  await seed(boundedState)
+  await assert.rejects(()=>store(),/invalid dialogue scope/,'bounded location snapshot must not bypass the total state limit')
+  assert.equal(await count('Appointment'),0);assert.equal(await count('Customer'),0);assert.equal(await count('Message'),0,'location-only state overflow rolls back appointment and chat')
   await seed();casInjection=true;const beforeTx=transactionCount
   const confirmed=await store()
+  assert.match(confirmed.reply,/La reserva fue confirmada/)
+  assert.match(confirmed.reply,/Te esperamos en Calle Fresca 456, Centro\./)
+  assert.match(confirmed.reply,/sábado 03\/10\/2026 a las 17:00/)
+  assert.match(confirmed.reply,/Corte/);assert.match(confirmed.reply,/Baño de crema/)
+  assert.equal(confirmed.state.sandboxReservation!.receipt!.businessAddress,'Calle Fresca 456, Centro')
+  assert.equal((await db.query<any>('SELECT "body" FROM "Message" WHERE "direction"=$1',['OUTBOUND'])).rows[0].body,confirmed.reply)
+  await db.exec(`UPDATE "Business" SET "publicAddress"='Calle Posterior 789',"publicAddressArea"='Norte' WHERE "id"='qa'`)
   assert.equal(transactionCount-beforeTx,2,'CAS recomputes outside transaction after stale snapshot')
   assert.equal(confirmed.bookingConfirmed,true);assert.match(confirmed.bookingReceipt!.appointmentId,/^simqa_appointment_/)
   assert.equal('bookingCommand' in confirmed,false,'HTTP projection excludes command')
   assert.equal(await count('Appointment'),1);assert.equal(await count('Message'),2)
   const [again,third]=await Promise.all([store(),store()])
+  assert.equal(again.reply,confirmed.reply);assert.equal(third.reply,confirmed.reply,'replay keeps committed location snapshot')
   assert.equal(again.bookingReceipt!.appointmentId,confirmed.bookingReceipt!.appointmentId);assert.equal(third.bookingReceipt!.appointmentId,confirmed.bookingReceipt!.appointmentId)
   assert.equal(await count('Appointment'),1);assert.equal(await count('Message'),6,'FIFO repeated confirmations remain chat turns, not extra bookings')
   const beforeInfo=queries.length
@@ -179,5 +201,34 @@ try {
   assert.equal(await count('Appointment'),1);assert.equal(queries.slice(beforeInfo).some(q=>q.includes('BusinessBotOptionsSettings')),false)
   const saved=(await db.query<any>('SELECT "supportBotState" FROM "Conversation" WHERE "id"=$1',['chat'])).rows[0].supportBotState
   assert.equal(saved.sandboxReservation.receipt.appointmentId,confirmed.bookingReceipt!.appointmentId)
+  // Existing business scope read also supplies the location, without an extra address SELECT.
+  const replayReads=queries.slice(beforeInfo).filter(q=>q.includes('FROM "Business"'))
+  assert.equal(replayReads.length,4,'two existing business scope checks per preview turn')
+  for(const addressValue of [null,'','   ','x'.repeat(1001)]) {
+    await db.query('UPDATE "Business" SET "publicAddress"=$1,"publicAddressArea"=$2 WHERE "id"=$3',[addressValue,'Solo barrio','qa'])
+    await seed()
+    const withoutAddress=await store()
+    assert.match(withoutAddress.reply,/La reserva fue confirmada/)
+    assert.doesNotMatch(withoutAddress.reply,/Te esperamos en|Solo barrio/)
+    assert.equal(withoutAddress.state.sandboxReservation!.receipt!.businessAddress,undefined)
+  }
+  await db.query('UPDATE "Business" SET "publicAddress"=$1,"publicAddressArea"=$2 WHERE "id"=$3',['  Calle Final 321, Centro  ',' Centro ','qa'])
+  for(const value of [123,{},'Calle\n321']) {
+    scopeAddressOverride={value};await seed()
+    const invalidAddress=await store()
+    assert.doesNotMatch(invalidAddress.reply,/Te esperamos en/)
+    scopeAddressOverride=null
+  }
+  const legacy=structuredClone(confirmed.state)
+  delete legacy.sandboxReservation!.receipt!.businessAddress
+  await seed(legacy)
+  const legacyReplay=await store()
+  assert.doesNotMatch(legacyReplay.reply,/Te esperamos en/,'a legacy committed receipt is not refreshed from the present address')
+  await seed()
+  const normalized=await store()
+  assert.match(normalized.reply,/Te esperamos en Calle Final 321, Centro\./)
+  assert.doesNotMatch(normalized.reply,/Centro, Centro/)
+  assert.equal(await count('Appointment'),1,'address changes never create another appointment')
+  assert.equal((await db.query<any>('SELECT "status" FROM "Appointment"')).rows[0].status,'CONFIRMED')
   console.log('sandbox booking adapter PGlite: OK (offline; advisory hierarchy inspected, cross-process locks not simulated)')
 } finally { await db.close() }
