@@ -6,7 +6,7 @@ import { basketServiceIds } from './service-basket.js'
 type ConversationSidecar = { policy: ConversationPolicy; dialogue: DialogueState }
 export type ConversationSessionState = BotOptionsState & { conversationDraft: ConversationSidecar }
 const flows: Record<DialogueState['pending'], BotOptionsFlowStep> = {
-  service: 'SERVICE_SELECT', date: 'DATE_SELECT', professional: 'PROFESSIONAL_SELECT', time: 'SLOT_SELECT', name: 'NAME_INPUT', proposal: 'BOOKING_SUMMARY'
+  service: 'SERVICE_SELECT', estimate: 'SERVICE_ESTIMATE', date: 'DATE_SELECT', professional: 'PROFESSIONAL_SELECT', time: 'SLOT_SELECT', name: 'NAME_INPUT', proposal: 'BOOKING_SUMMARY'
 }
 export function readConversationDraft(value: unknown, policy: ConversationPolicy, timezone: string): DialogueState {
   const parsed = parseBotOptionsState(value)

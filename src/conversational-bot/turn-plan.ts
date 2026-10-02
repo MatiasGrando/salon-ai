@@ -7,6 +7,7 @@ type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
   | BasketMutation
+  | { kind: 'estimate'; serviceId: string; optionId: string | null }
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
   | { kind: 'professional'; mode: 'any' | 'clear' }
@@ -37,6 +38,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
       targetMemberIds: { type: 'array', items: stringSchema(32), maxItems: BASKET_LIMITS.members },
       members: { type: 'array', maxItems: BASKET_LIMITS.members, items: objectSchema({ mode: { type: 'string', enum: ['single', 'alternatives', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), maxItems: BASKET_LIMITS.candidates }, ...evidenceSchema }) }
     }),
+    operationSchema('estimate', { serviceId: stringSchema(128), optionId: { type: ['string','null'], minLength: 1, maxLength: 128 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
@@ -105,6 +107,11 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       exactKeys(raw, [...common, 'mode', 'serviceIds', 'correction'])
       if (!['single', 'alternatives', 'multiple', 'unresolved'].includes(String(raw.mode)) || typeof raw.correction !== 'boolean' || !Array.isArray(raw.serviceIds) || raw.serviceIds.length > TURN_PLAN_LIMITS.candidates || raw.serviceIds.some(id => !bounded(id, 128)) || new Set(raw.serviceIds).size !== raw.serviceIds.length || (raw.mode === 'single' ? raw.serviceIds.length !== 1 : raw.mode === 'unresolved' ? raw.serviceIds.length !== 0 : raw.serviceIds.length < 2)) fail('service')
       if (catalogIds && raw.serviceIds.some(id => !catalogIds.includes(id))) fail('catalog')
+    } else if (raw.kind === 'estimate') {
+      exactKeys(raw, [...common,'serviceId','optionId'])
+      if (!bounded(raw.serviceId,128) || raw.optionId !== null && !bounded(raw.optionId,128)) fail('estimate')
+      if (catalogIds && !catalogIds.includes(raw.serviceId)) fail('catalog estimate')
+      identity += ':' + raw.serviceId
     } else if (raw.kind === 'professional') {
       exactKeys(raw, raw.mode === 'specific' ? [...common, 'mode', 'mention'] : [...common, 'mode'])
       if (!['specific', 'any', 'clear'].includes(String(raw.mode)) || raw.mode === 'specific' && (!bounded(raw.mention, 100) || !contains(raw.evidence, raw.mention))) fail('professional')

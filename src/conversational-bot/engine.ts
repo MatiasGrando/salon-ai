@@ -1,3 +1,5 @@
+import { resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPolicy } from '../bot-options/domain/service-booking.js'
+import { guidanceBlockMessage, guidanceQuestion, parseServiceEstimates, renderGuidedEstimates, resolveGuidance, serviceGuidance, type GuidanceBlock, type GuidedSelection, type ServiceEstimates } from './service-guidance.js'
 import { ACTION_REGISTRY, routeActions, type InformationAction } from './actions.js'
 import { pendingQuestion, renderInformation, renderServices, validateFacts, type BusinessFacts } from './information.js'
 import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
@@ -5,23 +7,24 @@ import { resolveDialogueDate } from './dialogue-date.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
-export type DialogueService = { id: string; name: string; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null }
+export type DialogueService = { id: string; name: string; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date }
 export type DialogueBasketAvailability =
-  | { ok: false; reason: 'SERVICE_UNAVAILABLE' | 'DOMAIN_REVIEW' | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
-  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }
+  | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
+  | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
+  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number }
 export type DialoguePort = {
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
   catalog(): Promise<DialogueService[]>
-  availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string): Promise<DialogueBasketAvailability>
+  availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates): Promise<DialogueBasketAvailability>
   availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }>
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type InformationTarget = { kind: 'business'; actions: readonly InformationAction[] } | { kind: 'presented_offer'; actions: readonly [] }
 export type DialogueState = {
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
-  pending: 'service' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
-  serviceId: string | null; basket?: ServiceBasket; date: string | null
+  pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
+  serviceId: string | null; basket?: ServiceBasket; serviceEstimates?: Record<string, GuidedSelection>; date: string | null
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
   /** Unverified name until uniquely matched against the selected service's compatible professionals. */
   professionalNameHint: string | null
@@ -29,7 +32,7 @@ export type DialogueState = {
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
 }
-export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null }
+export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan }
@@ -54,7 +57,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid dialogue state')
   const s = value as DialogueState
   if (JSON.stringify(value).length > 16384 || s.schemaVersion !== 1 || s.engine !== 'conversational-booking-v1' || s.businessId !== businessId || !bounded(businessId, 128)) throw new Error('invalid dialogue scope')
-  if (!['service', 'date', 'professional', 'time', 'name', 'proposal'].includes(s.pending)) throw new Error('invalid dialogue step')
+  if (!['service', 'estimate', 'date', 'professional', 'time', 'name', 'proposal'].includes(s.pending)) throw new Error('invalid dialogue step')
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
@@ -67,6 +70,8 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     const singular = ids.length === 1 ? ids[0] : null
     if (s.serviceId !== singular) throw new Error('invalid basket projection')
   }
+  if (s.serviceEstimates !== undefined && s.serviceEstimates !== null) parseServiceEstimates(s.serviceEstimates, selectionBasket(s).members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds))
+  if (s.pending === 'estimate' && (!basketIsResolved(s) || s.slot !== null)) throw new Error('invalid guidance pending')
   const resolvedSelection = basketIsResolved(s)
   if (s.slot !== null && (!resolvedSelection || !s.date || !s.professional || s.slot.date !== s.date || !bounded(s.slot.professionalId, 128) || !bounded(s.slot.professionalName, 200) || !Number.isFinite(Date.parse(s.slot.startAt)) || parseMinutes(s.slot.time) === null || (s.professional.kind === 'specific' && s.professional.id !== s.slot.professionalId))) throw new Error('invalid slot')
   if ((!resolvedSelection && (s.date && s.slot || (!s.basket && s.professional?.kind === 'specific') || s.slot)) || (!s.date && s.slot) || (s.pending === 'proposal' && (!s.slot || !s.customerName))) throw new Error('invalid dialogue invariants')
@@ -87,7 +92,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     const time = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant)
     if (localDateKey(instant, timezone) !== s.slot.date || time !== s.slot.time) throw new Error('invalid slot wall time')
   }
-  return structuredClone({ ...s, professionalNameHint: s.professionalNameHint ?? null })
+  return structuredClone({ ...s, professionalNameHint: s.professionalNameHint ?? null, ...(s.serviceEstimates === null ? {serviceEstimates: {}} : {}) })
 }
 const normalize = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9:/-]+/g, ' ').trim()
 const words = (text: string) => normalize(text).split(' ').filter(w => w && w !== 'y').sort()
@@ -135,6 +140,10 @@ function mutateStateBasket(state: DialogueState, op: BasketMutation): void {
   state.basket = result.basket
   const ids = basketServiceIds(state)
   state.serviceId = ids.length === 1 ? ids[0]! : null
+  if (state.serviceEstimates) {
+    const exactIds = state.basket.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds)
+    state.serviceEstimates = Object.fromEntries(Object.entries(state.serviceEstimates).filter(([id]) => exactIds.includes(id)))
+  }
   if (result.changed) {
     state.slot = null
     if (previouslyResolved) state.requestedTime = null
@@ -149,22 +158,34 @@ function basketQuestion(state: DialogueState, services: readonly DialogueService
   return pending.mode === 'unresolved' ? 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
     : '¿Cuál de estos servicios querés?\n' + serviceList(services.filter(service => pending.serviceIds.includes(service.id))) + retained
 }
-function validBookableService(service: DialogueService): boolean {
-  return !service.requiresConsultation && Number.isSafeInteger(service.durationMinutes) && Number(service.durationMinutes) > 0 &&
+function validBookableService(service: DialogueService, allowDual = false): boolean {
+  return serviceGuidance(service).kind !== 'blocked' && Number.isSafeInteger(service.durationMinutes) && Number(service.durationMinutes) > 0 &&
     (service.professionalDurationMinutes === undefined || Number.isSafeInteger(service.professionalDurationMinutes) && service.professionalDurationMinutes === service.durationMinutes) &&
-    (service.customerDurationMinutes === undefined || Number.isSafeInteger(service.customerDurationMinutes) && Number(service.customerDurationMinutes) > 0 && Number(service.customerDurationMinutes) <= Number(service.durationMinutes)) &&
+    (service.customerDurationMinutes === undefined || Number.isSafeInteger(service.customerDurationMinutes) && Number(service.customerDurationMinutes) > 0 && (allowDual || Number(service.customerDurationMinutes) <= Number(service.durationMinutes))) &&
     (service.price === null || Number.isSafeInteger(service.price) && service.price >= 0) &&
     (service.priceMode === undefined || ['FIXED', 'STARTING_AT'].includes(service.priceMode))
 }
-function validateBasketAvailability(result: Extract<DialogueBasketAvailability, { ok: true }>, ids: readonly string[]): void {
+function validateBasketAvailability(result: Extract<DialogueBasketAvailability, { ok: true }>, ids: readonly string[], selections: ServiceEstimates = {}): ReturnType<typeof resolveGuidance> {
   if (!Array.isArray(result.services) || JSON.stringify(result.services.map(s => s.id)) !== JSON.stringify(ids) ||
-      result.services.some(service => !validBookableService(service)) ||
+      result.services.some(service => !validBookableService(service, result.customerDurationMinutes !== undefined)) ||
       !Number.isSafeInteger(result.durationMinutes) || result.durationMinutes <= 0 ||
       (result.totalPrice !== null && (!Number.isSafeInteger(result.totalPrice) || result.totalPrice < 0))) throw new Error('invalid basket availability')
+  const guidance = resolveGuidance(result.services, selections)
+  if (guidance.blocked || guidance.pending) throw new Error('invalid basket guidance')
+  if (guidance.changed && result.services.some(service => {
+    const old = Object.hasOwn(selections,service.id) ? selections[service.id] : undefined
+    const next = Object.hasOwn(guidance.selections,service.id) ? guidance.selections[service.id] : undefined
+    if (JSON.stringify(old) === JSON.stringify(next)) return false
+    const guide = serviceGuidance(service)
+    return guide.kind !== 'direct' && !(guide.kind === 'guided' && guide.policy.estimateOptions?.length === 0 && next?.optionId === null)
+  })) throw new Error('invalid basket guidance change')
+  const customerDuration = result.services.reduce((n, service) => n + Math.max(service.durationMinutes!, service.customerDurationMinutes ?? service.durationMinutes!), 0)
+  if (result.customerDurationMinutes !== undefined && (!Number.isSafeInteger(result.customerDurationMinutes) || result.customerDurationMinutes !== customerDuration)) throw new Error('invalid basket customer duration')
   const summary = selectionSummary(result.services)
   if (result.durationMinutes !== summary.durationMinutes || result.totalPrice !== summary.totalPrice ||
       !Array.isArray(result.professionals) || result.professionals.length > 50 ||
       !Array.isArray(result.slots) || result.slots.length > 500) throw new Error('invalid basket availability')
+  return guidance
 }
 async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[]): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
@@ -173,10 +194,10 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const text = preparedCatalog ? '' : normalize(message)
   const finish = (reply: string, proposal: BookingProposal | null = null) => {
     const lastLine = reply.trim().split('\n').at(-1) ?? ''
-    const expected = pendingQuestion(state)
+    const expected = state.pending === 'estimate' && state.dialogueContext?.lastQuestion ? state.dialogueContext.lastQuestion : pendingQuestion(state)
     const question = expected.startsWith('¿') && reply.includes(expected) ? expected :
       lastLine.startsWith('¿') && lastLine.endsWith('?') && lastLine.length <= 240 ? lastLine : null
-    if (state.serviceId || state.dialogueContext || decision?.intent === 'booking') state.dialogueContext = { lastQuestion: question, presentedOffer: state.dialogueContext?.presentedOffer ?? null }
+    if (hasBasketSelection(state) || state.dialogueContext || decision?.intent === 'booking') state.dialogueContext = { lastQuestion: question, presentedOffer: state.dialogueContext?.presentedOffer ?? null }
     return { state, reply, proposal }
   }
   if (/^(reset|volver a empezar|empezar de nuevo|no quiero nada|nada gracias)$/.test(text)) return { state: initialDialogueState(context.businessId), reply: 'De acuerdo. Cuando quieras, podemos buscar otro turno.', proposal: null }
@@ -250,22 +271,62 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     service = { ...trusted[0]!, name: trusted.map(item => item.name).join(' + '), durationMinutes: summary.durationMinutes, price: summary.totalPrice }
   }
   if (!service) { state.pending = 'service'; return finish(`${prefix}¿Qué servicio necesitás?\n${serviceList(services) || 'No tengo servicios disponibles para consultar.'}`) }
-  if (selectedServices.some(item => !item || !validBookableService(item))) { clearSlot(state); state.pending = 'service'; return finish('Uno de los servicios requiere una consulta con el equipo antes de reservar. Mantengo todos los servicios solicitados.') }
-  if (service.requiresConsultation || !service.durationMinutes || service.durationMinutes <= 0) return finish('Este servicio requiere una consulta con el equipo antes de reservar.')
+  const guidance = resolveGuidance(selectedServices as DialogueService[], state.serviceEstimates)
+  if (guidance.changed) { if (state.slot || Object.keys(state.serviceEstimates ?? {}).length || state.dialogueContext?.presentedOffer) clearSlot(state); state.serviceEstimates = guidance.selections }
+  if (guidance.blocked) { clearSlot(state); state.pending = 'service'; return finish(guidanceBlockMessage(guidance.blocked.reason)) }
+  if (guidance.pending) {
+    state.slot = null; state.pending = 'estimate'
+    const question = guidance.pending.bookingPolicy?.estimateQuestion
+    state.dialogueContext = { lastQuestion: question?.startsWith('¿') && question.endsWith('?') ? question : null, presentedOffer: null }
+    return finish(guidanceQuestion(guidance.pending))
+  }
+  if (selectedServices.some(item => !item || !validBookableService(item,true))) { clearSlot(state); state.pending = 'service'; return finish('No pude verificar los datos de duración o precio de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.') }
+  let needsVerifiedSelection = selectedServices.some(item => item?.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' || Number(item?.customerDurationMinutes ?? item?.durationMinutes) > Number(item?.durationMinutes))
+  let verifiedCustomerDuration: number | undefined
   if (!state.date) { state.pending = 'date'; return finish(`${prefix}¿Para qué día querés ${service.name}?`) }
   if (state.date < localDateKey(context.dbNow, context.timezone)) { state.date = null; clearSlot(state); state.pending = 'date'; return finish('Esa fecha ya pasó. ¿Qué otro día querés consultar?') }
+  let availabilityFailure: DialogueResponse | null = null
+  const failedAvailability = (reason: Exclude<DialogueBasketAvailability, { ok: true }>['reason']): DialogueResponse => {
+    clearSlot(state); state.pending = 'service'
+    const message = ['INVALID_CONFIGURATION','DOMAIN_REVIEW','PHOTO_REQUIRED','VALIDATION_REQUIRED','ESTIMATE_NOT_BOOKABLE'].includes(reason)
+      ? guidanceBlockMessage(reason as GuidanceBlock)
+      : reason === 'UNSUPPORTED_OCCUPANCY' ? 'No pude verificar la permanencia completa del cliente. Mantengo todos los servicios; necesitás consultarlo con el equipo.'
+      : reason === 'INVALID_DURATION' ? 'No pude verificar los datos de duración de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.'
+      : 'No pude verificar la disponibilidad conjunta de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.'
+    return finish(message)
+  }
   const queryAvailability = async (professionalId?: string) => {
-    if (selectedServices.length <= 1) return port.availability(service!, state.date!, professionalId)
+    if (selectedServices.length <= 1 && !needsVerifiedSelection && selectedServices.every(item => item?.bookingPolicy === undefined)) return port.availability(service!, state.date!, professionalId)
     if (!port.availabilityBasket) return null
-    const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId)
-    if (!result.ok) return null
-    validateBasketAvailability(result, basketServiceIds(state))
+    const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId, state.serviceEstimates)
+    if (!result.ok) {
+      if (result.reason !== 'GUIDANCE_REQUIRED') { availabilityFailure = failedAvailability(result.reason); return null }
+      const ids = basketServiceIds(state)
+      if (!Array.isArray(result.services) || JSON.stringify(result.services.map(item => item.id)) !== JSON.stringify(ids) ||
+          result.services.some(item => !bounded(item.id,128) || !bounded(item.name,200))) throw new Error('invalid fresh guidance services')
+      const fresh = resolveGuidance(result.services,state.serviceEstimates)
+      clearSlot(state); state.serviceEstimates = fresh.selections
+      if (fresh.blocked) { availabilityFailure = failedAvailability(fresh.blocked.reason); return null }
+      if (result.services.some(item => !validBookableService(item,true))) { availabilityFailure = failedAvailability('INVALID_DURATION'); return null }
+      if (!fresh.pending) { availabilityFailure = failedAvailability('SERVICE_UNAVAILABLE'); return null }
+      state.pending = 'estimate'
+      const question = fresh.pending.bookingPolicy?.estimateQuestion
+      state.dialogueContext = {lastQuestion:question?.startsWith('¿') && question.endsWith('?') ? question : null,presentedOffer:null}
+      availabilityFailure = finish(guidanceQuestion(fresh.pending))
+      return null
+    }
+    const freshNeedsVerifiedSelection = result.services.some(item => item.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' || Number(item.customerDurationMinutes ?? item.durationMinutes) > Number(item.durationMinutes))
+    if ((needsVerifiedSelection || freshNeedsVerifiedSelection) && result.customerDurationMinutes === undefined) return null
+    const verifiedGuidance = validateBasketAvailability(result, basketServiceIds(state), state.serviceEstimates)
+    if (verifiedGuidance.changed) { clearSlot(state); state.serviceEstimates = verifiedGuidance.selections }
+    needsVerifiedSelection = freshNeedsVerifiedSelection
+    verifiedCustomerDuration = result.customerDurationMinutes
     selectedServices = [...result.services]
     service = { ...result.services[0]!, name: result.services.map(item => item.name).join(' + '), durationMinutes: result.durationMinutes, price: result.totalPrice }
     return result
   }
   const available = await queryAvailability(selectedServices.length > 1 ? undefined : state.professional?.kind === 'specific' ? state.professional.id : undefined)
-  if (!available) { clearSlot(state); state.pending = 'service'; return finish('No pude verificar la disponibilidad conjunta de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.') }
+  if (!available) return availabilityFailure ?? failedAvailability('SERVICE_UNAVAILABLE')
   const professionals = available.professionals
   const professionalText = name ? normalize(message.replace(name[0], '')) : text
   const negativePreference = !extractProfessionalHint(text) && /\b(?:no|nunca)\b/.test(professionalText) && matches(professionalText.replace(/\b(?:no|nunca|te|dije|quiero)\b/g, ''), professionals).length > 0
@@ -288,7 +349,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       if (state.professional?.kind !== 'specific' || state.professional.id !== named[0]!.id) {
         delete state.dialogueContext; state.slot = null; state.professional = { kind: 'specific', id: named[0]!.id }
         const selected = await queryAvailability(named[0]!.id)
-        if (!selected) { clearSlot(state); state.pending = 'service'; return finish('No pude verificar la disponibilidad conjunta de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.') }
+        if (!selected) return availabilityFailure ?? failedAvailability('SERVICE_UNAVAILABLE')
         slots = selected.slots.filter(s => s.date === state.date && s.professionalId === named[0]!.id && Date.parse(s.startAt) > context.dbNow.getTime())
       }
     }
@@ -313,10 +374,12 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!state.customerName) { state.pending = 'name'; return finish(`${prefix}¿A nombre de quién sería el turno?`) }
   state.pending = 'proposal'
   const summary = selectionSummary(selectedServices as DialogueService[])
+  const finalGuidance = resolveGuidance(selectedServices as DialogueService[],state.serviceEstimates)
   const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName,
-    ...(selectedServices.length > 1 ? { serviceIds: basketServiceIds(state), services: selectedServices as DialogueService[], durationMinutes: summary.durationMinutes, totalPrice: summary.totalPrice } : {}) }
+    ...(selectedServices.length > 1 || needsVerifiedSelection ? { serviceIds: basketServiceIds(state), services: selectedServices as DialogueService[], durationMinutes: summary.durationMinutes, totalPrice: summary.totalPrice } : {}), ...(verifiedCustomerDuration !== undefined ? {customerDurationMinutes:verifiedCustomerDuration} : {}), ...(Object.keys(finalGuidance.estimates).length ? {estimates:finalGuidance.estimates} : {}) }
   const details = selectedServices.length > 1 ? ' (' + summary.durationMinutes + ' min; ' + (summary.totalPrice === null ? 'precio total a consultar' : '$ ' + summary.totalPrice.toLocaleString('es-AR')) + ')' : ''
-  return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.`, proposal)
+  const estimates = renderGuidedEstimates(selectedServices as DialogueService[],state.serviceEstimates ?? {})
+  return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.${estimates ? '\n' + estimates : ''}`, proposal)
 }
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
@@ -370,6 +433,19 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
 
+  for (const op of plan.operations) {
+    if (op.kind !== 'estimate') continue
+    if (!basketServiceIds(state).includes(op.serviceId)) throw new Error('invalid guidance service target')
+    const selected = services.find(service => service.id === op.serviceId)!
+    const guide = serviceGuidance(selected)
+    if (guide.kind !== 'guided') throw new Error('invalid guidance target policy')
+    const estimate = resolveServiceEstimate(guide.policy,op.optionId)
+    const entries = Object.entries(state.serviceEstimates ?? {}).filter(([id]) => id !== op.serviceId)
+    const previousChoice = state.serviceEstimates && Object.hasOwn(state.serviceEstimates,op.serviceId) ? state.serviceEstimates[op.serviceId] : undefined
+    const nextChoice = estimate ? {configurationKey:serviceConfigurationKey(guide.policy),optionId:op.optionId} : undefined
+    if (JSON.stringify(previousChoice) !== JSON.stringify(nextChoice)) invalidate(Boolean(previousChoice))
+    state.serviceEstimates = Object.fromEntries(nextChoice ? [...entries,[op.serviceId,nextChoice]] : entries)
+  }
   if (updates.length) state.pending = !basketIsResolved(state) ? 'service' : !state.date ? 'date' : !state.professional ? 'professional' : !state.slot ? 'time' : !state.customerName ? 'name' : 'proposal'
 
   // Facts are read after applying fields, so an unavailable information read cannot roll back valid preferences.

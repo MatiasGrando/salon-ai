@@ -71,6 +71,6 @@ export function renderInformation(actions: readonly InformationAction[], message
 }
 export function pendingQuestion(state: DialogueState): string {
   if (state.pending === 'service' && state.basket?.members.some(member => member.mode !== 'single')) return '¿Cuál de las opciones del servicio pendiente querés?'
-  const questions = { service: '¿Qué servicio necesitás?', date: '¿Para qué día querés el turno?', professional: '¿Con qué profesional querés atenderte?', time: '¿Qué horario de los disponibles elegís?', name: '¿A nombre de quién sería el turno?', proposal: 'La propuesta sigue pendiente; todavía no está reservado.' }
+  const questions = { estimate: '¿Qué opción del presupuesto del servicio querés?', service: '¿Qué servicio necesitás?', date: '¿Para qué día querés el turno?', professional: '¿Con qué profesional querés atenderte?', time: '¿Qué horario de los disponibles elegís?', name: '¿A nombre de quién sería el turno?', proposal: 'La propuesta sigue pendiente; todavía no está reservado.' }
   return questions[state.pending]
 }
