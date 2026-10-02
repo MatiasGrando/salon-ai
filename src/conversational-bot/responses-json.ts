@@ -2,7 +2,7 @@
 export const RESPONSE_FORMAT_LIMITS = { outputItems: 64, contentParts: 64, textLength: 20096 } as const
 const reasons = ['response_json_invalid', 'response_body_invalid', 'response_not_completed', 'output_not_array',
   'output_items_limit', 'output_item_invalid', 'message_missing', 'message_ambiguous', 'message_role_invalid',
-  'message_not_completed', 'content_not_array', 'content_parts_limit', 'content_part_invalid',
+  'message_not_completed', 'message_phase_invalid', 'message_final_missing', 'content_not_array', 'content_parts_limit', 'content_part_invalid',
   'content_part_unsupported', 'text_missing', 'text_not_string', 'text_too_large', 'refusal', 'invalid_json'] as const
 const statuses = ['completed', 'incomplete', 'failed', 'cancelled', 'queued', 'in_progress', 'unknown'] as const
 export type ResponseFormatFailure = {
@@ -12,6 +12,10 @@ export type ResponseFormatFailure = {
   incompleteReason?: 'max_output_tokens' | 'content_filter' | 'unknown'
   outputItems?: number
   messageCount?: number
+  finalMessageCount?: number
+  commentaryMessageCount?: number
+  unphasedMessageCount?: number
+  invalidPhaseMessageCount?: number
   contentParts?: number
   textParts?: number
   textLength?: number
@@ -34,6 +38,7 @@ export function sanitizeResponseFormat(value: unknown): ResponseFormatFailure | 
   if (field(value, 'messageStatus') !== undefined) safe.messageStatus = status(field(value, 'messageStatus'))
   if (field(value, 'incompleteReason') !== undefined) safe.incompleteReason = incompleteReason(field(value, 'incompleteReason'))
   const bounds = { outputItems: 65, messageCount: 65, contentParts: 65, textParts: 65,
+    finalMessageCount: 65, commentaryMessageCount: 65, unphasedMessageCount: 65, invalidPhaseMessageCount: 65,
     textLength: RESPONSE_FORMAT_LIMITS.textLength + 1, maxTextLength: RESPONSE_FORMAT_LIMITS.textLength } as const
   for (const key of Object.keys(bounds) as Array<keyof typeof bounds>) {
     const number = field(value, key)
@@ -41,15 +46,56 @@ export function sanitizeResponseFormat(value: unknown): ResponseFormatFailure | 
   }
   return safe
 }
+type FailureCode = 'incomplete' | 'refusal' | 'json' | 'shape'
 type ReadResult = { ok: true; value: unknown } |
-  { ok: false; code: 'incomplete' | 'refusal' | 'json' | 'shape'; responseFormat: ResponseFormatFailure }
+  { ok: false; code: FailureCode; responseFormat: ResponseFormatFailure }
+type Metadata = Omit<ResponseFormatFailure, 'reason'>
+type MessageResult = { ok: true; fragments: string[] } |
+  { ok: false; code: FailureCode; reason: ResponseFormatFailure['reason'] }
 
-/** Only fragments of one coherent assistant message may be concatenated; JSON is never repaired. */
+/** Validate even skipped commentary, with the same aggregate budget as the selected final. */
+function readMessage(message: Record<string, unknown>, phased: boolean, metadata: Metadata, maxTextLength: number): MessageResult {
+  const fail = (code: FailureCode, reason: ResponseFormatFailure['reason']): MessageResult => ({ ok: false, code, reason })
+  // Only legacy unmarked single messages may omit role/status; explicit phases must be authoritative.
+  const role = field(message, 'role')
+  if ((phased || role !== undefined) && role !== 'assistant') return fail('shape', 'message_role_invalid')
+  const messageStatus = field(message, 'status')
+  if (phased || messageStatus !== undefined) {
+    metadata.messageStatus = status(messageStatus)
+    if (messageStatus !== 'completed') return fail('incomplete', 'message_not_completed')
+  }
+  const content = field(message, 'content')
+  if (!Array.isArray(content)) return fail('shape', 'content_not_array')
+  metadata.contentParts = Math.min(RESPONSE_FORMAT_LIMITS.contentParts + 1, (metadata.contentParts ?? 0) + content.length)
+  if (metadata.contentParts > RESPONSE_FORMAT_LIMITS.contentParts) return fail('shape', 'content_parts_limit')
+  const fragments: string[] = []
+  for (const part of content) {
+    if (!record(part) || typeof field(part, 'type') !== 'string') return fail('shape', 'content_part_invalid')
+    const type = field(part, 'type')
+    if (type === 'refusal') return fail('refusal', 'refusal')
+    if (type !== 'output_text') return fail('shape', 'content_part_unsupported')
+    metadata.textParts = (metadata.textParts ?? 0) + 1
+    const text = field(part, 'text')
+    if (typeof text !== 'string') return fail('shape', 'text_not_string')
+    metadata.textLength = Math.min(maxTextLength + 1, (metadata.textLength ?? 0) + text.length)
+    if (metadata.textLength > maxTextLength) return fail('shape', 'text_too_large')
+    fragments.push(text)
+  }
+  if (!fragments.length) return fail('shape', 'text_missing')
+  return { ok: true, fragments }
+}
+
+/**
+ * One explicit final_answer is authoritative only alongside validated commentary.
+ * Null/omitted phases keep the legacy single-message contract; competing finals
+ * (even equal JSON) or any unmarked competitor are ambiguous, never last-wins.
+ * Only fragments within the selected message are joined. JSON is never repaired.
+ */
 export function extractResponsesJson(body: unknown, maxTextLength: number): ReadResult {
   if (!Number.isInteger(maxTextLength) || maxTextLength < 1 || maxTextLength > RESPONSE_FORMAT_LIMITS.textLength)
     throw new RangeError('invalid Responses text limit')
-  const metadata: Omit<ResponseFormatFailure, 'reason'> = { responseStatus: status(field(body, 'status')), maxTextLength }
-  const fail = (code: 'incomplete' | 'refusal' | 'json' | 'shape', reason: ResponseFormatFailure['reason']): ReadResult =>
+  const metadata: Metadata = { responseStatus: status(field(body, 'status')), maxTextLength }
+  const fail = (code: FailureCode, reason: ResponseFormatFailure['reason']): ReadResult =>
     ({ ok: false, code, responseFormat: { ...metadata, reason } })
   if (!record(body)) return fail('incomplete', 'response_body_invalid')
   if (metadata.responseStatus !== 'completed') {
@@ -69,36 +115,30 @@ export function extractResponsesJson(body: unknown, maxTextLength: number): Read
   }
   metadata.messageCount = messages.length
   if (!messages.length) return fail('shape', 'message_missing')
-  if (messages.length !== 1) return fail('shape', 'message_ambiguous')
-  const message = messages[0]!
-  // Older injected test providers omitted these fields. Explicit contradictory values are never accepted.
-  const role = field(message, 'role')
-  if (role !== undefined && role !== 'assistant') return fail('shape', 'message_role_invalid')
-  const messageStatus = field(message, 'status')
-  if (messageStatus !== undefined) {
-    metadata.messageStatus = status(messageStatus)
-    if (messageStatus !== 'completed') return fail('incomplete', 'message_not_completed')
+  metadata.finalMessageCount = 0
+  metadata.commentaryMessageCount = 0
+  metadata.unphasedMessageCount = 0
+  metadata.invalidPhaseMessageCount = 0
+  for (const message of messages) {
+    const phase = field(message, 'phase')
+    if (phase === 'final_answer') metadata.finalMessageCount++
+    else if (phase === 'commentary') metadata.commentaryMessageCount++
+    else if (phase === undefined || phase === null) metadata.unphasedMessageCount++
+    else metadata.invalidPhaseMessageCount++
   }
-  const content = field(message, 'content')
-  if (!Array.isArray(content)) return fail('shape', 'content_not_array')
-  metadata.contentParts = Math.min(content.length, RESPONSE_FORMAT_LIMITS.contentParts + 1)
-  if (content.length > RESPONSE_FORMAT_LIMITS.contentParts) return fail('shape', 'content_parts_limit')
-  const fragments: string[] = []
+  if (metadata.invalidPhaseMessageCount) return fail('shape', 'message_phase_invalid')
+  const legacy = messages.length === 1 && metadata.unphasedMessageCount === 1
+  if (!legacy && (metadata.unphasedMessageCount || metadata.finalMessageCount > 1)) return fail('shape', 'message_ambiguous')
+  if (!legacy && metadata.finalMessageCount === 0) return fail('shape', 'message_final_missing')
+  const selected = legacy ? messages[0]! : messages.find(message => field(message, 'phase') === 'final_answer')!
   metadata.textParts = 0
   metadata.textLength = 0
-  for (const part of content) {
-    if (!record(part) || typeof field(part, 'type') !== 'string') return fail('shape', 'content_part_invalid')
-    const type = field(part, 'type')
-    if (type === 'refusal') return fail('refusal', 'refusal')
-    if (type !== 'output_text') return fail('shape', 'content_part_unsupported')
-    metadata.textParts++
-    const text = field(part, 'text')
-    if (typeof text !== 'string') return fail('shape', 'text_not_string')
-    metadata.textLength = Math.min(maxTextLength + 1, metadata.textLength + text.length)
-    if (metadata.textLength > maxTextLength) return fail('shape', 'text_too_large')
-    fragments.push(text)
+  let fragments: string[] = []
+  for (const message of messages) {
+    const result = readMessage(message, !legacy, metadata, maxTextLength)
+    if (!result.ok) return fail(result.code, result.reason)
+    if (message === selected) fragments = result.fragments
   }
-  if (!fragments.length) return fail('shape', 'text_missing')
   try { return { ok: true, value: JSON.parse(fragments.join('')) } }
   catch { return fail('json', 'invalid_json') }
 }

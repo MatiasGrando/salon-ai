@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import http from 'node:http'
+import https from 'node:https'
+import { syncBuiltinESMExports } from 'node:module'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { ProviderDiagnosticError, providerFailure } from '../src/conversational-bot/provider-error.js'
@@ -30,6 +33,19 @@ const failure = async (read: () => Promise<unknown>) => {
 const format = (value: unknown): Record<string, unknown> =>
   (value as { responseFormat: Record<string, unknown> }).responseFormat
 
+// A missing fake is an offline failure, never permission to contact an ambient service.
+const originalFetch = globalThis.fetch
+const originalHttp = { request: http.request, get: http.get }
+const originalHttps = { request: https.request, get: https.get }
+let realTransportCalls = 0
+const denyTransport = () => { realTransportCalls++; throw new Error('Real transport forbidden in offline Responses fixtures') }
+globalThis.fetch = denyTransport as typeof fetch
+http.request = denyTransport as typeof http.request
+http.get = denyTransport as typeof http.get
+https.request = denyTransport as typeof https.request
+https.get = denyTransport as typeof https.get
+syncBuiltinESMExports()
+try {
 if (process.argv.includes('--reason-only')) {
   const diagnostic = await failure(() => readers[0]!.read(fetchBody(completed(null))))
   assert.equal(format(diagnostic)?.reason, 'output_not_array', 'must identify the exact envelope rejection')
@@ -43,6 +59,14 @@ if (process.argv.includes('--reason-only')) {
     assert.deepEqual(await reader.read(fetchBody(fragmented, () => { calls++ })), JSON.parse(json), reader.name + ': one coherent fragmented message')
     assert.equal(calls, 1, 'no automatic retries')
     assert.deepEqual(await reader.read(fetchBody(completed([{ type: 'message', content: [text(json)] }]))), JSON.parse(json), 'legacy omitted role/status stays compatible')
+    assert.deepEqual(await reader.read(fetchBody(completed([message([text(json)], { phase: null })]))), JSON.parse(json), 'null phase stays legacy unmarked')
+    const final = message([text(json.slice(0, 11)), text(json.slice(11))], { phase: 'final_answer' })
+    const commentary = message([text(privateText)], { phase: 'commentary' })
+    for (const output of [[commentary, final], [final, commentary], [final], [commentary, commentary, final]]) {
+      assert.deepEqual(await reader.read(fetchBody(completed(output))), JSON.parse(json), reader.name + ': explicit final independent of order')
+    }
+    assert.deepEqual(await reader.read(fetchBody(completed([message([text('x'.repeat(reader.limit - json.length))], { phase: 'commentary' }), final]))), JSON.parse(json), 'inclusive cumulative text limit')
+    assert.deepEqual(await reader.read(fetchBody(completed([message(Array.from({ length: 62 }, () => text('')), { phase: 'commentary' }), final]))), JSON.parse(json), 'inclusive cumulative content limit')
     assert.deepEqual(await reader.read(fetchBody(envelope([text(''), text(json), text('')]))), JSON.parse(json))
     assert.deepEqual(await reader.read(fetchBody(envelope([text(' '.repeat(62)), text(json)]))), JSON.parse(json))
     assert.deepEqual(await reader.read(fetchBody(completed([...Array.from({ length: 63 }, () => ({ type: 'reasoning', summary: privateText })), message([text('{}')])]))), {})
@@ -80,6 +104,46 @@ if (process.argv.includes('--reason-only')) {
       { body: envelope([text('{}'), text('{}')]), reason: 'invalid_json', code: 'json' },
       { body: envelope([text('```json\n{}\n```')]), reason: 'invalid_json', code: 'json' }
     ]
+    const phasedCases: Array<{ body: unknown; reason: string; code?: string }> = [
+      { body: completed([commentary]), reason: 'message_final_missing' },
+      { body: completed([commentary, message([text('{')], { phase: 'final_answer' })]), reason: 'invalid_json', code: 'json' },
+      { body: completed([message([text('{}'), { type: 'refusal', refusal: privateText }], { phase: 'final_answer' }), commentary]), reason: 'refusal', code: 'refusal' },
+      { body: completed(Array.from({ length: 65 }, () => commentary)), reason: 'output_items_limit' },
+      { body: completed([final, message([text(json)], { phase: 'final_answer' })]), reason: 'message_ambiguous' },
+      { body: completed([final, message([text('{}')], { phase: 'final_answer' })]), reason: 'message_ambiguous' },
+      { body: completed([final, message([text('{}')])]), reason: 'message_ambiguous' },
+      { body: completed([message([text('{}')]), final]), reason: 'message_ambiguous' },
+      { body: completed([final, message([text('{}')], { phase: null })]), reason: 'message_ambiguous' },
+      { body: completed([message([text('{}')], { phase: privateText })]), reason: 'message_phase_invalid' },
+      { body: completed([final, message([text(privateText)], { phase: privateText })]), reason: 'message_phase_invalid' },
+      { body: completed([message([text('{}')], { phase: 123 })]), reason: 'message_phase_invalid' },
+      { body: completed([message([text('{}')], { phase: 'final_answer', role: undefined })]), reason: 'message_role_invalid' },
+      { body: completed([message([text('{}')], { phase: 'final_answer', status: undefined })]), reason: 'message_not_completed', code: 'incomplete' }
+    ]
+    // Skipped intermediates still obey safety and aggregate limits, in either output order.
+    const unsafeCommentary: Array<{ parts: unknown[]; extra?: object; reason: string; code?: string }> = [
+      { parts: [text(privateText)], extra: { role: 'user' }, reason: 'message_role_invalid' },
+      { parts: [text(privateText)], extra: { role: undefined }, reason: 'message_role_invalid' },
+      { parts: [text(privateText)], extra: { role: privateText }, reason: 'message_role_invalid' },
+      { parts: [text(privateText)], extra: { status: privateText }, reason: 'message_not_completed', code: 'incomplete' },
+      { parts: [text(privateText)], extra: { status: 'failed' }, reason: 'message_not_completed', code: 'incomplete' },
+      { parts: [text(privateText)], extra: { status: 'incomplete' }, reason: 'message_not_completed', code: 'incomplete' },
+      { parts: [text(privateText)], extra: { status: undefined }, reason: 'message_not_completed', code: 'incomplete' },
+      { parts: [], extra: { content: null }, reason: 'content_not_array' },
+      { parts: Array.from({ length: 65 }, () => text('')), reason: 'content_parts_limit' },
+      { parts: Array.from({ length: 63 }, () => text('')), reason: 'content_parts_limit' },
+      { parts: [], reason: 'text_missing' },
+      { parts: [null], reason: 'content_part_invalid' },
+      { parts: [{ type: 'reasoning', text: privateText }], reason: 'content_part_unsupported' },
+      { parts: [text({ privateText })], reason: 'text_not_string' },
+      { parts: [text('x'.repeat(reader.limit))], reason: 'text_too_large' },
+      { parts: [{ type: 'refusal', refusal: privateText }], reason: 'refusal', code: 'refusal' }
+    ]
+    for (const test of unsafeCommentary) {
+      const intermediate = message(test.parts, { phase: 'commentary', ...test.extra })
+      for (const output of [[intermediate, final], [final, intermediate]]) phasedCases.push({ body: completed(output), reason: test.reason, ...(test.code ? { code: test.code } : {}) })
+    }
+    cases.push(...phasedCases)
     for (const test of cases) {
       let rejectedCalls = 0
       const diagnostic = await failure(() => reader.read(fetchBody(test.body, () => { rejectedCalls++ })))
@@ -105,17 +169,25 @@ if (process.argv.includes('--reason-only')) {
     const invalidHttpJson = (async () => new Response(privateText, { status: 200 })) as typeof fetch
     const invalidBody = await failure(() => reader.read(invalidHttpJson))
     assert.equal(format(invalidBody).reason, 'response_json_invalid')
+    const phaseDiagnostic = await failure(() => reader.read(fetchBody(completed([commentary, final, message([text('{}')]), message([text('{}')], { phase: privateText })]))))
+    assert.equal(format(phaseDiagnostic).finalMessageCount, 1)
+    assert.equal(format(phaseDiagnostic).commentaryMessageCount, 1)
+    assert.equal(format(phaseDiagnostic).unphasedMessageCount, 1)
+    assert.equal(format(phaseDiagnostic).invalidPhaseMessageCount, 1)
+    assert.doesNotMatch(JSON.stringify(phaseDiagnostic), /PRIVATE_CLIENT|service-secret|key-secret/)
     console.log('Responses ' + reader.name + ': fragmented JSON, ' + cases.length + ' rejections, bounds, no retry/leak PASS')
   }
 
   const unsafe = new ProviderDiagnosticError({ code: 'shape', httpStatus: 200, requestId: 'req_safe-123',
     responseFormat: { reason: 'text_too_large', responseStatus: privateText, outputItems: 999999, messageCount: 999999,
       contentParts: 999999, textParts: 999999, textLength: 999999, maxTextLength: 999999,
+      finalMessageCount: 999999, commentaryMessageCount: 999999, unphasedMessageCount: 999999, invalidPhaseMessageCount: 999999,
       messageStatus: privateText, incompleteReason: privateText, rawBody: privateText, text: privateText }, secret: privateText
   } as never)
   const sanitized = providerFailure(unsafe)
   assert.deepEqual(format(sanitized), { reason: 'text_too_large', responseStatus: 'unknown', outputItems: 65,
     messageCount: 65, contentParts: 65, textParts: 65, textLength: 20097, maxTextLength: 20096,
+    finalMessageCount: 65, commentaryMessageCount: 65, unphasedMessageCount: 65, invalidPhaseMessageCount: 65,
     messageStatus: 'unknown', incompleteReason: 'unknown' })
   assert.doesNotMatch(JSON.stringify(unsafe.diagnostic), /PRIVATE_CLIENT|rawBody|secret|"text"/)
   Object.assign(unsafe.diagnostic, { rawBody: privateText })
@@ -145,6 +217,21 @@ if (process.argv.includes('--reason-only')) {
   assert.equal(agendaCalls, 0)
   assert.doesNotMatch(JSON.stringify(preview.interpretation), /PRIVATE_NAME|fake-key|tenant/)
 
+  const phasedPreview = await runConversationalPreview({ load: async () => retained,
+    save: async (_phone, _inbound, _reply, next) => { saved = next }, createPort: async () => ({ context, port }),
+    interpretationProvider: createOpenAiInterpretationProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
+      message([text(privateText)], { phase: 'commentary' }), message([text('{}')], { phase: 'final_answer' }),
+      message([text('{}')], { phase: 'final_answer' })
+    ])) })
+  }, 'tenant', 'demo:preview:user:phase', 'hola')
+  assert.ok('interpretationProviderError' in phasedPreview.interpretation)
+  const previewFormat = format(phasedPreview.interpretation.interpretationProviderError)
+  assert.equal(previewFormat.reason, 'message_ambiguous')
+  assert.equal(previewFormat.commentaryMessageCount, 1)
+  assert.equal(previewFormat.finalMessageCount, 2)
+  assert.equal(phasedPreview.state.customerName, retained.customerName)
+  assert.equal(phasedPreview.state.date, retained.date)
+  assert.doesNotMatch(JSON.stringify(phasedPreview.interpretation), /PRIVATE_CLIENT|PRIVATE_NAME|fake-key|tenant/)
   const candidate = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
   const responseFailure = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(envelope([text('{}'), text('{}')])) }) })
@@ -157,5 +244,34 @@ if (process.argv.includes('--reason-only')) {
   assert.equal(validWrapperInvalidSchema.interpretation.reason, 'invalid_output', 'engine/schema validation remains authoritative')
   assert.equal(validWrapperInvalidSchema.interpretation.interpretationProviderError, null)
   assert.equal(agendaCalls, 0)
+  const phasedCopyFailure = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
+    responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
+      message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary', status: 'incomplete' })
+    ])) }) })
+  const copyFormat = format(phasedCopyFailure.interpretation.responseProviderError)
+  assert.equal(copyFormat.reason, 'message_not_completed')
+  assert.equal(copyFormat.finalMessageCount, 1)
+  assert.equal(copyFormat.commentaryMessageCount, 1)
+  assert.doesNotMatch(JSON.stringify(phasedCopyFailure.interpretation), /PRIVATE_CLIENT|fake-key/)
+  const phasedInvalidSchema = await respondWithAiInterpreter(context, state, 'hola', port,
+    createOpenAiInterpretationProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
+      message([text(privateText)], { phase: 'commentary' }), message([text('{"intent":"invalid"}')], { phase: 'final_answer' })
+    ])) }))
+  assert.equal(phasedInvalidSchema.interpretation.reason, 'invalid_output', 'final cannot bypass interpretation schema')
+  assert.equal(phasedInvalidSchema.interpretation.interpretationProviderError, null)
+  const phasedInvalidCopy = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
+    responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
+      message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary' })
+    ])) }) })
+  assert.equal(phasedInvalidCopy.interpretation.copyReason, 'invalid_response', 'final cannot bypass copy schema')
+  assert.equal(phasedInvalidCopy.interpretation.responseProviderError, null)
+  assert.equal(agendaCalls, 0)
   console.log('Responses diagnostics: runtime whitelist, preview/response propagation, no agenda/schema bypass PASS')
+}
+} finally {
+  globalThis.fetch = originalFetch
+  Object.assign(http, originalHttp)
+  Object.assign(https, originalHttps)
+  syncBuiltinESMExports()
+  assert.equal(realTransportCalls, 0, 'fixtures never invoke ambient transports')
 }
