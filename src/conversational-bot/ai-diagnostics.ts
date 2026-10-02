@@ -4,7 +4,7 @@ import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
 
 type RequestKind = TurnOperation['kind']
 type BasketSummary = { mutation: 'set' | 'add' | 'remove' | 'replace' | 'unknown'; memberCount: number; targetCount: number; singleCount: number; alternativeCount: number; unresolvedCount: number }
-export type TurnPlanSummary = { operationCount: number; kinds: RequestKind[]; basket?: BasketSummary }
+export type TurnPlanSummary = { operationCount: number; kinds: RequestKind[]; basket?: BasketSummary; estimateCount?: number }
 
 export type ProposalSummary = {
   intent: 'booking' | 'information' | 'other' | 'unknown'
@@ -43,6 +43,7 @@ export type StateSummary = {
   basketAlternatives?: number
   basketUnresolved?: number
   basketResolved?: boolean
+  estimateSelections?: number
 }
 const dataField = (value: unknown, key: string): unknown =>
   value && typeof value === 'object' && !Array.isArray(value)
@@ -53,7 +54,7 @@ export function summarizeProposal(raw: unknown): ProposalSummary {
   const rawPlan = dataField(raw, 'turnPlan')
   const operations = dataField(rawPlan, 'operations')
   const planOperations = Array.isArray(operations) ? operations.slice(0, TURN_PLAN_LIMITS.operations + 1) : []
-  const requestKinds: readonly RequestKind[] = ['service', 'basket', 'professional', 'date', 'time', 'name', 'information', 'unsupported_action']
+  const requestKinds: readonly RequestKind[] = ['service', 'basket', 'estimate', 'professional', 'date', 'time', 'name', 'information', 'unsupported_action']
   const kinds = [...new Set(planOperations.map(operation => dataField(operation, 'kind')).filter((kind): kind is RequestKind => requestKinds.includes(kind as RequestKind)))]
   const serviceOperation = planOperations.find(operation => dataField(operation, 'kind') === 'service')
   const planCandidates = dataField(serviceOperation, 'serviceIds')
@@ -82,7 +83,7 @@ export function summarizeProposal(raw: unknown): ProposalSummary {
     correction: dataField(raw, 'serviceCorrection') === true || dataField(serviceOperation, 'correction') === true || mutation === 'replace' || mutation === 'remove',
     firstReply: dataField(raw, 'firstReply') != null,
     intakeReply: dataField(raw, 'intakeReply') != null,
-    ...(rawPlan != null ? { turnPlan: { operationCount: Array.isArray(operations) ? Math.min(operations.length, TURN_PLAN_LIMITS.operations + 1) : 0, kinds, ...(basket ? { basket } : {}) } } : {})
+    ...(rawPlan != null ? { turnPlan: { operationCount: Array.isArray(operations) ? Math.min(operations.length, TURN_PLAN_LIMITS.operations + 1) : 0, kinds, ...(basket ? { basket } : {}), ...(kinds.includes('estimate') ? { estimateCount: planOperations.filter(operation => dataField(operation, 'kind') === 'estimate').length } : {}) } } : {})
   }
 }
 const reasonByMessage: Record<string, ValidationReason> = {
@@ -126,6 +127,7 @@ export function summarizeState(state: DialogueState): StateSummary {
     professionalHint: state.professionalNameHint !== null,
     slot: state.slot !== null,
     name: state.customerName !== null,
+    ...(state.serviceEstimates ? { estimateSelections: Math.min(Object.keys(state.serviceEstimates).length, BASKET_LIMITS.members) } : {}),
     ...(state.basket ? { basketMembers: state.basket.members.length,
       basketAlternatives: state.basket.members.filter(member => member.mode === 'alternatives').length,
       basketUnresolved: state.basket.members.filter(member => member.mode === 'unresolved').length,

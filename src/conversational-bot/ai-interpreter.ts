@@ -4,7 +4,8 @@ import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
-import { BASKET_LIMITS, selectionBasket, type BasketMemberProposal } from './service-basket.js'
+import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
+import { serviceGuidance } from './service-guidance.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
 import { parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
@@ -74,6 +75,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           // A model-proposed single/subset cannot hide other matches for its grounded phrase.
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
+        validateEstimateOperations(turnPlan, state, services)
       } catch { throw new Error('invalid AI turn plan') }
     }
   }
@@ -112,6 +114,29 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   return item as Candidate
 }
 
+/** Project only the bounded selection; the motor independently applies it and authorizes fresh agenda use. */
+function validateEstimateOperations(plan: TurnPlan, state: DialogueState, services: readonly DialogueService[]): void {
+  if (!plan.operations.some(operation => operation.kind === 'estimate')) return
+  let basket = selectionBasket(state)
+  const basketOp = plan.operations.find(operation => operation.kind === 'basket')
+  const serviceOp = plan.operations.find(operation => operation.kind === 'service')
+  if (basketOp?.kind === 'basket') basket = applyBasketMutation(basket, basketOp).basket
+  else if (serviceOp?.kind === 'service' && (serviceOp.mode !== 'unresolved' || serviceOp.correction || !basket.members.length)) {
+    const group = serviceOp.mode === 'single' && !serviceOp.correction ? basket.members.find(member => member.mode === 'alternatives' && member.serviceIds.includes(serviceOp.serviceIds[0]!)) : null
+    const repeated = serviceOp.mode === 'single' && !serviceOp.correction && basket.members.length > 1 && basketServiceIds(state).includes(serviceOp.serviceIds[0]!)
+    if (!repeated) basket = applyBasketMutation(basket, { kind: 'basket', mutation: group ? 'replace' : 'set', scope: group ? 'members' : 'all', targetMemberIds: group ? [group.memberId] : [],
+      members: serviceOp.mode === 'multiple' ? serviceOp.serviceIds.map(id => ({ mode: 'single', serviceIds: [id], evidence: serviceOp.evidence, confidence: serviceOp.confidence }))
+        : [{ mode: serviceOp.mode, serviceIds: serviceOp.serviceIds, evidence: serviceOp.evidence, confidence: serviceOp.confidence }], evidence: serviceOp.evidence, confidence: serviceOp.confidence }).basket
+  }
+  const exactIds = basket.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds)
+  for (const operation of plan.operations) {
+    if (operation.kind !== 'estimate') continue
+    const service = services.find(item => item.id === operation.serviceId)
+    if (!exactIds.includes(operation.serviceId) || !service) throw new Error('invalid estimate target')
+    const guide = serviceGuidance(service)
+    if (guide.kind !== 'guided' || operation.optionId !== null && !guide.policy.estimateOptions?.some(option => option.id === operation.optionId)) throw new Error('invalid estimate option')
+  }
+}
 function catalogEvidenceMatches(evidence: string, services: readonly DialogueService[]): DialogueService[] {
   const terms = evidenceWords(evidence).trim().split(' ').filter(term => term && !['un', 'una', 'el', 'la', 'de', 'del'].includes(term))
   return terms.length ? services.filter(service => {

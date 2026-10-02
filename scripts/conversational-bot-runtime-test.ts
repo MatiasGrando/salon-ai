@@ -6,6 +6,7 @@ import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { resolveGuidance } from '../src/conversational-bot/service-guidance.js'
 import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
 
@@ -80,7 +81,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { basketCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -215,12 +216,29 @@ function runtimeFixture(options: { basketCatalog?: boolean; sessionDb?: PGlite; 
     prepareHook?.()
     const outside = () => assert.equal(inTransaction, false, 'engine repository query must execute outside transaction')
     const port: DialoguePort = {
-      catalog: async function () { assert.equal(this, port, 'catalog receiver must be preserved'); outside(); return options.basketCatalog ? [{ id: 'cut', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 1000 }, { id: 'woman', name: 'Corte mujer', durationMinutes: 30, requiresConsultation: false, price: 1000 }, { id: 'smooth', name: 'Alisado', durationMinutes: 90, requiresConsultation: false, price: 9000 }] : [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }] },
+      catalog: async function () {
+        assert.equal(this, port, 'catalog receiver must be preserved'); outside()
+        if (!options.basketCatalog && !options.guidedCatalog) return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }]
+        return [{ id: 'cut', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 1000 },
+          { id: 'woman', name: 'Corte mujer', durationMinutes: 30, requiresConsultation: false, price: 1000 },
+          { id: 'smooth', name: 'Alisado', durationMinutes: 90, requiresConsultation: false, price: options.guidedCatalog ? 85000 : 9000,
+            ...(options.guidedCatalog ? { professionalDurationMinutes: 90, customerDurationMinutes: 150, priceMode: 'STARTING_AT' as const,
+              bookingPolicy: { id: 'smooth', name: 'Alisado', price: 85000, priceMode: 'STARTING_AT' as const, attentionMode: 'GUIDED_ESTIMATE' as const,
+                estimateAllowsBooking: true, estimateQuestion: '¿Qué largo tiene tu cabello?', estimateExplanation: 'El presupuesto depende del largo.',
+                estimateDisclaimer: 'Presupuesto estimado sujeto a evaluación.', requiresPhoto: false, validationEnabled: false, validationMessage: null, validationQuestion: null,
+                estimateOptions: [{ id: 'short', label: 'Hasta los hombros', priceMin: 85000, priceMax: 95000, note: null },
+                  { id: 'long', label: 'Debajo de los hombros', priceMin: 95000, priceMax: 110000, note: null }] } } : {}) }]
+      },
       availability: async function () { assert.equal(this, port, 'availability receiver must be preserved'); outside(); singularAgendaCalls++; return { professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date: '2026-10-02', time: '14:00', startAt: '2026-10-02T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON' as const, occupiedMinutes: 0 }] } }
     }
-    if (options.basketCatalog) port.availabilityBasket = async function (services, date) {
+    if (options.basketCatalog || options.guidedCatalog) port.availabilityBasket = async function (services, date, _professional, selections) {
       assert.equal(this, port, 'basket availability receiver must be preserved'); outside(); basketAgendaCalls++
-      return { ok: true, services, durationMinutes: services.reduce((sum, service) => sum + service.durationMinutes!, 0), totalPrice: services.reduce((sum, service) => sum + service.price!, 0),
+      if (options.guidedCatalog) {
+        assert.equal(selections?.smooth?.optionId, 'short', 'worker wrapper preserves fourth argument')
+        assert.equal(resolveGuidance(services, selections).pending, null)
+      }
+      return { ok: true, services, durationMinutes: services.reduce((sum, service) => sum + service.durationMinutes!, 0), totalPrice: options.guidedCatalog ? null : services.reduce((sum, service) => sum + service.price!, 0),
+        ...(options.guidedCatalog ? { customerDurationMinutes: services.reduce((sum, service) => sum + (service.customerDurationMinutes ?? service.durationMinutes!), 0) } : {}),
         professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date, time: '14:00', startAt: date + 'T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON', occupiedMinutes: 0 }] }
     }
     return { context: { businessId, timezone: 'UTC', dbNow: now }, port }
@@ -278,6 +296,45 @@ assert.equal(basketRuntime.singularAgendaCalls, 0)
 assert.ok(basketRuntime.basketAgendaCalls > 0)
 assert.ok(!basketRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)), 'public basket worker never reserves')
 console.log('conversational public runtime complete basket/ambiguity/sidecar/proposal-only: PASS')
+// Guided services traverse the same public worker/sidecar contract, including the fourth port argument.
+const guidedRuntime = runtimeFixture({ basketCatalog: true, guidedCatalog: true })
+let guidedOutput: unknown
+let guidedCopies = 0
+const guidedProvider: AiInterpretationProvider = Object.assign(async () => { guidedRuntime.assertOutside(); return guidedOutput }, {
+  respond: async (input: { facts: readonly { id: string; text: string }[] }) => { guidedCopies++; return { opening: null, closing: null, factIds: input.facts.map(fact => fact.id) } }
+})
+guidedRuntime.next('Matias corte y alisado mañana con Ana')
+guidedOutput = runtimeCandidate(runtimeBasket('set', [runtimeMember('single', ['cut'], 'corte'), runtimeMember('single', ['smooth'], 'alisado')], 'corte y alisado'),
+  { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }, { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
+  { kind: 'professional', mode: 'specific', mention: 'Ana', ...runtimeEv('Ana') })
+await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
+const guidedFirst = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
+assert.equal(guidedFirst.pending, 'service'); assert.equal(guidedRuntime.basketAgendaCalls, 0)
+guidedRuntime.next('corte hombre')
+guidedOutput = runtimeCandidate(runtimeBasket('replace', [runtimeMember('single', ['cut'], 'corte hombre')], 'corte hombre', [guidedFirst.basket!.members[0]!.memberId]))
+await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
+const guidedQuestion = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
+assert.equal(guidedQuestion.pending, 'estimate'); assert.equal(guidedRuntime.basketAgendaCalls, 0)
+assert.match(guidedRuntime.replies.at(-1)!, /Qué largo/)
+assert.equal(guidedQuestion.customerName, 'Matias'); assert.equal(guidedQuestion.date, '2026-10-02')
+guidedRuntime.next('hasta los hombros')
+guidedOutput = runtimeCandidate({ kind: 'estimate', serviceId: 'smooth', optionId: 'short', ...runtimeEv('hasta los hombros') })
+await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
+const guidedChosen = readConversationDraft(JSON.parse(JSON.stringify(guidedRuntime.session.state)), policy, 'UTC')
+assert.equal(guidedChosen.pending, 'time'); assert.equal(guidedChosen.serviceEstimates?.smooth?.optionId, 'short')
+assert.ok(guidedRuntime.basketAgendaCalls > 0); assert.equal(guidedRuntime.singularAgendaCalls, 0)
+const copiesBeforeGuidedProposal = guidedCopies
+guidedRuntime.next('14hs')
+guidedOutput = runtimeCandidate({ kind: 'time', value: '14:00', ...runtimeEv('14hs') })
+await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
+const guidedProposal = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
+assert.equal(guidedProposal.pending, 'proposal'); assert.equal(guidedProposal.serviceEstimates?.smooth?.optionId, 'short')
+assert.deepEqual((guidedRuntime.session.state as typeof projected).cart.map(item => item.serviceId), ['cut', 'smooth'])
+assert.match(guidedRuntime.replies.at(-1)!, /120 min/); assert.match(guidedRuntime.replies.at(-1)!, /85\.000 a \$ 95\.000/)
+assert.match(guidedRuntime.replies.at(-1)!, /Presupuesto estimado/); assert.match(guidedRuntime.replies.at(-1)!, /Todavía no está reservado/)
+assert.equal(guidedCopies, copiesBeforeGuidedProposal)
+assert.ok(!guidedRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)))
+console.log('conversational public runtime guided choice/dual duration120-180/fourth argument/sidecar/proposal-only: PASS')
 // Typing starts only after a durable active text snapshot; it never delays computation.
 let typingCalls = 0
 const typing = runtimeFixture({ onPreparingReply(context) {
