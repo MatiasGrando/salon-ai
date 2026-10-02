@@ -1,6 +1,7 @@
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState, type BotOptionsFlowStep } from '../bot-options/domain/state.js'
 import { initialDialogueState, parseDialogueState, type DialogueState } from './engine.js'
 import type { ConversationPolicy } from './runtime-policy.js'
+import { basketServiceIds } from './service-basket.js'
 
 type ConversationSidecar = { policy: ConversationPolicy; dialogue: DialogueState }
 export type ConversationSessionState = BotOptionsState & { conversationDraft: ConversationSidecar }
@@ -23,7 +24,7 @@ export function projectConversationDraft(draft: DialogueState, policy: Conversat
   const state = parseDialogueState(draft, policy.businessId)
   const base = createInitialBotOptionsState()
   const projected: ConversationSessionState = { ...base, flow: flows[state.pending], booking: 'DRAFT',
-    cart: state.serviceId ? [{ serviceId: state.serviceId }] : [], nameCandidate: state.customerName,
+    cart: basketServiceIds(state).map(serviceId => ({ serviceId })), nameCandidate: state.customerName,
     selections: { ...base.selections, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null,
       anyProfessional: state.professional?.kind === 'any', date: state.date, slotStartAt: state.slot?.startAt ?? null,
       provisionalProfessionalId: state.professional?.kind === 'any' ? state.slot?.professionalId ?? null : null },

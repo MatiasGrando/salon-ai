@@ -3,20 +3,25 @@ import { pendingQuestion, renderInformation, renderServices, validateFacts, type
 import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
 import { resolveDialogueDate } from './dialogue-date.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
+import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
-export type DialogueService = { id: string; name: string; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT' }
+export type DialogueService = { id: string; name: string; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date }
+export type DialogueBasketAvailability =
+  | { ok: false; reason: 'SERVICE_UNAVAILABLE' | 'DOMAIN_REVIEW' | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
+  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }
 export type DialoguePort = {
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
   catalog(): Promise<DialogueService[]>
+  availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string): Promise<DialogueBasketAvailability>
   availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }>
 }
-export type PresentedOffer = { businessId: string; serviceId: string; date: string; professionalId: string | null }
+export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type InformationTarget = { kind: 'business'; actions: readonly InformationAction[] } | { kind: 'presented_offer'; actions: readonly [] }
 export type DialogueState = {
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
   pending: 'service' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
-  serviceId: string | null; date: string | null
+  serviceId: string | null; basket?: ServiceBasket; date: string | null
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
   /** Unverified name until uniquely matched against the selected service's compatible professionals. */
   professionalNameHint: string | null
@@ -24,12 +29,12 @@ export type DialogueState = {
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
 }
-export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string }
+export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null }
 export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan }
 export function hasActiveBooking(state: DialogueState): boolean {
-  return Boolean(state.serviceId || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.slot || state.customerName || state.dialogueContext?.lastQuestion || state.pending !== 'service')
+  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.slot || state.customerName || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
 /** Resume context without presenting an old availability result as freshly checked. */
 export function socialQuestion(state: DialogueState): string {
@@ -48,7 +53,7 @@ function validCalendarDate(value: unknown): value is string {
 export function parseDialogueState(value: unknown, businessId: string, timezone?: string): DialogueState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid dialogue state')
   const s = value as DialogueState
-  if (JSON.stringify(value).length > 4096 || s.schemaVersion !== 1 || s.engine !== 'conversational-booking-v1' || s.businessId !== businessId || !bounded(businessId, 128)) throw new Error('invalid dialogue scope')
+  if (JSON.stringify(value).length > 16384 || s.schemaVersion !== 1 || s.engine !== 'conversational-booking-v1' || s.businessId !== businessId || !bounded(businessId, 128)) throw new Error('invalid dialogue scope')
   if (!['service', 'date', 'professional', 'time', 'name', 'proposal'].includes(s.pending)) throw new Error('invalid dialogue step')
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
@@ -56,16 +61,25 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (s.professional !== null && (s.professional.kind !== 'any' && (s.professional.kind !== 'specific' || !bounded(s.professional.id, 128)))) throw new Error('invalid professional')
   // Older schemaVersion 1 snapshots have no hint; keep them readable without a SQL migration.
   if (s.professionalNameHint !== undefined && s.professionalNameHint !== null && (!bounded(s.professionalNameHint, 100) || !/^[a-z0-9:/-]+(?: [a-z0-9:/-]+)*$/.test(s.professionalNameHint))) throw new Error('invalid professional hint')
-  if (s.slot !== null && (!s.serviceId || !s.date || !s.professional || s.slot.date !== s.date || !bounded(s.slot.professionalId, 128) || !bounded(s.slot.professionalName, 200) || !Number.isFinite(Date.parse(s.slot.startAt)) || parseMinutes(s.slot.time) === null || (s.professional.kind === 'specific' && s.professional.id !== s.slot.professionalId))) throw new Error('invalid slot')
-  if ((!s.serviceId && (s.date && s.slot || s.professional?.kind === 'specific' || s.slot)) || (!s.date && s.slot) || (s.pending === 'proposal' && (!s.slot || !s.customerName))) throw new Error('invalid dialogue invariants')
+  if (s.basket !== undefined) {
+    parseServiceBasket(s.basket)
+    const ids = basketServiceIds(s)
+    const singular = ids.length === 1 ? ids[0] : null
+    if (s.serviceId !== singular) throw new Error('invalid basket projection')
+  }
+  const resolvedSelection = basketIsResolved(s)
+  if (s.slot !== null && (!resolvedSelection || !s.date || !s.professional || s.slot.date !== s.date || !bounded(s.slot.professionalId, 128) || !bounded(s.slot.professionalName, 200) || !Number.isFinite(Date.parse(s.slot.startAt)) || parseMinutes(s.slot.time) === null || (s.professional.kind === 'specific' && s.professional.id !== s.slot.professionalId))) throw new Error('invalid slot')
+  if ((!resolvedSelection && (s.date && s.slot || (!s.basket && s.professional?.kind === 'specific') || s.slot)) || (!s.date && s.slot) || (s.pending === 'proposal' && (!s.slot || !s.customerName))) throw new Error('invalid dialogue invariants')
   if (s.dialogueContext !== undefined) {
     const dc = s.dialogueContext
     if (!dc || typeof dc !== 'object' || Array.isArray(dc) || Object.keys(dc).sort().join(',') !== 'lastQuestion,presentedOffer' ||
       dc.lastQuestion !== null && (!bounded(dc.lastQuestion, 240) || !dc.lastQuestion.startsWith('¿') || !dc.lastQuestion.endsWith('?'))) throw new Error('invalid dialogue context')
     const offer = dc.presentedOffer
     if (offer !== null && (!offer || typeof offer !== 'object' || Array.isArray(offer) ||
-      Object.keys(offer).sort().join(',') !== 'businessId,date,professionalId,serviceId' ||
-      offer.businessId !== businessId || offer.serviceId !== s.serviceId || !validCalendarDate(offer.date) || offer.date !== s.date ||
+      (offer.serviceIds === undefined ? Object.keys(offer).sort().join(',') !== 'businessId,date,professionalId,serviceId'
+        : Object.keys(offer).sort().join(',') !== 'businessId,date,durationMinutes,professionalId,serviceId,serviceIds' ||
+          JSON.stringify(offer.serviceIds) !== JSON.stringify(basketServiceIds(s)) || !resolvedSelection || !Number.isSafeInteger(offer.durationMinutes) || Number(offer.durationMinutes) <= 0) ||
+      offer.businessId !== businessId || offer.serviceId !== s.serviceId || (basketServiceIds(s).length > 1 && !offer.serviceIds) || !validCalendarDate(offer.date) || offer.date !== s.date ||
       !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
   if (s.slot && timezone) {
@@ -114,6 +128,44 @@ function dateLabel(date: string, timezone: string): string {
   return weekday + ' ' + String(day).padStart(2, '0') + '/' + String(month).padStart(2, '0')
 }
 const serviceList = renderServices
+function mutateStateBasket(state: DialogueState, op: BasketMutation): void {
+  const previous = selectionBasket(state)
+  const previouslyResolved = basketIsResolved(state)
+  const result = applyBasketMutation(previous, op)
+  state.basket = result.basket
+  const ids = basketServiceIds(state)
+  state.serviceId = ids.length === 1 ? ids[0]! : null
+  if (result.changed) {
+    state.slot = null
+    if (previouslyResolved) state.requestedTime = null
+    delete state.dialogueContext
+  }
+}
+function basketQuestion(state: DialogueState, services: readonly DialogueService[]): string | null {
+  const pending = selectionBasket(state).members.find(member => member.mode !== 'single')
+  if (!pending) return null
+  const exact = selectionBasket(state).members.filter(member => member.mode === 'single').map(member => services.find(s => s.id === member.serviceIds[0])?.name).filter(Boolean)
+  const retained = exact.length ? '\nMantengo también: ' + exact.join(', ') + '.' : ''
+  return pending.mode === 'unresolved' ? 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
+    : '¿Cuál de estos servicios querés?\n' + serviceList(services.filter(service => pending.serviceIds.includes(service.id))) + retained
+}
+function validBookableService(service: DialogueService): boolean {
+  return !service.requiresConsultation && Number.isSafeInteger(service.durationMinutes) && Number(service.durationMinutes) > 0 &&
+    (service.professionalDurationMinutes === undefined || Number.isSafeInteger(service.professionalDurationMinutes) && service.professionalDurationMinutes === service.durationMinutes) &&
+    (service.customerDurationMinutes === undefined || Number.isSafeInteger(service.customerDurationMinutes) && Number(service.customerDurationMinutes) > 0 && Number(service.customerDurationMinutes) <= Number(service.durationMinutes)) &&
+    (service.price === null || Number.isSafeInteger(service.price) && service.price >= 0) &&
+    (service.priceMode === undefined || ['FIXED', 'STARTING_AT'].includes(service.priceMode))
+}
+function validateBasketAvailability(result: Extract<DialogueBasketAvailability, { ok: true }>, ids: readonly string[]): void {
+  if (!Array.isArray(result.services) || JSON.stringify(result.services.map(s => s.id)) !== JSON.stringify(ids) ||
+      result.services.some(service => !validBookableService(service)) ||
+      !Number.isSafeInteger(result.durationMinutes) || result.durationMinutes <= 0 ||
+      (result.totalPrice !== null && (!Number.isSafeInteger(result.totalPrice) || result.totalPrice < 0))) throw new Error('invalid basket availability')
+  const summary = selectionSummary(result.services)
+  if (result.durationMinutes !== summary.durationMinutes || result.totalPrice !== summary.totalPrice ||
+      !Array.isArray(result.professionals) || result.professionals.length > 50 ||
+      !Array.isArray(result.slots) || result.slots.length > 500) throw new Error('invalid basket availability')
+}
 async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[]): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
@@ -132,14 +184,14 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const services = preparedCatalog ?? await port.catalog()
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   let service = services.find(s => s.id === state.serviceId)
-  if (state.serviceId && !service) { state.serviceId = null; state.professional = null; clearSlot(state); state.pending = 'service' }
+  if (!state.basket && state.serviceId && !service) { state.serviceId = null; state.professional = null; clearSlot(state); state.pending = 'service' }
   let anyProfessional = false
   let rejectsProfessional = false
   let name: RegExpExecArray | null = null
   let prefix = ''
   if (!preparedCatalog) {
     if (/\bcambiar (?:la )?(?:hora|horario)\b/.test(text)) clearSlot(state)
-    if (/\bcambiar (?:el )?servicio\b/.test(text)) { state.serviceId = null; service = undefined; state.professional = null; clearSlot(state) }
+    if (/\bcambiar (?:el )?servicio\b/.test(text)) { state.serviceId = null; delete state.basket; service = undefined; state.professional = null; clearSlot(state) }
     const decisionProfessional = decision?.professionalMention ? normalize(decision.professionalMention) : null
     anyProfessional = /\b(cualquiera|cualquier profesional|sin preferencia|me da igual)\b/.test(text)
     rejectsProfessional = /\bnunca te dije\b/.test(text)
@@ -154,7 +206,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       }
     }
     const catalogQuestion = /(?:que|cuales|mostrame|mostrar).*servicios/.test(text)
-    if (decision?.correction) { state.serviceId = null; service = undefined; state.professional = null; clearSlot(state) }
+    if (decision?.correction) { state.serviceId = null; delete state.basket; service = undefined; state.professional = null; clearSlot(state) }
     const found = decision ? services.filter(item => decision.candidateIds.includes(item.id) || item.id === decision.serviceId)
       : catalogQuestion ? [] : matches(text, services)
     if (decision && found.length !== new Set([...decision.candidateIds, ...(decision.serviceId ? [decision.serviceId] : [])]).size) throw new Error('invalid decision catalog')
@@ -164,7 +216,13 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       state.pending = 'service'
       return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`)
     }
-    if (found.length === 1 && found[0]!.id !== state.serviceId) { service = found[0]!; state.serviceId = service.id; state.professional = null; clearSlot(state) }
+    if (found.length === 1 && found[0]!.id !== state.serviceId) {
+      if (state.basket) {
+        const group = state.basket.members.find(member => member.mode === 'alternatives' && member.serviceIds.includes(found[0]!.id))
+        if (group) mutateStateBasket(state, { kind: 'basket', mutation: 'replace', scope: 'members', targetMemberIds: [group.memberId], members: [{ mode: 'single', serviceIds: [found[0]!.id], evidence: message, confidence: 1 }], evidence: message, confidence: 1 })
+        else if (!basketServiceIds(state).includes(found[0]!.id)) return finish('¿Querés agregar ese servicio o reemplazar alguno de los que ya elegiste?')
+      } else { service = found[0]!; state.serviceId = service.id; state.professional = null; clearSlot(state) }
+    }
     const date = extractDate(text, context)
     if (containsInvalidDateExpression(text, context) && !date) {
       state.date = null; clearSlot(state); state.pending = 'date'
@@ -181,11 +239,33 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       !matches(text, services).length) state.customerName = message.trim()
     prefix = catalogQuestion ? `${serviceList(services)}\n` : /^(hola|buenas|como estas|sos linda|salimos)/.test(text) ? 'Hola. Te ayudo con tu turno.\n' : ''
   }
+  const clarification = basketQuestion(state, services)
+  if (clarification) { state.pending = 'service'; state.slot = null; return finish(clarification) }
+  let selectedServices = basketServiceIds(state).map(id => services.find(item => item.id === id))
+  if (state.basket && selectedServices.some(item => !item)) { state.pending = 'service'; clearSlot(state); return finish('Un servicio del pedido ya no está disponible. Necesitás cambiarlo o quitarlo; mantengo el resto del pedido.') }
+  if (state.basket && selectedServices.length === 1) service = selectedServices[0]
+  if (selectedServices.length > 1) {
+    const trusted = selectedServices as DialogueService[]
+    const summary = selectionSummary(trusted)
+    service = { ...trusted[0]!, name: trusted.map(item => item.name).join(' + '), durationMinutes: summary.durationMinutes, price: summary.totalPrice }
+  }
   if (!service) { state.pending = 'service'; return finish(`${prefix}¿Qué servicio necesitás?\n${serviceList(services) || 'No tengo servicios disponibles para consultar.'}`) }
+  if (selectedServices.some(item => !item || !validBookableService(item))) { clearSlot(state); state.pending = 'service'; return finish('Uno de los servicios requiere una consulta con el equipo antes de reservar. Mantengo todos los servicios solicitados.') }
   if (service.requiresConsultation || !service.durationMinutes || service.durationMinutes <= 0) return finish('Este servicio requiere una consulta con el equipo antes de reservar.')
   if (!state.date) { state.pending = 'date'; return finish(`${prefix}¿Para qué día querés ${service.name}?`) }
   if (state.date < localDateKey(context.dbNow, context.timezone)) { state.date = null; clearSlot(state); state.pending = 'date'; return finish('Esa fecha ya pasó. ¿Qué otro día querés consultar?') }
-  const available = await port.availability(service, state.date, state.professional?.kind === 'specific' ? state.professional.id : undefined)
+  const queryAvailability = async (professionalId?: string) => {
+    if (selectedServices.length <= 1) return port.availability(service!, state.date!, professionalId)
+    if (!port.availabilityBasket) return null
+    const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId)
+    if (!result.ok) return null
+    validateBasketAvailability(result, basketServiceIds(state))
+    selectedServices = [...result.services]
+    service = { ...result.services[0]!, name: result.services.map(item => item.name).join(' + '), durationMinutes: result.durationMinutes, price: result.totalPrice }
+    return result
+  }
+  const available = await queryAvailability(selectedServices.length > 1 ? undefined : state.professional?.kind === 'specific' ? state.professional.id : undefined)
+  if (!available) { clearSlot(state); state.pending = 'service'; return finish('No pude verificar la disponibilidad conjunta de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.') }
   const professionals = available.professionals
   const professionalText = name ? normalize(message.replace(name[0], '')) : text
   const negativePreference = !extractProfessionalHint(text) && /\b(?:no|nunca)\b/.test(professionalText) && matches(professionalText.replace(/\b(?:no|nunca|te|dije|quiero)\b/g, ''), professionals).length > 0
@@ -207,7 +287,8 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       state.professionalNameHint = null
       if (state.professional?.kind !== 'specific' || state.professional.id !== named[0]!.id) {
         delete state.dialogueContext; state.slot = null; state.professional = { kind: 'specific', id: named[0]!.id }
-        const selected = await port.availability(service, state.date, named[0]!.id)
+        const selected = await queryAvailability(named[0]!.id)
+        if (!selected) { clearSlot(state); state.pending = 'service'; return finish('No pude verificar la disponibilidad conjunta de todos los servicios. Mantengo el pedido; necesitás consultarlo con el equipo.') }
         slots = selected.slots.filter(s => s.date === state.date && s.professionalId === named[0]!.id && Date.parse(s.startAt) > context.dbNow.getTime())
       }
     }
@@ -227,12 +308,15 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!state.slot) {
     state.pending = 'time'
     state.dialogueContext = { lastQuestion: '¿Cuál elegís?', presentedOffer: { businessId: context.businessId, serviceId: service.id, date: state.date,
-      professionalId: state.professional.kind === 'specific' ? state.professional.id : null } }
+      professionalId: state.professional.kind === 'specific' ? state.professional.id : null, ...(selectedServices.length > 1 ? { serviceId: null, serviceIds: basketServiceIds(state), durationMinutes: service.durationMinutes! } : {}) } }
     return finish(`${prefix}Horarios disponibles para ${dateLabel(state.date, context.timezone)}:\n${slots.map(s => `${s.time} con ${s.professionalName}`).join('\n')}\n¿Cuál elegís?`) }
   if (!state.customerName) { state.pending = 'name'; return finish(`${prefix}¿A nombre de quién sería el turno?`) }
   state.pending = 'proposal'
-  const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName }
-  return finish(`${prefix}Propuesta: ${service.name}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.`, proposal)
+  const summary = selectionSummary(selectedServices as DialogueService[])
+  const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName,
+    ...(selectedServices.length > 1 ? { serviceIds: basketServiceIds(state), services: selectedServices as DialogueService[], durationMinutes: summary.durationMinutes, totalPrice: summary.totalPrice } : {}) }
+  const details = selectedServices.length > 1 ? ' (' + summary.durationMinutes + ' min; ' + (summary.totalPrice === null ? 'precio total a consultar' : '$ ' + summary.totalPrice.toLocaleString('es-AR')) + ')' : ''
+  return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.`, proposal)
 }
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
@@ -247,14 +331,17 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   parseTurnPlan(plan, message, services.map(service => service.id))
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext }
   const serviceOp = plan.operations.find(op => op.kind === 'service')
-  if (serviceOp?.kind === 'service' && serviceOp.mode !== 'multiple' && (serviceOp.mode !== 'unresolved' || serviceOp.correction)) {
-    const selected = serviceOp.mode === 'single' ? serviceOp.serviceIds[0]! : null
-    if (selected !== state.serviceId || serviceOp.correction || serviceOp.mode === 'alternatives') {
-      const replacing = Boolean(state.serviceId) || serviceOp.correction || selected === null
-      invalidate(replacing)
-      state.serviceId = selected
-      if (replacing || state.professional?.kind !== 'any') state.professional = null
-    }
+  const basketOp = plan.operations.find(op => op.kind === 'basket')
+  if (basketOp?.kind === 'basket') mutateStateBasket(state, basketOp)
+  else if (serviceOp?.kind === 'service' && (serviceOp.mode !== 'unresolved' || serviceOp.correction || !hasBasketSelection(state))) {
+    const current = selectionBasket(state)
+    const group = serviceOp.mode === 'single' && !serviceOp.correction ? current.members.find(member => member.mode === 'alternatives' && member.serviceIds.includes(serviceOp.serviceIds[0]!)) : null
+    const members = serviceOp.mode === 'multiple'
+      ? serviceOp.serviceIds.map(id => ({ mode: 'single' as const, serviceIds: [id], evidence: serviceOp.evidence, confidence: serviceOp.confidence }))
+      : [{ mode: serviceOp.mode, serviceIds: [...serviceOp.serviceIds], evidence: serviceOp.evidence, confidence: serviceOp.confidence }]
+    // A repeated existing exact service in a multi-service basket is not a request to discard its peers.
+    const repeated = serviceOp.mode === 'single' && !serviceOp.correction && current.members.length > 1 && basketServiceIds(state).includes(serviceOp.serviceIds[0]!)
+    if (!repeated) mutateStateBasket(state, { kind: 'basket', mutation: group ? 'replace' : 'set', scope: group ? 'members' : 'all', targetMemberIds: group ? [group.memberId] : [], members, evidence: serviceOp.evidence, confidence: serviceOp.confidence })
   }
   const dateOp = plan.operations.find(op => op.kind === 'date')
   let uncertainDate = false
@@ -283,7 +370,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
 
-  if (updates.length) state.pending = !state.serviceId ? 'service' : !state.date ? 'date' : !state.professional ? 'professional' : !state.slot ? 'time' : !state.customerName ? 'name' : 'proposal'
+  if (updates.length) state.pending = !basketIsResolved(state) ? 'service' : !state.date ? 'date' : !state.professional ? 'professional' : !state.slot ? 'time' : !state.customerName ? 'name' : 'proposal'
 
   // Facts are read after applying fields, so an unavailable information read cannot roll back valid preferences.
   const answers: string[] = []
@@ -306,22 +393,14 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply].filter(Boolean).join('\n'), proposal: null })
   if (!updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
-  // A basket is intentionally not implemented here; never silently pick one service or publish a partial proposal.
-  if (serviceOp?.kind === 'service' && serviceOp.mode === 'multiple') {
-    state.pending = !state.serviceId ? 'service' : !state.date ? 'date' : !state.professional ? 'professional' : !state.slot ? 'time' : !state.customerName ? 'name' : 'proposal'
-    return finishWithoutAgenda('La reserva de varios servicios todavía no está disponible en este motor. Necesitás solicitarla al equipo.\n' + pendingQuestion(state))
-  }
-  if (serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved') {
+  const clarification = basketQuestion(state, services)
+  if (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved') {
     state.pending = 'service'
-    return finishWithoutAgenda('No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services))
-  }
-  if (serviceOp?.kind === 'service' && serviceOp.mode === 'alternatives') {
-    state.pending = 'service'
-    return finishWithoutAgenda('¿Cuál de estos servicios querés?\n' + serviceList(services.filter(service => serviceOp.serviceIds.includes(service.id))))
+    return finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services))
   }
   if (uncertainDate) {
-    state.pending = state.serviceId ? 'date' : 'service'
-    return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!state.serviceId ? '\n' + pendingQuestion(state) : ''))
+    state.pending = basketIsResolved(state) ? 'date' : 'service'
+    return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!basketIsResolved(state) ? '\n' + pendingQuestion(state) : ''))
   }
   const next = await respondBooking(context, state, message, port, undefined, services)
   return { ...next, reply: [...answers, next.reply].filter(Boolean).join('\n') }

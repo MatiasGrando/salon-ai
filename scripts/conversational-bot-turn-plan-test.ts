@@ -100,7 +100,7 @@ assert.equal(alternative.state.requestedTime, '17:00'); assert.equal(alternative
 assert.match(alternative.reply, /Cuál de estos servicios/)
 const multiple = await say(initial(), 'Corte y Color mañana 17hs con Ana, soy Matias', [service('multiple'), date('mañana'), time(), prof(), name()])
 assert.equal(multiple.state.serviceId, null, 'a multiple-service request never silently books only one')
-assert.equal(multiple.proposal, null); assert.match(multiple.reply, /varios servicios.*no.*disponible/i)
+assert.equal(multiple.proposal, null); assert.match(multiple.reply, /No pude verificar.*conjunta/i)
 assert.equal(multiple.state.date, '2026-10-02'); assert.equal(multiple.state.customerName, 'Matias')
 
 const longMention = (await say(initial(), 'con Juan Manuel de la Cruz 17hs', [prof('Juan Manuel de la Cruz'), time()])).state

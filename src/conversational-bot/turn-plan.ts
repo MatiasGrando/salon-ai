@@ -1,10 +1,12 @@
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
+import { BASKET_LIMITS, type BasketMutation } from './service-basket.js'
 
 /** Untrusted semantic proposals. The engine, never the model, authorizes catalog/agenda use. */
 type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
+  | BasketMutation
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
   | { kind: 'professional'; mode: 'any' | 'clear' }
@@ -15,7 +17,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'unsupported_action'; action: UnsupportedTurnAction }
 )
 export type TurnPlan = { version: 1; operations: readonly TurnOperation[] }
-export const TURN_PLAN_LIMITS = { operations: 12, serialized: 6000, evidence: 300, candidates: 10 } as const
+export const TURN_PLAN_LIMITS = { operations: 12, serialized: 16000, evidence: 300, candidates: 10 } as const
 const informationActions = Object.keys(ACTION_REGISTRY).filter(key => key !== 'AVAILABILITY' && ACTION_REGISTRY[key as InformationAction].kind === 'read' && ACTION_REGISTRY[key as InformationAction].status === 'implemented') as InformationAction[]
 const pendingActions: readonly UnsupportedTurnAction[] = ['CANCEL', 'RESCHEDULE', 'HUMAN_HANDOFF']
 const stringSchema = (maximum: number) => ({ type: 'string', minLength: 1, maxLength: maximum })
@@ -30,6 +32,11 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
   version: { type: 'integer', enum: [1] },
   operations: { type: 'array', maxItems: TURN_PLAN_LIMITS.operations, items: { anyOf: [
     operationSchema('service', { mode: { type: 'string', enum: ['single', 'alternatives', 'multiple', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), minItems: 0, maxItems: TURN_PLAN_LIMITS.candidates }, correction: { type: 'boolean' } }),
+    operationSchema('basket', {
+      mutation: { type: 'string', enum: ['set', 'add', 'remove', 'replace'] }, scope: { type: 'string', enum: ['all', 'members'] },
+      targetMemberIds: { type: 'array', items: stringSchema(32), maxItems: BASKET_LIMITS.members },
+      members: { type: 'array', maxItems: BASKET_LIMITS.members, items: objectSchema({ mode: { type: 'string', enum: ['single', 'alternatives', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), maxItems: BASKET_LIMITS.candidates }, ...evidenceSchema }) }
+    }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
@@ -71,7 +78,30 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     if (!evidence || !contains(message, raw.evidence)) fail('ungrounded evidence')
     const common = ['kind', 'evidence', 'confidence']
     let identity = String(raw.kind)
-    if (raw.kind === 'service') {
+    if (raw.kind === 'basket') {
+      exactKeys(raw, [...common, 'mutation', 'scope', 'targetMemberIds', 'members'])
+      if (!['set','add','remove','replace'].includes(String(raw.mutation)) || !['all','members'].includes(String(raw.scope)) ||
+          !Array.isArray(raw.targetMemberIds) || raw.targetMemberIds.length > BASKET_LIMITS.members || new Set(raw.targetMemberIds).size !== raw.targetMemberIds.length ||
+          raw.targetMemberIds.some(id => typeof id !== 'string' || !/^m[1-9][0-9]*$/.test(id)) ||
+          !Array.isArray(raw.members) || raw.members.length > BASKET_LIMITS.members ||
+          (raw.scope === 'members' ? !raw.targetMemberIds.length || !['remove','replace'].includes(String(raw.mutation)) : raw.targetMemberIds.length !== 0) ||
+          (raw.mutation === 'remove' ? raw.members.length !== 0 : raw.members.length === 0)) fail('basket mutation')
+      const ids = new Set<string>()
+      for (const member of raw.members) {
+        if (!object(member)) fail('basket member')
+        exactKeys(member, ['mode','serviceIds','evidence','confidence'])
+        if (!bounded(member.evidence, TURN_PLAN_LIMITS.evidence) || !contains(raw.evidence, member.evidence) || !contains(message, member.evidence) ||
+            typeof member.confidence !== 'number' || !Number.isFinite(member.confidence) || member.confidence < 0 || member.confidence > 1) fail('basket member evidence')
+        if (!['single','alternatives','unresolved'].includes(String(member.mode)) || !Array.isArray(member.serviceIds) || member.serviceIds.length > BASKET_LIMITS.candidates ||
+            (member.mode === 'single' ? member.serviceIds.length !== 1 : member.mode === 'alternatives' ? member.serviceIds.length < 2 : member.serviceIds.length !== 0)) fail('basket member')
+        for (const id of member.serviceIds) {
+          if (!bounded(id,128) || ids.has(id)) fail('basket duplicate service')
+          if (catalogIds && !catalogIds.includes(id)) fail('catalog')
+          ids.add(id)
+        }
+      }
+      identity = 'service'
+    } else if (raw.kind === 'service') {
       exactKeys(raw, [...common, 'mode', 'serviceIds', 'correction'])
       if (!['single', 'alternatives', 'multiple', 'unresolved'].includes(String(raw.mode)) || typeof raw.correction !== 'boolean' || !Array.isArray(raw.serviceIds) || raw.serviceIds.length > TURN_PLAN_LIMITS.candidates || raw.serviceIds.some(id => !bounded(id, 128)) || new Set(raw.serviceIds).size !== raw.serviceIds.length || (raw.mode === 'single' ? raw.serviceIds.length !== 1 : raw.mode === 'unresolved' ? raw.serviceIds.length !== 0 : raw.serviceIds.length < 2)) fail('service')
       if (catalogIds && raw.serviceIds.some(id => !catalogIds.includes(id))) fail('catalog')

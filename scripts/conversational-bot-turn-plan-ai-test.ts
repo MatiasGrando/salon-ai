@@ -166,7 +166,7 @@ const multiple = await say('Corte hombre y Corte y barba, mañana, soy Matías, 
 assert.equal(multiple.response.state.serviceId, null, 'multiple services cannot collapse into one implicit booking')
 assert.equal(multiple.response.state.customerName, 'Matías')
 assert.equal(multiple.response.state.date, '2026-10-02')
-assert.match(multiple.response.reply, /varios servicios.*no.*disponible/i)
+assert.match(multiple.response.reply, /No pude verificar.*conjunta/i)
 assert.match(multiple.response.reply, /Calle 123/)
 assert.equal(multiple.response.proposal, null)
 const clockConflict = await say('mañana, soy Matías, dónde están?', plan(
