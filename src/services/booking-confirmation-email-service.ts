@@ -1,3 +1,5 @@
+import { isSimulatorAppointmentId } from './simulator-booking-scope.js'
+
 type BookingConfirmationEmailInput = {
   recipientEmail: string
   recipientName: string
@@ -18,6 +20,7 @@ type EmailDeliveryResult =
 const resendApiUrl = 'https://api.resend.com/emails'
 
 export async function sendBookingConfirmationEmail(input: BookingConfirmationEmailInput): Promise<EmailDeliveryResult> {
+  if (isSimulatorAppointmentId(input.appointmentId)) return { ok: false, skipped: true, message: 'Turno del simulador: correo externo bloqueado' }
   const apiKey = process.env.RESEND_API_KEY?.trim()
   const from = process.env.BOOKING_EMAIL_FROM?.trim()
   if (!apiKey || !from) {

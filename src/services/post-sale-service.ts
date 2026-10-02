@@ -1,3 +1,4 @@
+import { isSimulatorBookingCommunication, simulatorAppointmentCommunicationWhere } from './simulator-booking-scope.js'
 import { prisma } from '../config/prisma.js'
 import { queuedConversationHandoffPatch } from './conversation-handoff.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
@@ -46,6 +47,7 @@ export async function prepareDuePostSales(input: { businessId?: string; limit?: 
       where: {
         professional: { businessId: automation.businessId },
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        ...simulatorAppointmentCommunicationWhere(),
         startAt: {
           gte: new Date(now.getTime() - POST_SALE_LOOKBACK_DAYS * 86_400_000),
           lt: endOfLocalDay(now)
@@ -70,6 +72,7 @@ export async function prepareDuePostSales(input: { businessId?: string; limit?: 
 
     const lastAppointmentByVisit = new Map<string, (typeof appointments)[number]>()
     for (const appointment of appointments) {
+      if (isSimulatorBookingCommunication({ appointmentId: appointment.id, customerId: appointment.customer.id, phone: appointment.customer.phone })) { skipped += 1; continue }
       const visitDate = localDateKey(appointment.startAt)
       const key = appointment.customerId + ':' + visitDate
       if (!lastAppointmentByVisit.has(key)) lastAppointmentByVisit.set(key, appointment)
@@ -237,7 +240,9 @@ export async function processDuePostSales(input: { businessId?: string; limit?: 
       take: Math.max(100, (limit - sent - failed) * 10)
     })
 
-    const partition = partitionLatestPostSales(deliveries)
+    const contactableDeliveries = deliveries.filter(delivery => !isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customer.id, phone: delivery.customer.phone }) && !isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone }))
+    skipped += deliveries.length - contactableDeliveries.length
+    const partition = partitionLatestPostSales(contactableDeliveries)
     if (partition.supersededIds.length) {
       const superseded = await prisma.postSaleDelivery.updateMany({
         where: { id: { in: partition.supersededIds }, status: { in: ['PENDING', 'FAILED'] } },
@@ -358,10 +363,12 @@ export async function transitionManualPostSale(input: {
     where: { id: input.deliveryId, businessId: input.businessId },
     include: {
       customer: { select: { id: true, name: true, phone: true } },
-      automation: { select: { mode: true } }
+      automation: { select: { mode: true } },
+      appointment: { select: { customer: { select: { id: true, phone: true } } } }
     }
   })
   if (!delivery) throw new Error('No encontr\u00e9 ese seguimiento de postventa')
+  if (isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customer.id, phone: delivery.customer.phone }) || isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone })) throw new Error('Turno del simulador: contacto externo bloqueado')
   if (delivery.mode !== 'WHATSAPP_MANUAL' && delivery.automation?.mode !== 'MANUAL_ASSISTED') {
     throw new Error('Este seguimiento est\u00e1 configurado para env\u00edo autom\u00e1tico')
   }

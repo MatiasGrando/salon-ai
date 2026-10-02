@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { FastifyRequest } from 'fastify'
 import { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../config/prisma.js'
+import { isSimulatorAppointmentId, isSimulatorBookingCommunication } from './simulator-booking-scope.js'
 import { normalizeArgentineMobilePhone, normalizePhone, phoneSearchVariants } from './phone-normalization-service.js'
 
 const SESSION_COOKIE = 'weex_account_session'
@@ -123,6 +124,7 @@ export async function signInWithGoogleAuthCode(code: string) {
 }
 
 export async function createGoogleCalendarEventForAppointment(input: { accountId: string; appointmentId: string }) {
+  if (isSimulatorAppointmentId(input.appointmentId)) return { ok: false as const, message: 'Turno del simulador: calendario externo bloqueado' }
   const account = await prisma.weexAccount.findUnique({
     where: {
       id: input.accountId
@@ -165,6 +167,7 @@ export async function createGoogleCalendarEventForAppointment(input: { accountId
       message: 'No encontre el turno para cargarlo en Calendar.'
     }
   }
+  if (isSimulatorBookingCommunication({ appointmentId: appointment.id, customerId: appointment.customer.id, phone: appointment.customer.phone })) return { ok: false as const, message: 'Cliente del simulador: calendario externo bloqueado' }
   if (appointment.googleCalendarEventId && appointment.googleCalendarAccountId === account.id) {
     return {
       ok: true as const,

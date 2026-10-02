@@ -1,3 +1,5 @@
+import { isSimulatorRecipient } from '../../services/simulator-booking-scope.js'
+
 export const communicationSourceTypes = ['CAMPAIGN', 'REMINDER', 'POST_SALE'] as const
 export const communicationPurposes = ['PROMOTIONAL', 'OPERATIONAL', 'FOLLOW_UP'] as const
 export const communicationModes = ['WHATSAPP_API', 'WHATSAPP_MANUAL'] as const
@@ -46,6 +48,7 @@ export function communicationTimestampField(status: CommunicationStatus) {
 }
 
 function manualWhatsAppPhone(phone: string) {
+  if (isSimulatorRecipient(phone)) throw new Error('Los turnos del simulador no permiten contactar por WhatsApp')
   const digits = phone.replace(/\D/g, '')
   if (digits.length < 8) throw new Error('El teléfono no es válido para WhatsApp')
   return digits.length === 10 ? '549' + digits : digits

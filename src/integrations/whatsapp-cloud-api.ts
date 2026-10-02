@@ -1,4 +1,5 @@
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
+import { isSimulatorRecipient } from '../services/simulator-booking-scope.js'
 import { normalizeArgentineMobilePhone } from '../services/phone-normalization-service.js'
 
 export type WhatsAppSendLatencyDiagnostic = {
@@ -405,6 +406,7 @@ export class WhatsAppCloudApi {
     return response.ok
   }
   async sendTextMessage(input: SendTextMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
+    if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -463,6 +465,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendReplyButtonsMessage(input: SendReplyButtonsMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
+    if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -505,6 +508,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendInteractiveListMessage(input: SendInteractiveListMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
+    if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 
@@ -547,6 +551,7 @@ export class WhatsAppCloudApi {
   }
 
   async sendTemplateMessage(input: SendTemplateMessageInput) {
+    if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
     const config = await resolveBusinessWhatsAppCredentials(input.businessId)
     const recipientPhone = formatRecipientPhone(input.to, config)
 

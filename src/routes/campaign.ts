@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { isSimulatorBookingCommunication } from '../services/simulator-booking-scope.js'
 import { prisma } from '../config/prisma.js'
 import { whatsappPricingRates } from '../config/whatsapp-pricing.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
@@ -326,6 +327,7 @@ export async function campaignRoutes(app: FastifyInstance) {
   app.post('/whatsapp-templates/:id/test-send', async (request, reply) => {
     const params = request.params as { id: string }
     const body = request.body as { phone?: string; confirmed?: boolean }
+    if (isSimulatorBookingCommunication({ phone: body.phone })) return reply.status(409).send({ message: 'Destinatario del simulador: contacto externo bloqueado' })
     const phone = String(body.phone || '').replace(/\D/g, '')
     if (!body.confirmed) return reply.status(400).send({ message: 'Confirma que el numero de destino es tuyo' })
     if (phone.length < 8 || phone.length > 15) return reply.status(400).send({ message: 'Ingresa el numero completo con codigo de pais' })
@@ -521,6 +523,7 @@ export async function campaignRoutes(app: FastifyInstance) {
           select: {
             startAt: true,
             status: true,
+            customer: { select: { id: true, phone: true } },
             service: { select: { name: true } },
             professional: { select: { name: true } }
           }
@@ -544,7 +547,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       deliveries: deliveries.map((delivery) => ({
         ...delivery,
         isDue: isDue(delivery),
-        whatsappUrl: isDue(delivery) && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
+        whatsappUrl: !isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customerId, phone: delivery.customer.phone }) && !isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone }) && isDue(delivery) && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
           ? safeManualReminderUrl(delivery.customer.phone, delivery.messageSnapshot)
           : null
       }))
@@ -1133,6 +1136,7 @@ export async function campaignRoutes(app: FastifyInstance) {
     let sent = 0
     let failed = 0
     for (const job of jobs) {
+      if (isSimulatorBookingCommunication({ customerId: job.customerId, phone: job.customer.phone })) continue
       if (job.retryCount >= job.maxRetries || !job.campaign.whatsappTemplate) continue
       const gate = await assertBusinessCanSendWhatsApp(job.businessId, 'CAMPAIGN')
       if (!gate.allowed) {
@@ -1775,6 +1779,7 @@ async function sendCampaignRecipients(input: {
   }
 
   for (const customer of input.recipients) {
+    if (isSimulatorBookingCommunication({ customerId: customer.id, phone: customer.phone })) continue
     const workshop = workshopContextForAudienceRecipient(customer)
     const context = await buildTemplateVariableContext({ businessId: input.campaign.businessId, customerId: customer.id, workshop })
     const resolved = resolveWhatsAppTemplateVariables({
@@ -2193,12 +2198,13 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
   createdAt: Date
   manualRecipients?: Array<{ customer: { id: string; name: string; phone: string } }>
 }) {
-  let appointments: AudienceAppointment[] | null = null
+  let appointments: (AudienceAppointment & { id: string })[] | null = null
   const loadAppointments = async () => {
     if (appointments) return appointments
     appointments = await prisma.appointment.findMany({
       where: { professional: { businessId: campaign.businessId } },
       select: {
+        id: true,
         customerId: true,
         startAt: true,
         status: true,
@@ -2206,6 +2212,7 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
       },
       orderBy: { startAt: 'asc' }
     })
+    appointments = appointments.filter(appointment => !isSimulatorBookingCommunication({ appointmentId: appointment.id, customerId: appointment.customer.id, phone: appointment.customer.phone }))
     return appointments
   }
 
@@ -2215,6 +2222,7 @@ async function calculateCampaignAudience(campaign: EligibilityCampaign & {
     : campaign.segment === 'WORKSHOP_INACTIVE' || (campaign.segment === 'INACTIVE' && business?.businessType === 'WORKSHOP')
       ? await loadWorkshopInactiveAudience(campaign.businessId, campaign.segmentDays ?? 180)
       : buildAudiencePreview(campaign, await loadAppointments())
+  baseAudience.included = baseAudience.included.filter(customer => !isSimulatorBookingCommunication({ customerId: customer.id, phone: customer.phone }))
   const candidateIds = Array.from(new Set(baseAudience.included.map((customer) => customer.id)))
   if (!candidateIds.length) return {
     ...baseAudience,

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { isSimulatorBookingCommunication } from '../services/simulator-booking-scope.js'
 import { prisma } from '../config/prisma.js'
 import { prepareDuePostSales, processDuePostSales, transitionManualPostSale } from '../services/post-sale-service.js'
 import { buildManualWhatsAppUrl } from '../domain/communications/communication.js'
@@ -36,6 +37,7 @@ export async function postSaleRoutes(app: FastifyInstance) {
           appointment: {
             select: {
               startAt: true,
+              customer: { select: { id: true, phone: true } },
               service: { select: { name: true } },
               professional: { select: { name: true } }
             }
@@ -74,7 +76,7 @@ export async function postSaleRoutes(app: FastifyInstance) {
       deliveries: deliveries.map((delivery) => ({
         ...delivery,
         isActivePending: activePendingIds.has(delivery.id),
-        whatsappUrl: ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
+        whatsappUrl: !isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customerId, phone: delivery.customer.phone }) && !isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone }) && ['PENDING', 'OPENED', 'FAILED'].includes(delivery.status) && delivery.messageSnapshot
           ? safeManualWhatsAppUrl(delivery.customer.phone, delivery.messageSnapshot)
           : null
       }))

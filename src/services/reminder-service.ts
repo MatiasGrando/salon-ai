@@ -1,3 +1,4 @@
+import { isSimulatorBookingCommunication, simulatorAppointmentCommunicationWhere } from './simulator-booking-scope.js'
 import { prisma } from '../config/prisma.js'
 import { WhatsAppCloudApi } from '../integrations/whatsapp-cloud-api.js'
 import { assertBusinessCanSendWhatsApp } from './business-whatsapp-settings.js'
@@ -60,6 +61,7 @@ export async function prepareDueReminders(input: { businessId?: string; automati
       where: {
         startAt: { gt: now, lte: maxStartAt },
         status: 'CONFIRMED',
+        ...simulatorAppointmentCommunicationWhere(),
         professional: { businessId: automation.businessId }
       },
       include: {
@@ -73,6 +75,7 @@ export async function prepareDueReminders(input: { businessId?: string; automati
 
     for (const appointment of appointments) {
       if (prepared + failed >= limit) break
+      if (isSimulatorBookingCommunication({ appointmentId: appointment.id, customerId: appointment.customer.id, phone: appointment.customer.phone })) { skipped += 1; continue }
       const scheduledFor = new Date(appointment.startAt.getTime() - automation.sendBeforeMinutes * 60_000)
       if (scheduledFor > now) continue
       const existing = await prisma.reminderDelivery.findUnique({
@@ -196,6 +199,7 @@ export async function processDueReminders(input: { businessId: string; limit?: n
       take: limit - sent - failed
     })
     for (const delivery of deliveries) {
+      if (isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customer.id, phone: delivery.customer.phone }) || isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone })) { skipped += 1; continue }
       if (!canAutomaticReminderSend(delivery.status)) continue
       const claim = await prisma.reminderDelivery.updateMany({
         where: { id: delivery.id, status: { in: ['PENDING', 'FAILED'] } },
@@ -288,10 +292,11 @@ export async function transitionManualReminder(input: {
     include: {
       customer: { select: { id: true, name: true, phone: true } },
       reminderAutomation: { select: { mode: true, sendBeforeMinutes: true } },
-      appointment: { select: { status: true, startAt: true } }
+      appointment: { select: { status: true, startAt: true, customer: { select: { id: true, phone: true } } } }
     }
   })
   if (!delivery) throw new Error('No encontr\u00e9 ese recordatorio')
+  if (isSimulatorBookingCommunication({ appointmentId: delivery.appointmentId, customerId: delivery.customer.id, phone: delivery.customer.phone }) || isSimulatorBookingCommunication({ customerId: delivery.appointment.customer.id, phone: delivery.appointment.customer.phone })) throw new Error('Turno del simulador: contacto externo bloqueado')
   if (delivery.mode !== 'WHATSAPP_MANUAL' && delivery.reminderAutomation.mode !== 'MANUAL_ASSISTED') {
     throw new Error('Este recordatorio est\u00e1 configurado para env\u00edo autom\u00e1tico')
   }
