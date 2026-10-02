@@ -192,4 +192,29 @@ for(const key of ['name','estimateQuestion','validationQuestion'] as const){
  catalog=[{...smooth,bookingPolicy:{...policy('smooth'),[key]:'Texto\ncontinuación'}}]
  const denied=await say(initial(),'guiado',[service(['smooth'],'guiado')]);assert.match(denied.reply,/configuración/)
 }
+// An exact guided companion accepts its own answer while a different basket member is ambiguous.
+const woman={...cut,id:'woman',name:'Corte mujer'}
+catalog=[cut,woman,smooth,double]
+const mixedOperation:TurnOperation={kind:'basket',mutation:'set',scope:'all',targetMemberIds:[],members:[
+ {mode:'alternatives',serviceIds:['cut','woman'],...ev('corte')},
+ {mode:'single',serviceIds:['smooth'],...ev('guiado')}],...ev('corte y guiado')}
+const agendaBeforePartial=joint+legacy
+const mixedRequest=await say(initial(),'corte y guiado mañana con Ramiro soy Matias',[mixedOperation,date,prof,name])
+const partialChoice=await say(mixedRequest.state,'hasta los hombros',[choose('smooth','short','hasta los hombros')])
+assert.equal(partialChoice.state.pending,'service');assert.equal(partialChoice.proposal,null);assert.equal(partialChoice.state.slot,null)
+assert.equal(joint+legacy,agendaBeforePartial,'partial service basket never queries agenda')
+assert.deepEqual(partialChoice.state.serviceEstimates?.smooth,{configurationKey:serviceConfigurationKey(policy('smooth')),optionId:'short'})
+assert.equal(partialChoice.state.date,'2026-10-03');assert.equal(partialChoice.state.customerName,'Matias');assert.equal(partialChoice.state.professionalNameHint,'ramiro')
+assert.match(partialChoice.reply,/Corte hombre/);assert.match(partialChoice.reply,/Corte mujer/)
+const partialSnapshot=projectConversationDraft(partialChoice.state,{businessId:'tenant',revision:1,engine:'conversational-booking-v1'} as any)
+assert.deepEqual(readConversationDraft(partialSnapshot,partialSnapshot.conversationDraft.policy,context.timezone).serviceEstimates,partialChoice.state.serviceEstimates)
+const clarifiedAfterChoice=await say(partialChoice.state,'corte hombre',[service(['cut'],'corte hombre')])
+assert.equal(clarifiedAfterChoice.state.pending,'time');assert.deepEqual(clarifiedAfterChoice.state.serviceEstimates,partialChoice.state.serviceEstimates)
+assert.doesNotMatch(clarifiedAfterChoice.reply,/Qué largo/)
+const together=await say(mixedRequest.state,'corte hombre y hasta los hombros',[service(['cut'],'corte hombre'),choose('smooth','short','hasta los hombros')])
+assert.equal(together.state.pending,'time');assert.equal(together.state.serviceEstimates?.smooth?.optionId,'short')
+const unsafeAlternative:TurnOperation={...mixedOperation,members:[{mode:'alternatives',serviceIds:['cut','color'],...ev('corte')},{mode:'single',serviceIds:['smooth'],...ev('guiado')}]}
+const unchosenGuide=await say(initial(),'corte y guiado',[unsafeAlternative])
+await assert.rejects(()=>say(unchosenGuide.state,'hasta los hombros',[choose('color','short','hasta los hombros')]),/guidance service target/)
+assert.equal(unchosenGuide.state.serviceEstimates?.color,undefined)
 console.log('guided service motor: configured estimates, per-service state, dual capacity, stale choice and safe proposal PASS')

@@ -435,7 +435,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
 
   for (const op of plan.operations) {
     if (op.kind !== 'estimate') continue
-    if (!basketServiceIds(state).includes(op.serviceId)) throw new Error('invalid guidance service target')
+    if (!selectionBasket(state).members.some(member => member.mode === 'single' && member.serviceIds.includes(op.serviceId))) throw new Error('invalid guidance service target')
     const selected = services.find(service => service.id === op.serviceId)!
     const guide = serviceGuidance(selected)
     if (guide.kind !== 'guided') throw new Error('invalid guidance target policy')
