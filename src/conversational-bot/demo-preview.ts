@@ -3,7 +3,7 @@ import { initialDialogueState, parseDialogueState, respond, type DialogueContext
 import { respondWithAiInterpreter, type AiInterpretationProvider, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import { DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS } from './ai-timeout.js'
 
-/** The preview owns no booking or WhatsApp effects. An AI interpreter runs only when explicitly injected by the QA caller. */
+/** Compute-only preview: effect commands stay ephemeral; the authorized Prisma caller commits them. */
 export type PreviewDependencies = {
   load(phone: string): Promise<unknown>
   save(phone: string, inbound: string, reply: string, state: DialogueState): Promise<void>
@@ -31,6 +31,7 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   return {
     reply: response.reply,
     state: response.state,
+    ...(response.bookingCommand ? { bookingCommand: response.bookingCommand } : {}),
     proposalReady: response.proposal !== null,
     interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
     timings: {

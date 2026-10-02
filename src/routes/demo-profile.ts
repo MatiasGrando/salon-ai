@@ -12,7 +12,7 @@ import {
 import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 import { runDeterministicDemoSimulation } from '../bot-options/application/run-demo-simulation.js'
-import { runPrismaDemoPreview } from '../conversational-bot/demo-preview-prisma.js'
+import { runPrismaDemoPreview, SimulatorBookingScopeError } from '../conversational-bot/demo-preview-prisma.js'
 import { resolveQaPreviewAi, resolveQaPreviewAiTimeoutMs } from '../conversational-bot/qa-preview-ai.js'
 
 const conversationService = new ConversationService()
@@ -192,7 +192,12 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       if (user.role !== 'SUPER_ADMIN' || business.demoType !== 'QA_SANDBOX') {
         return reply.status(403).send({ message: 'La vista previa conversacional solo esta disponible en QA' })
       }
-      return runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env))
+      try {
+        return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true })
+      } catch (error) {
+        if (error instanceof SimulatorBookingScopeError) return reply.status(403).send({ message: 'Las reservas de prueba sólo están habilitadas para superadministradores en perfiles QA.' })
+        throw error
+      }
     }
     const phone = `demo:${user.id}:${sessionId}`
     const deterministicDemo = await prisma.businessBotConfiguration.findFirst({

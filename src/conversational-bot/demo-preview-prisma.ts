@@ -1,5 +1,9 @@
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
+import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
+import { executePrismaSandboxBooking, verifySimulatorBookingScope } from './prisma-sandbox-booking.js'
+import { finalizeSandboxBooking } from './sandbox-booking.js'
+import { parseDialogueState } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { runConversationalPreview, type PreviewDependencies } from './demo-preview.js'
 import type { AiInterpretationProvider } from './ai-interpreter.js'
@@ -22,7 +26,8 @@ export async function runPrismaDemoPreview(
   client: any, businessId: string, userId: string, sessionId: string, message: string,
   createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id),
   interpretationProvider?: AiInterpretationProvider,
-  interpretationTimeoutMs?: number
+  interpretationTimeoutMs?: number,
+  capability?: { sandboxBooking: true }
 ) {
   const phone = `demo:preview:${userId}:${sessionId}`
   const started = performance.now()
@@ -33,7 +38,7 @@ export async function runPrismaDemoPreview(
   pendingBySession.set(queueKey, finished)
   await preceding
   try {
-    return await processPreviewTurn(client, businessId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs)
+    return await processPreviewTurn(client, businessId, userId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs, capability?.sandboxBooking === true)
   } finally {
     release()
     if (pendingBySession.get(queueKey) === finished) pendingBySession.delete(queueKey)
@@ -43,9 +48,10 @@ export async function runPrismaDemoPreview(
 /** Local FIFO preserves request invocation order on this process; the snapshot check also covers other workers. */
 const pendingBySession = new Map<string, Promise<void>>()
 async function processPreviewTurn(
-  client: any, businessId: string, phone: string, message: string,
-  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number
+  client: any, businessId: string, userId: string, phone: string, message: string,
+  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false
 ) {
+  if (sandboxBooking && !await verifySimulatorBookingScope(client, businessId, userId)) throw new SimulatorBookingScopeError()
   const key = { businessId_phone: { businessId, phone } }
   for (let attempt = 0; attempt < MAX_PREVIEW_ATTEMPTS; attempt++) {
     const loadingAt = performance.now()
@@ -59,14 +65,18 @@ async function processPreviewTurn(
     const prepared = await runConversationalPreview({
       load: async () => snapshot?.supportBotState ?? null,
       save: async () => {},
-      createPort,
-      interpretationProvider,
-      interpretationTimeoutMs
+      createPort: async id => { const created = await createPort(id); return { ...created, context: { ...created.context, sandboxBooking } } },
+      ...(interpretationProvider ? { interpretationProvider } : {}),
+      ...(interpretationTimeoutMs !== undefined ? { interpretationTimeoutMs } : {})
     }, businessId, phone, message)
     // A failing provider/engine never opens a write transaction or creates an empty QA chat.
     const committingAt = performance.now()
     const committed = await client.$transaction(async (tx: any) => {
       const lockStarted = performance.now()
+      const receipt = prepared.state.sandboxReservation?.receipt
+      const command = prepared.bookingCommand ?? (sandboxBooking && receipt ? { kind: 'CONFIRM_SANDBOX_BOOKING' as const, presented: prepared.state.sandboxReservation!.presented } : undefined)
+      if (command) await acquireAgendaHierarchy(tx, { businessId, professionalIds: [command.presented.terms.professionalId] })
+      if (sandboxBooking && !await verifySimulatorBookingScope(tx, businessId, userId, true)) throw new SimulatorBookingScopeError()
       const conversation = await tx.conversation.upsert({
         where: key, update: {}, create: { businessId, phone }
       })
@@ -76,18 +86,27 @@ async function processPreviewTurn(
         select: { supportBotKey: true, supportBotState: true } })
       verifyOwner(current)
       if (!sameSnapshot(snapshot, current)) return { conflict: true as const }
+      const bookingResponse = command ? { state: prepared.state, reply: prepared.reply, proposal: null, bookingCommand: command } : null
+      const bookingResult = bookingResponse ? await executePrismaSandboxBooking(tx, { businessId, userId, conversationId: conversation.id, expectedPhone: phone, response: bookingResponse }) : null
+      // A verified existing receipt is not a new effect: preserve the answer to address/hours queries.
+      const finalized = bookingResponse && bookingResult && (prepared.bookingCommand || bookingResult.kind !== 'COMMITTED') ? finalizeSandboxBooking(bookingResponse, bookingResult) : null
+      const state = finalized ? parseDialogueState(finalized.state, businessId, command!.presented.terms.timezone) : prepared.state
+      const reply = finalized?.reply ?? prepared.reply
       await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'INBOUND', body: message,
         status: 'conversational_preview', metadata: { provider: 'conversational_preview' } } })
-      await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: prepared.reply,
+      await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: reply,
         status: 'conversational_preview', metadata: { provider: 'conversational_preview', interpretation: prepared.interpretation } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: {
-        supportBotKey: PREVIEW_OWNER, supportBotState: prepared.state as unknown as Prisma.InputJsonValue
+        supportBotKey: PREVIEW_OWNER, supportBotState: state as unknown as Prisma.InputJsonValue
       } })
-      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted) }
+      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted), state, reply }
     }, { timeout: 10_000, maxWait: 3_000 })
     if (committed.conflict) continue
     const done = performance.now()
-    return { ...prepared, timings: { ...prepared.timings,
+    const { bookingCommand: _command, ...publicPrepared } = prepared
+    const receipt = committed.state.sandboxReservation?.receipt
+    return { ...publicPrepared, state: committed.state, reply: committed.reply, proposalReady: receipt ? false : prepared.proposalReady,
+      ...(sandboxBooking ? { bookingConfirmed: Boolean(receipt), bookingReceipt: receipt ? { appointmentId: receipt.appointmentId } : null } : {}), timings: { ...prepared.timings,
       loadMs: rounded(loadedAt - loadingAt),
       persistMs: rounded(done - committingAt),
       lockMs: committed.lockMs,
@@ -95,4 +114,8 @@ async function processPreviewTurn(
     } }
   }
   throw new Error('preview state changed too frequently; retry this message')
+}
+
+export class SimulatorBookingScopeError extends Error {
+  constructor() { super('simulator booking scope rejected'); this.name = 'SimulatorBookingScopeError' }
 }
