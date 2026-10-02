@@ -130,7 +130,7 @@ export function contextualizeIdentity(plan: TurnPlan, state: DialogueState, mess
 }
 /** Deterministic fallback only: a mixed sentence cannot become a full customer name. */
 export function fallbackIdentity(message: string, state: DialogueState, services: readonly DialogueService[]): string | null {
-  const match = /\b(?:soy|me llamo|mi nombre es)\s+([\p{L}][\p{L} '\-]{1,98}?)(?=\s+(?:quiero|turno|hoy|mañana|manana|con)\b|$)/iu.exec(message)
+  const match = /\b(?:soy|me llamo|mi nombre es)\s+([\p{L}][\p{L} '\-]{1,98}?)(?=\s+(?:quiero|turno|hoy|mañana|manana|con)\b|[,;.]|$)/iu.exec(message)
   const candidate = (match?.[1] ?? (state.pending === 'name' ? message.trim() : '')).trim()
   if (!candidate || !/^[\p{L}][\p{L} '\-]*$/u.test(candidate)) return null
   const terms = normalizeAnswer(candidate).split(' ')

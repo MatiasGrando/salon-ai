@@ -1,3 +1,4 @@
+import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, type TimePreference } from './time-preference.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
 import { BASKET_LIMITS, type BasketMutation } from './service-basket.js'
@@ -14,6 +15,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'professional'; mode: 'any' | 'clear' }
   | { kind: 'date'; expression: string; value?: string }
   | { kind: 'time'; value: string }
+  | { kind: 'time_preference'; preference: TimePreference }
   | { kind: 'name'; value: string }
   | { kind: 'information'; target: InformationTarget }
   | { kind: 'unsupported_action'; action: UnsupportedTurnAction }
@@ -45,6 +47,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
     operationSchema('time', { value: { type: 'string', pattern: '^(?:[01]\\d|2[0-3]):[0-5]\\d$' } }),
+    operationSchema('time_preference', { preference: TIME_PREFERENCE_JSON_SCHEMA }),
     operationSchema('name', { value: stringSchema(100) }),
     operationSchema('information', { target: { anyOf: [
       objectSchema({ kind: { type: 'string', enum: ['business'] }, actions: { type: 'array', items: { type: 'string', enum: informationActions }, minItems: 1, maxItems: informationActions.length } }),
@@ -123,6 +126,12 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     } else if (raw.kind === 'time') {
       exactKeys(raw, [...common, 'value'])
       if (typeof raw.value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw.value)) fail('time')
+      const temporal = classifyTemporalRequest(message, true) ?? classifyTemporalRequest(raw.evidence, true)
+      if (temporal && temporal.kind !== 'exact') fail('preference is not exact time')
+    } else if (raw.kind === 'time_preference') {
+      exactKeys(raw, [...common, 'preference'])
+      parseTimePreference(raw.preference)
+      identity = 'time'
     } else if (raw.kind === 'name') {
       exactKeys(raw, [...common, 'value'])
       if (!bounded(raw.value, 100) || !/^[\p{L}][\p{L} '\-]*$/u.test(raw.value) || !contains(raw.evidence, raw.value)) fail('name')

@@ -1,3 +1,4 @@
+import { parseTimePreference, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
 import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, matchPresentedServiceAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
 import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
@@ -32,7 +33,7 @@ export type DialogueState = {
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
   /** Unverified name until uniquely matched against the selected service's compatible professionals. */
   professionalNameHint: string | null
-  requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
+  timePreference?: TimePreference; requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
   /** Bounded evidence of the last asked field; options are never a permission or availability cache. */
@@ -53,7 +54,7 @@ export type DialogueResponse = { state: DialogueState; reply: string; proposal: 
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan }
 export function hasActiveBooking(state: DialogueState): boolean {
-  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.slot || state.customerName || state.dialogueContext?.lastQuestion || state.pending !== 'service')
+  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.customerName || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
 /** Resume context without presenting an old availability result as freshly checked. */
 export function socialQuestion(state: DialogueState): string {
@@ -77,6 +78,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
+  if (s.timePreference !== undefined) { parseTimePreference(s.timePreference); if (s.requestedTime !== null || s.slot !== null) throw new Error('preference cannot select a slot') }
   if (s.professional !== null && (s.professional.kind !== 'any' && (s.professional.kind !== 'specific' || !bounded(s.professional.id, 128)))) throw new Error('invalid professional')
   // Older schemaVersion 1 snapshots have no hint; keep them readable without a SQL migration.
   if (s.professionalNameHint !== undefined && s.professionalNameHint !== null && (!bounded(s.professionalNameHint, 100) || !/^[a-z0-9:/-]+(?: [a-z0-9:/-]+)*$/.test(s.professionalNameHint))) throw new Error('invalid professional hint')
@@ -210,6 +212,22 @@ function extractTime(text: string): string | null {
   const compact = /^(?:el de las |a las )?([01]?\d|2[0-3])([0-5]\d)$/.exec(text)
   if (compact) return `${compact[1]!.padStart(2, '0')}:${compact[2]}`
   return null
+}
+/** Provider fallback may rescue explicit independent data, never infer or replace basket services. */
+export function fallbackIndependentTurnPlan(context: DialogueContext, state: DialogueState, message: string, services: readonly DialogueService[]): TurnPlan {
+  if (message.length > 300 || routeActions(message).information.length || routeActions(message).pendingAction) return { version: 1, operations: [] }
+  const operations: TurnPlan['operations'][number][] = []
+  const identity = fallbackIdentity(message, state, services)
+  if (identity && explicitIdentity(message, identity)) operations.push({ kind: 'name', value: identity, evidence: identity, confidence: 1 })
+  const date = extractDate(normalize(message), context)
+  if (date) operations.push({ kind: 'date', expression: message, value: date, evidence: message, confidence: 1 })
+  const hint = extractProfessionalHint(normalize(message))
+  if (hint) operations.push({ kind: 'professional', mode: 'specific', mention: hint, evidence: message, confidence: 1 })
+  const temporal = fallbackTemporalRequest(message, state.pending === 'time')
+  if (temporal && temporal.kind !== 'ambiguous' && (temporal.kind === 'preference' || state.pending === 'time' || /\ba las?\b/.test(normalize(message)) || identity && explicitIdentity(message, identity))) operations.push(temporal.kind === 'exact'
+    ? { kind: 'time', value: temporal.time, evidence: message, confidence: 1 }
+    : { kind: 'time_preference', preference: temporal.preference, evidence: message, confidence: 1 })
+  return parseTurnPlan({ version: 1, operations }, message, services.map(service => service.id))
 }
 function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
 function dateLabel(date: string, timezone: string): string {
@@ -371,12 +389,25 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
         clearSlot(state)
       }
     }
+    const identity = fallbackIdentity(message, state, services)
+    name = identity && explicitIdentity(message, identity) ? identity : null
+    const bareControl = !name && /\b(hola|buenas|quiero|servicios|servicio|horarios|horario|gracias|no|si|ok|okey|dale|perfecto|confirmar|confirmo|cancelar|cambiar|reset|volver|turno|cualquiera|cualquier|profesional|preferencia|hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|precio|direccion|soy|nombre|llamo)\b/.test(normalize(identity ?? ''))
+    if (identity && (name || state.pending === 'name') && !bareControl && !matches(identity, services).length) { state.customerName = identity; name = identity }
+    const temporal = fallbackTemporalRequest(message, state.pending === 'time')
+    const preserveTemporal = () => {
+      if (!temporal || temporal.kind === 'ambiguous') return
+      state.slot = null; delete state.dialogueContext; delete state.questionContext
+      if (temporal.kind === 'preference') { state.timePreference = temporal.preference; state.requestedTime = null }
+      else { delete state.timePreference; state.requestedTime = temporal.time }
+    }
+    preserveTemporal()
     const catalogQuestion = /(?:que|cuales|mostrame|mostrar).*servicios/.test(text)
     if (decision?.correction) { state.serviceId = null; delete state.basket; service = undefined; state.professional = null; clearSlot(state) }
     const serviceMatch = catalogQuestion || decision ? null : matchNamedItems({ businessId: context.businessId, category: 'service' }, message, services)
     if (serviceMatch?.kind === 'candidates' && (!decision && !hasBasketSelection(state))) {
       const date = extractDate(text, context)
       if (date && date !== state.date) { state.date = date; clearSlot(state) }
+      preserveTemporal()
       return askMatch(serviceMatch, 'service')
     }
     const found = decision ? services.filter(item => decision.candidateIds.includes(item.id) || item.id === decision.serviceId)
@@ -385,6 +416,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (found.length > 1) {
       const earlyDate = extractDate(text, context)
       if (earlyDate && earlyDate !== state.date) { state.date = earlyDate; clearSlot(state) }
+      preserveTemporal()
       state.pending = resolveDialogueRoute(state, [], 'service').pending
       questionOptions = found.map(item => ({ id: item.id, label: item.name }))
       return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`)
@@ -403,12 +435,8 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     }
     if (date && date !== state.date) { state.date = date; clearSlot(state) }
     if (/^(otro dia|probamos otro dia)$/.test(text)) { state.date = null; clearSlot(state) }
-    const time = extractTime(text)
-    if (time) { state.requestedTime = time; state.slot = null }
-    const identity = fallbackIdentity(message, state, services)
-    name = identity && explicitIdentity(message, identity) ? identity : null
-    const bareControl = !name && /\b(hola|buenas|quiero|servicios|servicio|horarios|horario|gracias|no|si|ok|okey|dale|perfecto|confirmar|confirmo|cancelar|cambiar|reset|volver|turno|cualquiera|cualquier|profesional|preferencia|hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|precio|direccion|soy|nombre|llamo)\b/.test(normalize(identity ?? ''))
-    if (identity && (name || state.pending === 'name') && !bareControl && !matches(identity, services).length) { state.customerName = identity; name = identity }
+    preserveTemporal()
+    if (temporal?.kind === 'ambiguous') return finish('No pude confirmar una preferencia horaria única. ¿Qué horario o franja preferís?')
     prefix = catalogQuestion ? `${serviceList(services)}\n` : /^(hola|buenas|como estas|sos linda|salimos)/.test(text) ? 'Hola. Te ayudo con tu turno.\n' : ''
   }
   const clarification = basketQuestion(state, services)
@@ -562,6 +590,14 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!slots.length) { availability = { ...availability!, outcome: 'no_slots' }; state.date = null; clearSlot(state); state.pending = resolveDialogueRoute(state, [], 'date').pending; return finish('No hay horarios disponibles para esa fecha y preferencia. ¿Qué otro día querés consultar?') }
   if (!state.professional) { state.pending = resolveDialogueRoute(state, [], 'professional').pending; questionOptions = professionalOptions; return finish(`${prefix}¿Con qué profesional? ${professionals.map(p => p.name).join(', ')}. También podés elegir cualquier profesional.`) }
   if (state.slot && !slots.some(s => s.startAt === state.slot!.startAt && s.professionalId === state.slot!.professionalId)) state.slot = null
+  if (state.timePreference) {
+    slots = filterTimePreference(slots, state.timePreference)
+    if (!slots.length) {
+      invalidateAvailability(); state.pending = 'time'
+      availability = { ...availability!, outcome: 'no_slots' }
+      return finish('No hay horarios que cumplan esa preferencia. Mantengo el día y el pedido. ¿En qué otro horario te gustaría venir?')
+    }
+  }
   if (state.requestedTime && !state.slot) {
     const selected = slots.filter(s => s.time === state.requestedTime)
     if (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any') state.slot = selected[0]!
@@ -594,8 +630,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   parseTurnPlan(raw, message, services.map(service => service.id))
   const matched = matchingTurn(state, message, raw, context, services)
   const contextual = contextualizeIdentity(matched.plan, state, message)
-  const plan = contextual.plan
-  const clarificationReply = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
+  const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time') && op.confidence < 0.85)
+  const plan = { ...contextual.plan, operations: contextual.plan.operations.filter(op => op.kind !== 'time_preference' && op.kind !== 'time' || op.confidence >= 0.85) }
+  const identityClarification = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
+  const clarificationReply = [identityClarification, tentativeTemporal ? 'No pude confirmar esa elección o preferencia horaria. ¿Qué horario o franja preferís?' : ''].filter(Boolean).join('\n')
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
   const updates = plan.operations.filter(op => !['information', 'unsupported_action'].includes(op.kind))
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
@@ -635,7 +673,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     state.professionalNameHint = mention
   }
   const timeOp = plan.operations.find(op => op.kind === 'time')
-  if (timeOp?.kind === 'time') { state.requestedTime = timeOp.value; state.slot = null }
+  if (timeOp?.kind === 'time') { delete state.timePreference; invalidate(false); state.requestedTime = timeOp.value }
+  const preferenceOp = plan.operations.find(op => op.kind === 'time_preference')
+  if (preferenceOp?.kind === 'time_preference') { invalidate(true); state.timePreference = parseTimePreference(preferenceOp.preference) }
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
 

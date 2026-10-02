@@ -10,7 +10,7 @@ import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
 import { serviceGuidance } from './service-guidance.js'
 import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
-import { parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
+import { fallbackIndependentTurnPlan, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = { id: string; text: string }
 export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer> }
@@ -186,7 +186,7 @@ function assembledReply(raw: unknown, facts: readonly { id: string; text: string
   // Catalog entities may appear only in server-inserted facts, never in free model text.
   if (framing.some(part => typeof part === 'string' && services.some(service => evidenceWords(part).includes(evidenceWords(service.name))))) return null
   // Free style is allowed, but unverified business assertions and actions are never accepted in the frame.
-  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return null
+  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return null
   const text = [value.opening, ...value.factIds.map(id => facts.find(fact => fact.id === id)!.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return text.length > 0 && text.length <= 5000 ? text : null
@@ -298,7 +298,7 @@ export async function respondWithAiInterpreter(
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
-  const decision: DialogueDecision | undefined = safeBasketFallback ? { intent: 'other', serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [] } } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
+  const decision: DialogueDecision | undefined = safeBasketFallback ? { intent: 'other', serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, ...(candidate.informationTarget !== undefined ? { informationTarget: candidate.informationTarget } : {}), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
