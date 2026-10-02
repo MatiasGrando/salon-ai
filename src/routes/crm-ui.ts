@@ -16990,7 +16990,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           </div>
           <label class="demo-preview-mode" id="demo-preview-mode-row" hidden>Motor de prueba
             <select id="demo-preview-mode"><option value="existing">Simulador actual</option><option value="conversational-preview">Bot conversacional nuevo (vista previa)</option></select>
-            <small>Solo QA. Guarda el chat de prueba; no reserva ni env&iacute;a WhatsApp.</small>
+            <small id="demo-preview-notice" aria-live="polite">Simulador actual. Los mensajes quedan en el CRM y no se env&iacute;an por WhatsApp.</small>
           </label>
           <form class="demo-profile-create" id="demo-profile-create-form" hidden>
             <label>Nombre del perfil<input id="demo-profile-name" maxlength="80" placeholder="Ej: Weex Nails" required></label>
@@ -20240,6 +20240,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       demoChatSend: document.getElementById('demo-chat-send'),
       demoPreviewModeRow: document.getElementById('demo-preview-mode-row'),
       demoPreviewMode: document.getElementById('demo-preview-mode'),
+      demoPreviewNotice: document.getElementById('demo-preview-notice'),
       commercialDemoWorkspaceBanner: document.getElementById('commercial-demo-workspace-banner'),
       commercialDemoWorkspaceName: document.getElementById('commercial-demo-workspace-name'),
       commercialDemoWorkspaceAccount: document.getElementById('commercial-demo-workspace-account'),
@@ -22083,6 +22084,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const eligible = state.currentUser?.role === 'SUPER_ADMIN' && profile?.demoType === 'QA_SANDBOX'
       els.demoPreviewModeRow.hidden = !eligible
       els.demoPreviewMode.value = 'existing'
+      updateDemoPreviewNotice()
+    }
+
+    function updateDemoPreviewNotice() {
+      const profile = state.demoProfiles.find((item) => item.id === els.demoProfileSelect.value)
+      const canBookTest = state.currentUser?.role === 'SUPER_ADMIN' && profile?.demoType === 'QA_SANDBOX'
+        && !els.demoPreviewModeRow.hidden && els.demoPreviewMode.value === 'conversational-preview'
+      els.demoPreviewNotice.textContent = canBookTest
+        ? 'Solo QA. Al confirmar explícitamente, se crean turnos de prueba visibles en la agenda de este perfil QA. No se envían mensajes por WhatsApp.'
+        : 'Simulador actual. Los mensajes quedan en el CRM y no se envían por WhatsApp.'
     }
 
     function openDemoSimulator(options = {}) {
@@ -37934,7 +37945,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.demoNewChat?.addEventListener('click', startNewDemoChat)
     els.demoProfileSelect?.addEventListener('change', () => { updateDemoPreviewMode(); startNewDemoChat() })
-    els.demoPreviewMode?.addEventListener('change', startNewDemoChat)
+    els.demoPreviewMode?.addEventListener('change', () => { updateDemoPreviewNotice(); startNewDemoChat() })
     els.demoChatMessages?.addEventListener('click', (event) => {
       const button = event.target.closest('[data-demo-chat-reply-id]')
       if (!button || button.disabled) return
