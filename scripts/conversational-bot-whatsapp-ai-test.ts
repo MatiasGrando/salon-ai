@@ -8,8 +8,8 @@ assert.equal(resolveWhatsAppConversationAi(qaOnly), undefined, 'QA flag cannot e
 assert.equal(resolveWhatsAppConversationAi({ ...qaOnly, CONVERSATIONAL_WHATSAPP_AI_ENABLED: '1' }), undefined)
 const missing = resolveWhatsAppConversationAi({ CONVERSATIONAL_WHATSAPP_AI_ENABLED: 'true' })!
 await assert.rejects(missing.provider({ message: 'hola', state: initialDialogueState('qa'), services: [] }, new AbortController().signal), /configuration unavailable/)
-assert.equal(missing.timeoutMs, 4500)
-for (const [value, expected] of [['0', 1000], ['9000', 5000], ['no', 4500]] as const) {
+assert.equal(missing.timeoutMs, 15000)
+for (const [value, expected] of [['0', 1000], ['9000', 9000], ['60000', 15000], ['no', 15000]] as const) {
   assert.equal(resolveWhatsAppConversationAi({ CONVERSATIONAL_WHATSAPP_AI_ENABLED: 'true', CONVERSATIONAL_WHATSAPP_AI_TIMEOUT_MS: value })!.timeoutMs, expected)
 }
 const bodies: Record<string, unknown>[] = []

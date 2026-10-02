@@ -1,6 +1,7 @@
 import { createOpenAiInterpretationProvider } from './openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from './openai-response-provider.js'
 import type { AiInterpretationProvider } from './ai-interpreter.js'
+import { resolveConversationalAiEnvTimeoutMs } from './ai-timeout.js'
 
 /** Explicit QA flag. Missing credentials remain an observable deterministic fallback. */
 export function resolveQaPreviewAi(
@@ -18,9 +19,7 @@ export function resolveQaPreviewAi(
   return provider
 }
 
-/** Bounded QA-only interpreter deadline; invalid values use the observed-latency default. */
+/** QA and WhatsApp use the same bounded per-call deadline without enabling either channel. */
 export function resolveQaPreviewAiTimeoutMs(env: Record<string, string | undefined>): number {
-  const value = env.CONVERSATIONAL_QA_AI_TIMEOUT_MS
-  if (value === undefined || !/^\d+$/.test(value)) return 4500
-  return Math.min(5000, Math.max(1000, Number(value)))
+  return resolveConversationalAiEnvTimeoutMs(env.CONVERSATIONAL_QA_AI_TIMEOUT_MS)
 }

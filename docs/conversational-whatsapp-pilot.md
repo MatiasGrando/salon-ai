@@ -6,7 +6,7 @@ Reutiliza admisión, inbox, worker, outbox y sender actuales. El proveedor sólo
 
 - `CONVERSATIONAL_WHATSAPP_AI_ENABLED=true`: opt-in específico del canal. La flag QA no lo activa.
 - `CONVERSATIONAL_WHATSAPP_AI_MODEL`: default `gpt-6-luna`; no hereda `OPENAI_MODEL` ni modifica Booking V2.
-- `CONVERSATIONAL_WHATSAPP_AI_TIMEOUT_MS`: default 4500 ms por llamada, rango 1000–5000 ms. Dos llamadas secuenciales pueden sumar hasta dos deadlines más consultas/persistencia; no es una promesa de latencia total.
+- `CONVERSATIONAL_WHATSAPP_AI_TIMEOUT_MS`: default 15000 ms por llamada, rango 1000–15000 ms. Valores inválidos o no enteros usan el default; valores enteros fuera del rango se limitan a sus extremos. El core y QA preview comparten el mismo default y máximo (los callers programáticos conservan el mínimo de 1 ms). Dos llamadas secuenciales pueden sumar hasta dos deadlines más consultas/persistencia; no es una promesa de latencia total.
 - `OPENAI_API_KEY`: clave existente; nunca imprimirla. Sin clave o ante error/timeout/salida inválida se responde con respaldo determinista.
 
 Este cambio local no activa la configuración del perfil ni modifica Railway. Antes de activarlo, autorizar explícitamente el envío de mensajes y catálogo de Barber Demo a `api.openai.com` usando la clave correspondiente y autorizar el despliegue. El usuario configura las variables Railway.

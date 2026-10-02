@@ -1,5 +1,6 @@
 import { localDateKey } from '../bot-options/application/availability-queries.js'
 import { readAiUsage, type AiUsage } from './ai-usage.js'
+import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
@@ -269,7 +270,7 @@ export async function respondWithAiInterpreter(
       if (firstReplyFacts.length > 100 || firstReplyFacts.some(fact => fact.text.length > 1000)) firstReplyFacts = undefined
     }
   }
-  const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 2500, 1), 5000)
+  const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   let raw: unknown

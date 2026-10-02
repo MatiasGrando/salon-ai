@@ -1,5 +1,6 @@
 import { initialDialogueState, parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueState } from './engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider, type InterpretedDialogueResponse } from './ai-interpreter.js'
+import { DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS } from './ai-timeout.js'
 
 /** The preview owns no booking or WhatsApp effects. An AI interpreter runs only when explicitly injected by the QA caller. */
 export type PreviewDependencies = {
@@ -19,7 +20,7 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   const contextAt = performance.now()
   const state = previous === null ? initialDialogueState(businessId) : parseDialogueState(previous, businessId, context.timezone)
   const response = deps.interpretationProvider
-    ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider, { timeoutMs: deps.interpretationTimeoutMs ?? 4500 })
+    ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider, { timeoutMs: deps.interpretationTimeoutMs ?? DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS })
     : await respond(context, state, message, port)
   const computedAt = performance.now()
   await deps.save(phone, message, response.reply, response.state)
