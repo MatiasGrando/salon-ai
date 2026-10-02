@@ -20,6 +20,32 @@
 - [ ] **E2.12e** Entrega estructurada integrada con preview/CRM y contratos existentes; elecciones servidor/scope/versionado, rechazo ajenas/viejas, Maps seguro y texto autosuficiente. Sin activar canal real; no admitir prompts legacy que ejecuten motor equivocado ni fingir CTAURL no soportado. Ruta writer delegado por2+no triviales; RED/GREEN, checks y commit.
 - [ ] **E2.12f** Verificación integrada, sóloCRM3000 identificado/reinicio y guía QA manual; registrar límites/pendientes reales y commits/RDD/mirror. Ruta padre inline operación mecánica tras freeze; commit documental.
 - **Estado actual:** a y d.1 verificadas localmente; resto guía b/c/d/e/f pendiente. Próximo b foco informativo sobre contratos A congelados; preparación readonly completa. No afirmar guía completa ni calidad/reservaQA real validada.
+- **E2.12a commit/RDD/local:** 48bf7f6403cd8ad390aec66b4777172bd4a98190,348 authored/8files (341source/tests+7doc), whitelist/encoding/cacheddiff PASS, sinpush. ASSESS inventario6c5936ec due/slice_budget_reached, STATUS exacto devuelto ejecutado targeta6da9208b3b82c7352315320ee19b55657e1bd428370b4f66cbfcfb57912efd6 workspace/selecciónrequired/exportaciónajena; sinSTART/receipt ni boundaryf032c0favance. Lectura tier incorrecta inicial como risk_tier=null, esquema real fieldrisk identificado, no inferir riesgo bajo/aprobación. Padre confirmó listener4980 y commandline exactonode/tsx/helper antesStopProcess sólo4980; relanzó helperintacto session43287, nuevoPID11640/127.0.0.1:3000, QA_LOCAL_READY y GET/crmHTTP200 observados. Smoke buscó literal 'Turnos de prueba' yno apareció; no se afirma validación visual/aviso por esa búsqueda, testnotice previo PASS. No workers/Barber3312/túnel/Meta/Railway/env ni cambios de catálogo.
+- **QAmanual siguiente:** nueva conversación perfilQA/botconversacional, 'hola soy Matias quería un corte', seleccionarhombre, 'mañana después de las13', elegirprofesional; debe conservarnombre, ofrecer13:00 yposteriores sin seleccionar. Elegirhoraexplícita, revisarpropuesta yconfirmar; sólotrasguardado muestra 'La reserva fue confirmada', día/hora y 'Te esperamos en [direccióncargada]'. Falla/ausencia de dirección no inventa éxito/ubicación. No se creó turnoQAreal por agente ni se midió proveedor/latencia nueva.
+
+### Recuperación de sesión E2.12 parcial — 02/10/2026
+## Goal
+Implementar la guía funcional completa local y añadir confirmación posterior al guardado con dirección real, reutilizando plataforma existente.
+## Instructions
+Límite inferior inclusivo para después13, jamás asignación por preferencia. Usuario agrega confirmaciónconubicación al terminarreserva. Sólo local/offline y CRM3000, no producción/variables/WhatsApp/remotos; tono/editor parafinal. Mantener código modular y no reglas por comercio; preservarajenos.
+## Discoveries
+- El contrato anterior sólo representaba hora exacta; clasificación de preferencia y autorización para mutar no son la misma cosa.
+- Fallback ambiguo retornaba antes de identidad; evidencia de código no prueba qué ocurrió en payload histórico.
+- Confirmación tiene autoridad en receiptCOMMITTED atómico y dirección físicaBusiness ya disponible en SELECTscope; no usar zona sola ni otro roundtrip.
+- Foco informativo y firstReplyFacts aún deben compartir resultado estructurado para evitar convertir precios en reservas o faltantes en presupuesto. RendererWA y finalización aún no admiten choicesconversacionales, no fingir botones.
+## Accomplished
+- E2.12a48bf7f6 preferenciastipadas/filtrado/identidad/umbrales y compatibilidad, con RED/GREEN y guardas interrogativas/copia/consentimiento.
+- E2.12d.1334bad6 receipt éxito con dirección snapshotopcional, replayestable, testsPGlite/legacy/ausencia/rollback16KB/no-contact.
+- Padre11suites integración+strong7 y confirmación/no-contact/strongpure2/UTF8/diff PASS. CRM11640/session43287 READY/HTTP200. No llamadas reales ni bookingsautomáticos.
+## Next Steps
+- E2.12b informativo (mappingqa_provider_fallback_diagnosis listo), c jornadas/profesionales/hechos/caché, d resto presentación y e DTO/CRM/canal con scope correcto, f integraciónfinal. Guía completa NO finalizada.
+- QAmanualreal/visual y contenciónmulti-conexión pendientes; strongadapter falla10depósitosheredados, generaltypes OOM previo no repetido. NativeRDDscopeworkspaceajeno sinreceipt; mirrorfull odd/nuevo-bot-reservas/tasks/session_summary Engram pendientes porque mem_* noexpuestos, no afirmar guardado remoto.
+## Relevant Files
+- src/conversational-bot/time-preference.ts, turn-plan.ts, engine.ts, dialogue-context.ts, ai-interpreter.ts, openai-interpretation-provider.ts — preferencias/identidad/validación.
+- src/conversational-bot/sandbox-booking.ts, prisma-sandbox-booking.ts — recibo confirmado y dirección TX existente.
+- scripts/conversational-bot-time-preference-test.ts, conversational-bot-sandbox-booking-test.ts, conversational-bot-sandbox-adapter-test.ts — regresionesoffline.
+- odd/tasks/nuevo-bot-reservas.md — recuperación; tmp/qa-local-server.ts launcherintacto; guidecompleta enDownloads sóloleída.
+
 ### E2.11 — Lectura final IA y respaldo contextual de opciones (02/10/2026, autorizado)
 - **Objetivo/autorización:** usuario pide solucionar shape y selección de alternativas tras fallo IA; local/offline, pruebas y actualización sólo CRM3000. No producción/Railway/push/WhatsApp, nuevos modelos/timeouts/dependencias/env/schema ni llamadas reales a DB/OpenAI. Usuario define después contenido estándar de respuestas; personalidad/tono/editor separados y diferidos.
 - **Evidencia/exploración:** mapping readonly delegado qa_provider_fallback_diagnosis: ai-interpreter safeBasketFallback envía plan vacío y engine excluye cesta del reconocimiento exacto. Traza real timeout15021.5ms (total16040.7) sin interpretación; shape4502.8ms HTTP200/completed con2message items rechazados message_ambiguous antes validación. Estado conserva nombre/fecha/cesta2/alternativa1. Payload/fases históricos no guardados: no asumir comentario+final ni falta de comprensión o arranque incompleto. Biblioteca/entrenamiento no causa este fallo de integración.
