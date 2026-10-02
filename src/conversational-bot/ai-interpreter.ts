@@ -332,7 +332,7 @@ export async function respondWithAiInterpreter(
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? (simpleGreeting ? 'Hola, ¿qué servicio necesitás?' : '¿Qué servicio necesitás?') : response.reply
-  const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
+  const canonicalOnly = response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let aiCalls = 1

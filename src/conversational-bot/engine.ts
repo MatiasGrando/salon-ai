@@ -1,3 +1,4 @@
+import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
 import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
 import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
 import { resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPolicy } from '../bot-options/domain/service-booking.js'
@@ -10,7 +11,7 @@ import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
 export type DialogueService = { id: string; name: string; aliases?: readonly string[]; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
-export type DialogueContext = { businessId: string; timezone: string; dbNow: Date }
+export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
@@ -36,6 +37,8 @@ export type DialogueState = {
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
   /** Bounded evidence of the last asked field; options are never a permission or availability cache. */
   questionContext?: DialogueQuestionContext
+  /** Server-owned QA presentation/receipt; never a production booking capability. */
+  sandboxReservation?: SandboxReservation
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
 /** Ephemeral result of this turn only: never persisted as availability or customer state. */
@@ -46,7 +49,7 @@ export type AvailabilityDiagnostic = {
   /** Only present when an availability query actually ran. */
   scope?: 'all_compatible' | 'preferred'
 }
-export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic }
+export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan }
 export function hasActiveBooking(state: DialogueState): boolean {
@@ -100,6 +103,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
       offer.businessId !== businessId || offer.serviceId !== s.serviceId || (basketServiceIds(s).length > 1 && !offer.serviceIds) || !validCalendarDate(offer.date) || offer.date !== s.date ||
       !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
+  if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
   if (s.slot && timezone) {
     const instant = new Date(s.slot.startAt)
@@ -639,7 +643,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
 }
 
 /** Route current-message reads before booking extraction; reads never publish a proposal. */
-export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
+async function respondCore(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan)
@@ -685,4 +689,56 @@ export async function respond(context: DialogueContext, previous: unknown, messa
     return { ...next, proposal: JSON.stringify(bookingFields(next.state)) === JSON.stringify(bookingFields(state)) ? null : next.proposal, reply: answer + '\n' + next.reply }
   }
   return delivered(answer + (hasActiveBooking(state) ? '\n' + pendingQuestion(state) : ''))
+}
+
+/** Trusted sandbox capability changes only proposal delivery; effects remain an adapter responsibility. */
+export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
+  if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
+  const state = parseDialogueState(previous, context.businessId, context.timezone)
+  const reservation = state.sandboxReservation
+  if (context.sandboxBooking !== true) {
+    delete state.sandboxReservation
+    if (state.questionContext?.role === 'confirmation') delete state.questionContext
+    return respondCore(context, state, message, port, decision)
+  }
+  const plan = decision?.turnPlan ? parseTurnPlan(decision.turnPlan, message) : null
+  const onlyInformation = !!plan?.operations.length && plan.operations.every(operation => operation.kind === 'information')
+  const lexical = routeActions(message)
+  const information = onlyInformation || !plan && lexical.information.length > 0 && !lexical.bookingMessage && !lexical.pendingAction
+  if (reservation?.receipt && !information) {
+    const modifying = !!plan?.operations.some(operation => operation.kind !== 'confirm_proposal') || !/^(si|confirmo|confirmar|quiero reservar|reservar|ok|okey|dale|gracias)$/.test(normalize(message))
+    return { state, proposal: null, reply: sandboxReceiptReply(reservation) + (modifying ? '\nModificar o cancelar un turno ya reservado todavía no está disponible en este motor.' : '') }
+  }
+  const consentVeto = /[?¿]/.test(message) || /\b(no|pero|mejor|antes|depende|quizas|tal vez)\b/.test(normalize(message))
+  const semanticConfirmation = !consentVeto && plan?.operations.length === 1 && plan.operations[0]?.kind === 'confirm_proposal' && plan.operations[0].confidence >= 0.85 && normalize(plan.operations[0].evidence) === normalize(message)
+  const fallbackConfirmation = !consentVeto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention &&
+    /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalize(message))
+  if (reservation && !reservation.receipt && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
+    return { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.', bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }
+  }
+  // A semantic confirmation cannot manufacture a proposal or authorize effects before it was shown.
+  const nextDecision = plan?.operations.some(operation => operation.kind === 'confirm_proposal')
+    ? { ...decision!, turnPlan: { ...plan, operations: plan.operations.filter(operation => operation.kind !== 'confirm_proposal') } } : decision
+  delete state.sandboxReservation
+  if (state.questionContext?.role === 'confirmation') delete state.questionContext
+  let catalog: DialogueService[] = []
+  const observedPort: DialoguePort = { ...port, catalog: async () => { catalog = await port.catalog(); return catalog } }
+  const response = await respondCore(context, state, message, observedPort, nextDecision)
+  if (reservation?.receipt) {
+    response.state.sandboxReservation = structuredClone(reservation)
+    response.reply = response.reply.replace(SANDBOX_CONFIRMATION_QUESTION, '').replace('La propuesta sigue pendiente; todavía no está reservado.', '').trim() + '\n' + sandboxReceiptReply(reservation)
+    delete response.state.questionContext
+    if (response.state.dialogueContext) response.state.dialogueContext.lastQuestion = null
+    return response
+  }
+  if (response.proposal) {
+    response.reply = presentSandboxProposal(context, response.state, catalog, response.proposal, reservation)
+    response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
+    rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
+  } else if (reservation && sandboxProposalMatchesState(reservation.presented, response.state)) {
+    response.state.sandboxReservation = structuredClone(reservation)
+    response.reply = response.reply.replace('La propuesta sigue pendiente; todavía no está reservado.', SANDBOX_CONFIRMATION_QUESTION)
+    rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
+  }
+  return response
 }

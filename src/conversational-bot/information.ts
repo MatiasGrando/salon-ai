@@ -72,6 +72,7 @@ export function renderInformation(actions: readonly InformationAction[], message
   return replies.join('\n')
 }
 export function pendingQuestion(state: DialogueState): string {
+  if (state.pending === 'proposal' && state.sandboxReservation && !state.sandboxReservation.receipt) return '¿Confirmás este turno de prueba?'
   if (state.pending === 'service' && state.basket?.members.some(member => member.mode !== 'single')) return '¿Cuál de las opciones del servicio pendiente querés?'
   if (state.pending === 'service' && basketIsResolved(state)) return '¿Querés cambiar o quitar algún servicio del pedido, o consultarlo con el equipo?'
   if (state.pending === 'time' && !state.dialogueContext?.presentedOffer) return '¿Querés que consultemos los horarios para tu turno?'

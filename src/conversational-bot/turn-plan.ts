@@ -7,6 +7,7 @@ type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
   | BasketMutation
+  | { kind: 'confirm_proposal' }
   | { kind: 'estimate'; serviceId: string; optionId: string | null }
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
@@ -38,6 +39,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
       targetMemberIds: { type: 'array', items: stringSchema(32), maxItems: BASKET_LIMITS.members },
       members: { type: 'array', maxItems: BASKET_LIMITS.members, items: objectSchema({ mode: { type: 'string', enum: ['single', 'alternatives', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), maxItems: BASKET_LIMITS.candidates }, ...evidenceSchema }) }
     }),
+    operationSchema('confirm_proposal', {}),
     operationSchema('estimate', { serviceId: stringSchema(128), optionId: { type: ['string','null'], minLength: 1, maxLength: 128 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
@@ -131,6 +133,8 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       const actions = raw.target.actions
       if (!Array.isArray(actions) || new Set(actions).size !== actions.length || (raw.target.kind === 'business' ? !actions.length || actions.some(action => !informationActions.includes(action)) : raw.target.kind !== 'presented_offer' || actions.length !== 0)) fail('information actions')
       identity += ':' + String(raw.target.kind)
+    } else if (raw.kind === 'confirm_proposal') {
+      exactKeys(raw, common)
     } else if (raw.kind === 'unsupported_action') {
       exactKeys(raw, [...common, 'action'])
       if (!pendingActions.includes(raw.action as UnsupportedTurnAction) || ACTION_REGISTRY[raw.action as UnsupportedTurnAction].status !== 'pending') fail('unsupported action')
