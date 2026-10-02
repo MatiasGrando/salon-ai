@@ -1,3 +1,4 @@
+import { expectedDialogueAnswer } from './dialogue-context.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
@@ -11,7 +12,7 @@ import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts }
 import { parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = { id: string; text: string }
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean }
+export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer> }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[] }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -280,7 +281,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services, businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
+      provider({ message, state, services, expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch (error) {
