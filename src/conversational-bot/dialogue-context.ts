@@ -12,6 +12,7 @@ export type DialogueQuestionOption = { id: string; label: string }
 export type DialogueQuestionContext = {
   businessId: string; field: DialogueField; role: AnswerRole; question: string
   scope: string; options: DialogueQuestionOption[]; complete: boolean; targetServiceId: string | null
+  matchCandidateIds?: string[]; matchConfigurationKey?: string; matchTargetMemberId?: string
 }
 type RouteFacts = { service: boolean; estimate: boolean; date: boolean; professional: boolean; time: boolean; name: boolean; required: DialogueField | null }
 const questions = {
@@ -62,19 +63,21 @@ export function dialogueQuestion(field: DialogueField): string {
 const scopeOf = (state: DialogueState) => JSON.stringify({ basket: selectionBasket(state).members.map(member => [member.memberId, member.mode, member.serviceIds]), date: state.date, professional: state.professional })
 const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f]/.test(value)
 /** Options describe the last question, not permission or a live availability cache. */
-export function rememberDialogueQuestion(state: DialogueState, question: string, options: readonly DialogueQuestionOption[] = [], targetServiceId: string | null = null): void {
+export function rememberDialogueQuestion(state: DialogueState, question: string, options: readonly DialogueQuestionOption[] = [], targetServiceId: string | null = null, matching: { candidateIds: readonly string[]; configurationKey?: string; targetMemberId?: string } | null = null): void {
   if (!validText(question, 240)) { delete state.questionContext; return }
   const route = resolveDialogueRoute(state, [], state.pending)
   let context: DialogueQuestionContext = { businessId: state.businessId, field: state.pending, role: route.role, question,
-    scope: scopeOf(state), options: options.map(option => ({ ...option })), complete: true, targetServiceId }
+    scope: scopeOf(state), options: options.map(option => ({ ...option })), complete: true, targetServiceId,
+    ...(matching ? { matchCandidateIds: [...matching.candidateIds], ...(matching.configurationKey ? { matchConfigurationKey: matching.configurationKey } : {}), ...(matching.targetMemberId ? { matchTargetMemberId: matching.targetMemberId } : {}) } : {}) }
   if (options.length > 50 || options.some(option => !validText(option.id, 128) || !validText(option.label, 200)) || new Set(options.map(option => option.id)).size !== options.length || JSON.stringify(context).length > 4096) context = { ...context, options: [], complete: false }
+  if (!context.complete) { delete context.matchCandidateIds; delete context.matchConfigurationKey; delete context.matchTargetMemberId }
   delete state.questionContext
   if (JSON.stringify(context).length <= 4096 && JSON.stringify({ ...state, questionContext: context }).length <= 16384) state.questionContext = context
 }
 export function parseDialogueQuestion(value: unknown, state: DialogueState): DialogueQuestionContext | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid question context')
   const item = value as DialogueQuestionContext
-  if (Object.keys(item).sort().join(',') !== 'businessId,complete,field,options,question,role,scope,targetServiceId' ||
+  if (Object.keys(item).filter(key => !['matchCandidateIds','matchConfigurationKey','matchTargetMemberId'].includes(key)).sort().join(',') !== 'businessId,complete,field,options,question,role,scope,targetServiceId' ||
       JSON.stringify(item).length > 4096 || item.businessId !== state.businessId || !fields.includes(item.field) ||
       item.role !== questions[item.field].role || !validText(item.question, 240) || !validText(item.scope, 4096) ||
       typeof item.complete !== 'boolean' || !Array.isArray(item.options) || item.options.length > 50 ||
@@ -82,12 +85,18 @@ export function parseDialogueQuestion(value: unknown, state: DialogueState): Dia
       item.options.some(option => !option || Object.keys(option).sort().join(',') !== 'id,label' || !validText(option.id, 128) || !validText(option.label, 200)) ||
       item.targetServiceId !== null && !validText(item.targetServiceId, 128) ||
       item.field !== 'estimate' && item.targetServiceId !== null) throw new Error('invalid question context')
+  if (item.matchCandidateIds !== undefined && (!item.complete || !['service','professional','estimate'].includes(item.field) || !Array.isArray(item.matchCandidateIds) || item.matchCandidateIds.length < 1 || item.matchCandidateIds.length > 10 ||
+      new Set(item.matchCandidateIds).size !== item.matchCandidateIds.length || item.matchCandidateIds.some(id => !validText(id, 128) || !item.options.some(option => option.id === id))) ||
+      item.matchConfigurationKey !== undefined && (item.field !== 'estimate' || !item.matchCandidateIds || !validText(item.matchConfigurationKey, 6000)) ||
+      item.matchTargetMemberId !== undefined && (item.field !== 'service' || !item.matchCandidateIds || !/^m[1-9][0-9]*$/.test(item.matchTargetMemberId))) throw new Error('invalid matching question')
   if (item.field !== state.pending || item.scope !== scopeOf(state)) return null
+  if (item.matchTargetMemberId && !selectionBasket(state).members.some(member => member.memberId === item.matchTargetMemberId)) throw new Error('invalid matching member')
   if (item.targetServiceId !== null && !selectionBasket(state).members.some(member => member.mode === 'single' && member.serviceIds.includes(item.targetServiceId!))) throw new Error('invalid question target')
   return structuredClone(item)
 }
 export function expectedDialogueAnswer(state: DialogueState) {
-  return state.questionContext ?? { field: state.pending, role: questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
+  if (state.questionContext) { const { matchConfigurationKey: _configuration, ...answer } = state.questionContext; return answer }
+  return { field: state.pending, role: questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
 }
 export const normalizeAnswer = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 export function explicitIdentity(message: string, value: string): boolean {

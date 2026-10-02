@@ -1,4 +1,5 @@
-import { expectedDialogueAnswer } from './dialogue-context.js'
+import { matchNamedItems } from './contextual-matching.js'
+import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
@@ -155,27 +156,9 @@ function groundedBasketMember(member: BasketMemberProposal, services: readonly D
 }
 /** A unique near-match may only produce a question; it is never a service selection. */
 function suggestedService(evidence: string, services: readonly DialogueService[]): DialogueService | null {
-  const tokens = (value: string) => evidenceWords(value).trim().split(' ').filter(word => word && !['quiero', 'un', 'una', 'de', 'del', 'el', 'la', 'para', 'turno', 'servicio'].includes(word))
-  const input = tokens(evidence)
-  if (!input.length) return null
-  const distance = (left: string, right: string) => {
-    let row = [...Array(right.length + 1).keys()]
-    for (let i = 1; i <= left.length; i++) {
-      const next = [i]
-      for (let j = 1; j <= right.length; j++) next[j] = Math.min(next[j - 1]! + 1, row[j]! + 1, row[j - 1]! + (left[i - 1] === right[j - 1] ? 0 : 1))
-      row = next
-    }
-    return row[right.length]!
-  }
-  const candidates = services.filter(service => {
-    const name = tokens(service.name)
-    return name.length === input.length && name.some((word, index) => word !== input[index]) &&
-      name.every((word, index) => distance(word, input[index]!) <= 2) &&
-      name.reduce((sum, word, index) => sum + distance(word, input[index]!), 0) <= 2
-  })
-  return candidates.length === 1 ? candidates[0]! : null
+  const result = matchNamedItems({ businessId: 'retrieval', category: 'service' }, evidence, services)
+  return result.kind === 'candidates' && result.items.length === 1 ? services.find(service => service.id === result.items[0]!.id) ?? null : null
 }
-
 function responseFacts(reply: string, state: DialogueState, intent: Candidate['intent'] | null, message: string): { id: string; text: string }[] {
   if (intent === 'other' && state.pending === 'service' && !state.serviceId &&
       reply === '¿En qué te puedo ayudar con el local?') return []
@@ -323,13 +306,21 @@ export async function respondWithAiInterpreter(
   } : undefined
   const engineStarted = performance.now()
   let response = await respond(context, state, message, cachedPort, decision)
-  if (uncertain && selected) response = { ...response, proposal: null,
-    reply: '¿Te referís a ' + selected.name + '? Confirmame cuál servicio querés.' }
+  if (uncertain && selected) {
+    const question = '¿Te referís a ' + selected.name + '?'
+    response.state.pending = 'service'; response.state.slot = null
+    rememberDialogueQuestion(response.state, question, [{ id: selected.id, label: selected.name }], null, { candidateIds: [selected.id] })
+    response = { ...response, proposal: null, reply: question + ' Confirmame cuál servicio querés.' }
+  }
   const typoService = safeBasketFallback || turnPlan || candidate?.serviceId || candidates.length ? null :
     candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
     !candidate ? suggestedService(message, services) : null
-  if (typoService && !response.state.serviceId) response = { ...response, proposal: null,
-    reply: '¿Te referís a ' + typoService.name + '? Confirmame cuál servicio querés.' }
+  if (typoService && !response.state.serviceId) {
+    const question = '¿Te referís a ' + typoService.name + '?'
+    response.state.pending = 'service'; response.state.slot = null
+    rememberDialogueQuestion(response.state, question, [{ id: typoService.id, label: typoService.name }], null, { candidateIds: [typoService.id] })
+    response = { ...response, proposal: null, reply: question + ' Confirmame cuál servicio querés.' }
+  }
   const engineAt = performance.now()
   const simpleGreeting = /^(?:hola|buenas|buen dia|buenas tardes|buenas noches)(?:\b|$)/.test(normalized(message))
   const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&
@@ -341,7 +332,7 @@ export async function respondWithAiInterpreter(
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? (simpleGreeting ? 'Hola, ¿qué servicio necesitás?' : '¿Qué servicio necesitás?') : response.reply
-  const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain
+  const canonicalOnly = response.proposal !== null || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let aiCalls = 1
