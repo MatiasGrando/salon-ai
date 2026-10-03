@@ -1,3 +1,4 @@
+import { PreviewChoiceError } from '../conversational-bot/preview-choice.js'
 import type { FastifyInstance } from 'fastify'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
@@ -180,11 +181,13 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       return reply.status(403).send({ message: 'No tenes permiso para usar perfiles demo' })
     }
     const params = request.params as { id: string }
+    if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) return reply.status(400).send({ message: 'Datos de conversación no válidos' })
     const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string; mode?: string }
-    const message = body.message?.trim()
+    if (body.message !== undefined && typeof body.message !== 'string' || body.interactiveReplyId !== undefined && typeof body.interactiveReplyId !== 'string') return reply.status(400).send({ message: 'Mensaje u opción no válidos' })
+    const message = body.message?.trim() || ''
     const sessionId = cleanSessionId(body.sessionId)
     const interactiveReplyId = body.interactiveReplyId?.trim() || undefined
-    if (!message || !sessionId) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
+    if (!sessionId || !message && !(body.mode === 'conversational-preview' && interactiveReplyId)) return reply.status(400).send({ message: 'Falta el mensaje o la sesion demo' })
     const business = await findAccessibleDemo(user, params.id)
     if (!business) return reply.status(404).send({ message: 'No encontre ese perfil demo' })
     if (body.mode && body.mode !== 'conversational-preview' && body.mode !== 'existing') return reply.status(400).send({ message: 'Modo de prueba no valido' })
@@ -193,12 +196,14 @@ export async function demoProfileRoutes(app: FastifyInstance) {
         return reply.status(403).send({ message: 'La vista previa conversacional solo esta disponible en QA' })
       }
       try {
-        return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true })
+        return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true }, interactiveReplyId)
       } catch (error) {
+        if (error instanceof PreviewChoiceError) return reply.status(409).send({ message: error.message })
         if (error instanceof SimulatorBookingScopeError) return reply.status(403).send({ message: 'Las reservas de prueba sólo están habilitadas para superadministradores en perfiles QA.' })
         throw error
       }
     }
+    if (interactiveReplyId?.startsWith('c1.')) return reply.status(400).send({ message: 'Esta opción pertenece al bot conversacional.' })
     const phone = `demo:${user.id}:${sessionId}`
     const deterministicDemo = await prisma.businessBotConfiguration.findFirst({
       where: {

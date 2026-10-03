@@ -1,5 +1,6 @@
+import type { ConversationChoiceOperation } from './choices.js'
 import { summarizeAvailability } from './ai-diagnostics.js'
-import { initialDialogueState, parseDialogueState, respond, type DialogueContext, type DialoguePort, type DialogueState } from './engine.js'
+import { initialDialogueState, parseDialogueState, respond, respondConversationChoice, type DialogueContext, type DialoguePort, type DialogueState } from './engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import { DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS } from './ai-timeout.js'
 
@@ -10,6 +11,7 @@ export type PreviewDependencies = {
   createPort(businessId: string): Promise<{ context: DialogueContext; port: DialoguePort }>
   interpretationProvider?: AiInterpretationProvider
   interpretationTimeoutMs?: number
+  choiceOperation?: ConversationChoiceOperation
 }
 
 export async function runConversationalPreview(deps: PreviewDependencies, businessId: string, phone: string, message: string) {
@@ -20,7 +22,9 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   if (context.businessId !== businessId) throw new Error('preview tenant mismatch')
   const contextAt = performance.now()
   const state = previous === null ? initialDialogueState(businessId) : parseDialogueState(previous, businessId, context.timezone)
-  const response = deps.interpretationProvider
+  const response = deps.choiceOperation
+    ? await respondConversationChoice(context, state, deps.choiceOperation, port)
+    : deps.interpretationProvider
     ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider, { timeoutMs: deps.interpretationTimeoutMs ?? DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS })
     : await respond(context, state, message, port)
   const computedAt = performance.now()
@@ -30,10 +34,11 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   const availability = summarizeAvailability(response.availability)
   return {
     reply: response.reply,
+    ...(response.choicePresentation ? { choicePresentation: response.choicePresentation } : {}),
     state: response.state,
     ...(response.bookingCommand ? { bookingCommand: response.bookingCommand } : {}),
     proposalReady: response.proposal !== null,
-    interpretation: deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
+    interpretation: deps.choiceOperation ? { mode: 'deterministic', reason: 'server_choice', aiCalls: 0, providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) } : deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
     timings: {
       loadMs: ms(loadedAt - started),
       contextMs: ms(contextAt - loadedAt),

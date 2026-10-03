@@ -12339,6 +12339,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .demo-chat-interactive-list-option {
+      overflow-wrap: anywhere;
+      white-space: normal;
+      min-width: 0;
       display: block;
       width: 100%;
       padding: 11px 12px;
@@ -22237,9 +22240,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const isDateSelectionList = replyButtons.length > 3 && replyButtons.every((button) =>
           /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
         )
-        const interactiveList = replyButtons.length > 3
-          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>' + (isDateSelectionList ? 'Ver d&iacute;as disponibles' : 'Ver opciones de horario') + '</summary>' +
-            '<div class="demo-chat-interactive-list-title">' + (isDateSelectionList ? 'Eleg&iacute; una fecha' : 'Eleg&iacute; una opci&oacute;n') + '</div>' +
+        const interactiveList = replyButtons.length && (message.replyMode === 'list' || replyButtons.length > 3)
+          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>' + (message.replyTitle ? escapeHtml(message.replyTitle) : isDateSelectionList ? 'Ver d&iacute;as disponibles' : 'Ver opciones de horario') + '</summary>' +
+            '<div class="demo-chat-interactive-list-title">' + (message.replyTitle ? escapeHtml(message.replyTitle) : isDateSelectionList ? 'Eleg&iacute; una fecha' : 'Eleg&iacute; una opci&oacute;n') + '</div>' +
             replyButtons.map((button) => {
               const disabled = message.replyButtonsDisabled ? ' disabled' : ''
               return '<button class="demo-chat-interactive-list-option" type="button" data-demo-chat-reply-id="' + escapeHtml(button.id) + '" data-demo-chat-reply-title="' + escapeHtml(button.title) + '"' + disabled + '>' + escapeHtml(button.title) + '</button>'
@@ -22255,7 +22258,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '</div>'
           : ''
         const interpretation = message.preview?.interpretacion
-        const modeLabel = interpretation?.mode === 'ai' ? 'IA' : interpretation?.mode === 'fallback' ? 'Respaldo determinista' : 'Determinista (IA apagada)'
+        const modeLabel = interpretation?.reason === 'server_choice' ? 'Selección del cliente verificada' : interpretation?.mode === 'ai' ? 'IA' : interpretation?.mode === 'fallback' ? 'Respaldo determinista' : 'Determinista (IA apagada)'
         const modeLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de interpretaci&oacute;n: ' + escapeHtml(modeLabel) + (interpretation.reason && interpretation.reason !== 'disabled' ? ' (' + escapeHtml(interpretation.reason) + ')' : '') + '</div>' : ''
         const copyLabel = interpretation?.copyMode === 'ai' ? 'IA controlada' : interpretation?.mode === 'ai' ? 'Respaldo del motor' : 'Motor'
         const copyLine = interpretation ? '<div class="demo-chat-diagnostics">Modo de redacci&oacute;n: ' + escapeHtml(copyLabel) + (interpretation.copyReason ? ' (' + escapeHtml(interpretation.copyReason) + ')' : '') + '</div>' : ''
@@ -22315,10 +22318,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             if (state.demoChatPreviewRun !== run) break
             // A later message has already arrived: persist this turn but show only the latest answer.
             if (run.queue.length) continue
+            const presentation = result.presentation
+            const options = Array.isArray(presentation?.choices) && presentation.choices.length <= 10 ? presentation.choices : []
+            const validOptions = options.length && options.every((option) => option && typeof option.id === 'string' && option.id.startsWith('c1.') && option.id.length <= 110 && typeof option.title === 'string' && option.title.length > 0 && option.title.length <= 200)
+            const replyButtons = validOptions ? options.map((option) => ({ id: option.id, title: option.title })) : []
             state.demoChatMessages.push({
               role: 'bot',
               text: result.reply || result.reason || 'El bot no genero una respuesta.',
-              replyButtons: [],
+              replyButtons,
+              replyMode: replyButtons.length ? presentation.mode : null,
+              replyKind: replyButtons.length ? presentation.kind : null,
+              replyTitle: replyButtons.length && typeof presentation.title === 'string' && presentation.title.length <= 240 ? presentation.title : null,
               ...(result.state && result.timings ? { preview: { interpretacion: result.interpretation, estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
             })
             renderDemoChatMessages()

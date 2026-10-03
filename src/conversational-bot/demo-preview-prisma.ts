@@ -1,9 +1,11 @@
+import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope } from './choices.js'
+import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 import { executePrismaSandboxBooking, verifySimulatorBookingScope } from './prisma-sandbox-booking.js'
 import { finalizeSandboxBooking } from './sandbox-booking.js'
-import { parseDialogueState } from './engine.js'
+import { parseDialogueState, ConversationChoiceUnavailableError } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { runConversationalPreview, type PreviewDependencies } from './demo-preview.js'
 import type { AiInterpretationProvider } from './ai-interpreter.js'
@@ -27,7 +29,8 @@ export async function runPrismaDemoPreview(
   createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id),
   interpretationProvider?: AiInterpretationProvider,
   interpretationTimeoutMs?: number,
-  capability?: { sandboxBooking: true }
+  capability?: { sandboxBooking: true },
+  interactiveReplyId?: string
 ) {
   const phone = `demo:preview:${userId}:${sessionId}`
   const started = performance.now()
@@ -38,7 +41,7 @@ export async function runPrismaDemoPreview(
   pendingBySession.set(queueKey, finished)
   await preceding
   try {
-    return await processPreviewTurn(client, businessId, userId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs, capability?.sandboxBooking === true)
+    return await processPreviewTurn(client, businessId, userId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs, capability?.sandboxBooking === true, interactiveReplyId)
   } finally {
     release()
     if (pendingBySession.get(queueKey) === finished) pendingBySession.delete(queueKey)
@@ -49,7 +52,7 @@ export async function runPrismaDemoPreview(
 const pendingBySession = new Map<string, Promise<void>>()
 async function processPreviewTurn(
   client: any, businessId: string, userId: string, phone: string, message: string,
-  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false
+  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false, interactiveReplyId?: string
 ) {
   if (sandboxBooking && !await verifySimulatorBookingScope(client, businessId, userId)) throw new SimulatorBookingScopeError()
   const key = { businessId_phone: { businessId, phone } }
@@ -61,14 +64,23 @@ async function processPreviewTurn(
       supportBotKey: existing.supportBotKey, supportBotState: existing.supportBotState
     }
     verifyOwner(snapshot)
+    const ledger = readPreviewChoiceState(snapshot?.supportBotState ?? null)
+    // Preview uses its own virtual policy version, never pretends to be a WhatsApp deployment.
+    const scope: ChoiceScope = { businessId, conversationKey: phone, policyKey: sandboxBooking ? 'preview-sandbox:v1' : 'preview:v1', policyGeneration: 1, revision: ledger.revision }
+    const selection = interactiveReplyId ? resolvePreviewChoice(snapshot?.supportBotState, scope, interactiveReplyId) : null
+    const inbound = selection?.label ?? message
     const loadedAt = performance.now()
     const prepared = await runConversationalPreview({
-      load: async () => snapshot?.supportBotState ?? null,
+      load: async () => ledger.draft,
       save: async () => {},
       createPort: async id => { const created = await createPort(id); return { ...created, context: { ...created.context, sandboxBooking } } },
+      ...(selection ? { choiceOperation: selection.operation } : {}),
       ...(interpretationProvider ? { interpretationProvider } : {}),
       ...(interpretationTimeoutMs !== undefined ? { interpretationTimeoutMs } : {})
-    }, businessId, phone, message)
+    }, businessId, phone, inbound).catch((error: unknown) => {
+      if (selection && error instanceof ConversationChoiceUnavailableError) throw new PreviewChoiceError()
+      throw error
+    })
     // A failing provider/engine never opens a write transaction or creates an empty QA chat.
     const committingAt = performance.now()
     const committed = await client.$transaction(async (tx: any) => {
@@ -86,26 +98,43 @@ async function processPreviewTurn(
         select: { supportBotKey: true, supportBotState: true } })
       verifyOwner(current)
       if (!sameSnapshot(snapshot, current)) return { conflict: true as const }
+      if (interactiveReplyId) resolvePreviewChoice(current?.supportBotState, scope, interactiveReplyId)
       const bookingResponse = command ? { state: prepared.state, reply: prepared.reply, proposal: null, bookingCommand: command } : null
       const bookingResult = bookingResponse ? await executePrismaSandboxBooking(tx, { businessId, userId, conversationId: conversation.id, expectedPhone: phone, response: bookingResponse }) : null
       // A verified existing receipt is not a new effect: preserve the answer to address/hours queries.
       const finalized = bookingResponse && bookingResult && (prepared.bookingCommand || bookingResult.kind !== 'COMMITTED') ? finalizeSandboxBooking(bookingResponse, bookingResult) : null
       const state = finalized ? parseDialogueState(finalized.state, businessId, command!.presented.terms.timezone) : prepared.state
       const reply = finalized?.reply ?? prepared.reply
-      await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'INBOUND', body: message,
+      const revision = nextPreviewRevision(ledger.revision)
+      let question: ChoiceQuestion | null = null
+      // A finalized booking invalidates its confirmation choices. Oversized delivery degrades
+      // to the already complete text, never truncates options/configuration or publishes a subset.
+      if (!finalized && prepared.choicePresentation?.choices.length) {
+        const choices = prepared.choicePresentation.choices
+        // Presentation limits are a channel concern, not permission to conceal malformed operations.
+        for (const choice of choices) parseConversationChoiceOperation(choice.operation)
+        if (choices.every(choice => choice.label.length <= 200)) {
+          try { question = issueChoiceQuestion({ ...scope, revision }, state, prepared.choicePresentation) }
+          catch (error) {
+            if (!(error instanceof Error) || error.message !== 'invalid conversation choice: question bounds') throw error
+          }
+        }
+      }
+      const presentation = question ? publicChoiceQuestion(question) : null
+      await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'INBOUND', body: inbound,
         status: 'conversational_preview', metadata: { provider: 'conversational_preview' } } })
       await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: reply,
-        status: 'conversational_preview', metadata: { provider: 'conversational_preview', interpretation: prepared.interpretation } } })
+        status: 'conversational_preview', metadata: { provider: 'conversational_preview', interpretation: prepared.interpretation, ...(presentation ? { presentation } : {}) } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: {
-        supportBotKey: PREVIEW_OWNER, supportBotState: state as unknown as Prisma.InputJsonValue
+        supportBotKey: PREVIEW_OWNER, supportBotState: storePreviewChoiceState(state, revision, question) as unknown as Prisma.InputJsonValue
       } })
-      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted), state, reply }
+      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted), state, reply, presentation }
     }, { timeout: 10_000, maxWait: 3_000 })
     if (committed.conflict) continue
     const done = performance.now()
-    const { bookingCommand: _command, ...publicPrepared } = prepared
+    const { bookingCommand: _command, choicePresentation: _choices, ...publicPrepared } = prepared
     const receipt = committed.state.sandboxReservation?.receipt
-    return { ...publicPrepared, state: committed.state, reply: committed.reply, proposalReady: receipt ? false : prepared.proposalReady,
+    return { ...publicPrepared, state: committed.state, reply: committed.reply, presentation: committed.presentation, proposalReady: receipt ? false : prepared.proposalReady,
       ...(sandboxBooking ? { bookingConfirmed: Boolean(receipt), bookingReceipt: receipt ? { appointmentId: receipt.appointmentId } : null } : {}), timings: { ...prepared.timings,
       loadMs: rounded(loadedAt - loadingAt),
       persistMs: rounded(done - committingAt),
