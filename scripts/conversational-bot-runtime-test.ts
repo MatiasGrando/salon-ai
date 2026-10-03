@@ -775,7 +775,7 @@ provider.respond = async input => {
 await aiRuntime.run('PROCESS_INBOX', { provider, timeoutMs: 4500, onDiagnostic: value => diagnostics.push(value) })
 assert.equal(interpretationCalls, 1, 'runtime must call the injected interpreter')
 assert.equal(responseCalls, 1, 'runtime must compose verified facts with AI')
-assert.match(aiRuntime.replies[0]!, /^Dale\./)
+assert.equal(aiRuntime.replies[0], 'Perfecto 😊 ¿Para qué día y horario querés reservar tu Corte?', 'server-owned acknowledgement is delivered once without duplicate AI framing')
 assert.equal((aiRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
 assert.equal(diagnostics.length, 1)
 const measured = diagnostics[0] as Record<string, unknown>

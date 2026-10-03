@@ -27,8 +27,38 @@
   - 22/23: respuesta lateral conserva borrador y retoma dato realmente pendiente; párrafos y sin apertura/pregunta duplicada (dialogue-context/offer-context/single-call/standard-delivery).
   - 24: choices existentes con IDs del servidor, texto independiente del botón y sin fechas imposibles (presentation/verified-date-choices; integración preview/runtime se verifica en C).
   - 25/26/27: intenciones y correcciones existentes, orden libre, cesta/contexto/guías y regresiones citadas conservadas (turn-plan/turn-plan-ai/engine/basket/guided/contextual-matching). No afirmar entrenamiento ni calidad del proveedor real por tests DI.
-- [ ] **E2.13c** Verificación conjunta de27 secciones y regresiones, reconciliar cobertura literal vs funcional, actualizar sólo CRM3000 identificado y entregar prueba manual concreta. Ruta padre inline comprobaciones/docs/reinicio mecánico tras freeze; commit documental. Si una comprobación falla, reabrir tarea afectada; QA humana/LLM real y GUI sin herramienta quedan pendientes explícitos, no afirmar aprobación.
-- **Estado:** documento actualizado antes de primera fuente; A verificada y B/C pendientes, sin entrenamiento ni corpus iniciado. Preservar exportación ajena y todos temporales ajenos. Próximo: writers acotados con propiedad de archivos sin solaparse; no asumir que 60 suites semánticas anteriores demostraron estilo completo.
+- [x] **E2.13c** Verificación conjunta de27 secciones y regresiones, reconciliar cobertura literal vs funcional, actualizar sólo CRM3000 identificado y entregar prueba manual concreta. Ruta padre inline comprobaciones/docs/reinicio mecánico tras freeze; commit documental. Si una comprobación falla, reabrir tarea afectada; QA humana/LLM real y GUI sin herramienta quedan pendientes explícitos, no afirmar aprobación.
+- **E2.13b commit/RDD:** 0281b1e33cd987a312c6e9feeda32bbdd8f3376b, 362 authored/18 archivos (343 fuente/tests +19 documento), whitelist/hashes/cachedcheck/UTF8 PASS. ASSESS canónico inventory611943f0... medium/due/slice_budget_reached,130 paths/rango12203lines; STATUS exacto ejecutado devuelve intended_untracked_selection_required y targetsha256:1f4762b04f14fa781e54a88721aff5d54e374e5f309efefeed7802046ce04ca4. No START, recepción, selección ajena ni boundaryadvance f032c0f. No push/producción. Estimación inicial B327 no era conteo final.
+- **E2.13c verificación conjunta:** padre35 suites integración:34 GREEN iniciales y runtime RED por aserción antigua /^Dale\./, no fallo de acciones. Delegación bounded mecánica único runtime-test.ts: igualdad del texto estándar completo, llamadas/diagnósticos/CAS/tenant/rollback intactos. Writer y padre runtime completo GREEN, hash0ea39be84967fd3494e8f0e9c71b57ac6cf9ba2f959f6fbf6be57550fd708fa7. Total65 suites distintas GREEN tras corrección (30B+35integración), además8A y strong focal5/7. Fixtures/PGlite offline; no evaluación humana/modelo real/DBreal. UI inline syntax PASS; visual real pendiente por kernelreset CUA. No generaltypes repetidos (OOM/depósitos heredados) ni reparación ajena/bulkbaseline112.
+- **E2.13c local actualizado:** listener127.0.0.1:3000/PID2920 revalidado contra Node/preflight/loader/helper exactos antes de detener sólo ese proceso. Mismo launcher tmp/qa-local-server.ts intacto, buildApp sin workers ni transportes productivos: session94700/PID13384, READY y GET /crm HTTP200 observados; HTML contiene campo y etiqueta de nombre comercial. Sin /health ni consultasAPI/DBreal, producción/Railway/WhatsApp/túneles/perfiles/variables sin cambios.
+- **Prueba manual siguiente:** recargar CRM, usar perfilQA botnuevo y motor conversacional, completar Nombre comercial para el bot (opcional)=Glow en configuración existente si se desea esa marca, guardar y abrir Nueva conversación. Identidad de asistente permanece configuración existente (Cami si así está cargada), no hardcode. Revisar saludo, horarios completos, redes/datos ausentes, dirección con enlace, consulta precio sin reserva, servicio concreto/condiciones, profesionales/jornadas, lateral dentro reserva, preferencias inclusivas sin seleccionar hora, propuesta y confirmación real en agendaQA con dirección. Pruebas humanas/LLM real son siguiente validación, no “entrenamiento automático”.
+- **Estado:** E2.13a/b/c implementadas y comprobadas en local; sin corpus ni entrenamiento iniciado. Native RDD selección pendiente sinreceipt, Engram no expuesto/mirrorpendiente, QAvisual/LLMhumana y tiposglobal heredados pendientes explícitos. Exportación ajena y temporales preservados. No cierre ficticio de multistaff/depósitos/cancelación ni nuevos datos ausentes.
+
+### Recuperación de sesión E2.13 — 03/10/2026
+## Goal
+Cerrar toda la entrega estándar de la guía27, no otra integración parcial, y actualizar sólo CRM3000.
+## Instructions
+Usuario exige terminar antes de corpus/chats; quiere respuestas breves. Nombre público configurable, datos reales, sin hardcode ni tocar producción. Autoriza local; pruebas manuales por usuario.
+## Discoveries
+- IA reutiliza facts.text: cambiar sólo prompt deja respuestas viejas; estandarizar en origen compartido.
+- Alias público es distinto del Business.name internoQA. Caché/identidad/Maps deben compartir snapshot.
+- Separar líneas y bloques desalineaba precios/condiciones ante renglones con espacios/CRLF; una construcción preserva chunks/IDs.
+## Accomplished
+- A c515de4 identidad comercial/config/editor, B0281b1e módulo común y wiring; tests exactos IA/fallback, 65 suites de bloque/integración GREEN, strong5/7 y encoding/diff.
+- Runtime aserción de texto obsoleta corregida con RED/GREEN delegado; guardas/acciones intactas.
+- Helper CRM existente reiniciado tras identidad segura: PID13384/session94700, READY, /crm200 y campo nuevo comprobados.
+## Next Steps
+- Usuario configura nombre comercial si desea Glow, recarga y usa Nueva conversaciónQA para ver guía completa; después corpus91 separado.
+- Pendientes: QAvisual/LLMreal, tiposglobalpreexistentes y revisión nativa correcta sin archivos ajenos; espejo/resumen Engram no disponible.
+## Relevant Files
+- src/conversational-bot/standard-delivery.ts — entrega estándar pura común.
+- src/conversational-bot/{information,information-read,availability-presentation,engine,ai-interpreter}.ts — integración/cuerpo verificado y continuidad.
+- src/services/assistant-personality-config.ts y src/routes/{crm,crm-ui}.ts — alias/editor existente.
+- src/conversational-bot/{prisma-dialogue-identity,prisma-business-facts,public-source-stamp}.ts — identidad pública/cachétenant.
+- scripts/conversational-bot-standard-delivery-test.ts — texto completo en IA aceptada/rechazada/fallback.
+- scripts/conversational-bot-runtime-test.ts — integración runtime literal.
+- odd/tasks/nuevo-bot-reservas.md — guía, evidencia, commits y recuperación local; Engram pendiente.
+
 ## Plan activo — bot conversacional sobre la plataforma existente
 ### E2.12 — Guía funcional de respuestas, contexto y preferencias (02/10/2026, autorizado)
 - **Objetivo/autorización:** implementar en local la guía completa C:\Users\cpu\Downloads\glow_bot_guia_completa.txt (27 secciones), reutilizando plataforma/catálogo/agenda y motor existentes. Usuario confirma límite horario inclusivo: después de las13 puede incluir13:00, pero debe mostrar opciones y nunca asignar automáticamente. Añadido explícito: tras reserva realmente guardada/confirmada comunicar confirmación, día/hora y dirección del negocio; jamás antes del commit ni inventando datos. Personalidad/tono/editor y nombre configurable no se hardcodean; edición editorial posterior separada.
