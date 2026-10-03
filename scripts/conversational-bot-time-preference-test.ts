@@ -81,7 +81,15 @@ const stale = await say(offered.state, 'a las 13', [{ kind: 'time', value: '13:0
 assert.equal(stale.state.slot, null); assert.equal(stale.proposal, null); assert.match(stale.reply, /18:00/)
 const noMatch = await say(offered.state, 'antes de las 13', [pref({ kind: 'before', time: '13:00' }, 'antes de las 13')])
 assert.equal(noMatch.state.slot, null); assert.equal(noMatch.state.date, '2026-10-03', 'filter cannot discard independently chosen day')
-assert.equal(noMatch.state.customerName, 'Matias'); assert.doesNotMatch(noMatch.reply, /18:00/)
+assert.equal(noMatch.state.customerName, 'Matias')
+assert.match(noMatch.reply, /disponibles en otro horario:[\s\S]*18:00/, 'a verified alternative must be labeled outside the requested preference')
+assert.deepEqual(noMatch.state.timePreference, { kind: 'before', time: '13:00' }, 'an offer never changes the requested preference')
+assert.equal(noMatch.state.requestedTime, null); assert.equal(noMatch.proposal, null); assert.equal(noMatch.bookingCommand, undefined)
+assert.equal(noMatch.state.sandboxReservation, undefined); assert.equal(noMatch.availability?.reason, 'PREFERENCE_NO_MATCH')
+assert.deepEqual(noMatch.choicePresentation?.choices.filter(choice => choice.operation.kind === 'slot').map(choice => choice.operation),
+  [{ kind: 'slot', date: '2026-10-03', time: '18:00', startAt: '2026-10-03T21:00:00.000Z', professionalId: 'ramiro' }], 'only the fresh real slot is selectable')
+assert.equal(noMatch.state.questionContext?.complete, true); assert.equal(noMatch.state.questionContext?.role, 'time')
+assert.deepEqual(parseDialogueState(noMatch.state, context.businessId, context.timezone), noMatch.state)
 let providerCalls = 0
 const semantic = await respondWithAiInterpreter(context, initial(), message + ' con Ramiro', port, async () => {
   providerCalls++; return { ...legacy, turnPlan: { version: 1, operations: [serviceOp, dateOp, nameOp, specific, pref({ kind: 'after', time: '13:00' })] } }
