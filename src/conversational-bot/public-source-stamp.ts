@@ -20,11 +20,18 @@ export async function readPublicSourceStamp(client: StampClient, context: Dialog
         s."attentionMode", s."estimateAllowsBooking", s."estimateQuestion", s."estimateOptions", s."estimateExplanation", s."estimateDisclaimer",
         s."requiresPhoto", s."validationEnabled", s."validationMessage", s."validationQuestion") ORDER BY s."id"), '[]'::jsonb)
         FROM "Service" s WHERE s."businessId" = b."id"),
-      (SELECT COALESCE(jsonb_agg(jsonb_build_array(p."id", p."isActive", p."acceptsBotBookings") ORDER BY p."id"), '[]'::jsonb)
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(p."id", p."name", p."description", p."isActive", p."acceptsBotBookings") ORDER BY p."id"), '[]'::jsonb)
         FROM "Professional" p WHERE p."businessId" = b."id"),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(ps."id", ps."serviceId", ps."professionalId") ORDER BY ps."id"), '[]'::jsonb)
         FROM "ProfessionalService" ps JOIN "Service" s ON s."id" = ps."serviceId" AND s."businessId" = b."id"
         JOIN "Professional" p ON p."id" = ps."professionalId" AND p."businessId" = b."id"),
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(ph."id", ph."professionalId", ph."dayOfWeek", ph."startTime", ph."endTime") ORDER BY ph."id"), '[]'::jsonb)
+        FROM "ProfessionalHours" ph JOIN "Professional" p ON p."id" = ph."professionalId" AND p."businessId" = b."id"),
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(pm."id", pm."name", pm."position", pm."isActive") ORDER BY pm."id"), '[]'::jsonb)
+        FROM "BusinessPaymentMethod" pm WHERE pm."businessId" = b."id"),
+      (SELECT COALESCE(jsonb_agg(jsonb_build_array(pe."id", pe."professionalId", pe."startAt", pe."endAt") ORDER BY pe."id"), '[]'::jsonb)
+        FROM "ScheduleBlock" pe JOIN "Professional" p ON p."id" = pe."professionalId" AND p."businessId" = b."id"
+        WHERE pe."businessId" = b."id" AND pe."startAt" < ${to} AND pe."endAt" > ${from}),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(h."id", h."dayOfWeek", h."startTime", h."endTime") ORDER BY h."id"), '[]'::jsonb)
         FROM "BusinessHours" h WHERE h."businessId" = b."id"),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(e."id", e."startAt", e."endAt", e."reason", e."title") ORDER BY e."id"), '[]'::jsonb)

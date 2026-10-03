@@ -65,6 +65,7 @@ const client: any = {
   service: { findFirst: async (args: any) => args.select.name ? structuredClone(service) : { id: 's' }, findMany: async () => { catalogReads++; return [structuredClone(service)] } },
   $queryRaw: async (q: any) => {
     const sql = q.strings.join(' ')
+    if (sql.includes('conversational-public-payment-methods')) return []
     if (sql.includes('conversational-public-source-stamp')) { stampReads++; if (stampFailure) throw new Error('stamp unavailable'); return [{ businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', stamp: revision.toString(16).padStart(64, '0') }] }
     if (sql.includes('FROM "BusinessBotOptionsSettings"')) return [{ timezone: 'America/Argentina/Buenos_Aires', bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00', now: databaseNow }]
     if (sql.includes('FROM "Professional"')) { agendaReads++; return [] }

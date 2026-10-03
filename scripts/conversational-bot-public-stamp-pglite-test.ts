@@ -5,7 +5,7 @@ import { readPublicSourceStamp, loadReadonlyPublicSnapshot } from '../src/conver
 
 const db = new PGlite()
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business', 'BusinessBotOptionsSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'BusinessHours', 'ScheduleBlock']
+const models = ['Business', 'BusinessBotOptionsSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'ProfessionalHours', 'BusinessPaymentMethod', 'BusinessHours', 'ScheduleBlock']
 // Columns derive from the actual Prisma schema: unknown stamp fields fail real SQL.
 for (const model of models) {
   const body = schema.match(new RegExp('model ' + model + ' \\{([\\s\\S]*?)\\n\\}'))![1]!
@@ -52,7 +52,7 @@ try {
     ['Service','sa','estimateExplanation',"'Explanation'"], ['Service','sa','estimateDisclaimer',"'Disclaimer'"],
     ['Service','sa','validationMessage',"'Validation'"], ['Service','sa','validationQuestion',"'Question'"],
     ['ServiceCategory','ca','name',"'Changed'"], ['ServiceCategory','ca','isActive','false'], ['ServiceCategory','ca','sortOrder','2'],
-    ['Professional','pa','isActive','false'], ['Professional','pa','acceptsBotBookings','false'],
+    ['Professional','pa','name',"'Ana'"], ['Professional','pa','description',"'Actual profile'"], ['Professional','pa','isActive','false'], ['Professional','pa','acceptsBotBookings','false'],
     ['BusinessHours','ha','startTime',"'10:00'"], ['BusinessHours','ha','endTime',"'17:00'"], ['BusinessHours','ha','dayOfWeek','2'],
     ['ScheduleBlock','ea','title',"'New public title'"], ['ScheduleBlock','ea','reason',"'OTHER'"],
     ['ScheduleBlock','ea','endAt',"'2026-10-02 03:00'"], ['ScheduleBlock','ea','startAt',"'2026-09-30 04:00'"],
@@ -66,7 +66,25 @@ try {
   await db.exec(`UPDATE "ScheduleBlock" SET "note"='PRIVATE' WHERE "id"='ea'; UPDATE "Business" SET "contactPhone"='PRIVATE' WHERE "id"='a'`)
   assert.equal(await stamp(), prior, 'private fields are not fingerprint inputs')
   await db.exec(`INSERT INTO "ScheduleBlock" ("id","businessId","professionalId","startAt","endAt") VALUES ('pro','a','pa','2026-09-30','2026-10-01')`)
-  assert.equal(await stamp(), prior, 'professional agenda is not a public exception')
+  assert.notEqual(await stamp(), prior, 'professional exceptions invalidate public habitual schedule');
+  prior = await stamp(); await db.exec(`INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('ph','pa',6,'09:00','18:00')`);
+  assert.notEqual(await stamp(), prior, 'professional hours invalidate public schedule');
+  prior = await stamp(); await db.exec(`INSERT INTO "BusinessPaymentMethod" ("id","businessId","name","position","isActive") VALUES ('pay','a','Cash',0,true)`);
+  assert.notEqual(await stamp(), prior, 'public payment method invalidates public facts')
+  for (const [table, id, field, value] of [
+    ['ProfessionalHours', 'ph', 'dayOfWeek', '5'], ['ProfessionalHours', 'ph', 'startTime', "'10:00'"], ['ProfessionalHours', 'ph', 'endTime', "'17:00'"],
+    ['BusinessPaymentMethod', 'pay', 'name', "'Card'"], ['BusinessPaymentMethod', 'pay', 'position', '3'], ['BusinessPaymentMethod', 'pay', 'isActive', 'false'],
+    ['ScheduleBlock', 'pro', 'startAt', "'2026-09-30 12:00'"], ['ScheduleBlock', 'pro', 'endAt', "'2026-10-01 12:00'"]
+  ]) {
+    prior = await stamp()
+    await db.exec('UPDATE "' + table + '" SET "' + field + '"=' + value + ' WHERE "id"=\'' + id + '\'')
+    assert.notEqual(await stamp(), prior, table + '.' + field + ' invalidates public facts')
+  }
+  prior = await stamp()
+  await db.exec(`UPDATE "Professional" SET "commissionFixedAmount"=500 WHERE "id"='pa'; UPDATE "BusinessPaymentMethod" SET "kind"='TRANSFER',"isDefault"=true WHERE "id"='pay'; UPDATE "ScheduleBlock" SET "reason"='PERSONAL',"title"='PRIVATE',"note"='PRIVATE' WHERE "id"='pro'; INSERT INTO "BusinessPaymentMethod" ("id","businessId","name","position","isActive") VALUES ('foreign-pay','b','Foreign',0,true)`)
+  assert.equal(await stamp(), prior, 'private fields and foreign public payment rows never fingerprint local facts')
+  prior = await stamp(); await db.exec(`DELETE FROM "ProfessionalHours" WHERE "id"='ph'; DELETE FROM "BusinessPaymentMethod" WHERE "id"='pay'`)
+  assert.notEqual(await stamp(), prior, 'public schedule/payment deletes invalidate facts')
   prior = await stamp(); await db.exec(`DELETE FROM "Professional" WHERE "id"='pa'`)
   assert.notEqual(await stamp(), prior, 'professional and link cascade invalidates catalogue')
   prior = await stamp(); await db.exec(`DELETE FROM "BusinessHours" WHERE "id"='ha'`)
