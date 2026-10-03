@@ -1,4 +1,5 @@
 import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
+import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
 import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
@@ -194,15 +195,6 @@ function assembledIntakeReply(raw: unknown, facts: readonly ReplyFact[], state: 
   return validateReplyDraft({ opening: value.opening, closing: value.closing, factIds: facts.map(fact => fact.id) }, facts, contract, services.map(service => service.name))
 }
 
-/** A bounded incidental calculation is a verified fact, never permission for numeric model assertions. */
-function incidentalArithmetic(message: string): string | null {
-  const match = /^(?:(?:(?:decime|dime)\s+)?cuanto (?:es|da)\s+|calcula\s+)?(-?\d{1,6})\s*([+*/-])\s*(-?\d{1,6})[?!.]*$/.exec(normalized(message))
-  if (!match) return null
-  const left = Number(match[1]), right = Number(match[3])
-  const result = match[2] === '+' ? left + right : match[2] === '-' ? left - right : match[2] === '*' ? left * right : right === 0 ? NaN : left / right
-  return Number.isSafeInteger(result) ? left + ' ' + match[2] + ' ' + right + ' es ' + result + '.' : null
-}
-
 /** Interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
 export async function respondWithAiInterpreter(
   context: DialogueContext, previous: unknown, message: string, port: DialoguePort,
@@ -214,7 +206,7 @@ export async function respondWithAiInterpreter(
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
   const intakeReplyAllowed = !route.information.length && !route.pendingAction
-  const arithmetic = intakeReplyAllowed ? incidentalArithmetic(message) : null
+  const arithmetic = intakeReplyAllowed ? parseIncidentalArithmetic(message)?.text ?? null : null
   const incidentalFacts: ReplyFact[] | null = arithmetic ? [{ id: 'calculation', text: arithmetic },
     { id: 'next', text: state.pending === 'service' && !hasActiveBooking(state) ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }] : null
   let firstReplyFacts: ReplyFact[] | undefined = intakeReplyAllowed ? incidentalFacts ??
