@@ -11,7 +11,9 @@ const port: DialoguePort = { catalog: async () => services, availability: async 
 const context = { businessId: 'trusted-tenant', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-09-28T15:00:00Z') }
 let state = initialDialogueState(context.businessId)
 async function say(message: string, selectedPort = port) { const r = await respond(context, state, message, selectedPort); state = r.state; return r }
-assert.match((await say('hola')).reply, /Corte Hombre/)
+const greeting = await say('hola')
+assert.match(greeting.reply, /En qué.*ayudar/); assert.doesNotMatch(greeting.reply, /Corte Hombre/)
+assert.equal(greeting.state.serviceId, null); assert.equal(greeting.state.questionContext, undefined)
 assert.equal((await say('quiero Corte Hombre hoy 17:00')).state.pending, 'professional')
 assert.equal(state.professional, null, 'date/time never silently select a professional')
 assert.equal(state.requestedTime, '17:00')

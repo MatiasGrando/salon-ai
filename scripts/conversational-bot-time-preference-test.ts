@@ -46,7 +46,7 @@ assert.deepEqual(restored, result.state)
 const offered = await say(restored, 'Ramiro', [specific])
 assert.equal(offered.state.pending, 'time'); assert.equal(offered.state.slot, null); assert.equal(offered.proposal, null)
 assert.equal(offered.bookingCommand, undefined); assert.equal(offered.state.customerName, 'Matias')
-assert.deepEqual(offered.state.questionContext?.options.map(option => option.label), ['13:00 con Ramiro', '13:30 con Ramiro', '18:00 con Ramiro'])
+assert.deepEqual(offered.state.questionContext?.options.map(option => option.label.match(/a las (\d{2}:\d{2}) con Ramiro/)?.[1]), ['13:00', '13:30', '18:00'])
 assert.doesNotMatch(offered.reply, /12:00/); assert.deepEqual(parseDialogueState(offered.state, context.businessId), offered.state)
 times = ['13:00']
 const single = await say(restored, 'Ramiro', [specific])
@@ -61,12 +61,13 @@ for (const [preference, evidence, expected] of [
   [{ kind: 'band', band: 'MORNING' }, 'por la mañana', ['12:00']],
   [{ kind: 'band', band: 'AFTERNOON' }, 'por la tarde', ['13:00', '13:30']],
   [{ kind: 'band', band: 'EVENING' }, 'por la noche', ['18:00']],
-  [{ kind: 'earliest' }, 'lo más temprano posible', ['12:00']],
-  [{ kind: 'any' }, 'cualquier horario', times]
+  [{ kind: 'earliest' }, 'lo más temprano posible', ['12:00', '13:00', '13:30']],
+  [{ kind: 'any' }, 'cualquier horario', times.slice(0, 3)]
 ] as const) {
   const filtered = await say(offered.state, evidence, [pref(preference, evidence)])
   assert.equal(filtered.state.slot, null); assert.equal(filtered.state.requestedTime, null)
-  assert.deepEqual(filtered.state.questionContext?.options.map(option => option.label.split(' con ')[0]), expected)
+  assert.deepEqual(filtered.state.questionContext?.options.filter(option => !option.id.startsWith('page:')).map(option => option.label.match(/a las (\d{2}:\d{2})/)?.[1]), expected)
+  if (preference.kind === 'any' || preference.kind === 'earliest') assert.ok(filtered.state.questionContext?.options.some(option => option.id === 'page:slots:1'))
   assert.equal(filtered.proposal, null); assert.deepEqual(parseDialogueState(filtered.state, context.businessId), filtered.state)
 }
 const corrected = await say(exact.state, 'después de las 13', [pref({ kind: 'after', time: '13:00' })])

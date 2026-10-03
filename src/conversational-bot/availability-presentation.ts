@@ -78,7 +78,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
       { kind: 'preference', label: 'Por la noche', preference: { kind: 'band', band: 'EVENING' } }
     ].filter(choice => choice.kind === 'preference' && choice.preference.kind === 'band' && filtered.some(slot => slot.band === choice.preference.band)) as PresentationChoice[]
     choices.push({ kind: 'preference', label: 'Cualquier horario', preference: { kind: 'any' } })
-    return { kind: 'preference', text: `Hay varias opciones disponibles. ${choices.map(choice => choice.label).join(' · ')}.\n¿En qué franja o desde qué hora preferís venir?`, choices, hasMore: false }
+    return { kind: 'preference', text: `Hay varias opciones disponibles para el ${formatDateChoice(input.scope.date!, input.timezone)}. ${choices.map(choice => choice.label).join(' · ')}.\n¿En qué franja o desde qué hora preferís venir?`, choices, hasMore: false }
   }
   const short = input.preference?.kind === 'any' || input.preference?.kind === 'earliest' || nearest
   const pageSize = short ? 3 : BOOKING_SLOT_PAGE_SIZE
@@ -108,7 +108,11 @@ export function presentVerifiedDates(input: AvailabilityPresentationInput): Choi
   const slots = freshSlots(input)
   const start = cursorStart(input.cursor, Math.min(3, BOOKING_DATE_PAGE_SIZE))
   const dates = [...new Set(slots.map(slot => slot.date))]
-  const choices: PresentationChoice[] = dates.slice(start, start + 3).map(date => ({ kind: 'date', date, label: formatDateChoice(date, input.timezone) }))
+  const today = localDateKey(input.now, input.timezone)
+  const tomorrow = new Date(today + 'T12:00:00Z'); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const tomorrowKey = tomorrow.toISOString().slice(0, 10)
+  const choices: PresentationChoice[] = dates.slice(start, start + 3).map(date => ({ kind: 'date', date,
+    label: (date === today ? 'Hoy · ' : date === tomorrowKey ? 'Mañana · ' : '') + formatDateChoice(date, input.timezone) }))
   const first = slots.find(slot => slot.date === choices.find(choice => choice.kind === 'date')?.date)
   const example = first ? `${first.date} a las ${first.time}` : null
   return { kind: 'dates', text: `${choices.length ? `Hay disponibilidad el ${choices.map(choice => choice.label).join(' · ')}.` : 'No encontré fechas disponibles.'}${example ? ` Podés escribir, por ejemplo: ${example}.` : ''}\n¿Qué día y horario te vendrían bien?`, choices, hasMore: start + choices.length < dates.length, example }

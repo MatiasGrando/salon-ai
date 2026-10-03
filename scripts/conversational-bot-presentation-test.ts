@@ -90,4 +90,10 @@ assert.throws(() => presentAvailability({ ...input(few), scope: { ...scope, prof
 assert.throws(() => presentAvailability(input([{ ...slot('13:00'), startAt: '2026-10-01T16:00:00Z', date: '2026-10-01' }])), /slot/)
 
 assert.throws(() => presentAvailability({ ...input(few), preference: { kind: 'earliest', extra: 'untrusted' } as never }), /preference/)
+const todayRead = { ...dateRead, slots: [slot('13:00', 'p1', '2026-10-02')] }
+const todayProof = presentVerifiedDates({ ...input([]), scope: dateScope, read: todayRead })
+assert.match(todayProof.choices[0]!.label, /^Hoy/)
+assert.match(todayProof.text, /02[-\/]10/)
+assert.doesNotMatch(presentVerifiedDates({ ...input([]), scope: dateScope, read: { ...todayRead, slots: [] } }).text, /Hoy/)
+assert.match(adaptive.text, /03[-\/]10/, 'many-slot preference question retains the checked day')
 console.log('PASS adaptive offers, inclusive boundaries, exact alternatives, scope/freshness, DST, professionals, verified dates and complete pagination')

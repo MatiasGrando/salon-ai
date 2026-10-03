@@ -29,7 +29,7 @@ assert.equal(wrongName.state.customerName, 'Matías', 'expected professional mus
 assert.deepEqual(wrongName.state.professional, { kind: 'specific', id: 'cin' }, 'known expected answer is resolved only through fresh compatible professionals')
 assert.equal((offered.state as any).questionContext.field, 'professional')
 assert.equal((offered.state as any).questionContext.role, 'professional')
-assert.deepEqual((offered.state as any).questionContext.options.map((option: any) => option.id), ['cin', 'matias-prof'])
+assert.deepEqual((offered.state as any).questionContext.options.map((option: any) => option.id), ['professional:any', 'cin', 'matias-prof'])
 assert.equal((offered.state as any).questionContext.complete, true)
 assert.deepEqual(parseDialogueState(offered.state, context.businessId), offered.state)
 assert.equal(Object.keys(offered.state).some(key => /actor|machineSnapshot/.test(key)), false)

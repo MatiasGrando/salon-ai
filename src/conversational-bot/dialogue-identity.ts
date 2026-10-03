@@ -24,10 +24,11 @@ export function introduceDialogue(input: IntroductionInput): { reply: string; in
   const help = identity.treatment === 'usted' ? '¿En qué puedo ayudarle?'
     : identity.treatment === 'tu' ? '¿En qué puedo ayudarte?' : '¿En qué te puedo ayudar?'
   const body = input.kind === 'social' ? help : input.reply.trim()
-  if (!body || body.length > 4096) throw new Error('invalid concrete reply')
+  // Public facts are already bounded by their source; transport owns fragmentation, not introduction.
+  if (!body) throw new Error('invalid concrete reply')
   if (input.introduced) return { reply: body, introduced: true }
   const name = input.customerName?.trim()
   if (name && (name.length > 100 || /[\u0000-\u001f]/.test(name))) throw new Error('invalid customer greeting')
-  const hello = name ? `¡Holaa, ${name}!` : '¡Hola!'
+  const hello = name ? `¡Holaa, ${name}!` : '¡Holaa!'
   return { reply: `${hello}${identity.greetingEmoji ? ` ${identity.greetingEmoji}` : ''} Soy ${identity.assistantName}, de ${identity.businessName}.\n\n${body}`, introduced: true }
 }

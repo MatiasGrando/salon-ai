@@ -1,3 +1,4 @@
+import { publicMapsLink } from './maps-link.js'
 import { dialogueQuestion } from './dialogue-context.js'
 import { formatCatalogPrice } from '../bot-options/application/catalog-queries.js'
 import { normalizeMessage, type InformationAction } from './actions.js'
@@ -12,14 +13,6 @@ export type BusinessFacts = {
 export function validateFacts(facts: BusinessFacts, businessId: string): void {
   if (!facts || facts.businessId !== businessId) throw new Error('invalid information scope')
   for (const value of Object.values(facts)) if (value !== null && (typeof value !== 'string' || value.length > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))) throw new Error('invalid public facts')
-}
-function validMapsUrl(value: string | null | undefined): string | null {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    const host = url.hostname.toLowerCase()
-    return url.protocol === 'https:' && (host === 'maps.google.com' || host === 'www.google.com' || host === 'google.com') ? url.toString() : null
-  } catch { return null }
 }
 function addressLabel(facts: BusinessFacts | null): string | null {
   const address = facts?.address?.trim()
@@ -55,7 +48,7 @@ export function renderInformation(actions: readonly InformationAction[], message
     if (action === 'HOURS') replies.push(facts?.hours || 'No tengo horarios publicados.')
     if (action === 'ADDRESS') {
       const label = addressLabel(facts)
-      const maps = validMapsUrl(facts?.mapsUrl)
+      const maps = publicMapsLink({ businessName: facts?.name ?? null, address: facts?.address?.trim() ? label : null, addressArea: null, mapsUrl: facts?.mapsUrl ?? null })?.url
       replies.push(label ? [label, maps ? 'Maps: ' + maps : null].filter(Boolean).join('\n') : 'No tengo una dirección publicada.')
     }
     if (action === 'BUSINESS_INFO') {
