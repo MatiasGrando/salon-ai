@@ -99,7 +99,8 @@ async function loadGuardedBasketAvailability(
   // Same verified common professionals feed the pure cart calculation; no cart repository bypasses policy.
   const professionals = await availability.compatibleProfessionals({ businessId: context.businessId, serviceIds: ids })
   if (professionals.length > 50 || new Set(professionals.map(professional => professional.id)).size !== professionals.length || professionals.some(professional => !boundedId(professional.id))) throw new Error('professional catalog exceeds supported bound')
-  if (!professionals.length || professionalId && !professionals.some(professional => professional.id === professionalId)) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
+  if (!professionals.length) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
+  if (professionalId && !professionals.some(professional => professional.id === professionalId)) return { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals }
   const professionalIds = professionals.map(professional => professional.id)
   let cart = buildCartSnapshot([])
   for (const service of services) {

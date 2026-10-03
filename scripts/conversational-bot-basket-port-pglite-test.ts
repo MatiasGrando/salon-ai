@@ -87,7 +87,7 @@ try {
   assert.deepEqual(complete.professionals.map(pro => pro.id), ['ramiro'], 'SQL joins all services and never includes cut-only or foreign professional')
   assert.deepEqual(complete.slots.map(slot => slot.time), ['10:00', '10:30', '11:00', '11:30', '12:00'])
   assert.equal(transactionCount, 1, 'fresh services, policy and agenda share a read-only snapshot')
-  assert.deepEqual(await request('cut-only'), { ok: false, reason: 'NO_COMMON_PROFESSIONAL' })
+  assert.deepEqual(await request('cut-only'), { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals: [{ id: 'ramiro', name: 'Ramiro', priority: 0 }] }, 'all-service SQL eligibility survives the rejected single-service preference')
   await db.exec(`INSERT INTO "ServiceCombinationRule" ("id","businessId","serviceAId","serviceBId","policy") VALUES ('foreign-rule','foreign','straightening','cut','BLOCKED')`)
   assert.equal((await request()).ok, true, 'foreign rules cannot block or authorize local basket')
   await db.exec(`INSERT INTO "ServiceCombinationRule" ("id","businessId","serviceAId","serviceBId","policy") VALUES ('local-rule','tenant','straightening','cut','REVIEW_REQUIRED')`)

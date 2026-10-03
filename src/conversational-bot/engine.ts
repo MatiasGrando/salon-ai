@@ -15,13 +15,14 @@ import { ACTION_REGISTRY, routeActions, type InformationAction } from './actions
 import { pendingQuestion, renderInformation, renderServices, validateFacts, type BusinessFacts } from './information.js'
 import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
 import { resolveDialogueDate } from './dialogue-date.js'
-import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
+import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
 export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
+  | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[] }
   | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
@@ -38,6 +39,8 @@ export type PresentedOffer = { businessId: string; serviceId: string | null; ser
 export type DialogueState = {
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
   introduced?: boolean
+  /** An unanswered request to edit draft fields is not a replacement value or consent. */
+  editRequest?: { fields: DraftEditField[] }
   pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
   serviceId: string | null; basket?: ServiceBasket; serviceEstimates?: Record<string, GuidedSelection>; date: string | null
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
@@ -61,7 +64,8 @@ export type AvailabilityDiagnostic = {
   /** Only present when an availability query actually ran. */
   scope?: 'all_compatible' | 'preferred'
 }
-export type DialogueResponse = { state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
+export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
+export type DialogueResponse = { turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -91,6 +95,10 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (JSON.stringify(value).length > 16384 || s.schemaVersion !== 1 || s.engine !== 'conversational-booking-v1' || s.businessId !== businessId || !bounded(businessId, 128)) throw new Error('invalid dialogue scope')
   if (s.introduced !== undefined && typeof s.introduced !== 'boolean') throw new Error('invalid introduction marker')
   if (!['service', 'estimate', 'date', 'professional', 'time', 'name', 'proposal'].includes(s.pending)) throw new Error('invalid dialogue step')
+  if (s.editRequest !== undefined && (!s.editRequest || Object.keys(s.editRequest).join(',') !== 'fields' ||
+      !Array.isArray(s.editRequest.fields) || !s.editRequest.fields.length || s.editRequest.fields.length > DRAFT_EDIT_FIELDS.length ||
+      new Set(s.editRequest.fields).size !== s.editRequest.fields.length || s.editRequest.fields.some(field => !DRAFT_EDIT_FIELDS.includes(field)) ||
+      s.pending !== s.editRequest.fields[0] || s.sandboxReservation !== undefined)) throw new Error('invalid draft edit request')
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
@@ -182,7 +190,7 @@ function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, cont
   const unresolved = operations.find(op => op.kind === 'service' && op.mode === 'unresolved')
   const unresolvedMember = operations.flatMap(op => op.kind === 'basket' ? op.members : []).find(member => member.mode === 'unresolved')
   if (unresolved?.kind === 'service' || unresolvedMember) matching = { category: 'service', query: unresolved?.evidence ?? unresolvedMember!.evidence }
-  const scopedChange = operations.some(op => ['service','basket','date','professional','estimate'].includes(op.kind))
+  const scopedChange = operations.some(op => ['service','basket','date','professional','estimate','request_change'].includes(op.kind))
   const question = state.questionContext
   const basketChoices = presentedBasketChoices(state, services)
   const basketServiceQuestion = question?.field === 'service' && hasBasketSelection(state)
@@ -200,7 +208,7 @@ function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, cont
   if (!matching && !socialMessage(message) && !operations.some(op => op.kind !== 'name') && !extractDate(normalize(message), context) && !extractTime(normalize(message)) && !routeActions(message).information.length && !raw.operations.some(op => op.kind === 'name' && explicitIdentity(message, op.value))) {
     if (state.pending === 'professional') matching = { category: 'professional', query: message, answerOnly: true }
     if (state.pending === 'estimate' && question?.targetServiceId) matching = { category: 'estimate', query: message, targetServiceId: question.targetServiceId, answerOnly: true }
-    if (state.pending === 'service' && !operations.length && !hasBasketSelection(state) && (!state.customerName || normalize(message) !== normalize(state.customerName))) matching = { category: 'service', query: message, answerOnly: true }
+    if (state.pending === 'service' && !operations.length && (!hasBasketSelection(state) || state.editRequest?.fields[0] === 'service') && (!state.customerName || normalize(message) !== normalize(state.customerName))) matching = { category: 'service', query: message, answerOnly: true }
   }
   if (!matching && !operations.length && basketChoices && !socialMessage(message) &&
       !extractDate(normalize(message), context) && !extractTime(normalize(message)) && !routeActions(message).information.length &&
@@ -260,11 +268,25 @@ function dateLabel(date: string, timezone: string): string {
   return weekday + ' ' + String(day).padStart(2, '0') + '/' + String(month).padStart(2, '0')
 }
 const serviceList = renderServices
+function completeDraftEdit(state: DialogueState, field: DraftEditField): void {
+  const remaining = state.editRequest?.fields.filter(item => item !== field)
+  if (remaining?.length) { state.editRequest = { fields: remaining }; state.pending = remaining[0]! }
+  else delete state.editRequest
+}
+function draftEditResponse(state: DialogueState, services: readonly DialogueService[]): DialogueResponse {
+  const field = state.editRequest!.fields[0]!
+  state.pending = field
+  const question = resolveDialogueRoute(state, services, field).question
+  rememberDialogueQuestion(state, question, field === 'service' ? services.map(service => ({ id: service.id, label: service.name })) : [])
+  const presentation = choicePresentationForQuestion(state, services)
+  return { state, reply: question, proposal: null, ...(presentation ? { choicePresentation: presentation } : {}) }
+}
 function mutateStateBasket(state: DialogueState, op: BasketMutation): void {
   const previous = selectionBasket(state)
   const previouslyResolved = basketIsResolved(state)
   const result = applyBasketMutation(previous, op)
   state.basket = result.basket
+  completeDraftEdit(state, 'service')
   const ids = basketServiceIds(state)
   state.serviceId = ids.length === 1 ? ids[0]! : null
   if (state.serviceEstimates) {
@@ -393,6 +415,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     mutateStateBasket(state, { kind: 'basket', mutation: matching.targetMemberId ? 'replace' : 'set', scope: matching.targetMemberId ? 'members' : 'all', targetMemberIds: matching.targetMemberId ? [matching.targetMemberId] : [],
       members: [{ mode: 'single', serviceIds: [exact.id], evidence: message, confidence: 1 }], evidence: message, confidence: 1 })
   }
+  if (state.editRequest) return draftEditResponse(state, services)
   let service = services.find(s => s.id === state.serviceId)
 
   let anyProfessional = false
@@ -556,6 +579,18 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (!port.availabilityBasket) { availabilityFailure = failedAvailability('PORT_UNAVAILABLE', 'preflight'); return null }
     const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId, state.serviceEstimates)
     if (!result.ok) {
+      if (result.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') {
+        if (!professionalId || !Array.isArray(result.professionals) || !result.professionals.length || result.professionals.length > 50 ||
+            new Set(result.professionals.map(item => item.id)).size !== result.professionals.length ||
+            result.professionals.some(item => !bounded(item.id, 128) || !bounded(item.name, 200) || item.id === professionalId)) throw new Error('invalid compatible professional alternatives')
+        invalidateAvailability(); state.professional = null; state.professionalNameHint = null; state.pending = 'professional'
+        availability = { outcome: 'blocked', phase: 'query', reason: result.reason, scope }
+        const rendered = presentProfessionals(result.professionals, 0)
+        choicePresentation = adaptChoicePresentation(rendered, 'professionals', 0)
+        questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
+        availabilityFailure = finish('La preferencia de profesional anterior no es compatible con el pedido actual. Mantengo los servicios y la fecha.\n' + rendered.text)
+        return null
+      }
       if (result.reason !== 'GUIDANCE_REQUIRED') { availabilityFailure = failedAvailability(result.reason, 'query', scope); return null }
       const ids = basketServiceIds(state)
       if (!Array.isArray(result.services) || JSON.stringify(result.services.map(item => item.id)) !== JSON.stringify(ids) ||
@@ -706,7 +741,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const identityClarification = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
   const clarificationReply = [identityClarification, tentativeTemporal ? 'No pude confirmar esa elección o preferencia horaria. ¿Qué horario o franja preferís?' : ''].filter(Boolean).join('\n')
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
-  const updates = plan.operations.filter(op => !['information', 'unsupported_action'].includes(op.kind))
+  const updates = plan.operations.filter(op => !['information', 'unsupported_action', 'request_change'].includes(op.kind))
   const bookingUpdates = updates.filter(op => op.kind !== 'name')
   if (bookingUpdates.length) delete state.informationFocus
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
@@ -765,6 +800,15 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (JSON.stringify(previousChoice) !== JSON.stringify(nextChoice)) invalidate(Boolean(previousChoice))
     state.serviceEstimates = Object.fromEntries(nextChoice ? [...entries,[op.serviceId,nextChoice]] : entries)
   }
+  const appliedFields = new Set(updates.flatMap(op => op.kind === 'basket' ? ['service'] : op.kind === 'time_preference' ? ['time'] : DRAFT_EDIT_FIELDS.includes(op.kind as DraftEditField) ? [op.kind] : []))
+  const requests = plan.operations.flatMap(op => op.kind === 'request_change' ? [op.field] : [])
+  const editing = [...new Set([...(state.editRequest?.fields ?? []).filter(field => !appliedFields.has(field)), ...requests])]
+  if (editing.length) {
+    state.editRequest = { fields: editing }
+    state.pending = editing[0]!
+    delete state.sandboxReservation
+    if (requests.length) { delete state.questionContext; delete state.informationFocus }
+  } else delete state.editRequest
   if (bookingUpdates.length || nameOp && hasActiveBooking(state)) state.pending = resolveDialogueRoute(state, services).pending
 
   // Facts are read after applying fields, so an unavailable information read cannot roll back valid preferences.
@@ -785,6 +829,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     answers.push(read.reply)
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply, clarificationReply].filter(Boolean).join('\n'), proposal: null, ...(informationReads.some(read => read.outcome === 'clarifying' && read.focus) ? informationChoiceFields(state) : {}) })
+  if (state.editRequest && !matched.matching) {
+    const next = draftEditResponse(state, services)
+    return { ...next, reply: [...answers, next.reply, clarificationReply].filter(Boolean).join('\n') }
+  }
   if (informationReads.length && !bookingUpdates.length && (!nameOp || !hasActiveBooking(state))) return finishWithoutAgenda(informationReads.every(read => read.outcome === 'found') && hasActiveBooking(state) ? pendingQuestion(state) : '')
   if (!matched.matching && !plan.operations.length && hasActiveBooking(state)) {
     const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
@@ -890,7 +938,7 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
   const semanticConfirmation = !consentVeto && plan?.operations.length === 1 && plan.operations[0]?.kind === 'confirm_proposal' && plan.operations[0].confidence >= 0.85 && normalize(plan.operations[0].evidence) === normalize(message)
   const fallbackConfirmation = !consentVeto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention &&
     /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalize(message))
-  if (reservation && !reservation.receipt && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
+  if (!state.editRequest && reservation && !reservation.receipt && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
     return { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.', bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }
   }
   // A semantic confirmation cannot manufacture a proposal or authorize effects before it was shown.
@@ -912,7 +960,7 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
     response.reply = presentSandboxProposal(context, response.state, catalog, response.proposal, reservation)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
-  } else if (reservation && sandboxProposalMatchesState(reservation.presented, response.state)) {
+  } else if (!response.state.editRequest && reservation && sandboxProposalMatchesState(reservation.presented, response.state)) {
     response.state.sandboxReservation = structuredClone(reservation)
     response.reply = response.reply.replace('La propuesta sigue pendiente; todavía no está reservado.', SANDBOX_CONFIRMATION_QUESTION)
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
@@ -933,7 +981,22 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
 }
 export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision,
   options: { deferIntroduction?: boolean } = {}): Promise<DialogueResponse> {
+  const before = parseDialogueState(previous, context.businessId, context.timezone)
   const response = await respondBookingEnvelope(context, previous, message, port, decision)
+  const basketValue = (state: DialogueState) => selectionBasket(state).members.map(member => [member.mode, member.serviceIds])
+  const values = (state: DialogueState) => [basketValue(state), state.date, [state.professional, state.professionalNameHint], [state.requestedTime, state.timePreference ?? null], state.customerName, state.serviceEstimates ?? {}]
+  const oldValues = values(before), newValues = values(response.state)
+  const fields: (DraftEditField | 'estimate')[] = [...DRAFT_EDIT_FIELDS, 'estimate']
+  const changedFields = fields.filter((_field, index) => JSON.stringify(oldValues[index]) !== JSON.stringify(newValues[index]))
+  const explicitFields = new Set<DraftEditField | 'estimate'>()
+  for (const operation of decision?.turnPlan?.operations ?? []) {
+    if (operation.kind === 'basket' || operation.kind === 'service') explicitFields.add('service')
+    else if (operation.kind === 'time_preference') explicitFields.add('time')
+    else if (operation.kind === 'estimate' || DRAFT_EDIT_FIELDS.includes(operation.kind as DraftEditField)) explicitFields.add(operation.kind as DraftEditField | 'estimate')
+  }
+  if (!decision?.turnPlan && (decision?.serviceId || decision?.candidateIds.length)) explicitFields.add('service')
+  response.turnOutcome = { changedFields, appliedFields: changedFields.filter(field => explicitFields.has(field)),
+    requestedChanges: [...response.state.editRequest?.fields ?? []], rejectedProfessionalPreference: response.availability?.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE' }
   if (response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   return options.deferIntroduction ? response : finalizeDialogueIntroduction(context, response, port)
 }
@@ -959,7 +1022,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (!question?.complete) return reject()
   if (operation.kind === 'confirm') {
     const reservation = state.sandboxReservation
-    if (context.sandboxBooking !== true || question.role !== 'confirmation' || question.matchCandidateIds || !reservation || reservation.receipt ||
+    if (state.editRequest || context.sandboxBooking !== true || question.role !== 'confirmation' || question.matchCandidateIds || !reservation || reservation.receipt ||
       reservation.presented.nonce !== operation.nonce || !sandboxProposalMatchesState(reservation.presented, state)) return reject()
     return finalizeDialogueIntroduction(context, { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.',
       bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }, port)
@@ -971,6 +1034,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const services = await port.catalog()
   if (services.length > 200 || services.some(service => !bounded(service.id,128) || !bounded(service.name,200)) || new Set(services.map(service => service.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   const selected = basketServiceIds(state).map(id => services.find(service => service.id === id))
+  if (state.editRequest && operation.kind !== 'service') return reject()
   if (operation.kind !== 'service' && (!selected.length || selected.some(service => !service || !validBookableService(service,true)))) return reject()
   const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) state.requestedTime = null; delete state.sandboxReservation; delete state.dialogueContext; delete state.questionContext }
   const freshAvailability = async () => {
@@ -1027,6 +1091,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
     const scoped = parseDialogueState({ ...state, requestedTime: operation.time, slot, timePreference: undefined },context.businessId,context.timezone)
     clearDependent(false); delete state.timePreference; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
   }
+  if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
     operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
   if (response.proposal && context.sandboxBooking === true) {

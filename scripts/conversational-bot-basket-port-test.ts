@@ -100,7 +100,7 @@ await rejects('COMBINATION_BLOCKED', test => { test.rules.push({ serviceAId: 'st
 await rejects('COMBINATION_REVIEW', test => { test.rules.push({ serviceAId: 'cut', serviceBId: 'straightening', policy: 'REVIEW_REQUIRED' }) })
 await rejects('COMBINATION_BLOCKED', test => { test.rules.push({ serviceAId: 'cut', serviceBId: 'straightening', policy: 'BLOCKED' }, { serviceAId: 'straightening', serviceBId: 'cut', policy: 'ALLOWED' }) })
 await rejects('NO_COMMON_PROFESSIONAL', test => { test.setProfessionals([]) })
-assert.deepEqual(await port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02', 'not-common'), { ok: false, reason: 'NO_COMMON_PROFESSIONAL' })
+assert.deepEqual(await port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02', 'not-common'), { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals: [professional] }, 'a preferred mismatch does not erase verified alternatives')
 assert.deepEqual(await port.availabilityBasket!([selected('cut'), selected('cut')], '2026-10-02'), { ok: false, reason: 'SERVICE_UNAVAILABLE' })
 assert.deepEqual(await port.availabilityBasket!([], '2026-10-02'), { ok: false, reason: 'SERVICE_UNAVAILABLE' })
 assert.deepEqual(await port.availabilityBasket!(Array.from({ length: 11 }, (_, n) => selected('s' + n)), '2026-10-02'), { ok: false, reason: 'SERVICE_UNAVAILABLE' })

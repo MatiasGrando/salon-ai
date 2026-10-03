@@ -5,11 +5,14 @@ import type { InformationTarget } from './engine.js'
 import { BASKET_LIMITS, type BasketMutation } from './service-basket.js'
 
 /** Untrusted semantic proposals. The engine, never the model, authorizes catalog/agenda use. */
+export const DRAFT_EDIT_FIELDS = ['service', 'date', 'professional', 'time', 'name'] as const
+export type DraftEditField = typeof DRAFT_EDIT_FIELDS[number]
 type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
   | BasketMutation
   | { kind: 'confirm_proposal' }
+  | { kind: 'request_change'; field: DraftEditField }
   | { kind: 'estimate'; serviceId: string; optionId: string | null }
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
@@ -43,6 +46,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
       members: { type: 'array', maxItems: BASKET_LIMITS.members, items: objectSchema({ mode: { type: 'string', enum: ['single', 'alternatives', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), maxItems: BASKET_LIMITS.candidates }, ...evidenceSchema }) }
     }),
     operationSchema('confirm_proposal', {}),
+    operationSchema('request_change', { field: { type: 'string', enum: DRAFT_EDIT_FIELDS } }),
     operationSchema('estimate', { serviceId: stringSchema(128), optionId: { type: ['string','null'], minLength: 1, maxLength: 128 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
@@ -110,6 +114,10 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       exactKeys(raw, [...common, 'mode', 'serviceIds', 'correction'])
       if (!['single', 'alternatives', 'multiple', 'unresolved'].includes(String(raw.mode)) || typeof raw.correction !== 'boolean' || !Array.isArray(raw.serviceIds) || raw.serviceIds.length > TURN_PLAN_LIMITS.candidates || raw.serviceIds.some(id => !bounded(id, 128)) || new Set(raw.serviceIds).size !== raw.serviceIds.length || (raw.mode === 'single' ? raw.serviceIds.length !== 1 : raw.mode === 'unresolved' ? raw.serviceIds.length !== 0 : raw.serviceIds.length < 2)) fail('service')
       if (catalogIds && raw.serviceIds.some(id => !catalogIds.includes(id))) fail('catalog')
+    } else if (raw.kind === 'request_change') {
+      exactKeys(raw, [...common, 'field'])
+      if (!DRAFT_EDIT_FIELDS.includes(raw.field as DraftEditField)) fail('edit field')
+      identity = String(raw.field)
     } else if (raw.kind === 'estimate') {
       exactKeys(raw, [...common,'serviceId','optionId'])
       if (!bounded(raw.serviceId,128) || raw.optionId !== null && !bounded(raw.optionId,128)) fail('estimate')

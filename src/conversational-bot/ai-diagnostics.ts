@@ -43,6 +43,7 @@ export type StateSummary = {
   basketAlternatives?: number
   basketUnresolved?: number
   basketResolved?: boolean
+  editRequestedFields?: import('./turn-plan.js').DraftEditField[]
   estimateSelections?: number
 }
 const dataField = (value: unknown, key: string): unknown =>
@@ -54,7 +55,7 @@ export function summarizeProposal(raw: unknown): ProposalSummary {
   const rawPlan = dataField(raw, 'turnPlan')
   const operations = dataField(rawPlan, 'operations')
   const planOperations = Array.isArray(operations) ? operations.slice(0, TURN_PLAN_LIMITS.operations + 1) : []
-  const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'name', 'information', 'unsupported_action']
+  const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'name', 'information', 'unsupported_action']
   const kinds = [...new Set(planOperations.map(operation => dataField(operation, 'kind')).filter((kind): kind is RequestKind => requestKinds.includes(kind as RequestKind)))]
   const serviceOperation = planOperations.find(operation => dataField(operation, 'kind') === 'service')
   const planCandidates = dataField(serviceOperation, 'serviceIds')
@@ -127,6 +128,7 @@ export function summarizeState(state: DialogueState): StateSummary {
     professionalHint: state.professionalNameHint !== null,
     slot: state.slot !== null,
     name: state.customerName !== null,
+    ...(state.editRequest ? { editRequestedFields: [...state.editRequest.fields] } : {}),
     ...(state.serviceEstimates ? { estimateSelections: Math.min(Object.keys(state.serviceEstimates).length, BASKET_LIMITS.members) } : {}),
     ...(state.basket ? { basketMembers: state.basket.members.length,
       basketAlternatives: state.basket.members.filter(member => member.mode === 'alternatives').length,
@@ -145,7 +147,7 @@ export function summarizeAvailability(value: unknown): AvailabilityDiagnostic | 
     const phase = dataField(value, 'phase')
     const reason = dataField(value, 'reason')
     const scope = dataField(value, 'scope')
-    const blocked = ['SERVICE_UNAVAILABLE', 'INVALID_CONFIGURATION', 'DOMAIN_REVIEW', 'PHOTO_REQUIRED', 'VALIDATION_REQUIRED', 'ESTIMATE_NOT_BOOKABLE', 'INVALID_DURATION', 'COMBINATION_BLOCKED', 'COMBINATION_REVIEW', 'NO_COMMON_PROFESSIONAL']
+    const blocked = ['SERVICE_UNAVAILABLE', 'INVALID_CONFIGURATION', 'DOMAIN_REVIEW', 'PHOTO_REQUIRED', 'VALIDATION_REQUIRED', 'ESTIMATE_NOT_BOOKABLE', 'INVALID_DURATION', 'COMBINATION_BLOCKED', 'COMBINATION_REVIEW', 'NO_COMMON_PROFESSIONAL', 'PREFERRED_PROFESSIONAL_INCOMPATIBLE']
     const unsupported = ['UNSUPPORTED_OCCUPANCY', 'PORT_UNAVAILABLE', 'CUSTOMER_DURATION_PROOF_MISSING', 'GUIDANCE_RESULT_NOT_PENDING']
     if (!['verified', 'no_slots', 'guidance_required', 'blocked', 'unsupported'].includes(outcome as string) ||
         !['preflight', 'query', 'fresh_guidance', 'contract', 'slots'].includes(phase as string) ||

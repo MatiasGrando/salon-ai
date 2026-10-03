@@ -47,6 +47,7 @@ export type InterpretationDiagnostics = {
   stateBefore?: StateSummary
   stateAfter?: StateSummary
   availability?: DialogueResponse['availability']
+  turnOutcome?: DialogueResponse['turnOutcome']
   interpretationProviderError?: ProviderFailure | null
   responseProviderError?: ProviderFailure | null
   aiCalls?: number
@@ -153,7 +154,16 @@ function catalogEvidenceMatches(evidence: string, services: readonly DialogueSer
 }
 /** Resolve ambiguity per member; an exact companion service is never swallowed by a generic phrase. */
 function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[]): BasketMemberProposal {
-  const matches = catalogEvidenceMatches(member.evidence, services)
+  let matches = catalogEvidenceMatches(member.evidence, services)
+  // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
+  // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
+  if (matches.length < 2 && member.mode === 'alternatives') {
+    const proposed = services.filter(service => member.serviceIds.includes(service.id))
+    const evidence = evidenceWords(member.evidence).trim().split(' ')
+    const meaningful = (name: string) => evidenceWords(name).trim().split(' ').filter(term => !['un', 'una', 'el', 'la', 'de', 'del', 'y'].includes(term))
+    const anchors = [...new Set(proposed.flatMap(service => meaningful(service.name)))].filter(term => evidence.includes(term))
+    if (anchors.length) matches = services.filter(service => anchors.every(term => meaningful(service.name).includes(term)))
+  }
   if (matches.length > BASKET_LIMITS.candidates) throw new Error('basket ambiguity exceeds bound')
   return matches.length > 1 ? { ...member, mode: 'alternatives', serviceIds: matches.map(service => service.id) } : member
 }
@@ -427,6 +437,7 @@ export async function respondWithAiInterpreter(
     proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(response.state),
     interpretationProviderError, responseProviderError,
     ...(availability ? { availability } : {}),
+    ...(response.turnOutcome ? { turnOutcome: response.turnOutcome } : {}),
     copyMode: authored && modelFraming ? 'ai' : 'fallback', copyReason
   } }, cachedPort)
 }

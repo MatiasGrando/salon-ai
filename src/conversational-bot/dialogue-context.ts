@@ -55,7 +55,7 @@ function resolveFacts(facts: RouteFacts) {
 export function resolveDialogueRoute(state: DialogueState, services: readonly DialogueService[] = [], required: DialogueField | null = null) {
   const selected = basketServiceIds(state).flatMap(id => services.filter(service => service.id === id))
   return resolveFacts({ service: basketIsResolved(state), estimate: selected.length > 0 && !!resolveGuidance(selected, state.serviceEstimates).pending,
-    date: !!state.date, professional: !!state.professional, time: !!state.slot, name: !!state.customerName, required })
+    date: !!state.date, professional: !!state.professional, time: !!state.slot, name: !!state.customerName, required: required ?? state.editRequest?.fields[0] ?? null })
 }
 export function dialogueQuestion(field: DialogueField): string {
   return resolveFacts({ service: false, estimate: false, date: false, professional: false, time: false, name: false, required: field }).question
