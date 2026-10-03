@@ -15,5 +15,5 @@ export async function loadDialogueIdentity(client: DialogueIdentityClient, busin
   const settings = await client.businessFeatureSettings.findUnique({ where: { businessId }, select: { businessId: true, assistantPersonality: true } })
   if (settings && settings.businessId !== businessId) throw new Error('invalid identity scope')
   const profile = normalizeAssistantPersonality(settings?.assistantPersonality)
-  return validateDialogueIdentity({ businessId, businessName: row.name.trim().replace(/\s+/g, ' '), assistantName: profile.name, treatment: profile.treatment, greetingEmoji: profile.emojiLevel === 'none' ? null : profile.preferredEmojis[0] ?? null })
+  return validateDialogueIdentity({ businessId, businessName: (publicBusiness ? row.name : profile.commercialName ?? row.name).trim().replace(/\s+/g, ' '), assistantName: profile.name, treatment: profile.treatment, greetingEmoji: profile.emojiLevel === 'none' ? null : profile.preferredEmojis[0] ?? null })
 }

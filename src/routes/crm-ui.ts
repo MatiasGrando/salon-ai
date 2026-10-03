@@ -18980,6 +18980,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <input class="field" id="assistant-name" maxlength="40" placeholder="Ej: Cami">
               </div>
               <div class="settings-field">
+                <label for="assistant-commercial-name">Nombre comercial para el bot (opcional)</label>
+                <input class="field" id="assistant-commercial-name" maxlength="80" placeholder="Nombre que ver&aacute;n los clientes">
+                <small>Si queda vac&iacute;o, el bot usar&aacute; el nombre del comercio cargado en el CRM.</small>
+              </div>
+              <div class="settings-field">
                 <label for="assistant-role">Rol</label>
                 <input class="field" id="assistant-role" maxlength="80" placeholder="Ej: recepcionista virtual">
               </div>
@@ -20277,6 +20282,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       conversationPauseHours: document.getElementById('conversation-pause-hours'),
       conversationExpireHours: document.getElementById('conversation-expire-hours'),
       assistantPersonalityForm: document.getElementById('assistant-personality-form'),
+      assistantCommercialName: document.getElementById('assistant-commercial-name'),
       assistantPreset: document.getElementById('assistant-preset'),
       assistantName: document.getElementById('assistant-name'),
       assistantRole: document.getElementById('assistant-role'),
@@ -26805,6 +26811,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const personality = state.aiSettings.assistantPersonality || {}
       els.assistantPreset.value = personality.preset || 'warm'
       els.assistantName.value = personality.name || 'Cami'
+      els.assistantCommercialName.value = personality.commercialName || ''
       els.assistantRole.value = personality.role || 'recepcionista virtual'
       els.assistantTreatment.value = personality.treatment || 'vos'
       els.assistantEmojiLevel.value = personality.emojiLevel || 'moderate'
@@ -26820,6 +26827,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return {
         preset: els.assistantPreset.value,
         name: els.assistantName.value.trim(),
+        commercialName: els.assistantCommercialName.value.trim(),
         role: els.assistantRole.value.trim(),
         treatment: els.assistantTreatment.value,
         emojiLevel: els.assistantEmojiLevel.value,
@@ -26839,9 +26847,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const emoji = personality.emojiLevel === 'none'
         ? ''
         : ' ' + (personality.preferredEmojis[0] || '😊')
-      const greeting = personality.treatment === 'usted'
-        ? 'Hola, soy ' + (personality.name || 'Cami') + ', su ' + (personality.role || 'asistente virtual') + '.' + emoji
-        : '¡Hola! Soy ' + (personality.name || 'Cami') + ', tu ' + (personality.role || 'asistente virtual') + '.' + emoji
+      const brand = personality.commercialName || state.business?.name || ''
+      const greeting = brand
+        ? '¡Holaa!' + emoji + ' Soy ' + (personality.name || 'Cami') + ', de ' + brand + '.'
+        : personality.treatment === 'usted'
+          ? 'Hola, soy ' + (personality.name || 'Cami') + ', su ' + (personality.role || 'asistente virtual') + '.' + emoji
+          : '¡Hola! Soy ' + (personality.name || 'Cami') + ', tu ' + (personality.role || 'asistente virtual') + '.' + emoji
       const followUp = personality.treatment === 'usted'
         ? '¿En qué puedo ayudarle?'
         : personality.treatment === 'tu'
@@ -26893,6 +26904,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!els.assistantName.value.trim() || !els.assistantRole.value.trim()) {
         showAssistantPersonalityFeedback('Completá el nombre y el rol del asistente.', 'error')
+        return
+      }
+      if (/[\\p{Cc}\\p{Cf}]/u.test(els.assistantCommercialName.value)) {
+        showAssistantPersonalityFeedback('El nombre comercial tiene caracteres no permitidos.', 'error')
         return
       }
       if (!setButtonLoading(els.assistantPersonalitySubmit, true, 'Guardando...')) return
@@ -38188,6 +38203,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     for (const field of [
       els.assistantName,
+      els.assistantCommercialName,
       els.assistantRole,
       els.assistantTreatment,
       els.assistantEmojiLevel,

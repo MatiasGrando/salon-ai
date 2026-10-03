@@ -13,6 +13,8 @@ export const ASSISTANT_RESPONSE_LENGTHS = ['short', 'normal', 'detailed'] as con
 export type AssistantPersonality = {
   preset: (typeof ASSISTANT_PERSONALITY_PRESETS)[number]
   name: string
+  /** Optional customer-facing brand; absent keeps Business.name unchanged. */
+  commercialName?: string
   role: string
   treatment: (typeof ASSISTANT_TREATMENTS)[number]
   emojiLevel: (typeof ASSISTANT_EMOJI_LEVELS)[number]
@@ -82,9 +84,11 @@ export function normalizeAssistantPersonality(value: unknown): AssistantPersonal
   )
   const defaults = PRESET_DEFAULTS[preset]
 
+  const commercialName = cleanCommercialName(source.commercialName)
   return {
     preset,
     name: cleanText(source.name, DEFAULT_ASSISTANT_PERSONALITY.name, 40),
+    ...(commercialName ? { commercialName } : {}),
     role: cleanText(source.role, defaults.role, 80),
     treatment: readEnum(source.treatment, ASSISTANT_TREATMENTS, defaults.treatment),
     emojiLevel: readEnum(source.emojiLevel, ASSISTANT_EMOJI_LEVELS, defaults.emojiLevel),
@@ -136,13 +140,16 @@ export function buildAssistantPersonalityInstructions(profile: AssistantPersonal
   ].filter(Boolean).join('\n')
 }
 
-export function assistantPersonalityPreview(profile: AssistantPersonality) {
+export function assistantPersonalityPreview(profile: AssistantPersonality, businessName?: string) {
   const emoji = profile.emojiLevel === 'none'
     ? ''
     : ` ${profile.preferredEmojis[0] ?? '😊'}`
-  const greeting = profile.treatment === 'usted'
-    ? `Hola, soy ${profile.name}, su ${profile.role}.${emoji}`
-    : `¡Hola! Soy ${profile.name}, tu ${profile.role}.${emoji}`
+  const brand = profile.commercialName ?? businessName
+  const greeting = brand
+    ? `¡Holaa!${emoji} Soy ${profile.name}, de ${brand}.`
+    : profile.treatment === 'usted'
+      ? `Hola, soy ${profile.name}, su ${profile.role}.${emoji}`
+      : `¡Hola! Soy ${profile.name}, tu ${profile.role}.${emoji}`
   const followUp = profile.treatment === 'usted'
     ? '¿En qué puedo ayudarle?'
     : profile.treatment === 'tu'
@@ -239,4 +246,11 @@ function replaceTerms(value: string, replacements: Array<[string, string]>) {
     (result, [source, replacement]) => result.replaceAll(source, replacement),
     value
   )
+}
+
+/** Strip controls/format characters and bound the display name without splitting Unicode code points. */
+function cleanCommercialName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const cleaned = value.replace(/[\p{Cc}\p{Cf}]/gu, ' ').trim().replace(/\s+/gu, ' ')
+  return cleaned ? Array.from(cleaned).slice(0, 80).join('') : undefined
 }

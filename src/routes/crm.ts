@@ -850,7 +850,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       tamaraOptionsBot,
       assistantPersonality,
-      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
+      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality, business?.name)
     }
   })
 
@@ -1040,7 +1040,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       conversationExpireAfterMinutes: contextSettings.expireAfterMinutes,
       tamaraOptionsBot,
       assistantPersonality,
-      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality)
+      assistantPersonalityPreview: assistantPersonalityPreview(assistantPersonality, business?.name)
     }
   })
 
@@ -2505,7 +2505,7 @@ async function findCrmBusiness(businessId?: string) {
       where: {
         id: businessId
       },
-      select: { id: true, botEnabled: true, aiEnabled: true }
+      select: { id: true, name: true, botEnabled: true, aiEnabled: true }
     })
   }
 
@@ -2513,7 +2513,7 @@ async function findCrmBusiness(businessId?: string) {
     orderBy: {
       createdAt: 'asc'
     },
-    select: { id: true, botEnabled: true, aiEnabled: true }
+    select: { id: true, name: true, botEnabled: true, aiEnabled: true }
   })
 }
 

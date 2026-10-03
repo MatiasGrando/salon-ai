@@ -11,7 +11,7 @@ export async function readPublicSourceStamp(client: StampClient, context: Dialog
     /* conversational-public-source-stamp */
     SELECT b."id" AS "businessId", settings."timezone", encode(sha256(convert_to(jsonb_build_array(
       jsonb_build_array(b."id", b."name", b."publicAddress", b."publicAddressArea", b."publicMapsUrl", b."publicWhatsapp",
-        b."contactEmail", b."workshopPublicSiteUrl", b."instagramUrl", b."facebookUrl", b."tiktokUrl", b."landingDescription"),
+        b."contactEmail", b."workshopPublicSiteUrl", b."instagramUrl", b."facebookUrl", b."tiktokUrl", b."landingDescription", personality."assistantPersonality"->>'commercialName'),
       settings."timezone", ${context.timezone}::text, ${from}::timestamp, ${to}::timestamp,
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(c."id", c."name", c."sortOrder", c."isActive") ORDER BY c."id"), '[]'::jsonb)
         FROM "ServiceCategory" c WHERE c."businessId" = b."id"),
@@ -39,6 +39,7 @@ export async function readPublicSourceStamp(client: StampClient, context: Dialog
           AND e."startAt" < ${to} AND e."endAt" > ${from})
     )::text, 'UTF8')), 'hex') AS "stamp"
     FROM "Business" b JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = b."id"
+    LEFT JOIN "BusinessFeatureSettings" personality ON personality."businessId" = b."id"
     WHERE b."id" = ${context.businessId}
   `)
   const row = rows[0]

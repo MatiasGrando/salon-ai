@@ -5,7 +5,7 @@ import { readPublicSourceStamp, loadReadonlyPublicSnapshot } from '../src/conver
 
 const db = new PGlite()
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business', 'BusinessBotOptionsSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'ProfessionalHours', 'BusinessPaymentMethod', 'BusinessHours', 'ScheduleBlock']
+const models = ['Business', 'BusinessBotOptionsSettings', 'BusinessFeatureSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'ProfessionalHours', 'BusinessPaymentMethod', 'BusinessHours', 'ScheduleBlock']
 // Columns derive from the actual Prisma schema: unknown stamp fields fail real SQL.
 for (const model of models) {
   const body = schema.match(new RegExp('model ' + model + ' \\{([\\s\\S]*?)\\n\\}'))![1]!
@@ -23,6 +23,7 @@ await db.exec(`ALTER TABLE "ProfessionalService" ADD FOREIGN KEY ("serviceId") R
   ALTER TABLE "ProfessionalService" ADD FOREIGN KEY ("professionalId") REFERENCES "Professional"("id") ON DELETE CASCADE;
   INSERT INTO "Business" ("id","name","publicAddress") VALUES ('a','A','First'),('b','B','Other');
   INSERT INTO "BusinessBotOptionsSettings" ("businessId","timezone") VALUES ('a','America/Argentina/Buenos_Aires'),('b','America/Argentina/Buenos_Aires');
+  INSERT INTO "BusinessFeatureSettings" ("id","businessId","assistantPersonality") VALUES ('settings-a','a','{"commercialName":"Original"}'::jsonb),('settings-b','b','{"commercialName":"Other"}'::jsonb);
   INSERT INTO "ServiceCategory" ("id","businessId","name","isActive","sortOrder") VALUES ('ca','a','Services',true,0);
   INSERT INTO "Service" ("id","businessId","name","price","duration","isBookable","isActive","catalogCategoryId") VALUES ('sa','a','Cut',10,30,true,true,'ca');
   INSERT INTO "Professional" ("id","businessId","isActive","acceptsBotBookings") VALUES ('pa','a',true,true);
@@ -37,6 +38,10 @@ try {
   assert.equal(await stamp(), before)
   await db.exec(`UPDATE "Business" SET "publicAddress"='Other Changed' WHERE "id"='b'`)
   assert.equal(await stamp(), before, 'foreign edits never invalidate local source')
+  await db.exec(`UPDATE "BusinessFeatureSettings" SET "assistantPersonality"='{"commercialName":"Foreign Changed"}'::jsonb WHERE "businessId"='b'`)
+  assert.equal(await stamp(), before, 'foreign alias must not invalidate local cache')
+  await db.exec(`UPDATE "BusinessFeatureSettings" SET "assistantPersonality"='{"commercialName":"Glow"}'::jsonb WHERE "businessId"='a'`)
+  assert.notEqual(await stamp(), before, 'local alias edit invalidates public cache')
   for (const [table, id, field, value] of [
     ['Business','a','publicAddress',"'Second'"], ['Business','a','contactEmail',"'public@example.test'"],
     ['Business','a','name',"'Updated'"], ['Business','a','publicMapsUrl',"'https://maps.example'"],
