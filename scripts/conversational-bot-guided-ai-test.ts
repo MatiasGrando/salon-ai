@@ -146,7 +146,7 @@ const freshPort: DialoguePort = { ...port, availabilityBasket: async () => ({ ok
 const refreshed = await say(chosen.state, '17hs', candidate(plan({ kind: 'time', value: '17:00', ...ev('17hs') }), { firstReply: { opening: 'Viejo borrador.', closing: null, factIds: [] } }), freshPort)
 assert.equal(refreshed.state.pending, 'estimate'); assert.equal(refreshed.state.serviceEstimates?.[smooth.id], undefined)
 assert.match(refreshed.reply, /Nueva variante/); assert.doesNotMatch(refreshed.reply, /Hasta los hombros|Viejo borrador/)
-assert.equal(refreshed.interpretation.replyRoute, 'second_call'); assert.equal(refreshed.proposal, null)
+assert.equal(refreshed.interpretation.replyRoute, 'motor'); assert.equal(refreshed.interpretation.deliveryOrigin, 'prepared'); assert.equal(refreshed.proposal, null)
 services = [cut, woman, changedPolicy, paint]
 const freshChosen = await say(refreshed.state, 'la nueva variante', candidate(plan(estimate(smooth.id, 'updated-private', 'nueva variante'))))
 assert.equal(freshChosen.interpretation.mode, 'ai'); assert.equal(freshChosen.state.serviceEstimates?.[smooth.id]?.optionId, 'updated-private')

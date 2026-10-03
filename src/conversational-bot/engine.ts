@@ -1,4 +1,4 @@
-import { appliedChangeAcknowledgment } from './draft-delivery.js'
+import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
 import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation } from './dialogue-choice-presentation.js'
@@ -68,7 +68,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -303,14 +303,19 @@ function mutateStateBasket(state: DialogueState, op: BasketMutation): void {
   }
 }
 function basketQuestion(state: DialogueState, services: readonly DialogueService[]): string | null {
-  const pending = selectionBasket(state).members.find(member => member.mode !== 'single')
+  const members = selectionBasket(state).members
+  const pending = members.find(member => member.mode !== 'single')
   if (!pending) return null
-  const exact = selectionBasket(state).members.filter(member => member.mode === 'single').map(member => services.find(s => s.id === member.serviceIds[0])?.name).filter(Boolean)
+  const names = (ids: readonly string[]) => services.filter(service => ids.includes(service.id)).map(service => service.name)
+  const summary = members.map(member => member.mode === 'single' ? names(member.serviceIds).join(' / ')
+    : member.evidence || names(member.serviceIds).join(' / ')).filter(Boolean)
+  const heading = members.length > 1 ? 'Perfecto, seguimos con ' + summary.join(' y ') + '.\n\n' : ''
+  const exact = members.filter(member => member.mode === 'single').flatMap(member => names(member.serviceIds))
   const retained = exact.length ? '\nMantengo también: ' + exact.join(', ') + '.' : ''
-  return pending.mode === 'unresolved' ? 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
-    : renderServices(services.filter(service => pending.serviceIds.includes(service.id)), 'booking') + retained
+  if (pending.mode === 'unresolved') return heading + 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
+  return heading + 'Para ' + pending.evidence + ', ¿Cuál de estos servicios querés?\n\n' +
+    renderServices(services.filter(service => pending.serviceIds.includes(service.id))) + retained
 }
-
 /** Persist only the concrete alternatives actually rendered, never the whole catalog. */
 function rememberBasketClarification(state: DialogueState, services: readonly DialogueService[], reply: string): void {
   const member = selectionBasket(state).members.find(item => item.mode !== 'single')
@@ -720,7 +725,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 }
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
-async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown): Promise<DialogueResponse> {
+async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent']): Promise<DialogueResponse> {
   let raw = parseTurnPlan(rawPlan, message)
   const possibleMatch = !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
   const needsCatalog = possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
@@ -736,6 +741,12 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   if (state.informationFocus && implicitRead?.kind === 'service' && !explicitBooking) {
     raw = { ...raw, operations: raw.operations.filter(op => op.kind !== 'name' || explicitIdentity(message, op.value)) }
+  }
+  // A validated semantic no-op is not an answer to a pending entity. Explicit
+  // operations and information routes retain authority over this social route.
+  const route = routeActions(message)
+  if (intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
+    return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
   }
   const matched = matchingTurn(state, message, raw, context, services)
   const contextual = contextualizeIdentity(matched.plan, state, message)
@@ -841,7 +852,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
     if (clarification) {
       rememberBasketClarification(state, services, clarification)
-      return finishWithoutAgenda(clarification)
+      return { ...finishWithoutAgenda(clarification), replyPrepared: true }
     }
     return finishWithoutAgenda(socialQuestion(state))
   }
@@ -850,7 +861,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (!matched.matching && (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved')) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
     if (clarification) rememberBasketClarification(state, services, clarification)
-    return finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services))
+    return { ...finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services)), replyPrepared: true }
   }
   if (uncertainDate) {
     state.pending = basketIsResolved(state) ? 'date' : 'service'
@@ -865,7 +876,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
 async function respondCore(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
-  if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan)
+  if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan, decision.intent)
   const delivered = (reply: string): DialogueResponse => {
     const question = pendingQuestion(state)
     if (state.dialogueContext) state.dialogueContext.lastQuestion = question.startsWith('¿') && question.endsWith('?') && reply.endsWith(question) ? question : null
@@ -1011,7 +1022,7 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   if (!decision?.turnPlan && (decision?.serviceId || decision?.candidateIds.length)) explicitFields.add('service')
   response.turnOutcome = { changedFields, appliedFields: changedFields.filter(field => explicitFields.has(field)),
     requestedChanges: [...response.state.editRequest?.fields ?? []], rejectedProfessionalPreference: response.availability?.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE' }
-  const acknowledgment = appliedChangeAcknowledgment(before, response.state, deliveryServices, response.turnOutcome)
+  const acknowledgment = acknowledgmentContent(appliedChangeAcknowledgment(before, response.state, deliveryServices, response.turnOutcome))
   const resumingGuide = response.state.pending === 'estimate' && !response.state.editRequest &&
     (Boolean(response.state.questionContext?.targetServiceId) || response.reply === socialQuestion(response.state))
   if (resumingGuide && !deliveryServices.length) deliveryServices = await deliveryPort.catalog()
@@ -1023,6 +1034,7 @@ export async function respond(context: DialogueContext, previous: unknown, messa
     if (response.reply === delivery.reply || response.reply === socialQuestion(response.state)) {
       response.reply = delivery.reply
       response.replyFacts = delivery.facts
+      response.replyPrepared = true
     }
   }
   if (acknowledgment) {

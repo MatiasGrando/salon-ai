@@ -15,8 +15,8 @@ const port: DialoguePort = { catalog: async () => [service, second], availabilit
 const before = { ...initialDialogueState('tenant'), serviceId: null, basket: { version: 1 as const, nextMemberId: 3, members: [{ memberId: 'm1', evidence: 'Tratamiento', mode: 'single' as const, serviceIds: ['smooth'] }, { memberId: 'm2', evidence: 'Corte', mode: 'single' as const, serviceIds: ['cut'] }] }, pending: 'estimate' as const }
 const change = { version: 1 as const, operations: [{ kind: 'basket' as const, mutation: 'remove' as const, scope: 'members' as const, targetMemberIds: ['m2'], members: [], evidence: 'sólo Tratamiento', confidence: 1 }] }
 const response = await respond(context, before, 'sólo Tratamiento', port, { intent: 'booking', turnPlan: change, serviceId: null, candidateIds: [], correction: false })
-assert.ok(response.reply.startsWith('Perfecto, seguimos sólo con Tratamiento.'), 'acknowledge the applied change before discussing remaining choice')
-assert.ok(response.reply.indexOf('• Corto') > response.reply.indexOf('seguimos sólo'))
+assert.ok(response.reply.startsWith('Seguimos sólo con Tratamiento.'), 'acknowledge the applied change before discussing remaining choice')
+assert.ok(response.reply.indexOf('• Corto') > response.reply.indexOf('Seguimos sólo'))
 assert.ok(response.reply.endsWith('¿Qué largo tenés?'))
 assert.ok(response.reply.includes(service.bookingPolicy!.estimateDisclaimer!))
 let first: AiInterpretationInput | undefined, calls = 0
@@ -99,5 +99,7 @@ const changedCopy = await respondWithAiInterpreter(context, before, 'sólo Trata
   Object.assign(async () => ({ intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: change }), {
     respond: async (input: import('../src/conversational-bot/ai-interpreter.js').AiResponseInput) => { changeNeutral = input.replyContract?.neutral; return { opening: null, closing: null, factIds: input.facts.map(fact => fact.id), variantChoices: null } }
   }))
-assert.equal(changeNeutral, true, 'server-owned applied acknowledgment must lead, not duplicate an optional model acknowledgment')
-assert.ok(changedCopy.reply.startsWith('Perfecto, seguimos sólo con Tratamiento.'))
+assert.equal(changeNeutral, undefined, 'prepared server guidance needs no redundant composer call')
+assert.equal(changedCopy.interpretation.deliveryOrigin, 'prepared')
+assert.ok(changedCopy.reply.startsWith('Seguimos sólo con Tratamiento.'))
+assert.equal(changedCopy.replyFacts?.[0]?.id, 'acknowledgment', 'the grounded applied change still leads the prepared guide')

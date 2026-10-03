@@ -40,6 +40,7 @@ export type InterpretationDiagnostics = {
   providerMs: number
   validationMs: number
   totalMs: number
+  deliveryOrigin?: 'forced' | 'prepared' | 'validated_framing' | 'validated_canonical' | 'server_fallback'
   copyMode: 'ai' | 'fallback'
   copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
   proposal?: ProposalSummary
@@ -78,7 +79,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
             if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new Error('unknown basket target')
-            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message)) }
+            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
           }
           if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
           const matches = catalogEvidenceMatches(operation.evidence, services)
@@ -153,7 +154,11 @@ function catalogEvidenceMatches(evidence: string, services: readonly DialogueSer
   }) : []
 }
 /** Resolve ambiguity per member; an exact companion service is never swallowed by a generic phrase. */
-function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string): BasketMemberProposal {
+function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string, retainedIds: readonly string[] = []): BasketMemberProposal {
+  // Resolve an unambiguous retained-member reference before widening to catalog variants.
+  const retained = catalogEvidenceMatches(member.evidence, services.filter(service => retainedIds.includes(service.id)))
+  if (member.confidence >= 0.85 && retained.length === 1 && member.serviceIds.includes(retained[0]!.id) &&
+      !/[?¿]/.test(message) && !/\b(no|ni|sin|o)\b/.test(normalized(message))) return { ...member, mode: 'single', serviceIds: [retained[0]!.id] }
   // Only a closed standalone full catalog label overrides a spurious model group.
   // A fragment inside negation, alternatives or a multi-entity request is not a closed selection.
   const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(member.evidence))
@@ -303,7 +308,7 @@ export async function respondWithAiInterpreter(
     candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
-  const decision: DialogueDecision | undefined = safeBasketFallback ? { intent: 'other', serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
+  const decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, ...(candidate.informationTarget !== undefined ? { informationTarget: candidate.informationTarget } : {}), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
@@ -385,7 +390,7 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
-  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts) {
+  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts && !response.replyPrepared) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++
@@ -442,6 +447,7 @@ export async function respondWithAiInterpreter(
     mode: reason ? 'fallback' : 'ai', reason,
     providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
     aiCalls, replyRoute,
+    deliveryOrigin: authored ? modelFraming ? 'validated_framing' : 'validated_canonical' : response.replyPrepared ? 'prepared' : canonicalOnly ? 'forced' : 'server_fallback',
     engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),
     usage: { interpretation: readAiUsage(raw), response: responseUsage },
     proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(response.state),
