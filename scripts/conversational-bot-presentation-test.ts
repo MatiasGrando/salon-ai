@@ -42,7 +42,7 @@ assert.match(concentrated.text, /tarde/); assert.doesNotMatch(concentrated.text,
 const nearest = presentAvailability({ ...input([slot('09:00'), slot('12:30'), slot('13:30'), slot('17:00')]), requestedTime: '13:00' })
 assert.equal(nearest.choices.length, 3)
 assert.deepEqual(nearest.choices.filter(c => c.kind === 'slot').map(c => c.slot.time), ['12:30', '13:30', '09:00'])
-assert.match(nearest.text, /13:00.*disponible/)
+assert.match(nearest.text, /13:00.*disponibilidad/)
 const exact = presentAvailability({ ...input(few), requestedTime: '13:00' })
 assert.equal(exact.choices.length, 1); assert.equal('selectedSlot' in exact, false)
 assert.throws(() => presentAvailability({ ...input(few), requestedTime: '13:00', preference: { kind: 'after', time: '15:00' } }), /conflicting temporal/)

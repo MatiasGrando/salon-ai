@@ -1,3 +1,4 @@
+import { standardDelivery, standardWorkSchedule, safePublicLink, type StandardField } from './standard-delivery.js'
 import { routeActions, type InformationAction } from './actions.js'
 import { normalizeAnswer } from './dialogue-context.js'
 import { affirmativeMatchAnswer, matchPresentedServiceAnswer } from './contextual-matching.js'
@@ -8,7 +9,7 @@ import { parseInformationFocus, parseInformationTarget, type InformationTarget, 
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
 export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus }
-const missing = (subject = 'esa información'): InformationRead => ({ reply: 'Todavía no tengo ' + subject + ' cargada. Puedo ayudarte con otra consulta sobre el local.', outcome: 'missing' })
+const missing = (subject = 'esa información'): InformationRead => ({ reply: standardDelivery({ kind: 'missing', subject }), outcome: 'missing' })
 const explicitBooking = (message: string) => /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
 export function informationAspect(message: string): ServiceInformationAspect | null {
   const text = normalizeAnswer(message)
@@ -71,7 +72,7 @@ function clarifyService(state: DialogueState, services: readonly DialogueService
   const question = candidateId ? '¿Te referís a ' + services.find(service => service.id === candidateId)!.name + '?'
     : aspect === 'price' ? services.length ? '¿De cuál de estos servicios querés saber el precio?' : '¿De qué servicio querés consultar el precio?'
       : services.length ? '¿De cuál de estos servicios querés información?' : '¿Sobre qué servicio querés información?'
-  return { reply: question + (candidateId || !services.length ? '' : '\n' + renderServices(services)), outcome: 'clarifying',
+  return { reply: candidateId || !services.length ? question : renderServices(services, aspect === 'price' ? 'price' : 'details'), outcome: 'clarifying',
     focus: focusFor(state, services, aspect, null, candidateId) }
 }
 function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[]): InformationRead {
@@ -101,7 +102,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   const focus = focusFor(state, [item], target.aspect, item.id)
   const unavailable = (subject: string) => ({ ...missing(subject + ' sobre ' + item.name), focus })
   const options = parseEstimateOptions(item.bookingPolicy?.estimateOptions ?? []) ?? []
-  const variants = options.map(option => option.label + ': ' + formatServiceEstimate({ optionId: option.id, optionLabel: option.label, priceMin: option.priceMin, priceMax: option.priceMax }) + (option.note ? ' — ' + option.note : ''))
+  const variants = options.map(option => '• ' + option.label + ': ' + formatServiceEstimate({ optionId: option.id, optionLabel: option.label, priceMin: option.priceMin, priceMax: option.priceMax }) + (option.note ? ' — ' + option.note : ''))
   const duration = formatCatalogDuration(item.durationMinutes, item.durationMinMinutes ?? null, item.durationMaxMinutes ?? null)
   const price = formatCatalogPrice(item.price, item.priceMode ?? 'FIXED')
   let lines: string[] = []
@@ -120,18 +121,21 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
       ...(variants.length ? variants : price ? [price] : ['Precio a consultar']),
       ...(target.aspect === 'overview' && duration ? [duration] : []), ...(item.bookingPolicy?.estimateDisclaimer ? [item.bookingPolicy.estimateDisclaimer] : [])]
   }
-  return { reply: item.name + ': ' + lines.join('\n'), outcome: 'found', focus }
+  return { reply: standardDelivery({ kind: 'service_details', name: item.name, lines }), outcome: 'found', focus }
 }
 function businessRead(target: Extract<InformationTarget, { kind: 'business' }>, message: string, facts: BusinessFacts | null, services: readonly DialogueService[]): InformationRead {
   const subject = target.subject ?? businessSubject(message)
   if (target.actions.includes('BUSINESS_INFO') && subject && subject !== 'general') {
     const fields = subject === 'socials' ? ['instagram', 'facebook', 'tiktok'] : subject === 'website' ? ['website']
       : subject === 'contact' ? ['whatsapp', 'email'] : subject === 'payments' ? ['paymentMethods'] : [subject]
-    const loaded = fields.flatMap(field => {
+    const labels: Record<string, string> = { instagram: 'Instagram', facebook: 'Facebook', tiktok: 'TikTok', website: 'Sitio web', whatsapp: 'WhatsApp', email: 'Correo', paymentMethods: 'Medios de pago', discounts: 'Descuentos', parking: 'Estacionamiento', accessibility: 'Accesibilidad', wifi: 'Wi-Fi', policies: 'Políticas' }
+    const loaded: StandardField[] = fields.flatMap(field => {
       const value = facts?.[field as keyof BusinessFacts]
-      return typeof value === 'string' && value.trim() ? [field + ': ' + value] : []
+      const link = ['instagram', 'facebook', 'tiktok', 'website'].includes(field)
+      return typeof value === 'string' && value.trim() && (!link || safePublicLink(value)) ? [{ label: labels[field] ?? field, value, link }] : []
     })
-    return loaded.length ? { reply: loaded.join('\n'), outcome: 'found' } : missing(subject === 'socials' ? 'la información de redes sociales' : 'esa información')
+    return loaded.length ? { reply: standardDelivery({ kind: 'fields', fields: loaded }), outcome: 'found' }
+      : { reply: standardDelivery({ kind: 'missing', businessName: facts?.name ?? null }), outcome: 'missing' }
   }
   const reply = renderInformation(target.actions, message, facts, services)
   const missingData = target.actions.some(action => action === 'HOURS' ? !facts?.hours || facts.hours === 'No tengo horarios publicados.'
@@ -147,10 +151,14 @@ function professionalRead(value: ProfessionalInformationFacts, businessId: strin
     }
   }
   if (!value.professionals.length) return missing(value.complete ? 'la información de ese profesional' : 'la jornada completa de esos profesionales')
-  return { reply: value.professionals.map(professional => [professional.name,
-    ...(target.aspect === 'overview' && professional.description ? [professional.description] : []),
-    ...(target.aspect === 'services' ? [professional.services.length ? 'Servicios: ' + professional.services.map((service: ProfessionalInformationFacts['professionals'][number]['services'][number]) => service.name).join(', ') : 'No tengo sus servicios cargados.'] : []),
-    ...(target.aspect === 'schedule' ? [professional.schedule ? 'Horario habitual: ' + professional.schedule : 'No tengo su horario habitual cargado.'] : [])].join('\n')).join('\n') + (value.complete ? '' : '\nNo tengo la jornada completa cargada para responder esa consulta.'),
+  const details = value.professionals.flatMap(professional => {
+    const lines = [
+      ...(target.aspect === 'overview' && professional.description ? [professional.description] : []),
+      ...(target.aspect === 'services' ? [professional.services.length ? 'Servicios: ' + professional.services.map((service: ProfessionalInformationFacts['professionals'][number]['services'][number]) => service.name).join(', ') : 'Todavía no tengo sus servicios cargados.'] : []),
+      ...(target.aspect === 'schedule' ? [professional.schedule ? 'Horario habitual:\n' + standardWorkSchedule(professional.schedule) : 'Todavía no tengo su horario habitual cargado.'] : [])]
+    return lines.length ? [professional.name + ':\n' + lines.join('\n')] : []
+  })
+  return { reply: standardDelivery({ kind: 'professionals', names: value.professionals.map(pro => pro.name), details, complete: value.complete, overview: target.aspect === 'overview' }),
     outcome: !value.complete || target.aspect === 'schedule' && value.professionals.every(professional => !professional.schedule) || target.aspect === 'services' && value.professionals.every(professional => !professional.services.length) ? 'missing' : 'found' }
 }
 export async function readInformation(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawTarget: InformationTarget, preparedServices?: readonly DialogueService[]): Promise<InformationRead> {

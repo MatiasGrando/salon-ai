@@ -1,3 +1,4 @@
+import { formatDeliveryDate, standardDateTimeQuestion, standardProfessionalChoices, standardSlotOffer, standardManySlots } from './standard-delivery.js'
 import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, localDateKey, parseMinutes, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
 import { filterTimePreference, parseTimePreference, type TimePreference } from './time-preference.js'
 import { resolveDialogueDate } from './dialogue-date.js'
@@ -78,7 +79,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
       { kind: 'preference', label: 'Por la noche', preference: { kind: 'band', band: 'EVENING' } }
     ].filter(choice => choice.kind === 'preference' && choice.preference.kind === 'band' && filtered.some(slot => slot.band === choice.preference.band)) as PresentationChoice[]
     choices.push({ kind: 'preference', label: 'Cualquier horario', preference: { kind: 'any' } })
-    return { kind: 'preference', text: `Hay varias opciones disponibles para el ${formatDateChoice(input.scope.date!, input.timezone)}. ${choices.map(choice => choice.label).join(' · ')}.\n¿En qué franja o desde qué hora preferís venir?`, choices, hasMore: false }
+    return { kind: 'preference', text: standardManySlots(formatDeliveryDate(input.scope.date!), choices.map(choice => choice.label)), choices, hasMore: false }
   }
   const short = input.preference?.kind === 'any' || input.preference?.kind === 'earliest' || nearest
   const pageSize = short ? 3 : BOOKING_SLOT_PAGE_SIZE
@@ -86,22 +87,23 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   if (start >= filtered.length) throw new Error('invalid presentation cursor')
   const choices = slotChoices(filtered.slice(start, start + pageSize), all, input.timezone)
   const band = new Set(filtered.map(slot => slot.band))
-  const concentration = band.size === 1 ? ` Son ${filtered[0]!.band === 'MORNING' ? 'por la mañana' : filtered[0]!.band === 'AFTERNOON' ? 'por la tarde' : 'por la noche'}.` : ''
-  const lead = nearest ? `Las ${input.requestedTime} no están disponibles; estas son las opciones más cercanas:` : `Estos horarios están disponibles.${concentration}`
-  return { kind: 'slots', text: `${lead}\n${choices.map((choice, i) => `${i + 1}. ${choice.label}`).join('\n')}\n¿Cuál te viene bien?`, choices, hasMore: start + choices.length < filtered.length }
+  const concentration = band.size === 1 ? filtered[0]!.band === 'MORNING' ? 'por la mañana' : filtered[0]!.band === 'AFTERNOON' ? 'por la tarde' : 'por la noche' : null
+  const professional = new Set(filtered.map(slot => slot.professionalId)).size === 1 ? filtered[0]!.professionalName : null
+  const preference = input.preference?.kind === 'after' ? 'Después de las ' + input.preference.time
+    : input.preference?.kind === 'before' ? 'Antes de las ' + input.preference.time
+      : input.preference?.kind === 'band' ? concentration : null
+  return { kind: 'slots', text: standardSlotOffer({ date: formatDeliveryDate(input.scope.date ?? filtered[0]!.date), professional, band: concentration,
+    labels: choices.map(choice => choice.label), nearest: nearest ? input.requestedTime ?? null : null, preference }), choices, hasMore: start + choices.length < filtered.length }
 }
 export function presentProfessionals(professionals: readonly { id: string; name: string }[], cursor = 0): ChoicePresentation {
   if (professionals.some(pro => !bounded(pro.id, 128) || !bounded(pro.name, 200)) || new Set(professionals.map(pro => pro.id)).size !== professionals.length) throw new Error('invalid presentation professional')
   const start = cursorStart(cursor, BOOKING_SLOT_PAGE_SIZE - 1)
   if (!professionals.length) return { kind: 'unavailable', text: 'No encontré profesionales disponibles para esos servicios.', choices: [], hasMore: false }
   const choices: PresentationChoice[] = [{ kind: 'any_professional', label: 'Cualquier profesional' }, ...professionals.slice(start, start + BOOKING_SLOT_PAGE_SIZE - 1).map(pro => ({ kind: 'professional' as const, professionalId: pro.id, label: pro.name }))]
-  return { kind: 'professionals', text: `Podés elegir:\n${choices.map((choice, i) => `${i + 1}. ${choice.label}`).join('\n')}\n¿Con quién preferís atenderte?`, choices, hasMore: start + choices.length - 1 < professionals.length }
+  return { kind: 'professionals', text: standardProfessionalChoices(choices.map(choice => choice.label)), choices, hasMore: start + choices.length - 1 < professionals.length }
 }
-export function presentDateTimeQuestion(input: { date: string | null; hasTemporalRequest: boolean }, timezone?: string): string | null {
-  if (!input.date && !input.hasTemporalRequest) return '¿Qué día y horario te vendrían bien?'
-  if (!input.date) return '¿Qué día te vendría bien?'
-  if (!input.hasTemporalRequest) return `¿Qué horario preferís para el ${timezone ? formatDateChoice(input.date, timezone) : input.date}?`
-  return null
+export function presentDateTimeQuestion(input: { date: string | null; hasTemporalRequest: boolean; serviceName?: string }, timezone?: string): string | null {
+  return standardDateTimeQuestion(input.date, input.hasTemporalRequest, input.date ? formatDeliveryDate(input.date) : undefined, input.serviceName)
 }
 /** Date shortcuts and the typed example come only from freshly checked actual slots. */
 export function presentVerifiedDates(input: AvailabilityPresentationInput): ChoicePresentation & { example: string | null } {
@@ -115,5 +117,6 @@ export function presentVerifiedDates(input: AvailabilityPresentationInput): Choi
     label: (date === today ? 'Hoy · ' : date === tomorrowKey ? 'Mañana · ' : '') + formatDateChoice(date, input.timezone) }))
   const first = slots.find(slot => slot.date === choices.find(choice => choice.kind === 'date')?.date)
   const example = first ? `${first.date} a las ${first.time}` : null
-  return { kind: 'dates', text: `${choices.length ? `Hay disponibilidad el ${choices.map(choice => choice.label).join(' · ')}.` : 'No encontré fechas disponibles.'}${example ? ` Podés escribir, por ejemplo: ${example}.` : ''}\n¿Qué día y horario te vendrían bien?`, choices, hasMore: start + choices.length < dates.length, example }
+  const displayExample = first ? (first.date === today ? 'Hoy' : first.date === tomorrowKey ? 'Mañana' : formatDeliveryDate(first.date)) + ' a las ' + first.time : null
+  return { kind: 'dates', text: `${choices.length ? `Hay disponibilidad:\n${choices.map(choice => '• ' + choice.label).join('\n')}` : 'No encontré fechas disponibles.'}${displayExample ? `\n\nPodés escribir, por ejemplo: ${displayExample}.` : ''}\n¿Qué día y horario te vendrían bien?`, choices, hasMore: start + choices.length < dates.length, example }
 }

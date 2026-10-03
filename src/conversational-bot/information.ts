@@ -1,6 +1,7 @@
+import { standardDelivery, type StandardField } from './standard-delivery.js'
 import { publicMapsLink } from './maps-link.js'
 import { dialogueQuestion } from './dialogue-context.js'
-import { formatCatalogPrice } from '../bot-options/application/catalog-queries.js'
+import { formatCatalogPrice, formatCatalogDuration } from '../bot-options/application/catalog-queries.js'
 import { normalizeMessage, type InformationAction } from './actions.js'
 import { basketIsResolved } from './service-basket.js'
 import type { DialogueService, DialogueState } from './engine.js'
@@ -21,11 +22,10 @@ function addressLabel(facts: BusinessFacts | null): string | null {
   if (address && area && address.toLowerCase().includes(area.toLowerCase())) return address
   return [address, area].filter(Boolean).join(', ')
 }
-export function renderServices(services: readonly DialogueService[]): string {
-  return services.map(service => {
-    const price = formatCatalogPrice(service.price, service.priceMode ?? 'FIXED') ?? 'precio a consultar'
-    return `${service.name}: ${price}${service.durationMinutes ? ` (${service.durationMinutes} min)` : ''}`
-  }).join('\n') || 'No tengo servicios publicados.'
+export function renderServices(services: readonly DialogueService[], purpose?: 'booking' | 'price' | 'details'): string {
+  return standardDelivery({ kind: 'services', ...(purpose ? { purpose } : {}), services: services.map(service => ({ name: service.name,
+    price: formatCatalogPrice(service.price, service.priceMode ?? 'FIXED'),
+    duration: formatCatalogDuration(service.durationMinutes, service.durationMinMinutes ?? null, service.durationMaxMinutes ?? null) })) })
 }
 export function renderInformation(actions: readonly InformationAction[], message: string, facts: BusinessFacts | null, services: readonly DialogueService[]): string {
   const text = normalizeMessage(message)
@@ -41,26 +41,26 @@ export function renderInformation(actions: readonly InformationAction[], message
       else if (found.length === 1 && partial.some(other => other.id !== found[0]!.id && normalizeMessage(found[0]!.name).split(' ').every(word => normalizeMessage(other.name).split(' ').includes(word)))) found = partial
       // Partial labels must be disambiguated rather than giving a falsely exact price.
       if (found.length === 1 && full.length === 1) replies.push(renderServices(found))
-      else if (found.length) replies.push(`¿De cuál de estos servicios querés saber el precio? ${found.map(s => s.name).join(', ')}.`)
+      else if (found.length) replies.push(renderServices(found, 'price'))
       // SERVICES already includes each public price; a generic price read adds no separate question.
       else if (!actions.includes('SERVICES')) replies.push('¿De qué servicio querés consultar el precio?')
     }
-    if (action === 'HOURS') replies.push(facts?.hours || 'No tengo horarios publicados.')
+    if (action === 'HOURS') replies.push(standardDelivery({ kind: 'hours', hours: facts?.hours ?? null, businessName: facts?.name ?? null }))
     if (action === 'ADDRESS') {
       const label = addressLabel(facts)
       const maps = publicMapsLink({ businessName: facts?.name ?? null, address: facts?.address?.trim() ? label : null, addressArea: null, mapsUrl: facts?.mapsUrl ?? null })?.url
-      replies.push(label ? [label, maps ? 'Maps: ' + maps : null].filter(Boolean).join('\n') : 'No tengo una dirección publicada.')
+      replies.push(standardDelivery({ kind: 'address', address: label, areaOnly: !facts?.address?.trim(), mapsUrl: maps ?? null, businessName: facts?.name ?? null }))
     }
     if (action === 'BUSINESS_INFO') {
-      const selected: string[] = []
-      const add = (label: string, value: string | null | undefined) => selected.push(value ? `${label}: ${value}` : `No tengo ${label.toLowerCase()} publicado.`)
-      if (/\b(pagina|web|sitio)\b/.test(text)) add('Sitio web', facts?.website)
-      if (/\b(link|enlace)\b/.test(text)) add('Enlace de reservas', facts?.bookingUrl)
+      const selected: StandardField[] = []
+      const add = (label: string, value: string | null | undefined, link = false) => { if (value) selected.push({ label, value, link }) }
+      if (/\b(pagina|web|sitio)\b/.test(text)) add('Sitio web', facts?.website, true)
+      if (/\b(link|enlace)\b/.test(text)) add('Enlace de reservas', facts?.bookingUrl, true)
       if (/\b(telefono|whatsapp|contacto)\b/.test(text)) add('WhatsApp', facts?.whatsapp)
       if (/\b(email|correo|contacto)\b/.test(text)) add('Correo', facts?.email)
-      for (const social of ['instagram', 'facebook', 'tiktok'] as const) if (text.includes(social)) add(social, facts?.[social])
-      if (!selected.length) selected.push([facts?.name, facts?.description].filter(Boolean).join(': ') || 'No tengo información publicada.')
-      replies.push(selected.join('\n'))
+      for (const [social, label] of [['instagram', 'Instagram'], ['facebook', 'Facebook'], ['tiktok', 'TikTok']] as const) if (text.includes(social)) add(label, facts?.[social], true)
+      if (!selected.length && facts?.description && !/\b(instagram|facebook|tiktok|pagina|web|sitio|correo|telefono|whatsapp|link|enlace)\b/.test(text)) add(facts.name, facts.description)
+      replies.push(selected.length ? standardDelivery({ kind: 'fields', fields: selected }) : standardDelivery({ kind: 'missing', businessName: facts?.name ?? null }))
     }
   }
   return replies.join('\n')

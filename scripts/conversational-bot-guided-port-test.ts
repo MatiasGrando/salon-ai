@@ -152,5 +152,5 @@ const continued = await respond(next.context, reopened.state, 'New option', next
   turnPlan: { version: 1, operations: [{ kind: 'estimate', serviceId: 'guided', optionId: 'new', ...e('New option') }] } })
 assert.equal(continued.state.pending, 'time', 'new next-turn choice resumes complete agenda without reverting to old guide')
 assert.equal(continued.state.date, '2026-10-02'); assert.equal(continued.state.customerName, 'Matias')
-assert.match(continued.reply, /Horarios disponibles/)
+assert.match(continued.reply, /tengo algunos horarios disponibles/)
 console.log('guided Prisma port fresh policy/choice, singular/basket dual occupancy and cache continuity: PASS')

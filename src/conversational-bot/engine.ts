@@ -283,7 +283,7 @@ function basketQuestion(state: DialogueState, services: readonly DialogueService
   const exact = selectionBasket(state).members.filter(member => member.mode === 'single').map(member => services.find(s => s.id === member.serviceIds[0])?.name).filter(Boolean)
   const retained = exact.length ? '\nMantengo también: ' + exact.join(', ') + '.' : ''
   return pending.mode === 'unresolved' ? 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
-    : '¿Cuál de estos servicios querés?\n' + serviceList(services.filter(service => pending.serviceIds.includes(service.id))) + retained
+    : renderServices(services.filter(service => pending.serviceIds.includes(service.id)), 'booking') + retained
 }
 
 /** Persist only the concrete alternatives actually rendered, never the whole catalog. */
@@ -339,10 +339,10 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const invalidateAvailability = () => { state.slot = null; delete state.dialogueContext; delete state.questionContext }
   const finish = (reply: string, proposal: BookingProposal | null = null): DialogueResponse => {
     if (!hasActiveBooking(state) && /^¿En qué.*ayudar/.test(reply)) { delete state.questionContext; return { state, reply, proposal: null } }
-    const lastLine = reply.trim().split('\n').at(-1) ?? ''
+    const questionLine = reply.trim().split('\n').map(line => line.match(/¿[^?]+\?$/)?.[0]).find(Boolean) ?? ''
     const expected = state.pending === 'estimate' && state.dialogueContext?.lastQuestion ? state.dialogueContext.lastQuestion : pendingQuestion(state)
     const question = expected.startsWith('¿') && reply.includes(expected) ? expected :
-      lastLine.startsWith('¿') && lastLine.endsWith('?') && lastLine.length <= 240 ? lastLine : null
+      questionLine.length <= 240 && questionLine ? questionLine : null
     if (hasBasketSelection(state) || state.dialogueContext || decision?.intent === 'booking' || /\b(?:turno|reservar|agendar)\b/.test(normalize(message))) state.dialogueContext = { lastQuestion: question, presentedOffer: state.dialogueContext?.presentedOffer ?? null }
     if (question || questionOptions.length) rememberDialogueQuestion(state, question ?? resolveDialogueRoute(state, [], state.pending).question, questionOptions, questionTarget, questionMatching)
     else delete state.questionContext
@@ -446,7 +446,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       preserveTemporal()
       state.pending = resolveDialogueRoute(state, [], 'service').pending
       questionOptions = found.map(item => ({ id: item.id, label: item.name }))
-      return finish(`¿Cuál de estos servicios querés?\n${serviceList(found)}`)
+      return finish(renderServices(found, 'booking'))
     }
     if (found.length === 1 && found[0]!.id !== state.serviceId) {
       if (state.basket) {
@@ -523,8 +523,8 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   let verifiedCustomerDuration: number | undefined
   if (!state.date) {
     state.pending = resolveDialogueRoute(state, [], 'date').pending
-    const question = presentDateTimeQuestion({ date: null, hasTemporalRequest: Boolean(state.timePreference || state.requestedTime) })!
-    if (!port.verifiedDateChoices) return finish(prefix + service.name + '.\n' + question)
+    const question = presentDateTimeQuestion({ date: null, hasTemporalRequest: Boolean(state.timePreference || state.requestedTime), serviceName: service.name })!
+    if (!port.verifiedDateChoices) return finish(prefix + question)
     const result = await port.verifiedDateChoices(selectedServices as DialogueService[], state.professional?.kind === 'specific' ? state.professional.id : undefined,
       state.serviceEstimates, { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
     if (!result.ok) {
@@ -542,7 +542,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       ...(presentationPage?.kind === 'dates' ? { cursor: presentationPage.cursor } : {}) })
     choicePresentation = adaptChoicePresentation(dates, 'dates', presentationPage?.kind === 'dates' ? presentationPage.cursor : 0)
     questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
-    return finish(prefix + result.services.map(item => item.name).join(' + ') + '.\n' + dates.text.replace('¿Qué día y horario te vendrían bien?', question))
+    return finish(prefix + dates.text.replace('¿Qué día y horario te vendrían bien?', question))
   }
   if (state.date < localDateKey(context.dbNow, context.timezone)) { state.date = null; clearSlot(state); state.pending = resolveDialogueRoute(state, [], 'date').pending; return finish('Esa fecha ya pasó. ¿Qué otro día querés consultar?') }
   let availabilityFailure: DialogueResponse | null = null

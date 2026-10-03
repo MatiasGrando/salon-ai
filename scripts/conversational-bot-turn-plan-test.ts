@@ -35,7 +35,7 @@ const edgeChecks = await Promise.allSettled([
     const saturdayShown: DialogueState = { ...base('name'), date: '2026-10-03', slot: slot('2026-10-03'), dialogueContext: { lastQuestion: '¿A nombre de quién sería el turno?', presentedOffer: { businessId: context.businessId, serviceId: 'cut', date: '2026-10-03', professionalId: 'ana' } } }
     const changed = await say(saturdayShown, 'esos horarios, mejor el viernes', [{ kind: 'information', target: { kind: 'presented_offer', actions: [] }, ...ev('esos horarios') }, date('el viernes')])
     assert.match(changed.reply, /corresponden a sábado 03\/10/, 'reference facts describe the actually shown pre-turn offer')
-    assert.match(changed.reply, /Horarios disponibles para viernes 02\/10/)
+    assert.match(changed.reply, /Para el viernes 02\/10 tengo algunos horarios disponibles/)
     assert.equal(changed.state.date, '2026-10-02'); assert.equal(changed.state.slot, null); assert.equal(changed.state.requestedTime, null)
     assert.equal(changed.state.dialogueContext?.presentedOffer?.date, '2026-10-02')
     assert.equal(changed.proposal, null)
@@ -74,7 +74,7 @@ assert.equal(hours.state.date, '2026-10-02')
 assert.equal(hours.state.slot, null, 'old selected time must not silently carry into a correction')
 assert.equal(hours.state.requestedTime, null)
 assert.equal(hours.state.pending, 'time')
-assert.match(hours.reply, /Horarios disponibles/)
+assert.match(hours.reply, /tengo algunos horarios disponibles/)
 assert.equal(hours.state.dialogueContext?.presentedOffer?.date, '2026-10-02')
 
 const chosen = await say(base(), '17:00', [time('17:00')])

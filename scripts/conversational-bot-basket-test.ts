@@ -101,7 +101,7 @@ assert.equal(asymmetry.proposal,null,'unsupported occupancy cannot become a shor
 
 
 const legacyClarified = await respond(context, first.state, 'corte hombre', port, {serviceId:'cut',candidateIds:[],correction:false,intent:'booking'})
-assert.deepEqual(basketServiceIds(legacyClarified.state),['cut','smooth']); assert.match(legacyClarified.reply,/Horarios disponibles/)
+assert.deepEqual(basketServiceIds(legacyClarified.state),['cut','smooth']); assert.match(legacyClarified.reply,/tengo algunos horarios disponibles/)
 const onlyGroup = await say(initial(),'corte mañana con Ramiro',[basket('set',[member('alternatives',['cut','woman'],'corte')],'corte'),date,professional])
 const onlyLegacyResolved = await respond(context,onlyGroup.state,'corte hombre',port,{serviceId:'cut',candidateIds:[],correction:false,intent:'booking'})
 assert.deepEqual(basketServiceIds(onlyLegacyResolved.state),['cut']); assert.equal(onlyLegacyResolved.state.pending,'time','legacy clarification of a single group continues progression')

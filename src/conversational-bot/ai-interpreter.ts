@@ -1,3 +1,4 @@
+import { ownsStandardOpening } from './standard-delivery.js'
 import { matchNamedItems } from './contextual-matching.js'
 import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
@@ -162,26 +163,35 @@ function suggestedService(evidence: string, services: readonly DialogueService[]
 function responseFacts(reply: string, state: DialogueState, intent: Candidate['intent'] | null, message: string): { id: string; text: string }[] {
   if (intent === 'other' && state.pending === 'service' && !state.serviceId &&
       reply === '¿En qué te puedo ayudar con el local?') return []
-  const lines = reply.split('\n').map(line => line.trim()).filter(Boolean)
+  // Build material labels and their exact delivery chunks together: whitespace-only rows
+  // belong to the preceding chunk, never an extra fact that shifts later material IDs.
+  const lines: string[] = [], chunks: string[] = []
+  for (const row of reply.trim().split('\n')) {
+    if (row.trim()) { lines.push(row.trim()); chunks.push(row) }
+    else if (chunks.length) chunks[chunks.length - 1] += '\n' + row
+  }
   const catalogRequested = /\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message)
   // The deterministic menu is a fallback, not a fact that must be dumped after social messages.
   if (state.pending === 'service' && !state.serviceId && !catalogRequested && (reply.startsWith('¿Qué servicio necesitás?\n') || reply.startsWith('Hola. Te ayudo con tu turno.\n¿Qué servicio necesitás?') || reply === 'Hola, ¿qué servicio necesitás?'))
     return intent === 'other' ? [] : [{ id: 'next', text: '¿Qué servicio necesitás?' }]
-  const pending = state.questionContext?.field === state.pending && lines.at(-1) === state.questionContext.question ? state.questionContext.question : pendingQuestion(state)
+  const lastQuestion = lines.at(-1)?.match(/¿[^?]+\?$/)?.[0]
+  const pending = state.questionContext?.field === state.pending && lastQuestion === state.questionContext.question ? state.questionContext.question : pendingQuestion(state)
   if (lines.at(-1) === pending && lines.length > 1 && !hasActiveBooking(state)) lines.pop()
-  return lines.map((text, index) => ({ id: text === pending ? 'next' : String(index), text }))
+  return lines.map((text, index) => ({ id: text.endsWith(pending) && index === lines.length - 1 ? 'next' : String(index), text: chunks[index]! }))
 }
-function assembledReply(raw: unknown, facts: readonly { id: string; text: string }[], services: readonly DialogueService[], neutral = false, serverGreeting = false, ordered = false): string | null {
+function assembledReply(raw: unknown, facts: readonly { id: string; text: string }[], services: readonly DialogueService[], neutral = false, serverGreeting = false, _ordered = false): string | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const value = raw as Record<string, unknown>
   if (Object.keys(value).sort().join(',') !== 'closing,factIds,opening' || !Array.isArray(value.factIds)) return null
   if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
       value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return null
   // A required continuation is delivered last; it cannot be replaced or moved into model framing.
-  if (ordered && JSON.stringify(value.factIds) !== JSON.stringify(facts.map(fact => fact.id))) return null
+  if (JSON.stringify(value.factIds) !== JSON.stringify(facts.map(fact => fact.id))) return null
   if (facts.some(fact => fact.id === 'next') && (value.factIds.at(-1) !== 'next' || value.closing !== null)) return null
   if (neutral && value.opening !== null) return null
   const framing = [value.opening, value.closing]
+  const serverOpening = ownsStandardOpening(facts[0]?.text ?? '')
+  if (serverOpening && framing.some(part => typeof part === 'string' && /[?¿]/.test(part))) return null
   if (serverGreeting && framing.some(part => typeof part === 'string' && (/[?¿]/.test(part) || /\b(?:hola|holaa|soy|me llamo|mi nombre)\b/.test(normalized(part))))) return null
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 ||
       /[\u0000-\u001f\d$€]|https?:|www\./i.test(part)))) return null
@@ -189,14 +199,14 @@ function assembledReply(raw: unknown, facts: readonly { id: string; text: string
   if (framing.some(part => typeof part === 'string' && services.some(service => evidenceWords(part).includes(evidenceWords(service.name))))) return null
   // Free style is allowed, but unverified business assertions and actions are never accepted in the frame.
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return null
-  const text = [value.opening, ...value.factIds.map(id => facts.find(fact => fact.id === id)!.text), value.closing]
+  const text = [serverOpening ? null : value.opening, ...value.factIds.map(id => facts.find(fact => fact.id === id)!.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return text.length > 0 && text.length <= 5000 ? text : null
 }
 
 /** Predict only an intake step; all questions and catalog alternatives remain server facts. */
 function assembledIntakeReply(raw: unknown, facts: readonly ReplyFact[], state: DialogueState,
-  candidates: readonly DialogueService[], services: readonly DialogueService[], serverGreeting = false, ordered = false): string | null {
+  candidates: readonly DialogueService[], services: readonly DialogueService[], serverGreeting = false, _ordered = false): string | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const value = raw as Record<string, unknown>
   if (Object.keys(value).sort().join(',') !== 'candidateIds,closing,opening,pending,serviceId' ||

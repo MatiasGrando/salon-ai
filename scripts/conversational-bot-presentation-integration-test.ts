@@ -68,7 +68,7 @@ async function main() {
   assert.match(address, /api=1/); assert.match(address, /query=Nombre/)
   assert.doesNotMatch(renderInformation(['ADDRESS'], 'dirección', { ...facts, address: null, mapsUrl: 'https://www.google.com/evil' }, []), /https:/)
   const picked = await respond(context, hello.state, 'Corte', port, { serviceId: 's1', candidateIds: [], correction: false, intent: 'booking' })
-  assert.equal(dateCalls, 1); assert.match(picked.reply, /día y horario/); assert.match(picked.reply, /2026-10-03 a las 09:00/)
+  assert.equal(dateCalls, 1); assert.match(picked.reply, /día y horario/); assert.match(picked.reply, /Mañana a las 09:00/)
   assert.equal(presentation(picked)?.kind, 'date')
   const dateOperation = presentation(picked)!.choices.find(c => c.operation.kind === 'date')!.operation
   const dated = await choose(context, picked.state, dateOperation, port)

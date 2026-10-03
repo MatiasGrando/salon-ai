@@ -58,7 +58,7 @@ for (const reason of ['SERVICE_UNAVAILABLE', 'INVALID_CONFIGURATION', 'DOMAIN_RE
     assert.equal(trace(continuation), undefined, 'read-only continuation cannot claim old availability is current')
     assert.doesNotMatch(continuation.reply, /Qué servicio necesitás|Qué horario de los disponibles/)
     if (continuation === lexical) {
-      assert.match(continuation.reply, /No tengo una dirección publicada/)
+      assert.match(continuation.reply, /Todavía no tengo esa información cargada 😊/)
       assert.doesNotMatch(continuation.reply, /cambiar|quitar|equipo|presupuesto/)
     } else assert.match(continuation.reply, /cambiar|quitar|equipo/)
     assert.equal(continuation.proposal, null)

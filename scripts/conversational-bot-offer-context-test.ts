@@ -21,7 +21,7 @@ const offer = await respondWithAiInterpreter(context, initialDialogueState('qa')
   async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre', professionalMention: 'Ramiro' }), { responseProvider: copy })
 assert.equal(offer.state.pending, 'time')
 assert.equal(offer.state.dialogueContext?.presentedOffer?.date, '2026-10-02', 'delivered offer is compact conversational evidence')
-assert.match(offer.state.dialogueContext?.lastQuestion ?? '', /elegís/)
+assert.match(offer.state.dialogueContext?.lastQuestion ?? '', /Cuál te queda mejor/)
 assert.ok(JSON.stringify(offer.state).length <= 4096)
 let captured: AiInterpretationInput | undefined
 const address = await respondWithAiInterpreter(context, offer.state, 'cual es la direccion', port,
