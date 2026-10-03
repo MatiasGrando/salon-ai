@@ -101,7 +101,7 @@ assert.equal(missing.state.requestedTime, slot.time)
 const verified = await say(selected, port())
 assert.deepEqual(trace(verified), { outcome: 'verified', phase: 'slots', reason: null, scope: 'all_compatible' }); assert.ok(verified.proposal)
 const noSlots = await say(selected, port({ ok: true, services: catalog, durationMinutes: 120, customerDurationMinutes: 180, totalPrice: null, professionals, slots: [] }))
-assert.deepEqual(trace(noSlots), { outcome: 'no_slots', phase: 'slots', reason: null, scope: 'all_compatible' }); assert.equal(noSlots.state.pending, 'date'); assert.equal(noSlots.state.date, null)
+assert.deepEqual(trace(noSlots), { outcome: 'no_slots', phase: 'slots', reason: null, scope: 'all_compatible' }); assert.equal(noSlots.state.pending, 'date'); assert.equal(noSlots.state.date, selected.date); assert.equal(noSlots.state.slot, null)
 const legacyState: DialogueState = { ...initialDialogueState(context.businessId), serviceId: cut.id, date: slot.date, professional: { kind: 'specific', id: professionals[0]!.id } }
 const legacy = await say(legacyState, port())
 assert.deepEqual(trace(legacy), { outcome: 'verified', phase: 'slots', reason: null, scope: 'preferred' })

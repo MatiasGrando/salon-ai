@@ -68,6 +68,9 @@ assert.deepEqual(result.services.map(service => service.id), ['cut', 'straighten
 assert.deepEqual(result.services.map(service => service.name), ['cut', 'straightening'], 'fresh database names replace commercial snapshot')
 assert.equal(result.slots.at(-1)?.time, '12:00', 'last slot must fit all 120 minutes before closing')
 assert.deepEqual(result.services.map(service => [service.professionalDurationMinutes, service.customerDurationMinutes]), [[30, 30], [90, 90]])
+const queryCounts = ['FROM "Professional"', 'FROM "BusinessHours"', 'FROM "ProfessionalHours"', 'FROM "ScheduleBlock"', 'FROM "Appointment"'].map(fragment => f.queries.filter(query => query.strings.join(' ').includes(fragment)).length)
+assert.deepEqual(queryCounts, [1, 1, 1, 1, 1], 'the whole compatible basket shares one fresh agenda read')
+assert.ok((result as any).explanation, 'fixed-date basket exposes scoped reasons from the same read')
 console.log('basket port guards and continuous duration: PASS')
 
 // Every failure leaves the complete requested set untouched and performs no partial agenda search.

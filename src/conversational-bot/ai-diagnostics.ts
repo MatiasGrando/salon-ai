@@ -1,3 +1,4 @@
+import { AVAILABILITY_CAUSES } from '../bot-options/application/availability-evidence.js'
 import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
 import { TURN_PLAN_LIMITS, type TurnOperation } from './turn-plan.js'
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
@@ -153,9 +154,10 @@ export function summarizeAvailability(value: unknown): AvailabilityDiagnostic | 
         !['preflight', 'query', 'fresh_guidance', 'contract', 'slots'].includes(phase as string) ||
         (scope !== undefined && scope !== 'all_compatible' && scope !== 'preferred') ||
         (keys.includes('scope') && scope === undefined) ||
-        (phase === 'preflight' ? scope !== undefined : scope === undefined)) return undefined
+        (phase === 'preflight' || outcome === 'no_slots' && reason === 'DATE_PAST' ? scope !== undefined : scope === undefined)) return undefined
     if (outcome === 'verified' || outcome === 'no_slots') {
-      if (reason !== null || phase !== 'slots') return undefined
+      if (phase !== 'slots' || outcome === 'verified' && reason !== null ||
+          outcome === 'no_slots' && reason !== null && !(AVAILABILITY_CAUSES as readonly unknown[]).includes(reason)) return undefined
     } else if (phase === 'slots' ||
       (outcome === 'guidance_required' ? reason !== 'GUIDANCE_REQUIRED' || (phase !== 'preflight' && phase !== 'fresh_guidance')
         : outcome === 'blocked' ? !blocked.includes(reason as string) || phase === 'contract'

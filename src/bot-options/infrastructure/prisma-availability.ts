@@ -1,3 +1,4 @@
+import { explainAvailabilityDay, type AvailabilityRejections, type AvailabilitySearchEvidence } from '../application/availability-evidence.js'
 import { reservationFitsAvailabilityWindow } from '../../services/service-duration.js'
 import { measureAttemptStage } from '../observability/attempt-metrics.js'
 import { Prisma } from '../../generated/prisma/client.js'
@@ -23,6 +24,8 @@ type BusyRow = { professionalId: string; startAt: Date; duration: number }
 type BlockRow = { professionalId: string | null; startAt: Date; endAt: Date }
 
 export class PrismaAvailabilityRepository {
+  private readonly verifiedEligibility = new WeakMap<readonly AvailabilityProfessional[], { scope: string; signature: string }>()
+  private eligibilityScope(input: { businessId: string; serviceIds: readonly string[] }): string { return JSON.stringify([input.businessId, [...new Set(input.serviceIds)].sort()]) }
   constructor(private readonly client: AvailabilityClient) {}
 
   async loadSettings(businessId: string): Promise<AvailabilitySettings> {
@@ -55,7 +58,7 @@ export class PrismaAvailabilityRepository {
     return measureAttemptStage('availability_compatible_professionals', async () => {
       const ids = [...new Set(input.serviceIds)]
       if (!ids.length) return []
-      return this.client.$queryRaw<AvailabilityProfessional[]>(Prisma.sql`
+      const professionals = await this.client.$queryRaw<AvailabilityProfessional[]>(Prisma.sql`
         SELECT p."id", p."name", p."botBookingPriority" AS "priority"
         FROM "Professional" p JOIN "ProfessionalService" ps ON ps."professionalId" = p."id"
         JOIN "Service" s ON s."id" = ps."serviceId" AND s."businessId" = p."businessId"
@@ -65,6 +68,8 @@ export class PrismaAvailabilityRepository {
         HAVING count(DISTINCT s."id") = ${ids.length}
         ORDER BY p."botBookingPriority", p."id"
       `)
+      this.verifiedEligibility.set(professionals, { scope: this.eligibilityScope(input), signature: JSON.stringify(professionals) })
+      return professionals
     })
   }
 
@@ -75,11 +80,17 @@ export class PrismaAvailabilityRepository {
     customerDurationMinutes?: number
     /** Reprogramación: el turno que se moverá no ocupa su propio nuevo slot. */
     excludeAppointmentId?: string
-  }): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[] }> {
+    /** Default legacy balance stays unchanged; conversational callers preserve verified alternatives. */
+    allocation?: 'balanced' | 'all'
+    diagnostics?: boolean
+  }, verifiedProfessionals?: readonly AvailabilityProfessional[]): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[]; evidence?: AvailabilitySearchEvidence }> {
     return measureAttemptStage('availability_search', async () => {
       if (input.customerDurationMinutes !== undefined && (!Number.isSafeInteger(input.customerDurationMinutes) || input.customerDurationMinutes <= 0 || input.customerDurationMinutes > 1440)) throw new Error('invalid availability customer duration')
       const customerDurationMinutes = Math.max(input.durationMinutes, input.customerDurationMinutes ?? input.durationMinutes)
-      const allProfessionals = await this.compatibleProfessionals(input)
+      const proof = verifiedProfessionals ? this.verifiedEligibility.get(verifiedProfessionals) : undefined
+      if (verifiedProfessionals && (proof?.scope !== this.eligibilityScope(input) || proof.signature !== JSON.stringify(verifiedProfessionals))) throw new Error('invalid verified eligibility scope')
+      const allProfessionals = verifiedProfessionals ? [...verifiedProfessionals] : await this.compatibleProfessionals(input)
+      if (verifiedProfessionals && (allProfessionals.length > 50 || new Set(allProfessionals.map(pro => pro.id)).size !== allProfessionals.length || allProfessionals.some(pro => !pro.id || pro.id.length > 128 || !pro.name || pro.name.length > 200 || !Number.isSafeInteger(pro.priority)))) throw new Error('invalid verified professionals')
       const professionals = input.professionalId ? allProfessionals.filter((item) => item.id === input.professionalId) : allProfessionals
       if (!professionals.length) return { professionals, slots: [] }
       const professionalIds = professionals.map((item) => item.id)
@@ -105,20 +116,25 @@ export class PrismaAvailabilityRepository {
       ])
       const leadInstant = input.dbNow.getTime() + input.settings.leadTimeHours * 3_600_000
       const perStart = new Map<string, Array<{ professional: AvailabilityProfessional; occupiedMinutes: number; date: string; time: string; instant: Date; minute: number }>>()
+      const days: AvailabilitySearchEvidence['days'] = []
       for (let offset = 0; offset < input.settings.horizonDays; offset += 1) {
         const date = localDateKey(input.dbNow, input.settings.timezone, offset)
         const noon = localDateTimeToInstants(date, 12 * 60, input.settings.timezone)[0]
         if (!noon) continue
         const weekday = weekdayInTimezone(noon, input.settings.timezone)
         const businessWindows = businessHours.filter((row) => row.dayOfWeek === weekday)
+        const evidenceRows: AvailabilityRejections[] = []
         for (const professional of professionals) {
           const proWindows = professionalHours.filter((row) => row.ownerId === professional.id && row.dayOfWeek === weekday)
           const dayBusy = busy.filter((row) => row.professionalId === professional.id && localDateKey(row.startAt, input.settings.timezone) === date)
           const occupiedMinutes = dayBusy.reduce((sum, row) => sum + row.duration, 0)
+          const evidence: AvailabilityRejections = { professionalId: professional.id, hasWorkingHours: proWindows.length > 0, hasJointWindow: false, intervalCount: 0, leadTime: 0, blocked: 0, busy: 0, slotCount: 0 }
+          const accepted = new Set<string>()
           for (const businessWindow of businessWindows) for (const proWindow of proWindows) {
             const start = Math.max(parseMinutes(businessWindow.startTime) ?? 1440, parseMinutes(proWindow.startTime) ?? 1440)
             const businessEnd = parseMinutes(businessWindow.endTime) ?? 0
             const professionalEnd = parseMinutes(proWindow.endTime) ?? 0
+            if (start < Math.min(businessEnd, professionalEnd)) evidence.hasJointWindow = true
             for (let minute = Math.ceil(start / BOOKING_GRID_MINUTES) * BOOKING_GRID_MINUTES;
               reservationFitsAvailabilityWindow({
                 service: { duration: input.durationMinutes, customerDurationMin: customerDurationMinutes, customerDurationMax: customerDurationMinutes },
@@ -127,19 +143,28 @@ export class PrismaAvailabilityRepository {
               for (const instant of localDateTimeToInstants(date, minute, input.settings.timezone)) {
                 const finish = new Date(instant.getTime() + input.durationMinutes * 60_000)
                 const customerFinish = new Date(instant.getTime() + customerDurationMinutes * 60_000)
-                if (instant.getTime() < leadInstant) continue
-                if (blocks.some((block) => (block.professionalId === null || block.professionalId === professional.id) && block.startAt < (block.professionalId === null ? customerFinish : finish) && block.endAt > instant)) continue
-                if (dayBusy.some((row) => row.startAt < finish && new Date(row.startAt.getTime() + row.duration * 60_000) > instant)) continue
+                evidence.intervalCount++
+                if (instant.getTime() < leadInstant) { evidence.leadTime++; continue }
+                if (blocks.some((block) => (block.professionalId === null || block.professionalId === professional.id) && block.startAt < (block.professionalId === null ? customerFinish : finish) && block.endAt > instant)) { evidence.blocked++; continue }
+                if (dayBusy.some((row) => row.startAt < finish && new Date(row.startAt.getTime() + row.duration * 60_000) > instant)) { evidence.busy++; continue }
                 const key = instant.toISOString()
+                accepted.add(key)
                 const candidates = perStart.get(key) ?? []
                 candidates.push({ professional, occupiedMinutes, date, time: `${Math.floor(minute / 60).toString().padStart(2, '0')}:${(minute % 60).toString().padStart(2, '0')}`, instant, minute })
                 perStart.set(key, candidates)
               }
             }
           }
+          evidence.slotCount = accepted.size
+          evidenceRows.push(evidence)
         }
+        if (input.diagnostics) days.push(explainAvailabilityDay(date, businessWindows.length > 0, evidenceRows))
       }
       const slots = [...perStart.values()].flatMap((candidates) => {
+        if (input.allocation === 'all') return [...new Map(candidates.map(source => [source.professional.id, source])).values()].map(source => ({
+          startAt: source.instant.toISOString(), date: source.date, time: source.time, band: bandForMinute(source.minute, input.settings),
+          professionalId: source.professional.id, professionalName: source.professional.name, occupiedMinutes: source.occupiedMinutes
+        } satisfies AvailabilitySlot))
         const chosen = chooseBalancedProfessional(candidates)
         const source = chosen && candidates.find((item) => item.professional.id === chosen.professional.id)
         return source ? [{
@@ -148,7 +173,7 @@ export class PrismaAvailabilityRepository {
           professionalName: source.professional.name, occupiedMinutes: source.occupiedMinutes
         } satisfies AvailabilitySlot] : []
       }).sort((a, b) => a.startAt.localeCompare(b.startAt) || a.professionalId.localeCompare(b.professionalId))
-      return { professionals, slots }
+      return { professionals, slots, ...(input.diagnostics ? { evidence: { version: 1 as const, days } } : {}) }
     })
   }
 }

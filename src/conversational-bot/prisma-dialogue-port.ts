@@ -1,3 +1,4 @@
+import { explanationForDate, parseAvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices, projectDialogueService } from './prisma-basket-availability.js'
 import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './prisma-public-professional-facts.js'
@@ -15,7 +16,6 @@ type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityC
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
 export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
-  const catalog = new PrismaCatalogRepository(client)
   const availability = new PrismaAvailabilityRepository(client)
   const { settings, dbNow } = await availability.loadSettingsWithClock(businessId)
   const context = { businessId, timezone: settings.timezone, dbNow }
@@ -74,22 +74,26 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     catalog: async () => (await cached('catalog', loadCatalog)).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, serviceContent) } : service),
     availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {
-      const service = await catalog.getService({ businessId, serviceId: selected.id })
-      if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')
-      const today = localDateKey(dbNow, settings.timezone)
-      const last = localDateKey(dbNow, settings.timezone, settings.horizonDays)
-      if (date < today || date >= last) return { professionals: [], slots: [] }
-      // Search each compatible professional: unfiltered search balances away alternatives at the same time.
-      const professionals = await availability.compatibleProfessionals({ businessId, serviceIds: [service.id] })
-      if (professionals.length > 50) throw new Error('professional catalog exceeds supported bound')
-      const selectedProfessionals = professionalId ? professionals.filter(p => p.id === professionalId) : professionals
-      const slots = []
-      for (const professional of selectedProfessionals) {
-        const result = await availability.search({ businessId, serviceIds: [service.id], durationMinutes: service.durationMinutes, dbNow, settings, professionalId: professional.id })
-        slots.push(...result.slots.filter(slot => slot.date === date && slot.professionalId === professional.id))
+      return snapshot(async source => {
+        const service = await new PrismaCatalogRepository(source).getService({ businessId, serviceId: selected.id })
+        if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')
+        const today = localDateKey(dbNow, settings.timezone)
+        const last = localDateKey(dbNow, settings.timezone, settings.horizonDays)
+        if (date < today || date >= last) return { professionals: [], slots: [], explanation: {
+          date, reasons: [date < today ? 'DATE_PAST' as const : 'OUTSIDE_HORIZON' as const], otherProfessionals: [], nextDates: []
+        } }
+        const availability = new PrismaAvailabilityRepository(source)
+        const professionals = await availability.compatibleProfessionals({ businessId, serviceIds: [service.id] })
+        if (professionals.length > 50) throw new Error('professional catalog exceeds supported bound')
+        const customerDurationMinutes = projectDialogueService(service).customerDurationMinutes ?? service.durationMinutes
+        const result = await availability.search({ businessId, serviceIds: [service.id], durationMinutes: service.durationMinutes,
+          customerDurationMinutes, dbNow, settings, allocation: 'all', diagnostics: true }, professionals)
+        const slots = result.slots.filter(slot => slot.date === date && (!professionalId || slot.professionalId === professionalId))
         if (slots.length > 500) throw new Error('availability exceeds supported bound')
-      }
-      return { professionals, slots: slots.sort((a, b) => a.startAt.localeCompare(b.startAt) || a.professionalId.localeCompare(b.professionalId)) }
+        const explanation = result.evidence ? parseAvailabilityExplanation(explanationForDate(result.evidence, date, professionalId, result.slots),
+          { date, professionals, dbNow, timezone: settings.timezone, ...(professionalId ? { professionalId } : {}) }) : undefined
+        return { professionals, slots, ...(explanation ? { explanation } : {}) }
+      })
     }
   } }
 }

@@ -1,3 +1,4 @@
+import { explanationForDate, parseAvailabilityExplanation, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { filterTimePreference, parseTimePreference, type TimePreference } from './time-preference.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -10,6 +11,7 @@ import type { DialogueBasketAvailability, DialogueContext, DialogueService } fro
 import type { CatalogServiceItem } from '../bot-options/application/catalog-queries.js'
 import { parseServiceEstimates, resolveGuidance, serviceGuidance, type ServiceEstimates } from './service-guidance.js'
 
+export type ExplainedBasketAvailability = DialogueBasketAvailability & { explanation?: AvailabilityExplanation }
 export type VerifiedDateTemporal = { requestedTime: string | null; preference?: TimePreference }
 type BasketClient = ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 const boundedId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[\u0000-\u001f]/.test(value)
@@ -34,21 +36,21 @@ export function projectDialogueService(row: CatalogServiceItem): DialogueService
 export async function loadPrismaBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
   requested: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates: ServiceEstimates = {}, serviceContent: ServiceContentConfiguration | null = null
-): Promise<DialogueBasketAvailability> {
+): Promise<ExplainedBasketAvailability> {
   return loadGuardedBasketAvailability(client, context, settings, requested, date, professionalId, serviceEstimates, undefined, serviceContent)
 }
 /** One live horizon search supplies only actual dates with available complete-basket slots. Never cache agenda evidence. */
 export async function loadPrismaVerifiedDateChoices(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
   requested: readonly DialogueService[], professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null
-): Promise<DialogueBasketAvailability> {
+): Promise<ExplainedBasketAvailability> {
   return loadGuardedBasketAvailability(client, context, settings, requested, null, professionalId, serviceEstimates, temporal, serviceContent)
 }
 /** Read-only proposal adapter. Cached descriptors supply IDs, never permission, price or duration. */
 async function loadGuardedBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
   requested: readonly DialogueService[], date: string | null, professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null
-): Promise<DialogueBasketAvailability> {
+): Promise<ExplainedBasketAvailability> {
   if (requested.length < 1 || requested.length > 10 || requested.some(service => !boundedId(service.id)) || new Set(requested.map(service => service.id)).size !== requested.length) return { ok: false, reason: 'SERVICE_UNAVAILABLE' }
   if (professionalId !== undefined && !boundedId(professionalId)) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
   validateAvailabilitySettings(settings)
@@ -116,24 +118,24 @@ async function loadGuardedBasketAvailability(
   const totalPrice = cart.totalPriceMinor !== null && Number.isSafeInteger(cart.totalPriceMinor) ? cart.totalPriceMinor : null
   const today = localDateKey(context.dbNow, settings.timezone)
   const last = localDateKey(context.dbNow, settings.timezone, settings.horizonDays)
-  if (date !== null && (date < today || date >= last)) return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: [] }
-  const selectedProfessionals = professionalId ? professionals.filter(professional => professional.id === professionalId) : professionals
+  if (date !== null && (date < today || date >= last)) return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: [], explanation: { date, reasons: [date < today ? 'DATE_PAST' : 'OUTSIDE_HORIZON'], otherProfessionals: [], nextDates: [] } }
+  // Compatible professionals and all agenda arrays belong to this same read-only snapshot.
+  // Preserve each professional's slots and compute explanations without another eligibility/calendar query.
+  const searched = await availability.search({ businessId: context.businessId, serviceIds: ids, durationMinutes, customerDurationMinutes,
+    dbNow: context.dbNow, settings, allocation: 'all', diagnostics: true }, professionals)
   const slots: AvailabilitySlot[] = []
-  // Preserve alternatives at the same hour rather than silently balancing them away.
-  for (const professional of selectedProfessionals) {
-    const result = await availability.search({ businessId: context.businessId, serviceIds: ids, durationMinutes, customerDurationMinutes, dbNow: context.dbNow, settings, professionalId: professional.id })
-    let candidates = result.slots.filter(slot => (date === null || slot.date === date) && slot.professionalId === professional.id)
-    if (date === null) {
-      if (temporal?.requestedTime) candidates = candidates.filter(slot => slot.time === temporal.requestedTime)
-      if (temporal?.preference && temporal.preference.kind !== 'earliest') candidates = filterTimePreference(candidates, temporal.preference)
-      // Reduce only AFTER temporal filtering, retaining a real slot for every eligible date.
-      for (const candidate of candidates) {
-        const index = slots.findIndex(slot => slot.date === candidate.date)
-        if (index < 0) slots.push(candidate)
-        else if (candidate.startAt < slots[index]!.startAt || candidate.startAt === slots[index]!.startAt && candidate.professionalId < slots[index]!.professionalId) slots[index] = candidate
-      }
-    } else slots.push(...candidates)
-    if (slots.length > 500) throw new Error('availability exceeds supported bound')
-  }
-  return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: slots.sort((left, right) => left.startAt.localeCompare(right.startAt) || left.professionalId.localeCompare(right.professionalId)) }
+  let candidates = searched.slots.filter(slot => (date === null || slot.date === date) && (!professionalId || slot.professionalId === professionalId))
+  if (date === null) {
+    if (temporal?.requestedTime) candidates = candidates.filter(slot => slot.time === temporal.requestedTime)
+    if (temporal?.preference && temporal.preference.kind !== 'earliest') candidates = filterTimePreference(candidates, temporal.preference)
+    for (const candidate of candidates) {
+      const index = slots.findIndex(slot => slot.date === candidate.date)
+      if (index < 0) slots.push(candidate)
+      else if (candidate.startAt < slots[index]!.startAt || candidate.startAt === slots[index]!.startAt && candidate.professionalId < slots[index]!.professionalId) slots[index] = candidate
+    }
+  } else slots.push(...candidates)
+  if (slots.length > 500) throw new Error('availability exceeds supported bound')
+  const explanation = date !== null && searched.evidence ? parseAvailabilityExplanation(explanationForDate(searched.evidence, date, professionalId, searched.slots),
+    { date, professionals, dbNow: context.dbNow, timezone: context.timezone, ...(professionalId ? { professionalId } : {}) }) : undefined
+  return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: slots.sort((left, right) => left.startAt.localeCompare(right.startAt) || left.professionalId.localeCompare(right.professionalId)), ...(explanation ? { explanation } : {}) }
 }

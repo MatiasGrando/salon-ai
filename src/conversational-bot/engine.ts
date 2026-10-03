@@ -1,3 +1,4 @@
+import { parseAvailabilityExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
@@ -27,7 +28,7 @@ export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[] }
   | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
-  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number }
+  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
   identity?(): Promise<DialogueIdentity>
@@ -36,7 +37,7 @@ export type DialoguePort = {
   professionalInformation?(target: ProfessionalInformationTarget): Promise<ProfessionalInformationFacts>
   catalog(): Promise<DialogueService[]>
   availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates): Promise<DialogueBasketAvailability>
-  availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[] }>
+  availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation }>
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type DialogueState = {
@@ -63,7 +64,7 @@ export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; se
 export type AvailabilityDiagnostic = {
   outcome: 'verified' | 'no_slots' | 'guidance_required' | 'blocked' | 'unsupported'
   phase: 'preflight' | 'query' | 'fresh_guidance' | 'contract' | 'slots'
-  reason: Exclude<DialogueBasketAvailability, { ok: true }>['reason'] | 'PORT_UNAVAILABLE' | 'CUSTOMER_DURATION_PROOF_MISSING' | 'GUIDANCE_RESULT_NOT_PENDING' | null
+  reason: Exclude<DialogueBasketAvailability, { ok: true }>['reason'] | 'PORT_UNAVAILABLE' | 'CUSTOMER_DURATION_PROOF_MISSING' | 'GUIDANCE_RESULT_NOT_PENDING' | AvailabilityCause | null
   /** Only present when an availability query actually ran. */
   scope?: 'all_compatible' | 'preferred'
 }
@@ -355,12 +356,31 @@ function validateBasketAvailability(result: Extract<DialogueBasketAvailability, 
       !Array.isArray(result.slots) || result.slots.length > 500) throw new Error('invalid basket availability')
   return guidance
 }
+/** Cause copy is selected only from scoped fresh evidence, never guessed from an empty list. */
+function availabilityRecoveryMessage(serviceName: string, day: string, reasons: readonly AvailabilityCause[], professionalName?: string): string {
+
+  const copy: Record<AvailabilityCause, string> = {
+    BUSINESS_CLOSED: 'El local no atiende ese día.',
+    PROFESSIONAL_NOT_WORKING: professionalName ? professionalName + ' no tiene jornada de atención ese día.' : 'No hay jornada de atención ese día para uno o más de los profesionales compatibles.',
+    NO_COMPATIBLE_WINDOW: professionalName ? 'Las jornadas del local y de ' + professionalName + ' no tienen una ventana de atención coincidente.' : 'Para uno o más profesionales, la jornada no coincide con la atención del local.',
+    DURATION_DOES_NOT_FIT: 'No queda una ventana con la duración completa que necesita este pedido.',
+    LEAD_TIME: 'Los horarios posibles no cumplen la anticipación mínima para reservar.',
+    BLOCKED: 'Hay bloqueos de agenda que impiden completar este pedido.',
+    BUSY: 'Hay turnos ocupados que impiden completar este pedido.',
+    DATE_PAST: 'La fecha ya pasó.',
+    OUTSIDE_HORIZON: 'La fecha queda fuera del período habilitado para buscar turnos.',
+    PREFERENCE_NO_MATCH: 'No hay horarios que cumplan esa preferencia.',
+    NO_SLOTS: 'No encontré horarios disponibles para este pedido.'
+  }
+  return 'Para ' + serviceName + ' el ' + day + ':\n' + (reasons.length ? reasons.map(reason => copy[reason]).join('\n') : copy.NO_SLOTS)
+}
 async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[], matching?: MatchRequest, presentationPage?: { kind: 'slots' | 'professionals' | 'dates'; cursor: number }): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   // A prepared turn has already applied every semantic operation: never reparse its information text.
   const text = preparedCatalog ? '' : normalize(message)
   let availability: AvailabilityDiagnostic | undefined
+  let availabilityExplanation: AvailabilityExplanation | undefined
   let choicePresentation: ConversationChoicePresentation | undefined
   let questionOptions: DialogueQuestionOption[] = []
   let questionTarget: string | null = null
@@ -575,12 +595,22 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
     return finish(prefix + dates.text.replace('¿Qué día y horario te vendrían bien?', question))
   }
-  if (state.date < localDateKey(context.dbNow, context.timezone)) { state.date = null; clearSlot(state); state.pending = resolveDialogueRoute(state, [], 'date').pending; return finish('Esa fecha ya pasó. ¿Qué otro día querés consultar?') }
+  if (state.date < localDateKey(context.dbNow, context.timezone)) {
+    invalidateAvailability(); state.pending = 'date'
+    availability = { outcome: 'no_slots', phase: 'slots', reason: 'DATE_PAST' }
+    return finish('La fecha ' + dateLabel(state.date, context.timezone) + ' para ' + service.name + ' ya pasó. ¿Qué otro día querés consultar?')
+  }
   let availabilityFailure: DialogueResponse | null = null
   const queryAvailability = async (professionalId?: string) => {
     const scope = professionalId ? 'preferred' : 'all_compatible'
+    const acceptExplanation = (result: { professionals: DialogueProfessional[]; explanation?: AvailabilityExplanation }) => {
+      availabilityExplanation = result.explanation === undefined ? undefined : parseAvailabilityExplanation(result.explanation, {
+        date: state.date!, professionals: result.professionals, dbNow: context.dbNow, timezone: context.timezone, ...(professionalId ? { professionalId } : {})
+      })
+    }
     if (selectedServices.length <= 1 && !needsVerifiedSelection && selectedServices.every(item => item?.bookingPolicy === undefined)) {
       const result = await port.availability(service!, state.date!, professionalId)
+      acceptExplanation(result)
       availability = { outcome: 'verified', phase: 'slots', reason: null, scope }
       return result
     }
@@ -621,6 +651,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const freshNeedsVerifiedSelection = result.services.some(item => item.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' || Number(item.customerDurationMinutes ?? item.durationMinutes) > Number(item.durationMinutes))
     if ((needsVerifiedSelection || freshNeedsVerifiedSelection) && result.customerDurationMinutes === undefined) { availabilityFailure = failedAvailability('CUSTOMER_DURATION_PROOF_MISSING', 'contract', scope); return null }
     const verifiedGuidance = validateBasketAvailability(result, basketServiceIds(state), state.serviceEstimates)
+    acceptExplanation(result)
     if (verifiedGuidance.changed) { clearSlot(state); state.serviceEstimates = verifiedGuidance.selections }
     needsVerifiedSelection = freshNeedsVerifiedSelection
     verifiedCustomerDuration = result.customerDurationMinutes
@@ -629,7 +660,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     service = { ...result.services[0]!, name: result.services.map(item => item.name).join(' + '), durationMinutes: result.durationMinutes, price: result.totalPrice }
     return result
   }
-  const available = await queryAvailability(selectedServices.length > 1 ? undefined : state.professional?.kind === 'specific' ? state.professional.id : undefined)
+  const available = await queryAvailability(state.professional?.kind === 'specific' ? state.professional.id : undefined)
   if (!available) return availabilityFailure!
   const professionals = available.professionals
   const professionalOptions = professionals.map(item => ({ id: item.id, label: item.name }))
@@ -679,7 +710,23 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (!professionals.some(p => p.id === (state.professional as { id: string }).id)) { state.professional = null; clearSlot(state) }
     else slots = slots.filter(s => s.professionalId === (state.professional as { id: string }).id)
   }
-  if (!slots.length) { availability = { ...availability!, outcome: 'no_slots' }; state.date = null; clearSlot(state); state.pending = resolveDialogueRoute(state, [], 'date').pending; return finish('No hay horarios disponibles para esa fecha y preferencia. ¿Qué otro día querés consultar?') }
+  if (!slots.length) {
+    invalidateAvailability(); state.pending = 'date'
+    availability = { ...availability!, outcome: 'no_slots', reason: availabilityExplanation?.reasons[0] ?? null }
+    const preferredName = state.professional?.kind === 'specific' ? professionals.find(p => p.id === (state.professional as { id: string }).id)?.name : undefined
+    let reply = availabilityRecoveryMessage(service.name, dateLabel(state.date, context.timezone), availabilityExplanation?.reasons ?? [], preferredName)
+    const others = availabilityExplanation?.otherProfessionals ?? []
+    if (others.length) reply += '\nTambién verifiqué opciones ese día: ' + others.map(slot => slot.time + ' con ' + slot.professionalName).join('; ') + '. Si te sirve otra persona, indicame cuál; no cambio tu preferencia sin que la elijas.'
+    const nextDates = availabilityExplanation?.nextDates ?? []
+    if (nextDates.length) {
+      const scope = { businessId: context.businessId, serviceIds: basketServiceIds(state), date: null, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null }
+      const dates = presentVerifiedDates({ scope, read: { fresh: true, scope, slots: nextDates }, timezone: context.timezone, now: context.dbNow })
+      choicePresentation = adaptChoicePresentation(dates, 'dates', 0)
+      questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
+      reply += '\n' + dates.text.replace('¿Qué día y horario te vendrían bien?', '¿Qué otro día querés consultar?')
+    } else reply += '\n¿Qué otro día querés consultar?'
+    return finish(reply)
+  }
   if (!state.professional) {
     state.pending = resolveDialogueRoute(state, [], 'professional').pending
     const cursor = presentationPage?.kind === 'professionals' ? presentationPage.cursor : 0
@@ -690,11 +737,16 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   }
   if (state.slot && !slots.some(s => s.startAt === state.slot!.startAt && s.professionalId === state.slot!.professionalId)) state.slot = null
   if (state.timePreference) {
+    const unfiltered = slots
     slots = state.timePreference.kind === 'earliest' ? slots : filterTimePreference(slots, state.timePreference)
     if (!slots.length) {
       invalidateAvailability(); state.pending = 'time'
-      availability = { ...availability!, outcome: 'no_slots' }
-      return finish('No hay horarios que cumplan esa preferencia. Mantengo el día y el pedido. ¿En qué otro horario te gustaría venir?')
+      availability = { ...availability!, outcome: 'no_slots', reason: 'PREFERENCE_NO_MATCH' }
+      const scope = { businessId: context.businessId, serviceIds: basketServiceIds(state), date: state.date, professionalId: state.professional.kind === 'specific' ? state.professional.id : null }
+      const rendered = presentAvailability({ scope, read: { fresh: true, scope, slots: unfiltered.slice(0, 3) }, timezone: context.timezone, now: context.dbNow, requestedTime: null })
+      choicePresentation = adaptChoicePresentation(rendered, 'slots', 0)
+      questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
+      return finish('No hay horarios para ' + service.name + ' el ' + dateLabel(state.date, context.timezone) + ' que cumplan esa preferencia. Mantengo el día y el pedido.\nEstas opciones sí están disponibles en otro horario:\n' + rendered.text)
     }
   }
   if (state.requestedTime && !state.slot) {
