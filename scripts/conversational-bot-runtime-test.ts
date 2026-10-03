@@ -1,5 +1,6 @@
 import { createQueueMilestoneTracker, type QueueMilestoneTracker } from '../src/bot-options/observability/queue-milestones.js'
 import assert from 'node:assert/strict'
+import {issueChoiceQuestion,publicChoiceQuestion,type ConversationChoiceOperation} from '../src/conversational-bot/choices.js'
 import { subscribeToCrmRealtimeEvents } from '../src/services/crm-realtime-events.js'
 import type { AttemptMetricEvent } from '../src/bot-options/observability/attempt-metrics.js'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
@@ -83,13 +84,13 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
   const businessId = options.businessId ?? 'biz'
   let inTransaction = false
-  let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true },
+  let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', actionType:'input.initial',expectedRevision:null as bigint|null, deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true, conversationChoice:undefined as unknown },
     providerEventId: 'event', providerMessageId: 'msg', providerPhoneNumberId: 'channel', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
   let session: { sessionId: string; conversationId: string; revision: bigint; status: string; state: unknown; businessTimezone: string; handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number } | null = null
   let replies: string[] = []
@@ -131,6 +132,7 @@ function runtimeFixture(options: { availabilityReason?: 'COMBINATION_REVIEW'; ba
       if (q.sql.includes('consolidation-candidates') && blocked) return [{ id: 'barrier', admittedAt: now, payload: { messageType: 'image' }, actionType: 'input.initial' }]
       if (q.sql.includes('consolidation-candidates')) return (inputs ?? [{ id: row.providerEventId, text: row.payload.textBody }]).map(part => ({ id: part.id, admittedAt: now,
         payload: { ...row.payload, textBody: part.text }, actionType: 'input.initial' }))
+      if (q.sql.includes('conversation-choice-policy-guard')) return [{actionType:row.actionType}]
       if (q.sql.includes('conversation-policy')) return [row]
       if (q.sql.includes('FROM "BotProviderEvent" e') && q.sql.includes('d."id" AS "deploymentId"')) return [row]
       if (q.sql.includes('SELECT e."businessId", d."generation"')) return [row]
@@ -143,6 +145,13 @@ function runtimeFixture(options: { availabilityReason?: 'COMBINATION_REVIEW'; ba
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch, phone: row.payload.fromPhone }]
       if (q.sql.includes('conversation-compute-defer')) return (await computeSql!.query(q.text, q.values)).rows
       if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return computeSql ? (await computeSql.query(q.text, q.values)).rows : [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('conversation-choice-persist')) {
+        const payloads=q.values.filter(v=>typeof v==='string' && v.startsWith('{')).map(v=>JSON.parse(v as string))
+        const choiceCount=payloads.filter(value=>value.question).length
+        const outbox=payloads.filter(value=>value.item)
+        for(const payload of outbox) replies.push(payload.item.body)
+        return [{choiceCount:BigInt(choiceCount),outboxCount:BigInt(outbox.length)}]
+      }
       if (q.sql.includes('conversation-turn-persist')) {
         assert.ok(session)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
@@ -244,13 +253,28 @@ function runtimeFixture(options: { availabilityReason?: 'COMBINATION_REVIEW'; ba
         ...(options.guidedCatalog ? { customerDurationMinutes: services.reduce((sum, service) => sum + (service.customerDurationMinutes ?? service.durationMinutes!), 0) } : {}),
         professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date, time: '14:00', startAt: date + 'T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON', occupiedMinutes: 0 }] }
     }
+    if(options.publicPorts) {
+      port.identity=async function(){assert.equal(this,port);outside();return {businessId,businessName:'Nombre real',assistantName:'Asistente real',treatment:'vos'}}
+      port.professionalInformation=async function(){assert.equal(this,port);outside();return {businessId,complete:true,professionals:[{id:'ana',name:'Ana',services:[{id:'cut',name:'Corte hombre'}],schedule:'Sábado: 10:00 a 14:00. Jornada habitual, no turnos libres.'}]}}
+      port.verifiedDateChoices=async function(services){assert.equal(this,port);outside();return {ok:true,services,durationMinutes:services.reduce((total,service)=>total+service.durationMinutes!,0),totalPrice:1000,
+        professionals:[{id:'ana',name:'Ana',priority:0}],slots:[{date:'2026-10-02',time:'14:00',startAt:'2026-10-02T14:00:00Z',professionalId:'ana',professionalName:'Ana',band:'AFTERNOON',occupiedMinutes:0}]}}
+    }
     return { context: { businessId, timezone: 'UTC', dbNow: now }, port }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, conversationalAi, queueMilestones: options.queueMilestones, onPreparingReply: options.onPreparingReply, job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get basketAgendaCalls() { return basketAgendaCalls }, get singularAgendaCalls() { return singularAgendaCalls }, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
-    next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', payload: { ...row.payload, textBody: text, messageType: type } } },
+    next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', actionType:'input.initial',expectedRevision:null, payload: { ...row.payload, textBody: text, messageType: type,conversationChoice:undefined } } },
+    choice(operation:ConversationChoiceOperation) {
+      assert.ok(session)
+      const draft=readConversationDraft(session.state,policy,'UTC')
+      const question=issueChoiceQuestion({businessId,conversationKey:session.sessionId,policyKey:'cfg',policyGeneration:1,revision:String(session.revision)},draft,
+        {kind:'service',title:'Servicios',choices:[{label:'UNTRUSTED LABEL',operation}]})
+      this.next('FORGED LABEL','interactive')
+      row.actionType='conversation.choice';row.expectedRevision=session.revision
+      row.payload.conversationChoice={question,choiceId:publicChoiceQuestion(question).choices[0]!.id}
+    },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
 // Full basket runs through the public worker, real interpreter/motor and production state projection.
@@ -1016,3 +1040,104 @@ try {
   assert.equal(closed.messages, 0); assert.equal(closed.retried, 0)
   console.log('conversational shared compute claim SQL/independent workers/deferred durable job/tenant/closed gate: PASS')
 } finally { await computeDb.close() }
+// An admitted typed operation is not a provider label or a legacy Booking V2 command.
+const typedRuntime=runtimeFixture({basketCatalog:true,publicPorts:true})
+typedRuntime.next('Corte');await typedRuntime.run()
+typedRuntime.choice({kind:'service',serviceId:'cut'})
+await typedRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('choice must never call AI')},timeoutMs:15000})
+assert.equal(readConversationDraft(typedRuntime.session.state,policy,'UTC').serviceId,'cut','typed stored operation reaches conversational core')
+assert.equal(typedRuntime.row.status,'PROCESSED')
+assert.ok(readConversationDraft(typedRuntime.session.state,policy,'UTC').introduced)
+assert.match(typedRuntime.replies[0]!,/Asistente real.*Nombre real/)
+assert.ok(typedRuntime.statements.some(q=>q.sql.includes('conversation-choice-persist')),'real response persists native choices')
+for(const guard of ['revision','draft','tenant','generation','replay'] as const) {
+  const typed=runtimeFixture({basketCatalog:true});typed.next('Corte');await typed.run();typed.choice({kind:'service',serviceId:'cut'})
+  const before=structuredClone(typed.session.state),replies=typed.replies.length
+  if(guard==='revision') typed.row.expectedRevision=0n
+  if(guard==='draft') typed.session.state=projectConversationDraft({...readConversationDraft(typed.session.state,policy,'UTC'),customerName:'Changed'},policy)
+  if(guard==='tenant') (typed.row.payload.conversationChoice as any).question.scope.businessId='other'
+  if(guard==='generation') (typed.row.payload.conversationChoice as any).question.scope.policyGeneration=2
+  if(guard==='replay') typed.row.status='PROCESSED'
+  const expected=guard==='draft'?structuredClone(typed.session.state):before
+  await typed.run();assert.deepEqual(typed.session.state,expected,guard);assert.equal(typed.replies.length,replies,guard)
+}
+// Newly admitted text cannot be concatenated with a selected option, and cannot erase that selection.
+const followed=runtimeFixture({basketCatalog:true});followed.next('Corte');await followed.run();followed.choice({kind:'service',serviceId:'cut'})
+followed.inputs([{id:followed.row.providerEventId,text:'FORGED LABEL'},{id:'later-text',text:'mañana'}])
+await followed.run();assert.equal(readConversationDraft(followed.session.state,policy,'UTC').serviceId,'cut')
+followed.next('mañana');followed.inputs([{id:followed.row.providerEventId,text:'mañana'}]);await followed.run()
+assert.equal(readConversationDraft(followed.session.state,policy,'UTC').date,'2026-10-02')
+assert.equal(readConversationDraft(followed.session.state,policy,'UTC').serviceId,'cut')
+console.log('conversational typed runtime persistence/fresh revision/tenant/draft/replay/ordered text: PASS')
+const unavailableTyped=runtimeFixture({basketCatalog:true});unavailableTyped.next('Corte');await unavailableTyped.run()
+const unavailableBefore=structuredClone(unavailableTyped.session.state)
+unavailableTyped.choice({kind:'service',serviceId:'gone'})
+await unavailableTyped.run()
+assert.deepEqual(unavailableTyped.session.state,unavailableBefore,'expired finite operation cannot mutate draft')
+assert.match(unavailableTyped.replies.at(-1)!,/opción.*disponible/)
+const typedEnvelope=typedRuntime.statements.flatMap(q=>q.values).filter((v):v is string=>typeof v==='string' && v.startsWith('{')).map(v=>JSON.parse(v)).filter(v=>v.item && v.consolidation?.eventIds?.includes('event-2'))
+assert.ok(typedEnvelope.some(v=>v.consolidation.sealed),'typed response has sealed ordered envelope and is never text-replayed')
+
+// The actual bridge statements commit CAS, transition, prompt, choices, outbox and settlement together.
+const typedFinalStart=typedRuntime.statements.map(q=>q.sql).lastIndexOf(typedRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).at(-1)!.sql)
+const typedWrites=typedRuntime.statements.slice(typedFinalStart).filter(q=>/conversation-turn-persist|conversation-choice-invalidate|conversation-choice-prompt|conversation-choice-persist|conversation-settle-batch/.test(q.sql))
+assert.equal(typedWrites.length,5)
+const atomicDb=new PGlite()
+try {
+  await atomicDb.exec(`CREATE TYPE "BotSessionStatus" AS ENUM ('ACTIVE','HUMAN_TAKEN');CREATE TYPE "ConversationStep" AS ENUM ('BOOKING_IN_PROGRESS');
+    CREATE TYPE "BotPromptStatus" AS ENUM ('OPEN','STABILIZING','INVALIDATED','RESOLVED');CREATE TYPE "BotPromptMode" AS ENUM ('FUNCTIONAL');
+    CREATE TYPE "BotOutboxStatus" AS ENUM ('PENDING');CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','PROCESSED');
+    CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED');CREATE TYPE "BotDispatchStatus" AS ENUM ('CLAIMED','DONE');CREATE TYPE "BotJobStatus" AS ENUM ('LEASED','DONE');
+    CREATE TABLE "BotSession"("id" text PRIMARY KEY,"businessId" text,"conversationId" text,"revision" bigint,"deploymentGeneration" integer,"state" jsonb,"status" "BotSessionStatus","handoffClaimsPausedAt" timestamptz,"handoffFenceEpoch" integer,"updatedAt" timestamptz,"draftTouchedAt" timestamptz,"draftExpiresAt" timestamptz);
+    CREATE TABLE "Conversation"("id" text,"businessId" text,"currentStep" "ConversationStep","updatedAt" timestamptz);
+    CREATE TABLE "BotTransitionLog"("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" integer,"revisionFrom" bigint,"revisionTo" bigint,"actionType" text,"outcome" text,"providerEventId" text,"detail" jsonb);
+    CREATE TABLE "BotPrompt"("id" text PRIMARY KEY,"sessionId" text,"promptToken" text,"stateRevision" bigint,"mode" "BotPromptMode","status" "BotPromptStatus","openedAt" timestamptz,"outboxMessageId" text,"resolvedAt" timestamptz);
+    CREATE UNIQUE INDEX one_open_prompt ON "BotPrompt"("sessionId") WHERE "status" IN ('OPEN','STABILIZING');
+    CREATE TABLE "BotPromptChoice"("id" text PRIMARY KEY,"promptId" text REFERENCES "BotPrompt"("id"),"choiceToken" text,"actionType" text,"entityType" text,"entityId" text,"payload" jsonb,"labelSnapshot" text,"sortOrder" integer);
+    CREATE TABLE "BotOutbox"("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"transitionId" text,"deliveryGroupId" text,"sequence" integer,"kind" text,"payload" jsonb,"idempotencyKey" text UNIQUE,"status" "BotOutboxStatus","dependsOnSequence" integer,"availableAt" timestamptz,"updatedAt" timestamptz);
+    CREATE TABLE "BotActionInbox"("id" text,"businessId" text,"providerEventId" text,"status" "BotInboxStatus","error" text);
+    CREATE TABLE "BotProviderEvent"("id" text,"businessId" text,"status" "BotProviderEventStatus");
+    CREATE TABLE "BotDispatchClaim"("id" text,"claimToken" text,"status" "BotDispatchStatus","updatedAt" timestamptz);
+    CREATE TABLE "BotJob"("id" text,"status" "BotJobStatus","leaseToken" text,"leasedUntil" timestamptz,"lastError" text,"updatedAt" timestamptz);
+    INSERT INTO "BotSession" VALUES ('session','biz','conversation',1,1,'{}','ACTIVE',NULL,0,NULL,NULL,NULL);
+    INSERT INTO "Conversation" VALUES ('conversation','biz',NULL,NULL);
+    INSERT INTO "BotPrompt" ("id","sessionId","status") VALUES ('old','session','OPEN');
+    INSERT INTO "BotActionInbox" VALUES ('inbox-2','biz','event-2','ADMITTED',NULL);
+    INSERT INTO "BotProviderEvent" VALUES ('event-2','biz','ADMITTED');
+    INSERT INTO "BotDispatchClaim" VALUES ('claim','dispatch-token','CLAIMED',NULL);
+    INSERT INTO "BotJob" VALUES ('job-2','LEASED','job-token',NULL,NULL,NULL);`)
+  const run=async(fail=false)=>atomicDb.transaction(async tx=>{
+    for(const q of typedWrites) await tx.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))
+    if(fail)throw new Error('typed final rollback')
+  })
+  await assert.rejects(()=>run(true),/rollback/)
+  assert.deepEqual((await atomicDb.query(`SELECT "revision"::text FROM "BotSession"`)).rows,[{revision:'1'}])
+  assert.deepEqual((await atomicDb.query(`SELECT "status" FROM "BotPrompt"`)).rows,[{status:'OPEN'}])
+  assert.equal((await atomicDb.query<{count:number}>(`SELECT count(*)::integer AS count FROM "BotOutbox"`)).rows[0]!.count,0)
+  await run()
+  assert.deepEqual((await atomicDb.query(`SELECT "revision"::text FROM "BotSession"`)).rows,[{revision:'2'}])
+  assert.deepEqual((await atomicDb.query(`SELECT "status" FROM "BotActionInbox"`)).rows,[{status:'PROCESSED'}])
+  assert.deepEqual((await atomicDb.query(`SELECT "status" FROM "BotDispatchClaim"`)).rows,[{status:'DONE'}])
+  assert.deepEqual((await atomicDb.query(`SELECT "status" FROM "BotJob"`)).rows,[{status:'DONE'}])
+  assert.ok((await atomicDb.query<{count:number}>(`SELECT count(*)::integer AS count FROM "BotPromptChoice" WHERE "actionType"='conversation.choice'`)).rows[0]!.count>0)
+  assert.equal((await atomicDb.query<{count:number}>(`SELECT count(*)::integer AS count FROM "BotTransitionLog" WHERE "actionType"='conversation.choice'`)).rows[0]!.count,1)
+  console.log('conversational typed bridge actual CAS/prompt/outbox/settlement single transaction rollback: PASS')
+} finally {await atomicDb.close()}
+
+const professionalRuntime=runtimeFixture({publicPorts:true})
+professionalRuntime.next('¿Ana trabaja los sábados?')
+await professionalRuntime.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate({kind:'information',target:{kind:'professional',actions:[],mention:'Ana',serviceIds:['cut'],date:null,weekday:6,aspect:'schedule'},...runtimeEv('Ana trabaja los sábados')}),timeoutMs:15000})
+assert.match(professionalRuntime.replies.at(-1)!,/Sábado: 10:00 a 14:00/)
+assert.match(professionalRuntime.replies.at(-1)!,/no turnos libres/)
+assert.equal(professionalRuntime.singularAgendaCalls,0,'habitual schedule is not slot availability')
+const textDuringTyped=runtimeFixture({basketCatalog:true,publicPorts:true})
+textDuringTyped.next('Corte');await textDuringTyped.run();textDuringTyped.choice({kind:'service',serviceId:'cut'})
+textDuringTyped.hook(()=>textDuringTyped.inputs([{id:textDuringTyped.row.providerEventId,text:'FORGED LABEL'},{id:'newer',text:'mañana'}]))
+await textDuringTyped.run()
+assert.equal(readConversationDraft(textDuringTyped.session.state,policy,'UTC').serviceId,'cut','durable later text during compute cannot erase the selected operation')
+const choiceAfterPolicyRemoval=runtimeFixture({basketCatalog:true})
+choiceAfterPolicyRemoval.next('Corte');await choiceAfterPolicyRemoval.run();choiceAfterPolicyRemoval.choice({kind:'service',serviceId:'cut'})
+choiceAfterPolicyRemoval.row.definition={} as typeof config.definition
+await assert.rejects(choiceAfterPolicyRemoval.run(),/conversation choice policy unavailable/)
+assert.equal(readConversationDraft(choiceAfterPolicyRemoval.session.state,policy,'UTC').serviceId,null,'policy removal cannot enter legacy Booking V2')
+console.log('conversational runtime public facts/identity/date receivers/choice during new text/policy removal: PASS')

@@ -1,6 +1,8 @@
 import { canonicalConversationPhone, lockConversationPhoneTx } from '../../conversational-bot/inbound-consolidation.js'
 import { observeQueueProducerTransaction, recordProducedJob, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
-import { loadConversationPolicy } from '../../conversational-bot/runtime-policy.js'
+import { CONVERSATION_CHOICE_ACTION, resolveConversationChoicePayload } from '../../conversational-bot/runtime-choice-persistence.js'
+import { readConversationDraft } from '../../conversational-bot/session-state.js'
+import { loadConversationPolicy, type ConversationPolicy } from '../../conversational-bot/runtime-policy.js'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { randomUUID } from 'node:crypto'
 import { admitPromptChoice, isRecoverableStalePromptClassification, type BotPromptContract, type PromptExecutionContext } from '../domain/prompts.js'
@@ -335,7 +337,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       route: Extract<AuthoritativeRoute, { kind: 'new' }>
       event: ParsedWebhookEvent
       providerEventId: string
-      conversational?: boolean
+      conversational?: ConversationPolicy | null
       contextWindowEvaluated?: boolean
     }
   ): Promise<ProviderEventClassificationResult> {
@@ -394,7 +396,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
 
     const inboxId = randomUUID()
     if (event.kind === 'message' && event.interactiveReplyId) {
-      await this.#admitInteractive(tx, { ...input, event, inboxId, conversational: Boolean(conversational) })
+      await this.#admitInteractive(tx, { ...input, event, inboxId, conversational })
       return { outboundMessage: null }
     }
     if (!conversational && event.kind === 'message' && await this.#admitFreeTextInput(tx, {
@@ -584,7 +586,7 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       event: Extract<ParsedWebhookEvent, { kind: 'message' }>
       providerEventId: string
       inboxId: string
-      conversational?: boolean
+      conversational?: ConversationPolicy | null
       contextWindowEvaluated?: boolean
     }
   ) {
@@ -601,9 +603,11 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       absoluteAt: Date | null; resolvedAt: Date | null
       choiceToken: string; actionType: string; entityType: string | null; entityId: string | null
       payload: Prisma.JsonValue | null; labelSnapshot: string; sortOrder: number; dbNow: Date
+      state: Prisma.JsonValue; businessTimezone: string; sessionStatus: string; handoffClaimsPausedAt: Date | null
     }>>(Prisma.sql`
       SELECT p."id" AS "promptId", p."sessionId", s."businessId", s."deploymentId",
         s."deploymentGeneration", s."revision", p."stateRevision", p."mode", p."status",
+        s."state", s."businessTimezone", s."status"::text AS "sessionStatus", s."handoffClaimsPausedAt",
         p."firstActionAt", p."lastActionAt", p."settleAt", p."absoluteAt", p."resolvedAt",
         c."choiceToken", c."actionType", c."entityType", c."entityId", c."payload",
         c."labelSnapshot", c."sortOrder", clock_timestamp() AS "dbNow"
@@ -619,11 +623,45 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
       await insertRejectedInbox(tx, input, 'REJECTED', 'unknown prompt or choice')
       return
     }
+    const row = rows[0]!
     if (input.conversational) {
-      await insertRejectedInbox(tx, input, 'REJECTED', 'interactive action not supported by conversational policy')
+      const policy = input.conversational
+      if (row.actionType !== CONVERSATION_CHOICE_ACTION || row.entityType !== null || row.entityId !== null ||
+          row.businessId !== policy.businessId || row.deploymentId !== policy.deploymentId || row.deploymentGeneration !== policy.generation ||
+          row.status !== 'OPEN' || row.stateRevision !== row.revision || row.sessionStatus !== 'ACTIVE' || row.handoffClaimsPausedAt) {
+        await insertRejectedInbox(tx,input,'REJECTED','interactive action not supported by conversational policy')
+        return
+      }
+      try {
+        const draft = readConversationDraft(row.state,policy,row.businessTimezone)
+        resolveConversationChoicePayload(row.payload,{businessId:policy.businessId,conversationKey:row.sessionId,policyKey:policy.configurationId,
+          policyGeneration:policy.generation,revision:row.revision.toString()},draft)
+      } catch {
+        await insertRejectedInbox(tx,input,'REJECTED','stale or invalid conversational choice')
+        return
+      }
+      const resolved = await tx.$executeRaw(Prisma.sql`
+        /* conversation-choice-admit */
+        UPDATE "BotPrompt" SET "status"='RESOLVED'::"BotPromptStatus", "resolvedAt"=clock_timestamp()
+        WHERE "id"=${row.promptId} AND "sessionId"=${row.sessionId} AND "stateRevision"=${row.revision}
+          AND "status"='OPEN'::"BotPromptStatus"
+      `)
+      if (resolved !== 1) throw new Error('conversational prompt admission lost')
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "BotActionInbox" ("id","businessId","providerEventId","sessionId","promptId","providerMessageId","choiceToken",
+          "actionType","deploymentId","deploymentGeneration","payload","expectedRevision","receivedAt","status")
+        VALUES (${input.inboxId},${policy.businessId},${input.providerEventId},${row.sessionId},${row.promptId},${input.event.providerMessageId},${row.choiceToken},
+          ${CONVERSATION_CHOICE_ACTION},${policy.deploymentId},${policy.generation},
+          ${JSON.stringify({...eventPayload(input.event),contextWindowEvaluated:input.contextWindowEvaluated === true,conversationChoice:row.payload})}::jsonb,
+          ${row.revision},${row.dbNow},'ADMITTED'::"BotInboxStatus")
+      `)
+      await upsertJob(tx,'PROCESS_INBOX',input.inboxId,policy.businessId,policy.deploymentId,policy.generation,row.revision,row.dbNow)
       return
     }
-    const row = rows[0]!
+    if (row.actionType === CONVERSATION_CHOICE_ACTION) {
+      await insertRejectedInbox(tx,input,'REJECTED','conversational choice requires current conversational policy')
+      return
+    }
     const current: PromptExecutionContext = {
       businessId: input.route.businessId,
       deploymentId: input.route.deploymentId,

@@ -1,4 +1,7 @@
-import { loadPrismaBasketAvailability, projectDialogueService } from './prisma-basket-availability.js'
+import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices, projectDialogueService } from './prisma-basket-availability.js'
+import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './prisma-public-professional-facts.js'
+import { queryPublicProfessionalFacts } from './public-professional-facts.js'
+import { loadDialogueIdentity, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
 import { readPublicSourceStamp, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
@@ -7,7 +10,7 @@ import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/pris
 import { localDateKey } from '../bot-options/application/availability-queries.js'
 import type { DialogueContext, DialoguePort, DialogueService } from './engine.js'
 
-type DialogueClient = FactsClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
+type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
 export async function createPrismaDialoguePort(client: DialogueClient, businessId: string): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
@@ -57,8 +60,16 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     const services = await catalog.loadPublicCatalogSnapshot(businessId)
     return services.map(projectDialogueService)
   }
+  let publicBusiness: { businessId: string; businessName: string } | undefined
   return { context, cacheDiagnostics, port: {
-    information: actions => cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions)),
+    ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {identity: () => loadDialogueIdentity(client,businessId,publicBusiness)} : {}),
+    async information(actions) {
+      const facts = await cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions))
+      publicBusiness = {businessId:facts.businessId,businessName:facts.name}
+      return facts
+    },
+    professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
+    verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal)),
     catalog: () => cached('catalog', loadCatalog),
     availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {

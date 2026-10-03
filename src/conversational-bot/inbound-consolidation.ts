@@ -131,7 +131,18 @@ export async function guardConsolidatedOutboxTx(tx: Prisma.TransactionClient, it
     `)
     if (predecessor.length) return 'defer'
   }
-  if (envelope.sealed) return 'ready'
+  const sealedChoices = envelope.sealed ? await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    /* conversation-choice-sender-scope */
+    SELECT t."id" FROM "BotTransitionLog" t
+    JOIN "BotSession" s ON s."id"=t."sessionId" AND s."businessId"=t."businessId"
+    JOIN "BotOutbox" o ON o."transitionId"=t."id" AND o."sessionId"=t."sessionId" AND o."businessId"=t."businessId"
+    WHERE o."id"=${item.id} AND t."businessId"=${item.businessId} AND t."sessionId"=${envelope.sessionId}
+      AND t."deploymentId"=${envelope.deploymentId} AND t."deploymentGeneration"=${envelope.generation}
+      AND t."revisionTo"=${envelope.revision ?? '0'}::bigint AND t."actionType"='conversation.choice'
+      AND s."deploymentGeneration"=${envelope.generation} AND s."handoffFenceEpoch"=${envelope.handoffFenceEpoch}
+      AND s."status"::text='ACTIVE' AND s."handoffClaimsPausedAt" IS NULL
+  `) : []
+  if (envelope.sealed && !sealedChoices.length) return 'ready'
   // Claim ownership must be checked under a nonblocking row lock: claimOutbox has the opposite lock order.
   const owned = await tx.$queryRaw<Array<{ id: string; transitionId: string }>>(Prisma.sql`
     /* consolidation-sender-owned */ SELECT "id", "transitionId" FROM "BotOutbox"
@@ -146,6 +157,37 @@ export async function guardConsolidatedOutboxTx(tx: Prisma.TransactionClient, it
       AND "status"::text IN ('SENDING','UNKNOWN','ACCEPTED','DELIVERED','READ') LIMIT 1
   `)
   if (irreversible.length) return 'ready' // New input belongs to a later turn; finish all already frozen pieces.
+  if (sealedChoices.length) {
+    // The selection is already committed. Only its unsent response is obsolete; never replay the choice.
+    const newer = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+      /* conversation-choice-sender-newer-text */
+      SELECT e."id" FROM "BotTransitionLog" selected
+      JOIN "BotProviderEvent" original ON original."id"=selected."providerEventId" AND original."businessId"=selected."businessId"
+      JOIN "BotProviderEvent" e ON e."businessId"=original."businessId" AND (e."admittedAt",e."id")>(original."admittedAt",original."id")
+      LEFT JOIN "BotActionInbox" i ON i."providerEventId"=e."id" AND i."businessId"=e."businessId"
+      WHERE selected."id"=${sealedChoices[0]!.id} AND selected."businessId"=${item.businessId}
+        AND selected."sessionId"=${envelope.sessionId} AND selected."actionType"='conversation.choice'
+        AND e."eventType"::text='MESSAGE' AND e."payload"->>'fromPhone'=${payload.to as string}
+        AND e."payload"->>'messageType'='text' AND length(trim(e."payload"->>'textBody'))>0
+        AND COALESCE(e."payload"->>'interactiveReplyId','')=''
+        AND (
+          (i."id" IS NULL AND e."status"::text='ADMITTED') OR (
+            i."deploymentId"=${envelope.deploymentId} AND i."deploymentGeneration"=${envelope.generation}
+            AND (i."sessionId" IS NULL OR i."sessionId"=${envelope.sessionId})
+            AND i."actionType" IN ('input.initial','conversation.message')
+            AND (i."status"::text IN ('ADMITTED','CLAIMED','SELECTED','CONFLICT') OR
+              (i."status"::text='PROCESSED' AND EXISTS (
+                SELECT 1 FROM "BotTransitionLog" later WHERE later."businessId"=i."businessId" AND later."sessionId"=${envelope.sessionId}
+                  AND later."providerEventId"=e."id" AND later."deploymentId"=${envelope.deploymentId}
+                  AND later."deploymentGeneration"=${envelope.generation} AND later."revisionTo">${envelope.revision ?? '0'}::bigint
+                  AND later."actionType"='conversation.message'
+              )))
+          )
+        ) LIMIT 1
+    `)
+    if (!newer.length) return 'ready'
+    return await supersedeConsolidationOutboxTx(tx,item.businessId,envelope.sessionId,owned[0].transitionId) ? 'superseded' : 'defer'
+  }
   const rows = await candidates(tx, { businessId: item.businessId, phone: payload.to, previousIds: envelope.eventIds, deploymentId: envelope.deploymentId, generation: envelope.generation })
   const prefix: string[] = []
   let textSize = 0

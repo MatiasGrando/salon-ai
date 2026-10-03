@@ -1,17 +1,20 @@
-import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx } from './inbound-consolidation.js'
+import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx, type ConsolidationEnvelope } from './inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../bot-options/observability/attempt-metrics.js'
 import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai-interpreter.js'
 import type { WhatsAppConversationAi } from './whatsapp-ai.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
-import { initialDialogueState, respond, type DialogueContext, type DialoguePort } from './engine.js'
+import { initialDialogueState, respond, respondConversationChoice, ConversationChoiceUnavailableError, type DialogueContext, type DialoguePort } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from './runtime-policy.js'
 import { reconcileConversationDraft, projectConversationDraft } from './session-state.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../bot-options/domain/state.js'
 import { textView } from '../bot-options/domain/views.js'
 import { conversationStepForBotOptionsState } from '../bot-options/domain/conversation-status.js'
+import { issueChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope } from './choices.js'
+import { CONVERSATION_CHOICE_ACTION, persistConversationChoiceViewTx, resolveConversationChoicePayload } from './runtime-choice-persistence.js'
+import { readConversationDraft } from './session-state.js'
 import { persistConversationTurnTx } from './persist-conversation-turn.js'
 import { applyLazyContextWindowTx } from '../bot-options/application/lazy-context-window.js'
 import { acquireDispatchClaim, completeDispatchClaimTx, withDispatchClaimCleanup } from '../bot-options/infrastructure/dispatch-claims.js'
@@ -27,7 +30,7 @@ const defaultFactory: DialogueFactory = (client, businessId) => {
   if (!('business' in client) || !('service' in client)) throw new Error('dialogue read delegates unavailable')
   return createPrismaDialoguePort(client as Parameters<typeof createPrismaDialoguePort>[0], businessId)
 }
-type Row = PolicyRow & { id: string; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
+type Row = PolicyRow & { id: string; actionType: string; expectedRevision: bigint | null; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
   providerEventId: string; providerMessageId: string | null; providerPhoneNumberId: string | null; status: string; dbNow: Date; businessTimezone: string;
   admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean; projectedConversationId: string | null }
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
@@ -86,7 +89,16 @@ export async function processConversationInbox(input: {
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
   const policy = await measureAttemptStage('conversation_policy_load', () => loadConversationPolicy(input.client, { businessId: input.job.businessId, deploymentId: input.job.deploymentId, generation: input.job.deploymentGeneration }))
-  if (!policy) return null
+  if (!policy) {
+    // A once-admitted conversational choice must never enter Booking V2 after policy removal.
+    const actions = await input.client.$queryRaw<Array<{actionType:string}>>(Prisma.sql`
+      /* conversation-choice-policy-guard */ SELECT "actionType" FROM "BotActionInbox"
+      WHERE "id"=${input.job.aggregateId} AND "businessId"=${input.job.businessId}
+        AND "deploymentId"=${input.job.deploymentId} AND "deploymentGeneration"=${input.job.deploymentGeneration}
+    `)
+    if (actions.some(row=>row.actionType===CONVERSATION_CHOICE_ACTION)) throw new Error('conversation choice policy unavailable')
+    return null
+  }
   const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number; phone: string | null }>>(Prisma.sql`
     /* conversation-target */ SELECT d."dispatchFenceEpoch" AS "fenceEpoch", e."payload"->>'fromPhone' AS "phone"
     FROM "BotChannelDeployment" d
@@ -141,7 +153,7 @@ export async function processConversationInbox(input: {
       await measureAttemptStage('conversation_feature_lock', () => tx.$queryRaw(Prisma.sql`/* conversation-feature-lock */ SELECT "botEnabled" FROM "BusinessFeatureSettings" WHERE "businessId" = ${policy.businessId} FOR SHARE`))
       const rows = await measureAttemptStage('conversation_inbox_lock', () => tx.$queryRaw<Row[]>(Prisma.sql`
         /* conversation-inbox-lock */
-        SELECT i."id", i."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId",
+        SELECT i."id", i."actionType", i."expectedRevision", i."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId",
           i."providerMessageId", e."phoneNumberId" AS "providerPhoneNumberId", i."status"::text AS "status", clock_timestamp() AS "dbNow", e."admittedAt", e."providerOccurredAt",
           settings."timezone" AS "businessTimezone", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch", d."engineKey",
           cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition", b."customerCode",
@@ -242,13 +254,15 @@ export async function processConversationInbox(input: {
       const currentPolicy = resolveConversationPolicy(row)
       if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row); return null }
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return null }
-      const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown }
+      const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; conversationChoice?:unknown }
       if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('conversation phone unavailable')
       const phone = payload.fromPhone
       if (canonicalConversationPhone(phone) !== canonicalConversationPhone(targetPhone)) throw new Error('conversation computation identity changed')
-      const eligibleText = payload.messageType === 'text' && !input.isRestart(payload.textBody)
+      const isChoice = row.actionType === CONVERSATION_CHOICE_ACTION
+      const eligibleText = !isChoice && payload.messageType === 'text' && !input.isRestart(payload.textBody)
       if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
       let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
+      if(isChoice && !session) {await finish(tx,row);return null}
       // The provider worker already committed CRM before classification. Reuse only its exact
       // journal/message/tenant/phone identity; synthetic or incomplete projections retain the old path.
       let conversationId = row.projectedConversationId && (!session || session.conversationId === row.projectedConversationId)
@@ -290,6 +304,14 @@ export async function processConversationInbox(input: {
       }
       if (!session || session.status !== 'ACTIVE' || session.handoffClaimsPausedAt) throw new Error('conversation session fenced')
       const activeSession = session
+      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:activeSession.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(activeSession.revision)}
+      let selectedChoice:ReturnType<typeof resolveConversationChoicePayload>|null=null
+      if(isChoice) {
+        try {
+          if(row.expectedRevision!==activeSession.revision || activeSession.deploymentGeneration!==policy.generation) throw new Error('stale conversation choice revision')
+          selectedChoice=resolveConversationChoicePayload(payload.conversationChoice,choiceScope,readConversationDraft(activeSession.state,policy,row.businessTimezone))
+        } catch { await finish(tx,row);return null }
+      }
       await measureAttemptStage('conversation_inbox_attach', () => tx.$executeRaw(Prisma.sql`
         /* conversation-attach */ UPDATE "BotActionInbox" SET "sessionId" = ${activeSession.sessionId}, "expectedRevision" = ${activeSession.revision}
         WHERE "id" = ${row.id} AND "businessId" = ${row.businessId} AND "status" = 'ADMITTED'::"BotInboxStatus"
@@ -315,7 +337,7 @@ export async function processConversationInbox(input: {
         await measureAttemptStage('conversation_transition_insert', () => tx.$executeRaw(Prisma.sql`INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId") VALUES (${randomUUID()}, ${row.businessId}, ${activeSession.sessionId}, ${row.deploymentId}, ${row.generation}, ${activeSession.revision}, ${revision}, 'system.configuration_reset', 'APPLIED', ${row.providerEventId})`))
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
-      const reset = payload.messageType === 'text' && input.isRestart(payload.textBody)
+      const reset = !isChoice && payload.messageType === 'text' && input.isRestart(payload.textBody)
       const consolidation = eligibleText ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
@@ -323,7 +345,7 @@ export async function processConversationInbox(input: {
       if (eligibleText && !consolidation) { await retry(tx, row, true); return null }
       const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset }
+      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset, selectedChoice }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { markSettled(); return 'PROCESSED' }
@@ -344,11 +366,22 @@ export async function processConversationInbox(input: {
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
       ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
+      ...(prepared.port.identity ? {identity:()=>prepared.port.identity!()} : {}),
+      ...(prepared.port.professionalInformation ? {professionalInformation:(...args:Parameters<NonNullable<DialoguePort['professionalInformation']>>)=>prepared.port.professionalInformation!(...args)} : {}),
+      ...(prepared.port.verifiedDateChoices ? {verifiedDateChoices:(...args:Parameters<NonNullable<DialoguePort['verifiedDateChoices']>>)=>prepared.port.verifiedDateChoices!(...args)} : {}),
       ...(prepared.port.information ? { information: (actions?: Parameters<NonNullable<DialoguePort['information']>>[0]) => prepared.port.information!(actions) } : {})
     }
     const computedStarted = performance.now()
-    const useAi = input.conversationalAi && !snapshot.reset && snapshot.payload.messageType === 'text'
+    const useAi = input.conversationalAi && !snapshot.selectedChoice && !snapshot.reset && snapshot.payload.messageType === 'text'
+    const computeChoice = async () => {
+      try {return await respondConversationChoice(prepared.context,snapshot.draft,snapshot.selectedChoice!.operation,port)}
+      catch(error) {
+        if(!(error instanceof ConversationChoiceUnavailableError)) throw error
+        return {state:snapshot.draft,reply:'Esa opción ya no está disponible. Escribime cómo querés continuar; conservé tu borrador.',proposal:null}
+      }
+    }
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
+      : snapshot.selectedChoice ? await computeChoice()
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
       : useAi ? await respondWithAiInterpreter(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
       : await respond(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
@@ -373,6 +406,15 @@ export async function processConversationInbox(input: {
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
           (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
+      if(snapshot.selectedChoice) {
+        try {
+          if(row.actionType!==CONVERSATION_CHOICE_ACTION || row.expectedRevision!==session.revision) throw new Error('stale conversation choice')
+          const current=resolveConversationChoicePayload((row.payload as {conversationChoice?:unknown}).conversationChoice,
+            {businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(session.revision)},
+            readConversationDraft(session.state,policy,row.businessTimezone))
+          if(JSON.stringify(current.operation)!==JSON.stringify(snapshot.selectedChoice.operation)) throw new Error('conversation choice changed')
+        } catch {await finish(tx,row);return 'PROCESSED' as const}
+      }
       if (snapshot.consolidation) {
         const fresh = await selectConsolidationGroupTx(tx, { businessId: row.businessId, sessionId: session.sessionId,
           deploymentId: policy.deploymentId, generation: policy.generation, handoffFenceEpoch: session.handoffFenceEpoch,
@@ -385,22 +427,36 @@ export async function processConversationInbox(input: {
       const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
       const revision = session.revision + 1n
       const transitionId = `transition:${session.sessionId}:${revision}`
+      const deliveryEnvelope:ConsolidationEnvelope|undefined=snapshot.consolidation?.envelope ?? (snapshot.selectedChoice ? {
+        version:1,businessId:row.businessId,sessionId:session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,
+        handoffFenceEpoch:session.handoffFenceEpoch,baseState:state,eventIds:[row.providerEventId],sealed:true,revision:String(revision)
+      } : undefined)
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
-      const atomicText = input.writeView === persistView
+      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
+      let question:ChoiceQuestion|undefined
+      if(input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+        for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
+        // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
+        try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
+      }
+      const atomicText = input.writeView === persistView && !question
       const reply = (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
-        generation: row.generation, providerEventId: row.providerEventId, consolidation: snapshot.consolidation?.envelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : 'conversation.message',
+        generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
         step: conversationStepForBotOptionsState(state),
         ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
           coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],
           dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken } } : {})
       }))
       if (update) updates.push(update)
-      if (!atomicText) {
+      if (question) {
+        await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))
+        await finish(tx,row,snapshot.consolidation?.envelope.eventIds)
+      } else if (!atomicText) {
         await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
-          toPhone: snapshot.phone, consolidation: snapshot.consolidation?.envelope, view: textView(reply), dbNow: row.dbNow }))
+          toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply), dbNow: row.dbNow }))
         await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
       }
       committedTransitionId = transitionId

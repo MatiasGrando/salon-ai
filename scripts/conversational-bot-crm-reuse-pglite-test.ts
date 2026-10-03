@@ -24,7 +24,7 @@ await db.exec(`
   CREATE TABLE "BusinessBotConfiguration" ("id" text PRIMARY KEY,"businessId" text,"status" text,"definition" jsonb);
   CREATE TABLE "BotChannelDeployment" ("id" text PRIMARY KEY,"businessId" text,"generation" int,"dispatchFenceEpoch" int,"engineKey" text,"activeConfigurationId" text,"claimsPausedAt" timestamptz);
   CREATE TABLE "BotProviderEvent" ("id" text PRIMARY KEY,"businessId" text,"providerMessageId" text,"payload" jsonb,"phoneNumberId" text,"admittedAt" timestamptz,"providerOccurredAt" timestamptz);
-  CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"payload" jsonb,"providerEventId" text,"providerMessageId" text,"status" text);
+  CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"payload" jsonb,"providerEventId" text,"providerMessageId" text,"status" text,"actionType" text,"expectedRevision" bigint);
   CREATE TABLE "Conversation" ("id" text PRIMARY KEY,"businessId" text,"phone" text,"lastMessage" text,"updatedAt" timestamptz);
   CREATE TABLE "Message" ("id" text PRIMARY KEY,"conversationId" text,"phone" text,"direction" "MessageDirection","providerMessageId" text);
   INSERT INTO "Business" VALUES ('biz','WX-38N6UG',true),('foreign','OTHER',true);
@@ -35,7 +35,7 @@ await db.exec(`
 async function seed(change = '') {
   await db.exec(`TRUNCATE "BotActionInbox","BotProviderEvent","Conversation","Message";
     INSERT INTO "BotProviderEvent" VALUES ('event','biz','msg','${JSON.stringify(payload)}','channel','2026-10-01T12:00:00Z','2026-10-01T12:00:00Z');
-    INSERT INTO "BotActionInbox" VALUES ('inbox','biz','dep',1,'${JSON.stringify(payload)}','event','msg','ADMITTED');
+    INSERT INTO "BotActionInbox" VALUES ('inbox','biz','dep',1,'${JSON.stringify(payload)}','event','msg','ADMITTED','input.initial',NULL);
     INSERT INTO "Conversation" VALUES ('conversation','biz','phone','newer durable part','2026-10-01T12:00:01Z');
     INSERT INTO "Message" VALUES ('event','conversation','phone','INBOUND','msg');
     ${change}`)
