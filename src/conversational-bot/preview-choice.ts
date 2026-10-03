@@ -28,10 +28,16 @@ export function storePreviewChoiceState<T extends object>(draft: T, revision: st
   const ledger: Ledger = { version: 1, revision, question: question ? parseChoiceQuestion(question) : null }
   return Object.assign(structuredClone(draft), { previewChoiceContext: ledger })
 }
+export type PreviewChoiceGate = 'ledger_resolve' | 'engine_admission' | 'commit_recheck'
+export type PreviewChoiceReason = 'not_current' | 'question_incomplete' | 'role_or_option_mismatch' | 'draft_not_eligible' | 'current_data_unavailable'
 export class PreviewChoiceError extends Error {
-  constructor() {
+  readonly gate: PreviewChoiceGate
+  readonly reason: PreviewChoiceReason
+  constructor(gate: PreviewChoiceGate = 'ledger_resolve', reason: PreviewChoiceReason = 'not_current') {
     super('Esta opción ya no está vigente. Elegí una opción de la última respuesta o escribí tu consulta.')
     this.name = 'PreviewChoiceError'
+    this.gate = gate
+    this.reason = reason
   }
 }
 export function resolvePreviewChoice(stored: unknown, scope: ChoiceScope, actionId: string): { label: string; operation: ConversationChoiceOperation } {

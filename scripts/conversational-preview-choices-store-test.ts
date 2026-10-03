@@ -84,7 +84,8 @@ assert.equal(messages.filter(message => message.phone === 'demo:preview:admin:do
 
 const race: any = await start('race')
 forceConflict = true
-await assert.rejects(select('race', race.presentation.choices[0].id), PreviewChoiceError)
+await assert.rejects(select('race', race.presentation.choices[0].id),
+  (error: unknown) => { assert.ok(error instanceof PreviewChoiceError); assert.equal(error.gate, 'commit_recheck'); return true })
 assert.equal(messages.filter(message => message.phone === 'demo:preview:admin:race' && message.direction === 'INBOUND').length, 1, 'CAS rechecks choices against changed question')
 
 const guided: DialogueService = {

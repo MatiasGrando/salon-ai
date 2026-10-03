@@ -22340,7 +22340,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             renderDemoChatMessages()
           } catch (error) {
             if (state.demoChatPreviewRun !== run) break
-            state.demoChatMessages.push({ role: 'bot', text: 'No pude procesar un mensaje: ' + error.message })
+            const choiceDiagnostic = error.body?.choiceDiagnostic
+            const validChoiceDiagnostic = choiceDiagnostic && ['ledger_resolve', 'engine_admission', 'commit_recheck'].includes(choiceDiagnostic.gate)
+              && ['not_current', 'question_incomplete', 'role_or_option_mismatch', 'draft_not_eligible', 'current_data_unavailable'].includes(choiceDiagnostic.reason)
+            state.demoChatMessages.push({ role: 'bot', text: 'No pude procesar un mensaje: ' + error.message,
+              ...(validChoiceDiagnostic ? { preview: { choiceDiagnostic: { gate: choiceDiagnostic.gate, reason: choiceDiagnostic.reason } } } : {}) })
             renderDemoChatMessages()
           }
         }

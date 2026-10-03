@@ -25,7 +25,7 @@ const question = issueChoiceQuestion({ businessId: 'qa', conversationKey: 'chat'
   ] }, () => `ui_token_${String(++token).padStart(12, '0')}`)
 const requests: any[] = []
 let staleRequest = false
-const getJson = async (_url: string, options: any) => { requests.push(JSON.parse(options.body)); if (staleRequest) throw new Error('Esta opción ya no está vigente. Escribí tu consulta.'); return { reply: 'Elegí profesional', presentation: publicChoiceQuestion(question) } }
+const getJson = async (_url: string, options: any) => { requests.push(JSON.parse(options.body)); if (staleRequest) { const error: any = new Error('Esta opción ya no está vigente. Escribí tu consulta.'); error.body = { choiceDiagnostic: { gate: 'ledger_resolve', reason: 'not_current' } }; throw error }; return { reply: 'Elegí profesional', presentation: publicChoiceQuestion(question) } }
 const actions = new Function('state', 'els', 'getJson', 'renderDemoChatMessages', 'setButtonLoading',
   [source('startNewDemoChat'), source('drainDemoPreviewMessages'), source('sendDemoChatMessage'), 'return {sendDemoChatMessage,startNewDemoChat}'].join('\n'))(
     state, els, getJson, () => {}, () => {})
@@ -56,6 +56,7 @@ staleRequest = true
 await actions.sendDemoChatMessage(null, publicChoiceQuestion(question).choices[0])
 await new Promise(resolve => setImmediate(resolve))
 assert.match(state.demoChatMessages.at(-1).text, /opción ya no está vigente/)
+assert.deepEqual(state.demoChatMessages.at(-1).preview?.choiceDiagnostic, { gate: 'ledger_resolve', reason: 'not_current' })
 assert.equal(els.demoChatSend.disabled, false, 'integrated rejection does not block further messages')
 assert.equal(state.demoChatPreviewRun.working, false)
 staleRequest = false

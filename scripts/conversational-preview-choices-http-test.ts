@@ -38,5 +38,6 @@ failSelection = true
 const stale = await request({ sessionId: 'one', mode: 'conversational-preview', interactiveReplyId: id })
 assert.equal(stale.response.statusCode, 409)
 assert.match(stale.response.payload.message, /última respuesta/)
+assert.deepEqual(stale.response.payload.choiceDiagnostic, { gate: 'ledger_resolve', reason: 'not_current' })
 assert.equal(JSON.stringify(stale.response.payload).includes(id), false)
 console.log('conversational preview choice HTTP: OK')

@@ -198,7 +198,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
       try {
         return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true }, interactiveReplyId)
       } catch (error) {
-        if (error instanceof PreviewChoiceError) return reply.status(409).send({ message: error.message })
+        if (error instanceof PreviewChoiceError) return reply.status(409).send({ message: error.message, choiceDiagnostic: { gate: error.gate, reason: error.reason } })
         if (error instanceof SimulatorBookingScopeError) return reply.status(403).send({ message: 'Las reservas de prueba sólo están habilitadas para superadministradores en perfiles QA.' })
         throw error
       }
