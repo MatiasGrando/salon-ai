@@ -9,6 +9,9 @@ import { resolveWhatsAppConversationAi } from '../src/conversational-bot/whatsap
 const context = { businessId: 'qa', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-02T15:00:00Z') }
 const port: DialoguePort = { catalog: async () => [], availability: async () => ({ professionals: [], slots: [] }) }
 const candidate = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
+const bookingCandidate = { ...candidate, intent: 'booking', serviceId: 'consultation', serviceEvidence: 'Consulta', serviceConfidence: 'certain' }
+const bookingPort: DialoguePort = { ...port, catalog: async () => [{ id: 'consultation', name: 'Consulta', durationMinutes: 30, price: 100, requiresConsultation: false }] }
+const groundedReply = 'Hola\nPerfecto 😊 ¿Para qué día y horario querés reservar tu Consulta?'
 const draft = { opening: 'Hola', factIds: [], closing: null }
 
 // Only the production deadline and fake provider delays use timers. No wall-clock waits or network calls.
@@ -56,13 +59,13 @@ class ControlledClock {
   }
 }
 
-function delayedProvider(interpretationDelay: number, responseDelay: number, signals: AbortSignal[]): AiInterpretationProvider {
+function delayedProvider(interpretationDelay: number, responseDelay: number, signals: AbortSignal[], interpretation: unknown = bookingCandidate): AiInterpretationProvider {
   const delay = (duration: number, result: unknown, signal: AbortSignal) => {
     signals.push(signal)
     return new Promise(resolve => { setTimeout(() => resolve(result), duration) })
   }
-  const provider: AiInterpretationProvider = (_input, signal) => delay(interpretationDelay, candidate, signal)
-  provider.respond = (_input, signal) => delay(responseDelay, draft, signal)
+  const provider: AiInterpretationProvider = (_input, signal) => delay(interpretationDelay, interpretation, signal)
+  provider.respond = (input, signal) => delay(responseDelay, { ...draft, factIds: input.facts.map(fact => fact.id) }, signal)
   return provider
 }
 
@@ -70,7 +73,7 @@ const defaults = new ControlledClock()
 await defaults.use(async () => {
   const signals: AbortSignal[] = []
   let settled = false
-  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port, delayedProvider(6000, 14000, signals))
+  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'Consulta', bookingPort, delayedProvider(6000, 14000, signals))
   void result.then(() => { settled = true })
   await defaults.advance(5000)
   assert.equal(settled, false, 'default interpretation must not fall back at the old 2.5/5 second deadline')
@@ -85,14 +88,28 @@ await defaults.use(async () => {
   assert.equal(response.interpretation.mode, 'ai')
   assert.equal(response.interpretation.copyMode, 'ai')
   assert.equal(response.interpretation.aiCalls, 2)
-  assert.equal(response.reply, 'Hola')
+  assert.equal(response.reply, groundedReply)
   assert.ok(signals.every(signal => !signal.aborted))
+})
+
+const social = new ControlledClock()
+await social.use(async () => {
+  const signals: AbortSignal[] = []
+  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
+    delayedProvider(6000, 14000, signals, candidate))
+  await social.advance(6000)
+  const response = await result
+  assert.equal(signals.length, 1, 'stable greeting never starts the composer just for missing style')
+  assert.equal(response.interpretation.aiCalls, 1)
+  assert.equal(response.interpretation.copyMode, 'fallback')
+  assert.equal(response.reply, '¿En qué te puedo ayudar con el local?')
+  assert.equal(signals[0]?.aborted, false)
 })
 
 const override = new ControlledClock()
 await override.use(async () => {
   const signals: AbortSignal[] = []
-  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port, delayedProvider(6000, 8000, signals), { timeoutMs: 9500 })
+  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'Consulta', bookingPort, delayedProvider(6000, 8000, signals), { timeoutMs: 9500 })
   await override.advance(14000)
   assert.equal((await result).interpretation.copyMode, 'ai', 'a valid explicit deadline above 5000 reaches both providers')
   assert.ok(signals.every(signal => !signal.aborted))
@@ -120,9 +137,9 @@ for (const [configured, expected] of [[60000, 15000], [Number.NaN, 15000], [Numb
 const composerTimeout = new ControlledClock()
 await composerTimeout.use(async () => {
   let signal: AbortSignal | undefined
-  const provider: AiInterpretationProvider = async () => candidate
+  const provider: AiInterpretationProvider = async () => bookingCandidate
   provider.respond = (_input, providerSignal) => { signal = providerSignal; return new Promise(() => {}) }
-  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port, provider)
+  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'Consulta', bookingPort, provider)
   await composerTimeout.advance(14999)
   assert.equal(signal?.aborted, false)
   await composerTimeout.advance(1)
@@ -145,16 +162,17 @@ for (const timeoutMs of [undefined, 14000] as const) {
     const result = runConversationalPreview({
       load: async () => null,
       save: async (_phone, _message, reply) => { saves.push(reply) },
-      createPort: async () => ({ context, port }),
+      createPort: async () => ({ context, port: bookingPort }),
       interpretationProvider: delayedProvider(6000, 6000, signals),
       ...(timeoutMs === undefined ? {} : { interpretationTimeoutMs: timeoutMs })
-    }, 'qa', 'demo:timeout', 'hola')
+    }, 'qa', 'demo:timeout', 'Consulta')
     await clock.advance(12000)
     const response = await result
     assert.equal(response.interpretation.mode, 'ai', 'preview does not reintroduce its old 4500ms default')
     assert.ok('copyMode' in response.interpretation)
     assert.equal(response.interpretation.copyMode, 'ai')
-    assert.deepEqual(saves, ['Hola'])
+    assert.deepEqual(saves, [groundedReply])
+    assert.equal(response.interpretation.aiCalls, 2)
     assert.ok(signals.every(signal => !signal.aborted))
   })
 }
