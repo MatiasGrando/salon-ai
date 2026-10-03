@@ -471,6 +471,7 @@ export async function processConversationInbox(input: {
           jobId: input.job.id, businessId: policy.businessId, providerEventId: snapshot.row.providerEventId,
           transitionId: committedTransitionId, result, contextMs: ms(computedStarted - contextStarted), computeMs: ms(computedAt - computedStarted),
           mode: diagnostic.mode, reason: diagnostic.reason, copyMode: diagnostic.copyMode, copyReason: diagnostic.copyReason,
+          ...(diagnostic.replyValidation ? { replyValidation: diagnostic.replyValidation } : {}),
           aiCalls: diagnostic.aiCalls, replyRoute: diagnostic.replyRoute,
           ...(diagnostic.interpretationProviderError ? { interpretationProviderError: diagnostic.interpretationProviderError } : {}),
           ...(diagnostic.responseProviderError ? { responseProviderError: diagnostic.responseProviderError } : {}),

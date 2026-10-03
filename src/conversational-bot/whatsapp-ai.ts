@@ -9,6 +9,7 @@ export type ConversationAiDiagnostic = {
   result: 'PROCESSED' | 'STALE_REVISION'; contextMs: number; computeMs: number
   mode: InterpretationDiagnostics['mode']; reason: InterpretationDiagnostics['reason']
   copyMode: InterpretationDiagnostics['copyMode']; copyReason: InterpretationDiagnostics['copyReason']
+  replyValidation?: InterpretationDiagnostics['replyValidation']
   interpretationMs: number; validationMs: number; engineMs: number; responseMs: number
   aiCalls?: InterpretationDiagnostics['aiCalls']; replyRoute?: InterpretationDiagnostics['replyRoute']
   interpretationProviderError?: InterpretationDiagnostics['interpretationProviderError']

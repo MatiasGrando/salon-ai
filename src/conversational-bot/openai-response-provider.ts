@@ -1,3 +1,5 @@
+import { expectedDialogueAnswer } from './dialogue-context.js'
+import { REPLY_CONTRACT_INSTRUCTIONS, REPLY_DRAFT_SCHEMA, replyContract } from './reply-contract.js'
 import { attachAiUsage } from './ai-usage.js'
 import { providerError } from './provider-error.js'
 import { extractResponsesJson } from './responses-json.js'
@@ -20,16 +22,9 @@ export function createOpenAiResponseProvider(options: { apiKey: string; model?: 
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}),
         store: false,
         max_output_tokens: 300,
-        instructions: 'Al explicar la fecha de una oferta anterior, opening es null: el hecho verificado responde sin un sí/no inventado. Sos la asistente amable del local. Respondé breve y natural en español rioplatense. opening y closing contienen solo charla social o transiciones, nunca hechos del negocio, precios, horarios, direcciones, disponibilidad, nombres de servicios/profesionales ni afirmaciones de reservas o acciones. Si hay un fact con id next, es la pregunta obligatoria y su id debe ir al final de factIds con closing null. Incluí cada fact verificado exactamente una vez por factIds, en orden natural. El servidor insertará literalmente esos textos; no los copies ni cambies. Ante saludo o charla casual respondé como persona en una o dos frases sin menú. Ante pedidos ajenos al local, decliná brevemente y ofrecé ayuda del negocio. No repitas siempre la misma pregunta. Si no hay facts, factIds es [].',
-        input: JSON.stringify({ message: input.message, intent: input.intent, pending: input.state.pending, facts: input.facts }),
-        text: { format: { type: 'json_schema', name: 'grounded_qa_reply', strict: true, schema: {
-          type: 'object', additionalProperties: false, required: ['opening', 'factIds', 'closing'],
-          properties: {
-            opening: { type: ['string', 'null'] },
-            factIds: { type: 'array', items: { type: 'string' } },
-            closing: { type: ['string', 'null'] }
-          }
-        } } }
+        instructions: REPLY_CONTRACT_INSTRUCTIONS + ' Respondé breve y natural en español rioplatense. El contenido material y el orden son verificados; no inventes disponibilidad ni confirmaciones.',
+        input: JSON.stringify({ message: input.message, intent: input.intent, pending: input.state.pending, expectedAnswer: expectedDialogueAnswer(input.state), informationFocus: input.state.informationFocus ?? null, replyContract: input.replyContract ?? replyContract(input.intent === 'information' ? 'information' : 'social', false, input.state.introduced === true, input.facts), facts: input.facts }),
+        text: { format: { type: 'json_schema', name: 'grounded_qa_reply', strict: true, schema: { ...REPLY_DRAFT_SCHEMA, type: 'object' } } }
       })
     })
     if (!response.ok) throw providerError('http', response)

@@ -22,6 +22,7 @@ const say = (message: string, ai: ReturnType<typeof provider>, previous = state)
   respondWithAiInterpreter(context, previous, message, port, ai)
 
 const selected = await say('quiero corte hombre', async () => candidate)
+assert.ok(selected.interpretation.proposal && selected.interpretation.validation && selected.interpretation.stateBefore && selected.interpretation.stateAfter)
 assert.equal(selected.interpretation.proposal.service, true)
 assert.equal(selected.interpretation.validation.service, 'accepted')
 assert.equal(selected.interpretation.stateBefore.service, false)
@@ -30,6 +31,7 @@ assert.equal(selected.interpretation.decision.acceptedAction, 'select_service')
 assert.doesNotMatch(JSON.stringify(selected.interpretation), /corte hombre|tenant|fake-key/i)
 
 const rejected = await say('quiero corte hombre', async () => ({ ...candidate, serviceId: 'foreign' }))
+assert.ok(rejected.interpretation.proposal && rejected.interpretation.validation && rejected.interpretation.stateAfter)
 assert.equal(rejected.interpretation.proposal.service, true)
 assert.equal(rejected.interpretation.validation.service, 'rejected')
 assert.equal(rejected.interpretation.validation.reason, 'service_not_in_catalog')
@@ -56,9 +58,11 @@ const badShape = await say('hola', provider(request({ status: 'completed', outpu
 assert.equal(badShape.interpretation.interpretationProviderError?.code, 'shape')
 
 const responseProvider = createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: request({ status: 'completed', output: [] }) as typeof fetch })
-const responseFailure = await respondWithAiInterpreter(context, state, 'hola', port,
-  async () => ({ ...candidate, intent: 'other', serviceId: null, serviceEvidence: null }), { responseProvider })
+const responseFailure = await respondWithAiInterpreter(context, state, 'quiero corte hombre', port,
+  async () => candidate, { responseProvider })
 assert.equal(responseFailure.interpretation.copyReason, 'response_error')
 assert.equal(responseFailure.interpretation.responseProviderError?.code, 'shape')
+assert.equal(responseFailure.interpretation.replyValidation?.secondCall.reason, 'provider_error')
+assert.equal(responseFailure.interpretation.aiCalls, 2)
 assert.doesNotMatch(JSON.stringify(responseFailure.interpretation), /fake-key|tenant/i)
 console.log('conversational diagnostics: offline PASS')

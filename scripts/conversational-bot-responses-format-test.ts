@@ -232,8 +232,9 @@ if (process.argv.includes('--reason-only')) {
   assert.equal(phasedPreview.state.customerName, retained.customerName)
   assert.equal(phasedPreview.state.date, retained.date)
   assert.doesNotMatch(JSON.stringify(phasedPreview.interpretation), /PRIVATE_CLIENT|PRIVATE_NAME|fake-key|tenant/)
-  const candidate = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
-  const responseFailure = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
+  const candidate = { intent: 'booking', serviceId: 'service', serviceEvidence: 'Consulta', professionalMention: null, serviceConfidence: 'certain' }
+  const copyPort: DialoguePort = { ...port, catalog: async () => [{ id: 'service', name: 'Consulta', durationMinutes: 30, requiresConsultation: false, price: 100 }] }
+  const responseFailure = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(envelope([text('{}'), text('{}')])) }) })
   assert.equal(format(responseFailure.interpretation.responseProviderError).reason, 'invalid_json')
   assert.equal(responseFailure.interpretation.copyReason, 'response_error')
@@ -244,7 +245,7 @@ if (process.argv.includes('--reason-only')) {
   assert.equal(validWrapperInvalidSchema.interpretation.reason, 'invalid_output', 'engine/schema validation remains authoritative')
   assert.equal(validWrapperInvalidSchema.interpretation.interpretationProviderError, null)
   assert.equal(agendaCalls, 0)
-  const phasedCopyFailure = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
+  const phasedCopyFailure = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
       message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary', status: 'incomplete' })
     ])) }) })
@@ -259,7 +260,7 @@ if (process.argv.includes('--reason-only')) {
     ])) }))
   assert.equal(phasedInvalidSchema.interpretation.reason, 'invalid_output', 'final cannot bypass interpretation schema')
   assert.equal(phasedInvalidSchema.interpretation.interpretationProviderError, null)
-  const phasedInvalidCopy = await respondWithAiInterpreter(context, state, 'hola', port, async () => candidate, {
+  const phasedInvalidCopy = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
       message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary' })
     ])) }) })

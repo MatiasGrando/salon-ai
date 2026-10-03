@@ -775,7 +775,7 @@ provider.respond = async input => {
 await aiRuntime.run('PROCESS_INBOX', { provider, timeoutMs: 4500, onDiagnostic: value => diagnostics.push(value) })
 assert.equal(interpretationCalls, 1, 'runtime must call the injected interpreter')
 assert.equal(responseCalls, 1, 'runtime must compose verified facts with AI')
-assert.equal(aiRuntime.replies[0], 'Perfecto 😊 ¿Para qué día y horario querés reservar tu Corte?', 'server-owned acknowledgement is delivered once without duplicate AI framing')
+assert.equal(aiRuntime.replies[0], 'Dale.\nPerfecto 😊 ¿Para qué día y horario querés reservar tu Corte?', 'natural framing preserves the verified combined question')
 assert.equal((aiRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
 assert.equal(diagnostics.length, 1)
 const measured = diagnostics[0] as Record<string, unknown>
@@ -789,18 +789,22 @@ const singleCallRuntime = runtimeFixture()
 singleCallRuntime.next('hola')
 const singleCallDiagnostics: unknown[] = []
 let singleCallCount = 0
-const singleCallProvider: AiInterpretationProvider = async () => {
+const singleCallProvider: AiInterpretationProvider = async input => {
   singleCallRuntime.assertOutside(); singleCallCount++
   return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
-    firstReply: { opening: 'Hola', factIds: [], closing: null } }
+    firstReply: { opening: 'Hola', factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null } }
 }
 singleCallProvider.respond = async () => { throw new Error('one-call greeting must not compose again') }
 await singleCallRuntime.run('PROCESS_INBOX', { provider: singleCallProvider, timeoutMs: 4500,
   onDiagnostic: value => singleCallDiagnostics.push(value) })
 assert.equal(singleCallCount, 1)
-assert.equal(singleCallRuntime.replies[0], 'Hola')
+assert.equal(singleCallRuntime.replies[0], 'Hola\n¿En qué te puedo ayudar con el local?')
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).aiCalls, 1)
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).replyRoute, 'first_call')
+const singleReplyValidation = (singleCallDiagnostics[0] as { replyValidation?: { firstCall: { status: string }; secondCall: { status: string } } }).replyValidation
+assert.equal(singleReplyValidation?.firstCall.status, 'accepted')
+assert.equal(singleReplyValidation?.secondCall.status, 'not_attempted')
+assert.doesNotMatch(JSON.stringify(singleReplyValidation), /Hola|local|PRIVATE_PROVIDER_BODY/)
 
 // New rejection detail reaches the existing post-commit sink, using only the fake runtime client.
 const shapeFetch = (output: unknown): typeof fetch => (async () => new Response(JSON.stringify({

@@ -26,9 +26,9 @@ const writer: AiResponseProvider = async ({ facts }) => ({
 let calls = 0
 const greeting = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
   async () => { calls++; return empty }, { responseProvider: async (input, signal) => { calls++; return writer(input, signal) } })
-assert.equal(calls, 2, 'the second call occurs after deterministic results')
-assert.equal(greeting.interpretation.copyMode, 'ai')
-assert.equal(greeting.reply, '¡Hola! ¿Cómo estás?\n¿En qué te ayudo con el local?')
+assert.equal(calls, 1, 'missing social copy uses server facts, not another call for style')
+assert.equal(greeting.interpretation.copyMode, 'fallback')
+assert.equal(greeting.reply, '¿En qué te puedo ayudar con el local?')
 assert.doesNotMatch(greeting.reply, /27\.000|Iluminación|¿Qué servicio necesitás/)
 assert.ok(greeting.interpretation.engineMs! >= 0 && greeting.interpretation.responseMs! >= 0)
 assert.deepEqual(greeting.interpretation.decision, { proposedIntent: 'other', acceptedAction: 'no_service_change', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'unchanged', reason: 'no_service_decision' })
@@ -49,7 +49,7 @@ const price = await respondWithAiInterpreter(context, initialDialogueState('qa')
 assert.match(price.reply, /160\.000/)
 const offTopic = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'recitame un poema', port,
   async () => empty, { responseProvider: async () => ({ opening: 'No hago poemas, pero te ayudo con el local.', factIds: [], closing: null }) })
-assert.match(offTopic.reply, /te ayudo con el local/)
+assert.match(offTopic.reply, /te puedo ayudar con el local/)
 assert.doesNotMatch(offTopic.reply, /27\.000|Corte Hombre/)
 
 const semantic = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero hacerme claritos', port,
@@ -103,25 +103,25 @@ assert.equal(fabricatedCandidates.state.serviceId, null)
 assert.deepEqual(fabricatedCandidates.interpretation.decision, { proposedIntent: 'unknown', acceptedAction: 'deterministic_fallback', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'fallback', reason: 'invalid_output' })
 
 const inventedPrice = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'cuanto sale iluminación', port,
-  async () => ({ ...empty, intent: 'information' }), { responseProvider: async () => ({ opening: 'Cuesta $ 1', factIds: ['0'], closing: null }) })
+  async input => ({ ...empty, intent: 'information', firstReply: { opening: 'Cuesta $ 1', factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null } }))
 assert.equal(inventedPrice.interpretation.copyMode, 'fallback')
 assert.doesNotMatch(inventedPrice.reply, /\$ 1/)
 const inventedService = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
-  async () => empty, { responseProvider: async () => ({ opening: 'Te ofrezco Corte y barba', factIds: [], closing: null }) })
+  async input => ({ ...empty, firstReply: { opening: 'Te ofrezco Corte y barba', factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null } }))
 assert.equal(inventedService.interpretation.copyMode, 'fallback')
 const omittedFact = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'donde estan?', port,
-  async () => ({ ...empty, intent: 'information' }), { responseProvider: async () => ({ opening: 'Estamos cerca', factIds: [], closing: null }) })
+  async () => ({ ...empty, intent: 'information', firstReply: { opening: 'Estamos cerca', factIds: [], closing: null } }))
 assert.equal(omittedFact.interpretation.copyMode, 'fallback')
 const inventedBooking = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
-  async () => empty, { responseProvider: async () => ({ opening: 'Te reservé un turno', factIds: [], closing: null }) })
+  async input => ({ ...empty, firstReply: { opening: 'Te reservé un turno', factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null } }))
 assert.equal(inventedBooking.interpretation.copyMode, 'fallback')
 assert.doesNotMatch(inventedBooking.reply, /reservé/)
 
-const writerFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
-  async () => empty, { responseProvider: async () => { throw new Error('offline') } })
+const writerFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { responseProvider: async () => { throw new Error('offline') } })
 assert.equal(writerFailure.interpretation.copyReason, 'response_error')
-const timeout = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
-  async () => empty, { timeoutMs: 20, responseProvider: async () => new Promise(() => {}) })
+const timeout = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { timeoutMs: 20, responseProvider: async () => new Promise(() => {}) })
 assert.equal(timeout.interpretation.copyReason, 'response_timeout')
 const interpreterFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
   async () => { throw new Error('offline') }, { responseProvider: writer })
@@ -146,7 +146,9 @@ assert.equal(requests.length, 2)
 const meteredProvider = Object.assign(async () => interpretedUsage, { respond: async () => responseUsage })
 const metered = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port, meteredProvider)
 assert.equal(metered.interpretation.usage?.interpretation?.inputTokens, 120)
-assert.equal(metered.interpretation.usage?.response?.outputTokens, 30)
+assert.equal(metered.interpretation.usage?.response, null, 'stable canonical delivery never consumes another call')
+const meteredNewFacts = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port, Object.assign(async () => ({ ...interpretedUsage as object, ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { respond: async () => responseUsage }))
+assert.equal(meteredNewFacts.interpretation.usage?.response?.outputTokens, 30)
 assert.ok(requests.every(request => request.url === 'https://api.openai.com/v1/responses' &&
   request.body.model === 'gpt-6-luna' && request.body.reasoning.effort === 'none' &&
   request.body.store === false && request.body.text.format.strict === true))
