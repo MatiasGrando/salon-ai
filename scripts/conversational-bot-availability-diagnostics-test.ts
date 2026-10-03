@@ -57,7 +57,11 @@ for (const reason of ['SERVICE_UNAVAILABLE', 'INVALID_CONFIGURATION', 'DOMAIN_RE
   for (const continuation of [info, empty, social, lexical, lexicalSocial]) {
     assert.equal(trace(continuation), undefined, 'read-only continuation cannot claim old availability is current')
     assert.doesNotMatch(continuation.reply, /Qué servicio necesitás|Qué horario de los disponibles/)
-    assert.match(continuation.reply, /cambiar|quitar|equipo/); assert.equal(continuation.proposal, null)
+    if (continuation === lexical) {
+      assert.match(continuation.reply, /No tengo una dirección publicada/)
+      assert.doesNotMatch(continuation.reply, /cambiar|quitar|equipo|presupuesto/)
+    } else assert.match(continuation.reply, /cambiar|quitar|equipo/)
+    assert.equal(continuation.proposal, null)
     assert.equal(continuation.state.slot, null); assert.equal(continuation.state.requestedTime, slot.time)
   }
   assert.equal(queries, count, 'information and social turns must not query agenda')

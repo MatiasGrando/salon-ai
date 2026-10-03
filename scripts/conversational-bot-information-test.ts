@@ -40,7 +40,8 @@ assert.match(genericPrices.reply, /De qué servicio/, 'prices alone still requir
 const combinedSpecific = await respond(context, pending, 'que servicios tienen y precio barba?', port)
 assert.match(combinedSpecific.reply, /Barba.*3.?000/)
 const combinedAmbiguous = await respond(context, pending, 'que servicios tienen y precio corte?', { ...port, catalog: async () => [services[0]!, { ...services[0]!, id: 'other', name: 'Corte largo' }] })
-assert.match(combinedAmbiguous.reply, /Cuál de estos servicios/, 'specific ambiguity remains explicit even after a full catalog')
+assert.match(combinedAmbiguous.reply, /cuál de estos servicios.*precio/, 'specific ambiguity remains explicit even after a full catalog')
+assert.equal(combinedAmbiguous.reply.split('Corte largo').length - 1, 1, 'combined read lists each catalog entry once')
 
 const greet = await respond(context, address.state, 'hola', port)
 assert.doesNotMatch(greet.reply, /Calle 123/)
@@ -55,7 +56,8 @@ assert.equal(mixed.state.pending, 'professional')
 const multi = await respond(context, pending, 'precio de barba y direccion?', port)
 assert.match(multi.reply, /3.?000/)
 assert.match(multi.reply, /Calle 123/)
-assert.deepEqual(multi.state, pending)
+assert.deepEqual({ ...multi.state, informationFocus: undefined }, { ...pending, informationFocus: undefined })
+assert.equal(multi.state.informationFocus?.serviceId, 'beard')
 const availability = await respond(context, pending, 'tenes turno hoy a la tarde?', port)
 assert.doesNotMatch(availability.reply, /09:00 a 18:00/)
 assert.deepEqual(routeActions('tenes turno hoy a la tarde?').information, [])
@@ -75,8 +77,9 @@ const unknownPrice = await respond(context, pending, 'cuanto cuesta un masaje?',
 assert.doesNotMatch(unknownPrice.reply, /5000|3000/)
 assert.match(unknownPrice.reply, /servicio/i)
 const ambiguous = await respond(context, pending, 'precio corte?', { ...port, catalog: async () => [services[0]!, { ...services[0]!, id: 'other', name: 'Corte largo' }] })
-assert.match(ambiguous.reply, /Cuál/)
-assert.deepEqual(ambiguous.state, pending)
+assert.match(ambiguous.reply, /cuál.*precio/)
+assert.deepEqual({ ...ambiguous.state, informationFocus: undefined }, { ...pending, informationFocus: undefined })
+assert.equal(ambiguous.state.informationFocus?.awaitingChoice, true)
 await assert.rejects(() => respond(context, pending, 'direccion?', { ...port, information: async () => ({ ...facts, businessId: 'tenant-b' }) }))
 const failed = await respond(context, proposalState, 'direccion?', { ...port, information: async () => { throw new Error('secret') } })
 assert.deepEqual(failed.state, proposalState)
@@ -89,7 +92,7 @@ const client: any = {
   businessHours: { findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); return [{ dayOfWeek: 1, startTime: '09:00', endTime: '18:00' }] } },
   scheduleBlock: { findMany: async (args: any) => { assert.equal(args.where.businessId, context.businessId); assert.equal(args.where.professionalId, null); return [{ startAt: new Date('2026-09-29T12:00:00Z'), endAt: new Date('2026-09-29T15:00:00Z'), reason: 'MAINTENANCE', title: 'Cierre especial', note: 'PRIVATE INTERNAL NOTE' }] } },
   serviceCategory: {}, service: {},
-  $queryRaw: async (query: any) => query.strings.join(' ').includes('BusinessBotOptionsSettings') ? [{ now: context.dbNow, timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }] : [{ now: context.dbNow }]
+  $queryRaw: async (query: any) => query.strings.join(' ').includes('conversational-public-payment-methods') ? [] : query.strings.join(' ').includes('BusinessBotOptionsSettings') ? [{ now: context.dbNow, timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }] : [{ now: context.dbNow }]
 }
 const actual = await createPrismaDialoguePort(client, context.businessId)
 const actualFacts = await actual.port.information!()
@@ -141,7 +144,8 @@ assert.equal(catalogMixed.state.serviceId, 'cut')
 assert.equal(catalogMixed.state.date, '2026-09-29')
 assert.equal(catalogMixed.state.pending, 'professional')
 const pureInfoProposal = await respond(context, proposalState, 'quiero ver precios de barba', port)
-assert.deepEqual(pureInfoProposal.state, proposalState)
+assert.deepEqual({ ...pureInfoProposal.state, informationFocus: undefined }, { ...proposalState, informationFocus: undefined })
+assert.equal(pureInfoProposal.state.informationFocus?.serviceId, 'beard')
 assert.equal(pureInfoProposal.proposal, null)
 
 const corrections: string[] = []
@@ -152,7 +156,10 @@ for (const [label, message, expectedDate, expectedService] of [
 ] as const) {
   try {
     const result = await respond(context, pending, message, port)
-    if (expectedDate === null) assert.deepEqual(result.state, pending)
+    if (expectedDate === null) {
+      assert.deepEqual({ ...result.state, informationFocus: undefined }, { ...pending, informationFocus: undefined })
+      assert.equal(result.state.informationFocus?.serviceId, 'beard')
+    }
     else { assert.equal(result.state.date, expectedDate); assert.equal(result.state.serviceId, expectedService) }
     assert.equal(result.proposal, null)
   } catch (error) { corrections.push(label + ': ' + (error as Error).message) }

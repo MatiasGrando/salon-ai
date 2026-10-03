@@ -39,7 +39,9 @@ for (const service of ['Corte hombre', 'Sesión coaching', 'Cambio de aceite']) 
     assert.ok(result.firstInput.firstReplyFacts?.length)
     assert.equal(result.response.interpretation.copyMode, 'ai')
     assert.equal(result.response.proposal, null)
-    assert.deepEqual(result.response.state, initialDialogueState('qa'))
+    const { informationFocus, ...bookingState } = result.response.state
+    assert.deepEqual(bookingState, initialDialogueState('qa'))
+    if (message.includes('sale')) assert.equal(informationFocus?.serviceId, 'service')
     if (message.includes('estan')) { assert.equal(result.informationCalls, 1); assert.ok(result.response.reply.includes('Calle 123')) }
     if (message.includes('horario')) { assert.equal(result.informationCalls, 1); assert.ok(result.response.reply.includes('30/09 cerrado')) }
     if (message.includes('sale')) assert.ok(result.response.reply.includes('Desde'))
@@ -219,7 +221,8 @@ for (const state of [busyState, proposalState, { ...proposalState, pending: 'tim
     assert.equal(info.calls, 1)
     assert.equal(info.availabilityCalls, 0)
     assert.equal(info.response.proposal, null)
-    assert.deepEqual(info.response.state, state)
+    assert.deepEqual({ ...info.response.state, informationFocus: undefined }, { ...state, informationFocus: undefined })
+    if (message.includes('sale')) assert.equal(info.response.state.informationFocus?.serviceId, 'service')
   }
 }
 for (const message of ['cuanto es 3*4', 'cuanto es 8/2', 'cuanto es 7-2']) {

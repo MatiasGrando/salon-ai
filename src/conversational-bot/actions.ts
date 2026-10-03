@@ -1,9 +1,10 @@
-export type InformationAction = 'SERVICES' | 'PRICES' | 'HOURS' | 'ADDRESS' | 'BUSINESS_INFO'
+export type InformationAction = 'SERVICES' | 'PRICES' | 'HOURS' | 'ADDRESS' | 'BUSINESS_INFO' | 'SERVICE_DETAILS'
 export type ActionId = InformationAction | 'AVAILABILITY' | 'CREATE_BOOKING' | 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 type ActionDefinition = { kind: 'read' | 'write'; requirements: readonly string[]; status: 'implemented' | 'proposal_only' | 'pending' }
 export const ACTION_REGISTRY: Readonly<Record<ActionId, ActionDefinition>> = {
   SERVICES: { kind: 'read', requirements: ['trusted_business'], status: 'implemented' },
   PRICES: { kind: 'read', requirements: ['trusted_business', 'unambiguous_service'], status: 'implemented' },
+  SERVICE_DETAILS: { kind: 'read', requirements: ['trusted_business', 'unambiguous_service'], status: 'implemented' },
   HOURS: { kind: 'read', requirements: ['trusted_business', 'timezone', 'database_clock'], status: 'implemented' },
   ADDRESS: { kind: 'read', requirements: ['trusted_business'], status: 'implemented' },
   BUSINESS_INFO: { kind: 'read', requirements: ['trusted_business'], status: 'implemented' },
@@ -23,7 +24,8 @@ function informationActions(message: string): InformationAction[] {
   const availability = /\b(turno|turnos|lugar|espacio|hueco)\b/.test(text)
   add('HOURS', /\b(abren|abre|cierran|cierra|apertura|horario de atencion)\b/.test(text) || !availability && /\bhorarios?\b/.test(text))
   add('ADDRESS', /\b(direccion|ubicacion|domicilio|donde quedan|donde estan|donde queda|como llego|mapa)\b/.test(text))
-  add('BUSINESS_INFO', /\b(pagina|web|sitio|telefono|whatsapp|contacto|email|correo|instagram|facebook|tiktok|informacion|info|link|enlace)\b/.test(text))
+  add('SERVICE_DETAILS', /\b(info|informacion|detalles)\b.*\b(sobre|de|del)\b/.test(text))
+  add('BUSINESS_INFO', !information.includes('SERVICE_DETAILS') && /\b(pagina|web|sitio|telefono|whatsapp|contacto|email|correo|instagram|facebook|tiktok|redes|informacion|info|link|enlace|pagos?|pagar|tarjeta|transferencia|efectivo|descuentos?|estacionamiento|accesibilidad|wifi|politicas?)\b/.test(text))
   return information
 }
 export function routeActions(message: string): { information: InformationAction[]; informationMessage: string; pendingAction: ActionId | null; bookingMessage: string | null } {

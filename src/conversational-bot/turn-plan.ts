@@ -1,3 +1,4 @@
+import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
 import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, type TimePreference } from './time-preference.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
@@ -49,10 +50,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('time', { value: { type: 'string', pattern: '^(?:[01]\\d|2[0-3]):[0-5]\\d$' } }),
     operationSchema('time_preference', { preference: TIME_PREFERENCE_JSON_SCHEMA }),
     operationSchema('name', { value: stringSchema(100) }),
-    operationSchema('information', { target: { anyOf: [
-      objectSchema({ kind: { type: 'string', enum: ['business'] }, actions: { type: 'array', items: { type: 'string', enum: informationActions }, minItems: 1, maxItems: informationActions.length } }),
-      objectSchema({ kind: { type: 'string', enum: ['presented_offer'] }, actions: { type: 'array', items: { type: 'string' }, maxItems: 0 } })
-    ] } }),
+    operationSchema('information', { target: INFORMATION_TARGET_JSON_SCHEMA }),
     operationSchema('unsupported_action', { action: { type: 'string', enum: pendingActions } })
   ] } }
 })
@@ -137,11 +135,10 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       if (!bounded(raw.value, 100) || !/^[\p{L}][\p{L} '\-]*$/u.test(raw.value) || !contains(raw.evidence, raw.value)) fail('name')
     } else if (raw.kind === 'information') {
       exactKeys(raw, [...common, 'target'])
-      if (!object(raw.target)) fail('information target')
-      exactKeys(raw.target, ['kind', 'actions'])
-      const actions = raw.target.actions
-      if (!Array.isArray(actions) || new Set(actions).size !== actions.length || (raw.target.kind === 'business' ? !actions.length || actions.some(action => !informationActions.includes(action)) : raw.target.kind !== 'presented_offer' || actions.length !== 0)) fail('information actions')
-      identity += ':' + String(raw.target.kind)
+      let target: InformationTarget
+      try { target = parseInformationTarget(raw.target, catalogIds) } catch { return fail('information target') }
+      if (target.kind === 'professional' && target.mention !== null && !contains(raw.evidence, target.mention)) fail('ungrounded informational professional')
+      identity += ':' + target.kind
     } else if (raw.kind === 'confirm_proposal') {
       exactKeys(raw, common)
     } else if (raw.kind === 'unsupported_action') {

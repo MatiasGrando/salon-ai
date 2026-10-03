@@ -206,10 +206,10 @@ const isolatedInfo = await say('dónde están?', plan(operation('information', '
 assert.equal(isolatedInfo.response.interpretation.replyRoute, 'first_call')
 assert.equal(isolatedInfo.calls, 1)
 assert.equal(isolatedInfo.response.state.serviceId, null)
-const unsafeCopy = await say('Soy Matías, dónde están?', plan(operation('name', 'Matías', { value: 'Matías' }), operation('information', 'dónde están', { target: { kind: 'business', actions: ['ADDRESS'] } })), undefined, 'other', { reverseCopy: true })
+const unsafeCopy = await say('Soy Matías, dónde están?', plan(operation('name', 'Matías', { value: 'Matías' }), operation('information', 'dónde están', { target: { kind: 'business', actions: ['ADDRESS'] } })), { ...initialDialogueState('tenant'), serviceId: 'cut-private-id', pending: 'date' }, 'other', { reverseCopy: true })
 assert.equal(unsafeCopy.response.interpretation.copyReason, 'invalid_response')
 assert.match(unsafeCopy.response.reply, /Calle 123/)
-assert.match(unsafeCopy.response.reply, /servicio/i)
+assert.match(unsafeCopy.response.reply, /día/i)
 // The actual HTTP parsing seam must accept a bounded plan above the previous legacy 4096-character limit.
 const longEvidence = ('Corte hombre Matías mañana Ramiro cinco de la tarde dónde están esos horarios cancelar reprogramar humano ' + 'detalle '.repeat(30)).slice(0, 296).trim()
 const longCandidate = { ...legacy, firstReply: { opening: 'x'.repeat(180), factIds: [], closing: 'y'.repeat(180) }, turnPlan: plan(

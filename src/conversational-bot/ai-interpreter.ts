@@ -9,7 +9,9 @@ import { routeActions } from './actions.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
 import { serviceGuidance } from './service-guidance.js'
-import { pendingQuestion, renderInformation, validateFacts, type BusinessFacts } from './information.js'
+import { pendingQuestion, validateFacts } from './information.js'
+import { parseInformationTarget } from './information-contract.js'
+import { inferInformationTarget, readInformation, informationReply } from './information-read.js'
 import { fallbackIndependentTurnPlan, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = { id: string; text: string }
@@ -106,12 +108,10 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   if (item.serviceId !== null && !containsEvidence(message, item.serviceEvidence as string)) throw new Error('ungrounded AI service')
   if (item.professionalMention !== null && !containsEvidence(message, item.professionalMention as string)) throw new Error('ungrounded AI professional')
   if (item.informationTarget !== undefined && item.informationTarget !== null) {
-    const target = item.informationTarget as InformationTarget
-    if (!target || typeof target !== 'object' || Array.isArray(target) || Object.keys(target).sort().join(',') !== 'actions,kind' ||
-      item.intent !== 'information' || !Array.isArray(target.actions) || new Set(target.actions).size !== target.actions.length ||
-      (target.kind === 'presented_offer' ? target.actions.length !== 0 :
-        target.kind !== 'business' || target.actions.length < 1 || target.actions.length > 5 ||
-        target.actions.some(action => !['SERVICES', 'PRICES', 'HOURS', 'ADDRESS', 'BUSINESS_INFO'].includes(action)))) throw new Error('invalid AI information target')
+    if (item.intent !== 'information') throw new Error('invalid AI information target')
+    const target = parseInformationTarget(item.informationTarget, services.map(service => service.id))
+    item.informationTarget = target
+    if (target.kind === 'professional' && target.mention && !containsEvidence(message, target.mention)) throw new Error('ungrounded AI professional information')
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
       item.serviceCorrection === true || Array.isArray(item.serviceCandidateIds) && item.serviceCandidateIds.length) throw new Error('conflicting AI information target')
   }
@@ -167,7 +167,7 @@ function responseFacts(reply: string, state: DialogueState, intent: Candidate['i
   // The deterministic menu is a fallback, not a fact that must be dumped after social messages.
   if (state.pending === 'service' && !state.serviceId && !catalogRequested && (reply.startsWith('¿Qué servicio necesitás?\n') || reply.startsWith('Hola. Te ayudo con tu turno.\n¿Qué servicio necesitás?') || reply === 'Hola, ¿qué servicio necesitás?'))
     return intent === 'other' ? [] : [{ id: 'next', text: '¿Qué servicio necesitás?' }]
-  const pending = pendingQuestion(state)
+  const pending = state.questionContext?.field === state.pending && lines.at(-1) === state.questionContext.question ? state.questionContext.question : pendingQuestion(state)
   if (lines.at(-1) === pending && lines.length > 1 && !hasActiveBooking(state)) lines.pop()
   return lines.map((text, index) => ({ id: text === pending ? 'next' : String(index), text }))
 }
@@ -234,25 +234,23 @@ export async function respondWithAiInterpreter(
   const cachedPort: DialoguePort = { ...port, catalog: async () => services,
     availability: async (...args) => { availabilityCalls++; return port.availability(...args) },
     ...(port.availabilityBasket ? { availabilityBasket: async (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => { availabilityCalls++; return port.availabilityBasket!(...args) } } : {}) }
-  if (pureInformation && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
-    let publicFacts: BusinessFacts | null = null
-    let informationError: unknown
-    let informationFailed = false
-    const needsInformation = route.information.some(action => !['SERVICES', 'PRICES'].includes(action))
-    if (needsInformation && port.information) {
-      try { publicFacts = await port.information(route.information); validateFacts(publicFacts, context.businessId) }
-      catch (error) { informationFailed = true; informationError = error }
-      cachedPort.information = async actions => {
-        if (!actions || actions.some(action => !route.information.includes(action))) return port.information!(actions)
-        if (informationFailed) throw informationError
-        return publicFacts!
-      }
+  if (port.information) {
+    const cache = new Map<string, Promise<import('./information.js').BusinessFacts>>()
+    cachedPort.information = actions => {
+      const key = JSON.stringify(actions ?? null)
+      if (!cache.has(key)) cache.set(key, port.information!(actions).then(facts => { validateFacts(facts, context.businessId); return facts }).catch(error => {
+        if (error instanceof Error && /scope|invalid public facts/.test(error.message)) throw new Error('public information unavailable')
+        throw error
+      }))
+      return cache.get(key)!
     }
-    if (!informationFailed) {
-      const answer = renderInformation(route.information, route.informationMessage, publicFacts, services)
-      firstReplyFacts = responseFacts(answer + '\n' + pendingQuestion(state), state, 'information', message)
-      // Preserve existing composition input bounds; oversized data takes the usual two-stage route.
-      if (firstReplyFacts.length > 100 || firstReplyFacts.some(fact => fact.text.length > 1000)) firstReplyFacts = undefined
+  }
+  const informationTarget = inferInformationTarget(state, message, services)
+  if ((pureInformation || informationTarget && !route.bookingMessage && !route.pendingAction) && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
+    if (informationTarget && informationTarget.kind !== 'presented_offer') {
+      const read = await readInformation(context, state, message, cachedPort, informationTarget, services)
+      firstReplyFacts = read.failed ? undefined : responseFacts(informationReply(read, state, hasActiveBooking(state)), state, 'information', message)
+      if (firstReplyFacts && (firstReplyFacts.length > 100 || firstReplyFacts.some(fact => fact.text.length > 1000))) firstReplyFacts = undefined
     }
   }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
@@ -306,7 +304,7 @@ export async function respondWithAiInterpreter(
   } : undefined
   const engineStarted = performance.now()
   let response = await respond(context, state, message, cachedPort, decision)
-  if (uncertain && selected) {
+  if (uncertain && selected && !response.state.informationFocus) {
     const question = '¿Te referís a ' + selected.name + '?'
     response.state.pending = 'service'; response.state.slot = null
     rememberDialogueQuestion(response.state, question, [{ id: selected.id, label: selected.name }], null, { candidateIds: [selected.id] })
@@ -315,7 +313,7 @@ export async function respondWithAiInterpreter(
   const typoService = safeBasketFallback || turnPlan || candidate?.serviceId || candidates.length ? null :
     candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
     !candidate ? suggestedService(message, services) : null
-  if (typoService && !response.state.serviceId) {
+  if (typoService && !response.state.serviceId && !response.state.informationFocus) {
     const question = '¿Te referís a ' + typoService.name + '?'
     response.state.pending = 'service'; response.state.slot = null
     rememberDialogueQuestion(response.state, question, [{ id: typoService.id, label: typoService.name }], null, { candidateIds: [typoService.id] })
@@ -346,8 +344,10 @@ export async function respondWithAiInterpreter(
     if (authored) replyRoute = 'first_call'
   }
   // Updating the last delivered question does not change the booking facts or the offer evidence.
-  const bookingFacts = (value: DialogueState) => ({ ...value, ...(value.dialogueContext
-    ? { dialogueContext: { ...value.dialogueContext, lastQuestion: null } } : {}) })
+  const bookingFacts = (value: DialogueState) => {
+    const { informationFocus: _focus, ...booking } = value
+    return { ...booking, ...(value.dialogueContext ? { dialogueContext: { ...value.dialogueContext, lastQuestion: null } } : {}) }
+  }
   const sameState = JSON.stringify(bookingFacts(response.state)) === JSON.stringify(bookingFacts(state))
   const eligibleFirstReply = !planHasUpdates && !reason && !canonicalOnly && !decision?.correction && !candidates.length &&
     availabilityCalls === 0 && sameState && firstReplyFacts !== undefined &&

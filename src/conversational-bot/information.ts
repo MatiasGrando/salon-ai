@@ -7,6 +7,7 @@ export type BusinessFacts = {
   businessId: string; name: string; address: string | null; area: string | null; mapsUrl: string | null
   website: string | null; bookingUrl: string | null; whatsapp: string | null; email: string | null
   instagram: string | null; facebook: string | null; tiktok: string | null; description: string | null; hours: string | null
+  paymentMethods?: string | null; discounts?: string | null; parking?: string | null; accessibility?: string | null; wifi?: string | null; policies?: string | null
 }
 export function validateFacts(facts: BusinessFacts, businessId: string): void {
   if (!facts || facts.businessId !== businessId) throw new Error('invalid information scope')
@@ -47,7 +48,7 @@ export function renderInformation(actions: readonly InformationAction[], message
       else if (found.length === 1 && partial.some(other => other.id !== found[0]!.id && normalizeMessage(found[0]!.name).split(' ').every(word => normalizeMessage(other.name).split(' ').includes(word)))) found = partial
       // Partial labels must be disambiguated rather than giving a falsely exact price.
       if (found.length === 1 && full.length === 1) replies.push(renderServices(found))
-      else if (found.length) replies.push(`¿Cuál de estos servicios querés consultar? ${found.map(s => s.name).join(', ')}.`)
+      else if (found.length) replies.push(`¿De cuál de estos servicios querés saber el precio? ${found.map(s => s.name).join(', ')}.`)
       // SERVICES already includes each public price; a generic price read adds no separate question.
       else if (!actions.includes('SERVICES')) replies.push('¿De qué servicio querés consultar el precio?')
     }

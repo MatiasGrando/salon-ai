@@ -1,4 +1,7 @@
 import { parseTimePreference, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
+import { parseInformationFocus, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
+import { readInformation, inferInformationTarget, informationReply, type InformationRead } from './information-read.js'
+export type { InformationTarget } from './information-contract.js'
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
 import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, matchPresentedServiceAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
 import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
@@ -11,7 +14,7 @@ import { resolveDialogueDate } from './dialogue-date.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
-export type DialogueService = { id: string; name: string; aliases?: readonly string[]; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
+export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
@@ -20,12 +23,12 @@ export type DialogueBasketAvailability =
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
+  professionalInformation?(target: ProfessionalInformationTarget): Promise<ProfessionalInformationFacts>
   catalog(): Promise<DialogueService[]>
   availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates): Promise<DialogueBasketAvailability>
   availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[] }>
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
-export type InformationTarget = { kind: 'business'; actions: readonly InformationAction[] } | { kind: 'presented_offer'; actions: readonly [] }
 export type DialogueState = {
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
   pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
@@ -38,6 +41,7 @@ export type DialogueState = {
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
   /** Bounded evidence of the last asked field; options are never a permission or availability cache. */
   questionContext?: DialogueQuestionContext
+  informationFocus?: InformationFocus
   /** Server-owned QA presentation/receipt; never a production booking capability. */
   sandboxReservation?: SandboxReservation
 }
@@ -54,7 +58,7 @@ export type DialogueResponse = { state: DialogueState; reply: string; proposal: 
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan }
 export function hasActiveBooking(state: DialogueState): boolean {
-  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.customerName || state.dialogueContext?.lastQuestion || state.pending !== 'service')
+  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
 /** Resume context without presenting an old availability result as freshly checked. */
 export function socialQuestion(state: DialogueState): string {
@@ -107,6 +111,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   }
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
+  if (s.informationFocus !== undefined) parseInformationFocus(s.informationFocus, businessId)
   if (s.slot && timezone) {
     const instant = new Date(s.slot.startAt)
     const time = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant)
@@ -622,12 +627,22 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
 async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown): Promise<DialogueResponse> {
-  const raw = parseTurnPlan(rawPlan, message)
+  let raw = parseTurnPlan(rawPlan, message)
   const possibleMatch = !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
-  const needsCatalog = possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && op.target.kind === 'business' && op.target.actions.some(action => action === 'SERVICES' || action === 'PRICES'))
+  const needsCatalog = possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   parseTurnPlan(raw, message, services.map(service => service.id))
+  const implicitRead = inferInformationTarget(state, message, services)
+  const explicitBooking = /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
+  if (implicitRead && !explicitBooking && !raw.operations.some(op => op.kind === 'information') &&
+      raw.operations.every(op => ['name', 'service', 'basket'].includes(op.kind))) {
+    raw = parseTurnPlan({ version: 1, operations: [...raw.operations.filter(op => op.kind === 'name'),
+      { kind: 'information', target: implicitRead, evidence: message, confidence: 1 }] }, message, services.map(service => service.id))
+  }
+  if (state.informationFocus && implicitRead?.kind === 'service' && !explicitBooking) {
+    raw = { ...raw, operations: raw.operations.filter(op => op.kind !== 'name' || explicitIdentity(message, op.value)) }
+  }
   const matched = matchingTurn(state, message, raw, context, services)
   const contextual = contextualizeIdentity(matched.plan, state, message)
   const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time') && op.confidence < 0.85)
@@ -636,6 +651,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const clarificationReply = [identityClarification, tentativeTemporal ? 'No pude confirmar esa elección o preferencia horaria. ¿Qué horario o franja preferís?' : ''].filter(Boolean).join('\n')
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
   const updates = plan.operations.filter(op => !['information', 'unsupported_action'].includes(op.kind))
+  const bookingUpdates = updates.filter(op => op.kind !== 'name')
+  if (bookingUpdates.length) delete state.informationFocus
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
   const serviceOp = plan.operations.find(op => op.kind === 'service')
   const basketOp = plan.operations.find(op => op.kind === 'basket')
@@ -692,10 +709,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (JSON.stringify(previousChoice) !== JSON.stringify(nextChoice)) invalidate(Boolean(previousChoice))
     state.serviceEstimates = Object.fromEntries(nextChoice ? [...entries,[op.serviceId,nextChoice]] : entries)
   }
-  if (updates.length) state.pending = resolveDialogueRoute(state, services).pending
+  if (bookingUpdates.length || nameOp && hasActiveBooking(state)) state.pending = resolveDialogueRoute(state, services).pending
 
   // Facts are read after applying fields, so an unavailable information read cannot roll back valid preferences.
   const answers: string[] = []
+  const informationReads: InformationRead[] = []
   for (const op of plan.operations) {
     if (op.kind === 'unsupported_action') answers.push('Esa operación todavía no está disponible en este motor. Necesitás solicitarla al equipo.')
     if (op.kind !== 'information') continue
@@ -705,15 +723,13 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         : 'No tengo una oferta de horarios mostrada para identificar.')
       continue
     }
-    let facts: BusinessFacts | null = null
-    const needsFacts = op.target.actions.some(action => action !== 'SERVICES' && action !== 'PRICES')
-    if (needsFacts && port.information) {
-      try { facts = await port.information(op.target.actions); validateFacts(facts, context.businessId) }
-      catch { answers.push('No pude consultar esa información ahora.'); continue }
-    }
-    answers.push(renderInformation(op.target.actions, op.evidence, facts, services))
+    const read = await readInformation(context, state, op.evidence, port, op.target, services)
+    informationReads.push(read)
+    if (read.focus) state.informationFocus = read.focus
+    answers.push(read.reply)
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply, clarificationReply].filter(Boolean).join('\n'), proposal: null })
+  if (informationReads.length && !bookingUpdates.length && (!nameOp || !hasActiveBooking(state))) return finishWithoutAgenda(informationReads.every(read => read.outcome === 'found') && hasActiveBooking(state) ? pendingQuestion(state) : '')
   if (!matched.matching && !plan.operations.length && hasActiveBooking(state)) {
     const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
     if (clarification) {
@@ -749,6 +765,12 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   }
   const lexicalRoute = routeActions(message)
   const target = decision?.informationTarget
+  const focusTarget = !target && state.informationFocus ? inferInformationTarget(state, message, await port.catalog()) : null
+  if (target?.kind === 'service' || target?.kind === 'professional' || focusTarget && !lexicalRoute.bookingMessage?.match(/\b(reservar|agendar|turno)\b/)) {
+    const read = await readInformation(context, state, message, port, target ?? focusTarget!)
+    if (read.focus) state.informationFocus = read.focus
+    return { state, reply: informationReply(read, state, hasActiveBooking(state)), proposal: null }
+  }
   if (!target && state.dialogueContext?.presentedOffer && lexicalRoute.information.includes('HOURS')) {
     return { state, proposal: null, reply: '¿Consultás por el horario de atención del local o por los horarios que te mostré para tu turno?' }
   }
@@ -768,22 +790,18 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   if (!route.information.length && !decision && hasActiveBooking(state) && /^(hola|buenas|buenos dias|buenas tardes|buenas noches|como estas)$/.test(normalize(message))) return delivered(socialQuestion(state))
   if (!route.information.length && state.questionContext?.matchCandidateIds && affirmativeMatchAnswer(message) && !extractDate(normalize(message), context) && !extractProfessionalHint(normalize(message))) return respondTurnPlan(context, state, message, port, { version: 1, operations: [] })
   if (!route.information.length) return respondBooking(context, state, message, port, decision)
-  let facts: BusinessFacts | null = null
-  const needsFacts = route.information.some(action => !['SERVICES', 'PRICES'].includes(action))
-  if (needsFacts && port.information) {
-    try { facts = await port.information(route.information) }
-    catch { return { state, proposal: null, reply: 'No pude consultar esa información ahora. ' + pendingQuestion(state) } }
-    validateFacts(facts, context.businessId)
-  }
-  const services = route.information.some(action => action === 'SERVICES' || action === 'PRICES') ? await port.catalog() : []
-  if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0))) throw new Error('invalid information catalog')
-  const answer = renderInformation(route.information, route.informationMessage, facts, services)
+  const services = route.information.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action)) ? await port.catalog() : []
+  const identity = fallbackIdentity(message, state, services)
+  if (identity && explicitIdentity(message, identity)) state.customerName = identity
+  const read = await readInformation(context, state, route.informationMessage, port, target ?? { kind: 'business', actions: route.information }, services)
+  if (read.focus) state.informationFocus = read.focus
+  const answer = read.reply
   if (route.bookingMessage) {
     const next = await respondBooking(context, state, route.bookingMessage, services.length ? { ...port, catalog: async () => services } : port, decision)
     const bookingFields = ({ dialogueContext: _context, ...fields }: DialogueState) => fields
     return { ...next, proposal: JSON.stringify(bookingFields(next.state)) === JSON.stringify(bookingFields(state)) ? null : next.proposal, reply: answer + '\n' + next.reply }
   }
-  return delivered(answer + (hasActiveBooking(state) ? '\n' + pendingQuestion(state) : ''))
+  return delivered(informationReply(read, state, hasActiveBooking(state)))
 }
 
 /** Trusted sandbox capability changes only proposal delivery; effects remain an adapter responsibility. */
