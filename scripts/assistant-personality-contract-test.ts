@@ -7,7 +7,7 @@ import {
   normalizeAssistantPersonality,
   personalityForPreset,
   type AssistantPersonality
-} from '../src/services/assistant-personality-service.js'
+} from '../src/services/assistant-personality-config.js'
 import { appendPreferredEmoji } from '../src/routes/crm-ui.js'
 
 type TestCase = { name: string; run: () => void | Promise<void> }
