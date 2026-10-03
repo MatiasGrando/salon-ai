@@ -148,7 +148,7 @@ assert.match(request!.instructions, /serviceId[^.]*estado[^.]*sin[^.]*evidencia[
 
 const firstReplySchema = request!.text.format.schema.properties.firstReply
 assert.deepEqual(firstReplySchema.type, ['object', 'null'])
-assert.deepEqual(firstReplySchema.required, ['opening', 'factIds', 'closing'])
+assert.deepEqual(firstReplySchema.required, ['opening', 'factIds', 'closing', 'variantChoices'])
 await assert.rejects(() => openai({ ...greeting.firstInput, firstReplyFacts: [{ id: '0', text: 'a'.repeat(1001) }] }, new AbortController().signal), /too large/)
 // E1: intake drafts predict a motor outcome; they never supply business facts.
 const intakeDraft = (pending: 'service' | 'date', serviceId: string | null = null, candidateIds: string[] = []) => ({ opening: 'Dale.', closing: null, pending, serviceId, candidateIds })

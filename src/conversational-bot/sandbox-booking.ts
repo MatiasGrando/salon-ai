@@ -1,14 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { serviceConfigurationKey, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
 import { basketServiceIds } from './service-basket.js'
-import { resolveGuidance } from './service-guidance.js'
+import { resolveGuidance, attendanceContent } from './service-guidance.js'
 import type { BookingProposal, DialogueContext, DialogueResponse, DialogueService, DialogueState } from './engine.js'
 
 export const SANDBOX_CONFIRMATION_QUESTION = '¿Confirmás este turno de prueba?'
 export type SandboxBookingService = {
   id: string; name: string; durationMinutes: number; customerDurationMinutes: number
   price: number | null; priceMode: 'FIXED' | 'STARTING_AT'; configurationHash: string
-  estimate: ServiceEstimate | null
+  estimate: ServiceEstimate | null; conditionsHash?: string
 }
 export type SandboxBookingTerms = {
   businessId: string; timezone: string; date: string; startAt: string; time: string
@@ -17,7 +17,7 @@ export type SandboxBookingTerms = {
   durationMinutes: number; customerDurationMinutes: number; totalPrice: number | null
   services: SandboxBookingService[]
 }
-export type PresentedSandboxProposal = { schemaVersion: 1; nonce: string; fingerprint: string; terms: SandboxBookingTerms }
+export type PresentedSandboxProposal = { schemaVersion: 1; nonce: string; fingerprint: string; terms: SandboxBookingTerms; conditionsPresented?: true }
 export const SANDBOX_RECEIPT_ADDRESS_MAX_LENGTH = 1000
 /** Optional commit-time location snapshot; legacy receipts deliberately have none. */
 export type SandboxBookingReceipt = { appointmentId: string; proposalNonce: string; fingerprint: string; businessAddress?: string }
@@ -55,7 +55,8 @@ export function buildSandboxBookingTerms(context: DialogueContext, state: Dialog
     id: service.id, name: service.name, durationMinutes: service.professionalDurationMinutes ?? service.durationMinutes!,
     customerDurationMinutes: service.customerDurationMinutes ?? service.durationMinutes!, price: service.price, priceMode: service.priceMode ?? 'FIXED',
     configurationHash: digest(service.bookingPolicy ? serviceConfigurationKey(service.bookingPolicy) : [service.name, service.durationMinutes, service.price, service.priceMode ?? 'FIXED', service.requiresConsultation]),
-    estimate: guidance.estimates[service.id] ?? null
+    estimate: guidance.estimates[service.id] ?? null,
+    ...(attendanceContent(service, context.businessId) ? { conditionsHash: digest(attendanceContent(service, context.businessId)) } : {})
   }))
   const terms: SandboxBookingTerms = { businessId: context.businessId, timezone: context.timezone, date: state.date, startAt: state.slot.startAt, time: state.slot.time,
     customerName: state.customerName, professionalId: state.slot.professionalId, professionalName: state.slot.professionalName, preference: structuredClone(state.professional),
@@ -78,8 +79,8 @@ function validateTerms(terms: SandboxBookingTerms) {
   const part = (type: string) => wall.find(item => item.type === type)?.value
   if ([part('year'),part('month'),part('day')].join('-') !== terms.date || [part('hour'),part('minute')].join(':') !== terms.time) throw new Error('invalid sandbox wall time')
   for (const service of terms.services) {
-    if (!service || !keys(service, 'configurationHash,customerDurationMinutes,durationMinutes,estimate,id,name,price,priceMode') || !text(service.id, 128) || !text(service.name, 200) || !minutes(service.durationMinutes) || !minutes(service.customerDurationMinutes) || !money(service.price) ||
-        !['FIXED','STARTING_AT'].includes(service.priceMode) || !/^[a-f0-9]{64}$/.test(service.configurationHash)) throw new Error('invalid sandbox service')
+    if (!service || !keys(service, Object.hasOwn(service, 'conditionsHash') ? 'conditionsHash,configurationHash,customerDurationMinutes,durationMinutes,estimate,id,name,price,priceMode' : 'configurationHash,customerDurationMinutes,durationMinutes,estimate,id,name,price,priceMode') || !text(service.id, 128) || !text(service.name, 200) || !minutes(service.durationMinutes) || !minutes(service.customerDurationMinutes) || !money(service.price) ||
+        !['FIXED','STARTING_AT'].includes(service.priceMode) || !/^[a-f0-9]{64}$/.test(service.configurationHash) || service.conditionsHash !== undefined && !/^[a-f0-9]{64}$/.test(service.conditionsHash)) throw new Error('invalid sandbox service')
     const estimate = service.estimate
     if (estimate !== null && (!estimate || !keys(estimate, 'optionId,optionLabel,priceMax,priceMin') || estimate.optionId !== null && !text(estimate.optionId, 128) || estimate.optionLabel !== null && !text(estimate.optionLabel, 200) || !money(estimate.priceMin) || estimate.priceMin === null || !money(estimate.priceMax) || estimate.priceMax !== null && estimate.priceMax < estimate.priceMin)) throw new Error('invalid sandbox estimate')
   }
@@ -98,7 +99,7 @@ export function parseSandboxReservation(value: unknown, state: DialogueState): S
   const reservation = value as SandboxReservation
   if (!reservation || typeof reservation !== 'object' || !keys(reservation, reservation.receipt ? 'presented,receipt,schemaVersion' : 'presented,schemaVersion') || reservation.schemaVersion !== 1 || JSON.stringify(value).length > 10000) throw new Error('invalid sandbox reservation')
   const p = reservation.presented
-  if (!p || !keys(p, 'fingerprint,nonce,schemaVersion,terms') || p.schemaVersion !== 1 || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) throw new Error('invalid sandbox proposal')
+  if (!p || !keys(p, Object.hasOwn(p, 'conditionsPresented') ? 'conditionsPresented,fingerprint,nonce,schemaVersion,terms' : 'fingerprint,nonce,schemaVersion,terms') || p.conditionsPresented !== undefined && p.conditionsPresented !== true || p.schemaVersion !== 1 || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) throw new Error('invalid sandbox proposal')
   validateTerms(p.terms)
   if (sandboxProposalFingerprint(p.terms) !== p.fingerprint || !sandboxProposalMatchesState(p, state)) throw new Error('stale sandbox proposal')
   if (reservation.receipt) {
@@ -110,12 +111,14 @@ export function parseSandboxReservation(value: unknown, state: DialogueState): S
   return structuredClone(reservation)
 }
 export function presentSandboxProposal(context: DialogueContext, state: DialogueState, services: readonly DialogueService[], proposal: BookingProposal, previous?: SandboxReservation): string {
+  if (Object.hasOwn(state, 'editRequest')) throw new Error('pending edit request cannot present consent')
   const terms = buildSandboxBookingTerms(context, state, services, proposal)
   const fingerprint = sandboxProposalFingerprint(terms)
-  const presented: PresentedSandboxProposal = previous?.presented.fingerprint === fingerprint ? structuredClone(previous.presented) : { schemaVersion: 1, nonce: randomUUID(), fingerprint, terms }
+  const presented: PresentedSandboxProposal = previous?.presented.conditionsPresented === true && previous.presented.fingerprint === fingerprint ? structuredClone(previous.presented) : { schemaVersion: 1, nonce: randomUUID(), fingerprint, terms, conditionsPresented: true }
   state.sandboxReservation = { schemaVersion: 1, presented }
   if (JSON.stringify(state).length > 16384) { delete state.sandboxReservation; throw new Error('sandbox proposal exceeds state limit') }
-  return 'Propuesta de turno de prueba:\n' + renderSandboxTerms(terms) + '\nTodavía no está reservado.\n' + SANDBOX_CONFIRMATION_QUESTION
+  const conditions = services.filter(service => basketServiceIds(state).includes(service.id)).map(service => attendanceContent(service, context.businessId)).filter(Boolean).join('\n\n')
+  return (conditions ? 'Antes de confirmar, tené en cuenta:\n' + conditions + '\n\n' : '') + 'Propuesta de turno de prueba:\n' + renderSandboxTerms(terms) + '\nTodavía no está reservado.\n' + SANDBOX_CONFIRMATION_QUESTION
 }
 const amount = (price: number) => '$ ' + price.toLocaleString('es-AR')
 export function renderSandboxTerms(terms: SandboxBookingTerms): string {

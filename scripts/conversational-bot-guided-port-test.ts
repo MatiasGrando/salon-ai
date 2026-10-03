@@ -1,3 +1,4 @@
+import { contentSourceHash } from '../src/bot-options/domain/service-content.js'
 import assert from 'node:assert/strict'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
 import { serviceConfigurationKey } from '../src/bot-options/domain/service-booking.js'
@@ -154,3 +155,28 @@ assert.equal(continued.state.pending, 'time', 'new next-turn choice resumes comp
 assert.equal(continued.state.date, '2026-10-02'); assert.equal(continued.state.customerName, 'Matias')
 assert.match(continued.reply, /tengo algunos horarios disponibles/)
 console.log('guided Prisma port fresh policy/choice, singular/basket dual occupancy and cache continuity: PASS')
+
+// Reviewed classification must travel from definition through cached descriptors and fresh policy checks.
+const configuredFixture = fixture()
+const basePort = await createPrismaDialoguePort(configuredFixture.client, 'tenant')
+const baseGuided = (await basePort.port.catalog()).find(service => service.id === 'guided')!
+const basePolicy = baseGuided.bookingPolicy!
+const classification = { version: 1, businessId: 'tenant', serviceId: 'guided', reviewed: true, revision: 1, sourceHash: contentSourceHash(basePolicy), segments: [
+  { id: 'why', source: 'explanation', start: 0, end: basePolicy.estimateExplanation!.length, stage: 'choice', role: 'prose', variants: ['Size determines the estimate'] },
+  { id: 'condition', source: 'disclaimer', start: 0, end: basePolicy.estimateDisclaimer!.length, stage: 'both', role: 'condition', variants: [] }
+] }
+const configured = await createPrismaDialoguePort(configuredFixture.client, 'tenant', { version: 1, businessId: 'tenant', services: [classification] })
+const configuredCatalog = await configured.port.catalog()
+const configuredService = configuredCatalog.find(service => service.id === 'guided')!
+assert.equal(configuredService.bookingPolicy?.contentPolicy?.revision, 1, 'definition metadata attaches after cache reads, not a parallel cache')
+const configuredSelections = { guided: choice(configuredService, 'short') }
+assert.equal((await configured.port.availabilityBasket!([configuredService], '2026-10-02', 'ramiro', configuredSelections)).ok, true, 'fresh guarded policy must use the same reviewed metadata before resolveGuidance')
+const withoutMetadata = await basePort.port.availabilityBasket!([configuredService], '2026-10-02', 'ramiro', configuredSelections)
+assert.equal(withoutMetadata.ok, false, 'missing current metadata invalidates previously staged selection')
+if (!withoutMetadata.ok) assert.equal(withoutMetadata.reason, 'GUIDANCE_REQUIRED')
+configuredFixture.rows.get('guided')!.estimateDisclaimer = 'New condition'
+configuredFixture.revise()
+const changedContent = await configured.port.availabilityBasket!([configuredService], '2026-10-02', 'ramiro', configuredSelections)
+assert.equal(changedContent.ok, false, 'source edits invalidate reviewed digest and selection before any agenda effects')
+if (!changedContent.ok) assert.equal(changedContent.reason, 'GUIDANCE_REQUIRED')
+console.log('PASS configured staging uses existing cache plus fresh guarded policies; stale/missing metadata reopens choice')

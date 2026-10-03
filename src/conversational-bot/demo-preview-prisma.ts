@@ -1,3 +1,4 @@
+import { loadActiveServiceContent } from './prisma-service-content.js'
 import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope } from './choices.js'
 import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
 import { isDeepStrictEqual } from 'node:util'
@@ -26,7 +27,7 @@ function sameSnapshot(left: PreviewSnapshot, right: PreviewSnapshot) {
 /** QA-only store. Prepare outside the row lock, then compare/commit one turn atomically. */
 export async function runPrismaDemoPreview(
   client: any, businessId: string, userId: string, sessionId: string, message: string,
-  createPort: PreviewDependencies['createPort'] = id => createPrismaDialoguePort(client, id),
+  createPort: PreviewDependencies['createPort'] = async id => createPrismaDialoguePort(client, id, await loadActiveServiceContent(client, id)),
   interpretationProvider?: AiInterpretationProvider,
   interpretationTimeoutMs?: number,
   capability?: { sandboxBooking: true },

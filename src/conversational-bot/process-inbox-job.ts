@@ -1,3 +1,4 @@
+import type { ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx, type ConsolidationEnvelope } from './inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
 import { measureAttemptStage, measureAttemptTransaction } from '../bot-options/observability/attempt-metrics.js'
@@ -24,11 +25,11 @@ import { persistView, type projectInboundMessage, type lockExistingInitialSessio
 
 type Client = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 export type ReplyPreparationHook = (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>
-export type DialogueFactory = (client: Client, businessId: string) => Promise<{ context: DialogueContext; port: DialoguePort }>
-const defaultFactory: DialogueFactory = (client, businessId) => {
+export type DialogueFactory = (client: Client, businessId: string, serviceContent?: ServiceContentConfiguration) => Promise<{ context: DialogueContext; port: DialoguePort }>
+const defaultFactory: DialogueFactory = (client, businessId, serviceContent) => {
   // Runtime receives the existing full Prisma client. No singleton or second connection.
   if (!('business' in client) || !('service' in client)) throw new Error('dialogue read delegates unavailable')
-  return createPrismaDialoguePort(client as Parameters<typeof createPrismaDialoguePort>[0], businessId)
+  return createPrismaDialoguePort(client as Parameters<typeof createPrismaDialoguePort>[0], businessId, serviceContent)
 }
 type Row = PolicyRow & { id: string; actionType: string; expectedRevision: bigint | null; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
   providerEventId: string; providerMessageId: string | null; providerPhoneNumberId: string | null; status: string; dbNow: Date; businessTimezone: string;
@@ -359,7 +360,7 @@ export async function processConversationInbox(input: {
     }
     // No transaction/client lock is retained while repositories compute the reply.
     const contextStarted = performance.now()
-    const prepared = await measureAttemptStage('conversation_context_load', () => (input.dialogueFactory ?? defaultFactory)(input.client, policy.businessId))
+    const prepared = await measureAttemptStage('conversation_context_load', () => (input.dialogueFactory ?? defaultFactory)(input.client, policy.businessId, policy.serviceContent))
     if (prepared.context.businessId !== policy.businessId || prepared.context.timezone !== snapshot.row.businessTimezone) throw new Error('dialogue context mismatch')
     // Preserve port method receivers. Catalog includes repository pages already traced separately.
     const port: DialoguePort = {

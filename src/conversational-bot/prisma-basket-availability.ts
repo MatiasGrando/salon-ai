@@ -1,3 +1,4 @@
+import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { filterTimePreference, parseTimePreference, type TimePreference } from './time-preference.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
@@ -32,21 +33,21 @@ export function projectDialogueService(row: CatalogServiceItem): DialogueService
 /** Fixed-date compatibility entry: the shared guard below also supports verified quick dates. */
 export async function loadPrismaBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
-  requested: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates: ServiceEstimates = {}
+  requested: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates: ServiceEstimates = {}, serviceContent: ServiceContentConfiguration | null = null
 ): Promise<DialogueBasketAvailability> {
-  return loadGuardedBasketAvailability(client, context, settings, requested, date, professionalId, serviceEstimates)
+  return loadGuardedBasketAvailability(client, context, settings, requested, date, professionalId, serviceEstimates, undefined, serviceContent)
 }
 /** One live horizon search supplies only actual dates with available complete-basket slots. Never cache agenda evidence. */
 export async function loadPrismaVerifiedDateChoices(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
-  requested: readonly DialogueService[], professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal
+  requested: readonly DialogueService[], professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null
 ): Promise<DialogueBasketAvailability> {
-  return loadGuardedBasketAvailability(client, context, settings, requested, null, professionalId, serviceEstimates, temporal)
+  return loadGuardedBasketAvailability(client, context, settings, requested, null, professionalId, serviceEstimates, temporal, serviceContent)
 }
 /** Read-only proposal adapter. Cached descriptors supply IDs, never permission, price or duration. */
 async function loadGuardedBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
-  requested: readonly DialogueService[], date: string | null, professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal
+  requested: readonly DialogueService[], date: string | null, professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null
 ): Promise<DialogueBasketAvailability> {
   if (requested.length < 1 || requested.length > 10 || requested.some(service => !boundedId(service.id)) || new Set(requested.map(service => service.id)).size !== requested.length) return { ok: false, reason: 'SERVICE_UNAVAILABLE' }
   if (professionalId !== undefined && !boundedId(professionalId)) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
@@ -69,6 +70,7 @@ async function loadGuardedBasketAvailability(
       row.durationMaxMinutes != null && (!positiveMinutes(row.durationMaxMinutes) || row.durationMinMinutes == null || row.durationMaxMinutes < row.durationMinMinutes)) return { ok: false, reason: 'INVALID_DURATION' }
     if (row.price !== null && (!Number.isSafeInteger(row.price) || row.price < 0) || !['FIXED', 'STARTING_AT'].includes(row.priceMode)) throw new Error('invalid basket service price')
     const service = projectDialogueService(row)
+    if (service.bookingPolicy) service.bookingPolicy = attachServiceContent(service.bookingPolicy, context.businessId, serviceContent)
     const guidance = serviceGuidance(service)
     if (guidance.kind === 'blocked') return { ok: false, reason: guidance.reason }
     services.push(service)

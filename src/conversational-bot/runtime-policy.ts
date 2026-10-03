@@ -1,6 +1,7 @@
+import { parseDefinitionServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { Prisma } from '../generated/prisma/client.js'
 
-export type ConversationPolicy = { businessId: string; deploymentId: string; generation: number; configurationId: string }
+export type ConversationPolicy = { businessId: string; deploymentId: string; generation: number; configurationId: string; serviceContent?: ServiceContentConfiguration }
 export type PolicyRow = ConversationPolicy & { customerCode: string; configurationBusinessId: string; configurationStatus: string; engineKey: string; definition: unknown }
 /** Absence opts out; a claimed but invalid marker must never fall through to legacy. */
 export function resolveConversationPolicy(row: PolicyRow): ConversationPolicy | null {
@@ -15,7 +16,8 @@ export function resolveConversationPolicy(row: PolicyRow): ConversationPolicy | 
       row.engineKey !== 'deterministic-options' || !row.businessId || !row.deploymentId || !row.configurationId || !Number.isSafeInteger(row.generation) || row.generation < 1) {
     throw new Error('invalid conversational runtime policy')
   }
-  return { businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation, configurationId: row.configurationId }
+  const serviceContent = parseDefinitionServiceContent(definition, row.businessId)
+  return { ...(serviceContent ? { serviceContent } : {}), businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation, configurationId: row.configurationId }
 }
 export async function loadConversationPolicy(client: Pick<Prisma.TransactionClient, '$queryRaw'>,
   input: { businessId: string; deploymentId?: string; generation?: number }): Promise<ConversationPolicy | null> {

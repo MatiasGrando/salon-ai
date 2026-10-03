@@ -1,3 +1,4 @@
+import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices, projectDialogueService } from './prisma-basket-availability.js'
 import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './prisma-public-professional-facts.js'
 import { queryPublicProfessionalFacts } from './public-professional-facts.js'
@@ -12,7 +13,7 @@ import type { DialogueContext, DialoguePort, DialogueService } from './engine.js
 
 type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
-export async function createPrismaDialoguePort(client: DialogueClient, businessId: string): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
+export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
   const catalog = new PrismaCatalogRepository(client)
   const availability = new PrismaAvailabilityRepository(client)
@@ -69,9 +70,9 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
       return facts
     },
     professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
-    verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal)),
-    catalog: () => cached('catalog', loadCatalog),
-    availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates)),
+    verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,serviceContent)),
+    catalog: async () => (await cached('catalog', loadCatalog)).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, serviceContent) } : service),
+    availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {
       const service = await catalog.getService({ businessId, serviceId: selected.id })
       if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')

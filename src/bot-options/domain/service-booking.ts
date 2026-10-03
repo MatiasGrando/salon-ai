@@ -1,3 +1,4 @@
+import { serviceContentFingerprint, type ReviewedServiceContent } from './service-content.js'
 /** Service policy shared by the options resolver and its tenant-scoped repositories. */
 export type ServiceEstimate = { optionId: string | null; optionLabel: string | null; priceMin: number; priceMax: number | null }
 export type EstimateOption = { id: string; label: string; priceMin: number; priceMax: number | null; note: string | null }
@@ -7,6 +8,7 @@ export type ServiceBookingPolicy = {
   estimateQuestion: string | null; estimateOptions: EstimateOption[] | null
   estimateExplanation: string | null; estimateDisclaimer: string | null; requiresPhoto: boolean
   validationEnabled: boolean; validationMessage: string | null; validationQuestion: string | null
+  contentPolicy?: ReviewedServiceContent
 }
 export type ServiceBookingDecision = { configurationKey: string; estimate?: ServiceEstimate; validationAccepted?: boolean }
 
@@ -29,7 +31,8 @@ export function parseEstimateOptions(raw: unknown): EstimateOption[] | null {
 export function serviceConfigurationKey(service: ServiceBookingPolicy): string {
   return JSON.stringify([service.attentionMode, service.price, service.priceMode, service.estimateAllowsBooking,
     service.estimateQuestion, service.estimateOptions, service.estimateExplanation, service.estimateDisclaimer,
-    service.requiresPhoto, service.validationEnabled, service.validationMessage, service.validationQuestion])
+    service.requiresPhoto, service.validationEnabled, service.validationMessage, service.validationQuestion,
+    ...(service.contentPolicy ? [serviceContentFingerprint(service.contentPolicy)] : [])])
 }
 
 export function resolveServiceEstimate(service: Pick<ServiceBookingPolicy, 'estimateOptions' | 'price' | 'priceMode'>, optionId: string | null): ServiceEstimate | null {

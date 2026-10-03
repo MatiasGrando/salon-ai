@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState, type BotOptionsFlowStep } from '../bot-options/domain/state.js'
 import { initialDialogueState, parseDialogueState, type DialogueState } from './engine.js'
 import type { ConversationPolicy } from './runtime-policy.js'
@@ -17,7 +18,7 @@ export function readConversationDraft(value: unknown, policy: ConversationPolicy
     if (JSON.stringify(parsed.state) !== JSON.stringify(createInitialBotOptionsState())) throw new Error('legacy session requires explicit reset')
     return initialDialogueState(policy.businessId)
   }
-  if (!sidecar || !sidecar.policy || Object.keys(policy).some(key => sidecar.policy[key as keyof ConversationPolicy] !== policy[key as keyof ConversationPolicy])) throw new Error('conversation policy changed; reset required')
+  if (!sidecar || !sidecar.policy || Object.keys(policy).some(key => !isDeepStrictEqual(sidecar.policy[key as keyof ConversationPolicy], policy[key as keyof ConversationPolicy])) || !isDeepStrictEqual(sidecar.policy.serviceContent, policy.serviceContent)) throw new Error('conversation policy changed; reset required')
   return parseDialogueState(sidecar.dialogue, policy.businessId, timezone)
 }
 export function projectConversationDraft(draft: DialogueState, policy: ConversationPolicy): ConversationSessionState {
@@ -45,6 +46,6 @@ export function reconcileConversationDraft(value: unknown, policy: ConversationP
   }
   if (!sidecar.policy || sidecar.policy.businessId !== policy.businessId) throw new Error('invalid conversation sidecar tenant')
   const previous = readConversationDraft(value, sidecar.policy, timezone)
-  const changed = Object.keys(policy).some(key => sidecar.policy[key as keyof ConversationPolicy] !== policy[key as keyof ConversationPolicy])
+  const changed = Object.keys(policy).some(key => !isDeepStrictEqual(sidecar.policy[key as keyof ConversationPolicy], policy[key as keyof ConversationPolicy])) || !isDeepStrictEqual(sidecar.policy.serviceContent, policy.serviceContent)
   return { draft: changed ? initialDialogueState(policy.businessId) : previous, reset: changed }
 }

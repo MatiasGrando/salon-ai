@@ -10,15 +10,15 @@ import { summarizeAvailability, summarizeProposal, summarizeValidation, summariz
 import { routeActions } from './actions.js'
 import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
-import { serviceGuidance } from './service-guidance.js'
+import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
 import { pendingQuestion, validateFacts } from './information.js'
 import { parseInformationTarget } from './information-contract.js'
 import { inferInformationTarget, readInformation, informationReply } from './information-read.js'
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
-export type ReplyFact = { id: string; text: string }
+export type ReplyFact = import('./reply-contract.js').ReplyFact
 export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer> }
-export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly { id: string; text: string }[]; replyContract?: ReplyContract }
+export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
@@ -78,7 +78,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
             if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new Error('unknown basket target')
-            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services)) }
+            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message)) }
           }
           if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
           const matches = catalogEvidenceMatches(operation.evidence, services)
@@ -153,7 +153,12 @@ function catalogEvidenceMatches(evidence: string, services: readonly DialogueSer
   }) : []
 }
 /** Resolve ambiguity per member; an exact companion service is never swallowed by a generic phrase. */
-function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[]): BasketMemberProposal {
+function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string): BasketMemberProposal {
+  // Only a closed standalone full catalog label overrides a spurious model group.
+  // A fragment inside negation, alternatives or a multi-entity request is not a closed selection.
+  const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(member.evidence))
+  if (member.mode === 'alternatives' && member.confidence >= 0.85 && !/[?¿]/.test(message) && evidenceWords(message) === evidenceWords(member.evidence) &&
+      exact.length === 1 && member.serviceIds.includes(exact[0]!.id)) return { ...member, mode: 'single', serviceIds: [exact[0]!.id] }
   let matches = catalogEvidenceMatches(member.evidence, services)
   // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
   // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
@@ -221,6 +226,11 @@ export async function respondWithAiInterpreter(
     { id: 'next', text: state.pending === 'service' && !hasActiveBooking(state) ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }] : null
   let firstReplyFacts: ReplyFact[] | undefined = intakeReplyAllowed ? incidentalFacts ??
     (state.pending === 'service' && !hasActiveBooking(state) ? [{ id: 'next', text: '¿En qué te puedo ayudar con el local?' }] : [{ id: socialQuestion(state) === pendingQuestion(state) ? 'next' : '0', text: socialQuestion(state) }]) : undefined
+  if (intakeReplyAllowed && state.pending === 'estimate' && !state.editRequest) {
+    const target = state.questionContext?.targetServiceId ?? resolveGuidance(services.filter(service => basketServiceIds(state).includes(service.id)), state.serviceEstimates).pending?.id
+    const guided = services.find(service => service.id === target)
+    if (guided) firstReplyFacts = guidanceDelivery(guided, context.businessId).facts
+  }
   let preparedInformation = false
   let informationPreparationFailed = false
   let availabilityCalls = 0
@@ -336,7 +346,7 @@ export async function respondWithAiInterpreter(
   let aiCalls = 1
   let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
   const finalFacts = !planHasUpdates && !planHasInformation && replyIntent === 'other' && incidentalFacts ? incidentalFacts :
-    responseFacts(safeReply, response.state, replyIntent, message)
+    response.replyFacts ?? responseFacts(safeReply, response.state, replyIntent, message)
   if (!turnPlan && !reason && !canonicalOnly && !decision?.correction && availabilityCalls === 0 &&
       intakeReplyAllowed && candidate?.intent === 'booking' &&
       !services.find(service => service.id === response.state.serviceId)?.requiresConsultation) {
@@ -359,7 +369,7 @@ export async function respondWithAiInterpreter(
     ((preparedInformation || pureInformation) && replyIntent === 'information' || !route.information.length &&
       !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
       !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
-  const finalContract = replyContract(replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead)
+  const finalContract = replyContract(replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
   const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only') }
   if (intakeValidation) replyValidation.firstCall = intakeValidation
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }

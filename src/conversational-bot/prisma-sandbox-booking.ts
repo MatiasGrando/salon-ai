@@ -1,3 +1,4 @@
+import { loadActiveServiceContent } from './prisma-service-content.js'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
@@ -36,7 +37,7 @@ const marker = (conversationId: string, proposalNonce: string, fingerprint: stri
 /** Must run within the caller's CAS transaction; no network, side effects or nested transactions. */
 export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, input: { businessId: string; userId: string; conversationId: string; expectedPhone: string; response: DialogueResponse }): Promise<SandboxBookingResult> {
   const { response } = input
-  if (!response.bookingCommand) return blocked('SCOPE_REJECTED')
+  if (!response.bookingCommand || Object.hasOwn(response.state, 'editRequest')) return blocked('SCOPE_REJECTED')
   let reservation
   try { reservation = parseSandboxReservation(response.state.sandboxReservation, response.state) }
   catch { return blocked('SCOPE_REJECTED') }
@@ -67,6 +68,7 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
     return receipt
   }
   if (reservation.receipt) return blocked('SCOPE_REJECTED')
+  if (presented.conditionsPresented !== true) return { kind: 'REQUOTE' }
   const availability = new PrismaAvailabilityRepository(tx)
   const settings = await availability.loadSettings(input.businessId)
   const clocks = await tx.$queryRaw<Array<{ now: Date }>>(Prisma.sql`SELECT clock_timestamp() AS now`)
@@ -74,7 +76,8 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) throw new Error('sandbox database clock unavailable')
   if (settings.timezone !== terms.timezone) return { kind: 'REQUOTE' }
   const requested = terms.services.map(service => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes, requiresConsultation: false, price: service.price, priceMode: service.priceMode }))
-  const fresh = await loadPrismaBasketAvailability(tx, { businessId: input.businessId, timezone: settings.timezone, dbNow }, settings, requested, terms.date, terms.professionalId, response.state.serviceEstimates)
+  const serviceContent = await loadActiveServiceContent(tx, input.businessId, true)
+  const fresh = await loadPrismaBasketAvailability(tx, { businessId: input.businessId, timezone: settings.timezone, dbNow }, settings, requested, terms.date, terms.professionalId, response.state.serviceEstimates, serviceContent)
   if (!fresh.ok) return fresh.reason === 'GUIDANCE_REQUIRED' ? { kind: 'REQUOTE' } : blocked(fresh.reason === 'SERVICE_UNAVAILABLE' ? 'SERVICE_UNAVAILABLE' : 'POLICY_BLOCKED')
   const slot = fresh.slots.find(slot => slot.startAt === terms.startAt && slot.professionalId === terms.professionalId && slot.date === terms.date && slot.time === terms.time)
   if (!slot) return { kind: 'SLOT_CONFLICT' }

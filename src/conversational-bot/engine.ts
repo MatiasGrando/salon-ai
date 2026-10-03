@@ -1,3 +1,6 @@
+import { appliedChangeAcknowledgment } from './draft-delivery.js'
+import { guidanceDelivery } from './service-guidance.js'
+import type { ReplyFact } from './reply-contract.js'
 import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation } from './dialogue-choice-presentation.js'
 import { introduceDialogue, type DialogueIdentity } from './dialogue-identity.js'
 import { presentAvailability, presentProfessionals, presentVerifiedDates, presentDateTimeQuestion, type ChoicePresentation, type PresentationChoice } from './availability-presentation.js'
@@ -65,7 +68,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -539,7 +542,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     state.dialogueContext = { lastQuestion: question?.startsWith('¿') && question.endsWith('?') ? question : null, presentedOffer: null }
     questionOptions = (guidance.pending.bookingPolicy?.estimateOptions ?? []).map(option => ({ id: option.id, label: option.label }))
     questionTarget = guidance.pending.id
-    return finish(guidanceQuestion(guidance.pending))
+    return finish(guidanceQuestion(guidance.pending, context.businessId))
   }
   if (selectedServices.some(item => !item || !validBookableService(item,true))) return failedAvailability('INVALID_DURATION', 'preflight')
   let needsVerifiedSelection = selectedServices.some(item => item?.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' || Number(item?.customerDurationMinutes ?? item?.durationMinutes) > Number(item?.durationMinutes))
@@ -557,7 +560,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       if (!fresh.pending) return failedAvailability('GUIDANCE_RESULT_NOT_PENDING', 'fresh_guidance')
       state.slot = null; state.serviceEstimates = fresh.selections; state.pending = 'estimate'; questionTarget = fresh.pending.id
       questionOptions = (fresh.pending.bookingPolicy?.estimateOptions ?? []).map(option => ({ id: option.id, label: option.label }))
-      return finish(guidanceQuestion(fresh.pending))
+      return finish(guidanceQuestion(fresh.pending, context.businessId))
     }
     validateBasketAvailability(result, basketServiceIds(state), state.serviceEstimates)
     const scope = { businessId: context.businessId, serviceIds: basketServiceIds(state), date: null, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null }
@@ -607,7 +610,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       state.dialogueContext = {lastQuestion:question?.startsWith('¿') && question.endsWith('?') ? question : null,presentedOffer:null}
       questionOptions = (fresh.pending.bookingPolicy?.estimateOptions ?? []).map(option => ({ id: option.id, label: option.label }))
       questionTarget = fresh.pending.id
-      availabilityFailure = finish(guidanceQuestion(fresh.pending))
+      availabilityFailure = finish(guidanceQuestion(fresh.pending, context.businessId))
       return null
     }
     const freshNeedsVerifiedSelection = result.services.some(item => item.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' || Number(item.customerDurationMinutes ?? item.durationMinutes) > Number(item.durationMinutes))
@@ -712,7 +715,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName,
     ...(selectedServices.length > 1 || needsVerifiedSelection ? { serviceIds: basketServiceIds(state), services: selectedServices as DialogueService[], durationMinutes: summary.durationMinutes, totalPrice: summary.totalPrice } : {}), ...(verifiedCustomerDuration !== undefined ? {customerDurationMinutes:verifiedCustomerDuration} : {}), ...(Object.keys(finalGuidance.estimates).length ? {estimates:finalGuidance.estimates} : {}) }
   const details = selectedServices.length > 1 ? ' (' + summary.durationMinutes + ' min; ' + (summary.totalPrice === null ? 'precio total a consultar' : '$ ' + summary.totalPrice.toLocaleString('es-AR')) + ')' : ''
-  const estimates = renderGuidedEstimates(selectedServices as DialogueService[],state.serviceEstimates ?? {})
+  const estimates = renderGuidedEstimates(selectedServices as DialogueService[],state.serviceEstimates ?? {},context.businessId)
   return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.${estimates ? '\n' + estimates : ''}`, proposal)
 }
 
@@ -938,7 +941,7 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
   const semanticConfirmation = !consentVeto && plan?.operations.length === 1 && plan.operations[0]?.kind === 'confirm_proposal' && plan.operations[0].confidence >= 0.85 && normalize(plan.operations[0].evidence) === normalize(message)
   const fallbackConfirmation = !consentVeto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention &&
     /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalize(message))
-  if (!state.editRequest && reservation && !reservation.receipt && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
+  if (!state.editRequest && reservation && !reservation.receipt && reservation.presented.conditionsPresented === true && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
     return { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.', bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }
   }
   // A semantic confirmation cannot manufacture a proposal or authorize effects before it was shown.
@@ -960,7 +963,7 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
     response.reply = presentSandboxProposal(context, response.state, catalog, response.proposal, reservation)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
-  } else if (!response.state.editRequest && reservation && sandboxProposalMatchesState(reservation.presented, response.state)) {
+  } else if (!response.state.editRequest && reservation && reservation.presented.conditionsPresented === true && sandboxProposalMatchesState(reservation.presented, response.state)) {
     response.state.sandboxReservation = structuredClone(reservation)
     response.reply = response.reply.replace('La propuesta sigue pendiente; todavía no está reservado.', SANDBOX_CONFIRMATION_QUESTION)
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
@@ -982,7 +985,18 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
 export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision,
   options: { deferIntroduction?: boolean } = {}): Promise<DialogueResponse> {
   const before = parseDialogueState(previous, context.businessId, context.timezone)
-  const response = await respondBookingEnvelope(context, previous, message, port, decision)
+  let deliveryServices: DialogueService[] = []
+  const captureFresh = (result: DialogueBasketAvailability) => {
+    const fresh = result.ok || result.reason === 'GUIDANCE_REQUIRED' ? result.services : []
+    if (fresh.length) deliveryServices = deliveryServices.map(service => fresh.find(item => item.id === service.id) ?? service)
+    return result
+  }
+  const deliveryPort: DialoguePort = { ...port,
+    catalog: async () => { deliveryServices = await port.catalog(); return deliveryServices },
+    ...(port.availabilityBasket ? { availabilityBasket: async (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => captureFresh(await port.availabilityBasket!(...args)) } : {}),
+    ...(port.verifiedDateChoices ? { verifiedDateChoices: async (...args: Parameters<NonNullable<DialoguePort['verifiedDateChoices']>>) => captureFresh(await port.verifiedDateChoices!(...args)) } : {})
+  }
+  const response = await respondBookingEnvelope(context, previous, message, deliveryPort, decision)
   const basketValue = (state: DialogueState) => selectionBasket(state).members.map(member => [member.mode, member.serviceIds])
   const values = (state: DialogueState) => [basketValue(state), state.date, [state.professional, state.professionalNameHint], [state.requestedTime, state.timePreference ?? null], state.customerName, state.serviceEstimates ?? {}]
   const oldValues = values(before), newValues = values(response.state)
@@ -997,7 +1011,25 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   if (!decision?.turnPlan && (decision?.serviceId || decision?.candidateIds.length)) explicitFields.add('service')
   response.turnOutcome = { changedFields, appliedFields: changedFields.filter(field => explicitFields.has(field)),
     requestedChanges: [...response.state.editRequest?.fields ?? []], rejectedProfessionalPreference: response.availability?.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE' }
-  if (response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
+  const acknowledgment = appliedChangeAcknowledgment(before, response.state, deliveryServices, response.turnOutcome)
+  const resumingGuide = response.state.pending === 'estimate' && !response.state.editRequest &&
+    (Boolean(response.state.questionContext?.targetServiceId) || response.reply === socialQuestion(response.state))
+  if (resumingGuide && !deliveryServices.length) deliveryServices = await deliveryPort.catalog()
+  const pendingGuide = resumingGuide ? deliveryServices.find(service => service.id ===
+    (response.state.questionContext?.targetServiceId ?? resolveGuidance(deliveryServices.filter(service =>
+      basketServiceIds(response.state).includes(service.id)), response.state.serviceEstimates).pending?.id)) : undefined
+  if (pendingGuide) {
+    const delivery = guidanceDelivery(pendingGuide, context.businessId)
+    if (response.reply === delivery.reply || response.reply === socialQuestion(response.state)) {
+      response.reply = delivery.reply
+      response.replyFacts = delivery.facts
+    }
+  }
+  if (acknowledgment) {
+    response.reply = acknowledgment + '\n\n' + response.reply
+    if (response.replyFacts) response.replyFacts = [{ id: 'acknowledgment', text: acknowledgment }, ...response.replyFacts]
+  }
+  if (response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   return options.deferIntroduction ? response : finalizeDialogueIntroduction(context, response, port)
 }
 /** Typed choices are internal stored operations, never interpreted labels or direct client commands. */
@@ -1022,7 +1054,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (!question?.complete) return reject()
   if (operation.kind === 'confirm') {
     const reservation = state.sandboxReservation
-    if (state.editRequest || context.sandboxBooking !== true || question.role !== 'confirmation' || question.matchCandidateIds || !reservation || reservation.receipt ||
+    if (state.editRequest || context.sandboxBooking !== true || question.role !== 'confirmation' || question.matchCandidateIds || !reservation || reservation.receipt || reservation.presented.conditionsPresented !== true ||
       reservation.presented.nonce !== operation.nonce || !sandboxProposalMatchesState(reservation.presented, state)) return reject()
     return finalizeDialogueIntroduction(context, { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.',
       bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }, port)
@@ -1099,7 +1131,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state,SANDBOX_CONFIRMATION_QUESTION)
   }
-  if (response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.questionContext?.role === 'confirmation') {
+  if (response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') {
     response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   }
   return finalizeDialogueIntroduction(context,response,port)

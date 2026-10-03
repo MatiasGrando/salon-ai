@@ -19,7 +19,7 @@ console.info = (...args: unknown[]) => { if (args[0] !== '[bot-options-attempt-s
 
 const config = { businessId: 'biz', customerCode: 'WX-38N6UG', deploymentId: 'dep', generation: 1,
   configurationId: 'cfg', configurationBusinessId: 'biz', configurationStatus: 'ACTIVE', engineKey: 'deterministic-options',
-  definition: { conversation: { schemaVersion: 1, engine: 'conversational-booking-v1' } } }
+  definition: { conversation: { schemaVersion: 1, engine: 'conversational-booking-v1' }, serviceContent: { version: 1, businessId: 'biz', services: [] } } }
 const policy = resolveConversationPolicy(config)!
 assert.ok(policy)
 assert.equal(resolveConversationPolicy({ ...config, definition: {} }), null)
@@ -36,6 +36,11 @@ assert.equal(projected.booking, 'DRAFT')
 assert.deepEqual(projected.cart, [{ serviceId: 'cut' }])
 assert.equal(parseBotOptionsState(projected).ok, true)
 assert.deepEqual(readConversationDraft(projected, policy, 'UTC'), draft)
+assert.deepEqual(readConversationDraft(JSON.parse(JSON.stringify(projected)), policy, 'UTC'), draft, 'equivalent metadata survives JSON persistence')
+assert.throws(() => readConversationDraft(projected, { ...policy, serviceContent: { version: 1, businessId: 'biz', services: [{ serviceId: 'changed' }] } }, 'UTC'), /policy changed/, 'changed classification requires a reset')
+const { serviceContent: _content, ...withoutContent } = policy
+assert.throws(() => readConversationDraft(projected, withoutContent, 'UTC'), /policy changed/, 'metadata removal cannot reuse staged evidence')
+assert.throws(() => readConversationDraft(projected, { ...policy, generation: policy.generation + 1 }, 'UTC'), /policy changed/)
 assert.throws(() => readConversationDraft(projected, { ...policy, configurationId: 'other' }, 'UTC'))
 assert.throws(() => readConversationDraft({ ...initial, flow: 'NAME_INPUT' }, policy, 'UTC'))
 assert.deepEqual(readConversationDraft(createInitialBotOptionsState(), policy, 'UTC'), initialDialogueState('biz'))
@@ -222,7 +227,8 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
     }
   }
   let basketAgendaCalls = 0, singularAgendaCalls = 0
-  const dialogueFactory = async () => {
+  const dialogueFactory = async (_client: unknown, tenant: string, content?: unknown) => {
+    assert.deepEqual(content, tenant === 'biz' ? policy.serviceContent : undefined, 'runtime passes already loaded scoped metadata without another config read')
     assert.equal(inTransaction, false, 'repository preparation must execute outside transaction')
     prepareHook?.()
     const outside = () => assert.equal(inTransaction, false, 'engine repository query must execute outside transaction')

@@ -1,5 +1,5 @@
 /** Shared server-owned reply policy. Diagnostics contain no chat text, catalog IDs or names. */
-export type ReplyFact = { id: string; text: string }
+export type ReplyFact = { id: string; text: string; variants?: readonly { id: string; text: string }[] }
 export type ReplyRole = 'social' | 'information' | 'clarification' | 'continuation' | 'confirmation'
 export type ReplyContract = {
   version: 1
@@ -23,18 +23,19 @@ export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: Rep
 export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean }
 
 export const REPLY_DRAFT_SCHEMA = {
-  type: ['object', 'null'], additionalProperties: false, required: ['opening', 'factIds', 'closing'],
+  type: ['object', 'null'], additionalProperties: false, required: ['opening', 'factIds', 'closing', 'variantChoices'],
   properties: {
     opening: { type: ['string', 'null'] },
     factIds: { type: 'array', items: { type: 'string' } },
-    closing: { type: ['string', 'null'] }
+    closing: { type: ['string', 'null'] },
+    variantChoices: { type: ['array', 'null'], items: { type: 'object', additionalProperties: false, required: ['factId', 'variantId'], properties: { factId: { type: 'string' }, variantId: { type: 'string' } } } }
   }
 } as const
 export const REPLY_CONTRACT_INSTRUCTIONS =
   'replyContract define el rol y la propiedad de la presentación. ' +
   'La introducción configurada pertenece al servidor: con server_pending opening es null; con server_complete no repitas una presentación. ' +
   'Podés variar naturalmente transiciones y charla según el rol, sin frases obligatorias. Las preguntas sociales no están prohibidas globalmente. ' +
-  'Incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos literalmente. ' +
+  'Incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. ' +
   'Si hay next debe ir al final y closing es null. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. ' +
   'opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas. ' +
   'Si no necesitás encuadre, ambos son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
@@ -58,17 +59,30 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   catalogNames: readonly string[]): ReplyValidationResult {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null
   const providedCount = Array.isArray(value?.factIds) ? Math.min(value.factIds.length, 101) : 0
+  const selectedVariants = new Map<string, string>()
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
     modelFraming: Boolean(text && [contract.introduction === 'server_pending' ? null : value?.opening, value?.closing]
-      .some(part => typeof part === 'string' && part.trim())),
+      .some(part => typeof part === 'string' && part.trim()) || text && selectedVariants.size),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
   if (raw == null) return result('missing_draft')
-  if (!value || Object.keys(value).sort().join(',') !== 'closing,factIds,opening' || !Array.isArray(value.factIds)) return result('invalid_shape')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).sort().join(',')) || !Array.isArray(value.factIds)) return result('invalid_shape')
   if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
       value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
   if (JSON.stringify(value.factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
+  if (value.variantChoices !== undefined && value.variantChoices !== null) {
+    if (!Array.isArray(value.variantChoices) || value.variantChoices.length > facts.length) return result('invalid_shape')
+    for (const rawChoice of value.variantChoices) {
+      if (!rawChoice || typeof rawChoice !== 'object' || Array.isArray(rawChoice)) return result('invalid_shape')
+      const choice = rawChoice as Record<string, unknown>
+      if (Object.keys(choice).sort().join(',') !== 'factId,variantId' || typeof choice.factId !== 'string' || typeof choice.variantId !== 'string' || selectedVariants.has(choice.factId)) return result('invalid_shape')
+      const fact = facts.find(item => item.id === choice.factId)
+      const variant = fact?.variants?.find(item => item.id === choice.variantId)
+      if (!variant || variant.text.length > 1000 || /[\u0000-\u001f]/.test(variant.text)) return result('fact_membership')
+      selectedVariants.set(choice.factId, variant.text)
+    }
+  }
   if (contract.continuation && (value.factIds.at(-1) !== 'next' || value.closing !== null)) return result('continuation_conflict')
   if (contract.neutral && value.opening !== null) return result('neutral_frame')
   const framing = [value.opening, value.closing]
@@ -77,7 +91,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return result('catalog_in_frame')
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
   if (contract.introduction !== 'none' && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
-  const text = [contract.introduction === 'server_pending' ? null : value.opening, ...facts.map(fact => fact.text), value.closing]
+  const text = [contract.introduction === 'server_pending' ? null : value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
 }

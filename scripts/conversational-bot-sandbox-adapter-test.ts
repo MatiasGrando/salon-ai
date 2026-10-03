@@ -1,3 +1,4 @@
+import { attachServiceContent, contentSourceHash } from '../src/bot-options/domain/service-content.js'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { PGlite } from '@electric-sql/pglite'
@@ -10,7 +11,7 @@ import { runPrismaDemoPreview } from '../src/conversational-bot/demo-preview-pri
 import { parseDialogueState } from '../src/conversational-bot/engine.js'
 import { serviceConfigurationKey } from '../src/bot-options/domain/service-booking.js'
 const db = new PGlite(), schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['User','Business','Conversation','Message','Customer','BusinessBotOptionsSettings','Service','ServiceCategory','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingDeposit','ServiceCombinationRule']
+const models = ['User','Business','Conversation','Message','Customer','BusinessBotOptionsSettings','Service','ServiceCategory','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingDeposit','ServiceCombinationRule','BusinessBotConfiguration']
 for (const name of ['AppointmentStatus','BookingDepositStatus']) {
   const values = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
   await db.exec('CREATE TYPE "'+name+'" AS ENUM ('+values.map(value => "'"+value+"'").join(',')+')')
@@ -53,6 +54,7 @@ function orm(sql: { query: PGlite['query'] }): any {
   }
   const insert = async (table: string, data: any) => { const entries=Object.entries(data); return (await query('INSERT INTO "'+table+'" ('+entries.map(([key])=>'"'+key+'"').join(',')+') VALUES ('+entries.map((_,i)=>'$'+(i+1)).join(',')+') RETURNING *',entries.map(([,value])=>value)))[0] }
   const source: any = {
+    businessBotConfiguration: {},
     user: { findUnique: async ({where}: any) => (await select('User',where))[0] ?? null },
     business: { findFirst: async ({where}: any) => (await select('Business',where))[0] ?? null },
     conversation: { findUnique: async ({where}: any) => (await select('Conversation',where.businessId_phone ?? where))[0] ?? null,
@@ -111,6 +113,34 @@ try {
   assert.deepEqual(await execute(),{kind:'BLOCKED',reason:'SCOPE_REJECTED'},'command without an actually presented persisted proposal is rejected')
   await db.query('UPDATE "Conversation" SET "supportBotState"=$1,"supportBotKey"=$2 WHERE "id"=$3',[JSON.stringify(state),'conversational-preview','chat'])
   await db.exec(`UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE "id"='cut'`)
+  // Fresh reviewed metadata participates in consent evidence before writes. No real database is used.
+  const originalState = structuredClone(state)
+  await db.exec(`UPDATE "Service" SET "estimateDisclaimer"='Asistir con pelo limpio.' WHERE "id"='cream'`)
+  const freshService = projectDialogueService((await catalog.getService({ businessId: 'qa', serviceId: 'cream' }))!)
+  const freshPolicy = freshService.bookingPolicy!
+  const content = { version: 1, businessId: 'qa', serviceId: 'cream', reviewed: true, revision: 1, sourceHash: contentSourceHash(freshPolicy), segments: [
+    { id: 'attendance', source: 'disclaimer', start: 0, end: freshPolicy.estimateDisclaimer!.length, stage: 'attendance', role: 'condition', variants: [] }
+  ] }
+  const definition = { conversation: { engine: 'conversational-booking-v1', schemaVersion: 1 }, serviceContent: { version: 1 as const, businessId: 'qa', services: [content] } }
+  freshService.bookingPolicy = attachServiceContent(freshPolicy, 'qa', definition.serviceContent)
+  const reviewedState = structuredClone(state)
+  reviewedState.serviceEstimates = { cream: { configurationKey: serviceConfigurationKey(freshService.bookingPolicy), optionId: 'karsell' } }
+  const conditionsReply = presentSandboxProposal({ ...context, sandboxBooking: true }, reviewedState, [services[0]!, freshService], proposal)
+  assert.ok(conditionsReply.indexOf('Asistir con pelo limpio.') < conditionsReply.indexOf('¿Confirmás'))
+  const reviewedResponse: DialogueResponse = { state: reviewedState, proposal: null, reply: '', bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: reviewedState.sandboxReservation!.presented } }
+  await db.query('INSERT INTO "BusinessBotConfiguration" ("id","businessId","status","definition") VALUES ($1,$2,$3,$4)', ['active','qa','ACTIVE',JSON.stringify(definition)])
+  await db.query('UPDATE "Conversation" SET "supportBotState"=$1 WHERE "id"=$2',[JSON.stringify(reviewedState),'chat'])
+  assert.deepEqual(await execute(reviewedResponse), { kind: 'BLOCKED', reason: 'DEPOSIT_REQUIRED' }, 'unchanged reviewed metadata reaches normal fresh safety validation')
+  for (const revised of [{ ...definition, serviceContent: { ...definition.serviceContent, services: [{ ...content, revision: 2 }] } }, { ...definition, serviceContent: { ...definition.serviceContent, businessId: 'foreign' } }]) {
+    await db.query('UPDATE "BusinessBotConfiguration" SET "definition"=$1 WHERE "id"=$2',[JSON.stringify(revised),'active'])
+    assert.deepEqual(await execute(reviewedResponse), { kind: 'REQUOTE' }, 'changed/foreign metadata cannot confirm old presentation')
+  }
+  await db.query('UPDATE "BusinessBotConfiguration" SET "definition"=$1 WHERE "id"=$2',[JSON.stringify(definition),'active'])
+  await db.query('INSERT INTO "BusinessBotConfiguration" ("id","businessId","status","definition") VALUES ($1,$2,$3,$4)', ['ambiguous','qa','ACTIVE',JSON.stringify(definition)])
+  assert.deepEqual(await execute(reviewedResponse), { kind: 'REQUOTE' }, 'active ambiguity cannot silently choose a configuration')
+  await db.exec(`DELETE FROM "BusinessBotConfiguration"; UPDATE "Service" SET "estimateDisclaimer"=null WHERE "id"='cream'`)
+  await db.query('UPDATE "Conversation" SET "supportBotState"=$1 WHERE "id"=$2',[JSON.stringify(originalState),'chat'])
+  assert.equal(await count('Appointment'), 0); assert.equal(await count('Customer'), 0)
   assert.deepEqual(await execute(),{kind:'BLOCKED',reason:'DEPOSIT_REQUIRED'}); assert.equal(await count('Customer'),0)
   await db.exec(`UPDATE "Service" SET "depositMode"='NONE',"price"=28000 WHERE "id"='cut'`)
   assert.deepEqual(await execute(),{kind:'REQUOTE'}); assert.equal(await count('Appointment'),0)

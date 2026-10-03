@@ -1,3 +1,4 @@
+import { stageContent, type ContentFragment } from '../bot-options/domain/service-content.js'
 import { formatServiceEstimate, parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPolicy, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
 import type { DialogueService } from './engine.js'
 
@@ -14,13 +15,13 @@ const fields = ['id','name','attentionMode','price','priceMode','estimateAllowsB
 export function serviceGuidance(service: DialogueService): ServiceGuidance {
   if (service.bookingPolicy === undefined) return service.requiresConsultation ? { kind: 'blocked', reason: 'DOMAIN_REVIEW' } : { kind: 'direct' }
   const p: unknown = service.bookingPolicy
-  if (!object(p) || fields.some(key => !Object.hasOwn(p,key)) || Object.keys(p).some(key => !fields.includes(key)) ||
+  if (!object(p) || fields.some(key => !Object.hasOwn(p,key)) || Object.keys(p).some(key => !fields.includes(key) && key !== 'contentPolicy') ||
       p.id !== service.id || !text(p.id,128) || !text(p.name,200) || !['DIRECT_BOOKING','QUOTE','ADVISOR','GUIDED_ESTIMATE'].includes(String(p.attentionMode)) ||
       !['FIXED','STARTING_AT'].includes(String(p.priceMode)) || p.price !== service.price || p.priceMode !== (service.priceMode ?? 'FIXED') ||
       p.price !== null && (!Number.isSafeInteger(p.price) || Number(p.price) < 0) ||
       ['estimateAllowsBooking','requiresPhoto','validationEnabled'].some(key => typeof p[key] !== 'boolean') ||
       ['estimateQuestion','estimateExplanation','estimateDisclaimer','validationMessage','validationQuestion'].some(key => !text(p[key],2000,true,['estimateExplanation','estimateDisclaimer','validationMessage'].includes(key))) ||
-      p.estimateOptions === null || !Array.isArray(p.estimateOptions) || p.estimateOptions.length > 12 || JSON.stringify(p).length > 6000) return { kind: 'blocked', reason: 'INVALID_CONFIGURATION' }
+      p.estimateOptions === null || !Array.isArray(p.estimateOptions) || p.estimateOptions.length > 12 || JSON.stringify(Object.fromEntries(Object.entries(p).filter(([key]) => key !== 'contentPolicy'))).length > 6000) return { kind: 'blocked', reason: 'INVALID_CONFIGURATION' }
   const options = parseEstimateOptions(p.estimateOptions)
   if (!options || options.some(option => !text(option.id,128) || !text(option.label,200) || !text(option.note,1000,true)) ||
       p.attentionMode === 'GUIDED_ESTIMATE' && options.length > 0 && !text(p.estimateQuestion,240)) return {kind:'blocked',reason:'INVALID_CONFIGURATION'}
@@ -66,13 +67,32 @@ export function resolveGuidance(services: readonly DialogueService[], previous: 
     !Object.hasOwn(previous,id) || previous[id]?.configurationKey !== selection.configurationKey || previous[id]?.optionId !== selection.optionId)
   return {selections:derived,estimates:Object.fromEntries(estimates),pending,blocked,changed}
 }
-export function guidanceQuestion(service: DialogueService): string {
+export type GuidanceDeliveryFact = { id: string; text: string; variants?: NonNullable<ContentFragment['variants']> }
+/** Stage membership comes only from reviewed metadata; unclassified legacy text remains complete. */
+export function guidanceDelivery(service: DialogueService, businessId: string): { reply: string; facts: GuidanceDeliveryFact[] } {
   const guide = serviceGuidance(service)
-  if (guide.kind !== 'guided') return 'No pude leer la configuración de presupuesto de ese servicio.'
-  const p = guide.policy
-  return [service.name + ':', p.estimateExplanation, p.estimateQuestion,
-    ...(p.estimateOptions ?? []).map(option => option.label + ': ' + formatServiceEstimate({optionId:option.id,optionLabel:option.label,priceMin:option.priceMin,priceMax:option.priceMax}) + (option.note ? ' ('+option.note+')' : '')),
-    p.estimateDisclaimer].filter(Boolean).join('\n')
+  if (guide.kind !== 'guided') return { reply: 'No pude leer la configuración de presupuesto de ese servicio.', facts: [] }
+  const p = guide.policy, content = stageContent(p, businessId, 'choice')
+  const facts: GuidanceDeliveryFact[] = [{ id: 'guide:service', text: 'Para ' + service.name + ', estas son las opciones:' }]
+  const add = (fragment: ContentFragment) => facts.push({ id: 'guide:content:' + fragment.id, text: fragment.text,
+    ...(fragment.variants ? { variants: fragment.variants } : {}) })
+  content.fragments.filter(fragment => fragment.source === 'explanation').forEach(add)
+  for (const option of p.estimateOptions ?? []) {
+    facts.push({ id: 'guide:option:' + option.id, text: '• ' + option.label + ': ' + formatServiceEstimate({ optionId: option.id, optionLabel: option.label, priceMin: option.priceMin, priceMax: option.priceMax }) + ' (estimado)' })
+    content.fragments.filter(fragment => fragment.source === 'option:' + option.id).forEach(add)
+  }
+  content.fragments.filter(fragment => fragment.source === 'disclaimer').forEach(add)
+  if (p.estimateQuestion) facts.push({ id: 'next', text: p.estimateQuestion })
+  return { reply: facts.map(fact => fact.text).join('\n'), facts }
+}
+export function guidanceQuestion(service: DialogueService, businessId = ''): string {
+  return guidanceDelivery(service, businessId).reply
+}
+/** Conditions must be rendered before a proposal's consent question, not after the booking effect. */
+export function attendanceContent(service: DialogueService, businessId: string): string {
+  if (!service.bookingPolicy) return ''
+  const fragments = stageContent(service.bookingPolicy, businessId, 'attendance').fragments
+  return fragments.length ? service.name + ':\n' + fragments.map(fragment => fragment.text).join('\n') : ''
 }
 export function guidanceBlockMessage(reason: GuidanceBlock): string {
   if (reason === 'INVALID_CONFIGURATION') return 'No pude verificar los datos de configuración del servicio. Mantengo el pedido; necesitás consultar al equipo.'
@@ -81,12 +101,14 @@ export function guidanceBlockMessage(reason: GuidanceBlock): string {
   if (reason === 'ESTIMATE_NOT_BOOKABLE') return 'El presupuesto de este servicio no habilita una reserva automática. Mantengo el pedido; necesitás consultarlo con el equipo.'
   return 'Este servicio requiere una consulta con el equipo antes de reservar. Mantengo todos los servicios solicitados.'
 }
-export function renderGuidedEstimates(services: readonly DialogueService[], selections: ServiceEstimates): string {
+export function renderGuidedEstimates(services: readonly DialogueService[], selections: ServiceEstimates, businessId = ''): string {
   const result = resolveGuidance(services,selections)
   return services.flatMap(service => {
     const estimate = Object.hasOwn(result.estimates,service.id) ? result.estimates[service.id] : undefined
     if (!estimate) return []
-    return [service.name + ': ' + formatServiceEstimate(estimate) + ' (estimado)', service.bookingPolicy?.estimateDisclaimer].filter(Boolean) as string[]
+    const fragments = service.bookingPolicy ? stageContent(service.bookingPolicy, businessId, 'choice').fragments
+      .filter(fragment => fragment.source === 'disclaimer').map(fragment => fragment.text) : []
+    return [service.name + ': ' + formatServiceEstimate(estimate) + ' (estimado)', ...fragments]
   }).join('\n')
 }
 /** Bounded semantic context exposes choices, not monetary facts for the model to invent. */
