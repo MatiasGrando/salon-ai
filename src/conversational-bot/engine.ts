@@ -515,7 +515,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (/^(otro dia|probamos otro dia)$/.test(text)) { state.date = null; clearSlot(state) }
     preserveTemporal()
     if (temporal?.kind === 'ambiguous') return finish('No pude confirmar una preferencia horaria única. ¿Qué horario o franja preferís?')
-    prefix = catalogQuestion ? `${serviceList(services)}\n` : /^(hola|buenas|como estas|sos linda|salimos)/.test(text) ? 'Hola. Te ayudo con tu turno.\n' : ''
+    prefix = catalogQuestion ? `${serviceList(services)}\n` : port.identity ? '' : /^(hola|buenas|como estas|sos linda|salimos)/.test(text) ? 'Hola. Te ayudo con tu turno.\n' : ''
   }
   const clarification = basketQuestion(state, services)
   if (clarification) {
@@ -575,7 +575,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!state.date) {
     state.pending = resolveDialogueRoute(state, [], 'date').pending
     const question = presentDateTimeQuestion({ date: null, hasTemporalRequest: Boolean(state.timePreference || state.requestedTime), serviceName: service.name })!
-    if (!port.verifiedDateChoices) return finish(prefix + question)
+    if (!port.verifiedDateChoices) return { ...finish(prefix + question), replyPrepared: true }
     const result = await port.verifiedDateChoices(selectedServices as DialogueService[], state.professional?.kind === 'specific' ? state.professional.id : undefined,
       state.serviceEstimates, { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
     if (!result.ok) {
@@ -1039,7 +1039,9 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
   if (response.state.introduced === true || !port.identity) return response
   const identity = await port.identity()
   if (identity.businessId !== context.businessId) throw new Error('invalid identity scope')
-  const social = !hasActiveBooking(response.state) && /^¿En qué.*ayudar/.test(response.reply)
+  // Only the exact canonical help body may use the identity's treatment-specific question.
+  // A composed social answer is concrete content and must not be replaced.
+  const social = !hasActiveBooking(response.state) && response.reply === '¿En qué te puedo ayudar con el local?'
   const intro = introduceDialogue({ identity, introduced: false, customerName: response.state.customerName,
     ...(social ? { kind: 'social' as const } : { kind: 'concrete' as const, reply: response.reply }) })
   response.state.introduced = intro.introduced

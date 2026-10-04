@@ -233,19 +233,21 @@ if (process.argv.includes('--reason-only')) {
   assert.equal(phasedPreview.state.date, retained.date)
   assert.doesNotMatch(JSON.stringify(phasedPreview.interpretation), /PRIVATE_CLIENT|PRIVATE_NAME|fake-key|tenant/)
   const candidate = { intent: 'booking', serviceId: 'service', serviceEvidence: 'Consulta', professionalMention: null, serviceConfidence: 'certain' }
+  // A verified date makes fresh simulated agenda facts require the response stage.
+  const copyState = { ...state, date: '2026-10-03' }
   const copyPort: DialoguePort = { ...port, catalog: async () => [{ id: 'service', name: 'Consulta', durationMinutes: 30, requiresConsultation: false, price: 100 }] }
-  const responseFailure = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
+  const responseFailure = await respondWithAiInterpreter(context, copyState, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(envelope([text('{}'), text('{}')])) }) })
   assert.equal(format(responseFailure.interpretation.responseProviderError).reason, 'invalid_json')
   assert.equal(responseFailure.interpretation.copyReason, 'response_error')
   assert.equal(responseFailure.proposal, null)
-  assert.equal(agendaCalls, 0)
+  assert.equal(agendaCalls, 1)
   const validWrapperInvalidSchema = await respondWithAiInterpreter(context, state, 'hola', port,
     createOpenAiInterpretationProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(envelope([text('{"intent":'), text('"invalid"}')])) }))
   assert.equal(validWrapperInvalidSchema.interpretation.reason, 'invalid_output', 'engine/schema validation remains authoritative')
   assert.equal(validWrapperInvalidSchema.interpretation.interpretationProviderError, null)
-  assert.equal(agendaCalls, 0)
-  const phasedCopyFailure = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
+  assert.equal(agendaCalls, 1)
+  const phasedCopyFailure = await respondWithAiInterpreter(context, copyState, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
       message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary', status: 'incomplete' })
     ])) }) })
@@ -260,14 +262,14 @@ if (process.argv.includes('--reason-only')) {
     ])) }))
   assert.equal(phasedInvalidSchema.interpretation.reason, 'invalid_output', 'final cannot bypass interpretation schema')
   assert.equal(phasedInvalidSchema.interpretation.interpretationProviderError, null)
-  const phasedInvalidCopy = await respondWithAiInterpreter(context, state, 'Consulta', copyPort, async () => candidate, {
+  const phasedInvalidCopy = await respondWithAiInterpreter(context, copyState, 'Consulta', copyPort, async () => candidate, {
     responseProvider: createOpenAiResponseProvider({ apiKey: 'fake-key', fetchImpl: fetchBody(completed([
       message([text('{}')], { phase: 'final_answer' }), message([text(privateText)], { phase: 'commentary' })
     ])) }) })
   assert.equal(phasedInvalidCopy.interpretation.copyReason, 'invalid_response', 'final cannot bypass copy schema')
   assert.equal(phasedInvalidCopy.interpretation.responseProviderError, null)
-  assert.equal(agendaCalls, 0)
-  console.log('Responses diagnostics: runtime whitelist, preview/response propagation, no agenda/schema bypass PASS')
+  assert.equal(agendaCalls, 3)
+  console.log('Responses diagnostics: runtime whitelist, preview/response propagation, fresh simulated facts/no schema bypass PASS')
 }
 } finally {
   globalThis.fetch = originalFetch

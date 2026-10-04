@@ -82,7 +82,7 @@ const invalidCandidate = await run('hola', { candidate: { serviceId: 'foreign', 
 assert.equal(invalidCandidate.calls, 1, 'invalid candidate must not be masked by draft')
 assert.equal(invalidCandidate.response.interpretation.reason, 'invalid_output')
 assert.equal(invalidCandidate.response.interpretation.replyRoute, 'motor')
-assert.equal((await run('Corte hombre', { candidate: { intent: 'booking', serviceId: 'service', serviceEvidence: 'Corte hombre', serviceCorrection: true } })).calls, 2)
+assert.equal((await run('Corte hombre', { candidate: { intent: 'booking', serviceId: 'service', serviceEvidence: 'Corte hombre', serviceCorrection: true } })).calls, 1, 'canonical date intake is prepared even for a correction')
 const resetState = { ...initialDialogueState('qa'), serviceId: 'service', pending: 'date' as const }
 assert.equal((await run('reset', { state: resetState })).calls, 2)
 const busyState = { ...initialDialogueState('qa'), serviceId: 'service', date: '2026-09-30', pending: 'professional' as const }
@@ -189,7 +189,7 @@ assert.equal(unknownService.calls, 1)
 assert.equal(unknownService.response.state.serviceId, null)
 for (const intakeReply of [intakeDraft('date', 'foreign'), intakeDraft('service', null, ['service']), { ...intakeDraft('date', 'service'), opening: 'Cuesta $ 1' }]) {
   const invalidIntake = await run('Corte hombre', { candidate: { intent: 'booking', serviceId: 'service', serviceEvidence: 'Corte hombre', intakeReply } })
-  assert.notEqual(invalidIntake.response.interpretation.replyRoute, 'first_call')
+  assert.equal(invalidIntake.response.interpretation.replyValidation?.firstCall.status, 'rejected')
   assert.doesNotMatch(invalidIntake.response.reply, /\$ 1/)
 }
 const omittedAlternative = await run('un corte', { extraService: 'Corte mujer', candidate: { intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['service', 'service2'], intakeReply: intakeDraft('service', null, ['service']) } })

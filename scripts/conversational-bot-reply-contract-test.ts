@@ -47,10 +47,10 @@ async function main() {
   assert.match(REPLY_CONTRACT_INSTRUCTIONS, /neutral.*opening.*null/i, 'neutral policy must be in the shared prompt')
   assert.equal(validateReplyDraft({ ...draft, opening: null }, facts, { ...policy, neutral: true }, []).validation.status, 'accepted')
   assert.equal(validateReplyDraft(draft, facts, { ...policy, neutral: true }, []).validation.reason, 'neutral_frame')
-  const bookingPort: DialoguePort = { ...port, catalog: async () => [{ id: 'cut', name: 'Corte', price: 12000, priceMode: 'FIXED', durationMinutes: 30, requiresConsultation: false }] }
+  const bookingPort: DialoguePort = { ...port, availability: async () => ({ professionals: [], slots: [] }), catalog: async () => [{ id: 'cut', name: 'Corte', price: 12000, priceMode: 'FIXED', durationMinutes: 30, requiresConsultation: false }] }
   const booking = { ...base, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', serviceConfidence: 'certain' }
   for (const failure of ['provider_error', 'timeout'] as const) {
-    const result = await respondWithAiInterpreter(context, initialDialogueState('tenant'), 'Corte', bookingPort, async () => booking, {
+    const result = await respondWithAiInterpreter(context, initialDialogueState('tenant'), 'Corte mañana', bookingPort, async () => booking, {
       timeoutMs: 20, responseProvider: async () => { if (failure === 'timeout') return new Promise(() => {}); throw new Error('PRIVATE_PROVIDER_TEXT') }
     })
     assert.equal(result.interpretation.aiCalls, 2, 'new motor facts alone permit another call')

@@ -12,7 +12,7 @@ const fetchImpl = (async (_url: unknown, input: RequestInit) => {
   if (mode === 'error') throw new Error('private-key customer database query text')
   const format = (body.text as { format: { name: string } }).format
   const response = format.name === 'conversational_turn_interpretation'
-    ? { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, serviceConfidence: 'uncertain', serviceCandidateIds: [], serviceCorrection: false }
+    ? { intent: JSON.parse(String(body.input)).message.includes('turno') ? 'booking' : 'other', serviceId: null, serviceEvidence: null, professionalMention: null, serviceConfidence: 'uncertain', serviceCandidateIds: [], serviceCorrection: false, firstReply: { opening: 'Claro.', closing: null, factIds: JSON.parse(String(body.input)).firstReplyFacts?.map((fact: { id: string }) => fact.id) ?? [] } }
     : { opening: 'Hola, ¿cómo estás?', factIds: [], closing: null }
   return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(response) }] }], usage: { input_tokens: 30, output_tokens: 10 } }))
 }) as typeof fetch
@@ -31,10 +31,10 @@ const deps: ProbeDependencies = {
 const result = await runBarberConversationProbe(deps, env, { cases: ['greeting'], samples: 2 })
 assert.equal(result.scope, 'core_only')
 assert.equal(result.sampleCount, 2)
-assert.ok(result.samples.every(sample => sample.calls.interpretation === 1 && sample.calls.response === 1))
+assert.ok(result.samples.every(sample => sample.calls.interpretation === 1 && sample.calls.response === 0))
 assert.ok(result.samples.every(sample => sample.outcome === 'ai' && sample.metrics.totalMs >= 0))
 assert.ok(result.samples.every(sample => sample.fixtureHash === result.samples[0]!.fixtureHash))
-assert.equal(requests.length, 4)
+assert.equal(requests.length, 2)
 assert.ok(requests.every(body => body.model === 'gpt-6-luna' && body.store === false))
 assert.doesNotMatch(JSON.stringify(result), /private|Private|customer|12345|WX-38N6UG|cmpvr|SELECT|postgres|api\.openai/i)
 assert.deepEqual(result.excluded, ['persistence', 'queues', 'webhook', 'meta', 'phone_delivery'])

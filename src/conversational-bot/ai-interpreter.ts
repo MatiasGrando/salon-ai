@@ -42,7 +42,7 @@ export type InterpretationDiagnostics = {
   validationMs: number
   totalMs: number
   deliveryOrigin?: 'forced' | 'prepared' | 'validated_framing' | 'validated_canonical' | 'server_fallback'
-  copyMode: 'ai' | 'fallback'
+  copyMode: 'ai' | 'prepared' | 'fallback'
   copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
   proposal?: ProposalSummary
   validation?: ValidationSummary
@@ -334,7 +334,6 @@ export async function respondWithAiInterpreter(
     response = { ...response, proposal: null, reply: question + ' Confirmame cuál servicio querés.' }
   }
   const engineAt = performance.now()
-  const simpleGreeting = /^(?:hola|buenas|buen dia|buenas tardes|buenas noches)(?:\b|$)/.test(normalized(message))
   const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&
     !/\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message) &&
     /^(?:Hola\. Te ayudo con tu turno\.\n)?¿Qué servicio necesitás\?\n/.test(response.reply)
@@ -344,7 +343,7 @@ export async function respondWithAiInterpreter(
   const replyIntent = planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
-    : defaultServiceMenu ? (simpleGreeting ? 'Hola, ¿qué servicio necesitás?' : '¿Qué servicio necesitás?') : response.reply
+    : defaultServiceMenu ? '¿Qué servicio necesitás?' : response.reply
   const canonicalOnly = informationPreparationFailed || Boolean(port.identity && planHasUpdates && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
@@ -387,6 +386,23 @@ export async function respondWithAiInterpreter(
     modelFraming = validated.modelFraming
     if (authored) replyRoute = 'first_call'
   }
+  // Prepared body ownership never transfers to the model. Validate the whole draft
+  // against its original facts, then reuse only a factual-free opening.
+  // Final neutral facts remain immutable; they are not the model's frame contract.
+  if (!authored && !intakeValidation && !reason && response.replyPrepared && candidate?.firstReply != null && firstReplyFacts !== undefined &&
+      !response.proposal && !response.bookingCommand && !response.state.sandboxReservation && !uncertain && !typoService && !response.state.questionContext?.matchCandidateIds) {
+    const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
+    const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
+    replyValidation.firstCall = frame.validation
+    if (frame.validation.status === 'accepted') {
+      const opening = (candidate.firstReply as { opening: string | null }).opening
+      if (opening?.trim()) {
+        authored = [opening, ...finalFacts.map(fact => fact.text)].join('\n')
+        modelFraming = true
+        replyRoute = 'first_call'
+      }
+    }
+  }
   let copyReason: InterpretationDiagnostics['copyReason'] = 'canonical_only'
   let responseMs = 0
   let responseUsage: AiUsage | null = null
@@ -419,7 +435,9 @@ export async function respondWithAiInterpreter(
     }
     finally { clearTimeout(responseTimer); responseMs = ms(performance.now() - responseStarted) }
   } else if (authored) {
-    copyReason = modelFraming ? null : 'canonical_only'
+    copyReason = modelFraming || response.replyPrepared ? null : 'canonical_only'
+  } else if (response.replyPrepared && !reason) {
+    copyReason = null
   } else if (!reason && !canonicalOnly) {
     // Stable server facts are canonical fallback; only newly established facts justify another call.
     copyReason = replyValidation.firstCall.status === 'rejected' && replyValidation.firstCall.reason !== 'missing_draft' ? 'invalid_response' : 'missing_draft'
@@ -456,6 +474,6 @@ export async function respondWithAiInterpreter(
     interpretationProviderError, responseProviderError,
     ...(availability ? { availability } : {}),
     ...(response.turnOutcome ? { turnOutcome: response.turnOutcome } : {}),
-    copyMode: authored && modelFraming ? 'ai' : 'fallback', copyReason
+    copyMode: authored && modelFraming ? 'ai' : response.replyPrepared && !reason ? 'prepared' : 'fallback', copyReason
   } }, cachedPort)
 }

@@ -33,8 +33,8 @@ export const REPLY_DRAFT_SCHEMA = {
 } as const
 export const REPLY_CONTRACT_INSTRUCTIONS =
   'replyContract define el rol y la propiedad de la presentación. ' +
-  'La introducción configurada pertenece al servidor: con server_pending opening es null; con server_complete no repitas una presentación. ' +
-  'Podés variar naturalmente transiciones y charla según el rol, sin frases obligatorias. Las preguntas sociales no están prohibidas globalmente. ' +
+  'La introducción configurada pertenece al servidor: con server_pending o server_complete no agregues saludo ni identidad. opening puede responder charla concreta sin presentación. ' +
+  'Primero atendé la respuesta social o intención concreta del mensaje, luego los hechos verificados y sólo la continuación necesaria. Podés variar naturalmente transiciones y charla según el rol, sin frases obligatorias. Las preguntas sociales no están prohibidas globalmente. ' +
   'Incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. ' +
   'Si hay next debe ir al final y closing es null. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. ' +
   'opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas. ' +
@@ -62,7 +62,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   const selectedVariants = new Map<string, string>()
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
-    modelFraming: Boolean(text && [contract.introduction === 'server_pending' ? null : value?.opening, value?.closing]
+    modelFraming: Boolean(text && [value?.opening, value?.closing]
       .some(part => typeof part === 'string' && part.trim()) || text && selectedVariants.size),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
@@ -89,9 +89,10 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')
   if (framing.some(part => typeof part === 'string' && /[\d$€]|https?:|www\./i.test(part))) return result('unverified_value')
   if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return result('catalog_in_frame')
-  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
+  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
   if (contract.introduction !== 'none' && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
-  const text = [contract.introduction === 'server_pending' ? null : value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
+  if (contract.introduction === 'server_pending' && framing.some(part => typeof part === 'string' && /\bhol+a\b/.test(normalized(part)))) return result('identity_in_frame')
+  const text = [value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
 }

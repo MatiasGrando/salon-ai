@@ -764,7 +764,7 @@ assert.equal(oldGeneration.session.deploymentGeneration, 1)
 assert.equal((oldGeneration.session.state as typeof projected).conversationDraft.dialogue.serviceId, null)
 assert.equal(oldGeneration.row.status, 'PROCESSED')
 
-// WhatsApp opt-in must use both AI stages through the public worker, with no lock retained.
+// WhatsApp opt-in reuses first-call framing for prepared facts through the public worker, with no lock retained.
 const aiRuntime = runtimeFixture()
 let interpretationCalls = 0
 let responseCalls = 0
@@ -772,7 +772,7 @@ const diagnostics: unknown[] = []
 const provider: AiInterpretationProvider = async input => {
   aiRuntime.assertOutside(); interpretationCalls++
   assert.equal(input.message, 'Corte')
-  return { intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null }
+  return { intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null, firstReply: { opening: 'Dale.', closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id) } }
 }
 provider.respond = async input => {
   aiRuntime.assertOutside(); responseCalls++
@@ -780,7 +780,7 @@ provider.respond = async input => {
 }
 await aiRuntime.run('PROCESS_INBOX', { provider, timeoutMs: 4500, onDiagnostic: value => diagnostics.push(value) })
 assert.equal(interpretationCalls, 1, 'runtime must call the injected interpreter')
-assert.equal(responseCalls, 1, 'runtime must compose verified facts with AI')
+assert.equal(responseCalls, 0, 'runtime must not buy a style call for prepared facts')
 assert.equal(aiRuntime.replies[0], 'Dale.\nPerfecto 😊 ¿Para qué día y horario querés reservar tu Corte?', 'natural framing preserves the verified combined question')
 assert.equal((aiRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
 assert.equal(diagnostics.length, 1)
@@ -789,8 +789,16 @@ assert.equal(measured.mode, 'ai'); assert.equal(measured.copyMode, 'ai')
 assert.equal(measured.providerEventId, 'event'); assert.equal(measured.result, 'PROCESSED')
 for (const key of ['contextMs', 'computeMs', 'interpretationMs', 'validationMs', 'engineMs', 'responseMs']) assert.ok(Number(measured[key]) >= 0, key)
 assert.ok(!JSON.stringify(measured).includes('Corte') && !JSON.stringify(measured).includes('phone'), 'diagnostics exclude content and recipient')
-assert.equal(measured.aiCalls, 2, 'WhatsApp diagnostics must expose both AI calls')
-assert.equal(measured.replyRoute, 'second_call')
+assert.equal(measured.aiCalls, 1, 'WhatsApp diagnostics must expose actual AI calls')
+assert.equal(measured.replyRoute, 'first_call')
+const preparedRuntime = runtimeFixture()
+const preparedDiagnostics: unknown[] = []
+await preparedRuntime.run('PROCESS_INBOX', { provider: async () => ({ intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null, firstReply: null }), timeoutMs: 4500, onDiagnostic: value => preparedDiagnostics.push(value) })
+const preparedDiagnostic = preparedDiagnostics[0] as Record<string, unknown>
+assert.equal(preparedDiagnostic.copyMode, 'prepared'); assert.equal(preparedDiagnostic.copyReason, null)
+assert.equal(preparedDiagnostic.aiCalls, 1); assert.equal(preparedDiagnostic.replyRoute, 'motor')
+assert.equal(preparedRuntime.replies[0], 'Perfecto 😊 ¿Para qué día y horario querés reservar tu Corte?')
+assert.equal((preparedRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
 const singleCallRuntime = runtimeFixture()
 singleCallRuntime.next('hola')
 const singleCallDiagnostics: unknown[] = []
@@ -830,6 +838,7 @@ assert.equal((shapeRuntime.session.state as typeof projected).conversationDraft.
 assert.equal(shapeRuntime.replies.length, 1)
 assert.doesNotMatch(JSON.stringify(shapeTrace), /PRIVATE_PROVIDER_BODY|fake-key|Corte|phone/)
 const copyShapeRuntime = runtimeFixture()
+copyShapeRuntime.next('Corte mañana')
 const copyShapeTraces: unknown[] = []
 const copyShapeProvider: AiInterpretationProvider = async () => ({
   intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null
@@ -842,10 +851,10 @@ await copyShapeRuntime.run('PROCESS_INBOX', { provider: copyShapeProvider, timeo
 const copyShapeTrace = copyShapeTraces[0] as { responseProviderError?: { responseFormat?: { reason: string } } }
 assert.equal(copyShapeTrace.responseProviderError?.responseFormat?.reason, 'invalid_json')
 assert.equal((copyShapeRuntime.session.state as typeof projected).conversationDraft.dialogue.serviceId, 'cut')
-assert.equal(copyShapeRuntime.singularAgendaCalls + copyShapeRuntime.basketAgendaCalls, 0)
+assert.equal(copyShapeRuntime.singularAgendaCalls + copyShapeRuntime.basketAgendaCalls, 1, 'new agenda facts justify the response stage')
 assert.equal(copyShapeRuntime.replies.length, 1)
 assert.doesNotMatch(JSON.stringify(copyShapeTrace), /PRIVATE_PROVIDER_BODY|fake-key|Corte|phone/)
-console.log('conversational worker Responses diagnostics: fake-client no agenda/leak PASS')
+console.log('conversational worker Responses diagnostics: fake-client new-facts response stage/no leak PASS')
 
 const availabilityRuntime = runtimeFixture({ basketCatalog: true, availabilityReason: 'COMBINATION_REVIEW' })
 availabilityRuntime.next('Corte hombre y alisado mañana cualquiera 14:00 soy Matias')

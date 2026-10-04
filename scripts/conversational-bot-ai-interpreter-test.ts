@@ -119,10 +119,12 @@ assert.doesNotMatch(inventedBooking.reply, /reservé/)
 
 const writerFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port,
   async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { responseProvider: async () => { throw new Error('offline') } })
-assert.equal(writerFailure.interpretation.copyReason, 'response_error')
+assert.equal(writerFailure.interpretation.copyReason, null)
+assert.equal(writerFailure.interpretation.copyMode, 'prepared'); assert.equal(writerFailure.interpretation.aiCalls, 1)
 const timeout = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port,
   async () => ({ ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { timeoutMs: 20, responseProvider: async () => new Promise(() => {}) })
-assert.equal(timeout.interpretation.copyReason, 'response_timeout')
+assert.equal(timeout.interpretation.copyReason, null)
+assert.equal(timeout.interpretation.copyMode, 'prepared'); assert.equal(timeout.interpretation.aiCalls, 1)
 const interpreterFailure = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
   async () => { throw new Error('offline') }, { responseProvider: writer })
 assert.equal(interpreterFailure.interpretation.mode, 'fallback')
@@ -147,7 +149,7 @@ const meteredProvider = Object.assign(async () => interpretedUsage, { respond: a
 const metered = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port, meteredProvider)
 assert.equal(metered.interpretation.usage?.interpretation?.inputTokens, 120)
 assert.equal(metered.interpretation.usage?.response, null, 'stable canonical delivery never consumes another call')
-const meteredNewFacts = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre', port, Object.assign(async () => ({ ...interpretedUsage as object, ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { respond: async () => responseUsage }))
+const meteredNewFacts = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'Corte Hombre mañana', port, Object.assign(async () => ({ ...interpretedUsage as object, ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte Hombre', serviceConfidence: 'certain' }), { respond: async () => responseUsage }))
 assert.equal(meteredNewFacts.interpretation.usage?.response?.outputTokens, 30)
 assert.ok(requests.every(request => request.url === 'https://api.openai.com/v1/responses' &&
   request.body.model === 'gpt-6-luna' && request.body.reasoning.effort === 'none' &&

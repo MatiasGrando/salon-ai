@@ -23,7 +23,7 @@ export type ProbeDependencies = {
 }
 type Sample = {
   caseId: ProbeCase; sample: number; fixtureHash: string; catalogHash: string | null; clockAt: string | null
-  outcome: 'ai' | 'fallback' | 'error'; reason: string | null; copyReason: string | null
+  outcome: 'ai' | 'prepared' | 'fallback' | 'error'; reason: string | null; copyReason: string | null
   calls: { interpretation: number; response: number; catalog: number; information: number; availability: number }
   metrics: { contextMs: number; catalogMs: number; informationMs: number; availabilityMs: number; interpretationMs: number; validationMs: number; engineMs: number; responseMs: number; totalMs: number }
   usage: InterpretationDiagnostics['usage'] | null; cache: Record<string, number> | null; snapshot: SnapshotDiagnostics | null
@@ -188,7 +188,7 @@ export async function runBarberConversationProbe(deps: ProbeDependencies, env: R
       if (ai.provider.respond) provider.respond = async (request, signal) => { sample.calls.response += 1; return ai.provider.respond!(request, signal) }
       const response = await respondWithAiInterpreter(prepared.context, structuredClone(state), message, port, provider, { timeoutMs: ai.timeoutMs })
       const diagnostics = response.interpretation
-      sample.outcome = diagnostics.mode === 'ai' && diagnostics.copyMode === 'ai' ? 'ai' : 'fallback'
+      sample.outcome = diagnostics.mode === 'ai' ? diagnostics.copyMode : 'fallback'
       sample.reason = diagnostics.reason
       sample.copyReason = diagnostics.copyReason
       Object.assign(sample.metrics, { interpretationMs: diagnostics.providerMs, validationMs: diagnostics.validationMs,
@@ -206,13 +206,13 @@ export async function runBarberConversationProbe(deps: ProbeDependencies, env: R
     } catch { sample.reason = 'core_error' }
     finally { sample.metrics.totalMs = ms(performance.now() - started); samples.push(sample) }
   }
-  const summary: Partial<Record<ProbeCase, { count: number; ai: number; fallback: number; errors: number; medianMs: number; maxMs: number }>> = {}
+  const summary: Partial<Record<ProbeCase, { count: number; ai: number; prepared: number; fallback: number; errors: number; medianMs: number; maxMs: number }>> = {}
   for (const caseId of selected.cases) {
     const rows = samples.filter(sample => sample.caseId === caseId)
     const sorted = rows.map(sample => sample.metrics.totalMs).sort((a, b) => a - b)
     const middle = Math.floor(sorted.length / 2)
     summary[caseId] = { count: rows.length, ai: rows.filter(row => row.outcome === 'ai').length,
-      fallback: rows.filter(row => row.outcome === 'fallback').length, errors: rows.filter(row => row.outcome === 'error').length,
+      prepared: rows.filter(row => row.outcome === 'prepared').length, fallback: rows.filter(row => row.outcome === 'fallback').length, errors: rows.filter(row => row.outcome === 'error').length,
       medianMs: ms(sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2), maxMs: sorted.at(-1)! }
   }
   return { scope: 'core_only' as const, classification: 'exploratory' as const, fixtureVersion: 1, label: selected.label,

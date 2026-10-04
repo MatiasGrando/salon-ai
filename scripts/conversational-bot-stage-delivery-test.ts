@@ -73,7 +73,7 @@ for (const mode of ['reviewed', 'forged', 'error', 'timeout'] as const) {
   assert.ok(composed.reply.includes('Precio estimado.')); assert.ok(composed.reply.endsWith('¿Qué largo tenés?'))
   assert.ok(!composed.reply.includes('pelo limpio'), 'reviewed attendance is deferred, but price conditions are not')
   assert.ok(composed.reply.includes(mode === 'reviewed' ? 'El presupuesto depende del largo.' : original.estimateExplanation!))
-  assert.equal(composed.interpretation.copyMode, mode === 'reviewed' ? 'ai' : 'fallback')
+  assert.equal(composed.interpretation.copyMode, mode === 'reviewed' ? 'ai' : mode === 'forged' ? 'prepared' : 'fallback')
   const { dialogueContext: _dialogue, questionContext: _question, ...unchangedDraft } = composed.state
   assert.deepEqual(unchangedDraft, reviewState, 'provider fallback may refresh question evidence but not booking data')
   assert.equal(composed.state.sandboxReservation, undefined)
