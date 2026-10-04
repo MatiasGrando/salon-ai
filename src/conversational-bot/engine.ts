@@ -1,6 +1,7 @@
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
 import { parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
+import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
 import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
 import { parseAvailabilityExplanation, parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
@@ -36,6 +37,7 @@ export type DialogueBasketAvailability =
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation; requestedStartEvidence?: RequestedStartEvidence }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
+  businessTimeContext?: BusinessTimeContextReader
   identity?(): Promise<DialogueIdentity>
   verifiedDateChoices?(services: readonly DialogueService[], professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: { requestedTime: string | null; preference?: TimePreference }): Promise<DialogueBasketAvailability>
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
@@ -261,20 +263,20 @@ function extractTime(text: string): string | null {
   return null
 }
 /** Provider fallback may rescue explicit independent data, never infer or replace basket services. */
-export function fallbackIndependentTurnPlan(context: DialogueContext, state: DialogueState, message: string, services: readonly DialogueService[]): TurnPlan {
+export function fallbackIndependentTurnPlan(context: DialogueContext, state: DialogueState, message: string, services: readonly DialogueService[], port?: DialoguePort): TurnPlan {
   if (message.length > 300 || routeActions(message).information.length || routeActions(message).pendingAction) return { version: 1, operations: [] }
   const operations: TurnPlan['operations'][number][] = []
   const identity = fallbackIdentity(message, state, services)
   if (identity && explicitIdentity(message, identity)) operations.push({ kind: 'name', value: identity, evidence: identity, confidence: 1 })
-  const date = extractDate(normalize(message), context)
+  const date = !state.timeClarification || /^(?:hoy|manana|pasado manana|(?:el )?(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|\d{1,4}[/-]\d{1,2}(?:[/-]\d{1,4})?)$/.test(normalize(message)) ? extractDate(normalize(message), context) : null
   if (date) operations.push({ kind: 'date', expression: message, value: date, evidence: message, confidence: 1 })
   const hint = extractProfessionalHint(normalize(message))
   if (hint) operations.push({ kind: 'professional', mode: 'specific', mention: hint, evidence: message, confidence: 1 })
-  const temporal = fallbackTemporalRequest(message, state.pending === 'time')
+  const temporal = !state.timeClarification || /^(?:a las? )?\d{1,2}(?::[0-5]\d)?(?: (?:am|pm|de la (?:manana|tarde|noche)))?$/.test(normalize(message)) ? fallbackTemporalRequest(message, state.pending === 'time') : null
   if (temporal && temporal.kind !== 'ambiguous' && (temporal.kind === 'preference' || state.pending === 'time' || /\ba las?\b/.test(normalize(message)) || identity && explicitIdentity(message, identity))) operations.push(temporal.kind === 'exact'
     ? { kind: 'time', value: temporal.time, evidence: message, confidence: 1 }
     : { kind: 'time_preference', preference: temporal.preference, evidence: message, confidence: 1 })
-  return parseTurnPlan(groundTemporalPlan({ version: 1, operations }, message, state), message, services.map(service => service.id))
+  return parseTurnPlan(groundTemporalPlan({ version: 1, operations }, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port?.businessTimeContext ? {read:port.businessTimeContext} : {})}), message, services.map(service => service.id))
 }
 function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
 function dateLabel(date: string, timezone: string): string {
@@ -836,7 +838,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
 async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent']): Promise<DialogueResponse> {
-  let raw = parseTurnPlan(groundTemporalPlan(rawPlan, message, state), message)
+  let raw = parseTurnPlan(groundTemporalPlan(rawPlan, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port.businessTimeContext ? {read:port.businessTimeContext} : {})}), message)
   const possibleMatch = !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
   const needsCatalog = Boolean(state.serviceRequest || state.referral) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
@@ -1062,13 +1064,13 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   }
   if (!decision && (hasBasketSelection(state) && approximateTimeRequest(message) || state.timeClarification)) {
     const services = await port.catalog()
-    return respondTurnPlan(context, state, message, port, fallbackIndependentTurnPlan(context,state,message,services), 'booking')
+    return respondTurnPlan(context, state, message, port, fallbackIndependentTurnPlan(context,state,message,services,port), 'booking')
   }
   if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan, decision.intent)
   if (state.referral?.status === 'pending' && !decision?.serviceId && !decision?.candidateIds.length &&
       !decision?.informationTarget && !routeActions(message).information.length) {
     const services = await port.catalog()
-    return respondTurnPlan(context, state, message, port, fallbackIndependentTurnPlan(context, state, message, services), decision?.intent)
+    return respondTurnPlan(context, state, message, port, fallbackIndependentTurnPlan(context, state, message, services,port), decision?.intent)
   }
   const delivered = (reply: string): DialogueResponse => {
     const question = pendingQuestion(state)
@@ -1222,7 +1224,8 @@ export async function respond(context: DialogueContext, previous: unknown, messa
     if (fresh.length) deliveryServices = deliveryServices.map(service => fresh.find(item => item.id === service.id) ?? service)
     return result
   }
-  const deliveryPort: DialoguePort = { ...port,
+  const commercialRead = memoBusinessTimeContext(port.businessTimeContext)
+  const deliveryPort: DialoguePort = { ...port, ...(commercialRead ? {businessTimeContext:commercialRead} : {}),
     catalog: async () => { deliveryServices = await port.catalog(); return deliveryServices },
     ...(port.availabilityBasket ? { availabilityBasket: async (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => captureFresh(await port.availabilityBasket!(...args)) } : {}),
     ...(port.verifiedDateChoices ? { verifiedDateChoices: async (...args: Parameters<NonNullable<DialoguePort['verifiedDateChoices']>>) => captureFresh(await port.verifiedDateChoices!(...args)) } : {})

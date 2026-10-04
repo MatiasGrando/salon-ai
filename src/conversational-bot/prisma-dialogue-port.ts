@@ -5,7 +5,8 @@ import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './pr
 import { queryPublicProfessionalFacts } from './public-professional-facts.js'
 import { loadDialogueIdentity, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
-import { readPublicSourceStamp, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
+import { projectBusinessTimeContext, type CommercialHoursSnapshot } from './business-time-context.js'
+import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
@@ -21,9 +22,11 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   const context = { businessId, timezone: settings.timezone, dbNow }
   const cacheDiagnostics: PublicCacheDiagnostics = { hits: 0, misses: 0, bypasses: 0, stampReads: 0, stampMs: 0, loadMs: 0 }
   const cache = publicCacheFor(client)
+  let commercialSnapshot: CommercialHoursSnapshot | undefined
   const readStamp = async (source: DialogueClient = client) => {
     const started = performance.now(); cacheDiagnostics.stampReads++
-    try { return await readPublicSourceStamp(source, context) }
+    try { commercialSnapshot = await readPublicSourceSnapshot(source, context); return commercialSnapshot.stamp }
+    catch (error) { commercialSnapshot = undefined; throw error }
     finally { cacheDiagnostics.stampMs += performance.now() - started }
   }
   const snapshotClient = client as DialogueClient & Partial<PublicSnapshotClient<DialogueClient>>
@@ -32,6 +35,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     return loadReadonlyPublicSnapshot(snapshotClient as PublicSnapshotClient<DialogueClient>, load)
   }
   const bypass = async <T>(load: (source: DialogueClient) => Promise<T>): Promise<T> => {
+    commercialSnapshot = undefined
     cacheDiagnostics.bypasses++
     const started = performance.now()
     try { return await snapshot(async source => {
@@ -63,6 +67,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   }
   let publicBusiness: { businessId: string; businessName: string } | undefined
   return { context, cacheDiagnostics, port: {
+    businessTimeContext: (date,times) => projectBusinessTimeContext(commercialSnapshot,date,times),
     ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {identity: () => loadDialogueIdentity(client,businessId,publicBusiness)} : {}),
     async information(actions) {
       const facts = await cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions))

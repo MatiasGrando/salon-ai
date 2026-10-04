@@ -1,4 +1,6 @@
 import { requiresServiceVerification } from './service-request.js'
+import { memoBusinessTimeContext, scopedBusinessTimeContext, temporalPlanDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
+import { approximateTimeRequest } from './time-preference.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
@@ -20,7 +22,7 @@ import { inferInformationTarget, readInformation, informationReply } from './inf
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer> }
+export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
 export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -67,7 +69,7 @@ const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
 const evidenceWords = (value: string) => ' ' + normalized(value).replace(/[^a-z0-9]+/g, ' ').trim() + ' '
 const containsEvidence = (message: string, evidence: string) => evidenceWords(message).includes(evidenceWords(evidence))
-function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState): Candidate {
+function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState, context: DialogueContext, read?: BusinessTimeContextReader): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
   if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
@@ -77,7 +79,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
-        const parsed = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state), message, services.map(service => service.id))
+        const parsed = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(read?{read}:{})}), message, services.map(service => service.id))
         turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
@@ -252,7 +254,8 @@ export async function respondWithAiInterpreter(
   let preparedInformation = false
   let informationPreparationFailed = false
   let availabilityCalls = 0
-  const cachedPort: DialoguePort = { ...port, catalog: async () => services,
+  const commercialRead = memoBusinessTimeContext(port.businessTimeContext)
+  const cachedPort: DialoguePort = { ...port, ...(commercialRead ? {businessTimeContext:commercialRead} : {}), catalog: async () => services,
     availability: async (...args) => { availabilityCalls++; return port.availability(...args) },
     ...(port.availabilityBasket ? { availabilityBasket: async (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => { availabilityCalls++; return port.availabilityBasket!(...args) } } : {}) }
   if (port.information) {
@@ -278,6 +281,12 @@ export async function respondWithAiInterpreter(
       if (firstReplyFacts && (firstReplyFacts.length > 100 || firstReplyFacts.some(fact => fact.text.length > 1000))) firstReplyFacts = undefined
     }
   }
+  const businessDate = localDateKey(context.dbNow,context.timezone)
+  // Commercial proof supports an implicit numeric request, not an explicit period answer.
+  // Re-resolve its prospective date even when a previous AM/PM clarification is pending.
+  const candidateTimes = approximateTimeRequest(message)?.candidateTimes
+  const temporalDate = temporalPlanDate({operations:[{kind:'date',expression:message,confidence:1}]},state.date,businessDate) ?? state.date
+  const commercialProof = temporalDate && candidateTimes ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -287,7 +296,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services, expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []), intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
+      provider({ message, state, services, ...(commercialProof?{businessTimeContext:commercialProof}:{}), expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []), intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch (error) {
@@ -299,7 +308,7 @@ export async function respondWithAiInterpreter(
   let candidate: Candidate | null = null
   let validationError: unknown
   if (!reason) {
-    try { candidate = validateCandidate(raw, message, services, state) }
+    try { candidate = validateCandidate(raw, message, services, state, context, commercialRead) }
     catch (error) { validationError = error; reason = 'invalid_output' }
   }
   const proposal = summarizeProposal(raw)
@@ -321,7 +330,7 @@ export async function respondWithAiInterpreter(
     (requiresServiceVerification(evidence,selected,services) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
-  const decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
+  const decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, ...(candidate.informationTarget !== undefined ? { informationTarget: candidate.informationTarget } : {}), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { PGlite } from '@electric-sql/pglite'
-import { readPublicSourceStamp, loadReadonlyPublicSnapshot } from '../src/conversational-bot/public-source-stamp.js'
+import { readPublicSourceStamp, readPublicSourceSnapshot, loadReadonlyPublicSnapshot } from '../src/conversational-bot/public-source-stamp.js'
 
 const db = new PGlite()
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
@@ -35,6 +35,11 @@ const context = { businessId: 'a', timezone: 'America/Argentina/Buenos_Aires', d
 const stamp = () => readPublicSourceStamp(client, context)
 try {
   const before = await stamp()
+  const publicSnapshot = await readPublicSourceSnapshot(client,context)
+  assert.equal(publicSnapshot.stamp,before,'structured snapshot preserves stamp contract')
+  assert.deepEqual(publicSnapshot.weeklyHours,[{dayOfWeek:1,startTime:'09:00',endTime:'18:00'}])
+  assert.deepEqual(publicSnapshot.globalBlocks,[{startAt:'2026-09-30T03:00:00.000Z',endAt:'2026-10-01T03:00:00.000Z'}])
+  assert.doesNotMatch(JSON.stringify(publicSnapshot.globalBlocks),/note|reason|title|Closed/,'private exception text not in temporal projection')
   assert.equal(await stamp(), before)
   await db.exec(`UPDATE "Business" SET "publicAddress"='Other Changed' WHERE "id"='b'`)
   assert.equal(await stamp(), before, 'foreign edits never invalidate local source')

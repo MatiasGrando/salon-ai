@@ -53,6 +53,9 @@ assert.equal((await ordered.read<{ value: string }>({ key: 'one', stamp: durable
 console.log('conversational public cache: PASS')
 // Port integration: clock/settings remain live, reusable data verifies durable stamp per new turn.
 const { createPrismaDialoguePort } = await import('../src/conversational-bot/prisma-dialogue-port.js')
+const { respondWithAiInterpreter } = await import('../src/conversational-bot/ai-interpreter.js')
+const { initialDialogueState } = await import('../src/conversational-bot/engine.js')
+let publicWeeklyHours: unknown = [{dayOfWeek:1,startTime:'09:00',endTime:'18:00'}]
 let revision = 1, databaseNow = new Date('2026-09-29T15:00:00Z')
 let catalogReads = 0, factsReads = 0, weeklyReads = 0, agendaReads = 0, stampReads = 0, stampFailure = false
 const service = { id: 's', businessId: 'tenant', catalogCategoryId: null, parentServiceId: null, name: 'Cut', price: 10, priceMode: 'FIXED', duration: 30, isBookable: true, attentionMode: 'DIRECT_BOOKING', requiresPhoto: false, validationEnabled: false, estimateAllowsBooking: true }
@@ -66,7 +69,7 @@ const client: any = {
   $queryRaw: async (q: any) => {
     const sql = q.strings.join(' ')
     if (sql.includes('conversational-public-payment-methods')) return []
-    if (sql.includes('conversational-public-source-stamp')) { stampReads++; if (stampFailure) throw new Error('stamp unavailable'); return [{ businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', stamp: revision.toString(16).padStart(64, '0') }] }
+    if (sql.includes('conversational-public-source-stamp')) { stampReads++; if (stampFailure) throw new Error('stamp unavailable'); return [{ businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', stamp: revision.toString(16).padStart(64, '0'),weeklyHours:structuredClone(publicWeeklyHours),globalBlocks:[] }] }
     if (sql.includes('FROM "BusinessBotOptionsSettings"')) return [{ timezone: 'America/Argentina/Buenos_Aires', bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00', now: databaseNow }]
     if (sql.includes('FROM "Professional"')) { agendaReads++; return [] }
     throw new Error('unexpected query')
@@ -75,17 +78,33 @@ const client: any = {
 const transactionOptions: any[] = []
 client.$transaction = async (body: any, options: any) => {
   transactionOptions.push(options)
+  const snapshotHours = structuredClone(publicWeeklyHours)
   const snapshotRevision = revision, snapshotService = structuredClone(service), snapshotFacts = structuredClone(facts)
   const source = { ...client, service: { ...client.service, findMany: async () => { catalogReads++; return [structuredClone(snapshotService)] } },
     business: { findFirst: async () => { factsReads++; return structuredClone(snapshotFacts) } },
     $executeRaw: async (q: any) => { assert.match(q.strings.join(' '), /SET TRANSACTION READ ONLY/); return 0 },
-    $queryRaw: async (q: any) => q.strings.join(' ').includes('conversational-public-source-stamp') ? [{ businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', stamp: snapshotRevision.toString(16).padStart(64, '0') }] : client.$queryRaw(q)
+    $queryRaw: async (q: any) => q.strings.join(' ').includes('conversational-public-source-stamp') ? [{ businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', stamp: snapshotRevision.toString(16).padStart(64, '0'),weeklyHours:snapshotHours,globalBlocks:[] }] : client.$queryRaw(q)
   }
   return body(source)
 }
+const verifyTemporalProvider = async (setup: Awaited<ReturnType<typeof createPrismaDialoguePort>>) => {
+  let proofSeen: unknown
+  const result = await respondWithAiInterpreter(setup.context, {...initialDialogueState('tenant'),date:'2026-10-05'}, 'tipo 4 tenes lugar?', setup.port, async input => {
+    proofSeen = input.businessTimeContext
+    return {intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'time_clarification',candidateTimes:['04:00','16:00'],evidence:'tipo 4',confidence:1}]}}
+  })
+  assert.deepEqual((proofSeen as any)?.candidates,[{time:'04:00',status:'closed'},{time:'16:00',status:'open'}])
+  assert.equal(result.interpretation.mode,'ai')
+  assert.deepEqual(result.state.timePreference,{kind:'around',time:'16:00'})
+  assert.equal(result.state.slot,null); assert.equal(result.bookingCommand,undefined)
+}
 const port1 = await createPrismaDialoguePort(client, 'tenant')
+await verifyTemporalProvider(port1)
 await port1.port.catalog(); await port1.port.information!(['HOURS'])
 const afterCold = { catalogReads, factsReads, weeklyReads, stampReads }
+assert.deepEqual(port1.port.businessTimeContext?.('2026-10-05',['04:00','16:00'])?.candidates,[{time:'04:00',status:'closed'},{time:'16:00',status:'open'}])
+assert.equal(stampReads,afterCold.stampReads,'cold temporal projection never queries')
+assert.equal(port1.port.businessTimeContext?.('2026-11-10',['04:00','16:00'])?.candidates[0]?.status,'unknown')
 const port2 = await createPrismaDialoguePort(client, 'tenant')
 await port2.port.catalog(); await port2.port.information!(['HOURS'])
 assert.equal(catalogReads, afterCold.catalogReads, 'catalogue reused across turns')
@@ -93,9 +112,17 @@ assert.equal(factsReads, afterCold.factsReads, 'facts reused across turns')
 assert.equal(weeklyReads, afterCold.weeklyReads)
 assert.equal(stampReads, afterCold.stampReads + 2, 'each warm public lookup verifies its own current stamp')
 assert.equal(port2.cacheDiagnostics?.hits, 2)
-revision++; service.price = 25; facts.publicAddress = 'New address'
+const warmReads = stampReads
+for(let i=0;i<10;i++) assert.equal(port2.port.businessTimeContext?.('2026-10-05',['04:00','16:00'])?.candidates[1]?.status,'open')
+assert.equal(stampReads,warmReads,'warm candidate projection never queries')
+await verifyTemporalProvider(port2)
+assert.equal(stampReads,warmReads + 1,'warm interpreter needs only existing catalog stamp, not per-candidate SQL')
+assert.equal(catalogReads,afterCold.catalogReads); assert.equal(weeklyReads,afterCold.weeklyReads)
+assert.equal(agendaReads,0,'meaning projection does not check occupancy')
+revision++; publicWeeklyHours = [{dayOfWeek:1,startTime:'00:00',endTime:'18:00'}]; service.price = 25; facts.publicAddress = 'New address'
 const edited = await createPrismaDialoguePort(client, 'tenant')
 assert.equal((await edited.port.catalog())[0]!.price, 25)
+assert.equal(edited.port.businessTimeContext?.('2026-10-05',['04:00','16:00'])?.candidates[0]?.status,'open','changed stamp refreshes hours even while catalog cached')
 assert.equal((await edited.port.information!(['ADDRESS'])).address, 'New address')
 assert.equal((await edited.port.information!(['ADDRESS'])).hours, null, 'action-specific facts cannot leak cached hours')
 await edited.port.availability((await edited.port.catalog())[0]!, '2026-09-30')
@@ -110,6 +137,7 @@ stampFailure = true
 const failedPort = await createPrismaDialoguePort(client, 'tenant')
 assert.equal((await failedPort.port.catalog())[0]!.price, 25, 'stamp outage reads current snapshot instead of stale cache')
 assert.equal(failedPort.cacheDiagnostics?.bypasses, 1)
+assert.equal(failedPort.port.businessTimeContext?.('2026-10-05',['04:00','16:00']),undefined,'failed stamp cannot reuse old proof')
 assert.ok(transactionOptions.every(option => option.isolationLevel === 'RepeatableRead'))
 console.log('conversational public cache port integration: PASS')
 // Loaded version, not the earlier warm-read version, decides whether a snapshot may be cached.
@@ -136,6 +164,7 @@ const compatibility = await createPrismaDialoguePort(unsnapshot, 'tenant')
 await compatibility.port.catalog(); service.price = 40
 assert.equal((await compatibility.port.catalog())[0]!.price, 40)
 assert.equal(compatibility.cacheDiagnostics?.bypasses, 2)
+assert.equal(compatibility.port.businessTimeContext?.('2026-10-05',['04:00','16:00']),undefined,'legacy client without snapshot cannot prove hours')
 // Snapshot captures a consistent price/version even if an external editor reverses the price (ABA).
 revision++; service.price = 10
 const txn = client.$transaction
