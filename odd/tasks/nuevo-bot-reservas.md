@@ -7,7 +7,7 @@
 - **Ruta/TDD:** STRICT heredado E2.17, RED→GREEN/refactorobservados; runner tsx.cmd scripts/<suite>-test.ts. A professionalfresh delegated4+mapping/preparación/2+fuentes; B timearound+evidence delegado trasfreezeA/sharedengine/repo/provider lease; C padreinlineintegration/restart/docs. Forecast800–1400authoredadvisory400no cap, feature-branch-chain retenida. Commitswhitelistporunidad/testdocs/RDDONboundaryf032c0f, assess+STATUScandidateexacto, sinSTARTunrelated. FullEngrammirror odd/nuevo-bot-reservas/tasks pendiente unavailable; leer/readbacklocaldoc. No corpus91/entrenamiento/UI nueva.
 - [x] **E2.18a** Resolver identidad profesional independientemente de elegibilidadfresh; motivosservicios/restricciones vs jornada/ocupación sininventar, mantenerpedido/preferencia y alternativasverificadas. REDknownincompatible/dayoff/busy/blocked/ambiguous/unknown/restricted/tenant/noautoswap, GREEN puertoscanasta/singular/motivooffline y consultaagrupada. Writer delegado.
 - [x] **E2.18b** Preferencia around modular objetiva, conservaciónanclatemporal enplan/provider, ambigüedad5/17 aclarada, rankingglobalnearest anteslimit conpaginación, ningunaautoselección; evidenciahorariorequestedstart scoped/mismaslecturas+causasconservadoras. REDavailable/unavailable/outsidewindow/duration/busy/blocked/missingproof, validadoresserialización/catálogofresh. Writer delegado trasA.
-- [ ] **E2.18c** Regresionesintegradas offline/tipos/encoding/diff y restart exclusivohelperQA3000. Datoscomercialesexactos/Ramirocausareal, LLMreal/GUI/latencianoverificados. Padreinline.
+- [x] **E2.18c** Regresionesintegradas offline/tipos/encoding/diff y restart exclusivohelperQA3000. Datoscomercialesexactos/Ramirocausareal, LLMreal/GUI/latencianoverificados. Padreinline.
 
 - **E2.18a verificación:** writerREDunknownRamiro→GREEN11suites; parent14PASS y engineRED fixturenullablepolicy/freshflagsausentes, fixboundedtestonly y rerunengine/guided/basket/PGlitePASS. Strong5padre/writer EXIT0; UTF8/diff yfreeze11SHA verificados. Identidadpública IDlookup NOautoridad, groupedeligibilityfreshselectedprofessional+alternativas mismoSQLsinperprofloop; proof missingservicesnombreporID/catalog/teneractivo/aceptarbot tenantbasket exactos. Preferenciarechazadaconservada/noautoswap, Cinchoiceexplicitafreshaceptada; lateralquerymotivo freshsinmutación. Dayoff/busy/blocked existenteseligible usados, no causalrealRamiroatribuida. Guardasingularconsultationfreshintacta, fuentesAgrounding/Bdeliverysinregresión. SinDB/APIreales/LLM/visual; commitwhitelist11+tracker inmediato, Bsharedleasetrascommit.
 
@@ -15,6 +15,40 @@
 - **E2.18a commit/RDD:** 1e18353921478fe2acc13a435866cda684031556,275authored/12paths. NativeASSESSdue/slice_budget_reached, STATUS exact unrelated targetsha256:4aac14f39d04b42745ae5a1cd5ee29144b412bb0d43449f7bd7c7d3947ac634b. SinSTART/reviewajena/receipt/avanceboundaryf032c0f. E2.18bsourcelease exclusivo writer trascommit; E2.17servidorcorriendo versiónanterioralprofessionalhastaúltimoreinicioC. MirrorEngrampendingunavailable.
 
 - **E2.18b verificación:** REDaroundparser/inexistente yrequestedstartcauseausente→GREEN, parent40core+8preview/UI suites distintas48PASS trasstd-deliveryREDfixtureE2.17framepermitido; boundedtestonly confirmaintroúnica+¡Dale!válido+horarioscompletos/1call. Strong16padre/writer EXIT0, UTF8/diff+17SHA PASS. around preference objetivo/requestedTime=null, globalrank antespage3, nativecurrent/stale/foreign choice+snapshotroundtrip; ningúnslotautoseleccionado. Numericapproxconstraints reconciliandband/noop/timepreserveanchor y datosindependientes; falta bandacontexto5/17→clarificación tipada, servicio/fecha/nombre retenidos/sinagenda hastaresolver. No inferir AMPMsegúnslotslibres, no nuevoshistoriales. Proofrequestedstart sameloaded4SQLbatch/produración/customerdate/time/tenantidsfresh; businessclosed/prodayoff/outsidewindow/duration/busy/block/leadtime, mixedcauses/missingproofgenéricohonesto. Proofpositivoconmissingactualtarget dice nopudeverificar, noconfirmaocupación. ActualRamirodatos/IAreal/GUI noverificados. IntentochildPGlocalhost54322 no disponible antesdatos/no retry; seleccióntesterrónea declarada, fixtures/PGlite realesofflineúnicamente. Coherentaround+clarification+freshtruth acrossschema/runtime/ports naturally>400advisory; no splitartificial/minify, feature-branch-chain vigente. Commitwhitelist17+tracker inmediato.
+
+- **E2.18b commit/RDD:** fa9a439d8a081c87aefad1d8224458d8967db936,626authored/18paths. ASSESSdue/slice_budget_reached; STATUS exacto unrelated targetsha256:bbceb0e38b68beb482e38b027fdf6f9bfed24eeb3e57abfe2b0ac20b3325c61e. Tier no capturado en salidaresumida, no rebajado; treatdue/noSTART/receipt/reviewajena niavanceboundaryf032c0f. RunningE2.18A+B901 authored incldocs/tests, estrategia feature-branch-chain retenida sinPR/push.
+- **E2.18c integración/cierre:** padre40core+8preview/UI48distintasGREEN despuésfuentesfreeze, strong16EXIT0/encoding/diff/17SHA PASS; fuentesownedclean/foreignexport ytemporales preservados. Fullglobaltypes omitido porOOM/erroresajenosbaseline, no pruebasGUI/DB/APIreales/LLMreal/latencia afirmadas. StopPID12716 exclusivamente trasCIMexecutable/helpercommandexactos; nuevohelperQA existente intacto buildApp sinworkers/emisor/túnel en session57960/PID14480, READY127.0.0.1:3000 yGET/crmHTTP200+preparedlabeltrue. No healthDB. TasksA/B/C implementadasverificadasoffline; aceptaciónmanual/proveedorreal pendiente, no guarantee razonamiento100%. RecargarCRM/Nuevaconversación para uncorte+alisado, cómosaludo y sinpresentaciónrepetida, Ramiroincompatible→motivo→Cinexplícito, cambiarfecha→tipo5→clarificarsiambigua→opcionescercanas/páginas. Mantenercorpus91/editor/metadata legacy yfuncionesreservasconfirmadas fuera. Engrammem_*no expuestos alcierre, mirrorsummary pendiente; localrecoverycompleto debajo.
+
+### E2.17–E2.18 — Session Summary (Engram no expuesto; recuperación local)
+## Goal
+Corregir evidencia de servicios pegados, composición contextual sin doble presentación y solicitudes de profesional/hora aproximada con motivos verificados.
+## Instructions
+Trabajo local únicamente y plataforma existente; primero cerrar E2.17, después dos pendientes. Guía flexible no literal; identidad configurada una vez, responder mensaje concreto y continuar pertinente. No elegir profesional/slot automáticamente ni inventar causas de agenda.
+## Discoveries
+- Evidencia literal y significado deben separarse: una frontera original verificable ligada al catálogo no puede autorizar nombres/fechas/consentimiento.
+- server_pending descartaba respuesta social aunque accepted. Opening seguro reutilizable no transfiere autoridad de hechos nuevos ni exige compositor extra.
+- Profesional no compatible no es desconocido; identidad pública no autoriza reservas, proof fresh distingue cobertura/restricción/jornada/ocupación.
+- Around conserva objetivo sinslot; AMPM ambiguo pide aclaración sinperderdatos, rankingglobal antespaginación.
+- Slots diarios no prueban porqué falta17; requestedstart scoped con duracionesprof/customer desde mismaslecturas.
+## Accomplished
+- E2.17a ca8a259 evidence original/significado, catálogo/ambigüedad y cinco causas finitas.
+- E2.17b 343f3ec presentación/composición social/prepared honesta; 30regresionesoffline/tiposPASS, CRM actualizadotrasstage.
+- E2.17c e0fccc5 cierre/tracking E2.18.
+- E2.18a 1e18353 profesionalfresh/motivos/cambioexplícito posterior/sinmutaciónlateral.
+- E2.18b fa9a439 around/clarificación/rankingglobal/proofrequestedstartsinSQLextra; 48suitefinalesGREEN ystrong16PASS.
+- Local3000 actualizadoPID14480/session57960 HTTP200; sinremoto/config/prod/WhatsApp/túnel niAPI/DBreales.
+## Next Steps
+- Aceptaciónhumana/IAreal enCRM nueva conversación y revisar nuevosdiagnósticos si fallos; exacta causa comercialRamiro noverificada.
+- NativeRDDselecciónsegurapendiente; noSTARTunrelated ni receiptsficticios. Engram espejo/resumen unavailable, recuperaciónlocalconservada.
+- Corpus91, contenidolegacyclasificaciónrevisada, entrenamiento/otrosservicioscoordmultprof/CRMeditor/reservasconfirmadas siguenfuera.
+## Relevant Files
+- src/conversational-bot/service-evidence-grounding.ts / turn-plan.ts / ai-diagnostics.ts — procedencia, operaciones y causas finitas.
+- reply-contract.ts / ai-interpreter.ts / engine.ts / openai-interpretation-provider.ts — respuesta social+hechos+continuación/presentación única yprepared.
+- professional-preference.ts / prisma-basket-availability.ts / prisma-dialogue-port.ts / src/bot-options/infrastructure/prisma-availability.ts — identidad yproofeligibilidadfresh.
+- time-preference.ts / temporal-grounding.ts / availability-presentation.ts / requested-time-presentation.ts — aproximación/contexto/clarificación/ranking/prosaverificada.
+- src/bot-options/application/requested-start-evidence.ts / availability-evidence.ts — evidenciacausalrequestedstart desdeagendaagrupada.
+- scripts/conversational-bot-*-test.ts / conversational-preview-*-test.ts — regresionesoffline, no API/DBreales.
+- odd/tasks/nuevo-bot-reservas.md — tareas/evidencia/recuperación; tmp/qa-local-server.ts intactosin stage.
 
 ## E2.17 — Evidencia original y composición estándar (03/10/2026, autorizado)
 - **Autorización:** implementar «uncorte», respuesta contextual y personalidad estándar sin doble saludo. Sólo código/pruebas/CRM local; sin remoto/push/PR/producción/DB/API reales/modelos/timeouts/dependencias/editor/instrucciones futuras. Guía completa flexible: identidad configurada una vez, responder mensaje concreto y continuar pertinentemente; no hardcodear comercio ni umbral de inactividad.
