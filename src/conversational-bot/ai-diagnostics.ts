@@ -56,7 +56,7 @@ export function summarizeProposal(raw: unknown): ProposalSummary {
   const rawPlan = dataField(raw, 'turnPlan')
   const operations = dataField(rawPlan, 'operations')
   const planOperations = Array.isArray(operations) ? operations.slice(0, TURN_PLAN_LIMITS.operations + 1) : []
-  const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'name', 'information', 'unsupported_action']
+  const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'time_preference', 'time_clarification', 'name', 'information', 'unsupported_action']
   const kinds = [...new Set(planOperations.map(operation => dataField(operation, 'kind')).filter((kind): kind is RequestKind => requestKinds.includes(kind as RequestKind)))]
   const serviceOperation = planOperations.find(operation => dataField(operation, 'kind') === 'service')
   const planCandidates = dataField(serviceOperation, 'serviceIds')

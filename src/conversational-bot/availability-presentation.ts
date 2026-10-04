@@ -65,6 +65,8 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   if (input.preference && input.requestedTime) throw new Error('conflicting temporal presentation')
   if (input.requestedTime && parseMinutes(input.requestedTime) === null) throw new Error('invalid exact time')
   let filtered = input.preference?.kind === 'earliest' ? all : input.preference ? filterTimePreference(all, input.preference) : all
+  const around = input.preference?.kind === 'around' ? input.preference.time : null
+  if (around) filtered = [...all].sort((a,b) => Math.abs(parseMinutes(a.time)! - parseMinutes(around)!) - Math.abs(parseMinutes(b.time)! - parseMinutes(around)!) || Date.parse(a.startAt) - Date.parse(b.startAt) || a.professionalId.localeCompare(b.professionalId))
   let nearest = false
   if (input.requestedTime) {
     const exact = all.filter(slot => slot.time === input.requestedTime)
@@ -81,7 +83,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
     choices.push({ kind: 'preference', label: 'Cualquier horario', preference: { kind: 'any' } })
     return { kind: 'preference', text: standardManySlots(formatDeliveryDate(input.scope.date!), choices.map(choice => choice.label)), choices, hasMore: false }
   }
-  const short = input.preference?.kind === 'any' || input.preference?.kind === 'earliest' || nearest
+  const short = around !== null || input.preference?.kind === 'any' || input.preference?.kind === 'earliest' || nearest
   const pageSize = short ? 3 : BOOKING_SLOT_PAGE_SIZE
   const start = cursorStart(input.cursor, pageSize)
   if (start >= filtered.length) throw new Error('invalid presentation cursor')
@@ -89,7 +91,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   const band = new Set(filtered.map(slot => slot.band))
   const concentration = band.size === 1 ? filtered[0]!.band === 'MORNING' ? 'por la mañana' : filtered[0]!.band === 'AFTERNOON' ? 'por la tarde' : 'por la noche' : null
   const professional = new Set(filtered.map(slot => slot.professionalId)).size === 1 ? filtered[0]!.professionalName : null
-  const preference = input.preference?.kind === 'after' ? 'Después de las ' + input.preference.time
+  const preference = around ? 'Alrededor de las ' + around : input.preference?.kind === 'after' ? 'Después de las ' + input.preference.time
     : input.preference?.kind === 'before' ? 'Antes de las ' + input.preference.time
       : input.preference?.kind === 'band' ? concentration : null
   return { kind: 'slots', text: standardSlotOffer({ date: formatDeliveryDate(input.scope.date ?? filtered[0]!.date), professional, band: concentration,

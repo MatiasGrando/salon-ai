@@ -1,3 +1,4 @@
+import { groundTemporalPlan } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
@@ -75,7 +76,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
-        const parsed = parseTurnPlan(groundServicePlan(item.turnPlan, message, services), message, services.map(service => service.id))
+        const parsed = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state), message, services.map(service => service.id))
         turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)

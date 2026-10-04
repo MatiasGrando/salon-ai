@@ -1,10 +1,12 @@
+import type { RequestedStartEvidence } from './requested-start-evidence.js'
+export { parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type RequestedStartScope } from './requested-start-evidence.js'
 import { localDateKey, parseMinutes, type AvailabilitySlot, type AvailabilityProfessional } from './availability-queries.js'
 /** Internal fresh snapshot evidence. These finite causes contain no customer/provider text. */
-export const AVAILABILITY_CAUSES = ['BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'NO_COMPATIBLE_WINDOW', 'DURATION_DOES_NOT_FIT', 'LEAD_TIME', 'BLOCKED', 'BUSY', 'NO_SLOTS', 'DATE_PAST', 'OUTSIDE_HORIZON', 'PREFERENCE_NO_MATCH'] as const
+export const AVAILABILITY_CAUSES = ['BUSINESS_CLOSED', 'PROFESSIONAL_NOT_WORKING', 'NO_COMPATIBLE_WINDOW', 'DURATION_DOES_NOT_FIT', 'LEAD_TIME', 'BLOCKED', 'BUSY', 'NO_SLOTS', 'DATE_PAST', 'OUTSIDE_HORIZON', 'PREFERENCE_NO_MATCH', 'REQUESTED_START_OUTSIDE_BUSINESS_HOURS', 'REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS'] as const
 export type AvailabilityCause = typeof AVAILABILITY_CAUSES[number]
 export type ProfessionalAvailabilityEvidence = { professionalId: string; reasons: AvailabilityCause[]; slotCount: number }
 export type DateAvailabilityEvidence = { date: string; reasons: AvailabilityCause[]; professionals: ProfessionalAvailabilityEvidence[] }
-export type AvailabilitySearchEvidence = { version: 1; days: DateAvailabilityEvidence[] }
+export type AvailabilitySearchEvidence = { version: 1; days: DateAvailabilityEvidence[]; requestedStart?: RequestedStartEvidence }
 export type AvailabilityExplanation = {
   date: string; reasons: AvailabilityCause[]
   /** Real compatible slots; bounded alternatives are suggestions, not a preference change. */

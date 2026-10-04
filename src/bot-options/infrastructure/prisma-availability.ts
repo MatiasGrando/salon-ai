@@ -1,3 +1,4 @@
+import { buildRequestedStartEvidence } from '../application/requested-start-evidence.js'
 import { explainAvailabilityDay, type AvailabilityRejections, type AvailabilitySearchEvidence } from '../application/availability-evidence.js'
 import { reservationFitsAvailabilityWindow } from '../../services/service-duration.js'
 import { measureAttemptStage } from '../observability/attempt-metrics.js'
@@ -126,6 +127,7 @@ export class PrismaAvailabilityRepository {
     excludeAppointmentId?: string
     /** Default legacy balance stays unchanged; conversational callers preserve verified alternatives. */
     allocation?: 'balanced' | 'all'
+    requestedStart?: { date: string; time: string }
     diagnostics?: boolean
   }, verifiedProfessionals?: readonly AvailabilityProfessional[]): Promise<{ professionals: AvailabilityProfessional[]; slots: AvailabilitySlot[]; evidence?: AvailabilitySearchEvidence }> {
     return measureAttemptStage('availability_search', async () => {
@@ -190,7 +192,7 @@ export class PrismaAvailabilityRepository {
                 evidence.intervalCount++
                 if (instant.getTime() < leadInstant) { evidence.leadTime++; continue }
                 if (blocks.some((block) => (block.professionalId === null || block.professionalId === professional.id) && block.startAt < (block.professionalId === null ? customerFinish : finish) && block.endAt > instant)) { evidence.blocked++; continue }
-                if (dayBusy.some((row) => row.startAt < finish && new Date(row.startAt.getTime() + row.duration * 60_000) > instant)) { evidence.busy++; continue }
+                if (busy.some((row) => row.professionalId === professional.id && row.startAt < finish && new Date(row.startAt.getTime() + row.duration * 60_000) > instant)) { evidence.busy++; continue }
                 const key = instant.toISOString()
                 accepted.add(key)
                 const candidates = perStart.get(key) ?? []
@@ -217,7 +219,11 @@ export class PrismaAvailabilityRepository {
           professionalName: source.professional.name, occupiedMinutes: source.occupiedMinutes
         } satisfies AvailabilitySlot] : []
       }).sort((a, b) => a.startAt.localeCompare(b.startAt) || a.professionalId.localeCompare(b.professionalId))
-      return { professionals, slots, ...(input.diagnostics ? { evidence: { version: 1 as const, days } } : {}) }
+      const requestedStart = input.diagnostics && input.requestedStart ? buildRequestedStartEvidence({
+        businessId: input.businessId, serviceIds: input.serviceIds, durationMinutes: input.durationMinutes, customerDurationMinutes,
+        requestedStart: input.requestedStart, dbNow: input.dbNow, settings: input.settings, professionals, businessHours, professionalHours, blocks, busy
+      }) : undefined
+      return { professionals, slots, ...(input.diagnostics ? { evidence: { version: 1 as const, days, ...(requestedStart ? { requestedStart } : {}) } } : {}) }
     })
   }
 }

@@ -35,9 +35,9 @@ export function projectDialogueService(row: CatalogServiceItem): DialogueService
 /** Fixed-date compatibility entry: the shared guard below also supports verified quick dates. */
 export async function loadPrismaBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
-  requested: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates: ServiceEstimates = {}, serviceContent: ServiceContentConfiguration | null = null
+  requested: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates: ServiceEstimates = {}, serviceContent: ServiceContentConfiguration | null = null, temporal?: VerifiedDateTemporal
 ): Promise<ExplainedBasketAvailability> {
-  return loadGuardedBasketAvailability(client, context, settings, requested, date, professionalId, serviceEstimates, undefined, serviceContent)
+  return loadGuardedBasketAvailability(client, context, settings, requested, date, professionalId, serviceEstimates, temporal, serviceContent)
 }
 /** One live horizon search supplies only actual dates with available complete-basket slots. Never cache agenda evidence. */
 export async function loadPrismaVerifiedDateChoices(
@@ -128,7 +128,8 @@ async function loadGuardedBasketAvailability(
   // Compatible professionals and all agenda arrays belong to this same read-only snapshot.
   // Preserve each professional's slots and compute explanations without another eligibility/calendar query.
   const searched = await availability.search({ businessId: context.businessId, serviceIds: ids, durationMinutes, customerDurationMinutes,
-    dbNow: context.dbNow, settings, allocation: 'all', diagnostics: true }, professionals)
+    dbNow: context.dbNow, settings, allocation: 'all', diagnostics: true,
+    ...(date && (temporal?.requestedTime || temporal?.preference?.kind === 'around') ? {requestedStart:{date,time:temporal.requestedTime ?? (temporal.preference as {time:string}).time}} : {}) }, professionals)
   const slots: AvailabilitySlot[] = []
   let candidates = searched.slots.filter(slot => (date === null || slot.date === date) && (!professionalId || slot.professionalId === professionalId))
   if (date === null) {
@@ -143,5 +144,5 @@ async function loadGuardedBasketAvailability(
   if (slots.length > 500) throw new Error('availability exceeds supported bound')
   const explanation = date !== null && searched.evidence ? parseAvailabilityExplanation(explanationForDate(searched.evidence, date, professionalId, searched.slots),
     { date, professionals, dbNow: context.dbNow, timezone: context.timezone, ...(professionalId ? { professionalId } : {}) }) : undefined
-  return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: slots.sort((left, right) => left.startAt.localeCompare(right.startAt) || left.professionalId.localeCompare(right.professionalId)), ...(explanation ? { explanation } : {}) }
+  return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: slots.sort((left, right) => left.startAt.localeCompare(right.startAt) || left.professionalId.localeCompare(right.professionalId)), ...(explanation ? { explanation } : {}), ...(searched.evidence?.requestedStart ? {requestedStartEvidence:searched.evidence.requestedStart} : {}) }
 }

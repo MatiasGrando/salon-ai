@@ -72,13 +72,13 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
     verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,serviceContent)),
     catalog: async () => (await cached('catalog', loadCatalog)).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, serviceContent) } : service),
-    availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent)),
-    async availability(selected: DialogueService, date: string, professionalId?: string) {
+    availabilityBasket: (services, date, professionalId, estimates, temporal) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent, temporal)),
+    async availability(selected: DialogueService, date: string, professionalId?: string, temporal?: import('./prisma-basket-availability.js').VerifiedDateTemporal) {
       return snapshot(async source => {
         if (professionalId) {
           // Preferred singular bookings use the same fresh guard/eligibility proof as complete baskets.
-          const guarded = await loadPrismaBasketAvailability(source, context, settings, [selected], date, professionalId, {}, serviceContent)
-          if (guarded.ok) return {professionals:guarded.professionals,slots:guarded.slots,...(guarded.explanation?{explanation:guarded.explanation}:{})}
+          const guarded = await loadPrismaBasketAvailability(source, context, settings, [selected], date, professionalId, {}, serviceContent, temporal)
+          if (guarded.ok) return {professionals:guarded.professionals,slots:guarded.slots,...(guarded.explanation?{explanation:guarded.explanation}:{}),...(guarded.requestedStartEvidence?{requestedStartEvidence:guarded.requestedStartEvidence}:{})}
           if (guarded.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') return {professionals:guarded.professionals,slots:[],preferredProfessionalIncompatible:true as const,...(guarded.professionalFailure?{professionalFailure:guarded.professionalFailure}:{})}
           throw Error('preferred service requires domain consultation')
         }
@@ -94,12 +94,13 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         if (professionals.length > 50) throw new Error('professional catalog exceeds supported bound')
         const customerDurationMinutes = projectDialogueService(service).customerDurationMinutes ?? service.durationMinutes
         const result = await availability.search({ businessId, serviceIds: [service.id], durationMinutes: service.durationMinutes,
-          customerDurationMinutes, dbNow, settings, allocation: 'all', diagnostics: true }, professionals)
+          customerDurationMinutes, dbNow, settings, allocation: 'all', diagnostics: true,
+          ...(temporal?.requestedTime || temporal?.preference?.kind === 'around' ? {requestedStart:{date,time:temporal.requestedTime ?? (temporal.preference as {time:string}).time}} : {}) }, professionals)
         const slots = result.slots.filter(slot => slot.date === date && (!professionalId || slot.professionalId === professionalId))
         if (slots.length > 500) throw new Error('availability exceeds supported bound')
         const explanation = result.evidence ? parseAvailabilityExplanation(explanationForDate(result.evidence, date, professionalId, result.slots),
           { date, professionals, dbNow, timezone: settings.timezone, ...(professionalId ? { professionalId } : {}) }) : undefined
-        return { professionals, slots, ...(explanation ? { explanation } : {}) }
+        return { professionals, slots, ...(explanation ? { explanation } : {}), ...(result.evidence?.requestedStart ? {requestedStartEvidence:result.evidence.requestedStart} : {}) }
       })
     }
   } }

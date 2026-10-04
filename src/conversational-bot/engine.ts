@@ -1,5 +1,7 @@
+import { requestedTimeExplanation } from './requested-time-presentation.js'
+import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
 import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
-import { parseAvailabilityExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
+import { parseAvailabilityExplanation, parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
@@ -7,7 +9,7 @@ import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choic
 import { introduceDialogue, type DialogueIdentity } from './dialogue-identity.js'
 import { presentAvailability, presentProfessionals, presentVerifiedDates, presentDateTimeQuestion, type ChoicePresentation, type PresentationChoice } from './availability-presentation.js'
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
-import { parseTimePreference, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
+import { parseTimePreference, approximateTimeRequest, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
 import { parseInformationFocus, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
 import { readInformation, inferInformationTarget, informationReply, type InformationRead } from './information-read.js'
 export type { InformationTarget } from './information-contract.js'
@@ -29,7 +31,7 @@ export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[]; professionalFailure?: ProfessionalEligibilityFailure }
   | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
-  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation }
+  | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation; requestedStartEvidence?: RequestedStartEvidence }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
   identity?(): Promise<DialogueIdentity>
@@ -37,8 +39,8 @@ export type DialoguePort = {
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
   professionalInformation?(target: ProfessionalInformationTarget): Promise<ProfessionalInformationFacts>
   catalog(): Promise<DialogueService[]>
-  availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates): Promise<DialogueBasketAvailability>
-  availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation; preferredProfessionalIncompatible?: true; professionalFailure?: ProfessionalEligibilityFailure }>
+  availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: {requestedTime:string|null;preference?:TimePreference}): Promise<DialogueBasketAvailability>
+  availability(service: DialogueService, date: string, professionalId?: string, temporal?: {requestedTime:string|null;preference?:TimePreference}): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation; preferredProfessionalIncompatible?: true; professionalFailure?: ProfessionalEligibilityFailure; requestedStartEvidence?: RequestedStartEvidence }>
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type DialogueState = {
@@ -51,7 +53,7 @@ export type DialogueState = {
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
   /** Unverified name until uniquely identified publicly and checked against fresh booking eligibility. */
   professionalNameHint: string | null
-  timePreference?: TimePreference; requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
+  timePreference?: TimePreference; timeClarification?: { candidateTimes: string[] }; requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
   /** Bounded evidence of the last asked field; options are never a permission or availability cache. */
@@ -107,6 +109,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
+  if (s.timeClarification !== undefined) { parseTimeClarification(s.timeClarification); if (s.requestedTime !== null || s.slot !== null || s.timePreference !== undefined) throw new Error('clarification cannot select a slot') }
   if (s.timePreference !== undefined) { parseTimePreference(s.timePreference); if (s.requestedTime !== null || s.slot !== null) throw new Error('preference cannot select a slot') }
   if (s.professional !== null && (s.professional.kind !== 'any' && (s.professional.kind !== 'specific' || !bounded(s.professional.id, 128)))) throw new Error('invalid professional')
   // Older schemaVersion 1 snapshots have no hint; keep them readable without a SQL migration.
@@ -263,7 +266,7 @@ export function fallbackIndependentTurnPlan(context: DialogueContext, state: Dia
   if (temporal && temporal.kind !== 'ambiguous' && (temporal.kind === 'preference' || state.pending === 'time' || /\ba las?\b/.test(normalize(message)) || identity && explicitIdentity(message, identity))) operations.push(temporal.kind === 'exact'
     ? { kind: 'time', value: temporal.time, evidence: message, confidence: 1 }
     : { kind: 'time_preference', preference: temporal.preference, evidence: message, confidence: 1 })
-  return parseTurnPlan({ version: 1, operations }, message, services.map(service => service.id))
+  return parseTurnPlan(groundTemporalPlan({ version: 1, operations }, message, state), message, services.map(service => service.id))
 }
 function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
 function dateLabel(date: string, timezone: string): string {
@@ -371,6 +374,8 @@ function availabilityRecoveryMessage(serviceName: string, day: string, reasons: 
     DATE_PAST: 'La fecha ya pasó.',
     OUTSIDE_HORIZON: 'La fecha queda fuera del período habilitado para buscar turnos.',
     PREFERENCE_NO_MATCH: 'No hay horarios que cumplan esa preferencia.',
+    REQUESTED_START_OUTSIDE_BUSINESS_HOURS: 'El inicio solicitado queda fuera de la atención del local.',
+    REQUESTED_START_OUTSIDE_PROFESSIONAL_HOURS: 'El inicio solicitado queda fuera de la jornada del profesional.',
     NO_SLOTS: 'No encontré horarios disponibles para este pedido.'
   }
   return 'Para ' + serviceName + ' el ' + day + ':\n' + (reasons.length ? reasons.map(reason => copy[reason]).join('\n') : copy.NO_SLOTS)
@@ -382,6 +387,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const text = preparedCatalog ? '' : normalize(message)
   let availability: AvailabilityDiagnostic | undefined
   let availabilityExplanation: AvailabilityExplanation | undefined
+  let targetExplanation: RequestedStartExplanation | undefined
   let choicePresentation: ConversationChoicePresentation | undefined
   let questionOptions: DialogueQuestionOption[] = []
   let questionTarget: string | null = null
@@ -622,15 +628,28 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
         date: state.date!, professionals: result.professionals, dbNow: context.dbNow, timezone: context.timezone, ...(professionalId ? { professionalId } : {})
       })
     }
+    const temporal = {requestedTime:state.requestedTime,...(state.timePreference ? {preference:state.timePreference} : {})}
+    const acceptTarget = (result: {professionals:DialogueProfessional[];requestedStartEvidence?:RequestedStartEvidence}, durationMinutes:number, customerDurationMinutes:number) => {
+      targetExplanation = undefined
+      const time = state.requestedTime ?? (state.timePreference?.kind === 'around' ? state.timePreference.time : null)
+      if (!time || !result.requestedStartEvidence) return
+      try {
+        targetExplanation = parseRequestedStartExplanation(result.requestedStartEvidence,{
+          businessId:context.businessId,serviceIds:basketServiceIds(state),date:state.date!,time,durationMinutes,customerDurationMinutes,
+          professionals:result.professionals,dbNow:context.dbNow,timezone:context.timezone,...(professionalId ? {professionalId} : {})
+        })
+      } catch { /* Missing or mismatched target proof never invents a cause or invalidates independent real slots. */ }
+    }
     if (selectedServices.length <= 1 && !needsVerifiedSelection && selectedServices.every(item => item?.bookingPolicy === undefined)) {
-      const result = await port.availability(service!, state.date!, professionalId)
+      const result = await port.availability(service!, state.date!, professionalId, temporal)
       if (result.preferredProfessionalIncompatible) return incompatiblePreference(professionalId!, result.professionals, result.professionalFailure)
       acceptExplanation(result)
+      acceptTarget(result,service!.durationMinutes!,Math.max(service!.durationMinutes!,service!.customerDurationMinutes ?? service!.durationMinutes!))
       availability = { outcome: 'verified', phase: 'slots', reason: null, scope }
       return result
     }
     if (!port.availabilityBasket) { availabilityFailure = failedAvailability('PORT_UNAVAILABLE', 'preflight'); return null }
-    const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId, state.serviceEstimates)
+    const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId, state.serviceEstimates, temporal)
     if (!result.ok) {
       if (result.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') {
         return incompatiblePreference(professionalId!, result.professionals, result.professionalFailure)
@@ -667,6 +686,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if ((needsVerifiedSelection || freshNeedsVerifiedSelection) && result.customerDurationMinutes === undefined) { availabilityFailure = failedAvailability('CUSTOMER_DURATION_PROOF_MISSING', 'contract', scope); return null }
     const verifiedGuidance = validateBasketAvailability(result, basketServiceIds(state), state.serviceEstimates)
     acceptExplanation(result)
+    acceptTarget(result,result.durationMinutes,result.customerDurationMinutes ?? result.durationMinutes)
     if (verifiedGuidance.changed) { clearSlot(state); state.serviceEstimates = verifiedGuidance.selections }
     needsVerifiedSelection = freshNeedsVerifiedSelection
     verifiedCustomerDuration = result.customerDurationMinutes
@@ -783,7 +803,10 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       ...(state.timePreference ? { preference: state.timePreference } : {}), requestedTime: state.requestedTime, cursor })
     choicePresentation = adaptChoicePresentation(rendered, 'slots', cursor)
     questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
-    return finish(prefix + rendered.text.replace('Estos horarios están disponibles.', `Horarios disponibles para ${dateLabel(state.date,context.timezone)}:`).replace('¿Cuál te viene bien?', '¿Cuál elegís?')) }
+    const targetTime = state.requestedTime ?? (state.timePreference?.kind === 'around' ? state.timePreference.time : null)
+    const absentTarget = targetTime && !slots.some(slot => slot.time === targetTime)
+    const targetNote = absentTarget ? requestedTimeExplanation(targetTime,targetExplanation) + '\n' : ''
+    return finish(prefix + targetNote + rendered.text.replace('Estos horarios están disponibles.', `Horarios disponibles para ${dateLabel(state.date,context.timezone)}:`).replace('¿Cuál te viene bien?', '¿Cuál elegís?')) }
   if (!state.customerName) { state.pending = resolveDialogueRoute(state, [], 'name').pending; return finish(`${prefix}¿A nombre de quién sería el turno?`) }
   state.pending = resolveDialogueRoute(state, [], 'proposal').pending
   const summary = selectionSummary(selectedServices as DialogueService[])
@@ -797,7 +820,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
 async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent']): Promise<DialogueResponse> {
-  let raw = parseTurnPlan(rawPlan, message)
+  let raw = parseTurnPlan(groundTemporalPlan(rawPlan, message, state), message)
   const possibleMatch = !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
   const needsCatalog = possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
@@ -821,8 +844,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   const matched = matchingTurn(state, message, raw, context, services)
   const contextual = contextualizeIdentity(matched.plan, state, message)
-  const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time') && op.confidence < 0.85)
-  const plan = { ...contextual.plan, operations: contextual.plan.operations.filter(op => op.kind !== 'time_preference' && op.kind !== 'time' || op.confidence >= 0.85) }
+  const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time' || op.kind === 'time_clarification') && op.confidence < 0.85)
+  const plan = { ...contextual.plan, operations: contextual.plan.operations.filter(op => op.kind !== 'time_preference' && op.kind !== 'time' && op.kind !== 'time_clarification' || op.confidence >= 0.85) }
   const identityClarification = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
   const clarificationReply = [identityClarification, tentativeTemporal ? 'No pude confirmar esa elección o preferencia horaria. ¿Qué horario o franja preferís?' : ''].filter(Boolean).join('\n')
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
@@ -866,9 +889,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     state.professionalNameHint = mention
   }
   const timeOp = plan.operations.find(op => op.kind === 'time')
-  if (timeOp?.kind === 'time') { delete state.timePreference; invalidate(false); state.requestedTime = timeOp.value }
+  if (timeOp?.kind === 'time') { delete state.timeClarification; delete state.timePreference; invalidate(false); state.requestedTime = timeOp.value }
+  const clarificationOp = plan.operations.find(op => op.kind === 'time_clarification')
+  if (clarificationOp?.kind === 'time_clarification') { invalidate(true); delete state.timePreference; state.timeClarification = parseTimeClarification({candidateTimes:clarificationOp.candidateTimes}) }
   const preferenceOp = plan.operations.find(op => op.kind === 'time_preference')
-  if (preferenceOp?.kind === 'time_preference') { invalidate(true); state.timePreference = parseTimePreference(preferenceOp.preference) }
+  if (preferenceOp?.kind === 'time_preference') { delete state.timeClarification; invalidate(true); state.timePreference = parseTimePreference(preferenceOp.preference) }
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
 
@@ -914,6 +939,13 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     answers.push(read.reply)
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply, clarificationReply].filter(Boolean).join('\n'), proposal: null, ...(informationReads.some(read => read.outcome === 'clarifying' && read.focus) ? informationChoiceFields(state) : {}) })
+  if (tentativeTemporal && approximateTimeRequest(message)) return { ...finishWithoutAgenda(''), replyPrepared: true }
+  if (state.timeClarification) {
+    state.pending = 'time'
+    const question = temporalClarificationQuestion(state.timeClarification)
+    rememberDialogueQuestion(state, question, [], null)
+    return { ...finishWithoutAgenda(question), replyPrepared: true }
+  }
   if (state.editRequest && !matched.matching) {
     const next = draftEditResponse(state, services)
     return { ...next, reply: [...answers, next.reply, clarificationReply].filter(Boolean).join('\n') }
@@ -947,6 +979,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
 async function respondCore(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
+  if (!decision && (hasBasketSelection(state) && approximateTimeRequest(message) || state.timeClarification)) {
+    const services = await port.catalog()
+    return respondTurnPlan(context, state, message, port, fallbackIndependentTurnPlan(context,state,message,services), 'booking')
+  }
   if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan, decision.intent)
   const delivered = (reply: string): DialogueResponse => {
     const question = pendingQuestion(state)
@@ -1225,14 +1261,14 @@ export async function respondConversationChoice(context: DialogueContext, previo
     }
     state.professional = { kind: 'any' }
   } else if (operation.kind === 'preference') {
-    clearDependent(true); state.timePreference = parseTimePreference(operation.preference)
+    delete state.timeClarification; clearDependent(true); state.timePreference = parseTimePreference(operation.preference)
   } else if (operation.kind === 'slot') {
     if (state.date !== operation.date || state.professional?.kind === 'specific' && state.professional.id !== operation.professionalId) return reject()
     const available = await freshAvailability()
     const slot = available.slots.find(slot => slot.date === operation.date && slot.time === operation.time && slot.professionalId === operation.professionalId && Date.parse(slot.startAt) === Date.parse(operation.startAt) && Date.parse(slot.startAt) > context.dbNow.getTime())
     if (!slot || !available.professionals.some(professional => professional.id === slot.professionalId)) return reject()
     const scoped = parseDialogueState({ ...state, requestedTime: operation.time, slot, timePreference: undefined },context.businessId,context.timezone)
-    clearDependent(false); delete state.timePreference; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
+    delete state.timeClarification; clearDependent(false); delete state.timePreference; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
   }
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
