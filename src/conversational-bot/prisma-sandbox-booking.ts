@@ -1,3 +1,4 @@
+import { readPreviewChoiceState } from './preview-choice.js'
 import { loadActiveServiceContent } from './prisma-service-content.js'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
@@ -49,7 +50,7 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   const conversation = await tx.conversation.findUnique({ where: { id: input.conversationId }, select: { businessId: true, phone: true, supportBotKey: true, supportBotState: true } })
   if (conversation?.businessId !== input.businessId || conversation.phone !== input.expectedPhone || !input.expectedPhone.startsWith(`demo:preview:${input.userId}:`)) return blocked('SCOPE_REJECTED')
   let stored
-  try { stored = parseDialogueState(conversation.supportBotState, input.businessId, terms.timezone) }
+  try { stored = parseDialogueState(readPreviewChoiceState(conversation.supportBotState).draft, input.businessId, terms.timezone) }
   catch { return blocked('SCOPE_REJECTED') }
   if (conversation.supportBotKey !== 'conversational-preview' || !isDeepStrictEqual(stored.sandboxReservation?.presented, presented)) return blocked('SCOPE_REJECTED')
   const identity = createSimulatorBookingIdentity({ businessId: input.businessId, conversationId: input.conversationId, proposalRevision: presented.nonce, proposalFingerprint: presented.fingerprint })

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
+import { PreviewTurnGroupError, parsePreviewTurnGroupInput } from '../src/conversational-bot/preview-turn-group.js'
 import { PreviewChoiceError } from '../src/conversational-bot/preview-choice.js'
 
 const source = readFileSync('src/routes/demo-profile.ts', 'utf8')
@@ -12,12 +13,12 @@ let handler: any
 const calls: any[][] = []
 let failSelection = false
 const runPrismaDemoPreview = async (...args: any[]) => { calls.push(args); if (failSelection) throw new PreviewChoiceError(); return { reply: 'Server reply' } }
-new Function('app', 'canUseCommercialDemos', 'cleanSessionId', 'findAccessibleDemo', 'runPrismaDemoPreview', 'prisma', 'resolveQaPreviewAi', 'resolveQaPreviewAiTimeoutMs', 'SimulatorBookingScopeError', 'PreviewChoiceError', 'process', registration)(
+new Function('app', 'canUseCommercialDemos', 'cleanSessionId', 'findAccessibleDemo', 'runPrismaDemoPreview', 'prisma', 'resolveQaPreviewAi', 'resolveQaPreviewAiTimeoutMs', 'SimulatorBookingScopeError', 'PreviewChoiceError', 'PreviewTurnGroupError', 'parsePreviewTurnGroupInput', 'process', registration)(
   { post: (_path: string, callback: any) => { handler = callback } }, () => true,
   (value: unknown) => typeof value === 'string' && /^[a-z0-9-]+$/.test(value) ? value : null,
   async () => ({ id: 'qa', demoType: 'QA_SANDBOX' }), runPrismaDemoPreview,
   { businessBotConfiguration: { findFirst: () => { throw new Error('do not enter another engine') } } }, () => undefined, () => 15000,
-  class SimulatorBookingScopeError extends Error {}, PreviewChoiceError, { env: {} })
+  class SimulatorBookingScopeError extends Error {}, PreviewChoiceError, PreviewTurnGroupError, parsePreviewTurnGroupInput, { env: {} })
 async function request(body: unknown, role = 'SUPER_ADMIN') {
   const response: any = { statusCode: 200, payload: null, status(code: number) { this.statusCode = code; return this }, send(payload: any) { this.payload = payload; return this } }
   const result = await handler({ auth: { user: { id: 'admin', role } }, params: { id: 'qa' }, body }, response)
@@ -34,6 +35,12 @@ assert.equal((await request({ message: 'x', sessionId: 'one', mode: 'existing', 
 for (const body of [null, [], { message: 4, sessionId: 'one' }, { message: 'x', sessionId: 'one', interactiveReplyId: {} }]) {
   assert.equal((await request(body)).response.statusCode, 400)
 }
+const group = { id: 'group-1', revision: '0', visibleRevision: '0', fragments: ['hola'] }
+await request({ message: 'hola', sessionId: 'one', mode: 'conversational-preview', turnGroup: group })
+assert.deepEqual(calls.at(-1)?.[10], group, 'HTTP passes validated group separately from text/choice/capability')
+const invalidGroup = await request({ message: 'hola', sessionId: 'one', mode: 'conversational-preview', turnGroup: { ...group, base: {} } })
+assert.equal(invalidGroup.response.statusCode, 409)
+assert.equal(invalidGroup.response.payload.previewGroupInvalid, true)
 failSelection = true
 const stale = await request({ sessionId: 'one', mode: 'conversational-preview', interactiveReplyId: id })
 assert.equal(stale.response.statusCode, 409)

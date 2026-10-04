@@ -260,5 +260,73 @@ try {
   assert.doesNotMatch(normalized.reply,/Centro, Centro/)
   assert.equal(await count('Appointment'),1,'address changes never create another appointment')
   assert.equal((await db.query<any>('SELECT "status" FROM "Appointment"')).rows[0].status,'CONFIRMED')
+
+  // Real CRM queue plus real Prisma booking adapter: an executed effect cannot be concealed or replayed.
+  const ui = await readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+  const uiSource = (name: string) => {
+    const match = ui.match(new RegExp('(?:async )?function ' + name + '\\([^]*?\\n    \\}'))
+    assert.ok(match); return match[0]
+  }
+  await db.exec('DELETE FROM "AppointmentServiceItem"; DELETE FROM "Appointment"; DELETE FROM "Customer"; DELETE FROM "Message"')
+  await seed()
+  const chatState: any = { demoChatMessages: [], demoChatSessionId: 'test' }
+  const els: any = { demoProfileSelect: { value: 'qa' }, demoPreviewModeRow: { hidden: false }, demoPreviewMode: { value: 'conversational-preview' }, demoChatInput: { value: '', focus() {} }, demoChatSend: { disabled: false } }
+  let release!: () => void, effectDone!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const executed = new Promise<void>(resolve => { effectDone = resolve })
+  const requestBodies: any[] = []
+  const getJson = async (_url: string, options: any) => {
+    const body = JSON.parse(options.body), index = requestBodies.length
+    requestBodies.push(body)
+    const result = await runPrismaDemoPreview(client, 'qa', 'admin', body.sessionId, body.message, factory, undefined, undefined, { sandboxBooking: true }, body.interactiveReplyId, body.turnGroup)
+    if (index === 0) { effectDone(); await held }
+    return result
+  }
+  const send = new Function('state', 'els', 'getJson', 'renderDemoChatMessages', 'setButtonLoading',
+    [uiSource('startNewDemoChat'), uiSource('drainDemoPreviewMessages'), uiSource('sendDemoChatMessage'), 'return sendDemoChatMessage'].join('\n'))(
+    chatState, els, getJson, () => {}, () => true)
+  els.demoChatInput.value = 'confirmo'; await send({ preventDefault() {} })
+  els.demoChatInput.value = 'cuales son los horarios del local?'; await send({ preventDefault() {} })
+  await executed
+  assert.equal(await count('Appointment'), 1, 'booking has really executed before its HTTP response reaches the queue')
+  release()
+  for (let tries = 0; tries < 200 && chatState.demoChatPreviewRun.working; tries++) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(chatState.demoChatPreviewRun.working, false)
+  const visible = chatState.demoChatMessages.filter((message: any) => message.role === 'bot')
+  assert.match(visible[0]?.text ?? '', /La reserva fue confirmada/, 'executed booking receipt must be visible even with a queued followup')
+  assert.match(visible[1]?.text ?? '', /Sábado: 11:00 a 20:00/)
+  assert.equal(await count('Appointment'), 1, 'followup must never replay or undo an executed booking')
+  assert.equal(requestBodies.length, 2)
+  assert.notEqual(requestBodies[0].turnGroup.id, requestBodies[1].turnGroup.id)
+  assert.deepEqual(requestBodies[1].turnGroup.fragments, ['cuales son los horarios del local?'])
+
+
+  // Private recovery snapshots must not count as engine state or invalidate an already executed receipt.
+  const padded = structuredClone(state) as any
+  padded.futureStatePadding = 'x'.repeat(9000)
+  parseDialogueState(padded, 'qa', context.timezone)
+  await seed(padded)
+  const largeFirst = await runPrismaDemoPreview(client, 'qa', 'admin', 'test', 'confirmo', factory, undefined, undefined, { sandboxBooking: true }, undefined,
+    { id: 'padded-first', revision: '0', visibleRevision: '0', fragments: ['confirmo'] })
+  assert.equal(largeFirst.bookingConfirmed, true)
+  const largeFollowup = await runPrismaDemoPreview(client, 'qa', 'admin', 'test', 'cuales son los horarios del local?', factory, undefined, undefined, { sandboxBooking: true }, undefined,
+    { id: 'padded-followup', revision: largeFirst.previewRevision, visibleRevision: largeFirst.previewRevision, fragments: ['cuales son los horarios del local?'] })
+  assert.equal(largeFollowup.bookingConfirmed, true, 'private ledger size must not silently invalidate a committed reservation')
+  assert.equal(largeFollowup.bookingReceipt!.appointmentId, largeFirst.bookingReceipt!.appointmentId)
+  assert.match(largeFollowup.reply, /Sábado: 11:00 a 20:00/)
+  assert.equal(await count('Appointment'), 1)
+
+
+  const beforeVisible = chatState.demoChatMessages.filter((message: any) => message.role === 'bot').length
+  chatState.demoChatPreviewRun = { profileId: 'qa', sessionId: 'test', queue: [], working: false, revision: largeFollowup.previewRevision, visibleRevision: largeFollowup.previewRevision, group: null }
+  els.demoChatInput.value = 'cuales son los horarios del local?'; await send({ preventDefault() {} })
+  els.demoChatInput.value = 'y como estas'; await send({ preventDefault() {} })
+  for (let tries = 0; tries < 200 && chatState.demoChatPreviewRun.working; tries++) await new Promise(resolve => setTimeout(resolve, 5))
+  const afterReceiptReplies = chatState.demoChatMessages.filter((message: any) => message.role === 'bot').slice(beforeVisible)
+  assert.equal(afterReceiptReplies.length, 1, 'a historical receipt must not seal every later informational fragment')
+  assert.match(afterReceiptReplies[0].text, /Sábado: 11:00 a 20:00/)
+  assert.doesNotMatch(afterReceiptReplies[0].text, /La reserva fue confirmada/)
+  assert.equal(await count('Appointment'), 1)
+
   console.log('sandbox booking adapter PGlite: OK (offline; advisory hierarchy inspected, cross-process locks not simulated)')
 } finally { await db.close() }

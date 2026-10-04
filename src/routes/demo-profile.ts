@@ -13,6 +13,7 @@ import {
 import { renderLanding } from './landing-ui.js'
 import type {} from '../plugins/auth-guard.js'
 import { runDeterministicDemoSimulation } from '../bot-options/application/run-demo-simulation.js'
+import { parsePreviewTurnGroupInput, PreviewTurnGroupError } from '../conversational-bot/preview-turn-group.js'
 import { runPrismaDemoPreview, SimulatorBookingScopeError } from '../conversational-bot/demo-preview-prisma.js'
 import { resolveQaPreviewAi, resolveQaPreviewAiTimeoutMs } from '../conversational-bot/qa-preview-ai.js'
 
@@ -182,7 +183,7 @@ export async function demoProfileRoutes(app: FastifyInstance) {
     }
     const params = request.params as { id: string }
     if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) return reply.status(400).send({ message: 'Datos de conversación no válidos' })
-    const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string; mode?: string }
+    const body = request.body as { message?: string; sessionId?: string; interactiveReplyId?: string; mode?: string; turnGroup?: unknown }
     if (body.message !== undefined && typeof body.message !== 'string' || body.interactiveReplyId !== undefined && typeof body.interactiveReplyId !== 'string') return reply.status(400).send({ message: 'Mensaje u opción no válidos' })
     const message = body.message?.trim() || ''
     const sessionId = cleanSessionId(body.sessionId)
@@ -196,8 +197,10 @@ export async function demoProfileRoutes(app: FastifyInstance) {
         return reply.status(403).send({ message: 'La vista previa conversacional solo esta disponible en QA' })
       }
       try {
-        return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true }, interactiveReplyId)
+        const turnGroup = body.turnGroup === undefined ? undefined : parsePreviewTurnGroupInput(body.turnGroup)
+        return await runPrismaDemoPreview(prisma, business.id, user.id, sessionId, message, undefined, resolveQaPreviewAi(process.env), resolveQaPreviewAiTimeoutMs(process.env), { sandboxBooking: true }, interactiveReplyId, turnGroup)
       } catch (error) {
+        if (error instanceof PreviewTurnGroupError) return reply.status(409).send({ message: error.message, previewGroupInvalid: true })
         if (error instanceof PreviewChoiceError) return reply.status(409).send({ message: error.message, choiceDiagnostic: { gate: error.gate, reason: error.reason } })
         if (error instanceof SimulatorBookingScopeError) return reply.status(403).send({ message: 'Las reservas de prueba sólo están habilitadas para superadministradores en perfiles QA.' })
         throw error

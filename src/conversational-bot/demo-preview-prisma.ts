@@ -1,3 +1,4 @@
+import { preparePreviewTurnGroup, storePreviewTurnGroup, PreviewTurnGroupError } from './preview-turn-group.js'
 import { loadActiveServiceContent } from './prisma-service-content.js'
 import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope, type ConversationChoiceOperation } from './choices.js'
 import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
@@ -5,7 +6,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 import { executePrismaSandboxBooking, verifySimulatorBookingScope } from './prisma-sandbox-booking.js'
-import { finalizeSandboxBooking } from './sandbox-booking.js'
+import { finalizeSandboxBooking, sandboxReceiptReply } from './sandbox-booking.js'
 import { parseDialogueState, ConversationChoiceUnavailableError, type DialogueState } from './engine.js'
 import { parseDialogueQuestion } from './dialogue-context.js'
 import { choiceOptionId } from './dialogue-choice-presentation.js'
@@ -48,7 +49,8 @@ export async function runPrismaDemoPreview(
   interpretationProvider?: AiInterpretationProvider,
   interpretationTimeoutMs?: number,
   capability?: { sandboxBooking: true },
-  interactiveReplyId?: string
+  interactiveReplyId?: string,
+  turnGroupInput?: unknown
 ) {
   const phone = `demo:preview:${userId}:${sessionId}`
   const started = performance.now()
@@ -59,7 +61,7 @@ export async function runPrismaDemoPreview(
   pendingBySession.set(queueKey, finished)
   await preceding
   try {
-    return await processPreviewTurn(client, businessId, userId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs, capability?.sandboxBooking === true, interactiveReplyId)
+    return await processPreviewTurn(client, businessId, userId, phone, message, createPort, started, interpretationProvider, interpretationTimeoutMs, capability?.sandboxBooking === true, interactiveReplyId, turnGroupInput)
   } finally {
     release()
     if (pendingBySession.get(queueKey) === finished) pendingBySession.delete(queueKey)
@@ -70,7 +72,7 @@ export async function runPrismaDemoPreview(
 const pendingBySession = new Map<string, Promise<void>>()
 async function processPreviewTurn(
   client: any, businessId: string, userId: string, phone: string, message: string,
-  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false, interactiveReplyId?: string
+  createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false, interactiveReplyId?: string, turnGroupInput?: unknown
 ) {
   if (sandboxBooking && !await verifySimulatorBookingScope(client, businessId, userId)) throw new SimulatorBookingScopeError()
   const key = { businessId_phone: { businessId, phone } }
@@ -85,18 +87,22 @@ async function processPreviewTurn(
     const ledger = readPreviewChoiceState(snapshot?.supportBotState ?? null)
     // Preview uses its own virtual policy version, never pretends to be a WhatsApp deployment.
     const scope: ChoiceScope = { businessId, conversationKey: phone, policyKey: sandboxBooking ? 'preview-sandbox:v1' : 'preview:v1', policyGeneration: 1, revision: ledger.revision }
+    if (interactiveReplyId && turnGroupInput !== undefined) throw new PreviewTurnGroupError()
+    const group = turnGroupInput === undefined ? null : preparePreviewTurnGroup(snapshot?.supportBotState, ledger.draft, scope, turnGroupInput, message)
     const selection = interactiveReplyId ? resolvePreviewChoice(snapshot?.supportBotState, scope, interactiveReplyId) : null
     const inbound = selection?.label ?? message
+    const engineDraft = group ? group.draft : ledger.draft
+    const engineMessage = group ? group.message : inbound
     const loadedAt = performance.now()
     let loadedTimezone: string | undefined
     const prepared = await runConversationalPreview({
-      load: async () => ledger.draft,
+      load: async () => engineDraft,
       save: async () => {},
       createPort: async id => { const created = await createPort(id); loadedTimezone = created.context.timezone; return { ...created, context: { ...created.context, sandboxBooking } } },
       ...(selection ? { choiceOperation: selection.operation } : {}),
       ...(interpretationProvider ? { interpretationProvider } : {}),
       ...(interpretationTimeoutMs !== undefined ? { interpretationTimeoutMs } : {})
-    }, businessId, phone, inbound).catch((error: unknown) => {
+    }, businessId, phone, engineMessage).catch((error: unknown) => {
       if (selection && error instanceof ConversationChoiceUnavailableError) throw new PreviewChoiceError('engine_admission', admissionReason(ledger.draft, businessId, loadedTimezone, selection.operation))
       throw error
     })
@@ -126,8 +132,16 @@ async function processPreviewTurn(
       // A verified existing receipt is not a new effect: preserve the answer to address/hours queries.
       const finalized = bookingResponse && bookingResult && (prepared.bookingCommand || bookingResult.kind !== 'COMMITTED') ? finalizeSandboxBooking(bookingResponse, bookingResult) : null
       const state = finalized ? parseDialogueState(finalized.state, businessId, command!.presented.terms.timezone) : prepared.state
-      const reply = finalized?.reply ?? prepared.reply
+      let reply = finalized?.reply ?? prepared.reply
       const revision = nextPreviewRevision(ledger.revision)
+      const baseReceipt = engineDraft === null ? undefined : parseDialogueState(engineDraft, businessId, loadedTimezone).sandboxReservation?.receipt
+      const sealed = Boolean(state.sandboxReservation?.receipt && !baseReceipt)
+      // A verified historical receipt is state, not a new delivery event. Retain explicit
+      // receipt-only answers, but do not append the same canonical receipt to a factual reply.
+      if (group && baseReceipt && bookingResult?.kind === 'COMMITTED' && state.sandboxReservation?.receipt) {
+        const receiptText = sandboxReceiptReply(state.sandboxReservation)
+        if (reply.endsWith('\n' + receiptText) && reply !== receiptText) reply = reply.slice(0, -receiptText.length).trimEnd()
+      }
       let question: ChoiceQuestion | null = null
       // A finalized booking invalidates its confirmation choices. Oversized delivery degrades
       // to the already complete text, never truncates options/configuration or publishes a subset.
@@ -148,15 +162,15 @@ async function processPreviewTurn(
       await tx.message.create({ data: { conversationId: conversation.id, phone, direction: 'OUTBOUND', body: reply,
         status: 'conversational_preview', metadata: { provider: 'conversational_preview', interpretation: prepared.interpretation, ...(presentation ? { presentation } : {}) } } })
       await tx.conversation.update({ where: { id: conversation.id }, data: {
-        supportBotKey: PREVIEW_OWNER, supportBotState: storePreviewChoiceState(state, revision, question) as unknown as Prisma.InputJsonValue
+        supportBotKey: PREVIEW_OWNER, supportBotState: storePreviewTurnGroup(storePreviewChoiceState(state, revision, question), group?.group ?? null, revision, sealed) as unknown as Prisma.InputJsonValue
       } })
-      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted), state, reply, presentation }
+      return { conflict: false as const, lockMs: rounded(lockedAt - lockStarted), state, reply, presentation, revision, sealed }
     }, { timeout: 10_000, maxWait: 3_000 })
     if (committed.conflict) { if (interactiveReplyId) throw new PreviewChoiceError('commit_recheck'); continue }
     const done = performance.now()
     const { bookingCommand: _command, choicePresentation: _choices, ...publicPrepared } = prepared
     const receipt = committed.state.sandboxReservation?.receipt
-    return { ...publicPrepared, state: committed.state, reply: committed.reply, presentation: committed.presentation, proposalReady: receipt ? false : prepared.proposalReady,
+    return { ...publicPrepared, state: committed.state, reply: committed.reply, presentation: committed.presentation, previewRevision: committed.revision, ...(group ? { turnGroup: { id: group.group.id, revision: committed.revision, sealed: committed.sealed } } : {}), proposalReady: receipt ? false : prepared.proposalReady,
       ...(sandboxBooking ? { bookingConfirmed: Boolean(receipt), bookingReceipt: receipt ? { appointmentId: receipt.appointmentId } : null } : {}), timings: { ...prepared.timings,
       loadMs: rounded(loadedAt - loadingAt),
       persistMs: rounded(done - committingAt),

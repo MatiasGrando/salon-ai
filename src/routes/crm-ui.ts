@@ -22310,6 +22310,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       try {
         while (run.queue.length && state.demoChatPreviewRun === run) {
           const next = run.queue.shift()
+          if (!next.interactiveReplyId) {
+            if (!run.group) run.group = { id: 'group-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8), fragments: [] }
+            run.group.fragments.push(next.message)
+          }
           try {
             const result = await getJson('/admin/demo-profiles/' + encodeURIComponent(run.profileId) + '/chat', {
               method: 'POST',
@@ -22318,12 +22322,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 message: next.message,
                 sessionId: run.sessionId,
                 mode: 'conversational-preview',
+                ...(!next.interactiveReplyId ? { turnGroup: { id: run.group.id, revision: run.revision || '0', visibleRevision: next.visibleRevision || '0', fragments: run.group.fragments } } : {}),
                 ...(next.interactiveReplyId ? { interactiveReplyId: next.interactiveReplyId } : {})
               })
             })
             if (state.demoChatPreviewRun !== run) break
-            // A later message has already arrived: persist this turn but show only the latest answer.
-            if (run.queue.length) continue
+            run.revision = result.previewRevision || result.turnGroup?.revision || run.revision || '0'
+            // Only extend from the server-owned base while nothing has become visible.
+            // Executed bookings are an irrevocable boundary: show their receipt before continuing.
+            const sealed = result.turnGroup ? result.turnGroup.sealed : result.bookingConfirmed || result.state?.sandboxReservation?.receipt
+            const following = run.queue[0]
+            const extendable = following && !following.interactiveReplyId && run.group && run.group.fragments.length < 32
+              && run.group.fragments.concat(following.message).join(' ').length <= 2000
+            if (run.queue.length && !sealed && extendable) continue
+            run.group = null
             const presentation = result.presentation
             const options = Array.isArray(presentation?.choices) && presentation.choices.length <= 10 ? presentation.choices : []
             const validOptions = options.length && options.every((option) => option && typeof option.id === 'string' && option.id.startsWith('c1.') && option.id.length <= 110 && typeof option.title === 'string' && option.title.length > 0 && option.title.length <= 200)
@@ -22337,9 +22349,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               replyTitle: replyButtons.length && typeof presentation.title === 'string' && presentation.title.length <= 240 ? presentation.title : null,
               ...(result.state && result.timings ? { preview: { interpretacion: result.interpretation, estado: result.state.pending, datos: { servicio: result.state.serviceId, fecha: result.state.date, profesional: result.state.professional, horario: result.state.requestedTime || result.state.slot?.time, nombre: result.state.customerName }, propuestaLista: result.proposalReady, tiemposMs: result.timings } } : {})
             })
+            run.visibleRevision = run.revision
             renderDemoChatMessages()
           } catch (error) {
             if (state.demoChatPreviewRun !== run) break
+            if (error.body?.previewGroupInvalid === true) run.group = null
             const choiceDiagnostic = error.body?.choiceDiagnostic
             const validChoiceDiagnostic = choiceDiagnostic && ['ledger_resolve', 'engine_admission', 'commit_recheck'].includes(choiceDiagnostic.gate)
               && ['not_current', 'question_incomplete', 'role_or_option_mismatch', 'draft_not_eligible', 'current_data_unavailable'].includes(choiceDiagnostic.reason)
@@ -22364,6 +22378,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const isPreview = !els.demoPreviewModeRow.hidden && els.demoPreviewMode.value === 'conversational-preview'
       if (!profileId || !message || (els.demoChatSend.disabled && !isPreview)) return
       if (!state.demoChatSessionId) startNewDemoChat()
+      if (isPreview && message.length > 2000) {
+        state.demoChatMessages.push({ role: 'bot', text: 'El mensaje es demasiado largo. Dividilo en mensajes de hasta 2000 caracteres.' })
+        renderDemoChatMessages()
+        return
+      }
       state.demoChatMessages = state.demoChatMessages.map((chatMessage) => {
         if (chatMessage.role !== 'bot' || !chatMessage.replyButtons?.length) return chatMessage
         return { ...chatMessage, replyButtonsDisabled: true }
@@ -22375,10 +22394,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           profileId,
           sessionId: state.demoChatSessionId,
           queue: [],
-          working: false
+          working: false,
+          revision: '0',
+          group: null
         }
         state.demoChatPreviewRun = run
-        run.queue.push({ message, interactiveReplyId: selectedReply?.id })
+        run.queue.push({ message, interactiveReplyId: selectedReply?.id, visibleRevision: run.visibleRevision || '0' })
         renderDemoChatMessages()
         void drainDemoPreviewMessages(run)
         els.demoChatInput.focus()

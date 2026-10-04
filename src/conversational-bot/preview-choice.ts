@@ -1,5 +1,7 @@
 import { choiceDraftFingerprint, parseChoiceQuestion, resolveChoice, type ChoiceQuestion, type ChoiceScope, type ConversationChoiceOperation } from './choices.js'
 
+import { PREVIEW_GROUP_FIELD } from './preview-turn-group.js'
+
 const FIELD = 'previewChoiceContext'
 type Ledger = { version: 1; revision: string; question: ChoiceQuestion | null }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -19,6 +21,7 @@ export function readPreviewChoiceState(value: unknown): { draft: unknown; revisi
   if (question && question.scope.revision !== raw.revision) throw new Error('invalid preview choice revision')
   const draft = structuredClone(value)
   delete draft[FIELD]
+  delete draft[PREVIEW_GROUP_FIELD]
   return { draft, revision: raw.revision, question }
 }
 export function storePreviewChoiceState<T extends object>(draft: T, revision: string, question: ChoiceQuestion | null): T & { previewChoiceContext: Ledger } {
