@@ -4,7 +4,7 @@
 - **Exploración delegada:** service_grounding_writer READONLY reprodujo18 combinaciones plan vacío/null/ausente × firstReply/intakeReply/ninguno con ambos mensajes; sin agenda/efectos. Engine1095/921/229/447, ai395/412/431/450 y reply-contract93–94. Literal raw multiline no acreditado; primer caso equivalente unido con espacios, no modificar controles de entrada. Pruebas previas /servicio/ demasiado débiles.
 - **Ruta:** delegated direct por4+archivos mapping/preparación y2+no triviales. Writer acotado mismo agente; padre documentación, revisión focal y cierre/reinicio. STRICT heredado E2.20/E2.21; runner node node_modules/tsx/dist/cli.mjs scripts/<suite>-test.ts. RED observado previo fuente, GREEN y refactor. Forecast150–350 authored;400heurística no cap/omisión/minificación. Estrategia feature-branch-chain ya aceptada, commits locales; RDD ON/boundaryf032c0f, assessment/STATUS exacto sin review ajeno.
 - [x] **E2.22a:** distinguir adquisición sin servicio de evidencia explícitamente no identificada; pregunta preparada, primera llamada/framing seguro o canon cuando falta, sin segunda estética. Tests ambos payloads y variantesempty/null/absent/drafts, desconocido/ambiguo/cesta/correcciones/información/identidad/consentimiento. Ruta delegada; no cambiar contratos de seguridad.
-- [ ] **E2.22b:** integración offline pertinente, strict focal, UTF8/diff/hashes, commit/evidencia y actualizar sólo helperCRM3000 verificado cuando idle. QA humana/modelo/GUI/latencia reales pendientes; baseline estático BookingV2:42 intacto fuera de alcance.
+- [x] **E2.22b:** integración offline pertinente, strict focal, UTF8/diff/hashes, commit/evidencia y actualizar sólo helperCRM3000 verificado cuando idle. QA humana/modelo/GUI/latencia reales pendientes; baseline estático BookingV2:42 intacto fuera de alcance.
 - **Aceptación:** pregunta normal sin «No pude identificar» ni entidades seleccionadas; una presentación configurada y una llamada para inicio sin hechos nuevos de agenda. Unknown real conserva aclaración, variantes no se afirman. Campos conocidos/consulta lateral/consentimiento intactos. Primer borrador inseguro no dispara llamada estética ni debilita identityguard.
 - **Memoria:** mem_* no expuesto; espejo completo odd/nuevo-bot-reservas/tasks pendiente; documento local recovery antes fuentes. Siguiente: cierre de integración y actualización únicamente del CRM local; fuentes congeladas.
 
@@ -17,6 +17,29 @@
 - **E2.22a verificación:** RED antes de fuentes: matriz24 con20fallos de llamada adicional; pregunta incorrecta y grupo visible reproducidos. GREEN writer27 suites y5causales finales; padre diff engine+3tests/hashes definitivos4 PASS. Sólo engine cambia: adquisición booking sin entidad no usa todo el mensaje como consulta lexical; candidate pendiente reutiliza pregunta sin confirmationId, nunca autoselección. Rutas información/estimate/cesta/referral/corrección preservadas. Primera llamada segura reutilizada, canon preparado si falta/es insegura; identityguard intacto. Strict padre10 módulos EXIT0; strict importpreview writer mantiene10diagnósticos depósito baseline, no comprobación global. UTF8 PASS. Integración66 aún en curso; no reinicio hasta cierre.
 
 - **Integración padre E2.22:** manifest66 offline EXIT1:65PASS y único FAIL booking-v2-ai-budget-contract-test.ts:42, baseline estático ya reproducido antes del cambio, fuente legacy intacta. Strict10 EXIT0, UTF8/diff y4SHA freeze PASS. IA/DB/WhatsApp/GUI reales no ejecutados; tipos generales no acreditados. Commit local de unidad a continuación; helper3000 todavía E2.21 hasta reinicio.
+
+- **E2.22a commit/RDD:** 435e23ed8c482d1374a8cc12b0c102de9999eff5,117 authored/5paths incluidos tests/documento. ASSESS due=true/slice_budget_reached; STATUS exacto committed-only/basef032c0f applicability=unrelated targetsha256:6bc747642cb17be59ecebdac77be87e057f10130a63611990d972dd0790cf306. Sin START/receipt/avanceboundary, revisión relacionada pendiente, no aprobación inventada.
+- **E2.22b local:** usuario confirmó simulador idle; TCP/CIM helper7092 exacto verificado antesStopONLY. Helper intacto sin workers relanzado PID13168/session28392 READY127.0.0.1:3000; TCP/CIM exacto y GET/crm200 HTML/simulador/visibleRevision PASS. No piloto/túnel/Railway/Meta/env/modelos/deps/DB ni otrosperfiles. Sólo CRM local actualizado tras checks.
+
+### Recuperación de sesión E2.22
+## Goal
+Corregir adquisición de reserva sin servicio y cerrar verificación/reinicio local.
+## Instructions
+Local únicamente; usuario confirmó idle, no bajar identityguard ni consent/freshness; preservar archivos ajenos.
+## Discoveries
+- Booking no-op aceptado no es evidencia de servicio desconocido; el motor lo convertía en búsqueda lexical y generaba un hecho incorrecto.
+- Una respuesta preparada puede reutilizar apertura segura desde la primera llamada, sin comprar otra redacción.
+- Grupo de3fragmentos puede ejecutar3interpretaciones por snapshot: aiCalls1 final no implica1request total del grupo.
+## Accomplished
+Fuente engine y3tests, matriz24/guardas candidata/agrupación offline. Padre65/66PASS con baselinelegacy42 intacto; strict10/UTF8/diff/hashes4PASS. Workunit435e23e, RDD due/unrelated sinreceipt. CRM3000 PID13168 READY/HTTP200.
+## Next Steps
+Usuario recarga CRM/Nueva conversación y prueba ambos saludos+pedido con IA real; pregunta normal sin No pude identificar, presentación visible una vez, última interpretaciónaiCalls1. GUI/modelo/latencia reales no acreditados. Contrato legacy42/revisiónnative relacionada/Engram pendientes. Corpus91/capa determinista fase3 y bookingv2/multistaff/editor fuera de este alcance.
+## Relevant Files
+- C:\Users\cpu\salon-ai\src\conversational-bot\engine.ts — adquisición no-op y canon preparado.
+- C:\Users\cpu\salon-ai\scripts\conversational-bot-single-call-test.ts — matriz24 y guardas.
+- C:\Users\cpu\salon-ai\scripts\conversational-bot-semantic-delivery-test.ts — pregunta normal.
+- C:\Users\cpu\salon-ai\scripts\conversational-preview-visible-group-test.ts — grupo visible con proveedor falso.
+- C:\Users\cpu\salon-ai\odd\tasks\nuevo-bot-reservas.md — recuperación; Engrammem_* ausentes, espejo completo pendiente.
 
 ## E2.21 — Saludo visible, entrega estándar y servicios contextualizados (04/10/2026)
 - **Autorización:** «bien avanza con el 1, 2 y 3». Desarrollo local sobre la plataforma existente: presentación en mensajes fragmentados, respuestas según la guía completa y validación modular de identidades de servicios. Sin push, PR, despliegue, WhatsApp/Meta/OpenAI real, cambios de modelos, entorno, dependencias, esquema ni instrucciones futuras.
