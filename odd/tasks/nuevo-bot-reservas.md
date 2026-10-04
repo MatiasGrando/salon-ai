@@ -7,13 +7,39 @@
 
 - **Continuación contextual:** evidencia afirmativa del período sobre candidateTimes vigentes permite comentario natural; no exigir16:00 literal ni aceptar negación/contradicción/retórica. Fallback durante aclaración no extrae fecha/hora nueva del mensaje entero; conserva martes/servicio/profesional/nombre. Cambios explícitos tipados y validados siguen posibles, around mantiene intención aproximada.
 - **Ruta/checks:** STRICT heredado E2.18/19, RED observado antes fuente, GREEN/refactor. Runner node node_modules/tsx/dist/cli.mjs scripts/<suite>-test.ts; QA skill y referencias aplican seguridad, orden legacy nombre-first superado por guía nueva aceptada. Mapping delegado; writer delegado por2+no triviales, padre integración/docs/checks/restart mecánico. Forecast500–900 authored orientativo, no cap/split artificial; feature-branch-chain aceptada retenida. RDD ON global, boundaryf032c0f, assess/STATUS exacto sinSTART de selección ajena. Engram mem_* ausentes: espejo completo odd/nuevo-bot-reservas/tasks pendiente, documento readback.
-- [x] **E2.20a** Contexto comercial temporal modular y aclaración afirmativa/contextual, fuente pública reutilizada y fallback conservador sin reescribir campos; pruebas RED/GREEN de ambos chats y scope/unknown/excepciones/cambios verdaderos/consulta-count/noauto-slot. Ruta delegada, checks finales observados; commit inmediato.
-- [ ] **E2.20b** Integración offline/focaltypes/encoding/diff, evidencia y helperCRM3000 únicamente trasfreeze/verificación. Ruta inline padre; QA real/GUI/latencia/globaltypes no se afirman. Work-unit documental y commit/evidencia.
+- [x] **E2.20a** Contexto comercial temporal modular y aclaración afirmativa/contextual, fuente pública reutilizada y fallback conservador sin reescribir campos; pruebas RED/GREEN de ambos chats y scope/unknown/excepciones/cambios verdaderos/consulta-count/noauto-slot. Ruta delegada; commit b3941ccc616225a2db7cd84a8fc0e2302228ab27,396authored/11paths incl.pruebas/documento.
+- [x] **E2.20b** Integración offline/focaltypes/encoding/diff, evidencia y helperCRM3000 únicamente trasfreeze/verificación. Ruta inline padre; QA real/GUI/latencia/globaltypes no se afirman. Work-unit documental y commit/evidencia.
 - **Aceptación/pendientes:** tipo4 en jornada11–20 -> around16 sin preguntaAMPM;04AM explícito permanece04 y agenda explica imposibilidad. Jornada con ambos -> pregunta; sin prueba -> no inferencia. Respuesta de la tarde+comentario no cambia2026-10-06 a2026-10-05 ni requested04. Conservar datos y guardas de consentimiento/handoff/tenant; fuente/profesional/slots no autoriza confirmar. Saludoagrupado/composiciónstd/listas/clasificaciónlegacy/corpus91/multi-profesional/derivaciónCRM/editor quedan separados.
-- **Estado:** E2.20a fuentes congeladas y verificacion offline completa; E2.20b activacion CRM y evidencia final pendientes.
+- **Estado:** E2.20a implementado y E2.20b verificado/activo localmente; IA real/manual pendientes, no equivale a cerrar estandar ni otros bloques.
 - **E2.20a progreso anterior (recuperacion):** writer delegado commercial_hour_context_writer, Sol6.1 por elección humana previa, lease exclusivo fuentes/tests. RED observado fixture offline: tipo4 devolvía preferenceundefined en vez around16. En implementación: proof del mismoSQL/stamp/memo; bloques globales sin semántica de cierre se tratan unknown, nunca como ocupación para elegir hora. Aclaración/contexto y fallback aún en GREEN/refactor, no freeze/commit/activación. Ruta real Prisma con transaction/catálogo reutiliza stamp; missingtransaction/failure abstiene sin consulta nueva. Mapping adicional readonly del wiring CRM solicitado, sin env/DB/API.
 
 - **E2.20a verificacion final:** RED inicial tipo4 sin around, RED adicional autocorreccion de periodo y proof prospectivo del martes expuesto para miercoles; GREEN observado tras correcciones. Padre postfreeze 24 suites:22PASS y2fallos baseline (ai-interpreter:57 null!==lights; contextual-matching:64 null!==cut), reproducidos con390f5eb mediante hook Node/esbuild readonly de6modulos sin checkout. No se cambiaron expectativas ni grounding de servicios. Writer9PASS; strict7 padre/writer EXIT0 con --ignoreConfig/--types node y opciones estrictas del runner; primer intento CLI TS5112 no fue fallo fuente. Sin globaltypes por OOM/errores ajenos baseline, ni DB/API/GUI/latencia reales. Fuente10SHA freeze verificada, default Prisma cold/warm/stamp refresh y PGlite sin SQL nuevo/candidato. around16 sin requestedTime/slot/propuesta;04 explicito prevalece; negacion/contradiccion conserva aclaracion y dia; fecha prospectiva proof correcto. Work-unit local exact whitelist10+tracker; commit inmediato. RDD ON global/boundaryf032c0f, assessment/STATUS pendientes. Engram no expuesto: mirror pendiente.
+- **E2.20a RDD:** ASSESS review_due=true/slice_budget_reached; STATUS exacto basef032c0f/committed-only, applicability=unrelated,targetsha256:15f6707da260485d0fe022c8ed87112a7953243f0ed53f1b2ea9957c1da5949d. SinSTART ajeno/receipt/avanceboundary; revision relacionada pendiente, tier no capturado/no presumido bajo.
+- **E2.20b activacion:** puerto3000 libre, no mensajes/procesos detenidos. Helper existente tmp/qa-local-server.ts intacto, buildApp sinworkers/emisor/tunel, session71292/PID14944/executable/commandline verificados. QA_LOCAL_READY127.0.0.1:3000 yGET/crmHTTP200+HTML; nohealth/DB/APIreal. 22suitesPASS/2baselineFAIL ystrict7/UTF8/diff/freeze10SHA PASS. Sinpush/PR/produccion, foreignexport/temporales intactos. MirrorEngram pendiente unavailable. Apply_patch fallo pathreparsepoint antes de leer; ruta resuelta porfs.realpathSync verificada dentro delworkspace, escrituraUTF8 autorizada por execsin cambiar permisos.
+
+### E2.20 — Session Summary (recuperacion local; Engram no expuesto)
+## Goal
+Resolver hora implicita con contexto comercial y evitar que un comentario a una aclaracion temporal reescriba el dia o la hora del pedido.
+## Instructions
+Reutilizar plataforma/datos actuales; cambios modulares locales. IA interpreta, motor valida alcance/datos/acciones sin sustituir una intencion valida por barrido lexico. Una preferencia no selecciona ni confirma turno.
+## Discoveries
+- IA si se ejecutaba: validador rechazaba evidencia natural y fallback leia palabras incidentales como fecha/hora nuevas.
+- Proof diario debe coincidir con negocio/zona/fecha prospectiva para modelo y motor; no prueba disponibilidad.
+- Dos suites ya fallaban390f5eb: fixtures esperan seleccion semantica directa yE2.19 exige apoyo publico/confirmacion. Pendiente reconciliar contrato, sin cambiar expectativas para esconderlos.
+## Accomplished
+- Contexto comercial desde mismoSQL/stamp/cache; proyeccion acotada sinSQL/candidato ni agenda.
+- Afirmacion+comentario conserva datos; negacion/contradiccion mantiene aclaracion. Hora explicita manda; sinproof valido abstiene.
+- Padre24suites22PASS/2baselineFAIL; strict7/UTF8/diff/freeze10SHA PASS. CRM3000 listo, sin remoto.
+## Next Steps
+- Manuallocalhost3000 nueva conversacion: tipo4, continuacion larga, fecha prospectiva/cambio explicito/hora matutina sin auto-reserva.
+- Saludo agrupado y composicion/opciones estandar auditados antes siguen pendientes; no incluidos enE2.20.
+- Reconciliar2tests baseline, metadata comercial legacy/corpus91/capacidades/editor bajo alcance autorizado. RDD relacionado ymirrorEngram pendientes, no afirmar aprobacion ni memoria guardada.
+## Relevant Files
+- src/conversational-bot/business-time-context.ts, temporal-grounding.ts — proof/grounding temporal.
+- src/conversational-bot/ai-interpreter.ts, engine.ts, openai-interpretation-provider.ts — misma proyeccion/plan yfallback conservador.
+- src/conversational-bot/prisma-dialogue-port.ts, public-source-stamp.ts — lectura reutilizada.
+- scripts/conversational-bot-commercial-time-test.ts, public-cache-test.ts, public-stamp-pglite-test.ts — regresiones offline.
+- odd/tasks/nuevo-bot-reservas.md — evidencia; tmp/qa-local-server.ts intacto/unstaged.
 
 ## E2.19 — Consultas de procedimientos y derivación reversible (04/10/2026, autorizado)
 - **Objetivo/problema:** distinguir consulta de prestación de solicitud de reserva; comprender expresiones comerciales desde los datos del catálogo, aclarar ambigüedad, admitir información insuficiente sin afirmar que no se realiza, y poder retomar tras consultar al equipo sin perder el pedido.
