@@ -63,7 +63,8 @@ const row = (id: string, name: string, parentServiceId: string | null = null, is
   id, name, businessId: context.businessId, catalogCategoryId: 'cat', parentServiceId, isBookable,
   description: null, duration: 30, customerDurationMin: null, customerDurationMax: null,
   price: 5000, priceMode: 'FIXED', attentionMode: 'DIRECT_BOOKING', estimateAllowsBooking: false,
-  estimateOptions: null, requiresPhoto: false, validationEnabled: false
+  estimateOptions: null, estimateQuestion: null, estimateExplanation: null, estimateDisclaimer: null,
+  validationMessage: null, validationQuestion: null, requiresPhoto: false, validationEnabled: false
 })
 const client = {
   business: { findFirst: async () => ({ id: context.businessId }) },
@@ -79,7 +80,7 @@ const client = {
     const sql = query.strings.join(' '); seen.push(sql)
     if (sql.includes('BusinessBotOptionsSettings')) return [{ now: context.dbNow, timezone: context.timezone, bookingHorizonDays: 2, bookingLeadTimeHours: 0, morningCutTime: '12:00', eveningCutTime: '19:00' }]
     if (sql.includes('CURRENT_TIMESTAMP')) return [{ now: context.dbNow }]
-    if (sql.includes('FROM "Professional" p')) return professionals
+    if (sql.includes('FROM "Professional" p')) return professionals.map(p => ({ ...p, ...(sql.includes('AS "serviceIds"') ? { isActive: true, acceptsBotBookings: true, serviceIds: query.values.filter((value: unknown) => value === 'cut' || value === 'child') } : {}) }))
     if (sql.includes('FROM "BusinessHours"')) return [{ ownerId: context.businessId, dayOfWeek: 1, startTime: '17:00', endTime: '18:00' }]
     if (sql.includes('FROM "ProfessionalHours"')) return professionals.map(p => ({ ownerId: p.id, dayOfWeek: 1, startTime: '17:00', endTime: '18:00' }))
     return []

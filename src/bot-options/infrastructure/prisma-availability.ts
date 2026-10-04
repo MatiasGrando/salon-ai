@@ -23,7 +23,16 @@ type HoursRow = { ownerId: string; dayOfWeek: number; startTime: string; endTime
 type BusyRow = { professionalId: string; startAt: Date; duration: number }
 type BlockRow = { professionalId: string | null; startAt: Date; endAt: Date }
 
+export type PreferredEligibility = {
+  professional: AvailabilityProfessional
+  cause: 'SERVICE_MISMATCH' | 'BOOKING_RESTRICTED' | 'UNAVAILABLE'
+  missingServiceIds: string[]
+}
 export class PrismaAvailabilityRepository {
+  private readonly preferredEligibility = new WeakMap<readonly AvailabilityProfessional[], PreferredEligibility>()
+  preferredFailure(professionals: readonly AvailabilityProfessional[]): PreferredEligibility | undefined {
+    return this.preferredEligibility.get(professionals)
+  }
   private readonly verifiedEligibility = new WeakMap<readonly AvailabilityProfessional[], { scope: string; signature: string }>()
   private eligibilityScope(input: { businessId: string; serviceIds: readonly string[] }): string { return JSON.stringify([input.businessId, [...new Set(input.serviceIds)].sort()]) }
   constructor(private readonly client: AvailabilityClient) {}
@@ -54,11 +63,46 @@ export class PrismaAvailabilityRepository {
     })
   }
 
-  async compatibleProfessionals(input: { businessId: string; serviceIds: readonly string[] }): Promise<AvailabilityProfessional[]> {
+  async compatibleProfessionals(input: { businessId: string; serviceIds: readonly string[]; preferredProfessionalId?: string }): Promise<AvailabilityProfessional[]> {
     return measureAttemptStage('availability_compatible_professionals', async () => {
       const ids = [...new Set(input.serviceIds)]
       if (!ids.length) return []
-      const professionals = await this.client.$queryRaw<AvailabilityProfessional[]>(Prisma.sql`
+      let professionals: AvailabilityProfessional[]
+      if (input.preferredProfessionalId) {
+        // One grouped eligibility read returns compatible alternatives AND the requested identity.
+        // Public/cache data never authorize a professional or explain missing service coverage.
+        const rows = await this.client.$queryRaw<Array<AvailabilityProfessional & { isActive: boolean; acceptsBotBookings: boolean; serviceIds: string[] }>>(Prisma.sql`
+          SELECT p."id", p."name", p."botBookingPriority" AS "priority", p."isActive", p."acceptsBotBookings",
+            COALESCE(array_agg(DISTINCT s."id") FILTER (WHERE s."id" IS NOT NULL), ARRAY[]::text[]) AS "serviceIds"
+          FROM "Professional" p LEFT JOIN "ProfessionalService" ps ON ps."professionalId" = p."id"
+          LEFT JOIN "Service" s ON s."id" = ps."serviceId" AND s."businessId" = p."businessId" AND s."isBookable" = true
+            AND s."isActive" = true AND s."id" IN (${Prisma.join(ids)})
+          WHERE p."businessId" = ${input.businessId}
+          GROUP BY p."id", p."name", p."botBookingPriority", p."isActive", p."acceptsBotBookings"
+          HAVING (p."isActive" = true AND p."acceptsBotBookings" = true AND count(DISTINCT s."id") = ${ids.length}) OR p."id" = ${input.preferredProfessionalId}
+          ORDER BY p."botBookingPriority", p."id"
+        `)
+        const validRows = rows.length <= 51 && new Set(rows.map(row => row.id)).size === rows.length && rows.every(row =>
+          typeof row.isActive === 'boolean' && typeof row.acceptsBotBookings === 'boolean' &&
+          typeof row.id === 'string' && Boolean(row.id) && row.id.length <= 128 &&
+          typeof row.name === 'string' && Boolean(row.name.trim()) && row.name.length <= 200 &&
+          !/[\u0000-\u001f]/.test(row.id + row.name) && Number.isSafeInteger(row.priority) &&
+          Array.isArray(row.serviceIds) && new Set(row.serviceIds).size === row.serviceIds.length &&
+          row.serviceIds.every(id => ids.includes(id)))
+        if (!validRows) throw Error('invalid preferred eligibility snapshot')
+        const compatible = rows.filter(row => row.isActive && row.acceptsBotBookings && row.serviceIds.length === ids.length)
+        if (rows.some(row => row.id !== input.preferredProfessionalId && !compatible.includes(row))) throw Error('invalid preferred eligibility alternatives')
+        professionals = compatible.map(({ id, name, priority }) => ({ id, name, priority }))
+        const preferred = rows.find(row => row.id === input.preferredProfessionalId)
+        if (preferred && !compatible.includes(preferred)) {
+          const missingServiceIds = ids.filter(id => !preferred.serviceIds.includes(id))
+          this.preferredEligibility.set(professionals, {
+            professional: { id: preferred.id, name: preferred.name, priority: preferred.priority },
+            cause: !preferred.isActive ? 'UNAVAILABLE' : !preferred.acceptsBotBookings ? 'BOOKING_RESTRICTED' : 'SERVICE_MISMATCH',
+            missingServiceIds: preferred.isActive && preferred.acceptsBotBookings ? missingServiceIds : []
+          })
+        }
+      } else professionals = await this.client.$queryRaw<AvailabilityProfessional[]>(Prisma.sql`
         SELECT p."id", p."name", p."botBookingPriority" AS "priority"
         FROM "Professional" p JOIN "ProfessionalService" ps ON ps."professionalId" = p."id"
         JOIN "Service" s ON s."id" = ps."serviceId" AND s."businessId" = p."businessId"

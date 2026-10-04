@@ -91,7 +91,7 @@ assert.deepEqual(basketServiceIds(only.state), ['smooth']); assert.equal(only.st
 const preferredPort: DialoguePort = { ...port, availabilityBasket: async (selected, date, id) => id === 'ramiro' ? { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals: [professionals[1]!] } as any : { ok: true, services: selected, durationMinutes: 30, totalPrice: 37000, professionals: [professionals[1]!], slots: [slot(date, 'cin')] } }
 const mismatch = await say(shown.state, 'mejor Corte mujer', [{ kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [], members: [{ mode: 'single', serviceIds: ['woman'], ...ev('Corte mujer') }], ...ev('Corte mujer') }], preferredPort)
 assert.equal(mismatch.state.serviceId, 'woman'); assert.equal(mismatch.state.date, base.date); assert.equal(mismatch.state.customerName, base.customerName)
-assert.equal(mismatch.state.professional, null); assert.equal(mismatch.state.pending, 'professional'); assert.match(mismatch.reply, /Cin/)
+assert.deepEqual(mismatch.state.professional,{kind:'specific',id:'ramiro'},'preserve requested preference without replacing it'); assert.equal(mismatch.state.pending, 'professional'); assert.match(mismatch.reply, /Cin/)
 assert.equal(mismatch.availability?.reason, 'PREFERRED_PROFESSIONAL_INCOMPATIBLE')
 assert.equal((mismatch as any).turnOutcome.rejectedProfessionalPreference, true)
 const provider = (async (input: any) => ({ intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations: [{ kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [], members: [{ mode: 'alternatives', serviceIds: ['cut', 'woman'], ...ev(input.message) }], ...ev(input.message) }] } })) as AiInterpretationProvider

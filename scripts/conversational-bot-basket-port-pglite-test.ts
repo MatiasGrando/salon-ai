@@ -87,7 +87,26 @@ try {
   assert.deepEqual(complete.professionals.map(pro => pro.id), ['ramiro'], 'SQL joins all services and never includes cut-only or foreign professional')
   assert.deepEqual(complete.slots.map(slot => slot.time), ['10:00', '10:30', '11:00', '11:30', '12:00'])
   assert.equal(transactionCount, 1, 'fresh services, policy and agenda share a read-only snapshot')
-  assert.deepEqual(await request('cut-only'), { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals: [{ id: 'ramiro', name: 'Ramiro', priority: 0 }] }, 'all-service SQL eligibility survives the rejected single-service preference')
+  assert.deepEqual(await request('cut-only'), { ok: false, reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', professionals: [{ id: 'ramiro', name: 'Ramiro', priority: 0 }], professionalFailure:{businessId:'tenant',serviceIds:['cut','straightening'],professional:{id:'cut-only',name:'Only cut',priority:1},cause:'SERVICE_MISMATCH',missingServices:[{id:'straightening',name:'Alisado'}]} }, 'all-service SQL eligibility survives the rejected single-service preference')
+  const beforePreferred=queries.length
+  const singleMismatch=await port.availabilityBasket!([selected('straightening')],'2026-10-02','cut-only')
+  assert.equal(singleMismatch.ok,false)
+  if(!singleMismatch.ok && singleMismatch.reason==='PREFERRED_PROFESSIONAL_INCOMPATIBLE') assert.deepEqual(singleMismatch.professionalFailure?.missingServices,[{id:'straightening',name:'Alisado'}])
+  assert.equal(queries.slice(beforePreferred).filter(q=>q.text.includes('FROM "Professional"')).length,1,'identity and eligibility use one grouped query')
+  assert.equal(queries.slice(beforePreferred).some(q=>q.text.includes('FROM "BusinessHours"')),false,'ineligible preference never reaches agenda')
+  const singularPreferred = await port.availability(selected('straightening'), '2026-10-02', 'cut-only')
+  assert.equal(singularPreferred.preferredProfessionalIncompatible, true)
+  assert.deepEqual(singularPreferred.professionalFailure?.missingServices, [{id:'straightening',name:'Alisado'}])
+  await db.exec(`INSERT INTO "Professional" ("id","businessId","name","isActive","acceptsBotBookings","botBookingPriority") VALUES ('restricted','tenant','Restricted',true,false,2),('inactive','tenant','Inactive',false,true,3)`)
+  for(const [id,cause] of [['restricted','BOOKING_RESTRICTED'],['inactive','UNAVAILABLE']] as const){
+    const result=await request(id);assert.equal(result.ok,false)
+    if(!result.ok && result.reason==='PREFERRED_PROFESSIONAL_INCOMPATIBLE'){assert.equal(result.professionalFailure?.cause,cause);assert.deepEqual(result.professionalFailure?.missingServices,[])}
+  }
+  const foreign=await request('foreign-pro')
+  assert.equal(foreign.ok,false)
+  if(!foreign.ok && foreign.reason==='PREFERRED_PROFESSIONAL_INCOMPATIBLE') assert.equal(foreign.professionalFailure,undefined,'foreign identity cannot leak facts or authorize')
+  const noHours=await request('ramiro');assert.equal(noHours.ok,true)
+  if(noHours.ok) assert.ok(noHours.slots.length,'compatible with configured hours still queries agenda')
   await db.exec(`INSERT INTO "ServiceCombinationRule" ("id","businessId","serviceAId","serviceBId","policy") VALUES ('foreign-rule','foreign','straightening','cut','BLOCKED')`)
   assert.equal((await request()).ok, true, 'foreign rules cannot block or authorize local basket')
   await db.exec(`INSERT INTO "ServiceCombinationRule" ("id","businessId","serviceAId","serviceBId","policy") VALUES ('local-rule','tenant','straightening','cut','REVIEW_REQUIRED')`)

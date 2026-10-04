@@ -75,6 +75,13 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     availabilityBasket: (services, date, professionalId, estimates) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent)),
     async availability(selected: DialogueService, date: string, professionalId?: string) {
       return snapshot(async source => {
+        if (professionalId) {
+          // Preferred singular bookings use the same fresh guard/eligibility proof as complete baskets.
+          const guarded = await loadPrismaBasketAvailability(source, context, settings, [selected], date, professionalId, {}, serviceContent)
+          if (guarded.ok) return {professionals:guarded.professionals,slots:guarded.slots,...(guarded.explanation?{explanation:guarded.explanation}:{})}
+          if (guarded.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') return {professionals:guarded.professionals,slots:[],preferredProfessionalIncompatible:true as const,...(guarded.professionalFailure?{professionalFailure:guarded.professionalFailure}:{})}
+          throw Error('preferred service requires domain consultation')
+        }
         const service = await new PrismaCatalogRepository(source).getService({ businessId, serviceId: selected.id })
         if (!service || service.requiresConsultation || service.bookingPolicy?.attentionMode !== 'DIRECT_BOOKING' || service.bookingPolicy?.requiresPhoto || service.bookingPolicy?.validationEnabled || !service.durationMinutes || service.durationMinutes <= 0) throw new Error('service requires domain consultation')
         const today = localDateKey(dbNow, settings.timezone)

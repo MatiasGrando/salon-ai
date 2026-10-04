@@ -1,3 +1,4 @@
+import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
 import { parseAvailabilityExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
@@ -26,7 +27,7 @@ export type DialogueService = { id: string; name: string; aliases?: readonly str
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
-  | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[] }
+  | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[]; professionalFailure?: ProfessionalEligibilityFailure }
   | { ok: false; reason: 'GUIDANCE_REQUIRED'; services: readonly DialogueService[] }
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
@@ -37,7 +38,7 @@ export type DialoguePort = {
   professionalInformation?(target: ProfessionalInformationTarget): Promise<ProfessionalInformationFacts>
   catalog(): Promise<DialogueService[]>
   availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates): Promise<DialogueBasketAvailability>
-  availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation }>
+  availability(service: DialogueService, date: string, professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation; preferredProfessionalIncompatible?: true; professionalFailure?: ProfessionalEligibilityFailure }>
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type DialogueState = {
@@ -48,7 +49,7 @@ export type DialogueState = {
   pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
   serviceId: string | null; basket?: ServiceBasket; serviceEstimates?: Record<string, GuidedSelection>; date: string | null
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
-  /** Unverified name until uniquely matched against the selected service's compatible professionals. */
+  /** Unverified name until uniquely identified publicly and checked against fresh booking eligibility. */
   professionalNameHint: string | null
   timePreference?: TimePreference; requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
@@ -601,7 +602,20 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     return finish('La fecha ' + dateLabel(state.date, context.timezone) + ' para ' + service.name + ' ya pasó. ¿Qué otro día querés consultar?')
   }
   let availabilityFailure: DialogueResponse | null = null
-  const queryAvailability = async (professionalId?: string) => {
+  const incompatiblePreference = (professionalId: string, professionals: DialogueProfessional[], proof?: ProfessionalEligibilityFailure): null => {
+    if (!professionalId || !Array.isArray(professionals) || professionals.length > 50 ||
+        new Set(professionals.map(item => item.id)).size !== professionals.length ||
+        professionals.some(item => !bounded(item.id, 128) || !bounded(item.name, 200) || item.id === professionalId)) throw new Error('invalid compatible professional alternatives')
+    invalidateAvailability(); state.professionalNameHint = null; state.pending = 'professional'
+    availability = { outcome: 'blocked', phase: 'query', reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE', scope: 'preferred' }
+    const rendered = presentProfessionals(professionals, 0)
+    choicePresentation = adaptChoicePresentation(rendered, 'professionals', 0)
+    questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
+    const explanation = proof ? professionalFailureMessage(proof, context.businessId, selectedServices as DialogueService[], professionalId) : 'La preferencia de profesional anterior no es compatible con el pedido actual.'
+    availabilityFailure = finish(explanation + ' Mantengo los servicios, la fecha y tu preferencia; no elijo otra persona por vos.\n' + (professionals.length ? rendered.text : 'No pude verificar otro profesional compatible. Podés cambiar el pedido o consultar con el equipo.'))
+    return null
+  }
+  const queryAvailability = async (professionalId?: string): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[] } | null> => {
     const scope = professionalId ? 'preferred' : 'all_compatible'
     const acceptExplanation = (result: { professionals: DialogueProfessional[]; explanation?: AvailabilityExplanation }) => {
       availabilityExplanation = result.explanation === undefined ? undefined : parseAvailabilityExplanation(result.explanation, {
@@ -610,6 +624,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     }
     if (selectedServices.length <= 1 && !needsVerifiedSelection && selectedServices.every(item => item?.bookingPolicy === undefined)) {
       const result = await port.availability(service!, state.date!, professionalId)
+      if (result.preferredProfessionalIncompatible) return incompatiblePreference(professionalId!, result.professionals, result.professionalFailure)
       acceptExplanation(result)
       availability = { outcome: 'verified', phase: 'slots', reason: null, scope }
       return result
@@ -618,16 +633,16 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const result = await port.availabilityBasket(selectedServices as DialogueService[], state.date!, professionalId, state.serviceEstimates)
     if (!result.ok) {
       if (result.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') {
-        if (!professionalId || !Array.isArray(result.professionals) || !result.professionals.length || result.professionals.length > 50 ||
-            new Set(result.professionals.map(item => item.id)).size !== result.professionals.length ||
-            result.professionals.some(item => !bounded(item.id, 128) || !bounded(item.name, 200) || item.id === professionalId)) throw new Error('invalid compatible professional alternatives')
-        invalidateAvailability(); state.professional = null; state.professionalNameHint = null; state.pending = 'professional'
-        availability = { outcome: 'blocked', phase: 'query', reason: result.reason, scope }
-        const rendered = presentProfessionals(result.professionals, 0)
-        choicePresentation = adaptChoicePresentation(rendered, 'professionals', 0)
-        questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
-        availabilityFailure = finish('La preferencia de profesional anterior no es compatible con el pedido actual. Mantengo los servicios y la fecha.\n' + rendered.text)
-        return null
+        return incompatiblePreference(professionalId!, result.professionals, result.professionalFailure)
+      }
+      if (result.reason === 'NO_COMMON_PROFESSIONAL' && !professionalId && state.professionalNameHint && port.professionalInformation) {
+        const identities = professionalIdentities(await port.professionalInformation({ kind: 'professional', actions: [], mention: null, serviceIds: [], date: null, weekday: null, aspect: 'overview' }), context.businessId)
+        const named = matches(state.professionalNameHint, identities, context.businessId, 'professional')
+        if (named.length === 1) {
+          state.professional = { kind: 'specific', id: named[0]!.id }
+          state.professionalNameHint = null
+          return queryAvailability(named[0]!.id)
+        }
       }
       if (result.reason !== 'GUIDANCE_REQUIRED') { availabilityFailure = failedAvailability(result.reason, 'query', scope); return null }
       const ids = basketServiceIds(state)
@@ -663,11 +678,15 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const available = await queryAvailability(state.professional?.kind === 'specific' ? state.professional.id : undefined)
   if (!available) return availabilityFailure!
   const professionals = available.professionals
+  const identityQuery = matching?.category === 'professional' ? matching.query ?? matching.confirmationId : state.professionalNameHint
+  const identityAlreadyKnown = matching?.confirmationId ? professionals.some(p => p.id === matching.confirmationId) : Boolean(identityQuery && matches(identityQuery, professionals, context.businessId, 'professional').length)
+  const identities = identityQuery && !identityAlreadyKnown && port.professionalInformation ? professionalIdentities(await port.professionalInformation({ kind:'professional', actions:[], mention:null, serviceIds:[], date:null, weekday:null, aspect:'overview' }), context.businessId) : []
+  const namedProfessionals = [...professionals, ...identities.filter(p => !professionals.some(fresh => fresh.id === p.id))]
   const professionalOptions = professionals.map(item => ({ id: item.id, label: item.name }))
   if (matching?.category === 'professional') {
-    const result = requestedNamedMatch(matching, { businessId: context.businessId, category: 'professional' }, professionals)
-    const proposed = result?.kind === 'exact' && result.items.length === 1 ? professionals.find(item => item.id === result.items[0]!.id) : undefined
-    const exact = matching.confirmationId ? professionals.find(item => item.id === matching!.confirmationId) : exactNamedAnswer(matching, proposed)
+    const result = requestedNamedMatch(matching, { businessId: context.businessId, category: 'professional' }, namedProfessionals)
+    const proposed = result?.kind === 'exact' && result.items.length === 1 ? namedProfessionals.find(item => item.id === result.items[0]!.id) : undefined
+    const exact = matching.confirmationId ? namedProfessionals.find(item => item.id === matching!.confirmationId) : exactNamedAnswer(matching, proposed)
     if (!exact) { state.professional = null; state.professionalNameHint = null; return askMatch(result ?? { kind: 'none', items: [], complete: true }, 'professional') }
     state.professional = { kind: 'specific', id: exact.id }; state.professionalNameHint = null; state.slot = null
     const selected = await queryAvailability(exact.id)
@@ -682,9 +701,9 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (anyProfessional) { if (state.professional?.kind !== 'any') { delete state.dialogueContext; delete state.questionContext } state.professional = { kind: 'any' }; state.professionalNameHint = null; state.slot = null }
   else if (!negativePreference && !rejectsProfessional) {
     const namedNow = (previous as DialogueState).pending === 'professional' && professionals.length === 1 && /^(si|dale|perfecto)$/.test(professionalText)
-      ? professionals : matches(professionalText, professionals, context.businessId, 'professional')
+      ? professionals : matches(professionalText, namedProfessionals, context.businessId, 'professional')
     const hint = state.professionalNameHint
-    const named = namedNow.length ? namedNow : hint ? matches(hint, professionals, context.businessId, 'professional') : []
+    const named = namedNow.length ? namedNow : hint ? matches(hint, namedProfessionals, context.businessId, 'professional') : []
     if (named.length > 1) { state.professionalNameHint = null; state.pending = resolveDialogueRoute(state, [], 'professional').pending; questionOptions = named.map(item => ({ id: item.id, label: item.name })); return finish(`¿Con quién querés atenderte? ${named.map(p => p.name).join(', ')}.`) }
     const matchQuery = hint ?? professionalText
     const near = matchQuery ? matchNamedItems({ businessId: context.businessId, category: 'professional' }, matchQuery, professionals) : null
@@ -946,6 +965,31 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   const focusTarget = !target && state.informationFocus ? inferInformationTarget(state, message, await port.catalog()) : null
   if (target?.kind === 'service' || target?.kind === 'professional' || focusTarget && !lexicalRoute.bookingMessage?.match(/\b(reservar|agendar|turno)\b/)) {
     const read = await readInformation(context, state, message, port, target ?? focusTarget!)
+    if (target?.kind === 'professional' && target.mention && basketIsResolved(state) && state.date && port.professionalInformation && port.availabilityBasket) {
+      const identities = professionalIdentities(await port.professionalInformation({ ...target, serviceIds: [] }), context.businessId)
+      const named = matches(target.mention, identities, context.businessId, 'professional')
+      if (named.length === 1) {
+        const catalog = await port.catalog()
+        const selected = basketServiceIds(state).map(id => catalog.find(service => service.id === id))
+        if (selected.every((service): service is DialogueService => Boolean(service))) {
+          const professional = named[0]!
+          const fresh = await port.availabilityBasket(selected, state.date, professional.id, state.serviceEstimates)
+          let detail: string | null = null
+          if (!fresh.ok && fresh.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') {
+            detail = fresh.professionalFailure ? professionalFailureMessage(fresh.professionalFailure, context.businessId, selected, professional.id)
+              : 'No pude verificar todos los servicios del pedido con ' + professional.name + '. Podés consultarlo con el equipo.'
+          } else if (fresh.ok) {
+            validateBasketAvailability(fresh, basketServiceIds(state), state.serviceEstimates)
+            if (!fresh.professionals.some(p => p.id === professional.id)) throw Error('invalid professional information eligibility')
+            const explanation = fresh.explanation ? parseAvailabilityExplanation(fresh.explanation, { date: state.date, professionals: fresh.professionals, dbNow: context.dbNow, timezone: context.timezone, professionalId: professional.id }) : undefined
+            if (fresh.slots.some(slot => slot.professionalId !== professional.id || slot.date !== state.date || Date.parse(slot.startAt) <= context.dbNow.getTime())) throw Error('invalid professional information slots scope')
+            detail = fresh.slots.length ? 'Verifiqué horarios disponibles con ' + professional.name + ' para el pedido actual el ' + dateLabel(state.date, context.timezone) + '.'
+              : availabilityRecoveryMessage(selected.map(s => s.name).join(' + '), dateLabel(state.date, context.timezone), explanation?.reasons ?? [], professional.name)
+          }
+          if (detail) read.reply += '\nPara tu pedido actual: ' + detail
+        }
+      }
+    }
     if (read.focus) state.informationFocus = read.focus
     return { state, reply: informationReply(read, state, hasActiveBooking(state)), proposal: null, ...(read.outcome === 'clarifying' && read.focus ? informationChoiceFields(state) : {}) }
   }
@@ -1174,6 +1218,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
     clearDependent(Boolean(state.slot) || Boolean(state.professional))
     state.professionalNameHint = null
     if (operation.kind === 'professional') {
+      state.professional = null // The explicit alternative replaces the rejected preference only after fresh validation.
       const result = await respondBooking(context,state,'stored choice',port,undefined,services,{ category: 'professional', confirmationId: operation.professionalId })
       if (result.state.professional?.kind !== 'specific' || result.state.professional.id !== operation.professionalId) return reject()
       return finalizeDialogueIntroduction(context,result,port)

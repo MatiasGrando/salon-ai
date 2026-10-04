@@ -41,7 +41,7 @@ function fixture() {
         if (sql.includes('conversational-public-source-stamp')) return [{ businessId: 'tenant', timezone: settings.timezone, stamp: (snapshotRevision ?? revision).toString(16).padStart(64, '0') }]
         if (sql.includes('FROM "BusinessBotOptionsSettings"')) return [settings]
         if (sql.includes('FROM "ServiceCombinationRule"')) return []
-        if (sql.includes('FROM "Professional"')) return [{ id: 'ramiro', name: 'Ramiro', priority: 0 }]
+        if (sql.includes('FROM "Professional"')) return [{ id: 'ramiro', name: 'Ramiro', priority: 0, ...(sql.includes('AS "serviceIds"') ? {isActive:true,acceptsBotBookings:true,serviceIds:query.values.filter((value:unknown) => value === 'cut' || value === 'guided')} : {}) }]
         if (sql.includes('FROM "BusinessHours"')) return [{ ownerId: 'tenant', dayOfWeek: 5, startTime: '10:00', endTime: '14:00' }]
         if (sql.includes('FROM "ProfessionalHours"')) return [{ ownerId: 'ramiro', dayOfWeek: 5, startTime: '10:00', endTime: '14:00' }]
         if (sql.includes('FROM "ScheduleBlock"') || sql.includes('FROM "Appointment"')) return []

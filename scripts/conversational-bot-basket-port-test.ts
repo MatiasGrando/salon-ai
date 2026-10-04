@@ -44,7 +44,7 @@ function fixture() {
       if (sql.includes('FROM "Professional"')) {
         assert.ok(query.values.includes('cut') && query.values.includes('straightening'), 'query checks every basket member')
         assert.ok(query.values.includes(2), 'common-professional HAVING checks the complete set')
-        return structuredClone(professionals)
+        return structuredClone(professionals).map(p => sql.includes('AS "serviceIds"') ? {...p,isActive:true,acceptsBotBookings:true,serviceIds:['cut','straightening']} : p)
       }
       if (sql.includes('FROM "BusinessHours"')) return [4, 5].map(dayOfWeek => ({ ownerId: 'tenant', dayOfWeek, startTime: '10:00', endTime: '14:00' }))
       if (sql.includes('FROM "ProfessionalHours"')) return [4, 5].map(dayOfWeek => ({ ownerId: professional.id, dayOfWeek, startTime: '10:00', endTime: '14:00' }))
