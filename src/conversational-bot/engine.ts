@@ -1,5 +1,5 @@
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
+import { assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -165,7 +165,7 @@ function matches<T extends { id: string; name: string; aliases?: readonly string
   const result = matchNamedItems({ businessId, category }, text, items)
   return result.kind === 'exact' && result.complete ? items.filter(item => result.items.some(found => found.id === item.id)) : []
 }
-type MatchRequest = { category: MatchingCategory; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean; eligibleIds?: readonly string[] }
+type MatchRequest = { category: MatchingCategory; identityEvidence?: string; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean; eligibleIds?: readonly string[] }
 function requestedNamedMatch(request: MatchRequest, scope: MatchingScope, items: readonly { id: string; name: string; aliases?: readonly string[] }[]): MatchingResult | null {
   if (request.eligibleIds) items = items.filter(item => request.eligibleIds!.includes(item.id))
   if (request.eligibleIds && request.query) return matchPresentedServiceAnswer(scope, request.query,
@@ -448,7 +448,14 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     questionOptions = result.items.map(item => ({ id: item.id, label: item.label }))
     questionMatching = result.complete && result.items.length ? { candidateIds: result.items.map(item => item.id),
       ...(matching?.configurationKey ? { configurationKey: matching.configurationKey } : {}), ...(matching?.targetMemberId ? { targetMemberId: matching.targetMemberId } : {}) } : null
-    const response = finish(matchingQuestion(result, category))
+    const identityQuestion = category === 'service' && matching?.identityEvidence && result.items.length === 1
+      ? serviceRequestReply({ businessId: context.businessId, purpose: 'booking', disposition: 'needs_detail',
+          serviceIds: result.items.map(item => item.id), correction: false, continuation: false,
+          basis: 'semantic_equivalent', sourceQuote: null, request: matching.identityEvidence }, services) : null
+    const companions = identityQuestion ? selectionBasket(state).members.filter(member => member.mode === 'single')
+      .flatMap(member => services.filter(service => member.serviceIds.includes(service.id))).map(service => service.name) : []
+    const response = finish((identityQuestion ?? matchingQuestion(result, category)) +
+      (companions.length ? '\nMantengo también: ' + companions.join(', ') + '.' : ''))
     if (!result.complete && state.questionContext) { state.questionContext.complete = false; state.questionContext.options = [] }
     return response
   }
@@ -844,6 +851,20 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   parseTurnPlan(raw, message, services.map(service => service.id))
+  // The AI proposal is transient. Only current-catalog supported identities enter selected state.
+  // Keep a candidate separately until the sanitized basket has a stable member ID for its question.
+  const identityCandidates: { evidence: string; serviceIds: string[] }[] = []
+  raw = { ...raw, operations: raw.operations.map(operation => {
+    if (operation.kind !== 'basket') return operation
+    return { ...operation, members: operation.members.map(member => {
+      if (member.mode !== 'single') return member
+      const proof = assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services)
+      if (proof.kind === 'supported') return member
+      if (proof.kind === 'alternatives') return { ...member, mode: 'alternatives' as const, serviceIds: proof.serviceIds }
+      if (proof.kind === 'confirm') identityCandidates.push({ evidence: member.evidence, serviceIds: proof.serviceIds })
+      return { ...member, mode: 'unresolved' as const, serviceIds: [] }
+    }) }
+  }) }
   const procedureOp = raw.operations.find(operation => operation.kind === 'service_request')
   let procedureQuestion = ''
   if (state.serviceRequest) {
@@ -899,6 +920,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
   }
   const matched = matchingTurn(state, message, raw, context, services)
+  const firstUnresolved = raw.operations.flatMap(operation => operation.kind === 'basket' ? operation.members : []).find(member => member.mode === 'unresolved')
+  const identityCandidate = identityCandidates.find(candidate => candidate.evidence === firstUnresolved?.evidence)
+  if (identityCandidate) matched.matching = { category: 'service', candidateIds: identityCandidate.serviceIds, identityEvidence: identityCandidate.evidence }
   const contextual = contextualizeIdentity(matched.plan, state, message)
   const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time' || op.kind === 'time_clarification') && op.confidence < 0.85)
   const plan = { ...contextual.plan, operations: contextual.plan.operations.filter(op => op.kind !== 'time_preference' && op.kind !== 'time' && op.kind !== 'time_clarification' || op.confidence >= 0.85) }

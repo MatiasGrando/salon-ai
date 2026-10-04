@@ -52,7 +52,19 @@ const offTopic = await respondWithAiInterpreter(context, initialDialogueState('q
 assert.match(offTopic.reply, /te puedo ayudar con el local/)
 assert.doesNotMatch(offTopic.reply, /27\.000|Corte Hombre/)
 
-const semantic = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero hacerme claritos', port,
+const publishedPort: DialoguePort = { ...port, catalog: async () => services.map(service => service.id === 'lights' ? { ...service, aliases: ['claritos'] } : service) }
+const unpublished = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero hacerme claritos', port,
+  async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }), { responseProvider: writer })
+assert.equal(unpublished.state.serviceId, null)
+assert.equal(unpublished.interpretation.reason, null)
+assert.match(unpublished.reply, /Iluminación/)
+assert.equal(unpublished.proposal, null)
+assert.deepEqual(unpublished.state.questionContext?.matchCandidateIds, ['lights'])
+const unpublishedConfirmed = await respondWithAiInterpreter(context, unpublished.state, 'sí', port,
+  async () => ({ ...empty, intent: 'booking' }), { responseProvider: writer })
+assert.equal(unpublishedConfirmed.state.serviceId, 'lights', 'yes selects only the published identity explicitly asked, not an undocumented procedure')
+assert.equal(unpublishedConfirmed.proposal, null)
+const semantic = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'quiero hacerme claritos', publishedPort,
   async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }), { responseProvider: writer })
 assert.equal(semantic.state.serviceId, 'lights', 'AI semantic choice reaches deterministic engine')
 assert.match(semantic.reply, /Iluminación/)
@@ -80,7 +92,7 @@ const earlyFields = await respondWithAiInterpreter(context, initialDialogueState
   async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], professionalMention: 'Ramiro' }), { responseProvider: writer })
 assert.equal(earlyFields.state.date, '2026-09-29')
 assert.equal(earlyFields.state.professionalNameHint, 'ramiro')
-const consultation = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
+const consultation = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', publishedPort,
   async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }), { responseProvider: writer })
 assert.equal(consultation.state.serviceId, 'lights')
 const correction = await respondWithAiInterpreter(context, consultation.state, 'no mejor un corte', port,
@@ -206,7 +218,7 @@ let evaluated = 0
 for (const scenario of syntheticScenarios) {
   let state = initialDialogueState('qa')
   for (const item of scenario.turns) {
-    const result = await respondWithAiInterpreter(context, state, item.message, port, async () => item.candidate, { responseProvider: writer })
+    const result = await respondWithAiInterpreter(context, state, item.message, scenario.label === 'correction leaves consultation' ? publishedPort : port, async () => item.candidate, { responseProvider: writer })
     const trace = result.interpretation.decision
     assert.equal(trace.acceptedAction, item.expectedAction, scenario.label)
     assert.equal(trace.outcome, item.expectedOutcome, scenario.label)

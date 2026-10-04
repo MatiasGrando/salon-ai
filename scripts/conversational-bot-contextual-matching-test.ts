@@ -63,7 +63,15 @@ assert.equal((await respond(context, fallbackTypo.state, 'sí', port)).state.pro
 const semanticTypo = await say(initial, 'cortee hombre', { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('cortee hombre') })
 assert.equal(semanticTypo.state.serviceId, 'cut', 'validated semantic IDs keep literal typo evidence; Fuse does not police AI vocabulary')
 const semanticParaphrase = await say(initial, 'quiero cortarme el pelo', { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('cortarme el pelo') })
-assert.equal(semanticParaphrase.state.serviceId, 'cut', 'semantic paraphrases need not resemble a catalog label')
+assert.equal(semanticParaphrase.state.serviceId, null, 'a paraphrase without public identity support asks for confirmation')
+assert.equal(semanticParaphrase.interpretation.reason, null)
+assert.match(semanticParaphrase.reply, /cortarme el pelo.*Corte hombre/)
+const paraphraseConfirmed = await say(semanticParaphrase.state, 'sí', { kind: 'service_request', purpose: 'booking', disposition: 'clear', serviceIds: ['cut'], correction: false, continuation: true, basis: 'exact_public_name', sourceQuote: null, ...ev('sí') })
+assert.equal(paraphraseConfirmed.state.serviceId, 'cut', 'explicit identity confirmation closes the useful semantic proposal')
+services = [{ ...cut, aliases: [...cut.aliases, 'cortarme el pelo'] }, smooth]
+const publishedParaphrase = await say(initial, 'quiero cortarme el pelo', { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('cortarme el pelo') })
+assert.equal(publishedParaphrase.state.serviceId, 'cut', 'a current published alias resolves the same literal evidence directly')
+services = [cut, smooth]
 const serviceTypo = await say(initial, 'cortee hombre', { kind: 'service', mode: 'unresolved', serviceIds: [], correction: false, ...ev('cortee hombre') })
 assert.equal(serviceTypo.state.serviceId, null, 'approximate service proposal must remain unselected')
 assert.match(serviceTypo.reply, /Corte hombre/)

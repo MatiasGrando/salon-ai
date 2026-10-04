@@ -1,4 +1,4 @@
-import { requiresServiceVerification } from './service-request.js'
+import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, temporalPlanDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
@@ -87,7 +87,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
             return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
           }
           if (operation.kind === 'service' && operation.mode === 'single' &&
-              requiresServiceVerification(operation.evidence, services.find(service => service.id === operation.serviceIds[0])!, services)) {
+              requiresServiceVerification(operation.evidence, services.find(service => service.id === operation.serviceIds[0])!, services, operation.confidence)) {
             return { kind: 'service_request' as const, purpose: item.intent === 'information' ? 'inquiry' as const : 'booking' as const,
               disposition: 'needs_detail' as const, serviceIds: operation.serviceIds, correction: operation.correction,
               basis: 'semantic_equivalent' as const, sourceQuote: null, continuation: false,
@@ -142,7 +142,12 @@ function validateEstimateOperations(plan: TurnPlan, state: DialogueState, servic
   let basket = selectionBasket(state)
   const basketOp = plan.operations.find(operation => operation.kind === 'basket')
   const serviceOp = plan.operations.find(operation => operation.kind === 'service')
-  if (basketOp?.kind === 'basket') basket = applyBasketMutation(basket, basketOp).basket
+  if (basketOp?.kind === 'basket') basket = applyBasketMutation(basket, {
+    ...basketOp,
+    members: basketOp.members.map(member => member.mode === 'single' &&
+      requiresServiceVerification(member.evidence, services.find(service => service.id === member.serviceIds[0])!, services, member.confidence)
+      ? { ...member, mode: 'unresolved', serviceIds: [] } : member)
+  }).basket
   else if (serviceOp?.kind === 'service' && (serviceOp.mode !== 'unresolved' || serviceOp.correction || !basket.members.length)) {
     const group = serviceOp.mode === 'single' && !serviceOp.correction ? basket.members.find(member => member.mode === 'alternatives' && member.serviceIds.includes(serviceOp.serviceIds[0]!)) : null
     const repeated = serviceOp.mode === 'single' && !serviceOp.correction && basket.members.length > 1 && basketServiceIds(state).includes(serviceOp.serviceIds[0]!)
@@ -178,7 +183,9 @@ function groundedBasketMember(member: BasketMemberProposal, services: readonly D
   const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(meaning))
   if (member.mode === 'alternatives' && member.confidence >= 0.85 && !/[?¿]/.test(message) && evidenceWords(serviceEvidenceMeaning(message, services)) === evidenceWords(meaning) &&
       exact.length === 1 && member.serviceIds.includes(exact[0]!.id)) return { ...member, mode: 'single', serviceIds: [exact[0]!.id] }
-  if (member.mode === 'single' && requiresServiceVerification(member.evidence, services.find(service => service.id === member.serviceIds[0])!, services)) return { ...member, mode: 'unresolved', serviceIds: [] }
+  // Keep an unsupported proposal until the motor can bind its concrete question to the resulting member.
+  // It is not a selected basket and cannot authorize an estimate or availability.
+  if (member.mode === 'single' && assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services).kind === 'confirm') return member
   let matches = catalogEvidenceMatches(meaning, services)
   // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
   // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
@@ -327,22 +334,31 @@ export async function respondWithAiInterpreter(
     : overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
     ? services.filter(service => candidate.serviceCandidateIds!.includes(service.id)) : []
   const uncertain = !turnPlan && Boolean(selected && !candidates.length &&
-    (requiresServiceVerification(evidence,selected,services) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
+    (requiresServiceVerification(evidence,selected,services,candidate?.serviceConfidence === 'certain' ? 1 : 0) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
-  const decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
+  let decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, ...(candidate.informationTarget !== undefined ? { informationTarget: candidate.informationTarget } : {}), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
         selected && selected.id !== state.serviceId))
   } : undefined
+  // A semantic inquiry may ask about a published category, but its clarification is not booking intent.
+  if (uncertain && selected && candidate?.intent === 'information') decision = {
+    intent: 'information', serviceId: null, candidateIds: [], correction: false,
+    turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose: 'inquiry', disposition: 'needs_detail',
+      serviceIds: [selected.id], correction: candidate.serviceCorrection === true, continuation: false,
+      basis: 'semantic_equivalent', sourceQuote: null, evidence, confidence: candidate.serviceConfidence === 'certain' ? 1 : 0 }] }
+  }
   const engineStarted = performance.now()
   let response = await respond(context, state, message, cachedPort, decision, { deferIntroduction: true })
-  if (uncertain && selected && !response.state.informationFocus) {
-    const question = '¿Te referís a ' + selected.name + '?'
+  if (uncertain && selected && !response.state.informationFocus && !response.state.serviceRequest) {
+    const clarification = serviceRequestReply({ businessId: context.businessId, purpose: 'booking', disposition: 'needs_detail',
+      serviceIds: [selected.id], correction: false, continuation: false, basis: 'semantic_equivalent', sourceQuote: null, request: evidence }, services)
+    const question = clarification.slice(clarification.indexOf('¿'))
     response.state.pending = 'service'; response.state.slot = null
     rememberDialogueQuestion(response.state, question, [{ id: selected.id, label: selected.name }], null, { candidateIds: [selected.id] })
-    response = { ...response, proposal: null, reply: question + ' Confirmame cuál servicio querés.' }
+    response = { ...response, proposal: null, reply: clarification }
   }
   const typoService = safeBasketFallback || turnPlan || candidate?.serviceId || candidates.length ? null :
     candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
