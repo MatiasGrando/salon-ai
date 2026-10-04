@@ -1,3 +1,4 @@
+import { requiresServiceVerification } from './service-request.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
@@ -83,11 +84,19 @@ function validateCandidate(value: unknown, message: string, services: readonly D
             if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
             return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
           }
+          if (operation.kind === 'service' && operation.mode === 'single' &&
+              requiresServiceVerification(operation.evidence, services.find(service => service.id === operation.serviceIds[0])!, services)) {
+            return { kind: 'service_request' as const, purpose: item.intent === 'information' ? 'inquiry' as const : 'booking' as const,
+              disposition: 'needs_detail' as const, serviceIds: operation.serviceIds, correction: operation.correction,
+              basis: 'semantic_equivalent' as const, sourceQuote: null, continuation: false,
+              evidence: operation.evidence, confidence: operation.confidence }
+          }
           if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
           const matches = catalogEvidenceMatches(serviceEvidenceMeaning(operation.evidence, services), services)
           // A model-proposed single/subset cannot hide other matches for its grounded phrase.
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
+        if (turnPlan.operations.some(operation => operation.kind === 'service_request' && operation.continuation) && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
         validateEstimateOperations(turnPlan, state, services)
       } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
@@ -167,6 +176,7 @@ function groundedBasketMember(member: BasketMemberProposal, services: readonly D
   const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(meaning))
   if (member.mode === 'alternatives' && member.confidence >= 0.85 && !/[?¿]/.test(message) && evidenceWords(serviceEvidenceMeaning(message, services)) === evidenceWords(meaning) &&
       exact.length === 1 && member.serviceIds.includes(exact[0]!.id)) return { ...member, mode: 'single', serviceIds: [exact[0]!.id] }
+  if (member.mode === 'single' && requiresServiceVerification(member.evidence, services.find(service => service.id === member.serviceIds[0])!, services)) return { ...member, mode: 'unresolved', serviceIds: [] }
   let matches = catalogEvidenceMatches(meaning, services)
   // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
   // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
@@ -308,7 +318,7 @@ export async function respondWithAiInterpreter(
     : overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
     ? services.filter(service => candidate.serviceCandidateIds!.includes(service.id)) : []
   const uncertain = !turnPlan && Boolean(selected && !candidates.length &&
-    candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name))
+    (requiresServiceVerification(evidence,selected,services) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
   const decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {

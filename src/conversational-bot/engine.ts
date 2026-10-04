@@ -1,3 +1,4 @@
+import { parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
 import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
@@ -46,6 +47,8 @@ export type PresentedOffer = { businessId: string; serviceId: string | null; ser
 export type DialogueState = {
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
   introduced?: boolean
+  /** Unverified procedure inquiry; independent of the booking draft. */
+  serviceRequest?: ServiceRequestContext
   /** An unanswered request to edit draft fields is not a replacement value or consent. */
   editRequest?: { fields: DraftEditField[] }
   pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
@@ -100,6 +103,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid dialogue state')
   const s = value as DialogueState
   if (JSON.stringify(value).length > 16384 || s.schemaVersion !== 1 || s.engine !== 'conversational-booking-v1' || s.businessId !== businessId || !bounded(businessId, 128)) throw new Error('invalid dialogue scope')
+  if (s.serviceRequest !== undefined) parseServiceRequestContext(s.serviceRequest, businessId)
   if (s.introduced !== undefined && typeof s.introduced !== 'boolean') throw new Error('invalid introduction marker')
   if (!['service', 'estimate', 'date', 'professional', 'time', 'name', 'proposal'].includes(s.pending)) throw new Error('invalid dialogue step')
   if (s.editRequest !== undefined && (!s.editRequest || Object.keys(s.editRequest).join(',') !== 'fields' ||
@@ -317,7 +321,10 @@ function basketQuestion(state: DialogueState, services: readonly DialogueService
   const heading = members.length > 1 ? 'Perfecto, seguimos con ' + summary.join(' y ') + '.\n\n' : ''
   const exact = members.filter(member => member.mode === 'single').flatMap(member => names(member.serviceIds))
   const retained = exact.length ? '\nMantengo también: ' + exact.join(', ') + '.' : ''
-  if (pending.mode === 'unresolved') return heading + 'No pude identificar ese servicio. ¿Qué servicio necesitás?' + retained
+  if (pending.mode === 'unresolved') return heading + serviceRequestReply({
+    businessId: state.businessId, purpose: 'booking', disposition: 'unverified_variant', serviceIds: [],
+    correction: false, basis: 'related_category', sourceQuote: null, continuation: false, request: pending.evidence
+  }, services) + retained
   return heading + 'Para ' + pending.evidence + ', ¿Cuál de estos servicios querés?\n\n' +
     renderServices(services.filter(service => pending.serviceIds.includes(service.id))) + retained
 }
@@ -446,7 +453,12 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const result = requestedNamedMatch(matching, { businessId: context.businessId, category: 'service' }, services)
     const proposed = result?.kind === 'exact' && result.items.length === 1 ? services.find(service => service.id === result.items[0]!.id) : undefined
     const exact = found[0] ?? exactNamedAnswer(matching, proposed)
-    if (!exact) return askMatch(result ?? { kind: 'none', items: [], complete: true }, 'service')
+    if (!exact) {
+      const targetMemberId = matching.targetMemberId
+      const unresolved = selectionBasket(state).members.find(member => member.mode === 'unresolved' && member.memberId === targetMemberId)
+      if (unresolved && (!result || result.kind === 'none')) return { ...finish(basketQuestion(state, services)!), replyPrepared: true }
+      return askMatch(result ?? { kind: 'none', items: [], complete: true }, 'service')
+    }
     mutateStateBasket(state, { kind: 'basket', mutation: matching.targetMemberId ? 'replace' : 'set', scope: matching.targetMemberId ? 'members' : 'all', targetMemberIds: matching.targetMemberId ? [matching.targetMemberId] : [],
       members: [{ mode: 'single', serviceIds: [exact.id], evidence: message, confidence: 1 }], evidence: message, confidence: 1 })
   }
@@ -822,10 +834,48 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent']): Promise<DialogueResponse> {
   let raw = parseTurnPlan(groundTemporalPlan(rawPlan, message, state), message)
   const possibleMatch = !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
-  const needsCatalog = possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
+  const needsCatalog = Boolean(state.serviceRequest) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   parseTurnPlan(raw, message, services.map(service => service.id))
+  const procedureOp = raw.operations.find(operation => operation.kind === 'service_request')
+  let procedureQuestion = ''
+  if (state.serviceRequest) {
+    const ids = state.serviceRequest.serviceIds.filter(id => services.some(service => service.id === id))
+    if (ids.length !== state.serviceRequest.serviceIds.length) {
+      state.serviceRequest = { ...state.serviceRequest, serviceIds: ids, disposition: 'unverified_variant' }
+    }
+    procedureQuestion = serviceRequestReply(state.serviceRequest, services)
+  }
+  if (procedureOp?.kind === 'service_request') {
+    const request = resolveServiceRequest(procedureOp, procedureOp.evidence, procedureOp.confidence, services, state.serviceRequest)
+    const previousRequest = state.serviceRequest
+    const requestContext: ServiceRequestContext = {
+      ...request,
+      businessId: context.businessId,
+      ...(request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.serviceIds.length === 1
+        ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
+      request: request.continuation && previousRequest && !request.correction ? previousRequest.request : procedureOp.evidence
+    }
+    delete state.serviceRequest
+    procedureQuestion = ''
+    const others = raw.operations.filter(operation => operation !== procedureOp)
+    if (request.disposition === 'clear') {
+      const resolvedOperation: TurnPlan['operations'][number] = request.purpose === 'inquiry'
+        ? { kind: 'information', evidence: procedureOp.evidence, confidence: procedureOp.confidence,
+            target: { kind: 'service', actions: [], serviceIds: [...request.serviceIds], aspect: 'overview' } }
+        : { kind: 'service', mode: 'single', serviceIds: request.serviceIds, correction: request.correction,
+            evidence: procedureOp.evidence, confidence: procedureOp.confidence }
+      raw = { ...raw, operations: [...others, resolvedOperation] }
+    } else {
+      state.serviceRequest = requestContext
+      procedureQuestion = serviceRequestReply(requestContext, services)
+      raw = { ...raw, operations: others }
+    }
+  } else if (raw.operations.some(operation => operation.kind === 'basket' || operation.kind === 'service')) {
+    delete state.serviceRequest
+    procedureQuestion = ''
+  }
   const implicitRead = inferInformationTarget(state, message, services)
   const explicitBooking = /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
   if (implicitRead && !explicitBooking && !raw.operations.some(op => op.kind === 'information') &&
@@ -839,7 +889,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // A validated semantic no-op is not an answer to a pending entity. Explicit
   // operations and information routes retain authority over this social route.
   const route = routeActions(message)
-  if (intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
+  if (!procedureQuestion && intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
     return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
   }
   const matched = matchingTurn(state, message, raw, context, services)
@@ -939,6 +989,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     answers.push(read.reply)
   }
   const finishWithoutAgenda = (reply: string): DialogueResponse => ({ state, reply: [...answers, reply, clarificationReply].filter(Boolean).join('\n'), proposal: null, ...(informationReads.some(read => read.outcome === 'clarifying' && read.focus) ? informationChoiceFields(state) : {}) })
+  if (procedureQuestion) return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }
   if (tentativeTemporal && approximateTimeRequest(message)) return { ...finishWithoutAgenda(''), replyPrepared: true }
   if (state.timeClarification) {
     state.pending = 'time'

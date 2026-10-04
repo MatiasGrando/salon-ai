@@ -115,7 +115,7 @@ for (const previous of [initial(), base('proposal')]) {
   const unknown = await say(previous, 'dirección, masaje mañana 17hs con Luz, soy Matias', [info(), unresolved(true), date('mañana'), time(), prof('Luz'), name()])
   assert.equal(unknown.state.serviceId, null); assert.equal(unknown.state.slot, null); assert.equal(unknown.state.pending, 'service'); assert.equal(unknown.proposal, null)
   assert.equal(unknown.state.date, '2026-10-02'); assert.equal(unknown.state.requestedTime, '17:00'); assert.equal(unknown.state.professionalNameHint, 'luz'); assert.equal(unknown.state.customerName, 'Matias')
-  assert.match(unknown.reply, /No pude identificar ese servicio/); assert.match(unknown.reply, /Calle Uno 123/); assert.doesNotMatch(unknown.reply, /no ofrecemos|Propuesta:/i)
+  assert.match(unknown.reply, /información confirmada.*masaje/); assert.match(unknown.reply, /Calle Uno 123/); assert.doesNotMatch(unknown.reply, /no ofrecemos|Propuesta:/i)
 }
 const priorAgendaReads = calls.availability
 const unresolvedNoCorrection = await say(base('proposal'), 'masaje', [unresolved(false)])

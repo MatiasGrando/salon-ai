@@ -1,3 +1,4 @@
+import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
 import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
@@ -12,6 +13,7 @@ type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
   | BasketMutation
+  | ({ kind: 'service_request' } & ServiceRequest)
   | { kind: 'confirm_proposal' }
   | { kind: 'request_change'; field: DraftEditField }
   | { kind: 'estimate'; serviceId: string; optionId: string | null }
@@ -41,6 +43,15 @@ const operationSchema = (kind: string, properties: Record<string, unknown>, opti
 export const TURN_PLAN_JSON_SCHEMA = objectSchema({
   version: { type: 'integer', enum: [1] },
   operations: { type: 'array', maxItems: TURN_PLAN_LIMITS.operations, items: { anyOf: [
+    operationSchema('service_request', {
+      purpose: { type: 'string', enum: ['inquiry', 'booking'] },
+      disposition: { type: 'string', enum: ['clear', 'alternatives', 'needs_detail', 'unverified_variant'] },
+      serviceIds: { type: 'array', items: stringSchema(128), maxItems: 10 },
+      correction: { type: 'boolean' },
+      basis: { type: 'string', enum: ['exact_public_name', 'documented_variant', 'semantic_equivalent', 'related_category'] },
+      sourceQuote: { type: ['string', 'null'], minLength: 1, maxLength: 500 },
+      continuation: { type: 'boolean' }
+    }),
     operationSchema('service', { mode: { type: 'string', enum: ['single', 'alternatives', 'multiple', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), minItems: 0, maxItems: TURN_PLAN_LIMITS.candidates }, correction: { type: 'boolean' } }),
     operationSchema('basket', {
       mutation: { type: 'string', enum: ['set', 'add', 'remove', 'replace'] }, scope: { type: 'string', enum: ['all', 'members'] },
@@ -121,6 +132,13 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
         }
       }
       identity = 'service'
+    } else if (raw.kind === 'service_request') {
+      exactKeys(raw, [...common, 'purpose', 'disposition', 'serviceIds', 'correction', 'basis', 'sourceQuote', 'continuation'])
+      try { parseServiceRequest(raw, catalogIds) } catch {
+        return fail(catalogIds && Array.isArray(raw.serviceIds) && raw.serviceIds.some(id => !catalogIds.includes(String(id)))
+          ? 'catalog request' : 'service request')
+      }
+      identity = 'service'
     } else if (raw.kind === 'service') {
       exactKeys(raw, [...common, 'mode', 'serviceIds', 'correction'])
       if (!['single', 'alternatives', 'multiple', 'unresolved'].includes(String(raw.mode)) || typeof raw.correction !== 'boolean' || !Array.isArray(raw.serviceIds) || raw.serviceIds.length > TURN_PLAN_LIMITS.candidates || raw.serviceIds.some(id => !bounded(id, 128)) || new Set(raw.serviceIds).size !== raw.serviceIds.length || (raw.mode === 'single' ? raw.serviceIds.length !== 1 : raw.mode === 'unresolved' ? raw.serviceIds.length !== 0 : raw.serviceIds.length < 2)) fail('service')
@@ -172,6 +190,8 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     if (seen.has(identity)) fail('conflicting duplicate field')
     seen.add(identity)
   }
+  if (value.operations.some(raw => object(raw) && raw.kind === 'service_request') &&
+      value.operations.some(raw => object(raw) && raw.kind === 'confirm_proposal')) fail('duplicate consent and service request')
   const plan = structuredClone(value) as unknown as TurnPlan
   for (const op of plan.operations) if (op.kind === 'date' && op.value === null) delete op.value
   return plan
