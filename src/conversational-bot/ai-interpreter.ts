@@ -333,8 +333,11 @@ export async function respondWithAiInterpreter(
     ? services.filter(service => serviceOperation.serviceIds.includes(service.id)) : []
     : overlap.length > 1 ? overlap : candidate?.serviceCandidateIds?.length
     ? services.filter(service => candidate.serviceCandidateIds!.includes(service.id)) : []
+  // Legacy omitted confidence historically permits only an exact full public name, not a fuzzy/semantic guess.
+  const legacyIdentityConfidence = candidate?.serviceConfidence === 'certain' ||
+    candidate?.serviceConfidence === undefined && selected && normalized(evidence) === normalized(selected.name) ? 1 : 0
   const uncertain = !turnPlan && Boolean(selected && !candidates.length &&
-    (requiresServiceVerification(evidence,selected,services,candidate?.serviceConfidence === 'certain' ? 1 : 0) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
+    (requiresServiceVerification(evidence,selected,services,legacyIdentityConfidence) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
   let decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {

@@ -146,6 +146,27 @@ await check('published negative-looking qualifier is catalog data, not a lexical
   const excluded = await say(initial(), 'sin el servicio Alisado sin formol', single('smooth', 'sin el servicio Alisado sin formol'))
   assert.equal(excluded.state.serviceId, null)
 })
+await check('legacy absent confidence exact name remains supported, explicit uncertainty still asks', async () => {
+  const provider = (confidence?: string) => async () => ({ intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte hombre', professionalMention: null, ...(confidence ? { serviceConfidence: confidence } : {}) })
+  const exact = await respondWithAiInterpreter(context, initial(), 'Corte hombre', port, provider())
+  assert.equal(exact.state.serviceId, 'cut')
+  const uncertain = await respondWithAiInterpreter(context, initial(), 'Corte hombre', port, provider('uncertain'))
+  assert.equal(uncertain.state.serviceId, null); assert.match(uncertain.reply, /Corte hombre/)
+})
+await check('retained unique category is scoped to fresh draft labels, not all catalog or stale names', async () => {
+  services = [cut, { ...cut, id: 'woman', name: 'Corte mujer', aliases: [] }, smooth]
+  const state: DialogueState = { ...initial(), pending: 'date', basket: { version: 1, nextMemberId: 3, members: [
+    { memberId: 'm1', mode: 'single', serviceIds: ['woman'], evidence: 'Corte mujer' },
+    { memberId: 'm2', mode: 'single', serviceIds: ['smooth'], evidence: 'Alisado' }
+  ] } }
+  const op = { ...basket({ mode: 'single', serviceIds: ['woman'], ...ev('corte') }), mutation: 'replace', evidence: 'mejor sólo el corte' }
+  const retained = await say(state, 'mejor sólo el corte', op)
+  assert.deepEqual(retained.state.basket?.members.flatMap(member => member.serviceIds), ['woman'])
+  services = [cut, { ...cut, id: 'woman', name: 'Procedimiento nuevo', aliases: [] }, smooth]
+  const renamed = await say(state, 'mejor sólo el corte', op)
+  assert.equal(renamed.state.basket?.members[0]?.mode, 'unresolved')
+  assert.equal(renamed.state.serviceId, null)
+})
 await check('negative conditional weak foreign provider and correction guards remain independent', async () => {
   for (const evidence of ['no corte hombre', 'quizás corte hombre', 'corte francés', 'corte arcoíris', 'cortee hombre extra']) {
     const result = await say(initial(), evidence, single('cut', evidence))

@@ -52,8 +52,14 @@ test('intro is once and protects identity',async()=>{
 test('other cannot suppress verified booking or unknown service',async()=>{
  const selected=await say(initial(),'Corte mujer',[{kind:'service',mode:'single',serviceIds:['cut-w'],correction:false,...ev('Corte mujer')}])
  assert.equal(selected.response.state.serviceId,'cut-w')
+ const beforeUnknown=agenda
  const unknown=await say(initial(),'servicio inexistente',[{kind:'service',mode:'unresolved',serviceIds:[],correction:false,...ev('servicio inexistente')}])
- assert.match(unknown.response.reply,/No pude identificar/);assert.equal(unknown.response.state.serviceId,null)
+ assert.match(unknown.response.reply,/No tengo información confirmada sobre «servicio inexistente»/)
+ assert.match(unknown.response.reply,/consultarlo con el equipo o contarme más/)
+ assert.doesNotMatch(unknown.response.reply,/no (?:lo )?hacemos|foto|requiere consulta|reservado/i)
+ assert.equal(unknown.response.state.serviceId,null);assert.equal(unknown.response.proposal,null)
+ assert.equal(unknown.response.bookingCommand,undefined);assert.equal(unknown.response.state.sandboxReservation,undefined)
+ assert.equal(agenda,beforeUnknown,'unknown procedure does not invoke agenda or booking effects')
  const booking=await say(initial(),'quiero reservar',[],'booking')
  assert.match(booking.response.reply,/servicio/i)
 })

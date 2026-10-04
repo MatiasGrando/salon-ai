@@ -10,8 +10,14 @@ const context = { businessId: 'qa', timezone: 'America/Argentina/Buenos_Aires', 
 const port: DialoguePort = { catalog: async () => [], availability: async () => ({ professionals: [], slots: [] }) }
 const candidate = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
 const bookingCandidate = { ...candidate, intent: 'booking', serviceId: 'consultation', serviceEvidence: 'Consulta', serviceConfidence: 'certain' }
-const bookingPort: DialoguePort = { ...port, catalog: async () => [{ id: 'consultation', name: 'Consulta', durationMinutes: 30, price: 100, requiresConsultation: false }] }
-const groundedReply = 'Hola\nPerfecto 😊 ¿Para qué día y horario querés reservar tu Consulta?'
+const bookingPort: DialoguePort = { ...port, catalog: async () => [{ id: 'consultation', name: 'Consulta', durationMinutes: 30, price: 100, requiresConsultation: false }],
+  information: async () => ({ businessId: 'qa', name: 'QA', address: null, area: null, mapsUrl: null,
+    website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null,
+    description: null, hours: 'Lunes a viernes de 9 a 18' }) }
+// The typed target is discovered only after interpretation, so these are genuinely new verified facts.
+// A prepared date question is intentionally single-call and cannot exercise a compositor deadline.
+const composerCandidate = { ...candidate, intent: 'information', informationTarget: { kind: 'business', actions: ['HOURS'] } }
+const groundedReply = 'Hola\nEstos son nuestros horarios de atención 😊\n\nLunes a viernes de 9 a 18\n\nLos horarios pueden cambiar en fechas especiales.\n\nSi querés saber qué turnos hay disponibles para un día en particular, decime qué día te interesa y lo revisamos.'
 const draft = { opening: 'Hola', factIds: [], closing: null }
 
 // Only the production deadline and fake provider delays use timers. No wall-clock waits or network calls.
@@ -59,7 +65,7 @@ class ControlledClock {
   }
 }
 
-function delayedProvider(interpretationDelay: number, responseDelay: number, signals: AbortSignal[], interpretation: unknown = bookingCandidate): AiInterpretationProvider {
+function delayedProvider(interpretationDelay: number, responseDelay: number, signals: AbortSignal[], interpretation: unknown = composerCandidate): AiInterpretationProvider {
   const delay = (duration: number, result: unknown, signal: AbortSignal) => {
     signals.push(signal)
     return new Promise(resolve => { setTimeout(() => resolve(result), duration) })
@@ -106,6 +112,19 @@ await social.use(async () => {
   assert.equal(signals[0]?.aborted, false)
 })
 
+const prepared = new ControlledClock()
+await prepared.use(async () => {
+  const signals: AbortSignal[] = []
+  const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'Consulta', bookingPort,
+    delayedProvider(6000, 14000, signals, bookingCandidate))
+  await prepared.advance(6000)
+  const response = await result
+  assert.equal(signals.length, 1, 'prepared missing-field question must not buy a composer call')
+  assert.equal(response.interpretation.aiCalls, 1); assert.equal(response.interpretation.reason, null)
+  assert.equal(response.state.serviceId, 'consultation'); assert.equal(response.state.pending, 'date')
+  assert.equal(response.reply, 'Perfecto 😊 ¿Para qué día y horario querés reservar tu Consulta?')
+  assert.equal(response.interpretation.copyMode, 'prepared')
+})
 const override = new ControlledClock()
 await override.use(async () => {
   const signals: AbortSignal[] = []
@@ -137,7 +156,7 @@ for (const [configured, expected] of [[60000, 15000], [Number.NaN, 15000], [Numb
 const composerTimeout = new ControlledClock()
 await composerTimeout.use(async () => {
   let signal: AbortSignal | undefined
-  const provider: AiInterpretationProvider = async () => bookingCandidate
+  const provider: AiInterpretationProvider = async () => composerCandidate
   provider.respond = (_input, providerSignal) => { signal = providerSignal; return new Promise(() => {}) }
   const result = respondWithAiInterpreter(context, initialDialogueState('qa'), 'Consulta', bookingPort, provider)
   await composerTimeout.advance(14999)

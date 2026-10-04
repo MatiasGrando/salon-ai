@@ -74,7 +74,7 @@ function singleLabelEdit(left: string, right: string): boolean {
     return edits + (a < left.length || b < right.length ? 1 : 0) === 1;
 }
 /** Pure current-catalog identity proof; literal grounding belongs to the unchanged plan parser. */
-export function assessServiceIdentity(evidence: string, proposedId: string, confidence: number, services: readonly DialogueService[]): ServiceIdentityAssessment {
+export function assessServiceIdentity(evidence: string, proposedId: string, confidence: number, services: readonly DialogueService[], retainedIds: readonly string[] = []): ServiceIdentityAssessment {
     const service = services.find(item => item.id === proposedId);
     const meaning = serviceEvidenceMeaning(evidence, services);
     const terms = identityWords(meaning);
@@ -92,6 +92,9 @@ export function assessServiceIdentity(evidence: string, proposedId: string, conf
     if (!exact.length && close.length === 1 && close[0]!.id === proposedId) return { kind: 'supported', serviceIds: [service.id] };
     if (/\b(no|ni|sin|nunca|quizas|depende|tal vez|si)\b/.test(normalized(evidence))) return unproven;
     const matching = services.filter(item => labels(item).some(label => terms.every(term => identityWords(label).includes(term))));
+    // A unique reference to a retained, freshly named draft item is not a new generic catalog request.
+    const retained = matching.filter(item => retainedIds.includes(item.id));
+    if (retained.length === 1 && retained[0]!.id === proposedId) return { kind: 'supported', serviceIds: [service.id] };
     if (matching.length > 10) return { kind: 'unproven', serviceIds: [] };
     if (matching.length > 1) return { kind: 'alternatives', serviceIds: matching.map(item => item.id) };
     if (matching[0]?.id === service.id || service.description &&

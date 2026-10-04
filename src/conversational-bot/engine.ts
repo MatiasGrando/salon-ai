@@ -858,7 +858,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (operation.kind !== 'basket') return operation
     return { ...operation, members: operation.members.map(member => {
       if (member.mode !== 'single') return member
-      const proof = assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services)
+      const retainedIds = operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1
+        ? selectionBasket(state).members.filter(item => item.mode === 'single').flatMap(item => item.serviceIds) : []
+      const proof = assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services, retainedIds)
       if (proof.kind === 'supported') return member
       if (proof.kind === 'alternatives') return { ...member, mode: 'alternatives' as const, serviceIds: proof.serviceIds }
       if (proof.kind === 'confirm') identityCandidates.push({ evidence: member.evidence, serviceIds: proof.serviceIds })
