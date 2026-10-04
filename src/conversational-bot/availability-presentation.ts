@@ -120,5 +120,5 @@ export function presentVerifiedDates(input: AvailabilityPresentationInput): Choi
   const first = slots.find(slot => slot.date === choices.find(choice => choice.kind === 'date')?.date)
   const example = first ? `${first.date} a las ${first.time}` : null
   const displayExample = first ? (first.date === today ? 'Hoy' : first.date === tomorrowKey ? 'Mañana' : formatDeliveryDate(first.date)) + ' a las ' + first.time : null
-  return { kind: 'dates', text: `${choices.length ? `Hay disponibilidad:\n${choices.map(choice => '• ' + choice.label).join('\n')}` : 'No encontré fechas disponibles.'}${displayExample ? `\n\nPodés escribir, por ejemplo: ${displayExample}.` : ''}\n¿Qué día y horario te vendrían bien?`, choices, hasMore: start + choices.length < dates.length, example }
+  return { kind: 'dates', text: `¿Qué día y horario te vendrían bien?\n\n${choices.length ? `Hay disponibilidad:\n${choices.map(choice => '• ' + choice.label).join('\n')}` : 'No encontré fechas disponibles.'}${displayExample ? `\n\nPodés escribir, por ejemplo: ${displayExample}.` : ''}`, choices, hasMore: start + choices.length < dates.length, example }
 }

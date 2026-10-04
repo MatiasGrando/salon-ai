@@ -1,5 +1,4 @@
 import { preparePreviewTurnGroup, storePreviewTurnGroup, PreviewTurnGroupError } from './preview-turn-group.js'
-import { loadActiveServiceContent } from './prisma-service-content.js'
 import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope, type ConversationChoiceOperation } from './choices.js'
 import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
 import { isDeepStrictEqual } from 'node:util'
@@ -45,7 +44,7 @@ function admissionReason(draft: unknown, businessId: string, timezone: string | 
 /** QA-only store. Prepare outside the row lock, then compare/commit one turn atomically. */
 export async function runPrismaDemoPreview(
   client: any, businessId: string, userId: string, sessionId: string, message: string,
-  createPort: PreviewDependencies['createPort'] = async id => createPrismaDialoguePort(client, id, await loadActiveServiceContent(client, id)),
+  createPort: PreviewDependencies['createPort'] = async id => createPrismaDialoguePort(client, id, null, { qaPreview: true }),
   interpretationProvider?: AiInterpretationProvider,
   interpretationTimeoutMs?: number,
   capability?: { sandboxBooking: true },

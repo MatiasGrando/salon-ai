@@ -5,7 +5,7 @@ import { readPublicSourceStamp, readPublicSourceSnapshot, loadReadonlyPublicSnap
 
 const db = new PGlite()
 const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business', 'BusinessBotOptionsSettings', 'BusinessFeatureSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'ProfessionalHours', 'BusinessPaymentMethod', 'BusinessHours', 'ScheduleBlock']
+const models = ['Business', 'BusinessBotConfiguration', 'BusinessBotOptionsSettings', 'BusinessFeatureSettings', 'Service', 'ServiceCategory', 'Professional', 'ProfessionalService', 'ProfessionalHours', 'BusinessPaymentMethod', 'BusinessHours', 'ScheduleBlock']
 // Columns derive from the actual Prisma schema: unknown stamp fields fail real SQL.
 for (const model of models) {
   const body = schema.match(new RegExp('model ' + model + ' \\{([\\s\\S]*?)\\n\\}'))![1]!
@@ -72,6 +72,22 @@ try {
     await db.exec('UPDATE "' + table + '" SET "' + field + '"=' + value + ' WHERE "id"=\'' + id + '\'')
     assert.notEqual(await stamp(), prior, table + '.' + field + ' must change stamp')
   }
+
+  let contentBefore = await stamp()
+  await db.exec(`INSERT INTO "BusinessBotConfiguration" ("id","businessId","status","definition") VALUES ('qa-cfg','a','ACTIVE','{"qaSimulator":true,"serviceContent":{"version":1,"businessId":"a","services":[]}}'::jsonb)`)
+  assert.equal(await stamp(), contentBefore, 'non-QA business must not admit QA-only metadata')
+  await db.exec(`UPDATE "Business" SET "isDemo"=true,"demoType"='QA_SANDBOX' WHERE "id"='a'`)
+  assert.notEqual(await stamp(), contentBefore, 'QA eligibility changes fingerprint')
+  contentBefore = await stamp()
+  const contentSnapshot = await readPublicSourceSnapshot(client, context)
+  assert.deepEqual(contentSnapshot.serviceContentRows?.[0]?.serviceContent, { version: 1, businessId: 'a', services: [] }, 'same SQL returns only scoped metadata, not whole definition')
+  await db.exec(`UPDATE "BusinessBotConfiguration" SET "definition"="definition" || '{"privateSecret":"do-not-project"}'::jsonb WHERE "id"='qa-cfg'`)
+  assert.equal(await stamp(), contentBefore, 'unrelated private definition edits never fingerprint')
+  await db.exec(`UPDATE "BusinessBotConfiguration" SET "definition"=jsonb_set("definition",'{serviceContent,services}','[{"serviceId":"sa","revision":2}]'::jsonb) WHERE "id"='qa-cfg'`)
+  assert.notEqual(await stamp(), contentBefore, 'metadata-only source edit invalidates warm catalog')
+  contentBefore = await stamp()
+  await db.exec(`UPDATE "BusinessBotConfiguration" SET "status"='INACTIVE' WHERE "id"='qa-cfg'`)
+  assert.notEqual(await stamp(), contentBefore, 'active status removal invalidates public metadata')
   let prior = await stamp()
   await db.exec(`UPDATE "ScheduleBlock" SET "note"='PRIVATE' WHERE "id"='ea'; UPDATE "Business" SET "contactPhone"='PRIVATE' WHERE "id"='a'`)
   assert.equal(await stamp(), prior, 'private fields are not fingerprint inputs')

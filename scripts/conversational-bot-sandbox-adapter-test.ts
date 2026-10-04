@@ -121,7 +121,7 @@ try {
   const content = { version: 1, businessId: 'qa', serviceId: 'cream', reviewed: true, revision: 1, sourceHash: contentSourceHash(freshPolicy), segments: [
     { id: 'attendance', source: 'disclaimer', start: 0, end: freshPolicy.estimateDisclaimer!.length, stage: 'attendance', role: 'condition', variants: [] }
   ] }
-  const definition = { conversation: { engine: 'conversational-booking-v1', schemaVersion: 1 }, serviceContent: { version: 1 as const, businessId: 'qa', services: [content] } }
+  const definition = { qaSimulator: true, serviceContent: { version: 1 as const, businessId: 'qa', services: [content] } }
   freshService.bookingPolicy = attachServiceContent(freshPolicy, 'qa', definition.serviceContent)
   const reviewedState = structuredClone(state)
   reviewedState.serviceEstimates = { cream: { configurationKey: serviceConfigurationKey(freshService.bookingPolicy), optionId: 'karsell' } }

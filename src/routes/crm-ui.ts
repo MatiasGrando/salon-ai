@@ -22244,11 +22244,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.demoChatMessages.innerHTML = state.demoChatMessages.map((message) => {
         const replyButtons = Array.isArray(message.replyButtons) ? message.replyButtons : []
         const isDateSelectionList = replyButtons.length > 3 && replyButtons.every((button) =>
-          /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
+          message.replyKind === 'date' || /:date:\d{4}-\d{2}-\d{2}$/.test(button.id) || button.id.endsWith(':other_date')
         )
         const interactiveList = replyButtons.length && (message.replyMode === 'list' || replyButtons.length > 3)
-          ? '<details class="demo-chat-interactive-list"' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>' + (message.replyTitle ? escapeHtml(message.replyTitle) : isDateSelectionList ? 'Ver d&iacute;as disponibles' : 'Ver opciones de horario') + '</summary>' +
-            '<div class="demo-chat-interactive-list-title">' + (message.replyTitle ? escapeHtml(message.replyTitle) : isDateSelectionList ? 'Eleg&iacute; una fecha' : 'Eleg&iacute; una opci&oacute;n') + '</div>' +
+          ? '<details class="demo-chat-interactive-list" open' + (message.replyButtonsDisabled ? ' aria-disabled="true"' : '') + '><summary>' + (message.replyTitle ? escapeHtml(message.replyTitle) : isDateSelectionList ? 'Ver d&iacute;as disponibles' : 'Ver opciones de horario') + '</summary>' +
             replyButtons.map((button) => {
               const disabled = message.replyButtonsDisabled ? ' disabled' : ''
               return '<button class="demo-chat-interactive-list-option" type="button" data-demo-chat-reply-id="' + escapeHtml(button.id) + '" data-demo-chat-reply-title="' + escapeHtml(button.title) + '"' + disabled + '>' + escapeHtml(button.title) + '</button>'

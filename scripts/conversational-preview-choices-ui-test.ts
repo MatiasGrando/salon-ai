@@ -41,6 +41,8 @@ const render = new Function('state', 'els', [source('escapeHtml'), source('rende
 render()
 assert.match(els.demoChatMessages.innerHTML, /demo-chat-interactive-list/)
 assert.match(els.demoChatMessages.innerHTML, /Elegí profesional &lt;seguro&gt;/)
+assert.match(els.demoChatMessages.innerHTML, /<details class="demo-chat-interactive-list" open/, 'options must be visible initially')
+assert.equal((els.demoChatMessages.innerHTML.match(/Elegí profesional &lt;seguro&gt;/g) ?? []).length, state.demoChatMessages.filter((m: any) => m.replyButtons?.length).length, 'title appears exactly once per question')
 assert.match(els.demoChatMessages.innerHTML, /Cualquier profesional/)
 assert.doesNotMatch(els.demoChatMessages.innerHTML, /<seguro>/)
 const maps = publicMapsLink({ businessName: 'Example', address: 'Monroe 2266', addressArea: 'Villa Urquiza' })!

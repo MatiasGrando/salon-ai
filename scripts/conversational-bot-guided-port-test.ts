@@ -168,7 +168,7 @@ const classification = { version: 1, businessId: 'tenant', serviceId: 'guided', 
 const configured = await createPrismaDialoguePort(configuredFixture.client, 'tenant', { version: 1, businessId: 'tenant', services: [classification] })
 const configuredCatalog = await configured.port.catalog()
 const configuredService = configuredCatalog.find(service => service.id === 'guided')!
-assert.equal(configuredService.bookingPolicy?.contentPolicy?.revision, 1, 'definition metadata attaches after cache reads, not a parallel cache')
+assert.equal(configuredService.bookingPolicy?.contentPolicy?.revision, 1, 'trusted explicit metadata gets its own scoped cache identity and attaches inside the loader')
 const configuredSelections = { guided: choice(configuredService, 'short') }
 assert.equal((await configured.port.availabilityBasket!([configuredService], '2026-10-02', 'ramiro', configuredSelections)).ok, true, 'fresh guarded policy must use the same reviewed metadata before resolveGuidance')
 const withoutMetadata = await basePort.port.availabilityBasket!([configuredService], '2026-10-02', 'ramiro', configuredSelections)

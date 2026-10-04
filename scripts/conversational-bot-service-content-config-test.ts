@@ -22,4 +22,17 @@ rows = [{ id: 'one', businessId: 'tenant', definition }, { id: 'two', businessId
 assert.equal(await loadActiveServiceContent(client, 'tenant'), null, 'ambiguous active definitions cannot silently select one')
 assert.equal(await loadActiveServiceContent({}, 'tenant'), null, 'partial legacy fake delegates do not trigger extra queries')
 assert.equal(queries, 3)
+
+const qaDefinition = { qaSimulator: true, serviceContent: namespace }
+const qaClient: any = { businessBotConfiguration: {}, $queryRaw: async (query: any) => {
+  assert.match(query.sql, /JOIN "Business"/, 'QA requires business scope in the same query')
+  assert.match(query.sql, /"isDemo"/); assert.match(query.sql, /QA_SANDBOX/); assert.match(query.sql, /qaSimulator/); assert.match(query.sql, /LIMIT 2/)
+  return [{ id: 'qa', businessId: 'tenant', definition: qaDefinition }]
+} }
+assert.deepEqual(await loadActiveServiceContent(qaClient, 'tenant', false, { qaPreview: true }), namespace)
+await loadActiveServiceContent(qaClient, 'tenant', true, { qaPreview: true })
+await loadActiveServiceContent({ ...client, $queryRaw: async (query: any) => {
+  assert.doesNotMatch(query.sql, /qaSimulator/, 'default WhatsApp scope is unchanged')
+  return [{ id: 'configuration', businessId: 'tenant', definition }]
+} }, 'tenant')
 console.log('PASS configured service content transport, tenant isolation, unique active definition and fresh locked read')

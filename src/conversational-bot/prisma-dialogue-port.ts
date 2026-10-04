@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { loadActiveServiceContent, serviceContentFromPublicSnapshot } from './prisma-service-content.js'
 import { explanationForDate, parseAvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices, projectDialogueService } from './prisma-basket-availability.js'
@@ -5,8 +7,8 @@ import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './pr
 import { queryPublicProfessionalFacts } from './public-professional-facts.js'
 import { loadDialogueIdentity, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
-import { projectBusinessTimeContext, type CommercialHoursSnapshot } from './business-time-context.js'
-import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient } from './public-source-stamp.js'
+import { projectBusinessTimeContext } from './business-time-context.js'
+import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient, type PublicSourceSnapshot } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
@@ -15,20 +17,21 @@ import type { DialogueContext, DialoguePort, DialogueService } from './engine.js
 
 type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
-export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
+export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null, contentOptions: { qaPreview?: boolean } = {}): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
   const availability = new PrismaAvailabilityRepository(client)
   const { settings, dbNow } = await availability.loadSettingsWithClock(businessId)
   const context = { businessId, timezone: settings.timezone, dbNow }
   const cacheDiagnostics: PublicCacheDiagnostics = { hits: 0, misses: 0, bypasses: 0, stampReads: 0, stampMs: 0, loadMs: 0 }
   const cache = publicCacheFor(client)
-  let commercialSnapshot: CommercialHoursSnapshot | undefined
-  const readStamp = async (source: DialogueClient = client) => {
+  let commercialSnapshot: PublicSourceSnapshot | undefined
+  const readSnapshot = async (source: DialogueClient = client): Promise<PublicSourceSnapshot> => {
     const started = performance.now(); cacheDiagnostics.stampReads++
-    try { commercialSnapshot = await readPublicSourceSnapshot(source, context); return commercialSnapshot.stamp }
+    try { const loaded = await readPublicSourceSnapshot(source, context); commercialSnapshot = loaded; return loaded }
     catch (error) { commercialSnapshot = undefined; throw error }
     finally { cacheDiagnostics.stampMs += performance.now() - started }
   }
+  const readStamp = async (source: DialogueClient = client) => (await readSnapshot(source)).stamp
   const snapshotClient = client as DialogueClient & Partial<PublicSnapshotClient<DialogueClient>>
   const snapshot = async <T>(load: (source: DialogueClient) => Promise<T>): Promise<T> => {
     if (!snapshotClient.$transaction) return load(client)
@@ -47,23 +50,31 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     }) }
     finally { cacheDiagnostics.loadMs += performance.now() - started }
   }
-  const cached = async <T>(kind: string, load: (source: DialogueClient) => Promise<T>): Promise<T> => {
+  const cached = async <T>(kind: string, load: (source: DialogueClient, publicSnapshot?: PublicSourceSnapshot) => Promise<T>): Promise<T> => {
     if (!snapshotClient.$transaction) return bypass(load)
     try {
       return await cache.read({
         key: JSON.stringify([businessId, settings.timezone, localDateKey(dbNow, settings.timezone), kind]),
         stamp: await readStamp(), readStamp, load: () => load(client), diagnostics: cacheDiagnostics,
-        loadSnapshot: () => snapshot(async source => ({ stamp: await readStamp(source), value: await load(source) }))
+        loadSnapshot: () => snapshot(async source => {
+          const publicSnapshot = await readSnapshot(source)
+          return { stamp: publicSnapshot.stamp, value: await load(source, publicSnapshot) }
+        })
       })
     } catch (error) {
       if (error instanceof PublicSourceIntegrityError) throw error
       return bypass(load)
     }
   }
-  const loadCatalog = async (source: DialogueClient) => {
+  const hasContentSource = contentOptions.qaPreview === true && 'businessBotConfiguration' in client && Boolean(client.businessBotConfiguration)
+  const catalogKind = (contentOptions.qaPreview ? 'catalog:qa-preview' : 'catalog') + (!hasContentSource && serviceContent ? ':' + createHash('sha256').update(JSON.stringify(serviceContent)).digest('hex') : '')
+  const currentContent = (source: DialogueClient) => hasContentSource
+    ? loadActiveServiceContent(source, businessId, false, contentOptions) : Promise.resolve(serviceContent)
+  const loadCatalog = async (source: DialogueClient, publicSnapshot?: PublicSourceSnapshot) => {
     const catalog = new PrismaCatalogRepository(source)
     const services = await catalog.loadPublicCatalogSnapshot(businessId)
-    return services.map(projectDialogueService)
+    const content = hasContentSource ? publicSnapshot ? serviceContentFromPublicSnapshot(publicSnapshot.serviceContentRows, businessId, contentOptions) : await currentContent(source) : serviceContent
+    return services.map(projectDialogueService).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, content) } : service)
   }
   let publicBusiness: { businessId: string; businessName: string } | undefined
   return { context, cacheDiagnostics, port: {
@@ -75,14 +86,14 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
       return facts
     },
     professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
-    verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,serviceContent)),
-    catalog: async () => (await cached('catalog', loadCatalog)).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, serviceContent) } : service),
-    availabilityBasket: (services, date, professionalId, estimates, temporal) => snapshot(source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, serviceContent, temporal)),
+    verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(async source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,await currentContent(source))),
+    catalog: () => cached(catalogKind, loadCatalog),
+    availabilityBasket: (services, date, professionalId, estimates, temporal) => snapshot(async source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, await currentContent(source), temporal)),
     async availability(selected: DialogueService, date: string, professionalId?: string, temporal?: import('./prisma-basket-availability.js').VerifiedDateTemporal) {
       return snapshot(async source => {
         if (professionalId) {
           // Preferred singular bookings use the same fresh guard/eligibility proof as complete baskets.
-          const guarded = await loadPrismaBasketAvailability(source, context, settings, [selected], date, professionalId, {}, serviceContent, temporal)
+          const guarded = await loadPrismaBasketAvailability(source, context, settings, [selected], date, professionalId, {}, await currentContent(source), temporal)
           if (guarded.ok) return {professionals:guarded.professionals,slots:guarded.slots,...(guarded.explanation?{explanation:guarded.explanation}:{}),...(guarded.requestedStartEvidence?{requestedStartEvidence:guarded.requestedStartEvidence}:{})}
           if (guarded.reason === 'PREFERRED_PROFESSIONAL_INCOMPATIBLE') return {professionals:guarded.professionals,slots:[],preferredProfessionalIncompatible:true as const,...(guarded.professionalFailure?{professionalFailure:guarded.professionalFailure}:{})}
           throw Error('preferred service requires domain consultation')

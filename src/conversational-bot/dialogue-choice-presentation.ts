@@ -16,7 +16,7 @@ export function adaptChoicePresentation(presentation: ChoicePresentation, questi
   })
   if (cursor > 0) choices.push({ label: 'Página anterior', operation: { kind: 'page', questionKind, cursor: cursor - 1 } })
   if (presentation.hasMore) choices.push({ label: 'Ver más opciones', operation: { kind: 'page', questionKind, cursor: cursor + 1 } })
-  return { kind: presentation.kind === 'slots' ? 'slot' : presentation.kind === 'dates' ? 'date' : presentation.kind === 'professionals' ? 'professional' : 'preference', title: 'Elegí una opción', choices }
+  return { kind: presentation.kind === 'slots' ? 'slot' : presentation.kind === 'dates' ? 'date' : presentation.kind === 'professionals' ? 'professional' : 'preference', title: presentation.kind === 'slots' ? 'Horarios disponibles' : presentation.kind === 'dates' ? 'Días disponibles' : presentation.kind === 'professionals' ? 'Profesionales disponibles' : 'Preferencia horaria', choices }
 }
 export function choiceOptionId(operation: ConversationChoiceOperation): string {
   return operation.kind === 'slot' ? operation.startAt + '/' + operation.professionalId : operation.kind === 'date' ? operation.date
@@ -37,12 +37,12 @@ export function choicePresentationForQuestion(state: DialogueState, services: re
     return operation ? { label: option.label, operation } : null
   })
   if (choices.some(choice => choice === null)) return undefined
-  return { kind: question.role === 'estimate' ? 'estimate' : question.role === 'service' ? 'service' : 'professional', title: 'Elegí una opción', choices: choices.filter(choice => choice !== null) }
+  return { kind: question.role === 'estimate' ? 'estimate' : question.role === 'service' ? 'service' : 'professional', title: question.role === 'estimate' ? 'Opciones para ' + target?.name : question.role === 'service' ? 'Servicios disponibles' : 'Profesionales disponibles', choices: choices.filter(choice => choice !== null) }
 }
 
 /** An informational question has its own scope and never selects a booking service. */
 export function choicePresentationForInformation(state: DialogueState): ConversationChoicePresentation | undefined {
   const focus = state.informationFocus
   if (!focus?.awaitingChoice || !focus.options.length || focus.options.length > 10) return undefined
-  return { kind: 'service', title: '¿Sobre qué servicio?', choices: focus.options.map(option => ({ label: option.label, operation: { kind: 'service', serviceId: option.id } })) }
+  return { kind: 'service', title: focus.aspect === 'price' ? 'Precios por servicio' : 'Información del servicio', choices: focus.options.map(option => ({ label: option.label, operation: { kind: 'service', serviceId: option.id } })) }
 }

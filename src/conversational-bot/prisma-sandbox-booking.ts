@@ -77,7 +77,7 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   if (!(dbNow instanceof Date) || !Number.isFinite(dbNow.getTime())) throw new Error('sandbox database clock unavailable')
   if (settings.timezone !== terms.timezone) return { kind: 'REQUOTE' }
   const requested = terms.services.map(service => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes, requiresConsultation: false, price: service.price, priceMode: service.priceMode }))
-  const serviceContent = await loadActiveServiceContent(tx, input.businessId, true)
+  const serviceContent = await loadActiveServiceContent(tx, input.businessId, true, { qaPreview: true })
   const fresh = await loadPrismaBasketAvailability(tx, { businessId: input.businessId, timezone: settings.timezone, dbNow }, settings, requested, terms.date, terms.professionalId, response.state.serviceEstimates, serviceContent)
   if (!fresh.ok) return fresh.reason === 'GUIDANCE_REQUIRED' ? { kind: 'REQUOTE' } : blocked(fresh.reason === 'SERVICE_UNAVAILABLE' ? 'SERVICE_UNAVAILABLE' : 'POLICY_BLOCKED')
   const slot = fresh.slots.find(slot => slot.startAt === terms.startAt && slot.professionalId === terms.professionalId && slot.date === terms.date && slot.time === terms.time)

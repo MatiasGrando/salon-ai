@@ -190,3 +190,80 @@ facts.publicAddress = 'Edited while AI worked'; revision++
 assert.equal((await sameTurn.port.information!(['ADDRESS'])).address, facts.publicAddress, 'same-port public lookup cannot retain the first lookup stamp')
 assert.notEqual(facts.publicAddress, oldAddress)
 console.log('conversational public cache intra-turn freshness: PASS')
+
+const { contentSourceHash, attachServiceContent, stageContent } = await import('../src/bot-options/domain/service-content.js')
+const { serviceConfigurationKey } = await import('../src/bot-options/domain/service-booking.js')
+const { projectDialogueService } = await import('../src/conversational-bot/prisma-basket-availability.js')
+Object.assign(service, { price: 10, priceMode: 'STARTING_AT', attentionMode: 'GUIDED_ESTIMATE', estimateQuestion: '¿Qué largo?',
+  estimateExplanation: 'Según el largo.', estimateDisclaimer: 'Preparación obligatoria.', validationMessage: null, validationQuestion: null, description: null, customerDurationMin: null, customerDurationMax: null, estimateOptions: [{ id: 'short', label: 'Corto', priceMin: 10, priceMax: null, note: null }] })
+const { PrismaCatalogRepository } = await import('../src/bot-options/infrastructure/prisma-catalog.js')
+const policy = projectDialogueService((await new PrismaCatalogRepository(client).loadPublicCatalogSnapshot('tenant'))[0]!).bookingPolicy!
+const partition = (rev: number) => ({ version: 1 as const, businessId: 'tenant', serviceId: 's', reviewed: true, revision: rev, sourceHash: contentSourceHash(policy), segments: [
+  { id: 'why', source: 'explanation', start: 0, end: policy.estimateExplanation!.length, stage: 'choice', role: 'prose', variants: [] },
+  { id: 'prepare', source: 'disclaimer', start: 0, end: policy.estimateDisclaimer!.length, stage: 'attendance', role: 'condition', variants: [] }
+] })
+let definition = { qaSimulator: true, serviceContent: { version: 1 as const, businessId: 'tenant', services: [partition(1)] } }
+let configReads = 0
+const metadataQuery = client.$queryRaw
+client.businessBotConfiguration = {}
+client.$queryRaw = async (q: any) => {
+  const sql = q.strings.join(' ')
+  if (sql.includes('service-content-definition')) {
+    configReads++
+    assert.match(sql, /qaSimulator/, 'explicit preview reads QA scoped configuration')
+    return [{ id: 'qa', businessId: 'tenant', definition: structuredClone(definition) }]
+  }
+  const rows = await metadataQuery(q)
+  if (sql.includes('conversational-public-source-stamp')) rows[0].serviceContentRows = [{ id: 'qa', businessId: 'tenant', status: 'ACTIVE', conversationEligible: false, qaEligible: true, serviceContent: structuredClone(definition.serviceContent) }]
+  return rows
+}
+const metadataTxn = client.$transaction
+client.$transaction = async (body: any, options: any) => {
+  const pinnedDefinition = structuredClone(definition)
+  return metadataTxn(async (source: any) => {
+    const raw = source.$queryRaw
+    source.$queryRaw = async (q: any) => {
+      const sql = q.strings.join(' ')
+      if (sql.includes('service-content-definition')) {
+        configReads++
+        return [{ id: 'qa', businessId: 'tenant', definition: pinnedDefinition }]
+      }
+      const rows = await raw(q)
+      if (sql.includes('conversational-public-source-stamp')) rows[0].serviceContentRows = [{ id: 'qa', businessId: 'tenant', status: 'ACTIVE', conversationEligible: false, qaEligible: true, serviceContent: pinnedDefinition.serviceContent }]
+      return rows
+    }
+    return body(source)
+  }, options)
+}
+revision++
+const stalePreloaded = definition.serviceContent
+const metadataPort = await createPrismaDialoguePort(client, 'tenant', stalePreloaded, { qaPreview: true })
+let current = (await metadataPort.port.catalog())[0]!
+assert.equal((current.bookingPolicy!.contentPolicy as any)?.revision, 1)
+const coldCount = { catalogReads, configReads, stamps: metadataPort.cacheDiagnostics!.stampReads }
+await metadataPort.port.catalog()
+assert.equal(catalogReads, coldCount.catalogReads)
+assert.equal(configReads, 0, 'cold and warm catalog share existing stamp projection without config SQL')
+assert.equal(metadataPort.cacheDiagnostics!.stampReads, coldCount.stamps + 1, 'warm catalog verifies exactly one stamp')
+definition = { ...definition, serviceContent: { ...definition.serviceContent, services: [partition(2)] } }; revision++
+current = (await metadataPort.port.catalog())[0]!
+assert.equal((current.bookingPolicy!.contentPolicy as any)?.revision, 2, 'new stamp must never be paired with old preloaded content')
+assert.ok(!stageContent(current.bookingPolicy!, 'tenant', 'choice').fragments.some(f => f.text.includes('Preparación')))
+assert.ok(stageContent(current.bookingPolicy!, 'tenant', 'attendance').fragments.some(f => f.text.includes('Preparación')))
+assert.equal(configReads, 0)
+const waPort = await createPrismaDialoguePort(client, 'tenant', null)
+assert.equal((await waPort.port.catalog())[0]!.bookingPolicy!.contentPolicy, undefined, 'QA metadata is never admitted by default WhatsApp port or shared cache')
+const beforeAvailability = configReads
+const selected = { s: { configurationKey: serviceConfigurationKey(current.bookingPolicy!), optionId: 'short' } }
+definition = { ...definition, serviceContent: { ...definition.serviceContent, services: [partition(3)] } }; revision++
+const changedGuidance = await metadataPort.port.verifiedDateChoices!([current], undefined, selected)
+assert.equal(changedGuidance.ok, false)
+if (!changedGuidance.ok) assert.equal(changedGuidance.reason, 'GUIDANCE_REQUIRED', 'fresh availability cannot silently reuse an old content key')
+assert.equal(configReads, beforeAvailability + 1, 'one narrow config read per availability snapshot, never per service or candidate')
+const noSnapshot = { ...client }; delete noSnapshot.$transaction
+const fallbackPort = await createPrismaDialoguePort(noSnapshot, 'tenant', stalePreloaded, { qaPreview: true })
+assert.equal(((await fallbackPort.port.catalog())[0]!.bookingPolicy!.contentPolicy as any)?.revision, 3, 'uncached fallback refreshes scoped metadata instead of obsolete preload')
+stampFailure = true
+assert.equal(((await metadataPort.port.catalog())[0]!.bookingPolicy!.contentPolicy as any)?.revision, 3, 'stamp failure uses a fresh guarded fallback, not old cached metadata')
+stampFailure = false
+console.log('PASS metadata cold/warm/source-edit, QA/default isolation, fresh availability keys and query-count/fallback')
