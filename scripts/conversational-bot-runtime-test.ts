@@ -1160,3 +1160,27 @@ choiceAfterPolicyRemoval.row.definition={} as typeof config.definition
 await assert.rejects(choiceAfterPolicyRemoval.run(),/conversation choice policy unavailable/)
 assert.equal(readConversationDraft(choiceAfterPolicyRemoval.session.state,policy,'UTC').serviceId,null,'policy removal cannot enter legacy Booking V2')
 console.log('conversational runtime public facts/identity/date receivers/choice during new text/policy removal: PASS')
+
+for (const status of ['HUMAN_QUEUED', 'HUMAN_TAKEN']) {
+  const protectedReferral = runtimeFixture()
+  await protectedReferral.run()
+  const draft = readConversationDraft(protectedReferral.session.state, policy, 'UTC')
+  draft.referral = { businessId: draft.businessId, status: 'pending', reason: 'UNVERIFIED_SERVICE', request: 'corte francés', serviceId: null }
+  draft.serviceRequest = { businessId: draft.businessId, purpose: 'inquiry', disposition: 'unverified_variant',
+    request: 'corte francés', serviceIds: [], correction: false, continuation: false, basis: 'related_category', sourceQuote: null }
+  protectedReferral.session.state = projectConversationDraft(draft, policy)
+  protectedReferral.session.status = status
+  protectedReferral.next('volver al bot')
+  const beforeState = structuredClone(protectedReferral.session.state)
+  const beforeReplies = protectedReferral.replies.length
+  let providerCalls = 0
+  await protectedReferral.run('PROCESS_INBOX', { provider: async () => {
+    providerCalls++
+    return runtimeCandidate({ kind: 'referral', action: 'resume', ...runtimeEv('volver al bot') })
+  }, timeoutMs: 15000 })
+  assert.equal(providerCalls, 0, status + ' cannot use conversational resume to bypass actual human ownership')
+  assert.equal(protectedReferral.session.status, status)
+  assert.deepEqual(protectedReferral.session.state, beforeState)
+  assert.equal(protectedReferral.replies.length, beforeReplies)
+}
+console.log('conversational referral real HUMAN_QUEUED/HUMAN_TAKEN ownership remains protected: PASS')

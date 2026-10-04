@@ -96,8 +96,8 @@ export function attendanceContent(service: DialogueService, businessId: string):
 }
 export function guidanceBlockMessage(reason: GuidanceBlock): string {
   if (reason === 'INVALID_CONFIGURATION') return 'No pude verificar los datos de configuración del servicio. Mantengo el pedido; necesitás consultar al equipo.'
-  if (reason === 'PHOTO_REQUIRED') return 'El servicio requiere una foto previa; esta capacidad todavía debe gestionarla el equipo. Mantengo el pedido.'
-  if (reason === 'VALIDATION_REQUIRED') return 'El servicio requiere una validación previa; esta capacidad todavía debe gestionarla el equipo. Mantengo el pedido.'
+  if (reason === 'PHOTO_REQUIRED') return 'Para reservar este servicio, el equipo necesita revisar una foto previa. Mantengo el pedido; podés cambiar o quitar el servicio.'
+  if (reason === 'VALIDATION_REQUIRED') return 'Para reservar este servicio, el equipo necesita hacer una validación previa. Mantengo el pedido; podés cambiar o quitar el servicio.'
   if (reason === 'ESTIMATE_NOT_BOOKABLE') return 'El presupuesto de este servicio no habilita una reserva automática. Mantengo el pedido; necesitás consultarlo con el equipo.'
   return 'Este servicio requiere una consulta con el equipo antes de reservar. Mantengo todos los servicios solicitados.'
 }
