@@ -242,5 +242,60 @@ for (const message of ['cuanto es 5/0', 'cuanto es 1/3', 'cuanto es 9999999+1', 
 assert.equal(request!.text.format.schema.properties.intakeReply.additionalProperties, false)
 assert.deepEqual(request!.text.format.schema.properties.intakeReply.required, ['opening', 'closing', 'pending', 'serviceId', 'candidateIds'])
 assert.ok(request!.instructions.includes('intakeReplyAllowed'))
-console.log('conversational-bot-single-call-test: PASS')
 
+// Booking intent with no entity is acquisition, not an unrecognized procedure or a reason to buy style.
+let intakeMatrixFailures = 0
+for (const message of ['hola muchachos como estan queria un turno', 'buenas queria un turno']) {
+  for (const shape of ['empty', 'null', 'absent']) for (const copy of ['first', 'intake', 'none', 'unsafe']) {
+    const label = message + '/' + shape + '/' + copy
+    try {
+      let calls = 0, agenda = 0, catalogReads = 0
+      const initial = initialDialogueState('qa')
+      const port: DialoguePort = {
+        catalog: async () => { catalogReads++; return [{ id: 'service', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 100 }] },
+        identity: async () => ({ businessId: 'qa', businessName: 'Local configurado', assistantName: 'Ada', treatment: 'vos' }),
+        availability: async () => { agenda++; return { professionals: [], slots: [] } }
+      }
+      const provider = Object.assign(async (input: AiInterpretationInput) => {
+        calls++
+        return { ...empty, intent: 'booking', ...(shape === 'empty' ? { turnPlan: { version: 1, operations: [] } } : shape === 'null' ? { turnPlan: null } : {}),
+          firstReply: copy === 'first' || copy === 'unsafe' ? { opening: copy === 'unsafe' ? 'Hola, soy otra persona.' : 'Bien, gracias por preguntar.', closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id) } : null,
+          intakeReply: copy === 'intake' ? { opening: 'Bien, gracias por preguntar.', closing: null, pending: 'service', serviceId: null, candidateIds: [] } : null }
+      }, { respond: async () => { calls++; throw new Error('a prepared acquisition must not call the composer') } }) as AiInterpretationProvider
+      const result = await respondWithAiInterpreter(context, initial, message, port, provider)
+      assert.equal(calls, 1, label); assert.equal(result.interpretation.aiCalls, 1, label)
+      assert.equal(result.interpretation.mode, 'ai'); assert.equal(result.interpretation.reason, null)
+      assert.equal(result.state.pending, 'service'); assert.equal(result.state.serviceId, null)
+      assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.state.sandboxReservation, undefined)
+      assert.equal(agenda, 0); assert.equal(catalogReads, 1); assert.equal(result.reply.match(/Soy Ada, de Local configurado/g)?.length, 1)
+      assert.match(result.reply, /¿Qué servicio necesitás\?/); assert.doesNotMatch(result.reply, /No pude identificar|otra persona|reservado/)
+      if (copy === 'first') assert.match(result.reply, /Bien, gracias por preguntar\./, 'safe first-call social response survives a prepared question')
+      if (copy === 'unsafe') assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'identity_in_frame')
+    } catch (error) { intakeMatrixFailures++; console.error('FAIL booking acquisition ' + label, error) }
+  }
+}
+assert.equal(intakeMatrixFailures, 0, 'every empty/null/absent acquisition path is one call and a normal question')
+
+// A no-entity continuation preserves an established draft and asks its actual missing field.
+const retainedDate = { ...initialDialogueState('qa'), date: '2026-09-30', customerName: 'Ana', introduced: true }
+const noEntityAgain = await run('buenas queria un turno', { state: retainedDate, candidate: { intent: 'booking', turnPlan: { version: 1, operations: [] } }, draft: input => ({ opening: 'Dale.', closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id) }) })
+assert.equal(noEntityAgain.calls, 1); assert.equal(noEntityAgain.response.state.date, retainedDate.date)
+assert.equal(noEntityAgain.response.state.customerName, 'Ana'); assert.equal(noEntityAgain.availabilityCalls, 0)
+assert.match(noEntityAgain.response.reply, /Qué servicio/); assert.doesNotMatch(noEntityAgain.response.reply, /No pude identificar/)
+
+const pendingDateAgain = await run('buenas queria un turno', { state: resetState, candidate: { intent: 'booking', turnPlan: { version: 1, operations: [] } } })
+assert.equal(pendingDateAgain.calls, 1); assert.equal(pendingDateAgain.availabilityCalls, 0)
+assert.deepEqual(pendingDateAgain.response.state, resetState); assert.equal(pendingDateAgain.response.proposal, null)
+assert.match(pendingDateAgain.response.reply, /día/); assert.doesNotMatch(pendingDateAgain.response.reply, /No pude identificar/)
+const explicitUnknownPlan = await run('quiero un masaje', { candidate: { intent: 'booking', turnPlan: { version: 1, operations: [
+  { kind: 'service', mode: 'unresolved', serviceIds: [], correction: false, evidence: 'masaje', confidence: 1 }
+] } } })
+assert.equal(explicitUnknownPlan.response.state.serviceId, null); assert.equal(explicitUnknownPlan.availabilityCalls, 0)
+assert.equal(explicitUnknownPlan.response.proposal, null); assert.match(explicitUnknownPlan.response.reply, /No tengo información confirmada sobre «masaje»/)
+const candidateQuestion = await run('cortarme el pelo', { candidate: { intent: 'booking', serviceId: 'service', serviceEvidence: 'cortarme el pelo', serviceConfidence: 'certain' } })
+const candidateNoOp = await run('buenas queria un turno', { state: candidateQuestion.response.state, candidate: { intent: 'booking', turnPlan: { version: 1, operations: [] } } })
+assert.equal(candidateNoOp.response.state.serviceId, null); assert.equal(candidateNoOp.availabilityCalls, 0)
+assert.equal(candidateNoOp.response.proposal, null); assert.equal(candidateNoOp.response.bookingCommand, undefined)
+assert.deepEqual(candidateNoOp.response.state.questionContext?.matchCandidateIds, ['service'])
+assert.match(candidateNoOp.response.reply, /Corte hombre/); assert.doesNotMatch(candidateNoOp.response.reply, /No pude identificar/)
+console.log('conversational-bot-single-call-test: PASS')

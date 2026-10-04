@@ -61,7 +61,8 @@ test('other cannot suppress verified booking or unknown service',async()=>{
  assert.equal(unknown.response.bookingCommand,undefined);assert.equal(unknown.response.state.sandboxReservation,undefined)
  assert.equal(agenda,beforeUnknown,'unknown procedure does not invoke agenda or booking effects')
  const booking=await say(initial(),'quiero reservar',[],'booking')
- assert.match(booking.response.reply,/servicio/i)
+ assert.match(booking.response.reply,/¿Qué servicio necesitás\\?/);assert.doesNotMatch(booking.response.reply,/No pude identificar/)
+ assert.equal(booking.calls,1);assert.equal(booking.response.proposal,null)
 })
 test('initial fields are acquired not changes',()=>{
  const before=initial(),after:DialogueState={...before,date:'2026-10-04',customerName:'Ana',requestedTime:'13:00',professional:{kind:'any'}}

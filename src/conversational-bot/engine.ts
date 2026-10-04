@@ -567,7 +567,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!service) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
     questionOptions = services.map(item => ({ id: item.id, label: item.name }))
-    return finish(`${prefix}¿Qué servicio necesitás?\n${serviceList(services) || 'No tengo servicios disponibles para consultar.'}`)
+    return { ...finish(`${prefix}¿Qué servicio necesitás?\n${serviceList(services) || 'No tengo servicios disponibles para consultar.'}`), ...(decision?.intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
   let guidance = resolveGuidance(selectedServices as DialogueService[], state.serviceEstimates)
   if (guidance.pending && (matching?.category === 'estimate' || !preparedCatalog && (previous as DialogueState).pending === 'estimate' && !socialMessage(message))) {
@@ -921,6 +921,18 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (!state.referral && !procedureQuestion && intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
     return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
   }
+  // A validated booking no-op requests progression, not a search for the whole utterance.
+  // Stored clarification/correction scopes still own their answers; explicit operations run below.
+  if (intent === 'booking' && raw.operations.length === 0 && !state.referral && !procedureQuestion &&
+      !state.editRequest && !route.information.length && !route.pendingAction && !hasBasketSelection(state)) {
+    const question = state.questionContext
+    if (question?.field === 'service' && question.matchCandidateIds && !affirmativeMatchAnswer(message, [])) {
+      return respondBooking(context, state, message, port, undefined, services,
+        { category: 'service', candidateIds: question.matchCandidateIds })
+    }
+    if (!question?.matchCandidateIds) return respondBooking(context, state, message, port,
+      { intent, serviceId: null, candidateIds: [], correction: false }, services)
+  }
   const matched = matchingTurn(state, message, raw, context, services)
   const firstUnresolved = raw.operations.flatMap(operation => operation.kind === 'basket' ? operation.members : []).find(member => member.mode === 'unresolved')
   const identityCandidate = identityCandidates.find(candidate => candidate.evidence === firstUnresolved?.evidence)
@@ -1060,7 +1072,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       rememberBasketClarification(state, services, clarification)
       return { ...finishWithoutAgenda(clarification), replyPrepared: true }
     }
-    return finishWithoutAgenda(socialQuestion(state))
+    return { ...finishWithoutAgenda(socialQuestion(state)), ...(intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
   if (!matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
   const clarification = basketQuestion(state, services)

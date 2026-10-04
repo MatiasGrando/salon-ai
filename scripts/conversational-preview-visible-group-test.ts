@@ -161,3 +161,26 @@ console.log('queued consent, retries, scope, rollback and bounds: OK')
   assert.doesNotMatch(result.reply, /Soy Ada/, 'already-visible identity must not be repeated')
 }
 console.log('lateral context and date/professional correction preserve companions: OK')
+
+// Exercise the actual visible queue with the semantic provider, not only lexical fallback.
+{
+  let calls = 0, agenda = 0
+  const provider = Object.assign(async (input: any) => {
+    calls++
+    return { intent: input.message.includes('turno') ? 'booking' : 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+      turnPlan: { version: 1, operations: [] },
+      firstReply: { opening: 'Bien, gracias por preguntar.', closing: null, factIds: input.firstReplyFacts.map((fact: any) => fact.id) } }
+  }, { respond: async () => { calls++; throw new Error('prepared intake must not buy another style call') } })
+  const h = harness(false, async () => ({ context, port: { ...port, availability: async () => { agenda++; return { professionals: [], slots: [] } } } }), provider)
+  await h.send('hola muchachos'); await h.send('como estan'); await h.send('queria un turno')
+  await h.complete(0); await h.complete(1)
+  const result = await h.complete(2)
+  const visible = h.state.demoChatMessages.filter((message: any) => message.role === 'bot')
+  assert.equal(visible.length, 1); assert.equal(calls, 3); assert.equal(result.interpretation.aiCalls, 1)
+  assert.equal(agenda, 0); assert.equal(result.state.serviceId, null); assert.equal(result.proposalReady, false)
+  assert.equal(result.bookingCommand, undefined); assert.equal(result.state.sandboxReservation, undefined)
+  assert.equal(visible[0].text.match(/Soy Ada, de Comercio configurado/g)?.length, 1)
+  assert.match(visible[0].text, /Bien, gracias por preguntar\./); assert.match(visible[0].text, /¿Qué servicio necesitás\?/)
+  assert.doesNotMatch(visible[0].text, /No pude identificar/)
+}
+console.log('semantic empty-plan booking visible group: OK')
