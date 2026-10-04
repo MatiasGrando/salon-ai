@@ -1,6 +1,6 @@
 import { AVAILABILITY_CAUSES } from '../bot-options/application/availability-evidence.js'
 import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
-import { TURN_PLAN_LIMITS, type TurnOperation } from './turn-plan.js'
+import { TURN_PLAN_LIMITS, TurnPlanValidationError, type TurnPlanValidationCause, type TurnOperation } from './turn-plan.js'
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
 
 type RequestKind = TurnOperation['kind']
@@ -30,7 +30,7 @@ export type ValidationSummary = {
   candidates: 'accepted' | 'rejected' | 'absent'
   correction: 'accepted' | 'rejected' | 'absent'
   /** Contract acceptance only; motor outcomes remain stateBefore/stateAfter and server facts. */
-  turnPlan?: { outcome: ValidationSummary['outcome']; validationAcceptedKinds: RequestKind[]; reason: 'turn_plan' | 'not_run' | null }
+  turnPlan?: { outcome: ValidationSummary['outcome']; validationAcceptedKinds: RequestKind[]; reason: 'turn_plan' | 'not_run' | null; cause?: TurnPlanValidationCause }
 }
 export type StateSummary = {
   pending: DialogueState['pending']
@@ -117,7 +117,7 @@ export function summarizeValidation(proposal: ProposalSummary, accepted: boolean
       error instanceof Error ? reasonByMessage[error.message] ?? 'shape' : 'shape',
     service: field(proposal.service), professional: field(proposal.professional),
     candidates: field(proposal.candidateCount > 0), correction: field(proposal.correction),
-    ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const } } : {})
+    ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause } : {}) } } : {})
   }
 }
 export function summarizeState(state: DialogueState): StateSummary {

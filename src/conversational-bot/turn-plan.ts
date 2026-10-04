@@ -62,7 +62,15 @@ const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, 
 const contains = (text: string, fragment: string) => (' ' + normalized(text) + ' ').includes(' ' + normalized(fragment) + ' ')
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const bounded = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u001f]/.test(value)
-function fail(reason: string): never { throw new Error('invalid turn plan: ' + reason) }
+export type TurnPlanValidationCause = 'evidence' | 'shape' | 'catalog' | 'conflict' | 'estimate'
+export class TurnPlanValidationError extends Error {
+  constructor(readonly validationCause: TurnPlanValidationCause, message = 'invalid AI turn plan') { super(message) }
+}
+function fail(reason: string): never {
+  const cause: TurnPlanValidationCause = reason.includes('catalog') ? 'catalog' : reason.includes('evidence') ? 'evidence'
+    : reason.includes('duplicate') ? 'conflict' : 'shape'
+  throw new TurnPlanValidationError(cause, 'invalid turn plan: ' + reason)
+}
 function exactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): void {
   if (required.some(key => !Object.hasOwn(value, key)) || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) fail('keys')
 }

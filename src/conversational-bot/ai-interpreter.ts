@@ -8,7 +8,8 @@ import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
-import { parseTurnPlan, type TurnPlan } from './turn-plan.js'
+import { parseTurnPlan, TurnPlanValidationError, type TurnPlan } from './turn-plan.js'
+import { groundServicePlan, serviceEvidenceMeaning } from './service-evidence-grounding.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
 import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
 import { pendingQuestion, validateFacts } from './information.js'
@@ -74,20 +75,20 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
-        const parsed = parseTurnPlan(item.turnPlan, message, services.map(service => service.id))
+        const parsed = parseTurnPlan(groundServicePlan(item.turnPlan, message, services), message, services.map(service => service.id))
         turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
-            if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new Error('unknown basket target')
+            if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
             return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
           }
           if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
-          const matches = catalogEvidenceMatches(operation.evidence, services)
+          const matches = catalogEvidenceMatches(serviceEvidenceMeaning(operation.evidence, services), services)
           // A model-proposed single/subset cannot hide other matches for its grounded phrase.
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
         validateEstimateOperations(turnPlan, state, services)
-      } catch { throw new Error('invalid AI turn plan') }
+      } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
   }
   for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
@@ -99,7 +100,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   if (turnPlan) {
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
         item.serviceCorrection === true || item.informationTarget != null ||
-        item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new Error('invalid AI turn plan')
+        item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new TurnPlanValidationError('conflict')
     return { ...item, turnPlan } as Candidate
   }
   if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
@@ -141,9 +142,9 @@ function validateEstimateOperations(plan: TurnPlan, state: DialogueState, servic
   for (const operation of plan.operations) {
     if (operation.kind !== 'estimate') continue
     const service = services.find(item => item.id === operation.serviceId)
-    if (!exactIds.includes(operation.serviceId) || !service) throw new Error('invalid estimate target')
+    if (!exactIds.includes(operation.serviceId) || !service) throw new TurnPlanValidationError('estimate')
     const guide = serviceGuidance(service)
-    if (guide.kind !== 'guided' || operation.optionId !== null && !guide.policy.estimateOptions?.some(option => option.id === operation.optionId)) throw new Error('invalid estimate option')
+    if (guide.kind !== 'guided' || operation.optionId !== null && !guide.policy.estimateOptions?.some(option => option.id === operation.optionId)) throw new TurnPlanValidationError('estimate')
   }
 }
 function catalogEvidenceMatches(evidence: string, services: readonly DialogueService[]): DialogueService[] {
@@ -155,26 +156,27 @@ function catalogEvidenceMatches(evidence: string, services: readonly DialogueSer
 }
 /** Resolve ambiguity per member; an exact companion service is never swallowed by a generic phrase. */
 function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string, retainedIds: readonly string[] = []): BasketMemberProposal {
+  const meaning = serviceEvidenceMeaning(member.evidence, services)
   // Resolve an unambiguous retained-member reference before widening to catalog variants.
-  const retained = catalogEvidenceMatches(member.evidence, services.filter(service => retainedIds.includes(service.id)))
+  const retained = catalogEvidenceMatches(meaning, services.filter(service => retainedIds.includes(service.id)))
   if (member.confidence >= 0.85 && retained.length === 1 && member.serviceIds.includes(retained[0]!.id) &&
       !/[?¿]/.test(message) && !/\b(no|ni|sin|o)\b/.test(normalized(message))) return { ...member, mode: 'single', serviceIds: [retained[0]!.id] }
   // Only a closed standalone full catalog label overrides a spurious model group.
   // A fragment inside negation, alternatives or a multi-entity request is not a closed selection.
-  const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(member.evidence))
-  if (member.mode === 'alternatives' && member.confidence >= 0.85 && !/[?¿]/.test(message) && evidenceWords(message) === evidenceWords(member.evidence) &&
+  const exact = services.filter(service => evidenceWords(service.name) === evidenceWords(meaning))
+  if (member.mode === 'alternatives' && member.confidence >= 0.85 && !/[?¿]/.test(message) && evidenceWords(serviceEvidenceMeaning(message, services)) === evidenceWords(meaning) &&
       exact.length === 1 && member.serviceIds.includes(exact[0]!.id)) return { ...member, mode: 'single', serviceIds: [exact[0]!.id] }
-  let matches = catalogEvidenceMatches(member.evidence, services)
+  let matches = catalogEvidenceMatches(meaning, services)
   // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
   // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
   if (matches.length < 2 && member.mode === 'alternatives') {
     const proposed = services.filter(service => member.serviceIds.includes(service.id))
-    const evidence = evidenceWords(member.evidence).trim().split(' ')
+    const evidence = evidenceWords(meaning).trim().split(' ')
     const meaningful = (name: string) => evidenceWords(name).trim().split(' ').filter(term => !['un', 'una', 'el', 'la', 'de', 'del', 'y'].includes(term))
     const anchors = [...new Set(proposed.flatMap(service => meaningful(service.name)))].filter(term => evidence.includes(term))
     if (anchors.length) matches = services.filter(service => anchors.every(term => meaningful(service.name).includes(term)))
   }
-  if (matches.length > BASKET_LIMITS.candidates) throw new Error('basket ambiguity exceeds bound')
+  if (matches.length > BASKET_LIMITS.candidates) throw new TurnPlanValidationError('catalog')
   return matches.length > 1 ? { ...member, mode: 'alternatives', serviceIds: matches.map(service => service.id) } : member
 }
 /** A unique near-match may only produce a question; it is never a service selection. */
