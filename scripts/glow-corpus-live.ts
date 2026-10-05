@@ -21,7 +21,7 @@ type SampleEntry = { episodeId:string;sourceConversationId:string;sourceMessageI
 export type LiveSample = {schemaVersion:1;sourceCorpusSha256:string;sourceCorpusPath?:string;sourcePrivacyMessageIds?:string[];fixtureVersion:string;fixtures:Record<string,EvalFixture & {identity?:DialogueIdentity}>;
   pseudonyms:Record<string,string>;publicStaffNames:string[];limits:string[];entries:SampleEntry[];
   privacyPolicyVersion?:'client-name-spans-v1';reviewedClientNames?:Record<string,string[]>;allowedPseudonyms?:string[];priorJournals?:Array<{path:string;sha256:string}>}
-type LiveOptions = { mode:'controlled'|'openai_responses';journalPath:string;resume?:boolean;maxEntries?:number;fetchImpl?:typeof fetch;fingerprint?:()=>string;timeoutMs?:number }
+type LiveOptions = { mode:'controlled'|'openai_responses';journalPath:string;resume?:boolean;maxEntries?:number;fetchImpl?:typeof fetch;fingerprint?:()=>string;timeoutMs?:number;respondImpl?:typeof respondWithAiInterpreter }
 type TurnRecord = {key:string;episodeId:string;sourceConversationId:string;sourceMessageId:string;contextMode:string;category:string;
   fixtureGap:string|null;contextIncomplete:boolean;counterfactualContinuation:boolean;manualReviewPending:string[];stateAfter:DialogueState;
   diagnostics:InterpretationDiagnostics;reply:string;failures:string[];evaluation:'criteria_met'|'failed'|'fallback'|'fixture_gap'|'context_incomplete'|'no_scored'}
@@ -176,7 +176,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
   validateLiveSample(sample)
   assert(['controlled','openai_responses'].includes(options.mode),'invalid transport origin')
   assert(options.mode!=='controlled' || options.fetchImpl,'controlled runs require fake transport')
-  assert(options.mode!=='openai_responses' || !options.fetchImpl && !options.fingerprint && options.timeoutMs===undefined,'real mode uses the fixed project transport/fingerprint')
+  assert(options.mode!=='openai_responses' || !options.fetchImpl && !options.fingerprint && !options.respondImpl && options.timeoutMs===undefined,'real mode uses the fixed project transport/fingerprint')
   assert(options.maxEntries===undefined || Number.isInteger(options.maxEntries) && options.maxEntries>0 && options.maxEntries<=2101,'invalid sample budget')
   const journalPath=resolve(options.journalPath)
   if(options.mode==='openai_responses') assert(journalPath.startsWith(privateRoot+sep)&&journalPath.endsWith('journal.jsonl'),'real journal must remain private and discoverable')
@@ -187,16 +187,19 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
   if(prior.length) {
     assert(options.resume===true,'explicit resume required; never replay completed inputs automatically')
     assert(prior[0]!.manifestSha256===digest && prior[0]!.runtimeFingerprint===frozen && prior[0]!.mode===options.mode,'manifest/runtime fingerprint changed')
-    const terminal=new Set(prior.filter(r=>['completed','skipped'].includes(r.event)).map(r=>String(r.key)))
+    const terminal=new Set(prior.filter(r=>['completed','skipped','local_error'].includes(r.event)).map(r=>String(r.key)))
     assert(!prior.some(r=>r.event==='started'&&!terminal.has(String(r.key))),'previous in-flight entry blocks resend; resolve manually')
   }
   mkdirSync(dirname(journalPath),{recursive:true})
   const lockPath=journalPath+'.lock',lock=openSync(lockPath,'wx')
   const records=[...prior]
+  let journalFailure=false
   const append=(record:JournalRecord)=>{
-    const fd=openSync(journalPath,'a')
-    try {writeSync(fd,JSON.stringify(record)+'\n',undefined,'utf8');fsyncSync(fd)} finally {closeSync(fd)}
-    records.push(record)
+    try {
+      const fd=openSync(journalPath,'a')
+      try {writeSync(fd,JSON.stringify(record)+'\n',undefined,'utf8');fsyncSync(fd)} finally {closeSync(fd)}
+      records.push(record)
+    } catch(error) {journalFailure=true;throw error}
   }
   const checkFrozen=()=>{
     assert(fingerprint()===frozen&&sha(JSON.stringify(sample))===digest,'runtime/manifest fingerprint changed; stop before another request')
@@ -208,6 +211,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
     const states=new Map<string,DialogueState>(), incomplete=new Set<string>()
     const completed=new Map(prior.filter(r=>r.event==='completed').map(r=>[String(r.key),r.turn as TurnRecord]))
     const skipped=new Set(prior.filter(r=>r.event==='skipped').map(r=>String(r.key)))
+    const localErrors=new Set(prior.filter(r=>r.event==='local_error').map(r=>String(r.key)))
     if(options.mode==='openai_responses'&&!sample.privacyPolicyVersion) verifyLiveSource(sample)
     const apiKey=options.mode==='controlled'?'offline-test-key':projectKey()
     let remaining=options.maxEntries??sample.entries.length
@@ -215,7 +219,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
       const key=keyOf(entry),fixture=sample.fixtures[entry.fixtureId]!
       if(sourceGaps.has(key))incomplete.add(entry.episodeId)
       if(completed.has(key)) {states.set(entry.episodeId,completed.get(key)!.stateAfter);if(completed.get(key)!.contextIncomplete)incomplete.add(entry.episodeId);continue}
-      if(skipped.has(key)) {incomplete.add(entry.episodeId);continue}
+      if(skipped.has(key)||localErrors.has(key)) {incomplete.add(entry.episodeId);continue}
       if(remaining<=0)break
       checkFrozen()
       const reasons=[...(globalAttempts.has(key)?['previously_attempted']:[]),...privacyReasons(entry),
@@ -257,12 +261,30 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
       },
         {respond:createOpenAiResponseProvider({apiKey,model:'gpt-6-luna',fetchImpl:guardedFetch})})
       const port={...fixturePort(fixture),...(fixture.identity?{identity:async()=>structuredClone(fixture.identity!)}:{})}
-      const response=await respondWithAiInterpreter({businessId:fixture.businessId,timezone:fixture.timezone,dbNow:new Date(entry.createdAt)},
-        state,entry.body,port,provider,options.timeoutMs===undefined?{}:{timeoutMs:options.timeoutMs})
-      // Interpreter fallback must never hide a fatal request/fingerprint guard as a successfully completed turn.
-      assert(activeRequests===0,'request still in-flight; no resend')
-      assert(!guardFailed,'request guard/fingerprint stopped this entry; no resend')
-      checkFrozen()
+      // Local execution is pure QA. The committed state is never passed by reference to a failed attempt.
+      const attemptedState=structuredClone(state)
+      const assertExecutionSafe=()=>{
+        assert(activeRequests===0,'request still in-flight; no resend')
+        assert(!guardFailed,'request guard/fingerprint stopped this entry; no resend')
+        assert(!journalFailure,'journal write failed; no resend')
+        checkFrozen()
+      }
+      let response:Awaited<ReturnType<typeof respondWithAiInterpreter>>
+      try {
+        response=await(options.respondImpl??respondWithAiInterpreter)(
+          {businessId:fixture.businessId,timezone:fixture.timezone,dbNow:new Date(entry.createdAt)},
+          attemptedState,entry.body,port,provider,options.timeoutMs===undefined?{}:{timeoutMs:options.timeoutMs})
+      } catch(error) {
+        // Never turn a transport/consent/fingerprint/FS fence or active request into a recoverable local error.
+        assertExecutionSafe()
+        const errorType=error instanceof Error&&['Error','TypeError','RangeError','SyntaxError'].includes(error.name)?error.name:'Error'
+        const errorCode=error instanceof Error&&error.message==='invalid dialogue input'?'invalid_dialogue_input':'local_engine_error'
+        append({event:'local_error',key,episodeId:entry.episodeId,sourceConversationId:entry.sourceConversationId,
+          sourceMessageId:entry.sourceMessageId,stage:'dialogue_execution',errorType,errorCode,contextIncomplete:true})
+        incomplete.add(entry.episodeId);remaining--;continue
+      }
+      // Interpreter fallback must never hide a fatal request/fingerprint/journal guard as a completed turn.
+      assertExecutionSafe()
       const failures=score(entry,response.state,response.interpretation,response.reply,response.proposal!==null)
       const turn:TurnRecord={key,episodeId:entry.episodeId,sourceConversationId:entry.sourceConversationId,sourceMessageId:entry.sourceMessageId,
         category:entry.category,contextMode:entry.contextMode,fixtureGap:entry.fixtureGap??null,contextIncomplete:incomplete.has(entry.episodeId),
@@ -283,7 +305,9 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
     }
     return {mode:options.mode,comprehensionEvaluated:options.mode==='openai_responses'&&turns.some(t=>t.diagnostics.mode==='ai'),
       runtimeFingerprint:frozen,manifestSha256:digest,limits:sample.limits,fixtureVersion:sample.fixtureVersion,
+      localErrors:records.filter(r=>r.event==='local_error'),
       counts:{planned:sample.entries.length,completed:turns.length,skipped:records.filter(r=>r.event==='skipped').length,
+        localErrors:records.filter(r=>r.event==='local_error').length,
         passed:turns.filter(t=>t.evaluation==='criteria_met').length,failed:turns.filter(t=>t.evaluation==='failed').length,
         fallback:turns.filter(t=>t.diagnostics.mode==='fallback').length,fixtureGap:turns.filter(t=>t.evaluation==='fixture_gap').length,
         contextIncomplete:turns.filter(t=>t.evaluation==='context_incomplete').length,noScored:turns.filter(t=>t.evaluation==='no_scored').length,

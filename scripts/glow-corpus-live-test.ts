@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
+import type { DialogueState } from '../src/conversational-bot/engine.js'
+import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
 import { runLiveSample, validateLiveSample, verifyLiveSource, type LiveSample } from './glow-corpus-live.js'
 const fixture = {businessId:'qa-live',timezone:'America/Argentina/Buenos_Aires',
   services:[{id:'cut',name:'Corte',durationMinutes:30,price:1000,requiresConsultation:false}],
@@ -224,5 +226,102 @@ writeFileSync(oldJournal,'changed','utf8')
 await assert.rejects(runLiveSample(guarded,{mode:'controlled',fetchImpl:fake,
   journalPath:join(dir,'changed-prior-journal.jsonl'),fingerprint:()=> 'current-v1'}),/prior journal hash/)
 assert.equal(calls,beforeChangedPin)
+
+
+// A local exception after captured HTTP is terminal, not a fabricated completed turn.
+const localSample=structuredClone(sample)
+localSample.entries=[...localSample.entries,{...localSample.entries[1]!,sourceMessageId:'m3',createdAt:'2026-08-20T12:02:00Z'}]
+for(const entry of localSample.entries)entry.expected={}
+localSample.entries[0]!.contextMode='isolated_adapted'
+localSample.entries[0]!.initialState={pending:'date',serviceId:'cut',basket:{version:1,nextMemberId:2,
+  members:[{memberId:'m1',mode:'single',serviceIds:['cut'],evidence:'Corte'}]}}
+const localPath=join(dir,'local-error-journal.jsonl')
+let localInvocations=0
+const localRespond:typeof respondWithAiInterpreter=async(...args)=>{
+  localInvocations++
+  const attempted=args[1] as DialogueState
+  if(localInvocations===3) {
+    assert.equal(attempted.customerName,null,'last committed state did not inherit failed mutation')
+    assert.deepEqual(attempted.basket!.members[0]!.serviceIds,['cut'])
+  }
+  const response=await respondWithAiInterpreter(...args)
+  if(localInvocations===2) {
+    attempted.basket!.members[0]!.serviceIds[0]='corrupted-after-failure'
+    attempted.customerName='PRIVATE_LOCAL_EXCEPTION_VALUE'
+    throw new Error('PRIVATE_LOCAL_EXCEPTION_VALUE')
+  }
+  return response
+}
+const localBefore=calls
+const localResult=await runLiveSample(localSample,{mode:'controlled',fetchImpl:fake,respondImpl:localRespond,
+  journalPath:localPath,fingerprint:()=> 'local-v1',maxEntries:2})
+assert.equal(localResult.counts.localErrors,1)
+assert.equal(localResult.counts.completed,1,'exception consumes budget but is never counted as completed')
+const localRecords=readFileSync(localPath,'utf8').trim().split(/\r?\n/).map(line=>JSON.parse(line))
+const localTerminal=localRecords.find(record=>record.event==='local_error')
+assert.equal(localTerminal.key,'canitas-1/m2')
+assert.equal(localTerminal.errorCode,'local_engine_error')
+assert.equal(Object.hasOwn(localTerminal,'stateAfter'),false)
+assert.equal(Object.hasOwn(localTerminal,'diagnostics'),false)
+assert.equal(localRecords.some(record=>record.event==='completed'&&record.key==='canitas-1/m2'),false)
+assert.equal(localRecords.filter(record=>record.event==='interpreted').length,2)
+assert.equal(localRecords.filter(record=>record.event==='request_done').length,2)
+assert.equal(readFileSync(localPath,'utf8').includes('PRIVATE_LOCAL_EXCEPTION_VALUE'),false)
+const localResumed=await runLiveSample(localSample,{mode:'controlled',fetchImpl:fake,respondImpl:localRespond,
+  journalPath:localPath,fingerprint:()=> 'local-v1',resume:true})
+assert.equal(calls-localBefore,3,'resume skips local_error and only sends the remaining entry')
+assert.equal(localResumed.counts.localErrors,1)
+assert.equal(localResumed.counts.completed,2)
+assert.equal(localResumed.turns[1]!.contextIncomplete,true)
+assert.equal(localResumed.turns[1]!.stateAfter.customerName,null)
+await assert.rejects(runLiveSample(sample,{mode:'openai_responses',respondImpl:localRespond,
+  journalPath:join(dir,'forbidden-real-seam.jsonl')}),/fixed project transport/)
+
+const knownLocal=structuredClone(sample);knownLocal.entries=[knownLocal.entries[0]!]
+const knownLocalRespond:typeof respondWithAiInterpreter=async(...args)=>{
+  await respondWithAiInterpreter(...args);throw new Error('invalid dialogue input')
+}
+const knownLocalResult=await runLiveSample(knownLocal,{mode:'controlled',fetchImpl:fake,respondImpl:knownLocalRespond,
+  journalPath:join(dir,'known-local-journal.jsonl'),fingerprint:()=> 'local-v1'})
+assert.equal(knownLocalResult.counts.localErrors,1)
+assert.equal(knownLocalResult.counts.completed,0)
+assert.equal(knownLocalResult.localErrors[0]!.errorCode,'invalid_dialogue_input')
+assert.equal(knownLocalResult.comprehensionEvaluated,false)
+
+let frozenLocal='valid'
+const fatalLocalPath=join(dir,'fatal-local-journal.jsonl')
+const fatalRespond:typeof respondWithAiInterpreter=async(...args)=>{
+  await respondWithAiInterpreter(...args);frozenLocal='changed';throw new Error('local after fingerprint change')
+}
+await assert.rejects(runLiveSample(sample,{mode:'controlled',fetchImpl:fake,respondImpl:fatalRespond,
+  journalPath:fatalLocalPath,fingerprint:()=>frozenLocal}),/fingerprint/)
+assert.equal(readFileSync(fatalLocalPath,'utf8').includes('local_error'),false,'fingerprint failure is never a local terminal')
+const repeatedPath=join(dir,'repeated-phase-journal.jsonl')
+const repeatedRespond:typeof respondWithAiInterpreter=async(...args)=>{
+  await respondWithAiInterpreter(...args);await respondWithAiInterpreter(...args);throw new Error('after request guard')
+}
+await assert.rejects(runLiveSample(sample,{mode:'controlled',fetchImpl:fake,respondImpl:repeatedRespond,
+  journalPath:repeatedPath,fingerprint:()=> 'local-v1'}),/guard/)
+assert.equal(readFileSync(repeatedPath,'utf8').includes('local_error'),false)
+
+// Force a journal failure after request_done, where the interpreter normally catches provider errors.
+const fsPath=join(dir,'fs-failure-journal.jsonl'),savedFsPath=fsPath+'.saved'
+let movedJournal=false
+const brokenJournalFetch:typeof fetch=async(url,init)=>{
+  const response=await fake(url,init),readJson=response.json.bind(response)
+  response.json=async()=>{
+    const result=await readJson()
+    if(!movedJournal) {
+      assert(resolve(fsPath).startsWith(resolve(testRoot)+sep)&&resolve(savedFsPath).startsWith(resolve(testRoot)+sep))
+      renameSync(fsPath,savedFsPath);mkdirSync(fsPath);movedJournal=true
+    }
+    return result
+  }
+  return response
+}
+await assert.rejects(runLiveSample(sample,{mode:'controlled',fetchImpl:brokenJournalFetch,
+  journalPath:fsPath,fingerprint:()=> 'local-v1'}),/journal|EISDIR|EPERM/)
+assert.equal(readFileSync(savedFsPath,'utf8').includes('local_error'),false)
+assert.equal(readFileSync(savedFsPath,'utf8').includes('request_done'),true)
 
 console.log('Live sample journal: PASS (privacy, real-vs-controlled, scoped POST, token usage, no retry, checkpoint, crash/fingerprint fencing)')
