@@ -1,6 +1,7 @@
 import { serviceEvidenceMeaning } from './service-evidence-grounding.js';
 import { affirmativeMatchAnswer } from './contextual-matching.js';
 import type { DialogueService } from './engine.js';
+import { isCustomerText } from './customer-text.js';
 export type ServiceRequest = {
     purpose: 'inquiry' | 'booking';
     disposition: 'clear' | 'alternatives' | 'needs_detail' | 'unverified_variant';
@@ -51,7 +52,7 @@ export function parseServiceRequestContext(value: unknown, businessId: string): 
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
     if (!item || Object.keys(item).filter(key => key !== 'candidateName').sort().join(',') !== keys ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
-        item.businessId !== businessId || !bounded(item.request, 300)) {
+        item.businessId !== businessId || !isCustomerText(item.request, 300)) {
         throw new Error('invalid service request scope');
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,

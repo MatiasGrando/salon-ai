@@ -1,4 +1,5 @@
 import Fuse from 'fuse.js'
+import { isCustomerText } from './customer-text.js'
 import { normalizeAnswer } from './dialogue-context.js'
 
 export type MatchingCategory = 'service' | 'professional' | 'estimate'
@@ -9,7 +10,7 @@ const text = (value: unknown, max: number): value is string => typeof value === 
 const words = (value: string) => normalizeAnswer(value).split(' ').filter(word => word && word !== 'y').sort()
 /** Search scores rank retrieval only. They are not probabilities, confidence or permission to select. */
 export function matchContextualItems(scope: MatchingScope, query: string, items: readonly MatchingItem[]): MatchingResult {
-  if (!text(scope.businessId, 128) || !['service','professional','estimate'].includes(scope.category) || scope.targetId !== undefined && !text(scope.targetId, 128) || items.length > 200 || !text(query, 2000)) throw new Error('invalid matching input')
+  if (!text(scope.businessId, 128) || !['service','professional','estimate'].includes(scope.category) || scope.targetId !== undefined && !text(scope.targetId, 128) || items.length > 200 || !isCustomerText(query, 2000)) throw new Error('invalid matching input')
   const scoped = items.filter(item => item.businessId === scope.businessId && item.category === scope.category && item.targetId === scope.targetId)
   if (new Set(scoped.map(item => item.id)).size !== scoped.length || scoped.some(item => !text(item.id, 128) || !text(item.label, 200) || item.aliases !== undefined && (!Array.isArray(item.aliases) || item.aliases.length > 12 || item.aliases.some(alias => !text(alias, 200))))) throw new Error('invalid matching catalogue')
   const input = words(query), normalized = ' ' + normalizeAnswer(query) + ' '

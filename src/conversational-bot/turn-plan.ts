@@ -1,4 +1,5 @@
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
+import { isCustomerText } from './customer-text.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
 import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
@@ -106,7 +107,7 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
   if (value.version !== 1 || !Array.isArray(value.operations) || value.operations.length > TURN_PLAN_LIMITS.operations) fail('version or operations')
   const seen = new Set<string>()
   for (const raw of value.operations) {
-    if (!object(raw) || !bounded(raw.evidence, TURN_PLAN_LIMITS.evidence) || typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) fail('evidence or confidence')
+    if (!object(raw) || !isCustomerText(raw.evidence, TURN_PLAN_LIMITS.evidence) || typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) fail('evidence or confidence')
     const evidence = normalized(raw.evidence)
     if (!evidence || !contains(message, raw.evidence)) fail('ungrounded evidence')
     const common = ['kind', 'evidence', 'confidence']
@@ -123,7 +124,7 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       for (const member of raw.members) {
         if (!object(member)) fail('basket member')
         exactKeys(member, ['mode','serviceIds','evidence','confidence'])
-        if (!bounded(member.evidence, TURN_PLAN_LIMITS.evidence) || !contains(raw.evidence, member.evidence) || !contains(message, member.evidence) ||
+        if (!isCustomerText(member.evidence, TURN_PLAN_LIMITS.evidence) || !contains(raw.evidence, member.evidence) || !contains(message, member.evidence) ||
             typeof member.confidence !== 'number' || !Number.isFinite(member.confidence) || member.confidence < 0 || member.confidence > 1) fail('basket member evidence')
         if (!['single','alternatives','unresolved'].includes(String(member.mode)) || !Array.isArray(member.serviceIds) || member.serviceIds.length > BASKET_LIMITS.candidates ||
             (member.mode === 'single' ? member.serviceIds.length !== 1 : member.mode === 'alternatives' ? member.serviceIds.length < 2 : member.serviceIds.length !== 0)) fail('basket member')

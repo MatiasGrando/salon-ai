@@ -1,3 +1,4 @@
+import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
 import { assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
@@ -410,7 +411,7 @@ function availabilityRecoveryMessage(serviceName: string, day: string, reasons: 
   return 'Para ' + serviceName + ' el ' + day + ':\n' + (reasons.length ? reasons.map(reason => copy[reason]).join('\n') : copy.NO_SLOTS)
 }
 async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[], matching?: MatchRequest, presentationPage?: { kind: 'slots' | 'professionals' | 'dates'; cursor: number }): Promise<DialogueResponse> {
-  if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
+  if (!isCustomerText(message, 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   // A prepared turn has already applied every semantic operation: never reparse its information text.
   const text = preparedCatalog ? '' : normalize(message)
@@ -1128,7 +1129,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
 
 /** Route current-message reads before booking extraction; reads never publish a proposal. */
 async function respondCore(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
-  if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
+  if (!isCustomerText(message, 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const referralAction = state.referral ? explicitReferralAction(message) : null
   if (referralAction && (!decision?.turnPlan || decision.turnPlan.operations.length === 0)) {
@@ -1226,7 +1227,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
 
 /** Trusted sandbox capability changes only proposal delivery; effects remain an adapter responsibility. */
 async function respondBookingEnvelope(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
-  if (!bounded(message.trim(), 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
+  if (!isCustomerText(message, 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const reservation = state.sandboxReservation
   if (context.sandboxBooking !== true) {

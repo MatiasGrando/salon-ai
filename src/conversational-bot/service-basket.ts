@@ -1,5 +1,6 @@
 import { buildCartSnapshot, cartChangeInvalidatesAvailability, type CartService } from '../bot-options/application/cart-operations.js'
 import type { DialogueService } from './engine.js'
+import { isCustomerText } from './customer-text.js'
 
 export type BasketMemberProposal = { mode: 'single' | 'alternatives' | 'unresolved'; serviceIds: readonly string[]; evidence: string; confidence: number }
 export type BasketMutation = {
@@ -32,7 +33,7 @@ export function parseServiceBasket(value: unknown): ServiceBasket {
   for (const raw of value.members) {
     if (!record(raw) || Object.keys(raw).sort().join(',') !== 'evidence,memberId,mode,serviceIds' || typeof raw.memberId !== 'string' || !/^m[1-9][0-9]*$/.test(raw.memberId) ||
         Number(raw.memberId.slice(1)) >= Number(value.nextMemberId) || ids.has(raw.memberId) ||
-        typeof raw.evidence !== 'string' || !raw.evidence.trim() || raw.evidence.length > 300 || /[\u0000-\u001f]/.test(raw.evidence) ||
+        !isCustomerText(raw.evidence, 300) ||
         !['single','alternatives','unresolved'].includes(String(raw.mode)) || !Array.isArray(raw.serviceIds) ||
         raw.serviceIds.length > BASKET_LIMITS.candidates || (raw.mode === 'single' ? raw.serviceIds.length !== 1 : raw.mode === 'alternatives' ? raw.serviceIds.length < 2 : raw.serviceIds.length !== 0)) error('member')
     ids.add(raw.memberId)

@@ -1,6 +1,7 @@
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, temporalPlanDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
+import { isCustomerText } from './customer-text.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
@@ -105,9 +106,10 @@ function validateCandidate(value: unknown, message: string, services: readonly D
       } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
   }
-  for (const key of ['serviceId', 'serviceEvidence', 'professionalMention'] as const) {
+  for (const key of ['serviceId', 'professionalMention'] as const) {
     if (item[key] !== null && (typeof item[key] !== 'string' || item[key].length < 1 || item[key].length > 128 || /[\u0000-\u001f]/.test(item[key]))) throw new Error('invalid AI field')
   }
+  if (item.serviceEvidence !== null && !isCustomerText(item.serviceEvidence, 128)) throw new Error('invalid AI field')
   if (item.serviceConfidence !== undefined && !['certain', 'uncertain'].includes(String(item.serviceConfidence))) throw new Error('invalid AI confidence')
   if (item.serviceCorrection !== undefined && typeof item.serviceCorrection !== 'boolean') throw new Error('invalid AI correction')
   // Plan and legacy entities must not offer competing representations, even for an empty plan.
