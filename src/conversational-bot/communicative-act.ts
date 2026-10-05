@@ -9,7 +9,7 @@ import type { DialogueService, DialogueState } from './engine.js'
 
 export const COMMUNICATIVE_FIELDS = ['service', 'professional', 'date', 'time', 'name', 'estimate', 'general'] as const
 export type CommunicativeField = typeof COMMUNICATIVE_FIELDS[number]
-const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain'] as const
+const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair'] as const
 export type CommunicativeAct = {
   kind: typeof kinds[number]; field: CommunicativeField; evidence: string; confidence: number
   mention: string | null; operationIndexes: number[]
@@ -19,6 +19,8 @@ export type ProfessionalReference = { businessId: string; mention: string; evide
 export type CommunicativeAdmission = {
   plan: TurnPlan; blockedFields: CommunicativeField[]
   reference?: { mention: string; evidence: string }
+  /** Ephemeral server admission, never a model flag or persisted booking action. */
+  continuity?: 'notice' | 'pause' | 'repair'
 }
 const fieldsSchema = {
   kind: { type: 'string', enum: kinds }, field: { type: 'string', enum: COMMUNICATIVE_FIELDS },
@@ -170,7 +172,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     const read = original?.kind === 'information' || original?.kind === 'unsupported_action'
     const sameField = act?.field === field
     const current = act && ['request', 'change', 'answer'].includes(act.kind)
-    const appropriate = read ? act && !['reference', 'uncertain'].includes(act.kind) : current
+    const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current
     if (!act || !sameField || !appropriate || act.confidence < .85 || !contains(act.evidence, operation.evidence)) {
       blocked.add(field); return false
     }
@@ -179,7 +181,16 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) { blocked.add(field); return false }
     return true
   })
+  const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
+    act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0) ?? []
+  // Only an unambiguous nonoperative current turn can suspend progression. An
+  // independently proposed request/inquiry (even empty) still owns its usual route.
+  const distinct = [...new Set(continuityActs.map(act => act.kind))]
+  const continuity = source.operations.length === 0 && admitted.length === 0 && blocked.size === 0 && !reference && distinct.length === 1 &&
+    !metadata?.acts.some(act => ['request', 'change', 'answer', 'inquiry', 'uncertain'].includes(act.kind))
+    ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
+    ...(continuity ? { continuity } : {}),
     ...(reference?.mention ? { reference: { mention: reference.mention, evidence: reference.evidence } } : {}) }
 }
 /** Validate composition on a copy after each transformation; only a known overlap is a semantic conflict. */
@@ -217,4 +228,16 @@ export function communicativeClarification(admission: CommunicativeAdmission): s
     date: '¿Para qué día querés el turno?', time: '¿Qué horario o franja preferís?', estimate: '¿Qué opción del presupuesto querés elegir?'
   }
   return 'Mantengo los datos del pedido. ' + (questions[admission.blockedFields[0]!] ?? '¿Qué dato querés elegir o cambiar?')
+}
+
+/** Reply to a validated nonoperative act without inventing a real-world capability. */
+export function conversationalContinuityReply(kind: NonNullable<CommunicativeAdmission['continuity']>, state: DialogueState): string {
+  if (kind === 'notice') return 'Gracias por avisar.'
+  if (kind === 'pause') return 'Dale, cuando quieras seguimos con tu pedido.'
+  const subject = {
+    service: 'la elección del servicio', estimate: 'el presupuesto del servicio', date: 'el día del turno',
+    professional: 'la elección del profesional', time: 'el horario del turno', name: 'el nombre del cliente',
+    proposal: 'la propuesta del turno'
+  }[state.pending]
+  return '¿Qué parte de ' + subject + ' querés que aclaremos?'
 }

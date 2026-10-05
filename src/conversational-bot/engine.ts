@@ -1,4 +1,4 @@
-import { communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
+import { conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
 import { assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
@@ -870,6 +870,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // inference here would recreate a field that was rejected as historical/uncertain.
   // Direct and deterministic callers have no admission and retain their grounding.
   let raw = parseTurnPlan(communicative ? rawPlan : groundTemporalPlan(rawPlan, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port.businessTimeContext ? {read:port.businessTimeContext} : {})}), message)
+  if (communicative?.continuity && raw.operations.length === 0 && communicative.plan.operations.length === 0 && !communicative.blockedFields.length && !communicative.reference) {
+    // Notice, pause and repair retain the recoverable question/draft. Do not run
+    // matching, implicit information, procedure progression or availability for them.
+    return { state, reply: conversationalContinuityReply(communicative.continuity, state), proposal: null, replyPrepared: true }
+  }
   const semanticPending = Boolean(communicative?.blockedFields.length || communicative?.reference || state.professionalReference)
   const possibleMatch = !semanticPending && !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
   const needsCatalog = Boolean(state.serviceRequest || state.referral) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
@@ -1335,6 +1340,15 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
 export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision,
   options: { deferIntroduction?: boolean } = {}): Promise<DialogueResponse> {
   const before = parseDialogueState(previous, context.businessId, context.timezone)
+  if (decision?.communicative?.continuity && decision.turnPlan?.operations.length === 0 && decision.communicative.plan.operations.length === 0 &&
+      !decision.communicative.blockedFields.length && !decision.communicative.reference) {
+    // Nonoperative admission precedes the booking envelope, which otherwise
+    // consumes consent scope and rebuilds procedure/referral choices as progression.
+    const response = await respondTurnPlan(context, before, message, port, decision.turnPlan, decision.intent,
+      decision.informationOnly === true, decision.communicative)
+    response.turnOutcome = { changedFields: [], appliedFields: [], requestedChanges: [], rejectedProfessionalPreference: false }
+    return options.deferIntroduction ? response : finalizeDialogueIntroduction(context, response, port)
+  }
   let deliveryServices: DialogueService[] = []
   const captureFresh = (result: DialogueBasketAvailability) => {
     const fresh = result.ok || result.reason === 'GUIDANCE_REQUIRED' ? result.services : []

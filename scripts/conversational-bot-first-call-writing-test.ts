@@ -214,4 +214,25 @@ assert.equal(suffix.interpretation.mode,'ai');assert.deepEqual(suffix.state.time
 assert.equal(suffix.state.date,'2026-08-28');assert.equal(suffixCalls,1);assert.equal(suffix.state.requestedTime,null)
 assert.equal(suffix.proposal,null);assert.equal(suffix.bookingCommand,undefined)
 assert.match(suffix.reply,/Bien, gracias por preguntar/);assert.match(suffix.reply,/¿Qué servicio necesitás/)
+
+for (const kind of ['notice', 'pause', 'repair']) {
+  assert.ok(requests[0]!.instructions.includes(kind), 'same interpretation request teaches nonoperative act ' + kind)
+}
+for (const [kind, message] of [['notice', 'Estoy llegando'], ['pause', 'Después sigo'], ['repair', 'No entendí la pregunta']] as const) {
+  let calls = 0
+  const provider = Object.assign(async () => {
+    calls++
+    return { ...base, intent: 'other', turnPlan: { version: 1, operations: [] },
+      communicativeActs: { version: 1, acts: [{ kind, field: 'general', evidence: message, confidence: 1, mention: null, operationIndexes: [] }] },
+      firstReply: null, intakeReply: null }
+  }, { respond: async () => { calls++; throw new Error('nonoperative act needs no extra classifier or style request') } }) as AiInterpretationProvider
+  const previous = { ...state, introduced: true }
+  const result = await respondWithAiInterpreter(context, previous, message, port, provider)
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.equal(calls, 1)
+  assert.equal(result.interpretation.aiCalls, 1)
+  assert.deepEqual(result.state, previous)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+}
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')

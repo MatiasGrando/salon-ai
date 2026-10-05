@@ -672,6 +672,114 @@ try {
     assert.equal(result.bookingCommand, undefined)
     assert.equal(localReads, 1, 'one controlled availability read; no real network or reservation')
   })
+
+  const pendingProcedure: DialogueState = {
+    ...first.state, date: '2026-10-06', customerName: 'Ana',
+    serviceRequest: { businessId: context.businessId, purpose: 'booking', disposition: 'needs_detail',
+      serviceIds: ['cut-m'], correction: false, continuation: false, basis: 'related_category',
+      sourceQuote: null, request: 'corte francés' }
+  }
+  rememberDialogueQuestion(pendingProcedure, first.state.questionContext!.question, first.state.questionContext!.options)
+  assert.deepEqual(parseDialogueState(pendingProcedure, context.businessId, context.timezone), pendingProcedure, 'fixture question must already be current before the nonoperative turn')
+  const nonoperative = [
+    { kind: 'notice', message: 'Estoy llegando', expected: /Gracias por avisar/ },
+    { kind: 'pause', message: 'Lo pienso y después sigo', expected: /cuando quieras seguimos/i },
+    { kind: 'repair', message: 'No entendí lo que me preguntaste', expected: /qué parte.*servicio/i }
+  ] as const
+  for (const item of nonoperative) {
+    await check(item.kind + ' preserves the recoverable draft without reopening its procedure', async () => {
+      const readsBefore = agendaCalls
+      const callsBefore = providerCalls
+      const result = await say(pendingProcedure, item.message, acted([], [act(item.kind, 'general', item.message)], 'other'))
+      assert.equal(result.interpretation.mode, 'ai')
+      assert.match(result.reply, item.expected)
+      assert.doesNotMatch(result.reply, /Cuál de estos servicios|Qué servicio necesitás|procedimiento|consultarlo con el equipo|te aviso/i)
+      assert.deepEqual(result.state, pendingProcedure, 'notice/pause/repair cannot change stored choices, request, dates or basket')
+      assert.equal(result.bookingCommand, undefined)
+      assert.equal(agendaCalls, readsBefore)
+      assert.equal(providerCalls, callsBefore + 1)
+      assert.equal(result.interpretation.aiCalls, 1)
+    })
+  }
+  await check('a pause does not consume a proposal or reference scope', async () => {
+    const state = structuredClone(pendingReference.state)
+    const result = await say(state, 'Lo pienso y después sigo', acted([], [act('pause', 'general', 'Lo pienso y después sigo')], 'other'))
+    assert.deepEqual(result.state, state)
+    assert.equal(result.bookingCommand, undefined)
+    assert.doesNotMatch(result.reply, /cancelad|confirmad|reservad|Cristian.*atiende/i)
+  })
+  await check('current request still resumes the pending procedure', async () => {
+    const message = 'Quiero seguir con el pedido'
+    const result = await say(pendingProcedure, message, acted([], [act('request', 'service', message)], 'booking'))
+    assert.notEqual(result.reply, 'Dale, cuando quieras seguimos con tu pedido.')
+    assert.deepEqual(result.state.serviceRequest, pendingProcedure.serviceRequest)
+    assert.match(result.reply, /corte francés|procedimiento|servicio/i)
+  })
+  await check('notice with an independent information read does not suppress that read', async () => {
+    const message = 'Estoy llegando, cuál es la dirección'
+    const result = await say(pendingProcedure, message, acted([
+      { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') }
+    ], [act('notice', 'general', 'Estoy llegando'), act('inquiry', 'general', 'dirección', [0])], 'information'))
+    assert.match(result.reply, /Calle de prueba 123/)
+    assert.deepEqual(result.state.basket, pendingProcedure.basket)
+    assert.deepEqual(result.state.serviceRequest, pendingProcedure.serviceRequest)
+  })
+  await check('notice with an independent customer update applies the actual answer', async () => {
+    const message = 'Estoy llegando, cambiá mi nombre a Elena'
+    const result = await say(pendingProcedure, message, acted([
+      { kind: 'name', value: 'Elena', ...ev('Elena') }
+    ], [act('notice', 'general', 'Estoy llegando'), act('change', 'name', 'cambiá mi nombre a Elena', [0])]))
+    assert.equal(result.state.customerName, 'Elena')
+    assert.deepEqual(result.state.basket, pendingProcedure.basket)
+    assert.deepEqual(result.state.serviceRequest, pendingProcedure.serviceRequest)
+  })
+  await check('nonoperative metadata cannot authorize a read or booking mutation', () => {
+    for (const kind of ['notice', 'pause', 'repair']) {
+      for (const raw of [
+        { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') },
+        { kind: 'name', value: 'Elena', ...ev('Elena') }
+      ]) {
+        const message = raw.kind === 'information' ? 'dirección' : 'Elena'
+        const plan = parseTurnPlan({ version: 1, operations: [raw] }, message, services.map(item => item.id))
+        const metadata = parseCommunicativeActs({ version: 1, acts: [act(kind, 'general', message, [0])] }, message, 1)
+        const result = admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services)
+        assert.equal(result.plan.operations.length, 0)
+        assert.equal((result as typeof result & { continuity?: string }).continuity, undefined)
+      }
+    }
+  })
+  await check('only strong current unlinked general acts gain continuity', () => {
+    const plan = parseTurnPlan({ version: 1, operations: [] }, 'Lo pienso y sigo', [])
+    const proposals = [
+      [act('pause', 'general', 'Lo pienso y sigo', [], null, .5)],
+      [act('pause', 'service', 'Lo pienso y sigo')],
+      [act('reference', 'general', 'Lo pienso y sigo')],
+      [act('pause', 'general', 'Lo pienso y sigo'), act('request', 'service', 'Lo pienso y sigo')],
+      [act('pause', 'general', 'Lo pienso y sigo'), act('repair', 'general', 'Lo pienso y sigo')]
+    ]
+    for (const acts of proposals) {
+      const metadata = parseCommunicativeActs({ version: 1, acts }, 'Lo pienso y sigo', 0)
+      assert.equal((admitCommunicativePlan(metadata, plan, plan, 'Lo pienso y sigo', pendingProcedure, services) as
+        ReturnType<typeof admitCommunicativePlan> & { continuity?: string }).continuity, undefined)
+    }
+    for (const acts of [
+      [act('pause', 'general', 'De un mensaje anterior')],
+      [act('pause', 'general', 'Lo pienso y sigo', [0])]
+    ]) assert.throws(() => parseCommunicativeActs({ version: 1, acts }, 'Lo pienso y sigo', 0), /communicative/)
+  })
+
+  await check('a mismatched internal admission cannot suspend a current turn', async () => {
+    const message = 'Estoy llegando'
+    const empty = parseTurnPlan({ version: 1, operations: [] }, message, [])
+    const claimed = parseTurnPlan({ version: 1, operations: [{ kind: 'name', value: 'Elena', ...ev('Elena') }] }, 'Elena', [])
+    const response = await respond(context, pendingProcedure, message, port, {
+      serviceId: null, candidateIds: [], correction: false, intent: 'other', turnPlan: empty,
+      communicative: { plan: claimed, blockedFields: [], continuity: 'notice' }
+    })
+    assert.notEqual(response.reply, 'Gracias por avisar.')
+    assert.deepEqual(response.state.basket, pendingProcedure.basket)
+    assert.equal(response.state.customerName, pendingProcedure.customerName)
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)
