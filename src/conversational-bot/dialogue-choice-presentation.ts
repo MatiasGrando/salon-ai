@@ -1,10 +1,17 @@
+import { parseTimePreference } from './time-preference.js'
 import { serviceConfigurationKey } from '../bot-options/domain/service-booking.js'
 import { serviceGuidance } from './service-guidance.js'
 import type { DialogueService, DialogueState } from './engine.js'
 import type { ChoicePresentation } from './availability-presentation.js'
 import type { ConversationChoiceOperation, ConversationChoicePresentation } from './choices.js'
 export const ANY_PROFESSIONAL_OPTION = 'professional:any'
-export const preferenceOptionId = (operation: Extract<ConversationChoiceOperation, { kind: 'preference' }>) => 'preference:' + JSON.stringify(operation.preference)
+export const preferenceOptionId = (operation: Extract<ConversationChoiceOperation, { kind: 'preference' }>) => 'preference:' + JSON.stringify(parseTimePreference(operation.preference))
+/** Canonicalize only valid persisted preference operations, never arbitrary option IDs. */
+export function canonicalPreferenceOptionId(id: string): string {
+  if (!id.startsWith('preference:')) return id
+  try { return preferenceOptionId({ kind: 'preference', preference: parseTimePreference(JSON.parse(id.slice('preference:'.length))) }) }
+  catch { return id }
+}
 export function adaptChoicePresentation(presentation: ChoicePresentation, questionKind: 'slots' | 'professionals' | 'dates', cursor = 0): ConversationChoicePresentation | undefined {
   if (!presentation.choices.length) return undefined
   const choices: { label: string; operation: ConversationChoiceOperation }[] = presentation.choices.map(choice => {

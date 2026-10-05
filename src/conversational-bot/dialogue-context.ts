@@ -1,3 +1,4 @@
+import { canonicalPreferenceOptionId } from './dialogue-choice-presentation.js'
 import { assign, initialTransition, setup, transition } from 'xstate'
 import { basketIsResolved, basketServiceIds, selectionBasket } from './service-basket.js'
 import { resolveGuidance } from './service-guidance.js'
@@ -60,7 +61,26 @@ export function resolveDialogueRoute(state: DialogueState, services: readonly Di
 export function dialogueQuestion(field: DialogueField): string {
   return resolveFacts({ service: false, estimate: false, date: false, professional: false, time: false, name: false, required: field }).question
 }
-const scopeOf = (state: DialogueState) => JSON.stringify({ basket: selectionBasket(state).members.map(member => [member.memberId, member.mode, member.serviceIds]), date: state.date, professional: state.professional })
+/** Keep the previous scope shape while making professional insertion order irrelevant. */
+const scopeOf = (state: DialogueState) => JSON.stringify({ basket: selectionBasket(state).members.map(member => [member.memberId, member.mode, member.serviceIds]), date: state.date,
+  professional: state.professional?.kind === 'specific' ? { kind: 'specific', id: state.professional.id } : state.professional })
+function scopeMatches(scope: string, state: DialogueState): boolean {
+  try {
+    const value: unknown = JSON.parse(scope)
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'basket,date,professional') return false
+    const row = value as Record<string, unknown>, professional = row.professional
+    let canonicalProfessional: DialogueState['professional'] = null
+    if (professional !== null) {
+      if (!professional || typeof professional !== 'object' || Array.isArray(professional)) return false
+      const choice = professional as Record<string, unknown>, keys = Object.keys(choice).sort().join(',')
+      if (choice.kind === 'specific' && keys === 'id,kind' && typeof choice.id === 'string') canonicalProfessional = { kind: 'specific', id: choice.id }
+      else if (choice.kind === 'any' && keys === 'kind') canonicalProfessional = { kind: 'any' }
+      else return false
+    }
+    // Arrays retain member order/multiplicity, and every real draft value must still match.
+    return JSON.stringify({ basket: row.basket, date: row.date, professional: canonicalProfessional }) === scopeOf(state)
+  } catch { return false }
+}
 const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f]/.test(value)
 /** Options describe the last question, not permission or a live availability cache. */
 export function rememberDialogueQuestion(state: DialogueState, question: string, options: readonly DialogueQuestionOption[] = [], targetServiceId: string | null = null, matching: { candidateIds: readonly string[]; configurationKey?: string; targetMemberId?: string } | null = null): void {
@@ -89,10 +109,15 @@ export function parseDialogueQuestion(value: unknown, state: DialogueState): Dia
       new Set(item.matchCandidateIds).size !== item.matchCandidateIds.length || item.matchCandidateIds.some(id => !validText(id, 128) || !item.options.some(option => option.id === id))) ||
       item.matchConfigurationKey !== undefined && (item.field !== 'estimate' || !item.matchCandidateIds || !validText(item.matchConfigurationKey, 6000)) ||
       item.matchTargetMemberId !== undefined && (item.field !== 'service' || !item.matchCandidateIds || !/^m[1-9][0-9]*$/.test(item.matchTargetMemberId))) throw new Error('invalid matching question')
-  if (item.field !== state.pending || item.scope !== scopeOf(state)) return null
+  if (item.field !== state.pending || !scopeMatches(item.scope, state)) return null
   if (item.matchTargetMemberId && !selectionBasket(state).members.some(member => member.memberId === item.matchTargetMemberId)) throw new Error('invalid matching member')
   if (item.targetServiceId !== null && !selectionBasket(state).members.some(member => member.mode === 'single' && member.serviceIds.includes(item.targetServiceId!))) throw new Error('invalid question target')
-  return structuredClone(item)
+  const parsed = structuredClone(item)
+  if (parsed.role === 'time') {
+    parsed.options = parsed.options.map(option => ({ ...option, id: canonicalPreferenceOptionId(option.id) }))
+    if (new Set(parsed.options.map(option => option.id)).size !== parsed.options.length) throw new Error('invalid question options')
+  }
+  return parsed
 }
 export function expectedDialogueAnswer(state: DialogueState) {
   if (state.questionContext) { const { matchConfigurationKey: _configuration, ...answer } = state.questionContext; return answer }

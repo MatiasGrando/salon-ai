@@ -1,3 +1,4 @@
+import { choiceDraftFingerprint } from '../src/conversational-bot/choices.js'
 import assert from 'node:assert/strict'
 import { runPrismaDemoPreview } from '../src/conversational-bot/demo-preview-prisma.js'
 import { basketServiceIds } from '../src/conversational-bot/service-basket.js'
@@ -7,6 +8,10 @@ import type { DialogueService, DialoguePort } from '../src/conversational-bot/en
 const businessId = 'qa', userId = 'admin', session = 'night-after-edit', date = '2026-10-03'
 const phone = `demo:preview:${userId}:${session}`
 const rows = new Map<string, any>(), messages: any[] = []
+// PostgreSQL JSONB does not preserve object insertion order; arrays remain ordered.
+let persistAsJsonb = false
+const jsonbRoundtrip = (value: any): any => Array.isArray(value) ? value.map(jsonbRoundtrip)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(name => [name, jsonbRoundtrip(value[name])])) : value
 const key = `${businessId}:${phone}`
 const client: any = {
   conversation: { findUnique: async ({ where }: any) => structuredClone(rows.get(where.id ?? `${where.businessId_phone.businessId}:${where.businessId_phone.phone}`) ?? null) },
@@ -16,7 +21,7 @@ const client: any = {
       conversation: {
         upsert: async ({ where, create }: any) => { const id = `${create.businessId}:${where.businessId_phone.phone}`; if (!rows.has(id)) rows.set(id, { id, supportBotKey: null, supportBotState: null }); return rows.get(id) },
         findUnique: async ({ where }: any) => structuredClone(rows.get(where.id) ?? null),
-        update: async ({ where, data }: any) => { Object.assign(rows.get(where.id), structuredClone(data)); return rows.get(where.id) }
+        update: async ({ where, data }: any) => { Object.assign(rows.get(where.id), persistAsJsonb ? jsonbRoundtrip(structuredClone(data)) : structuredClone(data)); return rows.get(where.id) }
       },
       message: { create: async ({ data }: any) => { messages.push(structuredClone(data)); return data } },
       $queryRaw: async () => [{ id: 'locked' }]
@@ -35,7 +40,8 @@ const professionals = [{ id: 'cin', name: 'Cin', priority: 0 }, { id: 'seb', nam
 const slots = (count: number) => Array.from({ length: count }, (_, index) => { const hour = 11 + Math.floor(index / 2), minute = index % 2 ? '30' : '00', time = `${String(hour).padStart(2, '0')}:${minute}`; return { date, time,
   startAt: `${date}T${String(hour + 3).padStart(2, '0')}:${minute}:00.000Z`, professionalId: 'cin', professionalName: 'Cin', band: (hour < 12 ? 'MORNING' : hour < 17 ? 'AFTERNOON' : 'EVENING') as 'MORNING' | 'AFTERNOON' | 'EVENING', occupiedMinutes: 30 } })
 const context = { businessId, timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-03T12:00:00Z') }
-const port: DialoguePort = { catalog: async () => services, availability: async service => ({ professionals, slots: slots(service.id === 'woman' ? 18 : 3) }),
+let availabilityCalls = 0
+const port: DialoguePort = { catalog: async () => services, availability: async service => { availabilityCalls++; return { professionals, slots: slots(service.id === 'woman' ? 18 : 3) } },
   availabilityBasket: async selected => ({ ok: true, services: [...selected], professionals, slots: slots(3), durationMinutes: selected.reduce((sum, item) => sum + item.durationMinutes!, 0),
     customerDurationMinutes: selected.reduce((sum, item) => sum + item.durationMinutes!, 0), totalPrice: null }) }
 const factory = async () => ({ context, port })
@@ -48,12 +54,14 @@ const plans: Record<string, object[]> = {
   'agrega baño de crema': [basket('add', [member('single', ['cream'], 'baño de crema')], 'baño de crema')],
   'Karsell': [{ kind: 'estimate', serviceId: 'cream', optionId: 'karsell', ...ev('Karsell') }],
   'mejor solo el corte': [basket('set', [member('alternatives', ['man', 'woman', 'combo'], 'corte')], 'corte')],
-  'corte mujer': [basket('set', [member('single', ['woman'], 'corte mujer')], 'corte mujer')]
+  'corte mujer': [basket('set', [member('single', ['woman'], 'corte mujer')], 'corte mujer')],
+  'quiero corte mujer hoy con Cin': [basket('set', [member('single', ['woman'], 'corte mujer')], 'corte mujer'),
+    { kind: 'date', expression: 'hoy', value: date, ...ev('hoy') }, { kind: 'professional', mode: 'specific', mention: 'Cin', ...ev('Cin') }]
 }
 let providerCalls = 0
 const provider: AiInterpretationProvider = async input => { providerCalls++; const operations = plans[input.message]; assert.ok(operations, 'fixture message: ' + input.message); return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } } }
 const say = (message: string) => runPrismaDemoPreview(client, businessId, userId, session, message, factory, provider)
-for (const message of Object.keys(plans)) {
+for (const message of Object.keys(plans).filter(message => message !== 'quiero corte mujer hoy con Cin')) {
   const result: any = await say(message)
   assert.equal(result.state.businessId, businessId)
   assert.equal(result.bookingConfirmed, undefined)
@@ -106,4 +114,64 @@ try {
     (error: unknown) => { assert.equal((error as any).gate, 'engine_admission'); return true })
   assert.equal(messages.length, beforeRejected, 'fresh catalog rejection never persists a turn')
 } finally { services.splice(1, 0, removed) }
-console.log('PASS full edit sequence retains the latest nocturnal choice')
+
+persistAsJsonb = true
+const specificSession = session + '-specific', specificKey = businessId + ':demo:preview:' + userId + ':' + specificSession
+const specific: any = await runPrismaDemoPreview(client, businessId, userId, specificSession, 'quiero corte mujer hoy con Cin', factory, provider)
+assert.equal(specific.state.pending, 'time')
+assert.equal(specific.proposalReady, false)
+assert.deepEqual(specific.presentation.choices.map((choice: any) => choice.title), ['Por la mañana', 'Por la tarde', 'Por la noche', 'Cualquier horario'])
+const specificSnapshot = structuredClone(rows.get(specificKey)), callsBeforeButtons = providerCalls
+assert.deepEqual(Object.keys(specificSnapshot.supportBotState.professional), ['id', 'kind'], 'fake persistence exercised the JSONB key-order boundary')
+const rejectedBands: string[] = []
+const legacySnapshot = structuredClone(specificSnapshot)
+const legacyDraft = legacySnapshot.supportBotState
+legacyDraft.questionContext.scope = JSON.stringify({ basket: [['m1', 'single', ['woman']]], date, professional: { kind: 'specific', id: 'cin' } })
+legacyDraft.questionContext.options = legacyDraft.questionContext.options.map((option: any) => {
+  const preference = JSON.parse(option.id.slice('preference:'.length))
+  return { ...option, id: 'preference:' + JSON.stringify(preference.kind === 'band' ? { band: preference.band, kind: preference.kind } : preference) }
+})
+const fingerprintOf = (state: any) => { const { previewChoiceContext: _ledger, ...draft } = state; return choiceDraftFingerprint(draft) }
+legacyDraft.previewChoiceContext.question.draftFingerprint = fingerprintOf(legacyDraft)
+for (const snapshot of [specificSnapshot, legacySnapshot]) {
+  for (const choice of specific.presentation.choices) {
+    // Each button is tested against its own unchanged, current question snapshot.
+    rows.set(specificKey, structuredClone(snapshot))
+    const queriesBeforeButton = availabilityCalls
+    try {
+      const result: any = await runPrismaDemoPreview(client, businessId, userId, specificSession, choice.title, factory, provider, undefined, undefined, choice.id)
+      assert.equal(result.interpretation.reason, 'server_choice')
+      assert.equal(availabilityCalls, queriesBeforeButton + 1, 'each accepted band queries fresh availability once')
+      assert.equal(result.interpretation.aiCalls, 0)
+      assert.deepEqual(result.state.professional, { kind: 'specific', id: 'cin' })
+      assert.deepEqual(basketServiceIds(result.state), ['woman'])
+      assert.equal(result.state.date, date)
+      assert.equal(result.state.slot, null, 'a band only offers fresh slots, never chooses one')
+      assert.equal(result.proposalReady, false)
+      assert.equal(result.state.sandboxReservation, undefined)
+      assert.equal(result.presentation.kind, 'slot')
+      if (choice.title === 'Por la noche') assert.ok(result.presentation.choices.some((slot: any) => slot.title.includes('18:00')))
+      await assert.rejects(() => runPrismaDemoPreview(client, businessId, userId, specificSession, 'expired', factory, provider, undefined, undefined, choice.id),
+        (error: unknown) => { assert.equal((error as any).gate, 'ledger_resolve'); return true })
+      assert.equal(availabilityCalls, queriesBeforeButton + 1, 'expired tokens never query availability')
+    } catch (error) { rejectedBands.push(choice.title + ': ' + (error as Error).message) }
+  }
+}
+assert.equal(providerCalls, callsBeforeButtons, 'all typed bands bypass the provider')
+assert.deepEqual(rejectedBands, [], 'all four current bands remain admissible after JSONB persistence')
+for (const tamper of [
+  (draft: any) => { draft.date = '2026-10-04'; delete draft.dialogueContext },
+  (draft: any) => { draft.professional = { kind: 'specific', id: 'seb' }; delete draft.dialogueContext },
+  (draft: any) => { draft.questionContext.complete = false; draft.questionContext.options = [] }
+]) {
+  const changed = structuredClone(specificSnapshot), draft = changed.supportBotState
+  tamper(draft)
+  draft.previewChoiceContext.question.draftFingerprint = fingerprintOf(draft)
+  rows.set(specificKey, changed)
+  const beforeQueries = availabilityCalls, beforeMessages = messages.length
+  await assert.rejects(() => runPrismaDemoPreview(client, businessId, userId, specificSession, 'not authorized by stale question', factory, provider, undefined, undefined, specific.presentation.choices[0].id),
+    (error: unknown) => { assert.equal((error as any).gate, 'engine_admission'); assert.equal((error as any).reason, 'question_incomplete'); return true })
+  assert.equal(availabilityCalls, beforeQueries)
+  assert.equal(messages.length, beforeMessages)
+}
+console.log('PASS full edit sequence and four persisted bands retain current scope, fresh queries and stale fences')

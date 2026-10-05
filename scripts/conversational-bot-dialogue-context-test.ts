@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
+import { preferenceOptionId } from '../src/conversational-bot/dialogue-choice-presentation.js'
 import { initialDialogueState, parseDialogueState, respond, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
-import { rememberDialogueQuestion, resolveDialogueRoute } from '../src/conversational-bot/dialogue-context.js'
+import { parseDialogueQuestion, rememberDialogueQuestion, resolveDialogueRoute } from '../src/conversational-bot/dialogue-context.js'
 
 const context = { businessId: 'qa-context', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-02T12:00:00Z') }
 const services = [{ id: 'cut', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 100 }]
@@ -138,3 +139,42 @@ assert.equal(resolveDialogueRoute(namePending).pending, 'name')
 assert.equal(resolveDialogueRoute({ ...namePending, customerName: 'Matías' }).pending, 'proposal')
 assert.equal(resolveDialogueRoute({ ...namePending, customerName: 'Matías' }, [], 'date').pending, 'date', 'safety/correction transitions can reopen any required field')
 console.log('PASS typed dialogue context: professional/customer roles, compact provider context, independent corrections and legacy snapshots')
+
+// JSONB may reorder object keys without changing the meaning of the draft.
+const scopedProfessional: DialogueState = { ...initial, serviceId: 'cut', date: '2026-10-03', professional: { kind: 'specific', id: 'cin' }, pending: 'time' }
+rememberDialogueQuestion(scopedProfessional, '¿Qué horario elegís?', [{ id: 'preference:night', label: 'Por la noche' }])
+const reorderedProfessional = { ...scopedProfessional, professional: { id: 'cin', kind: 'specific' as const } }
+assert.deepEqual(parseDialogueState(reorderedProfessional, context.businessId).questionContext, scopedProfessional.questionContext,
+  'a JSONB key-order roundtrip must retain the complete current question')
+const legacyScope = JSON.stringify({ basket: [['m1', 'single', ['cut']]], date: '2026-10-03', professional: { kind: 'specific', id: 'cin' } })
+const persistedLegacy = { ...reorderedProfessional, questionContext: { ...scopedProfessional.questionContext!, scope: legacyScope } }
+assert.ok(parseDialogueState(persistedLegacy, context.businessId).questionContext?.complete, 'previous object-shaped scopes remain compatible')
+const reversedLegacy = { ...persistedLegacy, questionContext: { ...persistedLegacy.questionContext, scope: JSON.stringify({ professional: { id: 'cin', kind: 'specific' }, date: '2026-10-03', basket: [['m1', 'single', ['cut']]] }) } }
+assert.ok(parseDialogueState(reversedLegacy, context.businessId).questionContext?.complete, 'legacy scope key order has no authority')
+for (const changed of [
+  { ...persistedLegacy, date: '2026-10-04' },
+  { ...persistedLegacy, professional: { kind: 'specific' as const, id: 'matias-prof' } },
+  { ...persistedLegacy, professional: { kind: 'any' as const } },
+  { ...persistedLegacy, serviceId: 'other' }
+]) assert.equal(parseDialogueState(changed, context.businessId).questionContext, undefined, 'a real scope change invalidates the question')
+for (const scope of [
+  legacyScope.slice(0, -1),
+  JSON.stringify({ basket: [['m1', 'single', ['cut']]], date: '2026-10-03', professional: { kind: 'specific', id: 'cin', authority: true } }),
+  JSON.stringify({ basket: [['m1', 'single', ['cut']]], date: '2026-10-03', professional: { kind: 'specific', id: 'cin' }, extra: true })
+]) assert.equal(parseDialogueState({ ...persistedLegacy, questionContext: { ...persistedLegacy.questionContext, scope } }, context.businessId).questionContext, undefined,
+  'scope compatibility never accepts malformed or additional authority')
+assert.throws(() => parseDialogueState({ ...persistedLegacy, questionContext: { ...persistedLegacy.questionContext, businessId: 'foreign' } }, context.businessId), /question|context/)
+console.log('PASS semantic scope survives JSONB order and legacy snapshots without accepting changed or malformed scopes')
+
+const canonicalNightId = 'preference:' + JSON.stringify({ kind: 'band', band: 'EVENING' })
+assert.equal(preferenceOptionId({ kind: 'preference', preference: { band: 'EVENING', kind: 'band' } }), canonicalNightId,
+  'operation identity is independent of JSONB key order')
+const reorderedLegacyOption = { ...scopedProfessional.questionContext!, options: [{ id: 'preference:' + JSON.stringify({ band: 'EVENING', kind: 'band' }), label: 'Por la noche' }] }
+assert.equal(parseDialogueQuestion(reorderedLegacyOption, reorderedProfessional)?.options[0]?.id, canonicalNightId,
+  'a previous reversed-key option maps to the same strictly parsed operation')
+const malformedPreferenceId = 'preference:' + JSON.stringify({ kind: 'band', band: 'EVENING', authority: true })
+assert.equal(parseDialogueQuestion({ ...reorderedLegacyOption, options: [{ id: malformedPreferenceId, label: 'Por la noche' }] }, reorderedProfessional)?.options[0]?.id, malformedPreferenceId,
+  'malformed preference identity is not rescued as a valid option')
+assert.throws(() => parseDialogueQuestion({ ...reorderedLegacyOption, options: [...reorderedLegacyOption.options, { id: canonicalNightId, label: 'Duplicate night' }] }, reorderedProfessional), /question|option/,
+  'two representations of one operation cannot become two canonical choices')
+console.log('PASS canonical preference IDs retain valid legacy order and reject injected authority')
