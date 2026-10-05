@@ -107,7 +107,14 @@ assert.equal(noMatch.state.questionContext?.complete, true); assert.equal(noMatc
 assert.deepEqual(parseDialogueState(noMatch.state, context.businessId, context.timezone), noMatch.state)
 let providerCalls = 0
 const semantic = await respondWithAiInterpreter(context, initial(), message + ' con Ramiro', port, async () => {
-  providerCalls++; return { ...legacy, turnPlan: { version: 1, operations: [serviceOp, dateOp, nameOp, specific, pref({ kind: 'after', time: '13:00' })] } }
+  providerCalls++; return { ...legacy, turnPlan: { version: 1, operations: [serviceOp, dateOp, nameOp, specific, pref({ kind: 'after', time: '13:00' })] },
+    communicativeActs: { version: 1, acts: [
+      { kind: 'request', field: 'service', evidence: 'Corte hombre', confidence: 1, mention: null, operationIndexes: [0] },
+      { kind: 'request', field: 'date', evidence: 'mañana', confidence: 1, mention: null, operationIndexes: [1] },
+      { kind: 'request', field: 'name', evidence: 'soy Matias', confidence: 1, mention: 'Matias', operationIndexes: [2] },
+      { kind: 'request', field: 'professional', evidence: 'con Ramiro', confidence: 1, mention: 'Ramiro', operationIndexes: [3] },
+      { kind: 'request', field: 'time', evidence: 'después de las 13', confidence: 1, mention: null, operationIndexes: [4] }
+    ] } }
 })
 assert.equal(providerCalls, 1); assert.equal(semantic.interpretation.mode, 'ai')
 assert.equal(semantic.state.slot, null); assert.equal(semantic.state.customerName, 'Matias'); assert.equal(semantic.state.pending, 'time')
@@ -144,7 +151,7 @@ const tentative = await say(restored, 'después de las 18', [{ ...pref({ kind: '
 assert.deepEqual((tentative.state as any).timePreference, { kind: 'after', time: '13:00' })
 assert.equal(tentative.state.slot, null)
 // Fake copy cannot claim an automatic assignment merely because a preference was interpreted.
-const copied = await respondWithAiInterpreter(context, restored, 'Ramiro', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [specific] } }), { responseProvider: async input => ({ opening: 'Te asigné el turno.', factIds: input.facts.map(fact => fact.id), closing: null }) })
+const copied = await respondWithAiInterpreter(context, restored, 'Ramiro', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [specific] }, communicativeActs: { version: 1, acts: [{ kind: 'answer', field: 'professional', evidence: 'Ramiro', confidence: 1, mention: 'Ramiro', operationIndexes: [0] }] } }), { responseProvider: async input => ({ opening: 'Te asigné el turno.', factIds: input.facts.map(fact => fact.id), closing: null }) })
 assert.doesNotMatch(copied.reply, /asigné/)
 assert.equal(copied.state.slot, null)
 // Pure temporal module: generic fallback never promotes the preference bound to an exact choice.
@@ -202,3 +209,131 @@ assert.equal(parseTurnPlan({ version: 1, operations: [{ kind: 'time', value: '13
 const independentLow = await say(initial(), 'soy Matias Corte hombre mañana con Ramiro a las 13', [serviceOp, dateOp, nameOp, specific, { kind: 'time', value: '13:00', ...ev('a las 13'), confidence: 0.4 }])
 assert.equal(independentLow.state.customerName, 'Matias'); assert.equal(independentLow.state.date, '2026-10-03'); assert.equal(independentLow.state.slot, null)
 console.log('PASS question classification separated from action admission and per-field exact confidence')
+
+// E2.26d.1: a complete interval is one preference, never two conflicting time operations.
+const interval = { kind: 'range', from: '13:00', to: '18:00', fromInclusive: true, toInclusive: false } as const
+const intervalEvidence = 'después de las 13 y antes de las 18'
+const intervalFailures: string[] = []
+async function intervalCheck(label: string, check: () => void | Promise<void>) {
+  try { await check(); console.log('PASS interval ' + label) }
+  catch (error) { intervalFailures.push(label + ': ' + String(error)); console.error('FAIL interval ' + label + ': ' + String(error)) }
+}
+await intervalCheck('strict value and both boundary filters', () => {
+  assert.deepEqual(parseTimePreference(interval), interval)
+  const slots = ['12:30', '13:00', '13:30', '17:30', '18:00', '18:30'].map(time => ({
+    date: '2026-10-03', time, startAt: '2026-10-03T' + String(Number(time.slice(0, 2)) + 3).padStart(2, '0') + ':' + time.slice(3) + ':00Z',
+    professionalId: 'ramiro', professionalName: 'Ramiro', band: 'AFTERNOON' as const, occupiedMinutes: 0
+  }))
+  assert.deepEqual(filterTimePreference(slots, interval as any).map(slot => slot.time), ['13:00', '13:30', '17:30'])
+  assert.deepEqual(filterTimePreference(slots, { ...interval, fromInclusive: false, toInclusive: true } as any).map(slot => slot.time), ['13:30', '17:30', '18:00'])
+  for (const invalid of [{ ...interval, from: '19:00' }, { ...interval, to: '13:00' }, { ...interval, from: '25:00' },
+    { ...interval, toInclusive: 'yes' }, { ...interval, extra: true }, { kind: 'range', from: '13:00', to: '18:00' }]) assert.throws(() => parseTimePreference(invalid))
+})
+await intervalCheck('single aggregate schema and classification', () => {
+  assert.deepEqual(classifyTemporalRequest(intervalEvidence), { kind: 'preference', preference: interval })
+  assert.deepEqual(fallbackTemporalRequest(intervalEvidence), { kind: 'preference', preference: interval })
+  assert.equal(fallbackTemporalRequest('¿' + intervalEvidence + ' hay lugar?'), null)
+  const schema = (TURN_PLAN_JSON_SCHEMA.properties.operations as any).items.anyOf.find((item: any) => item.properties.kind.enum.includes('time_preference'))
+  const range = schema.properties.preference.anyOf.find((item: any) => item.properties.kind.enum.includes('range'))
+  assert.ok(range, 'the real structured-output schema must expose the complete range')
+  assert.equal(range.additionalProperties, false)
+  assert.deepEqual([...range.required].sort(), ['kind', 'from', 'to', 'fromInclusive', 'toInclusive'].sort())
+})
+await intervalCheck('partial candidate and duplicate field stay rejected', () => {
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ kind: 'after', time: '13:00' }, intervalEvidence)] }, intervalEvidence), 'a lower bound cannot represent the entire interval')
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ kind: 'before', time: '18:00' }, 'antes de las 18')] }, intervalEvidence))
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ kind: 'after', time: '13:00' }, 'después de las 13'), pref({ kind: 'before', time: '18:00' }, 'antes de las 18')] }, intervalEvidence))
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref(interval, 'otra evidencia')] }, intervalEvidence))
+  assert.equal(parseTurnPlan({ version: 1, operations: [pref(interval, intervalEvidence)] }, intervalEvidence).operations.length, 1)
+})
+await intervalCheck('state roundtrip, offer and one-result non-selection', async () => {
+  times = ['12:30', '13:00', '13:30', '17:30', '18:00']
+  const offer = await say(offered.state, intervalEvidence, [pref(interval, intervalEvidence)])
+  assert.deepEqual(offer.state.timePreference, interval)
+  assert.deepEqual(parseDialogueState(JSON.parse(JSON.stringify(offer.state)), context.businessId, context.timezone), offer.state)
+  assert.equal(offer.state.requestedTime, null); assert.equal(offer.state.slot, null)
+  assert.equal(offer.proposal, null); assert.equal(offer.bookingCommand, undefined)
+  assert.deepEqual(offer.choicePresentation?.choices.filter(choice => choice.operation.kind === 'slot').map(choice => (choice.operation as { time: string }).time), ['13:00', '13:30', '17:30'])
+  assert.match(offer.reply, /13:00/); assert.match(offer.reply, /18:00/)
+  times = ['13:00']
+  const singleInterval = await say(offer.state, intervalEvidence, [pref(interval, intervalEvidence)])
+  assert.equal(singleInterval.state.slot, null); assert.equal(singleInterval.state.requestedTime, null)
+  assert.equal(singleInterval.proposal, null); assert.equal(singleInterval.bookingCommand, undefined)
+  const chosen = await say(singleInterval.state, 'a las 13', [{ kind: 'time', value: '13:00', ...ev('a las 13') }])
+  assert.equal(chosen.state.slot?.time, '13:00'); assert.equal(chosen.state.timePreference, undefined)
+})
+await intervalCheck('weak and historical acts do not acquire an interval', async () => {
+  const before = structuredClone(offered.state)
+  for (const kind of ['reference', 'uncertain', 'request'] as const) {
+    const confidence = kind === 'request' ? .6 : 1
+    const result = await respondWithAiInterpreter(context, before, intervalEvidence, port, async () => ({
+      ...legacy, turnPlan: { version: 1, operations: [pref(interval, intervalEvidence)] },
+      communicativeActs: { version: 1, acts: [{ kind, field: 'time', evidence: intervalEvidence, confidence, mention: null, operationIndexes: [0] }] }
+    }))
+    assert.equal(result.interpretation.mode, 'ai', 'a well-shaped range is understood even when authority is withheld')
+    assert.deepEqual(result.state.timePreference, before.timePreference)
+    assert.equal(result.state.slot, null); assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+  }
+  assert.deepEqual(offered.state, before, 'caller snapshot is not changed by a rejected temporal act')
+})
+await intervalCheck('preference button roundtrip and stale upper bound', async () => {
+  const { issueChoiceQuestion, parseChoiceQuestion, resolveChoice } = await import('../src/conversational-bot/choices.js')
+  const { preferenceOptionId, canonicalPreferenceOptionId } = await import('../src/conversational-bot/dialogue-choice-presentation.js')
+  const operation = { kind: 'preference' as const, preference: interval as any }
+  const scope = { businessId: context.businessId, conversationKey: 'range-test', policyKey: 'qa', policyGeneration: 1, revision: '1' }
+  let tokenIndex = 0
+  const draft = { requestedTime: null, slot: null, timePreference: interval }
+  const question = issueChoiceQuestion(scope, draft, { kind: 'preference', title: 'Preferencia horaria', choices: [{ label: 'De 13 a antes de 18', operation }] }, () => 'range_token_0000_' + (++tokenIndex))
+  const restoredQuestion = parseChoiceQuestion(JSON.parse(JSON.stringify(question)))
+  const actionId = 'c1.' + restoredQuestion.nonce + '.' + restoredQuestion.choices[0]!.token
+  assert.deepEqual(resolveChoice(restoredQuestion, scope, draft, actionId).operation, operation)
+  assert.equal(canonicalPreferenceOptionId(preferenceOptionId(operation)), preferenceOptionId(operation))
+  assert.throws(() => resolveChoice(restoredQuestion, scope, { ...draft, timePreference: { ...interval, to: '17:00' } }, actionId), /stale/)
+  assert.equal(draft.slot, null); assert.equal(draft.requestedTime, null)
+})
+await intervalCheck('range forms and alternatives preserve semantics', () => {
+  for (const evidence of ['entre las 13 y las 18', 'desde las 13 hasta las 18']) {
+    assert.deepEqual(classifyTemporalRequest(evidence), { kind: 'preference', preference: { ...interval, toInclusive: true } })
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ kind: 'after', time: '13:00' }, evidence)] }, evidence))
+  }
+  assert.deepEqual(classifyTemporalRequest('antes de las 18 y después de las 13'), { kind: 'preference', preference: interval })
+  assert.deepEqual(classifyTemporalRequest('después de las 13 o antes de las 18'), { kind: 'ambiguous' })
+  assert.deepEqual(classifyTemporalRequest('mañana después de las 13 y el domingo antes de las 18'), { kind: 'ambiguous' })
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ ...interval, to: '17:00' }, intervalEvidence)] }, intervalEvidence))
+})
+// A recognized alternative or contradiction cannot be admitted as one convenient half.
+const ambiguousIntervals = [
+  { message: 'después de las 13 o antes de las 18', preference: { kind: 'after', time: '13:00' }, evidence: 'después de las 13' },
+  { message: 'después de las 13 o antes de las 18', preference: { kind: 'before', time: '18:00' }, evidence: 'antes de las 18' },
+  { message: 'después de las 18 y antes de las 13', preference: { kind: 'after', time: '18:00' }, evidence: 'después de las 18' },
+  { message: 'después de las 13 y antes de las 18 a las 17', preference: interval, evidence: intervalEvidence }
+] as const
+await intervalCheck('ambiguous candidates rejected by parser', () => {
+  const failures: string[] = []
+  for (const candidate of ambiguousIntervals) {
+    try { assert.throws(() => parseTurnPlan({ version: 1, operations: [pref(candidate.preference, candidate.evidence)] }, candidate.message)) }
+    catch (error) { failures.push(candidate.message + ' / ' + candidate.preference.kind + ': ' + String(error)) }
+  }
+  assert.deepEqual(failures, [], 'no partial preference represents recognized alternatives or contradictions')
+})
+await intervalCheck('ambiguous candidates never acquire authority through AI', async () => {
+  const failures: string[] = []
+  for (const candidate of ambiguousIntervals) {
+    const before = structuredClone(offered.state)
+    const result = await respondWithAiInterpreter(context, before, candidate.message, port, async () => ({
+      ...legacy, turnPlan: { version: 1, operations: [pref(candidate.preference, candidate.evidence)] },
+      communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'time', evidence: candidate.evidence, confidence: 1, mention: null, operationIndexes: [0] }] }
+    }))
+    try {
+      assert.equal(result.interpretation.mode, 'fallback')
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.deepEqual(result.state.timePreference, before.timePreference)
+      assert.equal(result.state.slot, null); assert.equal(result.state.requestedTime, null)
+      assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+      assert.deepEqual(offered.state, before)
+    } catch (error) { failures.push(candidate.message + ' / ' + candidate.preference.kind + ': ' + String(error)) }
+  }
+  assert.deepEqual(failures, [], 'current explicit acts do not make incomplete candidates correct')
+})
+if (intervalFailures.length) throw new Error('Interval regressions: ' + intervalFailures.length + '\n' + intervalFailures.join('\n'))
+console.log('PASS complete intervals: structured contract, filters, state and independent choice')

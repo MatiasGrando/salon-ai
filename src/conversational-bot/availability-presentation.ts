@@ -93,7 +93,9 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   const professional = new Set(filtered.map(slot => slot.professionalId)).size === 1 ? filtered[0]!.professionalName : null
   const preference = around ? 'Alrededor de las ' + around : input.preference?.kind === 'after' ? 'Después de las ' + input.preference.time
     : input.preference?.kind === 'before' ? 'Antes de las ' + input.preference.time
-      : input.preference?.kind === 'band' ? concentration : null
+      : input.preference?.kind === 'range' ? (input.preference.fromInclusive ? 'Desde las ' : 'Después de las ') + input.preference.from +
+          (input.preference.toInclusive ? ' hasta las ' : ' y antes de las ') + input.preference.to
+        : input.preference?.kind === 'band' ? concentration : null
   return { kind: 'slots', text: standardSlotOffer({ date: formatDeliveryDate(input.scope.date ?? filtered[0]!.date), professional, band: concentration,
     labels: choices.map(choice => choice.label), nearest: nearest ? input.requestedTime ?? null : null, preference }), choices, hasMore: start + choices.length < filtered.length }
 }

@@ -1,6 +1,6 @@
 import { commercialTimeCandidate, temporalPlanDate, type BusinessTimeContextReader } from './business-time-context.js'
 import { TurnPlanValidationError } from './turn-plan.js'
-import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, type TimePreference } from './time-preference.js'
+import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timePreferenceMatchesEvidence, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
 import { parseMinutes } from '../bot-options/application/availability-queries.js'
 type Context = Pick<DialogueState, 'timePreference'> & Partial<Pick<DialogueState, 'date' | 'businessId'>> & { timeClarification?: { candidateTimes: string[] } }
@@ -50,6 +50,11 @@ export function contextualTimeAnswer(message: string, candidates: readonly strin
 /** Reconcile a model proposal with a verified numeric approximation, without losing independent operations. */
 export function groundTemporalPlan(value: unknown, message: string, state: Context, commercial?: {businessId:string;timezone:string;businessDate:string;read?:BusinessTimeContextReader}): unknown {
   if (!record(value) || value.version !== 1 || !Array.isArray(value.operations) || value.operations.length > 12) return value
+  // This guard runs before semantic admission, never in the engine after an operation was blocked.
+  for (const operation of value.operations) {
+    if (record(operation) && operation.kind === 'time_preference' && wellShapedTemporal(operation) &&
+        !timePreferenceMatchesEvidence(parseTimePreference(operation.preference), message)) throw new TurnPlanValidationError('evidence')
+  }
   let constraint = state.timeClarification ? contextualTimeAnswer(message,state.timeClarification.candidateTimes) : null
   constraint ??= approximateTimeRequest(message)
   if (!constraint) {

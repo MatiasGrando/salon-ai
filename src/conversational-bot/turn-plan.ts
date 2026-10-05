@@ -1,7 +1,7 @@
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { isCustomerText } from './customer-text.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
-import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, type TimePreference } from './time-preference.js'
+import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, timePreferenceMatchesEvidence, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
@@ -178,7 +178,8 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
       if (temporal && temporal.kind !== 'exact') fail('preference is not exact time')
     } else if (raw.kind === 'time_preference') {
       exactKeys(raw, [...common, 'preference'])
-      parseTimePreference(raw.preference)
+      const preference = parseTimePreference(raw.preference)
+      if (!timePreferenceMatchesEvidence(preference, message)) fail('incomplete range evidence')
       identity = 'time'
     } else if (raw.kind === 'time_clarification') {
       exactKeys(raw, [...common, 'candidateTimes'])

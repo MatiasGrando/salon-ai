@@ -238,3 +238,29 @@ assert.ok(JSON.stringify(longCandidate).length > 4096)
 const longHttp = createOpenAiInterpretationProvider({ apiKey: 'fake-only', fetchImpl: async () => new Response(JSON.stringify(completion(longCandidate)), { status: 200 }) })
 assert.deepEqual(await longHttp({ message: longEvidence, state: initialDialogueState('tenant'), services }, new AbortController().signal), longCandidate)
 console.log('conversational turn-plan AI: offline PASS (HTTP contract, modular updates, diagnostics, legacy, copy guards)')
+
+// E2.26d.1: the same real provider schema and interpretation seam carry both interval limits.
+const completeInterval = { kind: 'range', from: '16:00', to: '18:00', fromInclusive: true, toInclusive: false }
+const completeIntervalMessage = 'después de las 16 y antes de las 18'
+const completeIntervalResult = await say(completeIntervalMessage,
+  plan(operation('time_preference', completeIntervalMessage, { preference: completeInterval })),
+  undefined, 'booking', { acts: [{ kind: 'request', field: 'time', evidence: completeIntervalMessage, operationIndexes: [0] }] })
+assert.equal(completeIntervalResult.response.interpretation.mode, 'ai', 'a complete interval must be accepted as one operation')
+assert.deepEqual(completeIntervalResult.response.state.timePreference, completeInterval)
+assert.equal(completeIntervalResult.response.state.requestedTime, null)
+assert.equal(completeIntervalResult.response.state.slot, null); assert.equal(completeIntervalResult.response.proposal, null)
+assert.equal(completeIntervalResult.availabilityCalls, 0, 'retaining a preference before choosing a service does not query agenda')
+assert.deepEqual(completeIntervalResult.response.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['time_preference'])
+await http({ message: completeIntervalMessage, state: completeIntervalResult.response.state, services }, new AbortController().signal)
+assert.deepEqual(JSON.parse(request!.input).timePreference, completeInterval)
+strictObjects(request!.text.format.schema)
+const rangePlanSchema = request!.text.format.schema.properties.turnPlan.anyOf.find((part: any) => part.type === 'object')
+const rangeTimeSchema = rangePlanSchema.properties.operations.items.anyOf.find((part: any) => part.properties.kind.enum.includes('time_preference'))
+assert.ok(rangeTimeSchema.properties.preference.anyOf.some((part: any) => part.properties.kind.enum.includes('range')))
+assert.match(request!.instructions, /fromInclusive/); assert.match(request!.instructions, /toInclusive/)
+const discardedUpper = await say(completeIntervalMessage,
+  plan(operation('time_preference', completeIntervalMessage, { preference: { kind: 'after', time: '16:00' } })),
+  undefined, 'booking', { acts: [{ kind: 'request', field: 'time', evidence: completeIntervalMessage, operationIndexes: [0] }] })
+assert.equal(discardedUpper.response.interpretation.reason, 'invalid_output', 'a one-bound candidate may not stand in for a two-bound request')
+assert.equal(discardedUpper.response.state.slot, null); assert.equal(discardedUpper.response.state.requestedTime, null)
+console.log('conversational complete-interval AI: offline PASS (same-call schema and no partial acceptance)')
