@@ -17,6 +17,21 @@ const fetchImpl: typeof fetch = async (_url, init) => {
 }
 await createOpenAiInterpretationProvider({ apiKey: 'fake-only', fetchImpl })({ message: 'hola, cómo están, quería un turno', state, services: [], firstReplyFacts: facts, replyContract: contract }, new AbortController().signal)
 await createOpenAiResponseProvider({ apiKey: 'fake-only', fetchImpl })({ message: 'hola', state, intent: 'other', facts, replyContract: contract }, new AbortController().signal)
+// Captured draft structure: the live model put an elongated greeting in both parts.
+const capturedGreeting = { salutation: 'greeting', opening: '¡Holaa!', factIds: ['next'], closing: null, variantChoices: null }
+const rejectedGreeting = validateReplyDraft(capturedGreeting, facts, contract, [])
+assert.equal(rejectedGreeting.validation.reason, 'identity_in_frame')
+assert.equal(rejectedGreeting.text, null); assert.equal(rejectedGreeting.openingText, undefined)
+for (const opening of ['¡Holaa!', '¡HOLAAA!', 'Hoooolaaa, gracias.', 'Buenas.', 'Bueeenas, gracias.', 'Buen día.', 'Buenos días.', 'Buenas tardes.', 'Buenas noches.', 'Bien, gracias. ¡Holaa!']) {
+  for (const introduction of ['pending', 'complete', 'none']) {
+    const policy = replyContract('social', introduction !== 'none', introduction === 'complete', facts)
+    assert.equal(validateReplyDraft({ ...capturedGreeting, opening }, facts, policy, []).validation.reason, 'identity_in_frame', opening + '/' + introduction)
+    assert.equal(validateReplyDraft({ opening, factIds: ['next'], closing: null }, facts, contract, []).validation.reason, 'identity_in_frame', 'legacy initial/' + opening)
+  }
+}
+for (const opening of ['Bien, gracias por preguntar.', 'Gracias por tus buenas palabras.', 'Buenas palabras, gracias por tu cortesía.', 'Buenas ideas para seguir charlando.', 'Todo bien por acá; gracias por la cortesía.']) {
+  assert.equal(validateReplyDraft({ ...capturedGreeting, opening }, facts, contract, []).validation.status, 'accepted')
+}
 // A typed greeting is not free identity text and must not discard a safe social response.
 const greetingDraft = { salutation: 'greeting', opening: 'Bien, gracias por preguntar.', factIds: ['next'], closing: null }
 assert.equal(validateReplyDraft(greetingDraft, facts, contract, []).validation.status, 'accepted')
@@ -30,6 +45,8 @@ for (const request of requests) {
   assert.ok(request.instructions.includes(REPLY_CONTRACT_INSTRUCTIONS))
   assert.match(request.instructions, /Presentación del servidor:/)
   assert.match(request.instructions, /Respuesta social y reconocimiento:/)
+  assert.match(request.instructions, /pregunta explícita de cortesía[^.]*respuesta social/i)
+  assert.match(request.instructions, /saludo no sustituye[^.]*respuesta/i)
   assert.match(request.instructions, /Cuerpo material:/)
   assert.match(request.instructions, /Continuación pertinente:/)
   assert.deepEqual(JSON.parse(request.input).replyContract, contract)
@@ -108,5 +125,13 @@ for (const scenario of ['pure-social', 'lateral-information', 'unsafe-identity']
     assert.equal(result.state.customerName, previous.customerName)
   }
 }
-assert.equal(agenda, 0)
+let capturedCalls = 0
+const capturedProvider = Object.assign(async () => { capturedCalls++; return { ...base, intent: 'other', turnPlan: { version: 1, operations: [] }, firstReply: capturedGreeting } },
+  { respond: async () => { capturedCalls++; throw new Error('no style retry after rejected framing') } }) as AiInterpretationProvider
+const capturedResult = await respondWithAiInterpreter(context, state, 'holaa como están?', port, capturedProvider)
+assert.equal(capturedCalls, 1); assert.equal(capturedResult.interpretation.aiCalls, 1)
+assert.equal(capturedResult.interpretation.replyValidation?.firstCall.reason, 'identity_in_frame')
+assert.equal(capturedResult.reply.match(/hol+a+/gi)?.length, 1)
+assert.equal(capturedResult.state.serviceId, null); assert.equal(capturedResult.proposal, null)
+assert.equal(capturedResult.bookingCommand, undefined); assert.equal(agenda, 0)
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')
