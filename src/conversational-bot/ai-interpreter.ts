@@ -4,7 +4,7 @@ import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageD
 import { approximateTimeRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
-import { replyContract, validateReplyDraft, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
+import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
 import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
@@ -492,10 +492,13 @@ export async function respondWithAiInterpreter(
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
     replyValidation.firstCall = frame.validation
     if (frame.validation.status === 'accepted') {
-      const opening = frame.openingText
-      if (opening?.trim()) {
-        authored = [opening, ...finalFacts.map(fact => fact.text)].join('\n')
-        modelFraming = true
+      const currentNext = finalFacts.find(fact => fact.id === 'next')
+      const solePreparedFact = !currentNext && response.replyPrepared && finalFacts.length === 1 ? finalFacts[0] : undefined
+      const projected = projectValidatedReplyFrame(frame, currentNext ?? solePreparedFact, Boolean(solePreparedFact))
+      if (!projected) replyValidation.firstCall = { ...frame.validation, status: 'rejected', reason: 'continuation_conflict' }
+      else if (projected.openingText.trim()) {
+        authored = [projected.openingText, ...finalFacts.map(fact => fact.text)].join('\n')
+        modelFraming = projected.modelFraming
         replyRoute = 'first_call'
       }
     }

@@ -824,6 +824,28 @@ try {
       assert.deepEqual(admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services).blockedFields, ['date'])
     }
   })
+  await check('captured basket plus malformed procedure fails closed while basket alone acquires both', async () => {
+    const cream: DialogueService = { id: 'cream', name: 'Baño de crema', price: 10000, durationMinutes: 30, requiresConsultation: false }
+    const catalog = [...services, cream], selectedPort = { ...port, catalog: async () => catalog }
+    const message = 'Quiero corte de mujer y baño de crema. Soy Ana.'
+    const acquisition = basket('set', [member('single', ['cut-w'], 'corte de mujer'), member('single', ['cream'], 'baño de crema')], 'corte de mujer y baño de crema')
+    const bad = { kind: 'service_request', purpose: 'booking', disposition: 'clear', serviceIds: ['cut-w', 'cream'],
+      correction: false, basis: 'exact_public_name', sourceQuote: null, continuation: false, ...ev('corte de mujer y baño de crema') }
+    for (const procedure of [bad, { ...bad, serviceIds: ['cut-w'] }, { ...bad, serviceIds: ['foreign'] }, { ...bad, evidence: 'Inventado' }]) {
+      const result = await say(initial, message, acted([acquisition, procedure], [act('request', 'service', message, [0, 1])]), selectedPort)
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.equal(selectionBasket(result.state).members.length, 0)
+      assert.equal(result.bookingCommand, undefined)
+    }
+    const correct = await say(initial, message, acted([acquisition, { kind: 'name', value: 'Ana', ...ev('Ana') }], [
+      act('request', 'service', 'corte de mujer y baño de crema', [0]), act('answer', 'name', 'Soy Ana', [1])
+    ]), selectedPort)
+    assert.equal(correct.interpretation.mode, 'ai')
+    assert.deepEqual(selectionBasket(correct.state).members.map(item => item.serviceIds), [['cut-w'], ['cream']])
+    assert.equal(correct.state.customerName, 'Ana')
+    assert.equal(correct.state.date, null); assert.equal(correct.state.requestedTime, null)
+    assert.equal(correct.bookingCommand, undefined)
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

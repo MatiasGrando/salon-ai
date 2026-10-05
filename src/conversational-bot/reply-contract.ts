@@ -20,7 +20,7 @@ export type ReplyValidation = {
   providedCount: number
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation }
-export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string }
+export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
   type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices'],
@@ -75,18 +75,36 @@ function hasSalutationAct(text: string): boolean {
   })
 }
 
+/** Remove only an unambiguous copy of the current server continuation, never paraphrases.
+ * The caller validates the entire original framing before using this projection.
+ */
+function uniqueContinuationOpening(opening: string, next: string, wholeOnly = false): string | null {
+  if (!next || /[\r\n]/u.test(next)) return opening.includes(next) && next ? null : opening
+  const whole = (text: string) => text.trim().replace(/^¡/u, '').replace(/[.!]$/u, '')
+  if (wholeOnly) return whole(opening) === whole(next) ? '' : opening.includes(next) ? null : opening
+  // Non-question acknowledgments have no safe partial-framing boundary: only the
+  // entire opening may match, with identical interior text and outer punctuation.
+  if (!next.startsWith('¿') && whole(opening) === whole(next)) return ''
+  if (!opening.includes(next)) return opening
+  if (opening.split(next).length !== 2 || !/^¿[^\r\n?]+\?$/u.test(next) || !opening.endsWith(next)) return null
+  const prefix = opening.slice(0, -next.length).trimEnd()
+  if (!prefix) return ''
+  return /[.!?]$/u.test(prefix) && /\s/u.test(opening.charAt(opening.length - next.length - 1)) ? prefix : null
+}
 /** Model frames are optional. Fact membership, order and material fragments always belong to the server. */
 export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], contract: ReplyContract,
   catalogNames: readonly string[]): ReplyValidationResult {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null
   const providedCount = Array.isArray(value?.factIds) ? Math.min(value.factIds.length, 101) : 0
   const selectedVariants = new Map<string, string>()
+  let opening = value?.opening
   // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
   const salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
-    ...(!reason ? { openingText: [salutation, value?.opening].filter(part => typeof part === 'string' && part.trim()).join('\n') } : {}),
-    modelFraming: Boolean(text && [value?.opening, value?.closing]
+    ...(!reason ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
+      validatedFraming: { salutation, opening: typeof opening === 'string' ? opening : null } } : {}),
+    modelFraming: Boolean(text && [opening, value?.closing]
       .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation)),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
@@ -117,7 +135,27 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
   if ((contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
   if ((contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))) return result('identity_in_frame')
-  const text = [salutation, value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
+  // Shape, membership, order and every original safety fence above remain decisive.
+  // A copied business value or action is never cleaned first to rescue unsafe framing.
+  const next = contract.continuation ? facts.find(fact => fact.id === contract.continuation) : undefined
+  if (next && typeof opening === 'string') {
+    const adjusted = uniqueContinuationOpening(opening, selectedVariants.get(next.id) ?? next.text)
+    if (adjusted === null) return result('continuation_conflict')
+    opening = adjusted
+  }
+  const text = [salutation, opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
+}
+
+/** Project already validated framing onto a new server continuation without validating
+ * invented model fact IDs or transferring ownership of the new material body.
+ */
+export function projectValidatedReplyFrame(frame: ReplyValidationResult, currentNext: ReplyFact | undefined, wholeOnly = false): { openingText: string; modelFraming: boolean } | null {
+  if (frame.validation.status !== 'accepted' || !frame.validatedFraming) return null
+  const { salutation, opening } = frame.validatedFraming
+  const adjusted = typeof opening === 'string' && currentNext ? uniqueContinuationOpening(opening, currentNext.text, wholeOnly) : opening
+  if (adjusted === null && opening !== null) return null
+  const openingText = [salutation, adjusted].filter(part => typeof part === 'string' && part.trim()).join('\n')
+  return { openingText, modelFraming: Boolean(openingText) }
 }

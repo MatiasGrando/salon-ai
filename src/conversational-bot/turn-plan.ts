@@ -48,15 +48,16 @@ const operationSchema = (kind: string, properties: Record<string, unknown>, opti
 export const TURN_PLAN_JSON_SCHEMA = objectSchema({
   version: { type: 'integer', enum: [1] },
   operations: { type: 'array', maxItems: TURN_PLAN_LIMITS.operations, items: { anyOf: [
-    operationSchema('service_request', {
+    ...(['clear', 'alternatives', 'needs_detail', 'unverified_variant'] as const).map(disposition => operationSchema('service_request', {
       purpose: { type: 'string', enum: ['inquiry', 'booking'] },
-      disposition: { type: 'string', enum: ['clear', 'alternatives', 'needs_detail', 'unverified_variant'] },
-      serviceIds: { type: 'array', items: stringSchema(128), maxItems: 10 },
+      disposition: { type: 'string', enum: [disposition] },
+      serviceIds: { type: 'array', items: stringSchema(128), minItems: disposition === 'clear' ? 1 : disposition === 'alternatives' ? 2 : 0,
+        maxItems: disposition === 'clear' ? 1 : TURN_PLAN_LIMITS.candidates },
       correction: { type: 'boolean' },
       basis: { type: 'string', enum: ['exact_public_name', 'documented_variant', 'semantic_equivalent', 'related_category'] },
       sourceQuote: { type: ['string', 'null'], minLength: 1, maxLength: 500 },
       continuation: { type: 'boolean' }
-    }),
+    })),
     operationSchema('service', { mode: { type: 'string', enum: ['single', 'alternatives', 'multiple', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), minItems: 0, maxItems: TURN_PLAN_LIMITS.candidates }, correction: { type: 'boolean' } }),
     operationSchema('basket', {
       mutation: { type: 'string', enum: ['set', 'add', 'remove', 'replace'] }, scope: { type: 'string', enum: ['all', 'members'] },

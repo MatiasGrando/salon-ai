@@ -235,4 +235,34 @@ for (const [kind, message] of [['notice', 'Estoy llegando'], ['pause', 'Después
   assert.equal(result.proposal, null)
   assert.equal(result.bookingCommand, undefined)
 }
+// The actual captured gratitude keeps its recognition with one server-owned question.
+let gratitudeCalls = 0
+const gratitudeProvider = Object.assign(async (input: AiInterpretationInput) => {
+  gratitudeCalls++
+  return { ...base, intent: 'other', turnPlan: { version: 1, operations: [] }, firstReply: {
+    salutation: null, opening: '¡De nada! ' + input.firstReplyFacts!.find(fact => fact.id === 'next')!.text,
+    factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null, variantChoices: null
+  } }
+}, { respond: async () => { gratitudeCalls++; throw new Error('No aesthetic gratitude call') } }) as AiInterpretationProvider
+const gratitude = await respondWithAiInterpreter(context, { ...state, introduced: true }, 'Gracias!', port, gratitudeProvider)
+assert.equal(gratitudeCalls, 1); assert.equal(gratitude.interpretation.aiCalls, 1)
+assert.match(gratitude.reply, /¡De nada!/)
+assert.equal((gratitude.reply.match(/¿/g) ?? []).length, 1, 'known server continuation appears exactly once')
+assert.equal(gratitude.interpretation.replyValidation?.firstCall.status, 'accepted')
+assert.equal(gratitude.state.serviceId, null); assert.equal(gratitude.proposal, null); assert.equal(gratitude.bookingCommand, undefined)
+let noticeCalls = 0
+const noticeMessage = 'Ya llegué al local.'
+const noticeProvider = Object.assign(async (input: AiInterpretationInput) => {
+  noticeCalls++
+  return { ...base, intent: 'other', turnPlan: { version: 1, operations: [] },
+    communicativeActs: { version: 1, acts: [{ kind: 'notice', field: 'general', evidence: noticeMessage,
+      confidence: 1, mention: null, operationIndexes: [] }] }, firstReply: {
+      salutation: null, opening: '¡Gracias por avisar!', factIds: input.firstReplyFacts!.map(fact => fact.id),
+      closing: null, variantChoices: null
+    } }
+}, { respond: async () => { noticeCalls++; throw new Error('No aesthetic notice call') } }) as AiInterpretationProvider
+const notice = await respondWithAiInterpreter(context, { ...state, introduced: true }, noticeMessage, port, noticeProvider)
+assert.equal(noticeCalls, 1); assert.equal(notice.interpretation.aiCalls, 1)
+assert.equal((notice.reply.match(/Gracias por avisar/g) ?? []).length, 1, 'captured notice acknowledgment appears exactly once')
+assert.equal(notice.state.serviceId, null); assert.equal(notice.proposal, null); assert.equal(notice.bookingCommand, undefined)
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')

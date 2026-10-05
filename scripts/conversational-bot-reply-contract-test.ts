@@ -1,5 +1,5 @@
 import { runConversationalPreview } from '../src/conversational-bot/demo-preview.js'
-import { replyContract, validateReplyDraft, REPLY_CONTRACT_INSTRUCTIONS } from '../src/conversational-bot/reply-contract.js'
+import { replyContract, validateReplyDraft, projectValidatedReplyFrame, REPLY_CONTRACT_INSTRUCTIONS } from '../src/conversational-bot/reply-contract.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import assert from 'node:assert/strict'
@@ -119,6 +119,79 @@ async function main() {
   assert.ok('replyValidation' in preview.interpretation)
   assert.deepEqual(preview.interpretation.replyValidation, subsequent.interpretation.replyValidation)
   assert.doesNotMatch(JSON.stringify(preview.interpretation.replyValidation), /Alba|Local|fixture-only|tenant|hola/)
+  const copyFailures: string[] = []
+  const copyCheck = (name: string, body: () => void) => { try { body(); console.log('PASS continuation ' + name) }
+    catch (error) { copyFailures.push(name); console.error('RED continuation ' + name + ': ' + (error instanceof Error ? error.message.split('\n')[0] : String(error))) } }
+  for (const next of ['¿En qué te puedo ayudar con el local?', '¿Qué día preferís?', '¿Necesitás otra información?']) {
+    const actual = [{ id: 'next', text: next }], rule = replyContract('social', true, true, actual)
+    copyCheck('exact known suffix ' + next, () => {
+      const raw = { salutation: null, opening: '¡De nada! ' + next, factIds: ['next'], closing: null }
+      const saved = structuredClone(raw), result = validateReplyDraft(raw, actual, rule, [])
+      assert.equal(result.validation.status, 'accepted'); assert.equal(result.openingText, '¡De nada!')
+      assert.equal(result.text, '¡De nada!\n' + next); assert.deepEqual(raw, saved)
+    })
+    copyCheck('known question only ' + next, () => {
+      const result = validateReplyDraft({ opening: next, factIds: ['next'], closing: null }, actual, rule, [])
+      assert.equal(result.validation.status, 'accepted'); assert.equal(result.openingText, '')
+      assert.equal(result.text, next)
+    })
+    copyCheck('ambiguous duplicates reject ' + next, () => {
+      for (const opening of [next + ' Seguimos.', 'Dijiste «' + next + '»', 'No quiero ' + next, 'Gracias. ' + next + ' ' + next])
+        assert.equal(validateReplyDraft({ opening, factIds: ['next'], closing: null }, actual, rule, []).validation.reason, 'continuation_conflict')
+    })
+    copyCheck('distinct social question remains ' + next, () => {
+      const opening = 'Gracias, ¿cómo estás vos?'
+      assert.equal(validateReplyDraft({ opening, factIds: ['next'], closing: null }, actual, rule, []).text, opening + '\n' + next)
+    })
+  }
+  copyCheck('selected next variant is current, canonical next is not rewritten', () => {
+    const actual = [{ id: 'next', text: '¿Qué día preferís?', variants: [{ id: 'gentle', text: '¿Para qué día te gustaría?' }] }]
+    const raw = { salutation: 'greeting', opening: 'Gracias. ¿Para qué día te gustaría?', factIds: ['next'], closing: null,
+      variantChoices: [{ factId: 'next', variantId: 'gentle' }] }
+    const result = validateReplyDraft(raw, actual, replyContract('social', true, true, actual), [])
+    assert.equal(result.text, '¡Hola!\nGracias.\n¿Para qué día te gustaría?')
+    assert.equal(result.openingText, '¡Hola!\nGracias.')
+    assert.equal(actual[0]!.text, '¿Qué día preferís?')
+  })
+  copyCheck('original safety guards run before any suffix removal', () => {
+    const next = '¿Qué día preferís?', actual = [{ id: 'next', text: next }], rule = replyContract('social', true, true, actual)
+    for (const [prefix, reason] of [['Cuesta $100.', 'unverified_value'], ['Reservado.', 'unverified_action'], ['Soy Otra.', 'identity_in_frame'], ['Corte mujer.', 'catalog_in_frame']] as const)
+      assert.equal(validateReplyDraft({ opening: prefix + ' ' + next, factIds: ['next'], closing: null }, actual, rule, ['Corte mujer']).validation.reason, reason)
+  })
+  copyCheck('whole known acknowledgment retains one server copy despite outer punctuation', () => {
+    for (const text of ['Gracias por avisar.', 'Entendido, seguimos por acá.']) {
+      const actual = [{ id: 'next', text }], opening = '¡' + text.slice(0, -1) + '!'
+      const result = validateReplyDraft({ opening, factIds: ['next'], closing: null }, actual, replyContract('continuation', true, true, actual), [])
+      assert.equal(result.validation.status, 'accepted'); assert.equal(result.openingText, '')
+      assert.equal(result.text, text)
+      assert.equal(result.modelFraming, false, 'a deduplicated whole frame leaves only server facts')
+    }
+  })
+  copyCheck('a known acknowledgment cannot hide an original material or action claim', () => {
+    const actual = [{ id: 'next', text: 'Reservado por $100.' }]
+    assert.equal(validateReplyDraft({ opening: '¡Reservado por $100!', factIds: ['next'], closing: null }, actual,
+      replyContract('continuation', true, true, actual), []).validation.reason, 'unverified_value')
+  })
+  copyCheck('validated projection uses current sole fact without changing ownership or identity', () => {
+    const original = [{ id: 'next', text: '¿Qué día preferís?' }], policy = replyContract('continuation', true, true, original)
+    const current = { id: '0', text: 'Gracias por avisar.' }, snapshot = structuredClone(current)
+    const frame = validateReplyDraft({ salutation: 'greeting', opening: '¡Gracias por avisar!', factIds: ['next'], closing: null }, original, policy, [])
+    assert.equal(frame.validation.status, 'accepted')
+    assert.deepEqual(projectValidatedReplyFrame(frame, current, true), { openingText: '¡Hola!', modelFraming: true })
+    assert.deepEqual(current, snapshot); assert.deepEqual(original, [{ id: 'next', text: '¿Qué día preferís?' }])
+    const exact = validateReplyDraft({ opening: '¿Cómo querés seguir?', factIds: ['next'], closing: null }, original, policy, [])
+    assert.deepEqual(projectValidatedReplyFrame(exact, { id: '0', text: '¿Cómo querés seguir?' }, true), { openingText: '', modelFraming: false })
+    const partial = validateReplyDraft({ opening: 'Gracias. ¿Cómo querés seguir?', factIds: ['next'], closing: null }, original, policy, [])
+    assert.equal(projectValidatedReplyFrame(partial, { id: '0', text: '¿Cómo querés seguir?' }, true), null, 'id0 never enables suffix-question stripping')
+    for (const opening of ['¡Reservado por $100!', 'Cuesta $100. ¿Qué día preferís?', 'Soy Otra.', 'Corte mujer.']) {
+      const unsafe = validateReplyDraft({ opening, factIds: ['next'], closing: null }, original, policy, ['Corte mujer'])
+      assert.equal(unsafe.validation.status, 'rejected'); assert.equal(unsafe.validatedFraming, undefined)
+      assert.equal(projectValidatedReplyFrame(unsafe, { id: '0', text: opening }, true), null)
+    }
+    const incomplete = { ...frame }; delete incomplete.validatedFraming
+    assert.equal(projectValidatedReplyFrame(incomplete, current, true), null)
+  })
+  assert.deepEqual(copyFailures, [], 'continuation ownership regressions')
   console.log('PASS contextual social contract, first-call viability, natural framing and honest canonical delivery')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })

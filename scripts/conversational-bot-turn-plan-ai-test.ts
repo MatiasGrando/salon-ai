@@ -264,3 +264,18 @@ const discardedUpper = await say(completeIntervalMessage,
 assert.equal(discardedUpper.response.interpretation.reason, 'invalid_output', 'a one-bound candidate may not stand in for a two-bound request')
 assert.equal(discardedUpper.response.state.slot, null); assert.equal(discardedUpper.response.state.requestedTime, null)
 console.log('conversational complete-interval AI: offline PASS (same-call schema and no partial acceptance)')
+
+// Captured V1 generation mismatch: the runtime must keep rejecting malformed operations.
+const procedureSchemas = rangePlanSchema.properties.operations.items.anyOf.filter((part: any) => part.properties?.kind.enum.includes('service_request'))
+const branchesFor = (disposition: string) => procedureSchemas.filter((part: any) => part.properties.disposition.enum.includes(disposition))
+for (const disposition of ['clear', 'alternatives', 'needs_detail', 'unverified_variant']) assert.ok(branchesFor(disposition).length)
+for (const branch of branchesFor('clear')) {
+  assert.equal(branch.properties.serviceIds.minItems, 1, 'clear generation must require exactly one current catalog ID')
+  assert.equal(branch.properties.serviceIds.maxItems, 1, 'captured clear with two IDs must be excluded by the actual Responses schema')
+}
+for (const branch of branchesFor('alternatives')) assert.equal(branch.properties.serviceIds.minItems, 2)
+for (const disposition of ['needs_detail', 'unverified_variant']) for (const branch of branchesFor(disposition)) {
+  assert.equal(branch.properties.serviceIds.minItems ?? 0, 0)
+  assert.equal(branch.properties.serviceIds.maxItems, 10)
+}
+console.log('procedure generation cardinality: PASS')
