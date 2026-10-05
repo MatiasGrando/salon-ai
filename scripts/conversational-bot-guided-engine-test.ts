@@ -225,3 +225,18 @@ const unchosenGuide=await say(initial(),'corte y Servicio guiado',[unsafeAlterna
 await assert.rejects(()=>say(unchosenGuide.state,'hasta los hombros',[choose('color','short','hasta los hombros')]),/guidance service target/)
 assert.equal(unchosenGuide.state.serviceEstimates?.color,undefined)
 console.log('guided service motor: configured estimates, per-service state, dual capacity, stale choice and safe proposal PASS')
+
+const mixedEvidence = 'quiero realizarme Servicio guiado, ¿cuál sería el precio?'
+const mixedPrice: TurnOperation = { kind: 'information', target: { kind: 'service', actions: [], serviceIds: ['smooth'], aspect: 'price' }, ...ev('precio') }
+const mixedBooking = await say(initial(), mixedEvidence, [service(['smooth'], 'Servicio guiado'), mixedPrice])
+assert.equal(mixedBooking.state.serviceId, 'smooth')
+assert.equal(mixedBooking.state.pending, 'estimate')
+assert.equal((mixedBooking.reply.match(/85\.000/g) ?? []).length, 1, 'a combined price read and guidance deliver each range once')
+assert.equal((mixedBooking.reply.match(/Presupuesto estimado sujeto a evaluación/g) ?? []).length, 1)
+assert.match(mixedBooking.reply, /Qué largo/)
+assert.equal(mixedBooking.proposal, null)
+const semanticBooking = await respond(context, initial(), mixedEvidence, port, { intent: 'booking', serviceId: null, candidateIds: [], correction: false,
+  turnPlan: { version: 1, operations: [service(['smooth'], 'Servicio guiado')] } })
+assert.equal(semanticBooking.state.serviceId, 'smooth', 'validated semantic acquisition is not overwritten by an incidental price question')
+assert.equal(semanticBooking.state.pending, 'estimate')
+console.log('PASS mixed semantic booking and price coverage preserve acquisition without duplicate facts')

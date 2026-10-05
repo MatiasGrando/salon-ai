@@ -192,3 +192,50 @@ const previewComplete = await runConversationalPreview(dependencies, context.bus
 assert.equal(previewComplete.proposalReady, true); assert.match(previewComplete.reply, /120 min/); assert.match(previewComplete.reply, /85\.000 a \$ 95\.000/)
 assert.deepEqual(readConversationDraft(JSON.parse(JSON.stringify(stored.get('preview-only'))), runtimePolicy, context.timezone).serviceEstimates, previewComplete.state.serviceEstimates)
 console.log('conversational guided AI: strict HTTP context/schema, semantic choice proposals, partial basket, independent corrections, privacy, preview and canonical ranges PASS')
+
+const focusedPriceState: DialogueState = { ...initial, informationFocus: { version: 1, businessId: context.businessId, topic: 'price', aspect: 'price', serviceId: smooth.id, awaitingChoice: false, candidateId: null, options: [{ id: smooth.id, label: smooth.name }] } }
+await http({ message: 'por debajo de los hombros', state: focusedPriceState, services }, new AbortController().signal)
+const informativeInput = JSON.parse(request!.input)
+assert.deepEqual(informativeInput.informationEstimateChoices, guidedChoiceTargets(services, [smooth.id]))
+assert.deepEqual(informativeInput.estimateChoices, [], 'informative options do not become selected booking options')
+assert.match(request!.instructions, /estimateOptionId/)
+assert.doesNotMatch(JSON.stringify(informativeInput.informationEstimateChoices), /priceMin|priceMax|configurationKey/)
+const informationSchemas = schemas.find((item: any) => item.properties.kind.enum.includes('information')).properties.target.anyOf
+assert.ok(informationSchemas.some((item: any) => item.properties.estimateOptionId), 'strict information schema carries the configured option identity')
+console.log('PASS first-call informative estimates expose identities separately from booking choices')
+
+const focusedExactCompanion = { ...ambiguous, informationFocus: focusedPriceState.informationFocus }
+const exactCompanionEstimate = await say(focusedExactCompanion, 'hasta los hombros', candidate(plan(estimate(smooth.id, smooth.id + '-short', 'hasta los hombros'))), { ...port, catalog: async () => [cut, woman, smooth, paint] })
+assert.equal(exactCompanionEstimate.interpretation.reason, null)
+assert.equal(exactCompanionEstimate.state.serviceEstimates?.[smooth.id]?.optionId, smooth.id + '-short', 'an exact selected companion remains a booking estimate even when another group is unresolved')
+assert.deepEqual(exactCompanionEstimate.state.basket, focusedExactCompanion.basket)
+assert.equal(exactCompanionEstimate.proposal, null)
+console.log('PASS informative focus never reclassifies an exact companion booking estimate')
+
+const humanMixedMessage = 'hola queria realizaeme un alisado. cual seria el precio?'
+const queriesBeforeHumanContract = jointCalls + singularCalls
+const humanMixedContract = await say(initial, humanMixedMessage, candidate(plan(
+  basket('set', [member('single', [smooth.id], 'alisado')], 'alisado'),
+  { kind: 'information', target: { kind: 'service', actions: [], serviceIds: [smooth.id], aspect: 'price' }, ...ev('precio') }
+), { intent: 'booking' }), { ...port, catalog: async () => [smooth] })
+assert.equal(humanMixedContract.interpretation.reason, null)
+assert.equal(humanMixedContract.interpretation.aiCalls, 1)
+assert.equal(humanMixedContract.state.serviceId, smooth.id)
+assert.equal(humanMixedContract.state.pending, 'estimate')
+assert.equal((humanMixedContract.reply.match(/85\.000/g) ?? []).length, 1)
+assert.equal((humanMixedContract.reply.match(/Presupuesto estimado sujeto a evaluación/g) ?? []).length, 1)
+assert.equal(humanMixedContract.proposal, null)
+assert.equal(jointCalls + singularCalls, queriesBeforeHumanContract)
+const humanLengthMessage = 'perfecto. el largro de mi pelo es por debajo de los hombros.'
+const humanInformativeContract = await say(focusedPriceState, humanLengthMessage, candidate(plan(
+  estimate(smooth.id, smooth.id + '-long', 'por debajo de los hombros')
+)), { ...port, catalog: async () => [smooth] })
+assert.equal(humanInformativeContract.interpretation.reason, null)
+assert.equal(humanInformativeContract.state.serviceId, null)
+assert.equal(humanInformativeContract.state.serviceEstimates, undefined)
+assert.match(humanInformativeContract.reply, /95\.000 a \$ 110\.000/)
+assert.doesNotMatch(humanInformativeContract.reply, /Qué servicio necesitás/)
+assert.match(humanInformativeContract.reply, /agendar Alisado/)
+assert.equal(humanInformativeContract.proposal, null)
+assert.equal(jointCalls + singularCalls, queriesBeforeHumanContract)
+console.log('PASS human wording exercises controlled mixed-acquisition and informative-estimate contracts without claiming model understanding')

@@ -18,7 +18,7 @@ import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, 
 import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
 import { pendingQuestion, validateFacts } from './information.js'
 import { parseInformationTarget } from './information-contract.js'
-import { inferInformationTarget, readInformation, informationReply } from './information-read.js'
+import { focusedInformationService, normalizeInformativeEstimates, validInformationEstimate, inferInformationTarget, readInformation, informationReply } from './information-read.js'
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
@@ -79,7 +79,8 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
-        const parsed = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(read?{read}:{})}), message, services.map(service => service.id))
+        const parsedPlan = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(read?{read}:{})}), message, services.map(service => service.id))
+        const parsed = normalizeInformativeEstimates(parsedPlan, state, services)
         turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
@@ -99,6 +100,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
         if (turnPlan.operations.some(operation => operation.kind === 'service_request' && operation.continuation) && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
+        if (turnPlan.operations.some(operation => operation.kind === 'information' && !validInformationEstimate(operation.target, services))) throw new TurnPlanValidationError('estimate')
         validateEstimateOperations(turnPlan, state, services)
       } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
@@ -222,8 +224,8 @@ function responseFacts(reply: string, state: DialogueState, intent: Candidate['i
   if (state.pending === 'service' && !state.serviceId && !catalogRequested && (reply.startsWith('¿Qué servicio necesitás?\n') || reply.startsWith('Hola. Te ayudo con tu turno.\n¿Qué servicio necesitás?') || reply === 'Hola, ¿qué servicio necesitás?'))
     return intent === 'other' ? [] : [{ id: 'next', text: '¿Qué servicio necesitás?' }]
   const lastQuestion = lines.at(-1)?.match(/¿[^?]+\?$/)?.[0]
-  const pending = state.questionContext?.field === state.pending && lastQuestion === state.questionContext.question ? state.questionContext.question : pendingQuestion(state)
-  if (lines.at(-1) === pending && lines.length > 1 && !hasActiveBooking(state)) lines.pop()
+  const pending = intent === 'information' && lastQuestion ? lastQuestion : state.questionContext?.field === state.pending && lastQuestion === state.questionContext.question ? state.questionContext.question : pendingQuestion(state)
+  if (intent !== 'information' && lines.at(-1) === pending && lines.length > 1 && !hasActiveBooking(state)) lines.pop()
   return lines.map((text, index) => ({ id: text.endsWith(pending) && index === lines.length - 1 ? 'next' : String(index), text: chunks[index]! }))
 }
 /** Predict only an intake step; all questions and catalog alternatives remain server facts. */
@@ -355,6 +357,13 @@ export async function respondWithAiInterpreter(
     turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose: 'inquiry', disposition: 'needs_detail',
       serviceIds: [selected.id], correction: candidate.serviceCorrection === true, continuation: false,
       basis: 'semantic_equivalent', sourceQuote: null, evidence, confidence: candidate.serviceConfidence === 'certain' ? 1 : 0 }] }
+  }
+  const fallbackFocus = reason ? focusedInformationService(state, services) : null
+  if (fallbackFocus) {
+    const independent = fallbackIndependentTurnPlan(context, state, message, services, cachedPort)
+    decision = { intent: 'information', serviceId: null, candidateIds: [], correction: false, informationOnly: true,
+      turnPlan: { version: 1, operations: [...independent.operations, { kind: 'information',
+        target: { kind: 'service', actions: [], serviceIds: [fallbackFocus.id], aspect: state.informationFocus!.aspect }, evidence: message, confidence: 1 }] } }
   }
   const engineStarted = performance.now()
   let response = await respond(context, state, message, cachedPort, decision, { deferIntroduction: true })

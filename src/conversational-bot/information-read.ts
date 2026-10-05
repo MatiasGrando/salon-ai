@@ -1,14 +1,42 @@
+import { stageContent } from '../bot-options/domain/service-content.js'
+import { hasBasketSelection, selectionBasket } from './service-basket.js'
+import type { TurnPlan } from './turn-plan.js'
 import { standardDelivery, standardWorkSchedule, safePublicLink, type StandardField } from './standard-delivery.js'
 import { routeActions, type InformationAction } from './actions.js'
 import { normalizeAnswer } from './dialogue-context.js'
 import { affirmativeMatchAnswer, matchPresentedServiceAnswer } from './contextual-matching.js'
 import { formatCatalogPrice, formatCatalogDuration } from '../bot-options/application/catalog-queries.js'
-import { formatServiceEstimate, parseEstimateOptions } from '../bot-options/domain/service-booking.js'
+import { formatServiceEstimate, parseEstimateOptions, resolveServiceEstimate } from '../bot-options/domain/service-booking.js'
 import { renderInformation, renderServices, validateFacts, pendingQuestion, type BusinessFacts } from './information.js'
 import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ServiceInformationAspect, type BusinessInformationSubject, type ProfessionalInformationFacts } from './information-contract.js'
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
-export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus }
+export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
+/** An informational focus is evidence for a read, never an implicit basket selection. */
+export function focusedInformationService(state: DialogueState, services: readonly DialogueService[]): DialogueService | null {
+  const focus = state.informationFocus
+  if (!focus?.serviceId || focus.awaitingChoice) return null
+  const service = services.find(item => item.id === focus.serviceId)
+  return service && focus.options.some(option => option.id === service.id && normalizeAnswer(option.label) === normalizeAnswer(service.name)) ? service : null
+}
+export function validInformationEstimate(target: InformationTarget, services: readonly DialogueService[]): boolean {
+  if (target.kind !== 'service' || target.estimateOptionId === undefined) return true
+  const service = services.find(item => item.id === target.serviceIds[0])
+  const options = parseEstimateOptions(service?.bookingPolicy?.estimateOptions ?? [])
+  return Boolean(service?.bookingPolicy && options?.some(option => option.id === target.estimateOptionId) && resolveServiceEstimate(service.bookingPolicy, target.estimateOptionId))
+}
+/** Compatibility adapter: legacy estimate proposals may refine a current price inquiry only. */
+export function normalizeInformativeEstimates(plan: TurnPlan, state: DialogueState, services: readonly DialogueService[]): TurnPlan {
+  if (plan.operations.some(operation => ['basket', 'service', 'service_request'].includes(operation.kind))) return plan
+  const focused = focusedInformationService(state, services)
+  if (!focused || state.informationFocus?.aspect !== 'price') return plan
+  return { ...plan, operations: plan.operations.map(operation => {
+    if (operation.kind !== 'estimate' || operation.confidence < .85 || operation.optionId === null ||
+        operation.serviceId !== focused.id || selectionBasket(state).members.some(member => member.mode === 'single' && member.serviceIds.includes(operation.serviceId))) return operation
+    const target: InformationTarget = { kind: 'service', actions: [], serviceIds: [focused.id], aspect: 'price', estimateOptionId: operation.optionId }
+    return validInformationEstimate(target, services) ? { kind: 'information', target, evidence: operation.evidence, confidence: operation.confidence } : operation
+  }) }
+}
 const missing = (subject = 'esa información'): InformationRead => ({ reply: standardDelivery({ kind: 'missing', subject }), outcome: 'missing' })
 const explicitBooking = (message: string) => /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
 export function informationAspect(message: string): ServiceInformationAspect | null {
@@ -102,7 +130,10 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   const focus = focusFor(state, [item], target.aspect, item.id)
   const unavailable = (subject: string) => ({ ...missing(subject + ' sobre ' + item.name), focus })
   const options = parseEstimateOptions(item.bookingPolicy?.estimateOptions ?? []) ?? []
-  const variants = options.map(option => '• ' + option.label + ': ' + formatServiceEstimate({ optionId: option.id, optionLabel: option.label, priceMin: option.priceMin, priceMax: option.priceMax }) + (option.note ? ' — ' + option.note : ''))
+  if (!validInformationEstimate(target, services)) return unavailable('esa opción vigente del presupuesto')
+  const chosenOptions = target.estimateOptionId ? options.filter(option => option.id === target.estimateOptionId) : options
+  const choiceContent = item.bookingPolicy ? stageContent(item.bookingPolicy, state.businessId, 'choice').fragments : []
+  const variants = chosenOptions.map(option => '• ' + option.label + ': ' + formatServiceEstimate({ optionId: option.id, optionLabel: option.label, priceMin: option.priceMin, priceMax: option.priceMax }) + (item.bookingPolicy ? choiceContent.filter(fragment => fragment.source === 'option:' + option.id).map(fragment => ' — ' + fragment.text).join('') : option.note ? ' — ' + option.note : ''))
   const duration = formatCatalogDuration(item.durationMinutes, item.durationMinMinutes ?? null, item.durationMaxMinutes ?? null)
   const price = formatCatalogPrice(item.price, item.priceMode ?? 'FIXED')
   let lines: string[] = []
@@ -119,9 +150,13 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   } else {
     lines = [...(target.aspect === 'overview' && item.description ? [item.description] : []),
       ...(variants.length ? variants : price ? [price] : ['Precio a consultar']),
-      ...(target.aspect === 'overview' && duration ? [duration] : []), ...(item.bookingPolicy?.estimateDisclaimer ? [item.bookingPolicy.estimateDisclaimer] : [])]
+      ...(target.aspect === 'overview' && duration ? [duration] : []), ...choiceContent.filter(fragment => fragment.source === 'disclaimer').map(fragment => fragment.text)]
   }
-  return { reply: standardDelivery({ kind: 'service_details', name: item.name, lines }), outcome: 'found', focus }
+  const reply = standardDelivery({ kind: 'service_details', name: item.name, lines })
+  const uncovered = target.aspect === 'overview' ? [...(item.description ? [item.description] : []), ...(duration ? [duration] : [])] : []
+  return { reply, outcome: 'found', focus,
+    ...(['price', 'overview'].includes(target.aspect) && item.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' && !target.estimateOptionId
+      ? { guidanceCoverage: { serviceId: item.id, remainder: uncovered.length ? standardDelivery({ kind: 'service_details', name: item.name, lines: uncovered }) : '' } } : {}) }
 }
 function businessRead(target: Extract<InformationTarget, { kind: 'business' }>, message: string, facts: BusinessFacts | null, services: readonly DialogueService[]): InformationRead {
   const subject = target.subject ?? businessSubject(message)
@@ -192,8 +227,17 @@ export async function readInformation(context: DialogueContext, state: DialogueS
   }
   return businessRead(target, message, facts, services)
 }
+/** One contextual next step: inquiry is not permission to mutate a booking draft. */
+export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
+  if (read.outcome === 'clarifying') return ''
+  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)
+  const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
+  if (service) return '¿Querés agendar ' + service.label + '?'
+  return activeBooking ? pendingQuestion(state) : '¿En qué más te puedo ayudar?'
+}
 export function informationReply(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
-  return read.reply + (read.outcome === 'found' && activeBooking ? '\n' + pendingQuestion(state) : '')
+  const next = informationNext(read, state, activeBooking)
+  return read.reply + (next ? '\n' + next : '')
 }
 export function informationReadActions(target: InformationTarget): readonly InformationAction[] {
   return target.kind === 'service' ? [] : target.kind === 'business' ? target.actions : []

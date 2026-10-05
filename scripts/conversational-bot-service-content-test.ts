@@ -1,3 +1,4 @@
+import { initialDialogueState, respond, type DialoguePort, type DialogueService } from '../src/conversational-bot/engine.js'
 import assert from 'node:assert/strict'
 import { contentSourceHash, resolveServiceContent, stageContent, parseDefinitionServiceContent, attachServiceContent } from '../src/bot-options/domain/service-content.js'
 import { serviceConfigurationKey, type ServiceBookingPolicy } from '../src/bot-options/domain/service-booking.js'
@@ -46,3 +47,47 @@ assert.ok(text.includes('• Corto: $ 100 a $ 200'))
 assert.ok(text.includes(policy.estimateDisclaimer!))
 assert.ok(text.endsWith(policy.estimateQuestion!), 'choice question must follow options and all relevant facts')
 console.log('PASS reviewed service content: exact source coverage, tenant/version/digest, phase invariants and legacy complete fallback')
+
+const contentContext = { businessId: 'tenant', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-02T15:00:00Z') }
+const contentService: DialogueService = { id: policy.id, name: policy.name, price: policy.price, priceMode: policy.priceMode, durationMinutes: 30, requiresConsultation: false, bookingPolicy: configured }
+let contentAgendaCalls = 0
+const contentPort: DialoguePort = { catalog: async () => [contentService], availability: async () => { contentAgendaCalls++; return { professionals: [], slots: [] } } }
+const contentPrice = await respond(contentContext, initialDialogueState('tenant'), 'precio Servicio', contentPort, { intent: 'information', serviceId: null, candidateIds: [], correction: false,
+  turnPlan: { version: 1, operations: [{ kind: 'information', target: { kind: 'service', actions: [], serviceIds: [policy.id], aspect: 'price' }, evidence: 'precio Servicio', confidence: 1 }] } })
+assert.match(contentPrice.reply, /Precio estimado/)
+assert.doesNotMatch(contentPrice.reply, /cabello limpio/, 'reviewed attendance content is not premature price-choice content')
+assert.equal(contentAgendaCalls, 0)
+assert.equal(contentPrice.state.serviceId, null)
+console.log('PASS information price delivery observes reviewed stages without starting booking')
+
+const contextualService = { ...contentService, professionalDurationMinutes: 30, customerDurationMinutes: 30 }
+const contentSlot = { date: '2026-10-03', time: '17:00', startAt: '2026-10-03T20:00:00.000Z', professionalId: 'cin', professionalName: 'Cin', band: 'AFTERNOON' as const, occupiedMinutes: 0 }
+const bookingContentPort: DialoguePort = { ...contentPort, catalog: async () => [contextualService], availabilityBasket: async selected => {
+  contentAgendaCalls++
+  return { ok: true, services: selected, durationMinutes: 30, customerDurationMinutes: 30, totalPrice: null, professionals: [{ id: 'cin', name: 'Cin', priority: 0 }], slots: [contentSlot] }
+} }
+const bookingContentContext = { ...contentContext, sandboxBooking: true }
+const selectedContent = await respond(bookingContentContext, initialDialogueState('tenant'), 'quiero Servicio y su precio', bookingContentPort, {
+  intent: 'booking', serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [
+    { kind: 'service', mode: 'single', serviceIds: [policy.id], correction: false, evidence: 'Servicio', confidence: 1 },
+    { kind: 'information', target: { kind: 'service', actions: [], serviceIds: [policy.id], aspect: 'price' }, evidence: 'precio', confidence: 1 }
+  ] }
+})
+assert.doesNotMatch(selectedContent.reply, /cabello limpio/)
+assert.equal((selectedContent.reply.match(/Precio estimado/g) ?? []).length, 1)
+assert.equal(contentAgendaCalls, 0)
+const consentContent = await respond(bookingContentContext, selectedContent.state, 'Corto mañana 17:00 con Cin soy Laura', bookingContentPort, {
+  intent: 'booking', serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [
+    { kind: 'estimate', serviceId: policy.id, optionId: 'short', evidence: 'Corto', confidence: 1 },
+    { kind: 'date', expression: 'mañana', evidence: 'mañana', confidence: 1 },
+    { kind: 'time', value: '17:00', evidence: '17:00', confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Cin', evidence: 'Cin', confidence: 1 },
+    { kind: 'name', value: 'Laura', evidence: 'Laura', confidence: 1 }
+  ] }
+})
+assert.ok(consentContent.state.sandboxReservation?.presented.conditionsPresented)
+assert.match(consentContent.reply, /cabello limpio/)
+assert.ok(consentContent.reply.indexOf('cabello limpio') < consentContent.reply.lastIndexOf('¿'), 'attendance conditions precede the consent question')
+assert.equal(consentContent.state.sandboxReservation?.receipt, undefined)
+assert.equal(consentContent.bookingCommand, undefined)
+console.log('PASS staged price/guidance coverage does not omit attendance conditions before explicit consent')

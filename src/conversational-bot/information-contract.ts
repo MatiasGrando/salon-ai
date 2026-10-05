@@ -11,7 +11,7 @@ export type ProfessionalInformationTarget = {
 export type InformationTarget =
   | { kind: 'business'; actions: readonly InformationAction[]; subject?: BusinessInformationSubject }
   | { kind: 'presented_offer'; actions: readonly [] }
-  | { kind: 'service'; actions: readonly []; serviceIds: readonly string[]; aspect: ServiceInformationAspect }
+  | { kind: 'service'; actions: readonly []; serviceIds: readonly string[]; aspect: ServiceInformationAspect; estimateOptionId?: string }
   | ProfessionalInformationTarget
 export type ProfessionalInformationFacts = {
   businessId: string; complete: boolean
@@ -40,8 +40,8 @@ export function parseInformationTarget(value: unknown, catalogIds?: readonly str
     if (value.kind === 'presented_offer') {
       if (!keys(value, ['kind', 'actions'])) throw new Error('invalid information offer')
     } else if (value.kind === 'service') {
-      if (!keys(value, ['kind', 'actions', 'serviceIds', 'aspect']) || !ids(value.serviceIds) ||
-          !SERVICE_INFORMATION_ASPECTS.includes(value.aspect as ServiceInformationAspect)) throw new Error('invalid information service')
+      if (!keys(value, ['kind', 'actions', 'serviceIds', 'aspect'], ['estimateOptionId']) || !ids(value.serviceIds) ||
+          !SERVICE_INFORMATION_ASPECTS.includes(value.aspect as ServiceInformationAspect) || value.estimateOptionId !== undefined && (!text(value.estimateOptionId, 128) || value.aspect !== 'price' || value.serviceIds.length !== 1)) throw new Error('invalid information service')
     } else if (value.kind === 'professional') {
       if (!keys(value, ['kind', 'actions', 'mention', 'serviceIds', 'date', 'weekday', 'aspect']) || !ids(value.serviceIds) ||
           value.mention !== null && !text(value.mention, 100) ||
@@ -75,6 +75,7 @@ export const INFORMATION_TARGET_JSON_SCHEMA = { anyOf: [
   schema({ ...businessProperties, subject: { type: 'string', enum: BUSINESS_INFORMATION_SUBJECTS } }),
   schema({ kind: { type: 'string', enum: ['presented_offer'] }, actions: emptyActions }),
   schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: array, aspect: { type: 'string', enum: SERVICE_INFORMATION_ASPECTS } }),
+  schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: { ...array, minItems: 1, maxItems: 1 }, aspect: { type: 'string', enum: ['price'] }, estimateOptionId: string }),
   schema({ kind: { type: 'string', enum: ['professional'] }, actions: emptyActions, mention: { type: ['string', 'null'], minLength: 1, maxLength: 100 },
     serviceIds: array, date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, weekday: { type: ['integer', 'null'], minimum: 0, maximum: 6 },
     aspect: { type: 'string', enum: ['overview', 'services', 'schedule'] } })

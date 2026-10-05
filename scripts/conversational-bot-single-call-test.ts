@@ -37,11 +37,24 @@ for (const service of ['Corte hombre', 'Sesión coaching', 'Cambio de aceite']) 
     assert.equal(result.calls, 1, message)
     assert.equal(result.availabilityCalls, 0)
     assert.ok(result.firstInput.firstReplyFacts?.length)
-    assert.equal(result.response.interpretation.copyMode, 'ai')
+    const isPrice = message.includes('sale')
+    assert.equal(result.response.interpretation.copyMode, isPrice ? 'fallback' : 'ai')
     assert.equal(result.response.proposal, null)
+    assert.equal(result.response.bookingCommand, undefined)
     const { informationFocus, ...bookingState } = result.response.state
-    assert.deepEqual(bookingState, initialDialogueState('qa'))
-    if (message.includes('sale')) assert.equal(informationFocus?.serviceId, 'service')
+    if (isPrice) {
+      const { questionContext, ...entityState } = bookingState
+      assert.deepEqual(entityState, initialDialogueState('qa'), 'a price invitation cannot acquire booking entities')
+      assert.equal(informationFocus?.serviceId, 'service')
+      assert.equal(questionContext?.field, 'service')
+      assert.deepEqual(questionContext?.matchCandidateIds, ['service'])
+      assert.ok(questionContext?.options.some(option => option.id === 'service' && option.label === service))
+      assert.match(result.response.reply, /Querés agendar/)
+      assert.equal(result.response.interpretation.replyValidation?.firstCall.reason, 'canonical_only', 'published identity choices retain their canonical guard')
+    } else {
+      assert.deepEqual(bookingState, initialDialogueState('qa'))
+      assert.equal(result.response.interpretation.replyRoute, 'first_call')
+    }
     if (message.includes('estan')) { assert.equal(result.informationCalls, 1); assert.ok(result.response.reply.includes('Calle 123')) }
     if (message.includes('horario')) { assert.equal(result.informationCalls, 1); assert.ok(result.response.reply.includes('30/09 cerrado')) }
     if (message.includes('sale')) assert.ok(result.response.reply.includes('Desde'))
@@ -50,7 +63,8 @@ for (const service of ['Corte hombre', 'Sesión coaching', 'Cambio de aceite']) 
 for (const [service, extraService] of [['Corte hombre', 'Corte mujer'], ['Sesión coaching', 'Sesión grupal'], ['Cambio de aceite', 'Revisión frenos']] as const) {
   const combined = await run('que servicios y precios tienen?', { service, extraService, candidate: { intent: 'information' } })
   assert.equal(combined.calls, 1)
-  assert.equal(combined.firstInput.firstReplyFacts?.length, 2, 'only priced catalog entries are required facts')
+  assert.equal(combined.firstInput.firstReplyFacts?.length, 3, 'priced catalog entries and the contextual next step are required facts')
+  assert.deepEqual(combined.firstInput.firstReplyFacts?.at(-1), { id: 'next', text: '¿En qué más te puedo ayudar?' })
   assert.equal(combined.response.interpretation.decision.candidateCount, 0, 'listing services is not service-selection ambiguity')
   assert.equal(combined.response.interpretation.replyRoute, 'first_call')
   assert.deepEqual(combined.response.state, initialDialogueState('qa'))

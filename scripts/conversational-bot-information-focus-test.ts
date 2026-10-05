@@ -1,3 +1,4 @@
+import { pendingQuestion } from '../src/conversational-bot/information.js'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import https from 'node:https'
@@ -132,7 +133,8 @@ try {
   assert.equal(sideChoice.state.professionalNameHint, 'cin')
   const missing = await say(sideChoice.state, '¿Tienen Facebook?', [info('Facebook', business(['BUSINESS_INFO']))])
   assert.deepEqual(selectionBasket(missing.state), selectionBasket(active))
-  assert.doesNotMatch(missing.reply, /presupuesto|opciones del servicio pendiente/)
+  assert.doesNotMatch(missing.reply, /presupuesto/)
+  assert.equal(missing.reply.endsWith(pendingQuestion(active)), true, 'missing lateral information resumes the unchanged pending draft')
   assert.equal(agendaCalls, 0, 'informational reads never query availability')
 
   assert.deepEqual(parseDialogueState(initial, context.businessId), initial)
@@ -192,6 +194,153 @@ try {
   assert.match(request!.instructions, /informativ|precio/)
   assert.equal(request!.store, false)
   assert.equal(basketServiceIds(detail.state).length, 0)
+
+  const creamPrice = await say(initial, '¿Precio de baño de crema?', [info('Precio de baño de crema', service(['cream'], 'price'))])
+  const beforeInformativeAgenda = agendaCalls
+  const informativeTarget = { ...service(['cream'], 'price'), estimateOptionId: 's' }
+  const informative = await say(creamPrice.state, 'mi pelo es largo, Schwarzkopf', [info('Schwarzkopf', informativeTarget)])
+  assert.equal(informative.interpretation.reason, null)
+  assert.match(informative.reply, /40[.,]?000/)
+  assert.doesNotMatch(informative.reply, /25[.,]?000|Qué servicio necesitás/)
+  assert.match(informative.reply, /agendar/)
+  assert.equal(informative.state.serviceId, null)
+  assert.equal(informative.state.basket, undefined)
+  assert.equal(informative.state.serviceEstimates, undefined)
+  assert.equal(informative.proposal, null)
+  assert.equal(informative.bookingCommand, undefined)
+  assert.equal(agendaCalls, beforeInformativeAgenda)
+  const legacyInformative = await say(creamPrice.state, 'perfecto, me interesa Schwarzkopf', [
+    { kind: 'estimate', serviceId: 'cream', optionId: 's', ...ev('Schwarzkopf') }
+  ])
+  assert.equal(legacyInformative.interpretation.reason, null, 'legacy estimate over a current information focus is a read, not a booking')
+  assert.match(legacyInformative.reply, /40[.,]?000/)
+  assert.equal(legacyInformative.state.serviceId, null)
+  assert.equal(legacyInformative.state.serviceEstimates, undefined)
+  assert.equal(agendaCalls, beforeInformativeAgenda)
+  for (const operation of [
+    { kind: 'estimate', serviceId: 'cream', optionId: 'foreign', ...ev('Schwarzkopf') },
+    { kind: 'estimate', serviceId: 'foreign', optionId: 's', ...ev('Schwarzkopf') },
+    { kind: 'estimate', serviceId: 'cream', optionId: 's', ...ev('not in this message') }
+  ]) {
+    const failed = await say(creamPrice.state, 'Schwarzkopf', [operation])
+    assert.equal(failed.interpretation.reason, 'invalid_output')
+    assert.equal(failed.state.serviceId, null)
+    assert.equal(failed.state.serviceEstimates, undefined)
+    assert.equal(failed.state.informationFocus?.serviceId, 'cream')
+    assert.match(failed.reply, /Baño de crema|producto|presupuesto/)
+    assert.doesNotMatch(failed.reply, /Qué servicio necesitás/)
+  }
+  const lateralEstimate = await say({ ...active, informationFocus: creamPrice.state.informationFocus }, 'Schwarzkopf', [info('Schwarzkopf', informativeTarget)])
+  assert.deepEqual(selectionBasket(lateralEstimate.state), selectionBasket(active))
+  assert.equal(lateralEstimate.state.date, active.date)
+  assert.equal(lateralEstimate.state.customerName, active.customerName)
+  assert.deepEqual(lateralEstimate.state.professional, active.professional)
+  assert.equal(lateralEstimate.state.slot?.startAt, active.slot?.startAt)
+  assert.equal(lateralEstimate.proposal, null)
+  assert.equal(lateralEstimate.bookingCommand, undefined)
+  assert.equal(agendaCalls, beforeInformativeAgenda)
+
+  const acceptedInvitation = await say(informative.state, 'sí', [])
+  assert.equal(acceptedInvitation.state.serviceId, 'cream', 'explicit answer to a fresh published-service invitation may start acquisition')
+  assert.equal(acceptedInvitation.state.serviceEstimates?.cream, undefined, 'an informative option is not inherited as booking consent or selection')
+  assert.equal(acceptedInvitation.state.pending, 'estimate')
+  assert.equal(acceptedInvitation.proposal, null)
+  assert.equal(acceptedInvitation.bookingCommand, undefined)
+  for (const message of ['no', 'sí, si el precio cambia']) {
+    const notAccepted = await say(informative.state, message, [])
+    assert.equal(notAccepted.state.serviceId, null)
+    assert.equal(notAccepted.bookingCommand, undefined)
+  }
+  const creamService = services.find(service => service.id === 'cream')!, previousName = creamService.name
+  try {
+    creamService.name = 'Tratamiento renombrado'
+    const staleInvitation = await say(informative.state, 'sí', [])
+    assert.equal(staleInvitation.state.serviceId, null, 'a stored invitation cannot select a renamed public identity')
+    assert.equal(staleInvitation.proposal, null)
+  } finally { creamService.name = previousName }
+  const informativeWithData = await say(creamPrice.state, 'Schwarzkopf mañana soy Laura', [info('Schwarzkopf', informativeTarget),
+    { kind: 'date', expression: 'mañana', ...ev('mañana') }, { kind: 'name', value: 'Laura', ...ev('Laura') }])
+  assert.equal(informativeWithData.state.date, '2026-10-03')
+  assert.equal(informativeWithData.state.customerName, 'Laura')
+  assert.equal(informativeWithData.state.serviceId, null)
+  assert.equal(informativeWithData.proposal, null)
+  assert.equal(informativeWithData.bookingCommand, undefined)
+  assert.equal(agendaCalls, beforeInformativeAgenda)
+
+
+  for (const target of [
+    { ...informativeTarget, estimateOptionId: 'foreign' },
+    { ...informativeTarget, estimateOptionId: null },
+    { ...informativeTarget, serviceIds: ['cream', 'cut'] },
+    { ...informativeTarget, priceMin: 1 }
+  ]) {
+    const rejected = await say(creamPrice.state, 'Schwarzkopf', [info('Schwarzkopf', target)])
+    assert.equal(rejected.interpretation.reason, 'invalid_output')
+    assert.equal(rejected.state.serviceId, null)
+    assert.equal(rejected.state.serviceEstimates, undefined)
+    assert.equal(rejected.proposal, null)
+    assert.equal(rejected.bookingCommand, undefined)
+    assert.doesNotMatch(rejected.reply, /Qué servicio necesitás/)
+  }
+  for (const option of [null, 's']) {
+    const uncertainChoice = await say(creamPrice.state, 'Schwarzkopf', [{ kind: 'estimate', serviceId: 'cream', optionId: option, evidence: 'Schwarzkopf', confidence: .5 }])
+    assert.equal(uncertainChoice.interpretation.reason, 'invalid_output')
+    assert.equal(uncertainChoice.state.serviceId, null)
+    assert.equal(uncertainChoice.state.serviceEstimates, undefined)
+  }
+  const originalOptions = creamService.bookingPolicy!.estimateOptions
+  try {
+    creamService.bookingPolicy!.estimateOptions = originalOptions!.filter(option => option.id !== 's')
+    const removedOption = await say(creamPrice.state, 'Schwarzkopf', [info('Schwarzkopf', informativeTarget)])
+    assert.equal(removedOption.interpretation.reason, 'invalid_output')
+    assert.doesNotMatch(removedOption.reply, /40[.,]?000|Qué servicio necesitás/)
+    assert.equal(removedOption.state.serviceId, null)
+    creamService.bookingPolicy!.estimateOptions = originalOptions!.map(option => option.id === 's' ? { ...option, priceMin: 45000 } : option)
+    const freshPrice = await say(creamPrice.state, 'Schwarzkopf', [info('Schwarzkopf', informativeTarget)])
+    assert.match(freshPrice.reply, /45[.,]?000/)
+    assert.doesNotMatch(freshPrice.reply, /40[.,]?000/)
+    assert.equal(freshPrice.state.serviceId, null)
+  } finally { creamService.bookingPolicy!.estimateOptions = originalOptions }
+  assert.equal(agendaCalls, beforeInformativeAgenda)
+  for (const [label, result] of [['price', creamPrice], ['overview', detail], ['duration', duration]] as const) {
+    assert.match(result.reply, /¿Querés agendar Baño de crema\?/, label + ' needs a non-mutating contextual next step')
+    assert.equal((result.reply.match(/¿Querés agendar/g) ?? []).length, 1)
+    assert.equal(result.state.serviceId, null)
+    assert.equal(result.bookingCommand, undefined)
+  }
+  assert.match(discount.reply, /¿En qué más te puedo ayudar\?/, 'missing discount facts offer further help rather than invented booking facts')
+  const addressCTA = await say(initial, '¿Dónde están?', [info('Dónde están', business(['ADDRESS']))])
+  assert.match(addressCTA.reply, /Calle 123/)
+  assert.match(addressCTA.reply, /¿En qué más te puedo ayudar\?/)
+  assert.equal(addressCTA.state.serviceId, null)
+  const genericCTA = await say(initial, '¿Qué información tienen del local?', [info('información tienen del local', business(['BUSINESS_INFO']))])
+  assert.match(genericCTA.reply, /¿En qué más te puedo ayudar\?/)
+  const activeCTA = await say(active, '¿Precio de baño de crema?', [info('Precio de baño de crema', service(['cream'], 'price'))])
+  assert.equal(activeCTA.reply.endsWith(pendingQuestion(active)), true, 'retained draft owns the pending clarification')
+  assert.doesNotMatch(activeCTA.reply, /¿Querés agendar Baño de crema/)
+  assert.deepEqual(selectionBasket(activeCTA.state), selectionBasket(active))
+  assert.doesNotMatch(price.reply, /¿Querés agendar/, 'ambiguous services clarify before inviting one arbitrarily')
+  let firstCallNextFacts: readonly { id: string; text: string }[] = []
+  const oneCallCTA = await respondWithAiInterpreter(context, initial, '¿Precio de baño de crema?', port, async input => {
+    firstCallNextFacts = input.firstReplyFacts ?? []
+    return { ...legacy, turnPlan: { version: 1, operations: [info('Precio de baño de crema', service(['cream'], 'price'))] },
+      firstReply: { salutation: null, opening: null, closing: null, factIds: firstCallNextFacts.map(fact => fact.id) } }
+  })
+  assert.match(oneCallCTA.reply, /¿Querés agendar Baño de crema\?/)
+  assert.equal(firstCallNextFacts.at(-1)?.id, 'next')
+  assert.equal(oneCallCTA.interpretation.aiCalls, 1)
+  assert.equal(oneCallCTA.interpretation.replyValidation?.firstCall.status, 'not_attempted')
+  assert.equal(oneCallCTA.interpretation.replyValidation?.firstCall.reason, 'canonical_only', 'published identity choices preserve their canonical guard')
+  const oneCallGeneral = await respondWithAiInterpreter(context, initial, '¿Dónde están?', port, async input => ({ ...legacy,
+    turnPlan: { version: 1, operations: [info('Dónde están', business(['ADDRESS']))] },
+    firstReply: { salutation: null, opening: 'Claro, te cuento.', closing: null, factIds: (input.firstReplyFacts ?? []).map(fact => fact.id) }
+  }))
+  assert.equal(oneCallGeneral.interpretation.aiCalls, 1)
+  assert.equal(oneCallGeneral.interpretation.replyValidation?.firstCall.status, 'accepted')
+  assert.match(oneCallGeneral.reply, /Claro, te cuento/)
+  assert.match(oneCallGeneral.reply, /¿En qué más te puedo ayudar\?/)
+  assert.equal(oneCallGeneral.state.serviceId, null)
+  assert.equal(agendaCalls, beforeInformativeAgenda)
   console.log('information focus, price continuity, loaded service facts and missing-data regression: PASS')
 } finally {
   globalThis.fetch = originalFetch
