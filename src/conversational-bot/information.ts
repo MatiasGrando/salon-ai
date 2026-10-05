@@ -1,4 +1,4 @@
-import { standardDelivery, type StandardField } from './standard-delivery.js'
+import { standardDelivery, type StandardField, type StandardDeliveryOptions } from './standard-delivery.js'
 import { publicMapsLink } from './maps-link.js'
 import { dialogueQuestion } from './dialogue-context.js'
 import { formatCatalogPrice, formatCatalogDuration } from '../bot-options/application/catalog-queries.js'
@@ -22,16 +22,16 @@ function addressLabel(facts: BusinessFacts | null): string | null {
   if (address && area && address.toLowerCase().includes(area.toLowerCase())) return address
   return [address, area].filter(Boolean).join(', ')
 }
-export function renderServices(services: readonly DialogueService[], purpose?: 'booking' | 'price' | 'details'): string {
+export function renderServices(services: readonly DialogueService[], purpose?: 'booking' | 'price' | 'details', options?: StandardDeliveryOptions): string {
   return standardDelivery({ kind: 'services', ...(purpose ? { purpose } : {}), services: services.map(service => ({ name: service.name,
     price: formatCatalogPrice(service.price, service.priceMode ?? 'FIXED'),
-    duration: formatCatalogDuration(service.durationMinutes, service.durationMinMinutes ?? null, service.durationMaxMinutes ?? null) })) })
+    duration: formatCatalogDuration(service.durationMinutes, service.durationMinMinutes ?? null, service.durationMaxMinutes ?? null) })) }, options)
 }
-export function renderInformation(actions: readonly InformationAction[], message: string, facts: BusinessFacts | null, services: readonly DialogueService[]): string {
+export function renderInformation(actions: readonly InformationAction[], message: string, facts: BusinessFacts | null, services: readonly DialogueService[], options?: StandardDeliveryOptions): string {
   const text = normalizeMessage(message)
   const replies: string[] = []
   for (const action of actions) {
-    if (action === 'SERVICES') replies.push(renderServices(services))
+    if (action === 'SERVICES') replies.push(renderServices(services, undefined, options))
     if (action === 'PRICES') {
       const tokens = text.replace(/[?.,]/g, ' ').split(/\s+/)
       let found = services.filter(service => normalizeMessage(service.name).split(' ').every(word => tokens.includes(word)))
@@ -40,16 +40,16 @@ export function renderInformation(actions: readonly InformationAction[], message
       if (!found.length) found = partial
       else if (found.length === 1 && partial.some(other => other.id !== found[0]!.id && normalizeMessage(found[0]!.name).split(' ').every(word => normalizeMessage(other.name).split(' ').includes(word)))) found = partial
       // Partial labels must be disambiguated rather than giving a falsely exact price.
-      if (found.length === 1 && full.length === 1) replies.push(renderServices(found))
-      else if (found.length) replies.push(renderServices(found, 'price'))
+      if (found.length === 1 && full.length === 1) replies.push(renderServices(found, undefined, options))
+      else if (found.length) replies.push(renderServices(found, 'price', options))
       // SERVICES already includes each public price; a generic price read adds no separate question.
       else if (!actions.includes('SERVICES')) replies.push('¿De qué servicio querés consultar el precio?')
     }
-    if (action === 'HOURS') replies.push(standardDelivery({ kind: 'hours', hours: facts?.hours ?? null, businessName: facts?.name ?? null }))
+    if (action === 'HOURS') replies.push(standardDelivery({ kind: 'hours', hours: facts?.hours ?? null, businessName: facts?.name ?? null }, options))
     if (action === 'ADDRESS') {
       const label = addressLabel(facts)
       const maps = publicMapsLink({ businessName: facts?.name ?? null, address: facts?.address?.trim() ? label : null, addressArea: null, mapsUrl: facts?.mapsUrl ?? null })?.url
-      replies.push(standardDelivery({ kind: 'address', address: label, areaOnly: !facts?.address?.trim(), mapsUrl: maps ?? null, businessName: facts?.name ?? null }))
+      replies.push(standardDelivery({ kind: 'address', address: label, areaOnly: !facts?.address?.trim(), mapsUrl: maps ?? null, businessName: facts?.name ?? null }, options))
     }
     if (action === 'BUSINESS_INFO') {
       const selected: StandardField[] = []
@@ -60,7 +60,7 @@ export function renderInformation(actions: readonly InformationAction[], message
       if (/\b(email|correo|contacto)\b/.test(text)) add('Correo', facts?.email)
       for (const [social, label] of [['instagram', 'Instagram'], ['facebook', 'Facebook'], ['tiktok', 'TikTok']] as const) if (text.includes(social)) add(label, facts?.[social], true)
       if (!selected.length && facts?.description && !/\b(instagram|facebook|tiktok|pagina|web|sitio|correo|telefono|whatsapp|link|enlace)\b/.test(text)) add(facts.name, facts.description)
-      replies.push(selected.length ? standardDelivery({ kind: 'fields', fields: selected }) : standardDelivery({ kind: 'missing', businessName: facts?.name ?? null }))
+      replies.push(selected.length ? standardDelivery({ kind: 'fields', fields: selected }, options) : standardDelivery({ kind: 'missing', businessName: facts?.name ?? null }, options))
     }
   }
   return replies.join('\n')

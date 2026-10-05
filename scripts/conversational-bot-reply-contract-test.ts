@@ -64,8 +64,8 @@ async function main() {
   assert.equal(intakeMismatch.interpretation.replyValidation?.firstCall.status, 'rejected')
   assert.equal(intakeMismatch.interpretation.replyValidation?.firstCall.reason, 'intake_mismatch')
   const focusState = { ...initialDialogueState('tenant'), introduced: true, informationFocus: { version: 1 as const, businessId: 'tenant', topic: 'details' as const, aspect: 'overview' as const, serviceId: 'cut', awaitingChoice: false, candidateId: null, options: [{ id: 'cut', label: 'Corte' }] } }
-  let followupCalls = 0
-  const followupPort: DialoguePort = { ...bookingPort, catalog: async () => [{ id: 'cut', name: 'Corte', description: 'Lavado verificado.', price: 12000, priceMode: 'FIXED', durationMinutes: 30, requiresConsultation: false }] }
+  let followupCalls = 0, followupAgendaCalls = 0
+  const followupPort: DialoguePort = { ...bookingPort, availability: async () => { followupAgendaCalls++; throw new Error('informational focus cannot query agenda') }, catalog: async () => [{ id: 'cut', name: 'Corte', description: 'Lavado verificado.', price: 12000, priceMode: 'FIXED', durationMinutes: 30, requiresConsultation: false }] }
   const followupProvider: AiInterpretationProvider = Object.assign(async (input: AiInterpretationInput) => {
     followupCalls++
     assert.equal(input.replyContract?.role, 'information', 'prepared focus read determines the reply role')
@@ -74,13 +74,44 @@ async function main() {
   }, { respond: async () => { throw new Error('prepared followup must not recompose') } })
   const followup = await respondWithAiInterpreter(context, focusState, '¿Qué incluye?', followupPort, followupProvider)
   assert.equal(followupCalls, 1)
-  assert.equal(followup.interpretation.copyMode, 'ai', JSON.stringify(followup.interpretation))
-  assert.equal(followup.interpretation.replyRoute, 'first_call')
+  assert.equal(followupAgendaCalls, 0)
+  assert.equal(followup.interpretation.copyMode, 'fallback', 'a published booking invitation keeps its canonical guard')
+  assert.equal(followup.interpretation.replyRoute, 'motor')
+  assert.equal(followup.interpretation.aiCalls, 1)
+  assert.equal(followup.interpretation.replyValidation?.firstCall.reason, 'canonical_only')
+  assert.deepEqual(followup.state.questionContext?.matchCandidateIds, ['cut'])
+  assert.match(followup.reply, /¿Querés agendar Corte\?$/)
+  assert.equal(followup.proposal, null)
+  assert.equal(followup.bookingCommand, undefined)
   assert.match(followup.reply, /Lavado verificado\./)
   assert.equal(hasActiveBooking(followup.state), false)
   assert.equal(followup.state.serviceId, null)
   assert.equal(followup.state.informationFocus?.serviceId, 'cut')
   assert.equal(followup.state.basket, undefined)
+  assert.equal(followup.state.serviceEstimates, undefined)
+  const { questionContext: invitation, informationFocus: followupFocus, ...followupEntities } = followup.state
+  const { informationFocus: originalFocus, ...originalEntities } = focusState
+  assert.deepEqual(followupEntities, originalEntities)
+  assert.deepEqual(followupFocus, { ...originalFocus, aspect: 'description' }, 'the read narrows only the informational aspect')
+  assert.ok(invitation?.options.some(option => option.id === 'cut' && option.label === 'Corte'))
+  let generalCalls = 0, generalAgendaCalls = 0
+  const general = await respondWithAiInterpreter(context, focusState, 'horarios del local', { ...followupPort,
+    information: async () => ({ businessId: 'tenant', name: 'Local', hours: 'Martes: 11:00 a 20:00', address: null, area: null, mapsUrl: null, website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null, description: null }),
+    availability: async () => { generalAgendaCalls++; throw new Error('informational agenda forbidden') }
+  }, async input => {
+    generalCalls++
+    return { ...base, intent: 'information', informationTarget: { kind: 'business', actions: ['HOURS'] }, firstReply: { opening: 'Claro, te cuento.', closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id) } }
+  })
+  assert.equal(generalCalls, 1)
+  assert.equal(generalAgendaCalls, 0)
+  assert.equal(general.interpretation.copyMode, 'ai', 'unprotected information still reuses safe first-call framing')
+  assert.equal(general.interpretation.replyRoute, 'first_call')
+  assert.equal(general.interpretation.replyValidation?.firstCall.status, 'accepted')
+  assert.match(general.reply, /Claro, te cuento\./)
+  assert.match(general.reply, /Martes: 11:00 a 20:00/)
+  assert.equal((general.reply.match(/¿En qué más te puedo ayudar\?/g) ?? []).length, 1)
+  assert.deepEqual(general.state, focusState)
+  assert.equal(general.proposal, null)
   assert.equal(typeof JSON.parse(requests[1]!.input).expectedAnswer, 'object', 'both providers receive the structured pending answer')
   let saved = 0
   const preview = await runConversationalPreview({ load: async () => ({ ...initialDialogueState('tenant'), introduced: true }), save: async () => { saved++ }, createPort: async () => ({ context, port }), interpretationProvider: provider }, 'tenant', 'fixture-only', 'hola')

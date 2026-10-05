@@ -13,31 +13,34 @@ const blocks = (...parts: readonly (string | null | undefined)[]) => parts.filte
 export function safePublicLink(value: string): string | null {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password && value.length <= 2048 ? url.toString() : null } catch { return null }
 }
-export function standardDelivery(input: StandardDelivery): string {
+/** Contextual composition can own the next step; standalone legacy callers retain it. */
+export type StandardDeliveryOptions = { continuation?: 'included' | 'external' }
+export function standardDelivery(input: StandardDelivery, options: StandardDeliveryOptions = {}): string {
+  const includeContinuation = options.continuation !== 'external'
   switch (input.kind) {
     case 'services': {
-      if (!input.services.length) return 'Todavía no tengo servicios publicados. Puedo ayudarte con otra consulta sobre el local.'
+      if (!input.services.length) return 'Todavía no tengo servicios publicados.' + (includeContinuation ? ' Puedo ayudarte con otra consulta sobre el local.' : '')
       const list = input.services.map(service => '• ' + service.name + ' — ' + (service.price?.replace(/\$\s+/g, '$') ?? 'Precio a consultar') + (service.duration ? ' · ' + service.duration : '')).join('\n')
       const lead = input.purpose === 'booking' ? 'Dale, por supuesto. ¿Cuál de estos servicios querés?'
         : input.purpose === 'price' ? 'Claro. ¿De cuál de estos servicios querés saber el precio?'
           : input.purpose === 'details' ? 'Claro. ¿De cuál de estos servicios querés información?' : null
       return blocks(lead, list)
     }
-    case 'address': return input.address ? blocks((input.areaOnly ? 'Estamos en la zona de ' : 'Estamos en ') + input.address + '.', input.mapsUrl ? 'Te dejo la ubicación para que llegues fácil:\nMaps: ' + input.mapsUrl : null) : standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null })
+    case 'address': return input.address ? blocks((input.areaOnly ? 'Estamos en la zona de ' : 'Estamos en ') + input.address + '.', input.mapsUrl ? 'Te dejo la ubicación para que llegues fácil:\nMaps: ' + input.mapsUrl : null) : standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null }, options)
     case 'hours': {
-      if (!input.hours || input.hours === 'No tengo horarios publicados.') return standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null })
+      if (!input.hours || input.hours === 'No tengo horarios publicados.') return standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null }, options)
       // Reshape only canonical weekday markers; preserve every actual interval and exception.
       const rows = input.hours.split('\n').map(line => line.replace(/^\*?(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo)\*?:/, '• $1:'))
         .filter(line => line.trim() && !['Los horarios pueden variar por feriados o eventos especiales.', 'Los horarios pueden variar en fechas especiales. Para conocer la disponibilidad exacta, podés buscar un turno.'].includes(line) && line !== 'Los horarios pueden cambiar en fechas especiales.').join('\n')
-      return blocks('Estos son nuestros horarios de atención 😊', rows, 'Los horarios pueden cambiar en fechas especiales.', 'Si querés saber qué turnos hay disponibles para un día en particular, decime qué día te interesa y lo revisamos.')
+      return blocks('Estos son nuestros horarios de atención 😊', rows, 'Los horarios pueden cambiar en fechas especiales.', includeContinuation ? 'Si querés saber qué turnos hay disponibles para un día en particular, decime qué día te interesa y lo revisamos.' : null)
     }
     case 'fields': {
       const fields = input.fields.flatMap(field => { const value = field.link ? safePublicLink(field.value) : field.value.trim(); return value ? [field.label + ': ' + value] : [] })
-      return fields.length ? blocks('Claro 😊', fields.join('\n')) : standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null })
+      return fields.length ? blocks('Claro 😊', fields.join('\n')) : standardDelivery({ kind: 'missing', businessName: 'businessName' in input && typeof input.businessName === 'string' ? input.businessName : null }, options)
     }
-    case 'missing': return blocks('Todavía no tengo esa información cargada 😊', input.subject ? 'No tengo cargado ese dato sobre ' + input.subject + '.' : null, 'Si querés, puedo ayudarte con otra consulta sobre ' + (input.businessName?.trim() || 'el local') + '.')
+    case 'missing': return blocks('Todavía no tengo esa información cargada 😊', input.subject ? 'No tengo cargado ese dato sobre ' + input.subject + '.' : null, includeContinuation ? 'Si querés, puedo ayudarte con otra consulta sobre ' + (input.businessName?.trim() || 'el local') + '.' : null)
     case 'service_details': return blocks('Claro 😊', input.name + ':\n' + input.lines.join('\n'))
-    case 'professionals': return blocks(input.businessName ? 'En ' + input.businessName + ' trabajan estos profesionales 😊' : 'Estos son los profesionales del local 😊', input.names.map(name => '• ' + name).join('\n'), input.details?.join('\n\n'), !input.complete ? 'Todavía no tengo la jornada completa cargada para responder esa consulta.' : input.overview ? 'Si querés, también te puedo decir qué días y horarios trabaja cada uno.' : null)
+    case 'professionals': return blocks(input.businessName ? 'En ' + input.businessName + ' trabajan estos profesionales 😊' : 'Estos son los profesionales del local 😊', input.names.map(name => '• ' + name).join('\n'), input.details?.join('\n\n'), !input.complete ? 'Todavía no tengo la jornada completa cargada para responder esa consulta.' : includeContinuation && input.overview ? 'Si querés, también te puedo decir qué días y horarios trabaja cada uno.' : null)
   }
 }
 export function standardDateTimeQuestion(date: string | null, hasTemporalRequest: boolean, dateLabel?: string, serviceName?: string): string | null {

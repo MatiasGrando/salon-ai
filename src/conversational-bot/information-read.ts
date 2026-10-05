@@ -1,7 +1,7 @@
 import { stageContent } from '../bot-options/domain/service-content.js'
 import { hasBasketSelection, selectionBasket } from './service-basket.js'
 import type { TurnPlan } from './turn-plan.js'
-import { standardDelivery, standardWorkSchedule, safePublicLink, type StandardField } from './standard-delivery.js'
+import { standardDelivery, standardWorkSchedule, safePublicLink, type StandardField, type StandardDelivery } from './standard-delivery.js'
 import { routeActions, type InformationAction } from './actions.js'
 import { normalizeAnswer } from './dialogue-context.js'
 import { affirmativeMatchAnswer, matchPresentedServiceAnswer } from './contextual-matching.js'
@@ -37,7 +37,9 @@ export function normalizeInformativeEstimates(plan: TurnPlan, state: DialogueSta
     return validInformationEstimate(target, services) ? { kind: 'information', target, evidence: operation.evidence, confidence: operation.confidence } : operation
   }) }
 }
-const missing = (subject = 'esa información'): InformationRead => ({ reply: standardDelivery({ kind: 'missing', subject }), outcome: 'missing' })
+// Reads return facts only; informationNext owns their contextual continuation.
+const informationBody = (input: StandardDelivery): string => standardDelivery(input, { continuation: 'external' })
+const missing = (subject = 'esa información'): InformationRead => ({ reply: informationBody({ kind: 'missing', subject }), outcome: 'missing' })
 const explicitBooking = (message: string) => /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
 export function informationAspect(message: string): ServiceInformationAspect | null {
   const text = normalizeAnswer(message)
@@ -152,11 +154,11 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
       ...(variants.length ? variants : price ? [price] : ['Precio a consultar']),
       ...(target.aspect === 'overview' && duration ? [duration] : []), ...choiceContent.filter(fragment => fragment.source === 'disclaimer').map(fragment => fragment.text)]
   }
-  const reply = standardDelivery({ kind: 'service_details', name: item.name, lines })
+  const reply = informationBody({ kind: 'service_details', name: item.name, lines })
   const uncovered = target.aspect === 'overview' ? [...(item.description ? [item.description] : []), ...(duration ? [duration] : [])] : []
   return { reply, outcome: 'found', focus,
     ...(['price', 'overview'].includes(target.aspect) && item.bookingPolicy?.attentionMode === 'GUIDED_ESTIMATE' && !target.estimateOptionId
-      ? { guidanceCoverage: { serviceId: item.id, remainder: uncovered.length ? standardDelivery({ kind: 'service_details', name: item.name, lines: uncovered }) : '' } } : {}) }
+      ? { guidanceCoverage: { serviceId: item.id, remainder: uncovered.length ? informationBody({ kind: 'service_details', name: item.name, lines: uncovered }) : '' } } : {}) }
 }
 function businessRead(target: Extract<InformationTarget, { kind: 'business' }>, message: string, facts: BusinessFacts | null, services: readonly DialogueService[]): InformationRead {
   const subject = target.subject ?? businessSubject(message)
@@ -169,10 +171,10 @@ function businessRead(target: Extract<InformationTarget, { kind: 'business' }>, 
       const link = ['instagram', 'facebook', 'tiktok', 'website'].includes(field)
       return typeof value === 'string' && value.trim() && (!link || safePublicLink(value)) ? [{ label: labels[field] ?? field, value, link }] : []
     })
-    return loaded.length ? { reply: standardDelivery({ kind: 'fields', fields: loaded }), outcome: 'found' }
-      : { reply: standardDelivery({ kind: 'missing', businessName: facts?.name ?? null }), outcome: 'missing' }
+    return loaded.length ? { reply: informationBody({ kind: 'fields', fields: loaded }), outcome: 'found' }
+      : { reply: informationBody({ kind: 'missing', businessName: facts?.name ?? null }), outcome: 'missing' }
   }
-  const reply = renderInformation(target.actions, message, facts, services)
+  const reply = renderInformation(target.actions, message, facts, services, { continuation: 'external' })
   const missingData = target.actions.some(action => action === 'HOURS' ? !facts?.hours || facts.hours === 'No tengo horarios publicados.'
     : action === 'ADDRESS' ? !facts?.address && !facts?.area : action === 'BUSINESS_INFO' ? !facts?.description : action === 'SERVICES' ? !services.length : false)
   return { reply: reply || missing().reply, outcome: missingData ? 'missing' : 'found' }
@@ -193,7 +195,7 @@ function professionalRead(value: ProfessionalInformationFacts, businessId: strin
       ...(target.aspect === 'schedule' ? [professional.schedule ? 'Horario habitual:\n' + standardWorkSchedule(professional.schedule) : 'Todavía no tengo su horario habitual cargado.'] : [])]
     return lines.length ? [professional.name + ':\n' + lines.join('\n')] : []
   })
-  return { reply: standardDelivery({ kind: 'professionals', names: value.professionals.map(pro => pro.name), details, complete: value.complete, overview: target.aspect === 'overview' }),
+  return { reply: informationBody({ kind: 'professionals', names: value.professionals.map(pro => pro.name), details, complete: value.complete, overview: target.aspect === 'overview' }),
     outcome: !value.complete || target.aspect === 'schedule' && value.professionals.every(professional => !professional.schedule) || target.aspect === 'services' && value.professionals.every(professional => !professional.services.length) ? 'missing' : 'found' }
 }
 export async function readInformation(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawTarget: InformationTarget, preparedServices?: readonly DialogueService[]): Promise<InformationRead> {
@@ -223,7 +225,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
   let facts: BusinessFacts | null = null
   if (target.actions.some(action => action !== 'SERVICES') && port.information) {
     try { facts = await port.information(target.actions); validateFacts(facts, context.businessId) }
-    catch (error) { if (error instanceof Error && /scope|invalid public facts/.test(error.message)) throw error; return { reply: 'No pude consultar esa información ahora. Puedo ayudarte con otra consulta sobre el local.', outcome: 'missing', failed: true } }
+    catch (error) { if (error instanceof Error && /scope|invalid public facts/.test(error.message)) throw error; return { reply: 'No pude consultar esa información ahora.', outcome: 'missing', failed: true } }
   }
   return businessRead(target, message, facts, services)
 }

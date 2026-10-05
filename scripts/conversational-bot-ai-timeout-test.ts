@@ -17,7 +17,7 @@ const bookingPort: DialoguePort = { ...port, catalog: async () => [{ id: 'consul
 // The typed target is discovered only after interpretation, so these are genuinely new verified facts.
 // A prepared date question is intentionally single-call and cannot exercise a compositor deadline.
 const composerCandidate = { ...candidate, intent: 'information', informationTarget: { kind: 'business', actions: ['HOURS'] } }
-const groundedReply = 'Hola\nEstos son nuestros horarios de atención 😊\n\nLunes a viernes de 9 a 18\n\nLos horarios pueden cambiar en fechas especiales.\n\nSi querés saber qué turnos hay disponibles para un día en particular, decime qué día te interesa y lo revisamos.'
+const groundedReply = 'Hola\nEstos son nuestros horarios de atención 😊\n\nLunes a viernes de 9 a 18\n\nLos horarios pueden cambiar en fechas especiales.\n¿En qué más te puedo ayudar?'
 const draft = { opening: 'Hola', factIds: [], closing: null }
 
 // Only the production deadline and fake provider delays use timers. No wall-clock waits or network calls.
@@ -95,6 +95,10 @@ await defaults.use(async () => {
   assert.equal(response.interpretation.copyMode, 'ai')
   assert.equal(response.interpretation.aiCalls, 2)
   assert.equal(response.reply, groundedReply)
+  assert.equal((response.reply.match(/¿En qué más te puedo ayudar\?/g) ?? []).length, 1)
+  assert.doesNotMatch(response.reply, /decime qué día te interesa/)
+  assert.deepEqual(response.state, initialDialogueState('qa'), 'commercial hours do not acquire booking entities')
+  assert.equal(response.proposal, null)
   assert.ok(signals.every(signal => !signal.aborted))
 })
 

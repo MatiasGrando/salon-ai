@@ -1,3 +1,4 @@
+import { standardDelivery } from '../src/conversational-bot/standard-delivery.js'
 import { presentAvailability, presentProfessionals, presentDateTimeQuestion, presentVerifiedDates } from '../src/conversational-bot/availability-presentation.js'
 import { readInformation } from '../src/conversational-bot/information-read.js'
 import assert from 'node:assert/strict'
@@ -15,21 +16,44 @@ let agendaCalls = 0
 const port: DialoguePort = { identity: async () => ({ businessId: 'tenant', assistantName: 'Alba', businessName: 'Negocio público', treatment: 'vos', greetingEmoji: '😊' }), catalog: async () => services, information: async () => facts,
   availability: async () => { agendaCalls++; return { professionals: [], slots: [] } } }
 const intro = '¡Holaa! 😊 Soy Alba, de Negocio público.\n\n'
-const expectedHours = 'Estos son nuestros horarios de atención 😊\n\n• Lunes: Cerrado\n• Martes: 11:00 a 20:00\n• Miércoles: 11:00 a 20:00\n• Jueves: 11:00 a 20:00\n• Viernes: 11:00 a 20:00\n• Sábado: 11:00 a 20:00\n• Domingo: Cerrado\n\nLos horarios pueden cambiar en fechas especiales.\n\nSi querés saber qué turnos hay disponibles para un día en particular, decime qué día te interesa y lo revisamos.'
+const expectedHours = 'Estos son nuestros horarios de atención 😊\n\n• Lunes: Cerrado\n• Martes: 11:00 a 20:00\n• Miércoles: 11:00 a 20:00\n• Jueves: 11:00 a 20:00\n• Viernes: 11:00 a 20:00\n• Sábado: 11:00 a 20:00\n• Domingo: Cerrado\n\nLos horarios pueden cambiar en fechas especiales.\n¿En qué más te puedo ayudar?'
 const list = '• Corte hombre — $27.000 · 30 min\n• Corte mujer — $37.000 · 30 min\n• Corte y barba — $32.000 · 45 min'
 globalThis.fetch = (() => { throw new Error('network forbidden') }) as typeof fetch
 async function main() {
+  const external = { continuation: 'external' as const }
+  assert.match(standardDelivery({ kind: 'missing', businessName: 'Local' }), /Si querés, puedo ayudarte/, 'legacy renderer keeps its continuation by default')
+  assert.equal(standardDelivery({ kind: 'missing', businessName: 'Local' }, external), 'Todavía no tengo esa información cargada 😊', 'external continuation leaves only the verified missing-data body')
+  assert.match(standardDelivery({ kind: 'hours', hours }), /decime qué día te interesa/, 'legacy hours retain their default continuation')
+  assert.doesNotMatch(standardDelivery({ kind: 'hours', hours }, external), /decime qué día te interesa/, 'the contextual next owner supplies the only continuation')
+  for (const unavailable of [{ kind: 'address', address: null, mapsUrl: null }, { kind: 'hours', hours: null }, { kind: 'fields', fields: [] }] as const) {
+    assert.equal(standardDelivery(unavailable, external), 'Todavía no tengo esa información cargada 😊', 'recursive missing renderers preserve external ownership')
+    assert.match(standardDelivery(unavailable), /Si querés, puedo ayudarte/, 'recursive legacy callers retain their own continuation')
+  }
+  const professionalsBody = { kind: 'professionals' as const, names: ['Ana'], complete: true, overview: true }
+  assert.match(standardDelivery(professionalsBody), /también te puedo decir/)
+  assert.doesNotMatch(standardDelivery(professionalsBody, external), /también te puedo decir/)
+  assert.match(standardDelivery({ ...professionalsBody, complete: false }, external), /jornada completa cargada/, 'incompleteness is a material fact, not a CTA')
+  assert.equal(standardDelivery({ kind: 'services', services: [] }, external), 'Todavía no tengo servicios publicados.')
   const initial = () => initialDialogueState('tenant')
   const greeting = await respond(context, initial(), 'hola', port)
   assert.equal(greeting.reply, intro + '¿En qué te puedo ayudar?'); assert.equal(hasActiveBooking(greeting.state), false)
   const schedule = await respond(context, initial(), 'horarios del local', port)
   assert.equal(schedule.reply, intro + expectedHours)
   const social = await respond(context, greeting.state, 'instagram', port)
-  assert.equal(social.reply, 'Claro 😊\n\nInstagram: https://www.instagram.com/negocio/')
+  assert.equal(social.reply, 'Claro 😊\n\nInstagram: https://www.instagram.com/negocio/\n¿En qué más te puedo ayudar?')
   const missing = await respond(context, greeting.state, 'facebook', port)
-  assert.equal(missing.reply, 'Todavía no tengo esa información cargada 😊\n\nSi querés, puedo ayudarte con otra consulta sobre Negocio público.')
+  assert.equal(missing.reply, 'Todavía no tengo esa información cargada 😊\n¿En qué más te puedo ayudar?')
+  const unavailablePublic = await respond(context, greeting.state, 'dirección', { ...port, information: async () => { throw new Error('offline public read') } })
+  assert.equal(unavailablePublic.reply, 'No pude consultar esa información ahora.\n¿En qué más te puedo ayudar?')
+  assert.deepEqual(unavailablePublic.state, greeting.state)
+  assert.equal(unavailablePublic.proposal, null)
+  const missingAddress = await respond(context, greeting.state, 'dirección', { ...port, information: async () => ({ ...facts, address: null, area: null, mapsUrl: null }) })
+  assert.equal(missingAddress.reply, 'Todavía no tengo esa información cargada 😊\n¿En qué más te puedo ayudar?', 'missing address propagates contextual continuation ownership')
+  assert.deepEqual(missingAddress.state, greeting.state)
+  assert.equal(missingAddress.proposal, null)
   const address = await respond(context, greeting.state, 'dirección', port)
-  assert.equal(address.reply, 'Estamos en Calle 5252, Barrio.\n\nTe dejo la ubicación para que llegues fácil:\nMaps: https://www.google.com/maps/search/?api=1&query=Negocio+p%C3%BAblico%2C+Calle+5252%2C+Barrio')
+  const addressBody = 'Estamos en Calle 5252, Barrio.\n\nTe dejo la ubicación para que llegues fácil:\nMaps: https://www.google.com/maps/search/?api=1&query=Negocio+p%C3%BAblico%2C+Calle+5252%2C+Barrio'
+  assert.equal(address.reply, addressBody + '\n¿En qué más te puedo ayudar?')
   const ambiguity = await respond(context, greeting.state, 'precio del corte', port)
   assert.equal(ambiguity.reply, 'Claro. ¿De cuál de estos servicios querés saber el precio?\n\n' + list)
   assert.equal(hasActiveBooking(ambiguity.state), false)
@@ -57,7 +81,7 @@ async function main() {
   assert.equal(repeatedFrame.interpretation.copyMode, 'ai')
   const proPort: DialoguePort = { ...port, professionalInformation: async () => ({ businessId: 'tenant', complete: true, professionals: [{ id: 'p', name: 'Ana', description: null, services: [], schedule: '*Martes*: 11:00 a 20:00\nJornada habitual; no indica turnos libres.' }] }) }
   const professionals = await readInformation(context, greeting.state, 'profesionales', proPort, { kind: 'professional', actions: [], mention: null, serviceIds: [], date: null, weekday: null, aspect: 'overview' })
-  assert.equal(professionals.reply, 'Estos son los profesionales del local 😊\n\n• Ana\n\nSi querés, también te puedo decir qué días y horarios trabaja cada uno.')
+  assert.equal(professionals.reply, 'Estos son los profesionales del local 😊\n\n• Ana')
   assert.equal(presentProfessionals([{ id: 'p', name: 'Ana' }]).text, 'Perfecto 😊 ¿Con qué profesional te gustaría reservar?\n\nPodés elegir:\n1. Cualquier profesional\n2. Ana')
   assert.equal(presentDateTimeQuestion({ date: null, hasTemporalRequest: false, serviceName: 'Corte hombre' }), 'Perfecto 😊 ¿Para qué día y horario querés reservar tu Corte hombre?')
   const scope = { businessId: 'tenant', serviceIds: ['cut'], date: '2026-10-03', professionalId: 'p' }
@@ -77,9 +101,9 @@ async function main() {
   assert.equal(scheduleRead.reply, 'Estos son los profesionales del local 😊\n\n• Ana\n\nAna:\nHorario habitual:\n• Martes: 11:00 a 20:00\nJornada habitual; no indica turnos libres.')
   const detailPort: DialoguePort = { ...port, catalog: async () => [{ ...services[0]!, description: 'Incluye lavado y corte. Preparación: llegar con pelo seco.' }] }
   const detail = await respond(context, greeting.state, 'más info sobre corte hombre', detailPort)
-  assert.equal(detail.reply, 'Claro 😊\n\nCorte hombre:\nIncluye lavado y corte. Preparación: llegar con pelo seco.\n$ 27.000\n30 min')
+  assert.equal(detail.reply, 'Claro 😊\n\nCorte hombre:\nIncluye lavado y corte. Preparación: llegar con pelo seco.\n$ 27.000\n30 min\n¿Querés agendar Corte hombre?')
   const includes = await respond(context, detail.state, '¿Qué incluye?', detailPort)
-  assert.equal(includes.reply, 'Claro 😊\n\nCorte hombre:\nIncluye lavado y corte. Preparación: llegar con pelo seco.')
+  assert.equal(includes.reply, 'Claro 😊\n\nCorte hombre:\nIncluye lavado y corte. Preparación: llegar con pelo seco.\n¿Querés agendar Corte hombre?')
   assert.equal(hasActiveBooking(includes.state), false)
   const conditions = 'Condición uno.\n  \nCondición dos.\r\n \t\r\nCondición tres.'
   const conditionsPort: DialoguePort = { ...port, catalog: async () => [{ ...services[0]!, description: conditions }] }
@@ -89,26 +113,35 @@ async function main() {
   const validConditions = await respondWithAiInterpreter(context, greeting.state, conditionMessage, conditionsPort, conditionProvider)
   assert.equal(validConditions.reply, canonicalConditions.reply, 'valid IA keeps whitespace/CRLF-separated material facts')
   assert.ok(validConditions.reply.includes(conditions))
-  const rejectedConditions = await respondWithAiInterpreter(context, greeting.state, conditionMessage, conditionsPort, async input => ({ intent: 'information', serviceId: null, serviceEvidence: null, professionalMention: null, firstReply: { opening: null, closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id).reverse() } }))
-  assert.equal(rejectedConditions.reply, canonicalConditions.reply)
-  assert.equal(rejectedConditions.interpretation.copyReason, 'invalid_response')
-  const failedConditions = await respondWithAiInterpreter(context, greeting.state, conditionMessage, conditionsPort, async () => { throw new Error('offline fixture failure') })
-  assert.equal(failedConditions.reply, canonicalConditions.reply)
   const activeConditions = { ...greeting.state, serviceId: 'cut', pending: 'date' as const }
   const activeCanonical = await respond(context, activeConditions, conditionMessage, conditionsPort)
+  const rejectedConditions = await respondWithAiInterpreter(context, activeConditions, conditionMessage, conditionsPort, async input => ({ intent: 'information', serviceId: null, serviceEvidence: null, professionalMention: null, firstReply: { opening: null, closing: null, factIds: input.firstReplyFacts!.map(fact => fact.id).reverse() } }))
+  assert.equal(rejectedConditions.reply, activeCanonical.reply)
+  assert.equal(rejectedConditions.interpretation.copyReason, 'invalid_response')
+  assert.equal(rejectedConditions.interpretation.replyValidation?.firstCall.reason, 'fact_order')
+  assert.equal(rejectedConditions.interpretation.aiCalls, 1)
+  assert.deepEqual(rejectedConditions.state, activeCanonical.state, 'rejected framing preserves the same informational focus and booking entities as canonical delivery')
+  const failedConditions = await respondWithAiInterpreter(context, greeting.state, conditionMessage, conditionsPort, async () => { throw new Error('offline fixture failure') })
+  assert.equal(failedConditions.reply, canonicalConditions.reply)
   const activeValid = await respondWithAiInterpreter(context, activeConditions, conditionMessage, conditionsPort, conditionProvider)
   assert.equal(activeValid.reply, activeCanonical.reply)
   assert.match(activeValid.reply, /¿Para qué día querés el turno\?$/)
   assert.ok(activeValid.reply.includes(conditions)); assert.equal(activeValid.state.serviceId, 'cut')
   const duration = await respond(context, includes.state, '¿Cuánto dura?', detailPort)
-  assert.equal(duration.reply, 'Claro 😊\n\nCorte hombre:\n30 min')
+  assert.equal(duration.reply, 'Claro 😊\n\nCorte hombre:\n30 min\n¿Querés agendar Corte hombre?')
   const side = await respond(context, { ...greeting.state, serviceId: 'cut', pending: 'date' }, 'dirección', port)
-  assert.equal(side.reply, address.reply + '\n¿Para qué día querés el turno?')
+  assert.equal(side.reply, addressBody + '\n¿Para qué día querés el turno?')
   assert.equal(side.state.serviceId, 'cut'); assert.equal(side.proposal, null)
   const dateScope = { ...scope, date: null }
   const tomorrow = presentVerifiedDates({ ...availability(['13:00']), scope: dateScope, read: { fresh: true, scope: dateScope, slots: [slot('13:00')] } })
   assert.match(tomorrow.text, /Podés escribir, por ejemplo: Mañana a las 13:00/)
   assert.equal(tomorrow.example, '2026-10-03 a las 13:00', 'internal exact evidence is not rewritten')
+  assert.equal((missing.reply.match(/¿En qué más te puedo ayudar\?/g) ?? []).length, 1)
+  assert.doesNotMatch(missing.reply, /Si querés, puedo ayudarte/)
+  assert.doesNotMatch(schedule.reply, /decime qué día te interesa/)
+  assert.equal(activeValid.interpretation.aiCalls, 1)
+  assert.equal(activeValid.interpretation.replyValidation?.firstCall.status, 'accepted')
+  assert.equal((side.reply.match(/¿/g) ?? []).length, 1)
   assert.equal(agendaCalls, 0)
   console.log('PASS final standard delivery: configured intro, hours, socials, missing, address, booking/price intent, valid/rejected/fallback AI')
 }
