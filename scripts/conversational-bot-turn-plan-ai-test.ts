@@ -317,3 +317,52 @@ try {
 } catch { joinedIntervalFailures++; console.log('RED joined interval must reject partial lower bound') }
 assert.equal(joinedIntervalFailures, 0)
 console.log('joined interval complete lexical invariant and no partial acceptance: PASS')
+
+// J/H combined seam: rejected current time cannot discard a valid shared basket.
+const combinedMessage = 'Quiero Corte hombre y Corte y barba mañana a las17. Soy Ana.'
+const combinedSource = plan(operation('basket', 'Corte hombre y Corte y barba', { mutation: 'set', scope: 'all', targetMemberIds: [], members: [
+  { mode: 'single', serviceIds: ['cut-private-id'], evidence: 'Corte hombre', confidence: .99 },
+  { mode: 'single', serviceIds: ['barba-private-id'], evidence: 'Corte y barba', confidence: .99 }
+] }), operation('date', 'mañana', { expression: 'mañana', value: null }), operation('time_preference', 'a las17', { preference: { kind: 'around', time: '17:00' } }), operation('name', 'Ana', { value: 'Ana' }))
+const combined = await say(combinedMessage, combinedSource, { ...initialDialogueState('tenant'), requestedTime: '16:00' }, 'booking', { acts: [
+  { kind: 'request', field: 'service', evidence: 'Corte hombre', operationIndexes: [0] },
+  { kind: 'request', field: 'service', evidence: 'Corte y barba', operationIndexes: [0] },
+  { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [1] },
+  { kind: 'request', field: 'time', evidence: 'a las17', operationIndexes: [2] },
+  { kind: 'answer', field: 'name', evidence: 'Soy Ana', operationIndexes: [3] }
+] })
+assert.equal(combined.response.interpretation.mode, 'ai')
+assert.deepEqual(combined.response.state.basket?.members.map(item => item.serviceIds), [['cut-private-id'], ['barba-private-id']])
+assert.equal(combined.response.state.customerName, 'Ana'); assert.equal(combined.response.state.date, '2026-10-02')
+assert.equal(combined.response.state.timeMeaningClarification, true); assert.equal(combined.response.state.requestedTime, null)
+assert.equal(combined.response.state.slot, null); assert.equal(combined.availabilityCalls, 0)
+const combinedNext = await say('Soy Juana', plan(operation('name', 'Juana', { value: 'Juana' })), JSON.parse(JSON.stringify(combined.response.state)), 'booking', { acts: [{ kind: 'change', field: 'name', evidence: 'Soy Juana', operationIndexes: [0] }] })
+assert.equal(combinedNext.response.state.timeMeaningClarification, true); assert.equal(combinedNext.response.state.customerName, 'Juana'); assert.equal(combinedNext.availabilityCalls, 0)
+console.log('J shared basket / H persistent time rejection: PASS')
+
+// Existing catalog-boundary grounding stays valid before the full original-source parser.
+const alignedMessage = 'Quiero Cortehombre y Corte y barba mañana a las17. Soy Ana.'
+const alignedActs = [
+  { kind: 'request', field: 'service', evidence: 'Cortehombre', operationIndexes: [0] },
+  { kind: 'request', field: 'service', evidence: 'Corte y barba', operationIndexes: [0] },
+  { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [1] },
+  { kind: 'request', field: 'time', evidence: 'a las17', operationIndexes: [2] },
+  { kind: 'answer', field: 'name', evidence: 'Soy Ana', operationIndexes: [3] }
+]
+for (const defect of ['name-quote', 'extra-property', 'foreign-id', 'member-confidence']) {
+  const invalid = JSON.parse(JSON.stringify(combinedSource))
+  if (defect === 'name-quote') invalid.operations[3].evidence = 'Inventado'
+  if (defect === 'extra-property') invalid.untrustedExtra = true
+  if (defect === 'foreign-id') invalid.operations[0].members[0].serviceIds = ['foreign-id']
+  if (defect === 'member-confidence') invalid.operations[0].members[0].confidence = 1.5
+  const rejected = await say(alignedMessage, invalid, undefined, 'booking', { acts: alignedActs })
+  assert.equal(rejected.response.interpretation.reason, 'invalid_output', defect)
+  assert.notEqual(rejected.response.state.timeMeaningClarification, true, defect + ' cannot grant temporal authority')
+}
+const aligned = await say(alignedMessage, combinedSource, { ...initialDialogueState('tenant'), requestedTime: '16:00' }, 'booking', { acts: alignedActs })
+assert.equal(aligned.response.interpretation.mode, 'ai', 'safe catalog-boundary grounding precedes complete structural validation even in the H conflict seam')
+assert.deepEqual(aligned.response.state.basket?.members.map(item => item.serviceIds), [['cut-private-id'], ['barba-private-id']])
+assert.equal(aligned.response.state.basket?.members[0]?.evidence, 'Cortehombre')
+assert.equal(aligned.response.state.timeMeaningClarification, true); assert.equal(aligned.response.state.requestedTime, null)
+assert.equal(aligned.response.state.customerName, 'Ana'); assert.equal(aligned.response.state.date, '2026-10-02'); assert.equal(aligned.availabilityCalls, 0)
+console.log('aligned catalog evidence / full original / shared basket / H conflict: PASS')

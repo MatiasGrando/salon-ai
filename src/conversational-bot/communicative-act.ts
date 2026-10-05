@@ -43,10 +43,11 @@ const contains = (text: string, evidence: string) => (' ' + normalized(text) + '
 const plain = (value: unknown, max: number): value is string => isCustomerText(value, max) && !/[\u0000-\u001f]/.test(value)
 function fail(cause: 'shape' | 'evidence' | 'conflict'): never { throw new TurnPlanValidationError(cause, 'invalid communicative acts') }
 /** Validate claims against the original utterance/operation positions, before any filtering. */
-export function parseCommunicativeActs(value: unknown, message: string, operationCount: number): CommunicativeActs | null {
+export function parseCommunicativeActs(value: unknown, message: string, operationCount: number, source?: TurnPlan): CommunicativeActs | null {
   if (value === undefined || value === null) return null
   if (!record(value) || Object.keys(value).sort().join(',') !== 'acts,version' || value.version !== 1 ||
       !Array.isArray(value.acts) || value.acts.length > 12 || JSON.stringify(value).length > 8000) fail('shape')
+  if (source && source.operations.length !== operationCount) fail('conflict')
   const owned = new Set<number>()
   for (const raw of (value as Record<string, unknown>).acts as unknown[]) {
     if (!record(raw) || Object.keys(raw).sort().join(',') !== 'confidence,evidence,field,kind,mention,operationIndexes' ||
@@ -56,9 +57,11 @@ export function parseCommunicativeActs(value: unknown, message: string, operatio
         !(raw.mention === null || plain(raw.mention, 100))) fail('shape')
     if (!isCustomerText(raw.evidence, 300) || !message.includes(raw.evidence) ||
         raw.mention !== null && !raw.evidence.includes(raw.mention)) fail('evidence')
+    const local = new Set<number>()
     for (const index of raw.operationIndexes) {
-      if (!Number.isSafeInteger(index) || index < 0 || index >= operationCount || owned.has(index)) fail('conflict')
-      owned.add(index)
+      if (!Number.isSafeInteger(index) || index < 0 || index >= operationCount || local.has(index) ||
+          owned.has(index) && source?.operations[index]?.kind !== 'basket') fail('conflict')
+      local.add(index); owned.add(index)
     }
   }
   return structuredClone(value) as unknown as CommunicativeActs
@@ -157,6 +160,23 @@ function repeatedAdd(operation: TurnOperation, state: DialogueState): boolean {
   return operation.kind === 'basket' && operation.mutation === 'add' && operation.members.every(member =>
     member.mode === 'single' && selectionBasket(state).members.some(old => old.mode === 'single' && old.serviceIds[0] === member.serviceIds[0]))
 }
+/** Every owner must support the same current mutation; union coverage is not partial consent. */
+function sharedBasketAuthority(owners: readonly CommunicativeAct[], operation: TurnOperation | undefined,
+  message: string, state: DialogueState, services: readonly DialogueService[]): boolean {
+  if (operation?.kind !== 'basket' || operation.members.length === 0) return false
+  const kind = owners[0]?.kind
+  if (!kind || !['request', 'change', 'answer'].includes(kind) || owners.some(owner =>
+      owner.kind !== kind || owner.field !== 'service' || owner.confidence < .85)) return false
+  const current = selectionBasket(state)
+  if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) return false
+  const legitimate = kind === 'request'
+    ? operation.mutation === 'set' && current.members.length === 0 || operation.mutation === 'add'
+    : kind === 'change' ? current.members.length > 0 && ['set', 'replace'].includes(operation.mutation)
+      : closedAnswer(operation, message, state, services)
+  if (!legitimate) return false
+  const coverage = owners.map(owner => operation.members.map(member => contains(owner.evidence, member.evidence)))
+  return coverage.every(members => members.some(Boolean)) && operation.members.every((_member, index) => coverage.some(members => members[index]))
+}
 /** Typed/evidence/catalog validation precedes this semantic admission; no unsafe candidate rescue. */
 export function admitCommunicativePlan(metadata: CommunicativeActs | null, source: TurnPlan, plan: TurnPlan,
   message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string, serverBlockedFields: readonly CommunicativeField[] = []): CommunicativeAdmission {
@@ -167,7 +187,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
     const field = fieldOf(original ?? operation)
-    const act = metadata?.acts.find(item => item.operationIndexes.includes(index))
+    const owners = metadata?.acts.filter(item => item.operationIndexes.includes(index)) ?? []
+    const act = owners[0]
     if (serverBlockedFields.includes(field)) {
       blocked.add(field)
       if (field === 'time' && act?.field === field && ['request', 'change', 'answer'].includes(act.kind) &&
@@ -179,6 +200,10 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
 
     if (!metadata) {
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
+      return true
+    }
+    if (owners.length > 1) {
+      if (!sharedBasketAuthority(owners, original, message, state, services)) { blocked.add(field); return false }
       return true
     }
     const read = original?.kind === 'information' || original?.kind === 'unsupported_action' ||

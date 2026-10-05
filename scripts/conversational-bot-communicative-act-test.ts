@@ -846,6 +846,94 @@ try {
     assert.equal(correct.state.date, null); assert.equal(correct.state.requestedTime, null)
     assert.equal(correct.bookingCommand, undefined)
   })
+  // E2.26j: sharing one aggregate operation needs every current owner's authority.
+  const sharedMessage = 'Quiero Corte mujer y Alisado. Soy Ana.'
+  const sharedBasket = basket('set', [member('single', ['cut-w'], 'Corte mujer'), member('single', ['smooth'], 'Alisado')], 'Corte mujer y Alisado')
+  const sharedOwners = [act('request', 'service', 'Corte mujer', [0]), act('request', 'service', 'Alisado', [0])]
+  const sharedPlan = parseTurnPlan({ version: 1, operations: [sharedBasket, { kind: 'name', value: 'Ana', ...ev('Ana') }] }, sharedMessage, services.map(item => item.id))
+  const sharedMetadata = (owners: object[], source = sharedPlan) => parseCommunicativeActs({ version: 1, acts: [...owners, act('answer', 'name', 'Soy Ana', [1])] }, sharedMessage, source.operations.length, source)
+  await check('shared basket parser distinguishes owners across acts from duplicates inside one act', () => {
+    assert.ok(sharedMetadata(sharedOwners))
+    assert.throws(() => parseCommunicativeActs({ version: 1, acts: sharedOwners }, sharedMessage, 2), /communicative/)
+    assert.throws(() => sharedMetadata([act('request', 'service', 'Corte mujer', [0, 0])]), /communicative/)
+    assert.throws(() => parseCommunicativeActs({ version: 1, acts: sharedOwners }, sharedMessage, 1, sharedPlan), /communicative/)
+    const nonBasket = parseTurnPlan({ version: 1, operations: [{ kind: 'name', value: 'Ana', ...ev('Ana') }] }, sharedMessage)
+    assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('answer', 'name', 'Ana', [0]), act('answer', 'name', 'Soy Ana', [0])] }, sharedMessage, 1, nonBasket), /communicative/)
+    for (const bad of [act('request', 'service', 'inventado', [0]), act('request', 'service', 'Corte mujer', [9])]) assert.throws(() => sharedMetadata([bad, sharedOwners[1]!]), /communicative/)
+  })
+  await check('all strong shared request owners cover the basket in either order', () => {
+    for (const owners of [sharedOwners, [...sharedOwners].reverse()]) {
+      const result = admitCommunicativePlan(sharedMetadata(owners), sharedPlan, sharedPlan, sharedMessage, initial, services)
+      assert.deepEqual(result.plan.operations, sharedPlan.operations)
+      assert.deepEqual(result.blockedFields, [])
+    }
+  })
+  await check('captured two-service owners acquire both through the real interpretation seam', async () => {
+    const cream: DialogueService = { id: 'cream', name: 'Baño de crema', price: 10000, durationMinutes: 30, requiresConsultation: false }
+    const message = 'Quiero corte de mujer y baño de crema. Soy Ana.'
+    const acquisition = basket('set', [member('single', ['cut-w'], 'corte de mujer'), member('single', ['cream'], 'baño de crema')], 'corte de mujer y baño de crema')
+    const result = await say(initial, message, acted([acquisition, { kind: 'name', value: 'Ana', ...ev('Ana') }], [
+      act('request', 'service', 'corte de mujer', [0]), act('request', 'service', 'baño de crema', [0]), act('answer', 'name', 'Soy Ana', [1])
+    ]), { ...port, catalog: async () => [...services, cream] })
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.deepEqual(selectionBasket(result.state).members.map(item => item.serviceIds), [['cut-w'], ['cream']])
+    assert.equal(result.state.customerName, 'Ana'); assert.equal(result.bookingCommand, undefined)
+  })
+  const invalidOwners = [
+    [sharedOwners[0]!, act('request', 'service', 'Corte mujer', [0])],
+    [...sharedOwners, act('request', 'service', 'Soy Ana', [0])],
+    [sharedOwners[0]!, act('request', 'service', 'Alisado', [0], null, .5)],
+    [sharedOwners[0]!, act('request', 'professional', 'Alisado', [0])],
+    ...['change', 'answer', 'inquiry', 'reference', 'uncertain'].map(kind => [sharedOwners[0]!, act(kind, 'service', 'Alisado', [0])])
+  ]
+  for (const [index, owners] of invalidOwners.entries()) await check('incompatible shared authority blocks only service ' + index, () => {
+    const result = admitCommunicativePlan(sharedMetadata(owners), sharedPlan, sharedPlan, sharedMessage, initial, services)
+    assert.deepEqual(result.blockedFields, ['service'])
+    assert.deepEqual(result.plan.operations.map(item => item.kind), ['name'])
+  })
+  await check('shared request cannot replace an existing basket; add and explicit change stay bounded', () => {
+    const prior = parseTurnPlan({ version: 1, operations: [basket('set', [member('single', ['cut-m'], 'Corte hombre')], 'Corte hombre')] }, 'Corte hombre', services.map(item => item.id)).operations[0]!
+    if (prior.kind !== 'basket') throw new Error('controlled prior must be a basket')
+    const current = { ...initial, basket: applyBasketMutation(selectionBasket(initial), prior).basket }
+    assert.deepEqual(admitCommunicativePlan(sharedMetadata(sharedOwners), sharedPlan, sharedPlan, sharedMessage, current, services).blockedFields, ['service'])
+    for (const [mutation, kind] of [['add', 'request'], ['set', 'change'], ['replace', 'change']] as const) {
+      const source = parseTurnPlan({ version: 1, operations: [{ ...sharedBasket, mutation }, sharedPlan.operations[1]!] }, sharedMessage, services.map(item => item.id))
+      const owners = sharedOwners.map(owner => ({ ...owner, kind }))
+      const result = admitCommunicativePlan(sharedMetadata(owners, source), source, source, sharedMessage, current, services)
+      assert.deepEqual(result.blockedFields, [], mutation)
+      if (kind === 'change') assert.deepEqual(admitCommunicativePlan(sharedMetadata(owners, source), source, source, sharedMessage, initial, services).blockedFields, ['service'])
+    }
+    const answers = sharedOwners.map(owner => ({ ...owner, kind: 'answer' }))
+    assert.deepEqual(admitCommunicativePlan(sharedMetadata(answers), sharedPlan, sharedPlan, sharedMessage, current, services).blockedFields, ['service'])
+  })
+  await check('shared answers need the current closed service choice and each owner covers it', () => {
+    const current = structuredClone(first.state)
+    const message = 'Corte mujer'
+    const source = parseTurnPlan({ version: 1, operations: [basket('replace', [member('single', ['cut-w'], message)], message, [groupId])] }, message, services.map(item => item.id))
+    const metadata = parseCommunicativeActs({ version: 1, acts: [act('answer', 'service', message, [0]), act('answer', 'service', message, [0])] }, message, 1, source)
+    assert.deepEqual(admitCommunicativePlan(metadata, source, source, message, current, services).blockedFields, [])
+    const stale = { ...current, pending: 'date' as const }
+    assert.deepEqual(admitCommunicativePlan(metadata, source, source, message, stale, services).blockedFields, ['service'])
+  })
+  await check('historical sharing cannot authorize replacement and independent current name survives', async () => {
+    const message = 'La última vez Corte mujer y Alisado. Soy Ana.'
+    const result = await say(first.state, message, acted([...sharedPlan.operations], [act('reference', 'service', 'Corte mujer', [0]), act('reference', 'service', 'Alisado', [0]), act('answer', 'name', 'Soy Ana', [1])]))
+    assert.equal(result.interpretation.mode, 'ai'); assert.deepEqual(result.state.basket, first.state.basket); assert.equal(result.state.customerName, 'Ana')
+  })
+  await check('weak shared service authority keeps independent date, name and information', async () => {
+    const message = 'Corte mujer y Alisado mañana. Soy Ana. Dónde están?'
+    const result = await say(initial, message, acted([sharedBasket, { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'name', value: 'Ana', ...ev('Ana') }, { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('Dónde están') }], [
+      sharedOwners[0]!, act('request', 'service', 'Alisado', [0], null, .5), act('request', 'date', 'mañana', [1]), act('answer', 'name', 'Soy Ana', [2]), act('inquiry', 'general', 'Dónde están', [3])
+    ]))
+    assert.equal(result.interpretation.mode, 'ai'); assert.equal(selectionBasket(result.state).members.length, 0)
+    assert.equal(result.state.date, '2026-10-06'); assert.equal(result.state.customerName, 'Ana'); assert.match(result.reply, /Calle de prueba 123/)
+  })
+  await check('shared basket cannot rescue malformed companions or an invalid original catalog ID', async () => {
+    for (const operations of [[sharedBasket, { kind: 'name', value: 'Eva', ...ev('inventado') }], [{ ...sharedBasket, members: [member('single', ['foreign'], 'Corte mujer'), member('single', ['smooth'], 'Alisado')] }, sharedPlan.operations[1]!]]) {
+      const result = await say(first.state, sharedMessage, acted(operations, [...sharedOwners, act('answer', 'name', 'Soy Ana', [1])]))
+      assert.equal(result.interpretation.reason, 'invalid_output'); assert.equal(result.interpretation.validation?.turnPlan?.outcome, 'rejected'); assert.equal(result.state.customerName, 'Ana', 'existing literal fallback may use the current name, never the malformed Eva proposal'); assert.deepEqual(result.state.basket, first.state.basket)
+    }
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

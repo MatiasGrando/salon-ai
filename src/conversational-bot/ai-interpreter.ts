@@ -87,6 +87,9 @@ function validateCandidate(value: unknown, message: string, services: readonly D
       try {
         const catalogIds = services.map(service => service.id)
         const serviceGrounded = groundServicePlan(item.turnPlan, message, services)
+        // Existing catalog-boundary alignment keeps every operation, property and index.
+        // Validate that whole original source before temporal projection or act admission.
+        const original = parseTurnPlan(serviceGrounded, message, catalogIds)
         let parsedPlan: TurnPlan
         try {
           parsedPlan = parseTurnPlan(groundTemporalPlan(serviceGrounded, message, state,
@@ -96,15 +99,13 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           if (!(error instanceof TemporalMeaningConflictError)) throw error
           // This specific semantic mismatch cannot authorize a malformed original
           // proposal or a bad companion hidden by a service projection.
-          const original = parseTurnPlan(item.turnPlan, message, catalogIds)
-          parseCommunicativeActs(item.communicativeActs, message, original.operations.length)
+          parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original)
           parsedPlan = parseTurnPlan(serviceGrounded, message, catalogIds)
           temporalGrounding = { outcome: 'field_rejected', field: error.field, reason: error.reason }
         }
         // Validate the whole untrusted proposal before any semantic filtering. A reference
         // label cannot rescue foreign catalog IDs, fabricated quotes, targets or estimates.
-        const original = item.turnPlan as TurnPlan
-        communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length)
+        communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original)
         for (const operation of parsedPlan.operations) {
           if (operation.kind === 'basket' && operation.targetMemberIds.some(id => !selectionBasket(state).members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
           if (operation.kind === 'service_request' && operation.continuation && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
