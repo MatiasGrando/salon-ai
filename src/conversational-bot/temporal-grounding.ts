@@ -3,6 +3,13 @@ import { TurnPlanValidationError } from './turn-plan.js'
 import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timePreferenceMatchesEvidence, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
 import { parseMinutes } from '../bot-options/application/availability-queries.js'
+/** A proved semantic mismatch, not authority to relax structural or evidence validation. */
+export class TemporalMeaningConflictError extends Error {
+  readonly field = 'time' as const
+  readonly reason = 'unproven_approximation' as const
+  constructor() { super('unproven temporal approximation') }
+}
+
 type Context = Pick<DialogueState, 'timePreference'> & Partial<Pick<DialogueState, 'date' | 'businessId'>> & { timeClarification?: { candidateTimes: string[] } }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 export function parseTimeClarification(value: unknown): { candidateTimes: string[] } {
@@ -61,7 +68,10 @@ export function groundTemporalPlan(value: unknown, message: string, state: Conte
     const explicitRequest = fallbackTemporalRequest(message,true)
     if (state.timeClarification && (!explicitRequest || explicitRequest.kind === 'ambiguous') &&
         value.operations.some(op => record(op) && ['time','time_preference','time_clarification'].includes(String(op.kind)))) throw new TurnPlanValidationError('evidence')
-    if (value.operations.some(op => record(op) && (op.kind === 'time_clarification' || op.kind === 'time_preference' && record(op.preference) && op.preference.kind === 'around'))) {
+    if (value.operations.some(op => record(op) && op.kind === 'time_clarification')) throw new TurnPlanValidationError('evidence')
+    const unproven = value.operations.find(op => record(op) && op.kind === 'time_preference' && record(op.preference) && op.preference.kind === 'around')
+    if (unproven) {
+      if (record(unproven) && wellShapedTemporal(unproven)) throw new TemporalMeaningConflictError()
       throw new TurnPlanValidationError('evidence')
     }
     return value

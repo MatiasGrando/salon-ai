@@ -19,6 +19,8 @@ export type CommunicativeActs = { version: 1; acts: CommunicativeAct[] }
 export type ProfessionalReference = { businessId: string; mention: string; evidence: string; scope: string; question: string }
 export type CommunicativeAdmission = {
   plan: TurnPlan; blockedFields: CommunicativeField[]
+  /** Server-only current temporal authority; never a model or persisted claim. */
+  timeMeaningRejected?: true
   reference?: { mention: string; evidence: string }
   /** Ephemeral server admission, never a model flag or persisted booking action. */
   continuity?: 'notice' | 'pause' | 'repair'
@@ -157,17 +159,24 @@ function repeatedAdd(operation: TurnOperation, state: DialogueState): boolean {
 }
 /** Typed/evidence/catalog validation precedes this semantic admission; no unsafe candidate rescue. */
 export function admitCommunicativePlan(metadata: CommunicativeActs | null, source: TurnPlan, plan: TurnPlan,
-  message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string): CommunicativeAdmission {
+  message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string, serverBlockedFields: readonly CommunicativeField[] = []): CommunicativeAdmission {
   const blocked = new Set<CommunicativeField>()
+  let timeMeaningRejected = false
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
     const field = fieldOf(original ?? operation)
+    const act = metadata?.acts.find(item => item.operationIndexes.includes(index))
+    if (serverBlockedFields.includes(field)) {
+      blocked.add(field)
+      if (field === 'time' && act?.field === field && ['request', 'change', 'answer'].includes(act.kind) &&
+          act.confidence >= .85 && operation.confidence >= .85 && contains(act.evidence, operation.evidence)) timeMeaningRejected = true
+      return false
+    }
     // Preserve already selected exact identities before generic grounding can widen them.
     if (repeatedAdd(operation, state)) return false
 
-    const act = metadata?.acts.find(item => item.operationIndexes.includes(index))
     if (!metadata) {
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
       return true
@@ -197,6 +206,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     !metadata?.acts.some(act => ['request', 'change', 'answer', 'inquiry', 'uncertain'].includes(act.kind))
     ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
+    ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(reference?.mention ? { reference: { mention: reference.mention, evidence: reference.evidence } } : {}) }
 }

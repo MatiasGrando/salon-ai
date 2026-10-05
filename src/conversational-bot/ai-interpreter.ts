@@ -3,7 +3,7 @@ import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply
 import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
-import { groundTemporalPlan } from './temporal-grounding.js'
+import { groundTemporalPlan, TemporalMeaningConflictError } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
@@ -41,6 +41,7 @@ export type DecisionTrace = {
 
 export type InterpretationDiagnostics = {
   decision: DecisionTrace
+  temporalGrounding?: { outcome: 'field_rejected'; field: 'time'; reason: 'unproven_approximation' }
   replyValidation?: ReplyValidationTrace
   mode: 'ai' | 'fallback'
   reason: 'provider_error' | 'timeout' | 'invalid_output' | null
@@ -65,7 +66,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission; temporalGrounding?: InterpretationDiagnostics['temporalGrounding'] }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -76,6 +77,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
   const item = value as Record<string, unknown>
   if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan','communicativeActs'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
+  let temporalGrounding: InterpretationDiagnostics['temporalGrounding']
   let turnPlan: TurnPlan | null | undefined
   let communicative: CommunicativeAdmission | undefined
   let communicativeActs: CommunicativeActs | null = null
@@ -83,7 +85,22 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
-        const parsedPlan = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(read?{read}:{})}), message, services.map(service => service.id))
+        const catalogIds = services.map(service => service.id)
+        const serviceGrounded = groundServicePlan(item.turnPlan, message, services)
+        let parsedPlan: TurnPlan
+        try {
+          parsedPlan = parseTurnPlan(groundTemporalPlan(serviceGrounded, message, state,
+            { businessId: context.businessId, timezone: context.timezone,
+              businessDate: localDateKey(context.dbNow, context.timezone), ...(read ? { read } : {}) }), message, catalogIds)
+        } catch (error) {
+          if (!(error instanceof TemporalMeaningConflictError)) throw error
+          // This specific semantic mismatch cannot authorize a malformed original
+          // proposal or a bad companion hidden by a service projection.
+          const original = parseTurnPlan(item.turnPlan, message, catalogIds)
+          parseCommunicativeActs(item.communicativeActs, message, original.operations.length)
+          parsedPlan = parseTurnPlan(serviceGrounded, message, catalogIds)
+          temporalGrounding = { outcome: 'field_rejected', field: error.field, reason: error.reason }
+        }
         // Validate the whole untrusted proposal before any semantic filtering. A reference
         // label cannot rescue foreign catalog IDs, fabricated quotes, targets or estimates.
         const original = item.turnPlan as TurnPlan
@@ -98,7 +115,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         // Validate that estimate against the safely retained draft; invalid IDs,
         // configuration and evidence still fail globally before semantic admission.
         validateEstimateOperations(protectProspectiveBasket({ plan: parsed, blockedFields: [] }, state).plan, state, services)
-        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services, localDateKey(context.dbNow, context.timezone)), state)
+        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services, localDateKey(context.dbNow, context.timezone), temporalGrounding ? ['time'] : []), state)
         const grounded = parseTurnPlan({ ...communicative.plan, operations: communicative.plan.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
@@ -133,7 +150,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
         item.serviceCorrection === true || item.informationTarget != null ||
         item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new TurnPlanValidationError('conflict')
-    return { ...item, turnPlan, communicativeActs, communicative } as Candidate
+    return { ...item, turnPlan, communicativeActs, communicative, ...(temporalGrounding ? { temporalGrounding } : {}) } as Candidate
   }
   if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
       new Set(item.serviceCandidateIds).size !== item.serviceCandidateIds.length ||
@@ -364,6 +381,9 @@ export async function respondWithAiInterpreter(
   }
   const proposal = summarizeProposal(raw)
   const validation = summarizeValidation(proposal, candidate !== null, validationError, interpretationProviderError === null)
+  if (candidate?.temporalGrounding && validation.turnPlan) {
+    validation.turnPlan.validationAcceptedKinds = [...new Set(candidate.turnPlan?.operations.map(operation => operation.kind) ?? [])]
+  }
   const validationAt = performance.now()
   const turnPlan = candidate?.turnPlan
   const serviceOperation = turnPlan?.operations.find(operation => operation.kind === 'service')
@@ -564,6 +584,7 @@ export async function respondWithAiInterpreter(
   const availability = summarizeAvailability(response.availability)
   return finalizeDialogueIntroduction(context, { ...response, reply: authored ?? (!newVerifiedFacts && finalFacts.length ? finalFacts.map(fact => fact.text).join('\n') : safeReply), interpretation: {
     decision: decisionTrace, replyValidation,
+    ...(candidate?.temporalGrounding ? { temporalGrounding: candidate.temporalGrounding } : {}),
     mode: reason ? 'fallback' : 'ai', reason,
     providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
     aiCalls, replyRoute,

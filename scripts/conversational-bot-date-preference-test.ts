@@ -339,5 +339,220 @@ await check('date truncation blocks only date and preserves independent current 
   assert.equal(result.state.serviceId, state.serviceId)
   assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
 })
+
+const capturedPriorityMessage = 'Prefiero miércoles; si no, martes, a las17.'
+const capturedPriorities = [
+  { expression: 'miércoles', value: '2026-10-07' },
+  { expression: 'martes', value: '2026-10-06' }
+]
+function capturedTemporalProposal() {
+  const output = candidate([
+    operation(capturedPriorities, 'miércoles; si no, martes'),
+    { kind: 'time_preference', preference: { kind: 'around', time: '17:00' }, ...ev('a las17', .98) }
+  ], capturedPriorityMessage)
+  output.communicativeActs.acts = [
+    { kind: 'change', field: 'date', ...ev('miércoles; si no, martes', .98), mention: null, operationIndexes: [0] },
+    { kind: 'request', field: 'time', ...ev('a las17', .98), mention: null, operationIndexes: [1] }
+  ]
+  return output
+}
+await check('captured exact-as-around rejects only time after complete validation', async () => {
+  const state = await selected()
+  const previous = await respondConversationChoice(context, state, { kind: 'date', date: '2026-10-06' }, port)
+  horizonCalls = 0; fixedCalls = 0
+  const result = await say(previous.state, capturedPriorityMessage, capturedTemporalProposal())
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.equal(result.interpretation.reason, null)
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(result.state.date, null); assert.equal(result.state.requestedTime, null)
+  assert.equal(result.state.timePreference, undefined)
+  assert.equal(result.state.slot, null); assert.equal(result.proposal, null)
+  assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  assert.match(result.reply, /hora|horario|aclar/)
+  assert.deepEqual(result.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['date_preferences'])
+  assert.deepEqual((result.interpretation as unknown as { temporalGrounding?: unknown }).temporalGrounding,
+    { outcome: 'field_rejected', field: 'time', reason: 'unproven_approximation' })
+})
+await check('temporal semantic rejection keeps independent current customer identity', async () => {
+  const state = await selected(), text = 'Soy Matías; ' + capturedPriorityMessage
+  const output = capturedTemporalProposal()
+  output.turnPlan.operations.push({ kind: 'name', value: 'Matías', ...ev('Matías') })
+  output.communicativeActs.acts.push({ kind: 'request', field: 'name', ...ev('Soy Matías'), mention: null, operationIndexes: [2] })
+  const result = await say(state, text, output)
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(result.state.customerName, 'Matías')
+  assert.equal(result.state.requestedTime, null); assert.equal(result.state.slot, null)
+  assert.equal(result.proposal, null); assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  assert.deepEqual(result.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['date_preferences', 'name'])
+})
+await check('temporal rejection keeps an independently scoped current information read', async () => {
+  const state = await selected(), text = capturedPriorityMessage + ' Cuánto cuesta Corte hombre?'
+  horizonCalls = 0; fixedCalls = 0
+  const output = capturedTemporalProposal()
+  output.turnPlan.operations.push({ kind: 'information', target: { kind: 'service', actions: [], serviceIds: ['cut'], aspect: 'price' }, ...ev('Cuánto cuesta Corte hombre') })
+  output.communicativeActs.acts.push({ kind: 'inquiry', field: 'service', ...ev('Cuánto cuesta Corte hombre'), mention: null, operationIndexes: [2] })
+  const result = await say(state, text, output)
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(result.state.requestedTime, null); assert.equal(result.state.slot, null)
+  assert.equal(result.proposal, null); assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  assert.match(result.reply, /100/)
+  assert.match(result.reply, /hora|horario|franja/)
+  assert.deepEqual(result.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['date_preferences', 'information'])
+})
+await check('partial temporal admission never rescues malformed quotes catalog or act indexes', async () => {
+  for (const corrupt of [
+    (output: ReturnType<typeof capturedTemporalProposal>) => { (output.turnPlan.operations[1] as Record<string, unknown>).confidence = 2 },
+    (output: ReturnType<typeof capturedTemporalProposal>) => { (output.turnPlan.operations[1] as Record<string, unknown>).evidence = 'a las18' },
+    (output: ReturnType<typeof capturedTemporalProposal>) => { (output.turnPlan.operations[1] as Record<string, unknown>).unexpected = true },
+    (output: ReturnType<typeof capturedTemporalProposal>) => { output.communicativeActs.acts[1]!.operationIndexes = [9] },
+    (output: ReturnType<typeof capturedTemporalProposal>) => { output.communicativeActs.acts[1]!.evidence = 'a las18' },
+    (output: ReturnType<typeof capturedTemporalProposal>) => {
+      output.turnPlan.operations.push({ kind: 'service', mode: 'single', serviceIds: ['foreign-id'], correction: false, ...ev('miércoles') })
+      output.communicativeActs.acts.push({ kind: 'request', field: 'service', ...ev('miércoles'), mention: null, operationIndexes: [2] })
+    }
+  ]) {
+    const state = await selected(), output = capturedTemporalProposal()
+    corrupt(output)
+    const result = await say(state, capturedPriorityMessage, output)
+    assert.equal(result.interpretation.reason, 'invalid_output')
+    assert.equal(preferences(result.state), undefined)
+    assert.equal(result.state.date, null); assert.equal(result.state.requestedTime, null)
+    assert.equal(result.state.slot, null); assert.equal(result.proposal, null)
+    assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+    assert.equal((result.interpretation as unknown as { temporalGrounding?: unknown }).temporalGrounding, undefined)
+  }
+})
+await check('exact joined clock stays exact with ordered dates and one horizon search', async () => {
+  const state = await selected(), output = capturedTemporalProposal()
+  output.turnPlan.operations[1] = { kind: 'time', value: '17:00', ...ev('a las17') }
+  const result = await say(state, capturedPriorityMessage, output)
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(result.state.requestedTime, '17:00'); assert.equal(result.state.timePreference, undefined)
+  assert.equal(result.state.date, null); assert.equal(result.state.slot, null); assert.equal(result.proposal, null)
+  assert.equal(horizonCalls, 1); assert.equal(fixedCalls, 0)
+  assert.deepEqual(lastTemporal, { requestedTime: '17:00' })
+})
+
+const meaningPending = (state: DialogueState) => (state as DialogueState & { timeMeaningClarification?: unknown }).timeMeaningClarification
+async function oldTimeRejection() {
+  const state = await selected()
+  state.requestedTime = '16:00'
+  parseDialogueState(state, context.businessId, context.timezone)
+  return say(state, capturedPriorityMessage, capturedTemporalProposal())
+}
+await check('strong current temporal rejection suspends the old clock and persists its own question', async () => {
+  const result = await oldTimeRejection()
+  assert.equal(result.state.requestedTime, null)
+  assert.equal(meaningPending(result.state), true)
+  assert.equal(result.state.pending, 'time'); assert.equal(result.state.questionContext?.field, 'time')
+  assert.equal(result.state.slot, null); assert.equal(result.proposal, null)
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  assert.equal(meaningPending(parseDialogueState(JSON.parse(JSON.stringify(result.state)), context.businessId, context.timezone)), true)
+})
+await check('pending temporal meaning survives an independent name and information turn without agenda', async () => {
+  const rejected = await oldTimeRejection()
+  const output = candidate([{ kind: 'name', value: 'Matias', ...ev('Matias') }], 'Soy Matias', 'request', 'name')
+  const named = await say(JSON.parse(JSON.stringify(rejected.state)), 'Soy Matias', output)
+  assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  assert.equal(named.state.customerName, 'Matias'); assert.equal(meaningPending(named.state), true)
+  assert.equal(named.state.pending, 'time'); assert.match(named.reply, /horario|franja/)
+  const query = 'Cuánto cuesta Corte hombre'
+  const info = candidate([{ kind: 'information', target: { kind: 'service', actions: [], serviceIds: ['cut'], aspect: 'price' }, ...ev(query) }], query, 'inquiry', 'service')
+  const read = await say(named.state, query, info)
+  assert.match(read.reply, /100/); assert.match(read.reply, /horario|franja/)
+  assert.equal(meaningPending(read.state), true); assert.equal(read.state.pending, 'time')
+  assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0); assert.equal(read.proposal, null)
+})
+await check('only a fresh admitted temporal answer clears meaning clarification without selecting', async () => {
+  const rejected = await oldTimeRejection(), text = 'a las17'
+  const output = candidate([{ kind: 'time', value: '17:00', ...ev(text) }], text, 'answer', 'time')
+  const result = await say(rejected.state, text, output)
+  assert.equal(meaningPending(result.state), undefined); assert.equal(result.state.requestedTime, '17:00')
+  assert.deepEqual(preferences(result.state), capturedPriorities)
+  assert.equal(result.state.date, null); assert.equal(result.state.slot, null); assert.equal(result.proposal, null)
+  assert.equal(horizonCalls, 1); assert.deepEqual(lastTemporal, { requestedTime: '17:00' })
+  const deterministic = await respond(context, rejected.state, text, port)
+  assert.equal(meaningPending(deterministic.state), undefined); assert.equal(deterministic.state.requestedTime, '17:00')
+  assert.equal(deterministic.state.slot, null); assert.equal(deterministic.proposal, null)
+})
+await check('weak historical and wrong-field temporal claims neither install nor clear meaning pending', async () => {
+  for (const kind of ['reference', 'inquiry', 'weak', 'weak-operation', 'wrong-field']) {
+    const state = await selected(); state.requestedTime = '16:00'
+    const output = capturedTemporalProposal(), act = output.communicativeActs.acts[1]!
+    if (kind === 'weak-operation') (output.turnPlan.operations[1] as Record<string, unknown>).confidence = .2
+    else if (kind === 'weak') act.confidence = .2
+    else if (kind === 'wrong-field') act.field = 'service'
+    else act.kind = kind
+    const result = await say(state, capturedPriorityMessage, output)
+    assert.equal(result.state.requestedTime, '16:00'); assert.equal(meaningPending(result.state), undefined)
+    assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  }
+  const rejected = await oldTimeRejection(), text = 'a las17'
+  for (const kind of ['reference', 'inquiry', 'weak', 'wrong-field']) {
+    const output = candidate([{ kind: 'time', value: '17:00', ...ev(text) }], text, 'answer', 'time')
+    const act = output.communicativeActs.acts[0]!
+    if (kind === 'weak') act.confidence = .2
+    else if (kind === 'wrong-field') act.field = 'service'
+    else act.kind = kind
+    const result = await say(rejected.state, text, output)
+    assert.equal(meaningPending(result.state), true); assert.equal(result.state.requestedTime, null)
+    assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0); assert.equal(result.proposal, null)
+  }
+})
+await check('persisted temporal meaning marker rejects malformed and contradictory temporal state', async () => {
+  const state = await selected()
+  const valid = { ...state, pending: 'time', timeMeaningClarification: true }
+  assert.equal(meaningPending(parseDialogueState(JSON.parse(JSON.stringify(valid)), context.businessId, context.timezone)), true)
+  for (const marker of [false, null, 'true', 1, {}]) {
+    assert.throws(() => parseDialogueState({ ...valid, timeMeaningClarification: marker }, context.businessId, context.timezone))
+  }
+  for (const extra of [{ requestedTime: '16:00' }, { timePreference: { kind: 'any' } }, { timeClarification: { candidateTimes: ['05:00', '17:00'] } }]) {
+    assert.throws(() => parseDialogueState({ ...valid, ...extra }, context.businessId, context.timezone))
+  }
+})
+await check('current temporal rejection invalidates an old slot and stored date choice', async () => {
+  const state = await selected(), oldDate = { kind: 'date' as const, date: '2026-10-06' }
+  state.date = '2026-10-06'; state.professional = { kind: 'any' }; state.customerName = 'Matias'
+  state.requestedTime = '16:00'; state.slot = { ...slots[0]!, time: '16:00', startAt: '2026-10-06T16:00:00.000Z' }
+  state.pending = 'proposal'; delete state.questionContext; delete state.dialogueContext
+  parseDialogueState(state, context.businessId, context.timezone)
+  const result = await say(state, capturedPriorityMessage, capturedTemporalProposal())
+  assert.equal(result.state.slot, null); assert.equal(result.state.requestedTime, null)
+  assert.equal(meaningPending(result.state), true); assert.equal(result.proposal, null)
+  await assert.rejects(() => respondConversationChoice(context, result.state, oldDate, port))
+  assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+})
+await check('temporal meaning rejection removes an unexecuted sandbox nonce and cannot consent later', async () => {
+  const sandboxContext = { ...context, sandboxBooking: true }
+  const state = await selected()
+  state.date = '2026-10-06'; state.professional = { kind: 'any' }
+  state.requestedTime = '17:00'; state.slot = structuredClone(slots[0]!); state.pending = 'name'
+  delete state.questionContext; delete state.dialogueContext
+  const offered = await respond(sandboxContext, state, 'Soy Matias', port)
+  assert.ok(offered.state.sandboxReservation?.presented.nonce)
+  assert.equal(offered.state.sandboxReservation.receipt, undefined)
+  const nonce = offered.state.sandboxReservation.presented.nonce
+  horizonCalls = 0; fixedCalls = 0
+  const provider: AiInterpretationProvider = async () => structuredClone(capturedTemporalProposal())
+  const rejected = await respondWithAiInterpreter(sandboxContext, offered.state, capturedPriorityMessage, port, provider)
+  assert.equal(meaningPending(rejected.state), true); assert.equal(rejected.state.sandboxReservation, undefined)
+  assert.equal(rejected.state.slot, null); assert.equal(rejected.bookingCommand, undefined)
+  await assert.rejects(() => respondConversationChoice(sandboxContext, rejected.state, { kind: 'confirm', nonce }, port))
+  const followup = await respond(sandboxContext, rejected.state, 'sí', port)
+  assert.equal(meaningPending(followup.state), true); assert.equal(followup.bookingCommand, undefined)
+  assert.equal(followup.proposal, null); assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
+  const confirmed = structuredClone(offered.state)
+  const reservation = confirmed.sandboxReservation!
+  reservation.receipt = { appointmentId: 'simqa_appointment_h_confirmed', proposalNonce: nonce, fingerprint: reservation.presented.fingerprint }
+  parseDialogueState(confirmed, context.businessId, context.timezone)
+  const preserved = await respondWithAiInterpreter(sandboxContext, confirmed, capturedPriorityMessage, port, provider)
+  assert.deepEqual(preserved.state.sandboxReservation?.receipt, reservation.receipt)
+  assert.equal(meaningPending(preserved.state), undefined)
+  assert.equal(preserved.bookingCommand, undefined); assert.equal(preserved.proposal, null)
+})
 console.log('date priority controlled checks: ' + passed + ' PASS / ' + failures.length + ' FAIL; provider proposals=' + providerCalls)
 if (failures.length) process.exitCode = 1

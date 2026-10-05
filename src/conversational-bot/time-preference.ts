@@ -73,7 +73,7 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
   if (approximate) return approximate.candidateTimes.length === 1 ? { kind: 'preference', preference: { kind: 'around', time: approximate.candidateTimes[0]! } } : { kind: 'ambiguous', candidateTimes: approximate.candidateTimes }
   let text = normalize(message)
   const requests: TemporalRequest[] = []
-  const pairs = [...text.matchAll(/\b(entre|desde)\s+(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\s+(y|hasta)\s+(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
+  const pairs = [...text.matchAll(/\b(entre|desde)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\s+(y|hasta)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
   if (pairs.length > 1) return { kind: 'ambiguous' }
   if (pairs.length === 1) {
     const pair = pairs[0]!, from = clock(pair[2]!, pair[3]), to = clock(pair[5]!, pair[6])
@@ -81,7 +81,7 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
     requests.push({ kind: 'preference', preference: { kind: 'range', from, to, fromInclusive: true, toInclusive: true } })
     text = text.slice(0, pair.index) + text.slice(pair.index! + pair[0].length)
   }
-  const boundary = /\b(despues de|desde|a partir de|antes de)\s+(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g
+  const boundary = /\b(despues de|desde|a partir de|antes de)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g
   const boundaries = [...text.matchAll(boundary)]
   for (const match of boundaries) {
     const time = clock(match[2]!, match[3]); if (!time) return null
@@ -94,7 +94,7 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
   if (/\b(?:cualquier horario|cualquier hora|cualquierhora|cualquiera hora)\b/.test(text)) requests.push({ kind: 'preference', preference: { kind: 'any' } })
   // An exact clause alongside a preference is contradictory, not permission to pick its bound.
   const exactText = text.replace(boundary, '').replace(/\bantes del mediodia\b/g, '')
-  const explicit = [...exactText.matchAll(/\ba las?\s+(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
+  const explicit = [...exactText.matchAll(/\ba las?\s*(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
   for (const match of explicit) { const time = clock(match[1]!, match[2]); if (!time) return null; requests.push({ kind: 'exact', time }) }
   if (requests.length === 2) {
     const lower = requests.find(request => request.kind === 'preference' && request.preference.kind === 'after')
@@ -120,8 +120,8 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
 export function approximateTimeRequest(message: string): ApproximateTimeRequest | null {
   const text = message.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
   if (/\b(no|ni|nunca|sin)\b/.test(text)) return null
-  const prefix = /\b(?:tipo|aproximadamente|alrededor de|cerca de|mas o menos a)\s+(?:a\s+)?(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
-  const suffix = /\b(?:a\s+las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?\s+(?:aprox\.?|aproximadamente)(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  const prefix = /\b(?:tipo|aproximadamente|alrededor de|cerca de|mas o menos a)\s+(?:a\s+)?(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  const suffix = /\b(?:a\s+las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?\s+(?:aprox\.?|aproximadamente)(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
   // Merge overlapping prefix/suffix forms of the same anchor, never two separate requests.
   const spans = [...text.matchAll(prefix), ...text.matchAll(suffix)].sort((a,b)=>a.index-b.index)
   const matches: RegExpMatchArray[] = []
@@ -139,8 +139,8 @@ export function approximateTimeRequest(message: string): ApproximateTimeRequest 
   // An independent numeric clock contradicts a single approximation; calendar numbers do not.
   const remainder = text.slice(0,match.index) + text.slice(match.index! + match[0].length)
   const tail = text.slice(match.index! + match[0].length)
-  if (/^\s*(?:o|y)\s+(?:a\s+las?\s+)?\d{1,2}(?=\s|$|[?!.,])/.test(tail)) return null
-  if (/\ba\s+las?\s+\d|\b\d{1,2}:[0-9]{2}\b|\b\d{1,2}\s*(?:am|pm|hs?|horas)\b/.test(remainder)) return null
+  if (/^\s*(?:o|y)\s+(?:a\s+las?\s*)?\d{1,2}(?=\s|$|[?!.,])/.test(tail)) return null
+  if (/\ba\s+las?\s*\d|\b\d{1,2}:[0-9]{2}\b|\b\d{1,2}\s*(?:am|pm|hs?|horas)\b/.test(remainder)) return null
   let hour = Number(match[1])
   const minute = match[2] ?? '00'
   if (hour > 23) return null

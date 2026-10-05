@@ -1,3 +1,6 @@
+import { classifyTemporalRequest, approximateTimeRequest } from '../src/conversational-bot/time-preference.js'
+import { parseTurnPlan, TurnPlanValidationError } from '../src/conversational-bot/turn-plan.js'
+import { groundTemporalPlan } from '../src/conversational-bot/temporal-grounding.js'
 import assert from 'node:assert/strict'
 import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
@@ -279,3 +282,38 @@ for (const disposition of ['needs_detail', 'unverified_variant']) for (const bra
   assert.equal(branch.properties.serviceIds.maxItems, 10)
 }
 console.log('procedure generation cardinality: PASS')
+
+assert.deepEqual(classifyTemporalRequest('Prefiero miércoles; si no, martes, a las17.', true), { kind: 'exact', time: '17:00' })
+assert.deepEqual(classifyTemporalRequest('a las17:30', true), { kind: 'exact', time: '17:30' })
+const joinedApproximation = 'El miércoles tipo las5 tenés lugar?'
+const joinedAnchor = approximateTimeRequest(joinedApproximation)
+assert.deepEqual(joinedAnchor?.candidateTimes, ['05:00', '17:00'])
+assert.equal(joinedAnchor?.evidence, 'tipo las5')
+assert.equal(joinedApproximation.includes(joinedAnchor!.evidence), true, 'lexical tolerance must not rewrite the literal evidence')
+assert.throws(() => groundTemporalPlan(plan(operation('time_preference', 'a las17', { preference: { kind: 'around', time: '17:00' } })),
+  'a las17', initialDialogueState('tenant')), 'direct/default grounding remains fail closed for exact-as-around')
+console.log('joined clock lexical and default temporal safety: PASS')
+
+const joinedRange = { kind: 'range' as const, from: '17:00', to: '19:00', fromInclusive: true, toInclusive: false }
+const joinedIntervalCases = [
+  ['Con Elisa, después de las17 y antes de las19.', { kind: 'preference', preference: joinedRange }],
+  ['después de las 17 y antes de las19', { kind: 'preference', preference: joinedRange }],
+  ['después de las17 y antes de las 19', { kind: 'preference', preference: joinedRange }],
+  ['entre las17 y las19', { kind: 'preference', preference: { ...joinedRange, toInclusive: true } }],
+  ['desde las17 hasta las19', { kind: 'preference', preference: { ...joinedRange, toInclusive: true } }],
+  ['después de las19 y antes de las17', { kind: 'ambiguous' }],
+  ['después de las17 y antes de las19, a las18', { kind: 'ambiguous' }],
+  ['después de las25 y antes de las19', null]
+] as const
+let joinedIntervalFailures = 0
+for (const [message, expected] of joinedIntervalCases) {
+  try { assert.deepEqual(classifyTemporalRequest(message, true), expected) }
+  catch { joinedIntervalFailures++; console.log('RED joined interval classification: ' + message) }
+}
+try {
+  assert.throws(() => parseTurnPlan(plan(operation('time_preference', 'después de las17 y antes de las19',
+    { preference: { kind: 'after', time: '17:00' } })), 'después de las17 y antes de las19'),
+    TurnPlanValidationError, 'a complete joined interval cannot admit only its lower bound')
+} catch { joinedIntervalFailures++; console.log('RED joined interval must reject partial lower bound') }
+assert.equal(joinedIntervalFailures, 0)
+console.log('joined interval complete lexical invariant and no partial acceptance: PASS')
