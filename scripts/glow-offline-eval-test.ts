@@ -86,14 +86,15 @@ injectedBundle.cases[0]!.turns[0]!.oracle = other // Poison the oracle: the supp
 let providerCalls = 0
 const spyProvider = async (request: unknown) => {
   providerCalls++
-  assert.deepEqual(Object.keys(request as object).sort(), ['businessDate','firstReplyFacts','intakeReplyAllowed','message','services','state','timezone'].sort())
+  assert.deepEqual(Object.keys(request as object).sort(), ['businessDate','expectedAnswer','firstReplyFacts','intakeReplyAllowed','message','replyContract','services','state','timezone'].sort())
   return booking
 }
 const injected = await evaluateCases(injectedBundle, corpus, { provider: spyProvider, timeoutMs: 4500 })
 assert.equal(providerCalls, 1, 'injected provider must run instead of the annotation oracle')
 assert.equal(injected.failed, 0)
 assert.equal(injected.mode, 'external_provider_real_motor')
-assert.equal(injected.comprehensionEvaluated, true)
+assert.deepEqual(injected.providerProvenance, { kind: 'unverified_external' })
+assert.equal(injected.comprehensionEvaluated, false, 'an injected spy is not real-model comprehension evidence')
 assert.equal(injected.cases[0]!.turns[0]!.diagnostics?.reason, null)
 const unavailable = await evaluateCases(injectedBundle, corpus, { provider: async () => { throw new Error('do not expose') } })
 assert.equal(unavailable.comprehensionEvaluated, false, 'fallback cannot count as model comprehension')
@@ -106,3 +107,12 @@ assert.equal(invalidCalls, 0, 'source guards must run before external provider i
 const timedOut = await evaluateCases(injectedBundle, corpus, { provider: async () => new Promise(resolve => setTimeout(() => resolve(booking), 30)), timeoutMs: 1 })
 assert.equal(timedOut.cases[0]!.turns[0]!.diagnostics?.reason, 'timeout', 'caller timeout must be preserved and reported')
 console.log('Glow provider injection: PASS (oracle isolation, source guards, diagnostics, fallback, caller timeout)')
+const controlledOrigin = await evaluateCases(injectedBundle, corpus, { provider: spyProvider, providerProvenance: { kind: 'controlled' } })
+assert.equal(controlledOrigin.comprehensionEvaluated, false)
+assert.deepEqual(controlledOrigin.providerProvenance, { kind: 'controlled' })
+await assert.rejects(evaluateCases(injectedBundle, corpus, { providerProvenance: {
+  kind: 'openai_responses', endpoint: 'https://api.openai.com/v1/responses', model: 'model-evidence', store: false
+} }), /transport evidence/)
+await assert.rejects(evaluateCases(injectedBundle, corpus, { provider: spyProvider, providerProvenance: {
+  kind: 'openai_responses', endpoint: 'invalid' as 'https://api.openai.com/v1/responses', model: 'model-evidence', store: false
+} }), /transport evidence/)

@@ -10,6 +10,20 @@ import { basketServiceIds } from '../src/conversational-bot/service-basket.js'
 import type { AvailabilitySlot } from '../src/bot-options/application/availability-queries.js'
 import type { BusinessFacts } from '../src/conversational-bot/information.js'
 
+export type EvaluationProviderProvenance = { kind: 'controlled' } | { kind: 'unverified_external' } |
+  { kind: 'openai_responses'; endpoint: 'https://api.openai.com/v1/responses'; model: string; store: false }
+export type EvaluationProviderOptions = { provider?: AiInterpretationProvider; timeoutMs?: number; providerProvenance?: EvaluationProviderProvenance }
+/** Caller-attested transport evidence, not authorization. Injection by itself proves nothing about a real model. */
+export function evaluationProviderProvenance(options: EvaluationProviderOptions): EvaluationProviderProvenance {
+  const origin = options.providerProvenance ?? { kind: options.provider ? 'unverified_external' : 'controlled' }
+  assert(['controlled','unverified_external','openai_responses'].includes(origin.kind), 'invalid provider provenance')
+  if (origin.kind === 'openai_responses') {
+    assert(options.provider && origin.endpoint === 'https://api.openai.com/v1/responses' && origin.store === false &&
+      typeof origin.model === 'string' && origin.model.trim().length > 0, 'real provider transport evidence required')
+  }
+  return structuredClone(origin)
+}
+
 export type CorpusConversation = { conversationId: string; customerCode: string; cutoffExclusive: string; messages: Array<{
   messageId: string; direction: string; body: string; createdAt: string; hasMedia?: boolean; isInteractiveReply?: boolean
 }> }
@@ -62,7 +76,7 @@ function validate(bundle: EvalBundle, corpus: CorpusConversation[]) {
     }
   }
 }
-function fixturePort(fixture: EvalFixture): DialoguePort {
+export function fixturePort(fixture: EvalFixture): DialoguePort {
   const professionalsFor = (ids: string[]) => fixture.professionals.filter(p => !p.serviceIds || ids.every(id => p.serviceIds!.includes(id)))
   const slotsFor = (ids: string[], date: string, professionalId?: string) => {
     const professionals = professionalsFor(ids).filter(p => !professionalId || p.id === professionalId)
@@ -82,7 +96,8 @@ function fixturePort(fixture: EvalFixture): DialoguePort {
     }
   }
 }
-export async function evaluateCases(input: unknown, corpus: CorpusConversation[], options: { provider?: AiInterpretationProvider; timeoutMs?: number } = {}) {
+export async function evaluateCases(input: unknown, corpus: CorpusConversation[], options: EvaluationProviderOptions = {}) {
+  const provenance = evaluationProviderProvenance(options)
   const bundle = structuredClone(input) as EvalBundle
   validate(bundle, corpus)
   const cases: Array<{ caseId: string; sourceConversationId: string; explicitInitialContext: boolean; turns: Array<{
@@ -120,7 +135,7 @@ export async function evaluateCases(input: unknown, corpus: CorpusConversation[]
   }
   const turns = cases.flatMap(c => c.turns)
   const sourceFiles = ['ai-interpreter.ts','engine.ts','turn-plan.ts','service-basket.ts']
-  return { schemaVersion: 1, mode: options.provider ? 'external_provider_real_motor' : 'controlled_interpretation_real_motor', comprehensionEvaluated: !!options.provider && turns.some(t => t.interpretationMode === 'ai'),
+  return { schemaVersion: 1, mode: options.provider ? 'external_provider_real_motor' : 'controlled_interpretation_real_motor', providerProvenance: provenance, comprehensionEvaluated: provenance.kind === 'openai_responses' && turns.some(t => t.interpretationMode === 'ai'),
     limitations: [options.provider ? 'External provider evaluated; fallback turns do not establish model comprehension.' : 'Annotated interpretation oracle; no real-model comprehension or style measurement.', 'Synthetic catalog and agenda; no production pricing, booking, batching or session-expiry proof.'],
     runtimeSources: sourceFiles.map(name => ({ path: 'src/conversational-bot/'+name, sha256: digest(readFileSync(new URL('../src/conversational-bot/'+name, import.meta.url))) })),
     casesPlanned: bundle.cases.length, turnsPlanned: bundle.cases.reduce((n,c) => n+c.turns.length,0), turnsRun: turns.length,
