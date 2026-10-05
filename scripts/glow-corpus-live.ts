@@ -16,9 +16,11 @@ export type LiveExpected = Expected & { introduced?: boolean; maxCalls?: number;
 type SampleEntry = { episodeId:string;sourceConversationId:string;sourceMessageId:string;sourceBodySha256:string;createdAt:string;
   fixtureId:string;body:string;privacyReviewed:boolean;sourceFlags:{privacyMarked:boolean;hasMedia:boolean;isInteractiveReply:boolean};
   contextMode:'ordered_prefix'|'isolated_adapted';category:string;expected:LiveExpected;fixtureGap?:string;manualReviewPending?:string[];
+  transmittedBodySha256?:string;clientNameSpans?:Array<{start:number;original:string;pseudonym:string}>;contextDependent?:boolean;
   counterfactualContinuation?:boolean;initialState?:Partial<Omit<DialogueState,'businessId'|'engine'|'schemaVersion'>> }
 export type LiveSample = {schemaVersion:1;sourceCorpusSha256:string;sourceCorpusPath?:string;sourcePrivacyMessageIds?:string[];fixtureVersion:string;fixtures:Record<string,EvalFixture & {identity?:DialogueIdentity}>;
-  pseudonyms:Record<string,string>;publicStaffNames:string[];limits:string[];entries:SampleEntry[]}
+  pseudonyms:Record<string,string>;publicStaffNames:string[];limits:string[];entries:SampleEntry[];
+  privacyPolicyVersion?:'client-name-spans-v1';reviewedClientNames?:Record<string,string[]>;allowedPseudonyms?:string[];priorJournals?:Array<{path:string;sha256:string}>}
 type LiveOptions = { mode:'controlled'|'openai_responses';journalPath:string;resume?:boolean;maxEntries?:number;fetchImpl?:typeof fetch;fingerprint?:()=>string;timeoutMs?:number }
 type TurnRecord = {key:string;episodeId:string;sourceConversationId:string;sourceMessageId:string;contextMode:string;category:string;
   fixtureGap:string|null;contextIncomplete:boolean;counterfactualContinuation:boolean;manualReviewPending:string[];stateAfter:DialogueState;
@@ -46,6 +48,10 @@ export function validateLiveSample(sample:LiveSample) {
   assert(sample?.schemaVersion===1 && typeof sample.sourceCorpusSha256==='string' && sample.fixtureVersion &&
     Array.isArray(sample.entries) && sample.entries.length>0 && sample.entries.length<=2101,'invalid sample')
   assert(Array.isArray(sample.publicStaffNames) && sample.pseudonyms && Array.isArray(sample.limits),'privacy/source declaration required')
+  if(sample.privacyPolicyVersion) {
+    assert(sample.privacyPolicyVersion==='client-name-spans-v1'&&sample.reviewedClientNames&&Array.isArray(sample.priorJournals)&&Array.isArray(sample.allowedPseudonyms),'versioned privacy review required')
+    assert(sample.allowedPseudonyms!.every(naturalName)&&Object.values(sample.pseudonyms).every(pseudonym=>sample.allowedPseudonyms!.includes(pseudonym)&&naturalName(pseudonym)), 'reviewed natural pseudonyms required')
+  }
   const keys=new Set<string>(), episodes=new Map<string,{time:number;conversation:string;fixture:string}>()
   for(const entry of sample.entries) {
     assert(entry.privacyReviewed===true,'explicit privacy review required')
@@ -62,6 +68,7 @@ export function validateLiveSample(sample:LiveSample) {
     assert(fixture && fixture.businessId.startsWith('qa-'),'QA fixture required')
     new Intl.DateTimeFormat('en',{timeZone:fixture.timezone})
     if(fixture.identity) {validateDialogueIdentity(fixture.identity);assert.equal(fixture.identity.businessId,fixture.businessId,'identity tenant')}
+    if(sample.privacyPolicyVersion)assert(!entry.initialState&&entry.contextMode==='ordered_prefix'&&entry.transmittedBodySha256===sha(entry.body),'corpus replay starts empty with transmitted hash')
     if(entry.initialState) assert(!previous && entry.contextMode==='isolated_adapted' &&
       !['businessId','engine','schemaVersion'].some(k=>Object.hasOwn(entry.initialState!,k)),'only explicit adapted initial context')
     assert(entry.expected && typeof entry.expected==='object','independent criteria required before traffic')
@@ -69,17 +76,74 @@ export function validateLiveSample(sample:LiveSample) {
     assert(Object.keys(entry.expected).every(k=>expectedKeys.includes(k)),'unknown expectation')
   }
 }
+const naturalName=(value:unknown):value is string=>typeof value==='string'&&value.length<=80&&value.trim()===value&&/^[\p{L}][\p{L}\p{M}'’ -]*$/u.test(value)&&value.split(/\s+/).length<=4
+const normalizedName=(value:string)=>value.normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().replace(/\s+/g,' ').trim()
+function verifiedTransmittedBody(sample:LiveSample,entry:SampleEntry,original:string) {
+  const spans=entry.clientNameSpans??[]
+  assert(Array.isArray(spans)&&spans.length<=20,'bounded name spans required')
+  if(sample.privacyPolicyVersion)assert(entry.transmittedBodySha256===sha(entry.body),'transmitted body hash differs')
+  if(!spans.length) {assert(original===entry.body,'source input/hash differs; transformed body requires name spans');return}
+  assert(sample.privacyPolicyVersion==='client-name-spans-v1','reviewed client transformation policy required')
+  const allowed=sample.reviewedClientNames?.[entry.sourceConversationId]??[]
+  let offset=0,rebuilt=''
+  for(const span of spans) {
+    assert(Number.isSafeInteger(span.start)&&span.start>=offset&&typeof span.original==='string'&&span.original.length<=100&&
+      /^[\p{L}][\p{L}\p{M}'’ -]*$/u.test(span.original)&&span.original.trim()===span.original,'bounded client name span required')
+    assert(allowed.includes(span.original),'explicit reviewed client name required')
+    const name=normalizedName(span.original)
+    assert(![...sample.publicStaffNames,...sample.fixtures[entry.fixtureId]!.professionals.map(staff=>staff.name)].some(staff=>(' '+name+' ').includes(' '+normalizedName(staff)+' ')), 'public staff cannot be replaced')
+    assert(![...sample.publicStaffNames,...sample.fixtures[entry.fixtureId]!.professionals.map(staff=>staff.name)].some(staff=>(' '+normalizedName(span.pseudonym)+' ').includes(' '+normalizedName(staff)+' ')),'pseudonym collides with public staff')
+    assert(span.pseudonym===sample.pseudonyms[entry.sourceConversationId]&&naturalName(span.pseudonym)&&sample.allowedPseudonyms?.includes(span.pseudonym),'consistent pseudonym required')
+    assert(original.slice(span.start,span.start+span.original.length)===span.original,'name span does not match original')
+    const before=original[span.start-1],after=original[span.start+span.original.length]
+    assert(!before||!/[\p{L}\p{N}_]/u.test(before),'name span starts inside a word')
+    assert(!after||!/[\p{L}\p{N}_]/u.test(after),'name span ends inside a word')
+    rebuilt+=original.slice(offset,span.start)+span.pseudonym;offset=span.start+span.original.length
+  }
+  rebuilt+=original.slice(offset)
+  assert(rebuilt===entry.body,'transformed body differs from reviewed name spans')
+}
+function priorJournalKeys(sample:LiveSample,currentJournal:string,real:boolean) {
+  const keys=new Set<string>(),pins=sample.priorJournals??[]
+  const paths=new Set(pins.map(pin=>resolve(pin.path)))
+  assert(paths.size===pins.length&&!paths.has(currentJournal),'unique prior journals excluding current required')
+  if(real) {
+    assert(sample.privacyPolicyVersion==='client-name-spans-v1'&&Array.isArray(sample.priorJournals),'versioned privacy and global prior journals required')
+    const discover=(directory:string):string[]=>existsSync(directory)?readdirSync(directory,{withFileTypes:true}).flatMap(item=>
+      item.isDirectory()?discover(resolve(directory,item.name)):item.isFile()&&item.name.endsWith('journal.jsonl')?[resolve(directory,item.name)]:[]):[]
+    const inventory=discover(privateRoot).filter(path=>path!==currentJournal)
+    assert(inventory.length===paths.size&&inventory.every(path=>paths.has(path)),'all private prior journals must be pinned')
+  }
+  for(const pin of pins) {
+    const path=resolve(pin.path)
+    if(real)assert(path.startsWith(privateRoot+sep),'prior journal must remain private')
+    const raw=readFileSync(path,'utf8');assert(sha(raw)===pin.sha256,'prior journal hash changed')
+    const records=raw.trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line)) as JournalRecord[]
+    for(const record of records)if(record.event==='started') {
+      assert(typeof record.key==='string'&&record.key.includes('/'),'prior attempt key required');keys.add(record.key)
+    }
+  }
+  return keys
+}
 export function verifyLiveSource(sample:LiveSample) {
   assert(sample.sourceCorpusPath && Array.isArray(sample.sourcePrivacyMessageIds),'pinned reviewed source required before traffic')
   const raw=readFileSync(sample.sourceCorpusPath,'utf8');assert(sha(raw)===sample.sourceCorpusSha256,'source corpus hash changed')
   const sources=raw.trim().split(String.fromCharCode(10)).map(line=>JSON.parse(line)) as Array<{conversationId:string;messages:Array<{messageId:string;direction:string;body:string;createdAt:string;hasMedia?:boolean;isInteractiveReply?:boolean}>}>
+  const gaps=new Set<string>(),previousIndices=new Map<string,number>()
   for(const entry of sample.entries) {
+    const inbound=sources.find(c=>c.conversationId===entry.sourceConversationId)?.messages.filter(m=>m.direction==='INBOUND')??[]
+    const sourceIndex=inbound.findIndex(m=>m.messageId===entry.sourceMessageId)
+    if(entry.contextMode==='ordered_prefix') {
+      if(sourceIndex!==(previousIndices.get(entry.episodeId)??-1)+1)gaps.add(keyOf(entry))
+      previousIndices.set(entry.episodeId,sourceIndex)
+    }
     const original=sources.find(c=>c.conversationId===entry.sourceConversationId)?.messages.find(m=>m.messageId===entry.sourceMessageId)
-    assert(original && original.direction==='INBOUND' && original.createdAt===entry.createdAt && sha(original.body)===entry.sourceBodySha256 &&
-      original.body===entry.body,'source input/hash differs; privacy edits require new reviewed manifest')
+    assert(original && original.direction==='INBOUND' && original.createdAt===entry.createdAt && sha(original.body)===entry.sourceBodySha256 ,'source input/hash differs')
+    verifiedTransmittedBody(sample,entry,original.body)
     assert(!!original.hasMedia===entry.sourceFlags.hasMedia && !!original.isInteractiveReply===entry.sourceFlags.isInteractiveReply &&
       sample.sourcePrivacyMessageIds.includes(entry.sourceMessageId)===entry.sourceFlags.privacyMarked,'source privacy flags differ')
   }
+  return gaps
 }
 function projectKey() {
   // Read only this project credential, never process.env, other profiles or an ambient client.
@@ -115,7 +179,9 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
   assert(options.mode!=='openai_responses' || !options.fetchImpl && !options.fingerprint && options.timeoutMs===undefined,'real mode uses the fixed project transport/fingerprint')
   assert(options.maxEntries===undefined || Number.isInteger(options.maxEntries) && options.maxEntries>0 && options.maxEntries<=2101,'invalid sample budget')
   const journalPath=resolve(options.journalPath)
-  if(options.mode==='openai_responses') assert(journalPath.startsWith(privateRoot+sep),'real journal must remain private in workspace')
+  if(options.mode==='openai_responses') assert(journalPath.startsWith(privateRoot+sep)&&journalPath.endsWith('journal.jsonl'),'real journal must remain private and discoverable')
+  const globalAttempts=priorJournalKeys(sample,journalPath,options.mode==='openai_responses')
+  const sourceGaps=sample.privacyPolicyVersion?verifyLiveSource(sample):new Set<string>()
   const fingerprint=options.fingerprint??liveRuntimeFingerprint, frozen=fingerprint(), digest=sha(JSON.stringify(sample))
   const prior:JournalRecord[]=existsSync(journalPath)?readFileSync(journalPath,'utf8').trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line)):[]
   if(prior.length) {
@@ -132,23 +198,28 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
     try {writeSync(fd,JSON.stringify(record)+'\n',undefined,'utf8');fsyncSync(fd)} finally {closeSync(fd)}
     records.push(record)
   }
-  const checkFrozen=()=>assert(fingerprint()===frozen && sha(JSON.stringify(sample))===digest,'runtime/manifest fingerprint changed; stop before another request')
+  const checkFrozen=()=>{
+    assert(fingerprint()===frozen&&sha(JSON.stringify(sample))===digest,'runtime/manifest fingerprint changed; stop before another request')
+    priorJournalKeys(sample,journalPath,options.mode==='openai_responses')
+  }
   try {
     if(!prior.length) append({event:'header',manifestSha256:digest,runtimeFingerprint:frozen,mode:options.mode,
       model:'gpt-6-luna',endpoint,store:false,fixtureVersion:sample.fixtureVersion,createdAt:new Date().toISOString()})
     const states=new Map<string,DialogueState>(), incomplete=new Set<string>()
     const completed=new Map(prior.filter(r=>r.event==='completed').map(r=>[String(r.key),r.turn as TurnRecord]))
     const skipped=new Set(prior.filter(r=>r.event==='skipped').map(r=>String(r.key)))
-    if(options.mode==='openai_responses') verifyLiveSource(sample)
+    if(options.mode==='openai_responses'&&!sample.privacyPolicyVersion) verifyLiveSource(sample)
     const apiKey=options.mode==='controlled'?'offline-test-key':projectKey()
     let remaining=options.maxEntries??sample.entries.length
     for(const entry of sample.entries) {
       const key=keyOf(entry),fixture=sample.fixtures[entry.fixtureId]!
+      if(sourceGaps.has(key))incomplete.add(entry.episodeId)
       if(completed.has(key)) {states.set(entry.episodeId,completed.get(key)!.stateAfter);if(completed.get(key)!.contextIncomplete)incomplete.add(entry.episodeId);continue}
       if(skipped.has(key)) {incomplete.add(entry.episodeId);continue}
       if(remaining<=0)break
       checkFrozen()
-      const reasons=privacyReasons(entry)
+      const reasons=[...(globalAttempts.has(key)?['previously_attempted']:[]),...privacyReasons(entry),
+        ...(entry.contextDependent&&(incomplete.has(entry.episodeId)||entry.counterfactualContinuation)?['historical_context_unbound']:[])]
       if(reasons.length) {append({event:'skipped',key,episodeId:entry.episodeId,reasons});incomplete.add(entry.episodeId);continue}
       const state=states.get(entry.episodeId)??parseDialogueState({...initialDialogueState(fixture.businessId),...entry.initialState},fixture.businessId,fixture.timezone)
       append({event:'started',key,episodeId:entry.episodeId,sourceBodySha256:entry.sourceBodySha256,transmittedBodySha256:sha(entry.body),
@@ -225,6 +296,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   const sample=JSON.parse(readFileSync(samplePath,'utf8')) as LiveSample
   validateLiveSample(sample)
   if(action==='--validate' && sample.sourceCorpusPath)verifyLiveSource(sample)
+  if(action==='--validate' && sample.privacyPolicyVersion)priorJournalKeys(sample,resolve(privateRoot,'__validation_not_a_journal__'),true)
   if(action==='--validate')console.log(JSON.stringify({entries:sample.entries.length,privacySkipped:sample.entries.filter(e=>privacyReasons(e).length).length,
     manifestSha256:sha(JSON.stringify(sample)),fixtureVersion:sample.fixtureVersion,networkExecuted:false}))
   else {
