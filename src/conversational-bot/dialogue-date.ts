@@ -61,10 +61,7 @@ export function resolveDialogueDate(expression: string, referenceDate: string | 
     candidates.push({ date: addDays(referenceDate, days), source: 'relative' })
   }
   const weekdayPattern = /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/g
-  for (const match of text.matchAll(weekdayPattern)) {
-    if (!referenceDate) return { kind: 'ambiguous', reason: 'missing_reference' }
-    candidates.push({ date: addDays(referenceDate, (weekdays[match[1]!]! - weekday(referenceDate) + 7) % 7), source: 'weekday' })
-  }
+  const weekdayMentions = [...text.matchAll(weekdayPattern)]
   const isoPattern = /(?<![\d/-])(\d{4})-(\d{2})-(\d{2})(?![\d/-])/g
   for (const match of text.matchAll(isoPattern)) {
     const year = Number(match[1]), month = Number(match[2]), day = Number(match[3])
@@ -83,8 +80,20 @@ export function resolveDialogueDate(expression: string, referenceDate: string | 
     if (referenceDate && date < referenceDate) return { kind: 'invalid', reason: 'past_date' }
     candidates.push({ date, source: 'numeric' })
   }
+  const explicitDates = candidates.filter(candidate => candidate.source === 'iso' || candidate.source === 'numeric')
+  for (const mention of weekdayMentions) {
+    const day = weekdays[mention[1]!]!
+    if (explicitDates.length) {
+      // An explicit calendar date owns its weekday qualifier; do not invent the nearest week.
+      if (explicitDates.some(candidate => weekday(candidate.date) !== day))
+        return { kind: 'ambiguous', reason: 'contradictory_dates' }
+    } else {
+      if (!referenceDate) return { kind: 'ambiguous', reason: 'missing_reference' }
+      candidates.push({ date: addDays(referenceDate, (day - weekday(referenceDate) + 7) % 7), source: 'weekday' })
+    }
+  }
   if (!candidates.length) return { kind: 'unsupported', reason: 'unsupported_expression' }
   if (new Set(candidates.map(candidate => candidate.date)).size !== 1) return { kind: 'ambiguous', reason: 'contradictory_dates' }
   return { kind: 'resolved', date: candidates[0]!.date,
-    source: new Set(candidates.map(candidate => candidate.source)).size === 1 ? candidates[0]!.source : 'mixed' }
+    source: explicitDates.length && weekdayMentions.length ? 'mixed' : new Set(candidates.map(candidate => candidate.source)).size === 1 ? candidates[0]!.source : 'mixed' }
 }

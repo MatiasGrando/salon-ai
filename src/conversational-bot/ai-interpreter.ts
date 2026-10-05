@@ -185,7 +185,10 @@ function groundedBasketMember(member: BasketMemberProposal, services: readonly D
       exact.length === 1 && member.serviceIds.includes(exact[0]!.id)) return { ...member, mode: 'single', serviceIds: [exact[0]!.id] }
   // Keep an unsupported proposal until the motor can bind its concrete question to the resulting member.
   // It is not a selected basket and cannot authorize an estimate or availability.
-  if (member.mode === 'single' && assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services).kind === 'confirm') return member
+  if (member.mode === 'single') {
+    const proof = assessServiceIdentity(member.evidence, member.serviceIds[0]!, member.confidence, services)
+    if (proof.kind === 'supported' || proof.kind === 'confirm') return member
+  }
   let matches = catalogEvidenceMatches(meaning, services)
   // A genuinely ambiguous model group supplies catalog anchors, not a business-specific synonym table.
   // Unknown surrounding words cannot hide related variants sharing the grounded category anchor.
@@ -425,10 +428,17 @@ export async function respondWithAiInterpreter(
     modelFraming = validated.modelFraming
     if (authored) replyRoute = 'first_call'
   }
+  // A partial booking draft changes acquisition context, not verified agenda/business facts.
+  // Its question still belongs to the server; only the original factual-free frame is reusable.
+  const partialAcquisition = candidate?.intent === 'booking' && state.pending === 'service' &&
+    response.state.pending === 'service' && selectionBasket(state).members.length === 0 &&
+    selectionBasket(response.state).members.length === 0 && availabilityCalls === 0 &&
+    Boolean(turnPlan?.operations.length) && turnPlan!.operations.every(operation =>
+      ['date', 'professional', 'time', 'time_preference', 'time_clarification', 'name'].includes(operation.kind))
   // Prepared body ownership never transfers to the model. Validate the whole draft
   // against its original facts, then reuse only a factual-free opening.
   // Final neutral facts remain immutable; they are not the model's frame contract.
-  if (!authored && !intakeValidation && !reason && response.replyPrepared && candidate?.firstReply != null && firstReplyFacts !== undefined &&
+  if (!authored && !intakeValidation && !reason && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
       !response.proposal && !response.bookingCommand && !response.state.sandboxReservation && !uncertain && !typoService && !response.state.questionContext?.matchCandidateIds) {
     const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
@@ -447,7 +457,7 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
-  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts && !response.replyPrepared) {
+  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts && !response.replyPrepared && !partialAcquisition) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++

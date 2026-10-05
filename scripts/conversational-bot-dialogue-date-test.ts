@@ -47,4 +47,16 @@ rejected('mañana', '2026-02-30', 'invalid', 'invalid_reference')
 rejected('a fin de mes', ref, 'unsupported', 'unsupported_expression')
 rejected('ayer', ref, 'unsupported', 'unsupported_expression')
 rejected('17:00', ref, 'unsupported', 'unsupported_expression')
+
+// Weekday is a qualifier of an explicit date, not a second implicit nearest-week date.
+resolved('sábado 29/08/2026','2026-08-21','2026-08-29')
+resolved('sábado 2026-08-29','2026-08-21','2026-08-29')
+resolved('sábado 29/08','2026-08-21','2026-08-29')
+resolved('sábado 29/08/2026',null,'2026-08-29')
+assert.deepEqual(resolveDialogueDate('sábado 29/08/2026','2026-08-21'),{kind:'resolved',date:'2026-08-29',source:'mixed'})
+rejected('viernes 29/08/2026','2026-08-21','ambiguous','contradictory_dates')
+rejected('sábado 29/08/2026 o 05/09/2026','2026-08-21','ambiguous','contradictory_dates')
+rejected('hoy sábado 29/08/2026','2026-08-21','ambiguous','contradictory_dates')
+rejected('sábado 29/08/2026','2026-08-30','invalid','past_date')
+
 console.log('dialogue calendar date resolver: OK')

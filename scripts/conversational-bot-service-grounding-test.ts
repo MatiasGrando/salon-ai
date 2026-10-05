@@ -24,6 +24,16 @@ async function check(name: string, test: () => Promise<void>) {
   try { await test(); console.log('PASS ' + name) }
   catch (error) { failures++; console.error('FAIL ' + name + ': ' + (error instanceof Error ? error.message : String(error))) }
 }
+await check('captured exact standalone service is not widened to a composite catalog neighbor', async () => {
+  services=[{...cut,id:'beard',name:'Barba',aliases:[]},{...cut,id:'combo',name:'Corte y barba',aliases:[]}]
+  const before=agendaCalls
+  const result=await say({...initial(),serviceId:'combo',pending:'date'},'Es solo barba',
+    {kind:'basket',mutation:'set',scope:'all',targetMemberIds:[],members:[
+      {mode:'single',serviceIds:['beard'],...ev('barba',.99)}],...ev('Es solo barba',.99)})
+  assert.equal(result.state.serviceId,'beard')
+  assert.deepEqual(result.state.basket?.members.map(m=>m.serviceIds),[['beard']])
+  noEffect(result,before)
+})
 await check('bounded full-label typo agrees with validated AI identity and retains original evidence', async () => {
   const result = await say(initial(), 'cortee hombre', single('cut', 'cortee hombre'))
   assert.equal(result.state.serviceId, 'cut')

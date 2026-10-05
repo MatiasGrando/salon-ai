@@ -107,4 +107,21 @@ await assert.rejects(runLiveSample(sample,{mode:'controlled',fetchImpl:pendingFe
   fingerprint:()=> 'frozen-v1',timeoutMs:1,resume:true}),/previous in-flight/)
 assert.equal(pendingCalls,1,'timeout with an uncertain transport never permits automatic resend')
 
+
+// Captured failure class: an exact companion remains present in a partial basket.
+const partial=structuredClone(sample)
+partial.entries=[{...partial.entries[0]!,body:'Gracias',contextMode:'isolated_adapted',
+  initialState:{pending:'service',basket:{version:1,nextMemberId:3,members:[
+    {memberId:'m1',mode:'single',serviceIds:['cut'],evidence:'Corte'},
+    {memberId:'m2',mode:'unresolved',serviceIds:[],evidence:'otro procedimiento'}]}},
+  expected:{requiredServiceIds:['cut'],proposal:false}}]
+const partialResult=await runLiveSample(partial,{mode:'controlled',fetchImpl:fake,
+  journalPath:join(dir,'partial-basket.jsonl'),fingerprint:()=> 'frozen-v1'})
+assert.equal(partialResult.turns[0]!.failures.includes('requiredServiceIds'),false)
+assert.equal(partialResult.turns[0]!.stateAfter.basket!.members[1]!.mode,'unresolved')
+partial.entries[0]!.expected={requiredServiceIds:['absent'],proposal:false}
+const absentResult=await runLiveSample(partial,{mode:'controlled',fetchImpl:fake,
+  journalPath:join(dir,'absent-companion.jsonl'),fingerprint:()=> 'frozen-v1'})
+assert.equal(absentResult.turns[0]!.failures.includes('requiredServiceIds'),true)
+
 console.log('Live sample journal: PASS (privacy, real-vs-controlled, scoped POST, token usage, no retry, checkpoint, crash/fingerprint fencing)')

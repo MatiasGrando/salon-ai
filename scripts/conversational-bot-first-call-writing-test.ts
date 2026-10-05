@@ -134,4 +134,63 @@ assert.equal(capturedResult.interpretation.replyValidation?.firstCall.reason, 'i
 assert.equal(capturedResult.reply.match(/hol+a+/gi)?.length, 1)
 assert.equal(capturedResult.state.serviceId, null); assert.equal(capturedResult.proposal, null)
 assert.equal(capturedResult.bookingCommand, undefined); assert.equal(agenda, 0)
+
+// Controlled regressions from the partial-acquisition capture, not new model comprehension.
+let boundaryFailures=0
+for(const introduced of [false,true])for(const withTime of [false,true]) {
+  let partialCalls=0
+  const partialProvider=Object.assign(async(input:AiInterpretationInput)=>{
+    partialCalls++
+    return {...base,turnPlan:{version:1,operations:[
+      {kind:'date',expression:'mañana',value:'2026-10-04',evidence:'mañana',confidence:1},
+      ...(withTime?[{kind:'time',value:'15:00',evidence:'15hs',confidence:1}]:[])]},
+      firstReply:{salutation:introduced?null:'greeting',opening:'Bien, gracias por preguntar.',
+        factIds:input.firstReplyFacts!.map(f=>f.id),closing:null}}
+  },{respond:async()=>{partialCalls++;throw new Error('No aesthetic response call')}}) as AiInterpretationProvider
+  const partialMessage=withTime?'quiero un turno mañana a las 15hs':'quiero un turno mañana'
+  const partial=await respondWithAiInterpreter(context,{...state,introduced},partialMessage,port,partialProvider)
+  try {
+    assert.equal(partialCalls,1);assert.equal(partial.interpretation.aiCalls,1)
+    assert.equal(partial.state.date,'2026-10-04');assert.equal(partial.state.serviceId,null)
+    assert.equal(partial.state.requestedTime,withTime?'15:00':null)
+    assert.match(partial.reply,/Bien, gracias por preguntar/);assert.match(partial.reply,/¿Qué servicio necesitás/)
+    assert.equal(partial.interpretation.copyMode,'ai');assert.equal(partial.proposal,null)
+  }catch(error){boundaryFailures++;console.error('FAIL partial acquisition '+introduced+'/'+withTime+': '+String(error))}
+}
+// Unsafe framing must remain canonical, not trigger a replacement style request.
+for(const opening of ['Soy Otra','Cuesta $100','Corte']) {
+  let unsafeCalls=0
+  const unsafeProvider=Object.assign(async(input:AiInterpretationInput)=>{
+    unsafeCalls++
+    return {...base,turnPlan:{version:1,operations:[{kind:'date',expression:'mañana',
+      value:'2026-10-04',evidence:'mañana',confidence:1}]},
+      firstReply:{salutation:null,opening,factIds:input.firstReplyFacts!.map(f=>f.id),closing:null}}
+  },{respond:async()=>{unsafeCalls++;throw new Error('No replacement style call')}}) as AiInterpretationProvider
+  const unsafe=await respondWithAiInterpreter(context,state,'quiero un turno mañana',port,unsafeProvider)
+  assert.equal(unsafeCalls,1);assert.equal(unsafe.state.date,'2026-10-04')
+  assert(unsafe.interpretation.replyValidation)
+  assert.equal(unsafe.interpretation.replyValidation.firstCall.status,'rejected')
+  assert.equal(unsafe.interpretation.copyMode,'fallback');assert.match(unsafe.reply,/¿Qué servicio necesitás/)
+  assert.equal(unsafe.bookingCommand,undefined);assert.equal(unsafe.proposal,null)
+}
+// A public professional request is an independent hint while service is still missing.
+let professionalCalls=0
+const professionalProvider=Object.assign(async(input:AiInterpretationInput)=>{
+  professionalCalls++
+  return {...base,turnPlan:{version:1,operations:[
+    {kind:'date',expression:'mañana',value:'2026-10-04',evidence:'mañana',confidence:1},
+    {kind:'professional',mode:'specific',mention:'Rama',evidence:'con Rama',confidence:1}]},
+    firstReply:{salutation:null,opening:'Te ayudo a buscarlo.',factIds:input.firstReplyFacts!.map(f=>f.id),closing:null}}
+},{respond:async()=>{professionalCalls++;throw new Error('No aesthetic response call')}}) as AiInterpretationProvider
+const professional=await respondWithAiInterpreter(context,{...state,introduced:true},'un turno con Rama mañana',port,professionalProvider)
+assert.equal(professionalCalls,1);assert.equal(professional.state.professionalNameHint,'rama')
+assert.equal(professional.state.date,'2026-10-04');assert.equal(professional.state.serviceId,null)
+assert.equal(professional.interpretation.copyMode,'ai')
+try {
+  assert.match(requests[0]!.instructions,/Interpretación de entidades y contexto:/)
+  assert.match(requests[0]!.instructions,/Evidencia literal mínima:/)
+}catch(error){boundaryFailures++;console.error('FAIL modular entity guide: '+String(error))}
+assert.equal(agenda,0)
+assert.equal(boundaryFailures,0,'partial acquisition and modular guidance regressions')
+
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')

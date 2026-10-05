@@ -94,7 +94,8 @@ function projectKey() {
 function score(entry:SampleEntry,state:DialogueState,diagnostics:InterpretationDiagnostics,reply:string,proposal:boolean) {
   const failed:string[]=[]
   for(const [key,value] of Object.entries(entry.expected.state??{})) if(!isDeepStrictEqual(state[key as keyof DialogueState],value)) failed.push('state.'+key)
-  if(entry.expected.requiredServiceIds?.some(id=>!basketServiceIds(state).includes(id))) failed.push('requiredServiceIds')
+  const exactMemberIds=state.basket ? state.basket.members.filter(member=>member.mode==='single').flatMap(member=>member.serviceIds) : state.serviceId ? [state.serviceId] : []
+  if(entry.expected.requiredServiceIds?.some(id=>!exactMemberIds.includes(id))) failed.push('requiredServiceIds')
   if(entry.expected.timePreference!==undefined && !isDeepStrictEqual(state.timePreference,entry.expected.timePreference)) failed.push('timePreference')
   if(entry.expected.basketServiceIds && !isDeepStrictEqual([...basketServiceIds(state)].sort(),[...entry.expected.basketServiceIds].sort())) failed.push('basketServiceIds')
   if(entry.expected.proposal!==undefined && entry.expected.proposal!==proposal) failed.push('proposal')
