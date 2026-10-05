@@ -1,3 +1,4 @@
+import { assessServiceIdentity } from './service-request.js'
 import { stageContent } from '../bot-options/domain/service-content.js'
 import { hasBasketSelection, selectionBasket } from './service-basket.js'
 import type { TurnPlan } from './turn-plan.js'
@@ -114,7 +115,14 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   if (choiceAnswer) {
     const eligible = services.filter(service => old.options.some(option => option.id === service.id && normalizeAnswer(option.label) === normalizeAnswer(service.name)))
     if (eligible.length !== old.options.length) return missing('la información vigente de ese servicio')
-    if (old.candidateId && !/[?¿]/.test(message) && affirmativeMatchAnswer(message)) selected = eligible.filter(service => service.id === old.candidateId)
+    // A current, evidenced target is already a read decision, not a new closed-answer search.
+    // Identity proof remains catalog-wide: a generic or undocumented qualifier cannot hide
+    // behind the proposed singleton, and every previously presented option stays revalidated.
+    const specificTarget = target.serviceIds.length === 1 && selected.length === 1 &&
+      eligible.some(service => service.id === selected[0]!.id) &&
+      assessServiceIdentity(message, selected[0]!.id, 1, services).kind === 'supported'
+    if (specificTarget) selected = eligible.filter(service => service.id === target.serviceIds[0])
+    else if (old.candidateId && !/[?¿]/.test(message) && affirmativeMatchAnswer(message)) selected = eligible.filter(service => service.id === old.candidateId)
     else {
       const pool = old.options.length ? eligible : services
       const result = matchPresentedServiceAnswer({ businessId: state.businessId, category: 'service' }, message, pool.map(service => ({ businessId: state.businessId, category: 'service', id: service.id, label: service.name })))

@@ -81,6 +81,63 @@ try {
   assert.equal(yes.state.informationFocus?.serviceId, 'cut')
   assert.equal(yes.bookingCommand, undefined)
 
+  // A grounded, specific information target must not become a generic menu again.
+  // These controlled proposals test the reader, not live model understanding.
+  const variantMessage = 'corte de mujer'
+  let variantProviderCalls = 0
+  const variantAgendaBefore = agendaCalls
+  const variantRead = (state: DialogueState, message: string, serviceId = 'woman', dialoguePort = port) =>
+    respondWithAiInterpreter(context, state, message, dialoguePort, async () => {
+      variantProviderCalls++
+      return { ...legacy, turnPlan: { version: 1, operations: [info(message, service([serviceId], 'price'))] },
+        communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: message,
+          confidence: 1, mention: null, operationIndexes: [0] }] } }
+    })
+  const variant = await variantRead(namelessPrice.state, variantMessage)
+  assert.equal(variant.state.informationFocus?.serviceId, 'woman', 'retain the grounded specific information target')
+  assert.equal(variant.state.informationFocus?.awaitingChoice, false)
+  assert.match(variant.reply, /Corte mujer:[\s\S]*37[.,]?000/)
+  assert.doesNotMatch(variant.reply, /Corte hombre|Corte y barba/)
+  assert.deepEqual(selectionBasket(variant.state), selectionBasket(namelessPrice.state))
+  assert.equal(variant.state.serviceId, namelessPrice.state.serviceId)
+  assert.equal(variant.proposal, null)
+  assert.equal(variant.bookingCommand, undefined)
+  assert.equal(variantProviderCalls, 1)
+  assert.equal(variant.interpretation.aiCalls, 1)
+  assert.equal(agendaCalls, variantAgendaBefore)
+  for (const [message, targetId] of [
+    ['corte', 'woman'],
+    ['corte de mujer sin lavado', 'woman'],
+    ['no corte de mujer', 'woman'],
+    ['corte de mujer', 'cut']
+  ]) {
+    const unresolved = await variantRead(namelessPrice.state, message!, targetId!)
+    assert.equal(unresolved.state.informationFocus?.serviceId, null, 'an ID cannot hide ambiguous, qualified or contradictory evidence')
+    assert.equal(unresolved.state.informationFocus?.awaitingChoice, true)
+    assert.deepEqual(selectionBasket(unresolved.state), selectionBasket(namelessPrice.state))
+    assert.equal(unresolved.state.serviceId, null)
+    assert.equal(unresolved.proposal, null)
+    assert.equal(unresolved.bookingCommand, undefined)
+  }
+  const foreignVariant = await variantRead(namelessPrice.state, variantMessage, 'foreign')
+  assert.equal(foreignVariant.interpretation.reason, 'invalid_output')
+  assert.equal(foreignVariant.state.serviceId, null)
+  assert.equal(foreignVariant.proposal, null)
+  const currentWoman = services.find(item => item.id === 'woman')!, currentWomanName = currentWoman.name
+  try {
+    currentWoman.name = 'Identidad publicada nueva'
+    const staleVariant = await variantRead(namelessPrice.state, variantMessage)
+    assert.notEqual(staleVariant.state.informationFocus?.serviceId, 'woman', 'the old option cannot identify a renamed catalog entry')
+    assert.doesNotMatch(staleVariant.reply, /37[.,]?000/)
+  } finally { currentWoman.name = currentWomanName }
+  const removedVariant = await variantRead(namelessPrice.state, variantMessage, 'woman', {
+    ...port, catalog: async () => services.filter(item => item.id !== 'woman')
+  })
+  assert.equal(removedVariant.interpretation.reason, 'invalid_output')
+  assert.doesNotMatch(removedVariant.reply, /37[.,]?000/)
+  assert.equal(agendaCalls, variantAgendaBefore)
+
+
   const detail = await say(initial, '¿Me podés dar más info sobre baño de crema?', [info('info sobre baño de crema', service(['cream']))])
   assert.equal(detail.interpretation.mode, 'ai')
   assert.match(detail.reply, /Tratamiento hidratante/)
@@ -131,6 +188,26 @@ try {
   assert.equal(sideChoice.state.date, active.date)
   assert.deepEqual(sideChoice.state.timePreference, active.timePreference)
   assert.equal(sideChoice.state.professionalNameHint, 'cin')
+  const lateralVariantBefore = variantProviderCalls
+  const lateralVariant = await variantRead(sidePrice.state, variantMessage)
+  assert.equal(lateralVariant.state.informationFocus?.serviceId, 'woman')
+  assert.equal(lateralVariant.state.informationFocus?.awaitingChoice, false)
+  assert.match(lateralVariant.reply, /Corte mujer:[\s\S]*37[.,]?000/)
+  assert.deepEqual(selectionBasket(lateralVariant.state), selectionBasket(active), 'a typed information target never resolves a booking companion')
+  for (const field of ['serviceId', 'date', 'customerName', 'professionalNameHint', 'timePreference'] as const)
+    assert.deepEqual(lateralVariant.state[field], active[field])
+  assert.equal(lateralVariant.proposal, null)
+  assert.equal(lateralVariant.bookingCommand, undefined)
+  assert.equal(variantProviderCalls, lateralVariantBefore + 1)
+  const currentWomanPrice = currentWoman.price
+  try {
+    currentWoman.price = 41000
+    const currentVariantPrice = await variantRead(namelessPrice.state, variantMessage)
+    assert.equal(currentVariantPrice.state.informationFocus?.serviceId, 'woman')
+    assert.match(currentVariantPrice.reply, /41[.,]?000/)
+    assert.doesNotMatch(currentVariantPrice.reply, /37[.,]?000/)
+    assert.equal(currentVariantPrice.state.serviceId, null)
+  } finally { currentWoman.price = currentWomanPrice }
   const missing = await say(sideChoice.state, '¿Tienen Facebook?', [info('Facebook', business(['BUSINESS_INFO']))])
   assert.deepEqual(selectionBasket(missing.state), selectionBasket(active))
   assert.doesNotMatch(missing.reply, /presupuesto/)
