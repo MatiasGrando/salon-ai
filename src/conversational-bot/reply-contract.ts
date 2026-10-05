@@ -20,25 +20,32 @@ export type ReplyValidation = {
   providedCount: number
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation }
-export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean }
+export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string }
 
 export const REPLY_DRAFT_SCHEMA = {
-  type: ['object', 'null'], additionalProperties: false, required: ['opening', 'factIds', 'closing', 'variantChoices'],
+  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices'],
   properties: {
+    salutation: { type: ['string', 'null'], enum: ['greeting', null] },
     opening: { type: ['string', 'null'] },
     factIds: { type: 'array', items: { type: 'string' } },
     closing: { type: ['string', 'null'] },
     variantChoices: { type: ['array', 'null'], items: { type: 'object', additionalProperties: false, required: ['factId', 'variantId'], properties: { factId: { type: 'string' }, variantId: { type: 'string' } } } }
   }
 } as const
-export const REPLY_CONTRACT_INSTRUCTIONS =
-  'replyContract define el rol y la propiedad de la presentación. ' +
-  'La introducción configurada pertenece al servidor: con server_pending o server_complete no agregues saludo ni identidad. opening puede responder charla concreta sin presentación. ' +
-  'Primero atendé la respuesta social o intención concreta del mensaje, luego los hechos verificados y sólo la continuación necesaria. Podés variar naturalmente transiciones y charla según el rol, sin frases obligatorias. Las preguntas sociales no están prohibidas globalmente. ' +
-  'Incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. ' +
-  'Si hay next debe ir al final y closing es null. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. ' +
-  'opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas. ' +
-  'Si no necesitás encuadre, ambos son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
+/** Shared writing guide: the model owns framing choices, not identity, facts or effects. */
+export const REPLY_COMPOSITION_GUIDE = [
+  'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
+  'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
+  'Cuerpo material: incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
+  'Continuación pertinente: si hay next debe ir al final y closing es null. No agregues otra pregunta de adquisición o confirmación en opening. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. Si no necesitás encuadre, salutation/opening/closing son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
+] as const
+export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ')
+
+/** Interpretation shares the writing policy, but its facts precede semantic updates. */
+export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
+  'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. ' +
+  'Usá todos los factIds originales en orden y closing null cuando hay next. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null. ' +
+  'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante charla conservá la pregunta pendiente; pedidos ajenos se encauzan brevemente a ayuda del local. '
 
 export function replyContract(role: ReplyRole, identityAvailable: boolean, introduced: boolean,
   facts: readonly ReplyFact[], neutral = false): ReplyContract {
@@ -60,14 +67,18 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null
   const providedCount = Array.isArray(value?.factIds) ? Math.min(value.factIds.length, 101) : 0
   const selectedVariants = new Map<string, string>()
+  // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
+  const salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
+    ...(!reason ? { openingText: [salutation, value?.opening].filter(part => typeof part === 'string' && part.trim()).join('\n') } : {}),
     modelFraming: Boolean(text && [value?.opening, value?.closing]
-      .some(part => typeof part === 'string' && part.trim()) || text && selectedVariants.size),
+      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation)),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).sort().join(',')) || !Array.isArray(value.factIds)) return result('invalid_shape')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation').sort().join(',')) || !Array.isArray(value.factIds)) return result('invalid_shape')
+  if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return result('invalid_shape')
   if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
       value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
   if (JSON.stringify(value.factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
@@ -90,9 +101,9 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => typeof part === 'string' && /[\d$€]|https?:|www\./i.test(part))) return result('unverified_value')
   if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return result('catalog_in_frame')
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
-  if (contract.introduction !== 'none' && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
-  if (contract.introduction === 'server_pending' && framing.some(part => typeof part === 'string' && /\bhol+a\b/.test(normalized(part)))) return result('identity_in_frame')
-  const text = [value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
+  if ((contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
+  if ((contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\bhol+a\b/.test(normalized(part)))) return result('identity_in_frame')
+  const text = [salutation, value.opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
 }

@@ -95,6 +95,23 @@ test('deterministic menu and preview keep identity and prepared provenance',asyn
  const channelCopyMode:ConversationAiDiagnostic['copyMode']=diagnostic.copyMode
  assert.equal(channelCopyMode,'prepared')
 })
+test('typed greeting preserves social acknowledgement on prepared concrete changes',async()=>{
+ for(const introduced of [false,true]){
+  const result=await say({...initial(),introduced},'hola cómo están, quiero Corte',[service],
+   {salutation:'greeting',opening:'Bien, gracias por preguntar.',factIds:['next'],closing:null})
+  assert.match(result.reply,/Bien, gracias por preguntar/);assert.match(result.reply,/día/)
+  assert.equal(result.reply.match(/hol+a/gi)?.length,1)
+  assert.equal(result.reply.match(/Soy Alba, de Local/g)?.length??0,introduced?0:1)
+  assert.equal(result.state.serviceId,'cut');assert.equal(result.proposal,null);assert.equal(result.bookingCommand,undefined)
+ }
+})
+test('typed social framing does not replace grounded typo identity proof',async()=>{
+ const result=await say(initial(),'hola cómo están, quiero Cortee',[{...service,evidence:'Cortee'}],
+  {salutation:'greeting',opening:'Bien, gracias por preguntar.',factIds:['next'],closing:null})
+ assert.match(result.reply,/Bien, gracias por preguntar/);assert.match(result.reply,/día/)
+ assert.equal(result.state.serviceId,'cut');assert.equal(result.reply.match(/hol+a/gi)?.length,1)
+ assert.equal(result.proposal,null);assert.equal(result.bookingCommand,undefined)
+})
 let failures=0
 for(const item of cases){try{await item.run();console.log('PASS '+item.name)}catch(error){failures++;console.error('FAIL '+item.name,error)}}
 assert.equal(failures,0)

@@ -169,7 +169,7 @@ console.log('lateral context and date/professional correction preserve companion
     calls++
     return { intent: input.message.includes('turno') ? 'booking' : 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
       turnPlan: { version: 1, operations: [] },
-      firstReply: { opening: 'Bien, gracias por preguntar.', closing: null, factIds: input.firstReplyFacts.map((fact: any) => fact.id) } }
+      firstReply: { salutation: 'greeting', opening: 'Bien, gracias por preguntar.', closing: null, factIds: input.firstReplyFacts.map((fact: any) => fact.id) } }
   }, { respond: async () => { calls++; throw new Error('prepared intake must not buy another style call') } })
   const h = harness(false, async () => ({ context, port: { ...port, availability: async () => { agenda++; return { professionals: [], slots: [] } } } }), provider)
   await h.send('hola muchachos'); await h.send('como estan'); await h.send('queria un turno')

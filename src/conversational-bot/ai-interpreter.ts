@@ -434,7 +434,7 @@ export async function respondWithAiInterpreter(
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
     replyValidation.firstCall = frame.validation
     if (frame.validation.status === 'accepted') {
-      const opening = (candidate.firstReply as { opening: string | null }).opening
+      const opening = frame.openingText
       if (opening?.trim()) {
         authored = [opening, ...finalFacts.map(fact => fact.text)].join('\n')
         modelFraming = true
