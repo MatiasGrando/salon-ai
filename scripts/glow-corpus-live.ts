@@ -12,19 +12,20 @@ import { validateDialogueIdentity, type DialogueIdentity } from '../src/conversa
 import { basketServiceIds } from '../src/conversational-bot/service-basket.js'
 import { fixturePort, type EvalFixture, type Expected } from './glow-offline-eval.js'
 
+export type CurrentQaPolicy = {version:'bounded-current-qa-v1';maxInputs:number;maxRequests:number;deadlineAt:string}
 export type LiveExpected = Expected & { introduced?: boolean; maxCalls?: number; copyMode?: InterpretationDiagnostics['copyMode']; requiredServiceIds?:string[]; timePreference?:DialogueState['timePreference'] }
 type SampleEntry = { episodeId:string;sourceConversationId:string;sourceMessageId:string;sourceBodySha256:string;createdAt:string;
   fixtureId:string;body:string;privacyReviewed:boolean;sourceFlags:{privacyMarked:boolean;hasMedia:boolean;isInteractiveReply:boolean};
   contextMode:'ordered_prefix'|'isolated_adapted';category:string;expected:LiveExpected;fixtureGap?:string;manualReviewPending?:string[];
   transmittedBodySha256?:string;clientNameSpans?:Array<{start:number;original:string;pseudonym:string}>;contextDependent?:boolean;
-  counterfactualContinuation?:boolean;initialState?:Partial<Omit<DialogueState,'businessId'|'engine'|'schemaVersion'>> }
-export type LiveSample = {schemaVersion:1;sourceCorpusSha256:string;sourceCorpusPath?:string;sourcePrivacyMessageIds?:string[];fixtureVersion:string;fixtures:Record<string,EvalFixture & {identity?:DialogueIdentity}>;
+  counterfactualContinuation?:boolean;contextFailureCriteria?:string[];initialState?:Partial<Omit<DialogueState,'businessId'|'engine'|'schemaVersion'>> }
+export type LiveSample = {schemaVersion:1;qaPolicy?:CurrentQaPolicy;sourceCorpusSha256:string;sourceCorpusPath?:string;sourcePrivacyMessageIds?:string[];fixtureVersion:string;fixtures:Record<string,EvalFixture & {identity?:DialogueIdentity}>;
   pseudonyms:Record<string,string>;publicStaffNames:string[];limits:string[];entries:SampleEntry[];
   privacyPolicyVersion?:'client-name-spans-v1';reviewedClientNames?:Record<string,string[]>;allowedPseudonyms?:string[];priorJournals?:Array<{path:string;sha256:string}>}
 type LiveOptions = { mode:'controlled'|'openai_responses';journalPath:string;resume?:boolean;maxEntries?:number;fetchImpl?:typeof fetch;fingerprint?:()=>string;timeoutMs?:number;respondImpl?:typeof respondWithAiInterpreter }
 type TurnRecord = {key:string;episodeId:string;sourceConversationId:string;sourceMessageId:string;contextMode:string;category:string;
   fixtureGap:string|null;contextIncomplete:boolean;counterfactualContinuation:boolean;manualReviewPending:string[];stateAfter:DialogueState;
-  diagnostics:InterpretationDiagnostics;reply:string;failures:string[];evaluation:'criteria_met'|'failed'|'fallback'|'fixture_gap'|'context_incomplete'|'no_scored'}
+  diagnostics:InterpretationDiagnostics;reply:string;failures:string[];contextStopReasons?:string[];evaluation:'criteria_met'|'failed'|'fallback'|'fixture_gap'|'context_incomplete'|'no_scored'}
 type RequestRecord = {key:string;phase:string;requestHash:string;httpStatus:number|null;requestId:string|null;usage:Record<string,unknown>|null;outcome:string}
 type JournalRecord = {event:string;[key:string]:unknown}
 const repoRoot=fileURLToPath(new URL('../',import.meta.url))
@@ -52,6 +53,13 @@ export function validateLiveSample(sample:LiveSample) {
     assert(sample.privacyPolicyVersion==='client-name-spans-v1'&&sample.reviewedClientNames&&Array.isArray(sample.priorJournals)&&Array.isArray(sample.allowedPseudonyms),'versioned privacy review required')
     assert(sample.allowedPseudonyms!.every(naturalName)&&Object.values(sample.pseudonyms).every(pseudonym=>sample.allowedPseudonyms!.includes(pseudonym)&&naturalName(pseudonym)), 'reviewed natural pseudonyms required')
   }
+  if(sample.qaPolicy) {
+    const policy=sample.qaPolicy
+    assert(policy.version==='bounded-current-qa-v1'&&Number.isInteger(policy.maxInputs)&&policy.maxInputs>0&&policy.maxInputs<=100&&
+      Number.isInteger(policy.maxRequests)&&policy.maxRequests>0&&policy.maxRequests<=200,'invalid QA budget policy')
+    assert(Number.isFinite(Date.parse(policy.deadlineAt)),'invalid QA deadline')
+    assert(Object.keys(policy).sort().join(',')==='deadlineAt,maxInputs,maxRequests,version','unknown QA policy')
+  }
   const keys=new Set<string>(), episodes=new Map<string,{time:number;conversation:string;fixture:string}>()
   for(const entry of sample.entries) {
     assert(entry.privacyReviewed===true,'explicit privacy review required')
@@ -74,6 +82,15 @@ export function validateLiveSample(sample:LiveSample) {
     assert(entry.expected && typeof entry.expected==='object','independent criteria required before traffic')
     const expectedKeys=['state','basketServiceIds','proposal','action','interpretationMode','replyIncludes','replyExcludes','introduced','maxCalls','copyMode','requiredServiceIds','timePreference']
     assert(Object.keys(entry.expected).every(k=>expectedKeys.includes(k)),'unknown expectation')
+    if(entry.contextFailureCriteria) {
+      assert(sample.qaPolicy&&Array.isArray(entry.contextFailureCriteria)&&entry.contextFailureCriteria.length<=20,'QA contextual criteria required')
+      const semantic=['basketServiceIds','requiredServiceIds','timePreference','proposal','action','introduced','replyIncludes','replyExcludes']
+      for(const criterion of entry.contextFailureCriteria) {
+        const stateField=criterion.startsWith('state.')?criterion.slice(6):null
+        assert(stateField?Object.hasOwn(entry.expected.state??{},stateField):semantic.includes(criterion)&&Object.hasOwn(entry.expected,criterion),
+          'contextual criterion must reference a defined semantic expectation; copy is separate')
+      }
+    }
   }
 }
 const naturalName=(value:unknown):value is string=>typeof value==='string'&&value.length<=80&&value.trim()===value&&/^[\p{L}][\p{L}\p{M}'’ -]*$/u.test(value)&&value.split(/\s+/).length<=4
@@ -182,6 +199,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
   if(options.mode==='openai_responses') assert(journalPath.startsWith(privateRoot+sep)&&journalPath.endsWith('journal.jsonl'),'real journal must remain private and discoverable')
   const globalAttempts=priorJournalKeys(sample,journalPath,options.mode==='openai_responses')
   const sourceGaps=sample.privacyPolicyVersion?verifyLiveSource(sample):new Set<string>()
+  const qaPolicy=sample.qaPolicy
   const fingerprint=options.fingerprint??liveRuntimeFingerprint, frozen=fingerprint(), digest=sha(JSON.stringify(sample))
   const prior:JournalRecord[]=existsSync(journalPath)?readFileSync(journalPath,'utf8').trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line)):[]
   if(prior.length) {
@@ -202,33 +220,46 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
     } catch(error) {journalFailure=true;throw error}
   }
   const checkFrozen=()=>{
+    if(qaPolicy)assert(Date.now()<Date.parse(qaPolicy.deadlineAt),'QA deadline expired; stop without retry')
     assert(fingerprint()===frozen&&sha(JSON.stringify(sample))===digest,'runtime/manifest fingerprint changed; stop before another request')
     priorJournalKeys(sample,journalPath,options.mode==='openai_responses')
   }
   try {
     if(!prior.length) append({event:'header',manifestSha256:digest,runtimeFingerprint:frozen,mode:options.mode,
       model:'gpt-6-luna',endpoint,store:false,fixtureVersion:sample.fixtureVersion,createdAt:new Date().toISOString()})
-    const states=new Map<string,DialogueState>(), incomplete=new Set<string>()
+    const states=new Map<string,DialogueState>(), incomplete=new Set<string>(), stopped=new Map<string,string[]>()
     const completed=new Map(prior.filter(r=>r.event==='completed').map(r=>[String(r.key),r.turn as TurnRecord]))
     const skipped=new Set(prior.filter(r=>r.event==='skipped').map(r=>String(r.key)))
     const localErrors=new Set(prior.filter(r=>r.event==='local_error').map(r=>String(r.key)))
     if(options.mode==='openai_responses'&&!sample.privacyPolicyVersion) verifyLiveSource(sample)
     const apiKey=options.mode==='controlled'?'offline-test-key':projectKey()
     let remaining=options.maxEntries??sample.entries.length
+    let inputsStarted=prior.filter(record=>record.event==='started').length
+    let requestsStarted=prior.filter(record=>record.event==='request_started').length
+    if(qaPolicy)assert(inputsStarted<=qaPolicy.maxInputs&&requestsStarted<=qaPolicy.maxRequests,'prior QA budget exceeded')
     for(const entry of sample.entries) {
       const key=keyOf(entry),fixture=sample.fixtures[entry.fixtureId]!
-      if(sourceGaps.has(key))incomplete.add(entry.episodeId)
-      if(completed.has(key)) {states.set(entry.episodeId,completed.get(key)!.stateAfter);if(completed.get(key)!.contextIncomplete)incomplete.add(entry.episodeId);continue}
-      if(skipped.has(key)||localErrors.has(key)) {incomplete.add(entry.episodeId);continue}
+      if(sourceGaps.has(key)) {incomplete.add(entry.episodeId);if(qaPolicy)stopped.set(entry.episodeId,['source_context_gap'])}
+      if(completed.has(key)) {
+        const turn=completed.get(key)!
+        states.set(entry.episodeId,turn.stateAfter)
+        if(turn.contextIncomplete)incomplete.add(entry.episodeId)
+        if(qaPolicy&&turn.contextStopReasons?.length)stopped.set(entry.episodeId,turn.contextStopReasons)
+        continue
+      }
+      if(skipped.has(key)||localErrors.has(key)) {incomplete.add(entry.episodeId);if(qaPolicy)stopped.set(entry.episodeId,['prior_context_failure']);continue}
       if(remaining<=0)break
       checkFrozen()
-      const reasons=[...(globalAttempts.has(key)?['previously_attempted']:[]),...privacyReasons(entry),
+      const reasons=[...(qaPolicy&&stopped.has(entry.episodeId)?['blocked_after_context_failure']:[]),
+        ...(globalAttempts.has(key)?['previously_attempted']:[]),...privacyReasons(entry),
         ...(entry.contextDependent&&(incomplete.has(entry.episodeId)||entry.counterfactualContinuation)?['historical_context_unbound']:[])]
-      if(reasons.length) {append({event:'skipped',key,episodeId:entry.episodeId,reasons});incomplete.add(entry.episodeId);continue}
+      if(reasons.length) {append({event:'skipped',key,episodeId:entry.episodeId,reasons});incomplete.add(entry.episodeId);if(qaPolicy)stopped.set(entry.episodeId,reasons);continue}
+      if(qaPolicy&&inputsStarted>=qaPolicy.maxInputs)break
       const state=states.get(entry.episodeId)??parseDialogueState({...initialDialogueState(fixture.businessId),...entry.initialState},fixture.businessId,fixture.timezone)
       append({event:'started',key,episodeId:entry.episodeId,sourceBodySha256:entry.sourceBodySha256,transmittedBodySha256:sha(entry.body),
         stateBefore:state,createdAt:entry.createdAt,contextMode:entry.contextMode})
-      const phases=new Set<string>();let guardFailed=false,activeRequests=0
+      inputsStarted++
+      const phases=new Set<string>();let guardFailed=false,activeRequests=0,guardFailureReason='request guard/fingerprint stopped this entry; no resend'
       const guardedFetch:typeof fetch=async(url,init)=>{
         activeRequests++
         try {
@@ -242,8 +273,10 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
           const phase=(body.text as {format?:{name?:string}})?.format?.name
           assert(phase==='conversational_turn_interpretation'||phase==='grounded_qa_reply','approved request phase')
           assert(!phases.has(phase),'no retry of request phase');phases.add(phase)
+          if(qaPolicy)assert(requestsStarted<qaPolicy.maxRequests,'QA request budget exhausted; stop without retry')
           const requestHash=sha(init.body)
           append({event:'request_started',key,phase,requestHash,at:new Date().toISOString()})
+          requestsStarted++
           let response:Response
           try {response=await(options.fetchImpl??fetch)(endpoint,{...init,redirect:'error'})}
           catch {append({event:'request_done',key,phase,requestHash,httpStatus:null,requestId:null,usage:null,outcome:'transport_error_usage_unknown'});throw new Error('approved transport failed')}
@@ -253,7 +286,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
             usage,outcome:response.ok?'http_ok':'http_error'})
           checkFrozen()
           return response
-        } catch(error) {if(error instanceof Error && /approved transport failed/.test(error.message))throw error;guardFailed=true;throw new Error('request guard/fingerprint failed')} finally {activeRequests--}
+        } catch(error) {if(error instanceof Error && /approved transport failed/.test(error.message))throw error;guardFailed=true;if(error instanceof Error&&/QA request budget/.test(error.message))guardFailureReason='QA request budget exhausted; stop without retry';throw new Error(guardFailureReason)} finally {activeRequests--}
       }
       const interpret=createOpenAiInterpretationProvider({apiKey,model:'gpt-6-luna',fetchImpl:guardedFetch})
       const provider:AiInterpretationProvider=Object.assign(async(input:AiInterpretationInput,signal:AbortSignal)=>{
@@ -265,7 +298,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
       const attemptedState=structuredClone(state)
       const assertExecutionSafe=()=>{
         assert(activeRequests===0,'request still in-flight; no resend')
-        assert(!guardFailed,'request guard/fingerprint stopped this entry; no resend')
+        assert(!guardFailed,guardFailureReason)
         assert(!journalFailure,'journal write failed; no resend')
         checkFrozen()
       }
@@ -281,17 +314,23 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
         const errorCode=error instanceof Error&&error.message==='invalid dialogue input'?'invalid_dialogue_input':'local_engine_error'
         append({event:'local_error',key,episodeId:entry.episodeId,sourceConversationId:entry.sourceConversationId,
           sourceMessageId:entry.sourceMessageId,stage:'dialogue_execution',errorType,errorCode,contextIncomplete:true})
-        incomplete.add(entry.episodeId);remaining--;continue
+        incomplete.add(entry.episodeId);if(qaPolicy)stopped.set(entry.episodeId,['local_error']);remaining--;continue
       }
       // Interpreter fallback must never hide a fatal request/fingerprint/journal guard as a completed turn.
       assertExecutionSafe()
       const failures=score(entry,response.state,response.interpretation,response.reply,response.proposal!==null)
+      const contextStopReasons=qaPolicy ? [
+        ...(response.interpretation.mode==='fallback'?['interpretation_fallback']:[]),
+        ...(entry.contextFailureCriteria??[]).filter(criterion=>failures.includes(criterion)).map(criterion=>'criterion:'+criterion),
+        ...(entry.fixtureGap?['fixture_gap']:[])
+      ] : []
       const turn:TurnRecord={key,episodeId:entry.episodeId,sourceConversationId:entry.sourceConversationId,sourceMessageId:entry.sourceMessageId,
         category:entry.category,contextMode:entry.contextMode,fixtureGap:entry.fixtureGap??null,contextIncomplete:incomplete.has(entry.episodeId),
-        counterfactualContinuation:!!entry.counterfactualContinuation,manualReviewPending:entry.manualReviewPending??[],stateAfter:response.state,diagnostics:response.interpretation,reply:response.reply,failures,
+        counterfactualContinuation:!!entry.counterfactualContinuation,...(qaPolicy?{contextStopReasons}:{}),manualReviewPending:entry.manualReviewPending??[],stateAfter:response.state,diagnostics:response.interpretation,reply:response.reply,failures,
         evaluation:entry.fixtureGap?'fixture_gap':incomplete.has(entry.episodeId)?'context_incomplete':response.interpretation.mode==='fallback'?'fallback':
           !Object.keys(entry.expected).length?'no_scored':failures.length?'failed':'criteria_met'}
       append({event:'completed',key,turn});states.set(entry.episodeId,response.state);remaining--
+      if(contextStopReasons.length)stopped.set(entry.episodeId,contextStopReasons)
     }
     const turns=records.filter(r=>r.event==='completed').map(r=>r.turn as TurnRecord)
     const requests=records.filter(r=>r.event==='request_done').map(r=>r as unknown as RequestRecord)
@@ -306,6 +345,7 @@ export async function runLiveSample(sample:LiveSample,options:LiveOptions) {
     return {mode:options.mode,comprehensionEvaluated:options.mode==='openai_responses'&&turns.some(t=>t.diagnostics.mode==='ai'),
       runtimeFingerprint:frozen,manifestSha256:digest,limits:sample.limits,fixtureVersion:sample.fixtureVersion,
       localErrors:records.filter(r=>r.event==='local_error'),
+      ...(qaPolicy?{qaExecution:{policy:qaPolicy,inputsStarted,requestsStarted,stoppedEpisodes:[...stopped.keys()]}}:{}),
       counts:{planned:sample.entries.length,completed:turns.length,skipped:records.filter(r=>r.event==='skipped').length,
         localErrors:records.filter(r=>r.event==='local_error').length,
         passed:turns.filter(t=>t.evaluation==='criteria_met').length,failed:turns.filter(t=>t.evaluation==='failed').length,

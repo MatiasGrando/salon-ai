@@ -325,3 +325,114 @@ assert.equal(readFileSync(savedFsPath,'utf8').includes('local_error'),false)
 assert.equal(readFileSync(savedFsPath,'utf8').includes('request_done'),true)
 
 console.log('Live sample journal: PASS (privacy, real-vs-controlled, scoped POST, token usage, no retry, checkpoint, crash/fingerprint fencing)')
+
+// Opt-in current QA: fixed fixture/clock, independent criteria, bounded durable transport.
+const qaSample=(count:number)=>{
+  const value=structuredClone(sample)
+  value.entries=Array.from({length:count},(_,index)=>({...structuredClone(sample.entries[0]!),
+    sourceMessageId:'qa-'+index,body:'Hola',createdAt:'2026-08-20T12:00:00Z',expected:{proposal:false}}))
+  return Object.assign(value,{qaPolicy:{version:'bounded-current-qa-v1' as const,maxInputs:100,maxRequests:200,deadlineAt:'2099-01-01T00:00:00Z'}})
+}
+const qaFailures:string[]=[]
+const qaCheck=async(name:string,check:()=>Promise<void>)=>{try{await check()}catch(error){qaFailures.push(name);console.error('QA RED '+name+': '+(error instanceof Error?error.message:'failure'))}}
+await qaCheck('cumulative input budget and resume',async()=>{
+  const value=qaSample(3);value.qaPolicy.maxInputs=2
+  const path=join(dir,'qa-input-journal.jsonl'),before=calls
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',maxEntries:1})
+  const resumed=await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',resume:true})
+  assert.equal(calls-before,2);assert.equal(resumed.counts.completed,2)
+})
+await qaCheck('HTTP starts including failures cap resume and no request 201',async()=>{
+  const value=qaSample(3);value.qaPolicy.maxRequests=1
+  const path=join(dir,'qa-http-journal.jsonl'),before=calls
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',maxEntries:1})
+  await assert.rejects(runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',resume:true}),/request budget/)
+  assert.equal(calls-before,1)
+  const tooMany=qaSample(1);tooMany.qaPolicy.maxRequests=201
+  await assert.rejects(runLiveSample(tooMany,{mode:'controlled',fetchImpl:fake,journalPath:join(dir,'qa-201-journal.jsonl')}),/QA.*budget/)
+})
+await qaCheck('contextual criterion stops only its episode and survives resume',async()=>{
+  const value=qaSample(3);value.entries[2]!.episodeId='independent'
+  value.entries[0]!.expected={state:{date:'2026-08-21'},proposal:false}
+  Object.assign(value.entries[0]!,{contextFailureCriteria:['state.date']})
+  const path=join(dir,'qa-context-journal.jsonl'),before=calls
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',maxEntries:1})
+  const result=await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',resume:true})
+  assert.equal(calls-before,2);assert.equal(result.counts.completed,2);assert.equal(result.counts.skipped,1)
+  const rows=readFileSync(path,'utf8').trim().split('\n').map(line=>JSON.parse(line))
+  const blocked=rows.find(r=>r.event==='skipped');assert(blocked.reasons.includes('blocked_after_context_failure'))
+  assert.equal(Object.hasOwn(blocked,'stateAfter'),false)
+  assert.equal(result.turns[1]!.stateAfter.businessId,fixture.businessId);assert.equal(result.turns[1]!.stateAfter.date,null)
+  const beforeResume=calls
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',resume:true})
+  assert.equal(calls,beforeResume)
+})
+await qaCheck('interpretation fallback and local error stop without invented state',async()=>{
+  for(const local of [false,true]){
+    const value=qaSample(2),path=join(dir,'qa-stop-'+local+'-journal.jsonl')
+    const controlled:typeof respondWithAiInterpreter=async(...args)=>{
+      const result=await respondWithAiInterpreter(...args)
+      if(local)throw new Error('local pure failure')
+      return {...result,interpretation:{...result.interpretation,mode:'fallback',reason:'invalid_output'}}
+    }
+    const result=await runLiveSample(value,{mode:'controlled',fetchImpl:fake,respondImpl:controlled,journalPath:path,fingerprint:()=> 'qa-v1'})
+    assert.equal(result.counts.skipped,1);assert.equal(result.counts.completed,local?0:1)
+    assert.equal(result.counts.localErrors,local?1:0)
+  }
+})
+await qaCheck('copy failure is separate; criteria never enter request; fixed tenant clock',async()=>{
+  const value=qaSample(2);value.entries[0]!.expected={copyMode:'ai',maxCalls:1}
+  const path=join(dir,'qa-copy-journal.jsonl')
+  const controlled:typeof respondWithAiInterpreter=async(...args)=>{
+    assert.equal(args[0].dbNow.toISOString(),'2026-08-20T12:00:00.000Z')
+    assert.equal(args[0].businessId,fixture.businessId)
+    const result=await respondWithAiInterpreter(...args)
+    return {...result,interpretation:{...result.interpretation,copyMode:'fallback',copyReason:'invalid_response'}}
+  }
+  const result=await runLiveSample(value,{mode:'controlled',fetchImpl:fake,respondImpl:controlled,journalPath:path,fingerprint:()=> 'qa-v1'})
+  assert.equal(result.counts.completed,2);assert.equal(result.counts.skipped,0)
+  const invalid=qaSample(1);Object.assign(invalid.entries[0]!,{contextFailureCriteria:['copyMode']})
+  await assert.rejects(runLiveSample(invalid,{mode:'controlled',fetchImpl:fake,journalPath:join(dir,'qa-invalid-criterion-journal.jsonl')}),/contextual criterion/)
+})
+await qaCheck('deadline stops before transport and policy bounds immutable',async()=>{
+  const expired=qaSample(1);expired.qaPolicy.deadlineAt='2000-01-01T00:00:00Z';const before=calls
+  await assert.rejects(runLiveSample(expired,{mode:'controlled',fetchImpl:fake,journalPath:join(dir,'qa-expired-journal.jsonl')}),/QA deadline/)
+  assert.equal(calls,before)
+  const value=qaSample(1);value.qaPolicy.maxInputs=101
+  await assert.rejects(runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:join(dir,'qa-invalid-budget-journal.jsonl')}),/QA.*budget/)
+})
+await qaCheck('200 started requests includes copy; failed HTTP never retries',async()=>{
+  const value=qaSample(101),path=join(dir,'qa-200-journal.jsonl'),before=calls
+  const twoPhases:typeof respondWithAiInterpreter=async(...args)=>{
+    const result=await respondWithAiInterpreter(...args)
+    await args[4].respond!({message:args[2],intent:'other',state:result.state,facts:[]},new AbortController().signal)
+    return result
+  }
+  const result=await runLiveSample(value,{mode:'controlled',fetchImpl:fake,respondImpl:twoPhases,journalPath:path,fingerprint:()=> 'qa-v1'})
+  assert.equal(calls-before,200);assert.equal(result.qaExecution?.inputsStarted,100);assert.equal(result.qaExecution?.requestsStarted,200)
+  assert.equal(result.counts.completed,100)
+  const beforeResume=calls
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,respondImpl:twoPhases,journalPath:path,fingerprint:()=> 'qa-v1',resume:true})
+  assert.equal(calls,beforeResume,'no request 201 on resume')
+  const failed=qaSample(2);failed.entries[1]!.episodeId='another';failed.qaPolicy.maxRequests=1
+  let failedCalls=0
+  const httpError:typeof fetch=async()=>{failedCalls++;return new Response('{}',{status:503})}
+  const failedPath=join(dir,'qa-failed-http-journal.jsonl')
+  await assert.rejects(runLiveSample(failed,{mode:'controlled',fetchImpl:httpError,journalPath:failedPath,fingerprint:()=> 'qa-v1'}),/request budget/)
+  assert.equal(failedCalls,1)
+  await assert.rejects(runLiveSample(failed,{mode:'controlled',fetchImpl:httpError,journalPath:failedPath,fingerprint:()=> 'qa-v1',resume:true}),/in-flight/)
+  assert.equal(failedCalls,1)
+})
+await qaCheck('QA guard fences remain fatal and policy cannot change on resume',async()=>{
+  const value=qaSample(2),path=join(dir,'qa-profile-journal.jsonl')
+  await runLiveSample(value,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',maxEntries:1})
+  const changed=structuredClone(value);changed.qaPolicy.maxRequests=199
+  await assert.rejects(runLiveSample(changed,{mode:'controlled',fetchImpl:fake,journalPath:path,fingerprint:()=> 'qa-v1',resume:true}),/fingerprint changed/)
+  let fingerprint='qa-v1'
+  const unsafe:typeof respondWithAiInterpreter=async(...args)=>{const out=await respondWithAiInterpreter(...args);fingerprint='changed';throw new Error('pure failure')}
+  const guardPath=join(dir,'qa-fatal-journal.jsonl')
+  await assert.rejects(runLiveSample(value,{mode:'controlled',fetchImpl:fake,respondImpl:unsafe,journalPath:guardPath,fingerprint:()=> fingerprint}),/fingerprint/)
+  assert.equal(readFileSync(guardPath,'utf8').includes('local_error'),false)
+})
+assert.deepEqual(qaFailures,[],'bounded current QA regressions')
+console.log('Bounded current QA: PASS (budgets/resume/context stop/copy separation/deadline)')
