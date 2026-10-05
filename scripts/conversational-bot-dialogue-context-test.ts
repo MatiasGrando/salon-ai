@@ -18,6 +18,7 @@ const port: DialoguePort = {
 }
 const legacy = { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, serviceConfidence: 'certain', serviceCandidateIds: [], serviceCorrection: false }
 const ev = (evidence: string) => ({ evidence, confidence: 1 })
+const currentActs = (...acts: { kind: string; field: string; evidence: string; operationIndexes: number[]; mention?: string }[]) => ({ version: 1, acts: acts.map(act => ({ ...act, confidence: 1, mention: act.mention ?? null })) })
 const decision = (...operations: object[]) => ({ intent: 'booking' as const, serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1 as const, operations: operations as any } })
 const initial = initialDialogueState(context.businessId)
 const offered = await respond(context, initial, 'Corte hombre mañana, soy Matías', port, decision(
@@ -48,7 +49,7 @@ assert.equal(request!.store, false)
 const sameLabel = await respondWithAiInterpreter(context, offered.state, 'Matías', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [{ kind: 'name', value: 'Matías', ...ev('Matías') }] } }))
 assert.equal(sameLabel.state.customerName, 'Matías')
 assert.deepEqual(sameLabel.state.professional, { kind: 'specific', id: 'matias-prof' }, 'answer role is determined by asked question even if customer shares the name')
-const explicitIdentity = await respondWithAiInterpreter(context, offered.state, 'soy Cin', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [{ kind: 'name', value: 'Cin', ...ev('Cin') }] } }))
+const explicitIdentity = await respondWithAiInterpreter(context, offered.state, 'soy Cin', port, async () => ({ ...legacy, communicativeActs: currentActs({ kind: 'change', field: 'name', evidence: 'soy Cin', operationIndexes: [0], mention: 'Cin' }), turnPlan: { version: 1, operations: [{ kind: 'name', value: 'Cin', ...ev('Cin') }] } }))
 assert.equal(explicitIdentity.state.customerName, 'Cin', 'explicit identity corrections work outside name pending')
 assert.equal(explicitIdentity.state.professional, null)
 
@@ -60,11 +61,11 @@ assert.equal(unknownRole.state.requestedTime, '17:00', 'role clarification does 
 assert.equal(unknownRole.interpretation.reason, null, 'role ambiguity is not malformed AI output')
 assert.match(unknownRole.reply, /profesional|nombre/i)
 
-const namedCorrection = await respondWithAiInterpreter(context, offered.state, 'a nombre de Laura mañana', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [
+const namedCorrection = await respondWithAiInterpreter(context, offered.state, 'a nombre de Laura mañana', port, async () => ({ ...legacy, communicativeActs: currentActs({ kind: 'change', field: 'name', evidence: 'a nombre de Laura', operationIndexes: [0], mention: 'Laura' }, { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [1] }), turnPlan: { version: 1, operations: [
   { kind: 'name', value: 'Laura', ...ev('Laura') }, { kind: 'date', expression: 'mañana', ...ev('mañana') }
 ] } }))
 assert.equal(namedCorrection.state.customerName, 'Laura', 'third-person identity is explicit without requiring a self-introducer')
-const initialMixed = await respondWithAiInterpreter(context, initial, 'Matías Corte hombre mañana con Cin', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [
+const initialMixed = await respondWithAiInterpreter(context, initial, 'Matías Corte hombre mañana con Cin', port, async () => ({ ...legacy, communicativeActs: currentActs({ kind: 'answer', field: 'name', evidence: 'Matías', operationIndexes: [0], mention: 'Matías' }, { kind: 'request', field: 'service', evidence: 'Corte hombre', operationIndexes: [1] }, { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [2] }, { kind: 'request', field: 'professional', evidence: 'con Cin', operationIndexes: [3], mention: 'Cin' }), turnPlan: { version: 1, operations: [
   { kind: 'name', value: 'Matías', ...ev('Matías') }, { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('Corte hombre') },
   { kind: 'date', expression: 'mañana', ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Cin', ...ev('Cin') }
 ] } }))
@@ -77,7 +78,7 @@ assert.equal(onlyProfessionalEvidence.state.customerName, null, 'initial profess
 assert.equal(onlyProfessionalEvidence.state.date, '2026-10-03')
 const initialNameOnly = await respondWithAiInterpreter(context, initial, 'Matías', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [{ kind: 'name', value: 'Matías', ...ev('Matías') }] } }))
 assert.equal(initialNameOnly.state.customerName, 'Matías', 'a certain short initial semantic identity need not wait for a rigid dialogue step')
-const conflictingInitial = await respondWithAiInterpreter(context, initial, 'Matías Corte hombre mañana con Cin', port, async () => ({ ...legacy, turnPlan: { version: 1, operations: [
+const conflictingInitial = await respondWithAiInterpreter(context, initial, 'Matías Corte hombre mañana con Cin', port, async () => ({ ...legacy, communicativeActs: currentActs({ kind: 'answer', field: 'name', evidence: 'Cin', operationIndexes: [0], mention: 'Cin' }, { kind: 'request', field: 'service', evidence: 'Corte hombre', operationIndexes: [1] }, { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [2] }, { kind: 'request', field: 'professional', evidence: 'con Cin', operationIndexes: [3], mention: 'Cin' }), turnPlan: { version: 1, operations: [
   { kind: 'name', value: 'Cin', ...ev('Cin') }, { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('Corte hombre') },
   { kind: 'date', expression: 'mañana', ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Cin', ...ev('Cin') }
 ] } }))

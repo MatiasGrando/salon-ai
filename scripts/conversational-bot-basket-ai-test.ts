@@ -29,6 +29,14 @@ const firstOperations = () => plan(
   { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') },
   { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') }
 )
+// LEGITIMATE_CURRENT: migrate only these intentional current-request fixtures to
+// the provider contract. State, call-count and side-effect expectations stay unchanged.
+const firstCandidate = (intent = 'booking') => ({ ...candidate(firstOperations(), intent), communicativeActs: { version: 1, acts: [
+  { kind: 'request', field: 'service', evidence: 'corte y alisado', mention: null, confidence: .99, operationIndexes: [0] },
+  { kind: 'answer', field: 'name', evidence: 'soy Matías', mention: 'Matías', confidence: .99, operationIndexes: [1] },
+  { kind: 'request', field: 'date', evidence: 'mañana', mention: null, confidence: .99, operationIndexes: [2] },
+  { kind: 'request', field: 'professional', evidence: 'con Ramiro', mention: 'Ramiro', confidence: .99, operationIndexes: [3] }
+] } })
 const initial = initialDialogueState(context.businessId)
 const contextState: DialogueState = { ...initial, basket: { version: 1, nextMemberId: 3, members: [
   { memberId: 'm1', mode: 'alternatives', serviceIds: ['cut-private', 'woman-private'], evidence: 'corte' },
@@ -77,7 +85,7 @@ async function say(previous: DialogueState, message: string, output: unknown, se
   }) as AiInterpretationProvider
   return respondWithAiInterpreter(context, previous, message, selectedPort, provider)
 }
-const first = await say(initial, 'soy Matías, corte y alisado mañana con Ramiro', candidate(firstOperations(), 'other'), port, true)
+const first = await say(initial, 'soy Matías, corte y alisado mañana con Ramiro', firstCandidate('other'), port, true)
 assert.equal(first.interpretation.mode, 'ai')
 assert.equal(first.state.basket?.members[0]?.mode, 'alternatives', 'generic cut evidence cannot hide another cut candidate')
 assert.deepEqual(first.state.basket?.members[0]?.serviceIds, ['cut-private', 'woman-private'])
@@ -125,8 +133,12 @@ for (const pending of ['service', 'date', 'professional', 'time', 'name', 'propo
   for (const mutation of ['set', 'add', 'remove', 'replace'] as const) {
     const targets = mutation === 'remove' || mutation === 'replace' ? [state.basket!.members.find(item => item.serviceIds.includes('smooth-private'))!.memberId] : []
     const selected = mutation === 'remove' ? [] : mutation === 'set' ? [member('single', ['smooth-private'], 'Alisado')] : [member('single', ['cream-private'], 'Baño de crema')]
-    const operation = basket(mutation, selected, 'Alisado Baño de crema', targets)
-    const changed = await say(state, 'Alisado Baño de crema', candidate(plan(operation)), port, true)
+    const message = mutation === 'set' ? 'Mejor sólo Alisado' : mutation === 'add' ? 'Agregá Baño de crema al Alisado'
+      : mutation === 'remove' ? 'Quitá Alisado, mantengo el corte' : 'En lugar de Alisado, quiero Baño de crema'
+    const operation = basket(mutation, selected, message, targets)
+    const changed = await say(state, message, { ...candidate(plan(operation)), communicativeActs: { version: 1, acts: [
+      { kind: 'change', field: 'service', evidence: message, mention: null, confidence: .99, operationIndexes: [0] }
+    ] } }, port, true)
     assert.equal(changed.state.customerName, 'Matías', pending + '/' + mutation)
     assert.equal(changed.state.date, '2026-10-02')
     assert.equal(changed.state.slot, null)
@@ -167,7 +179,7 @@ assert.deepEqual(providerError.state.basket, proposed.state.basket)
 // Preview storage plus production runtime sidecar projection must preserve unresolved and resolved baskets.
 const policy = { businessId: context.businessId, deploymentId: 'dep', generation: 1, configurationId: 'cfg', engine: 'conversational-booking-v1', schemaVersion: 1 } as const
 const stored = new Map<string, unknown>()
-let nextOutput: unknown = candidate(firstOperations())
+let nextOutput: unknown = firstCandidate()
 const previewProvider = Object.assign(async () => nextOutput, { respond: async (input: { facts: readonly { id: string; text: string }[] }) => ({ opening: null, closing: null, factIds: input.facts.map(fact => fact.id) }) }) as AiInterpretationProvider
 const dependencies = { load: async (phone: string) => stored.has(phone) ? readConversationDraft(stored.get(phone), policy, context.timezone) : null,
   save: async (phone: string, _message: string, _reply: string, state: DialogueState) => { stored.set(phone, projectConversationDraft(state, policy)) },

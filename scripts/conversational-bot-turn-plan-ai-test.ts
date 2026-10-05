@@ -52,7 +52,7 @@ const callsBeforeOversize = httpCalls
 await assert.rejects(() => http({ message: 'hola', state: initialDialogueState('tenant'), services: [...fullCatalog, { ...services[0]!, id: 'catalog-201' }] }, new AbortController().signal), /too large/)
 assert.equal(httpCalls, callsBeforeOversize, '201 catalog entries are rejected before fetch')
 
-async function say(message: string, turnPlan: unknown, previous: DialogueState = initialDialogueState('tenant'), intent = 'other', options: { legacyOnly?: boolean; draft?: boolean; reverseCopy?: boolean; legacyFields?: object } = {}) {
+async function say(message: string, turnPlan: unknown, previous: DialogueState = initialDialogueState('tenant'), intent = 'other', options: { legacyOnly?: boolean; draft?: boolean; reverseCopy?: boolean; legacyFields?: object; acts?: { kind: string; field: string; evidence: string; operationIndexes: number[]; mention?: string }[] } = {}) {
   let calls = 0, availabilityCalls = 0, informationCalls = 0
   let firstInput: AiInterpretationInput | undefined
   let finalFacts: readonly { id: string; text: string }[] = []
@@ -63,7 +63,7 @@ async function say(message: string, turnPlan: unknown, previous: DialogueState =
   }
   const provider = Object.assign(async (input: AiInterpretationInput) => {
     calls++; firstInput = input
-    return { ...legacy, ...options.legacyFields, intent, ...(options.legacyOnly ? {} : { turnPlan }), ...(options.draft ? { firstReply: { opening: 'Hola.', factIds: input.firstReplyFacts?.map(fact => fact.id) ?? [], closing: null } } : {}) }
+    return { ...legacy, ...options.legacyFields, intent, ...(options.acts ? { communicativeActs: { version: 1, acts: options.acts.map(act => ({ ...act, confidence: 1, mention: act.mention ?? null })) } } : {}), ...(options.legacyOnly ? {} : { turnPlan }), ...(options.draft ? { firstReply: { opening: 'Hola.', factIds: input.firstReplyFacts?.map(fact => fact.id) ?? [], closing: null } } : {}) }
   }, { respond: async (input: { facts: readonly { id: string; text: string }[] }) => {
     calls++; finalFacts = input.facts
     return { opening: null, factIds: options.reverseCopy ? [...input.facts].reverse().map(fact => fact.id) : input.facts.map(fact => fact.id), closing: null }
@@ -77,7 +77,13 @@ const mixed = await say('Corte hombre la jornada siguiente con Ramiro a las cinc
   operation('professional', 'Ramiro', { mode: 'specific', mention: 'Ramiro' }),
   operation('time', 'cinco de la tarde', { value: '17:00' }),
   operation('information', 'dónde están', { target: { kind: 'business', actions: ['ADDRESS'] } })
-), undefined, 'information', { draft: true })
+), undefined, 'information', { draft: true, acts: [
+  { kind: 'request', field: 'service', evidence: 'Corte hombre', operationIndexes: [0] },
+  { kind: 'request', field: 'date', evidence: 'la jornada siguiente', operationIndexes: [1] },
+  { kind: 'request', field: 'professional', evidence: 'con Ramiro', operationIndexes: [2], mention: 'Ramiro' },
+  { kind: 'request', field: 'time', evidence: 'cinco de la tarde', operationIndexes: [3] },
+  { kind: 'inquiry', field: 'general', evidence: 'dónde están', operationIndexes: [4] }
+] })
 assert.equal(mixed.response.interpretation.mode, 'ai')
 assert.equal(mixed.response.state.serviceId, 'cut-private-id')
 assert.equal(mixed.response.state.date, '2026-10-02')
@@ -130,7 +136,14 @@ const unresolved = await say('mejor masaje mañana con Ramiro a las cinco de la 
   operation('time', 'cinco de la tarde', { value: '17:00' }),
   operation('name', 'Matías', { value: 'Matías' }),
   operation('information', 'dónde están', { target: { kind: 'business', actions: ['ADDRESS'] } })
-), mixed.response.state, 'information')
+), mixed.response.state, 'information', { acts: [
+  { kind: 'change', field: 'service', evidence: 'mejor masaje', operationIndexes: [0] },
+  { kind: 'request', field: 'date', evidence: 'mañana', operationIndexes: [1] },
+  { kind: 'request', field: 'professional', evidence: 'con Ramiro', operationIndexes: [2], mention: 'Ramiro' },
+  { kind: 'request', field: 'time', evidence: 'cinco de la tarde', operationIndexes: [3] },
+  { kind: 'answer', field: 'name', evidence: 'soy Matías', operationIndexes: [4], mention: 'Matías' },
+  { kind: 'inquiry', field: 'general', evidence: 'dónde están', operationIndexes: [5] }
+] })
 assert.equal(unresolved.response.interpretation.mode, 'ai', 'unresolved service is a supported clarification, not a rejected mixed plan')
 assert.equal(unresolved.response.state.serviceId, null)
 assert.equal(unresolved.response.state.slot, null)

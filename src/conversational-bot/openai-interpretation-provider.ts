@@ -1,3 +1,4 @@
+import { COMMUNICATIVE_ACTS_JSON_SCHEMA } from './communicative-act.js'
 import { focusedInformationService } from './information-read.js'
 import { parseEstimateOptions } from '../bot-options/domain/service-booking.js'
 import { TURN_PLAN_INTERPRETATION_GUIDE } from './turn-plan-interpretation-guide.js'
@@ -17,9 +18,10 @@ import type { AiInterpretationProvider } from './ai-interpreter.js'
 const schema = {
   type: 'object',
   additionalProperties: false,
-  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection', 'firstReply', 'intakeReply', 'informationTarget', 'turnPlan'],
+  required: ['intent', 'serviceId', 'serviceEvidence', 'professionalMention', 'serviceConfidence', 'serviceCandidateIds', 'serviceCorrection', 'firstReply', 'intakeReply', 'informationTarget', 'turnPlan', 'communicativeActs'],
   properties: {
     turnPlan: { anyOf: [TURN_PLAN_JSON_SCHEMA, { type: 'null' }] },
+    communicativeActs: { anyOf: [COMMUNICATIVE_ACTS_JSON_SCHEMA, { type: 'null' }] },
     intent: { type: 'string', enum: ['booking', 'information', 'other'] },
     serviceId: { type: ['string', 'null'] },
     serviceEvidence: { type: ['string', 'null'] },
@@ -87,6 +89,7 @@ export function createOpenAiInterpretationProvider(options: {
           pendingEstimateServiceId: state.pending === 'estimate' ? guidance.pending?.id ?? null : null,
           estimateSelections: Object.entries(guidance.selections).map(([serviceId, selection]) => ({ serviceId, optionId: selection.optionId })),
           professionalNameHint: input.state.professionalNameHint,
+          professionalReference: state.professionalReference ?? null,
           date: input.state.date,
           professional: input.state.professional,
           requestedTime: input.state.requestedTime,

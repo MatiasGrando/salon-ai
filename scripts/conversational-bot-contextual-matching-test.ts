@@ -32,17 +32,34 @@ const port: DialoguePort = { catalog: async () => services,
 const ev = (evidence: string) => ({ evidence, confidence: 1 })
 const candidate = (...operations: TurnOperation[]) => ({ intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } })
 const initial = initialDialogueState(context.businessId)
-const say = (state: unknown, message: string, ...operations: TurnOperation[]) => respondWithAiInterpreter(context, state, message, port, async () => candidate(...operations))
+const act = (kind: string, field: string, evidence: string, operationIndexes: number[], mention: string | null = null) => ({ kind, field, evidence, operationIndexes, mention, confidence: 1 })
+// Only declared current controlled proposals receive speech-act authority. Legacy
+// abstention and stale/malformed candidates below deliberately remain unchanged.
+const currentActs: Record<string, object[]> = {
+  'cinn': [act('answer', 'professional', 'cinn', [0], 'cinn')],
+  'cinn 17:00': [act('answer', 'professional', 'cinn', [0], 'cinn'), act('request', 'time', '17:00', [1])],
+  'Cintia': [act('answer', 'professional', 'Cintia', [0], 'Cintia')],
+  'soy cinn': [act('change', 'name', 'soy cinn', [0])],
+  'sí, 2026-10-04': [act('change', 'date', '2026-10-04', [0])],
+  'Alisado mañana sin preferencia soy Matías': [act('request', 'service', 'Alisado', [0]), act('request', 'date', 'mañana', [1]), act('request', 'professional', 'sin preferencia', [2]), act('request', 'name', 'soy Matías', [3])]
+}
+const say = (state: unknown, message: string, ...operations: TurnOperation[]) => respondWithAiInterpreter(context, state, message, port, async () => ({ ...candidate(...operations), ...(currentActs[message] ? { communicativeActs: { version: 1, acts: currentActs[message] } } : {}) }))
 const offered = await say(initial, 'Corte hombre mañana soy Matías',
   { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('Corte hombre') },
   { kind: 'date', expression: 'mañana', ...ev('mañana') }, { kind: 'name', value: 'Matías', ...ev('Matías') })
-const typo = await say(offered.state, 'cinn', { kind: 'name', value: 'cinn', ...ev('cinn') })
+const wrongRoleLegacy = await respondWithAiInterpreter(context, offered.state, 'cinn', port,
+  async () => candidate({ kind: 'name', value: 'cinn', ...ev('cinn') }))
+assert.equal(wrongRoleLegacy.state.customerName, 'Matías')
+assert.equal(wrongRoleLegacy.state.professional, null)
+assert.equal(wrongRoleLegacy.state.questionContext?.matchCandidateIds, undefined, 'a wrong legacy customer role is not current professional authority')
+assert.match(wrongRoleLegacy.reply, /cliente o al profesional/)
+const typo = await say(offered.state, 'cinn', { kind: 'professional', mode: 'specific', mention: 'cinn', ...ev('cinn') })
 assert.equal(typo.state.customerName, 'Matías')
 assert.equal(typo.state.professional, null)
 assert.match(typo.reply, /¿Te referís a Cin\?/)
 assert.deepEqual((typo.state.questionContext as any).matchCandidateIds, ['cin'])
 assert.deepEqual(parseDialogueState(typo.state, context.businessId), typo.state)
-const mixedTypo = await say(offered.state, 'cinn 17:00', { kind: 'name', value: 'cinn', ...ev('cinn') }, { kind: 'time', value: '17:00', ...ev('17:00') })
+const mixedTypo = await say(offered.state, 'cinn 17:00', { kind: 'professional', mode: 'specific', mention: 'cinn', ...ev('cinn') }, { kind: 'time', value: '17:00', ...ev('17:00') })
 assert.equal(mixedTypo.state.customerName, 'Matías')
 assert.equal(mixedTypo.state.requestedTime, '17:00')
 assert.deepEqual(mixedTypo.state.questionContext?.matchCandidateIds, ['cin'], 'role-ambiguous literal span can retrieve a professional while independent time survives')

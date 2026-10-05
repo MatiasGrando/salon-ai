@@ -16,6 +16,12 @@ const single = (id: string, evidence: string, confidence = 1, correction = false
 const basket = (...members: object[]) => ({ kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [], members, ...ev('cortee hombre y Alisado') })
 const request = (evidence: string, purpose = 'inquiry', disposition = 'clear', basis = 'semantic_equivalent', serviceIds = ['lights'], sourceQuote: string | null = null, continuation = false) => ({ kind: 'service_request', purpose, disposition, basis, serviceIds, sourceQuote, correction: false, continuation, ...ev(evidence) })
 const say = (state: DialogueState, message: string, ...operations: object[]) => respondWithAiInterpreter(context, state, message, port, async () => ({ intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } }))
+// Only these explicit current-change stimuli adopt the modern authority contract.
+// Historical, weak, foreign and absent-authority legacy proposals stay unchanged.
+const sayCurrent = (state: DialogueState, message: string, ...operations: object[]) => respondWithAiInterpreter(context, state, message, port, async () => ({
+  intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations },
+  communicativeActs: { version: 1, acts: [{ kind: 'change', field: 'service', evidence: message, confidence: .99, mention: null, operationIndexes: [0] }] }
+}))
 const legacy = (message: string, evidence: string, id = 'lights', certain = true) => respondWithAiInterpreter(context, initial(), message, port, async () => ({ intent: 'booking', serviceId: id, serviceEvidence: evidence, professionalMention: null, serviceConfidence: certain ? 'certain' : 'uncertain' }))
 const noEffect = (result: Awaited<ReturnType<typeof say>>, before: number) => { assert.equal(agendaCalls, before); assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.state.sandboxReservation, undefined) }
 let failures = 0
@@ -27,7 +33,7 @@ async function check(name: string, test: () => Promise<void>) {
 await check('captured exact standalone service is not widened to a composite catalog neighbor', async () => {
   services=[{...cut,id:'beard',name:'Barba',aliases:[]},{...cut,id:'combo',name:'Corte y barba',aliases:[]}]
   const before=agendaCalls
-  const result=await say({...initial(),serviceId:'combo',pending:'date'},'Es solo barba',
+  const result=await sayCurrent({...initial(),serviceId:'combo',pending:'date'},'Es solo barba',
     {kind:'basket',mutation:'set',scope:'all',targetMemberIds:[],members:[
       {mode:'single',serviceIds:['beard'],...ev('barba',.99)}],...ev('Es solo barba',.99)})
   assert.equal(result.state.serviceId,'beard')
@@ -170,10 +176,10 @@ await check('retained unique category is scoped to fresh draft labels, not all c
     { memberId: 'm2', mode: 'single', serviceIds: ['smooth'], evidence: 'Alisado' }
   ] } }
   const op = { ...basket({ mode: 'single', serviceIds: ['woman'], ...ev('corte') }), mutation: 'replace', evidence: 'mejor sólo el corte' }
-  const retained = await say(state, 'mejor sólo el corte', op)
+  const retained = await sayCurrent(state, 'mejor sólo el corte', op)
   assert.deepEqual(retained.state.basket?.members.flatMap(member => member.serviceIds), ['woman'])
   services = [cut, { ...cut, id: 'woman', name: 'Procedimiento nuevo', aliases: [] }, smooth]
-  const renamed = await say(state, 'mejor sólo el corte', op)
+  const renamed = await sayCurrent(state, 'mejor sólo el corte', op)
   assert.equal(renamed.state.basket?.members[0]?.mode, 'unresolved')
   assert.equal(renamed.state.serviceId, null)
 })
@@ -186,7 +192,7 @@ await check('negative conditional weak foreign provider and correction guards re
   assert.equal(weak.state.serviceId, null)
   const foreign = await say(initial(), 'cortee hombre', single('foreign', 'cortee hombre'))
   assert.equal(foreign.interpretation.reason, 'invalid_output'); assert.equal(foreign.state.serviceId, null)
-  const corrected = await say({ ...initial(), serviceId: 'smooth' }, 'no mejor cortee hombre', single('cut', 'cortee hombre', 1, true))
+  const corrected = await sayCurrent({ ...initial(), serviceId: 'smooth' }, 'no mejor cortee hombre', single('cut', 'cortee hombre', 1, true))
   assert.equal(corrected.state.serviceId, 'cut', 'negating previous selection does not negate the new literal evidence')
   const prior = await say(initial(), 'Alisado mañana soy Matías', single('smooth', 'Alisado'), { kind: 'date', expression: 'mañana', ...ev('mañana') }, { kind: 'name', value: 'Matías', ...ev('Matías') })
   const fallback = await respondWithAiInterpreter(context, prior.state, 'cortee hombre', port, async () => { throw new Error('offline provider') })

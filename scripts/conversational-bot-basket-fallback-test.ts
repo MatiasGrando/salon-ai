@@ -30,7 +30,13 @@ const port: DialoguePort = {
 }
 const ev = (evidence: string) => ({ evidence, confidence: 1 })
 const first = await respondWithAiInterpreter(context, initialDialogueState(context.businessId), 'Corte y Alisado mañana soy Matías con Cin', port, async () => ({
-  intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations: [
+  intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null,
+  communicativeActs: { version: 1, acts: [
+    { kind: 'request', field: 'service', evidence: 'Corte y Alisado', mention: null, confidence: 1, operationIndexes: [0] },
+    { kind: 'request', field: 'date', evidence: 'mañana', mention: null, confidence: 1, operationIndexes: [1] },
+    { kind: 'request', field: 'name', evidence: 'soy Matías', mention: null, confidence: 1, operationIndexes: [2] },
+    { kind: 'request', field: 'professional', evidence: 'con Cin', mention: 'Cin', confidence: 1, operationIndexes: [3] }
+  ] }, turnPlan: { version: 1, operations: [
     { kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [], members: [
       { mode: 'alternatives', serviceIds: ['cut', 'woman'], ...ev('Corte') },
       { mode: 'single', serviceIds: ['smooth'], ...ev('Alisado') }

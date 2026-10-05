@@ -1,3 +1,4 @@
+import { admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, temporalPlanDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
@@ -13,7 +14,7 @@ import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
-import { parseTurnPlan, TurnPlanValidationError, type TurnPlan } from './turn-plan.js'
+import { parseTurnPlan, TurnPlanValidationError, type TurnPlan, type TurnOperation } from './turn-plan.js'
 import { groundServicePlan, serviceEvidenceMeaning } from './service-evidence-grounding.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
 import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
@@ -64,7 +65,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null }
+type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission }
 
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
@@ -73,19 +74,34 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState, context: DialogueContext, read?: BusinessTimeContextReader): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan','communicativeActs'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   let turnPlan: TurnPlan | null | undefined
+  let communicative: CommunicativeAdmission | undefined
+  let communicativeActs: CommunicativeActs | null = null
   if (Object.hasOwn(item, 'turnPlan')) {
     if (item.turnPlan === null) turnPlan = null
     else {
       try {
         const parsedPlan = parseTurnPlan(groundTemporalPlan(groundServicePlan(item.turnPlan, message, services), message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(read?{read}:{})}), message, services.map(service => service.id))
+        // Validate the whole untrusted proposal before any semantic filtering. A reference
+        // label cannot rescue foreign catalog IDs, fabricated quotes, targets or estimates.
+        const original = item.turnPlan as TurnPlan
+        communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length)
+        for (const operation of parsedPlan.operations) {
+          if (operation.kind === 'basket' && operation.targetMemberIds.some(id => !selectionBasket(state).members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
+          if (operation.kind === 'service_request' && operation.continuation && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
+          if (operation.kind === 'information' && !validInformationEstimate(operation.target, services)) throw new TurnPlanValidationError('estimate')
+        }
         const parsed = normalizeInformativeEstimates(parsedPlan, state, services)
-        turnPlan = parseTurnPlan({ ...parsed, operations: parsed.operations.map(operation => {
+        // A known prospective overlap is not a malformed companion estimate.
+        // Validate that estimate against the safely retained draft; invalid IDs,
+        // configuration and evidence still fail globally before semantic admission.
+        validateEstimateOperations(protectProspectiveBasket({ plan: parsed, blockedFields: [] }, state).plan, state, services)
+        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services), state)
+        const grounded = parseTurnPlan({ ...communicative.plan, operations: communicative.plan.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
-            if (operation.targetMemberIds.some(id => !current.members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
             return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
           }
           if (operation.kind === 'service' && operation.mode === 'single' &&
@@ -100,8 +116,8 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           // A model-proposed single/subset cannot hide other matches for its grounded phrase.
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
-        if (turnPlan.operations.some(operation => operation.kind === 'service_request' && operation.continuation) && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
-        if (turnPlan.operations.some(operation => operation.kind === 'information' && !validInformationEstimate(operation.target, services))) throw new TurnPlanValidationError('estimate')
+        communicative = protectProspectiveBasket({ ...communicative, plan: grounded }, state)
+        turnPlan = communicative.plan
         validateEstimateOperations(turnPlan, state, services)
       } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
@@ -117,7 +133,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
         item.serviceCorrection === true || item.informationTarget != null ||
         item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new TurnPlanValidationError('conflict')
-    return { ...item, turnPlan } as Candidate
+    return { ...item, turnPlan, communicativeActs, communicative } as Candidate
   }
   if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
       new Set(item.serviceCandidateIds).size !== item.serviceCandidateIds.length ||
@@ -137,7 +153,28 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
       item.serviceCorrection === true || Array.isArray(item.serviceCandidateIds) && item.serviceCandidateIds.length) throw new Error('conflicting AI information target')
   }
-  return item as Candidate
+  communicativeActs = parseCommunicativeActs(item.communicativeActs, message, 0)
+  if (communicativeActs && item.serviceId === null && item.serviceEvidence === null && item.professionalMention === null &&
+      !item.informationTarget && !item.serviceCorrection && !(item.serviceCandidateIds as unknown[] | undefined)?.length) {
+    const empty: TurnPlan = { version: 1, operations: [] }
+    communicative = admitCommunicativePlan(communicativeActs, empty, empty, message, state, services)
+    return { ...item, turnPlan: communicative.plan, communicativeActs, communicative } as Candidate
+  }
+  // Compatibility root entities go through the same authority seam when an
+  // existing draft could be changed. Their valid shape is not a current speech act.
+  if (item.professionalMention !== null || selectionBasket(state).members.length && (item.serviceId !== null || (item.serviceCandidateIds as unknown[] | undefined)?.length)) {
+    const operations: TurnOperation[] = []
+    const ids = item.serviceId ? [item.serviceId as string] : item.serviceCandidateIds as string[] | undefined
+    if (ids?.length) operations.push({ kind: 'service', mode: ids.length === 1 ? 'single' : 'alternatives', serviceIds: ids,
+      correction: item.serviceCorrection === true, evidence: item.serviceEvidence as string, confidence: item.serviceConfidence === 'certain' ? 1 : 0 })
+    if (item.professionalMention !== null) operations.push({ kind: 'professional', mode: 'specific', mention: item.professionalMention as string,
+      evidence: item.professionalMention as string, confidence: 1 })
+    const compatibilityPlan: TurnPlan = { version: 1, operations }
+    communicative = admitCommunicativePlan(null, compatibilityPlan, compatibilityPlan, message, state, services)
+    return { ...item, intent: item.intent as Candidate['intent'], serviceId: null, serviceEvidence: null, serviceCandidateIds: [], professionalMention: null,
+      serviceCorrection: false, turnPlan: communicative.plan, communicativeActs, communicative } as Candidate
+  }
+  return { ...item, communicativeActs } as Candidate
 }
 
 /** Project only the bounded selection; the motor independently applies it and authorizes fresh agenda use. */
@@ -347,7 +384,7 @@ export async function respondWithAiInterpreter(
     (requiresServiceVerification(evidence,selected,services,legacyIdentityConfidence) || candidate?.serviceConfidence !== 'certain' && normalized(evidence) !== normalized(selected.name)))
   // A failed semantic turn must not lexically reinterpret or partially overwrite an existing basket.
   const safeBasketFallback = Boolean(reason && state.basket?.members.length)
-  let decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false } : {
+  let decision: DialogueDecision | undefined = safeBasketFallback ? { serviceId: null, candidateIds: [], correction: false, turnPlan: fallbackIndependentTurnPlan(context, state, message, services,cachedPort) } : candidate ? turnPlan ? { intent: candidate.intent, turnPlan, serviceId: null, candidateIds: [], correction: false, ...(candidate.communicative ? { communicative: candidate.communicative } : {}) } : {
     intent: candidate.intent, serviceId: uncertain || candidates.length ? null : selected?.id ?? null,
     candidateIds: candidates.map(service => service.id), professionalMention: candidate.professionalMention, ...(candidate.informationTarget !== undefined ? { informationTarget: candidate.informationTarget } : {}), correction: candidate.serviceCorrection === true ||
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||

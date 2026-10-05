@@ -12,7 +12,7 @@ const initial=()=>initialDialogueState(context.businessId)
 const service={kind:'service',mode:'single',serviceIds:['cut'],correction:false,evidence:'Corte',confidence:.99}
 async function say(state:DialogueState,message:string,operations:object[]=[],raw?:unknown,selectedPort:DialoguePort=port){
  let calls=0
- const provider=Object.assign(async(input:AiInterpretationInput)=>{calls++;return {...base,turnPlan:{version:1,operations},firstReply:raw===undefined?{opening:'Bien, gracias por preguntar.',closing:null,factIds:input.firstReplyFacts?.map(f=>f.id)??[],variantChoices:null}:raw}}, {respond:async()=>{calls++;throw new Error('style call forbidden')}}) as AiInterpretationProvider
+ const provider=Object.assign(async(input:AiInterpretationInput)=>{calls++;return {...base,turnPlan:{version:1,operations},...(message.includes('mi nombre es Eva') ? { communicativeActs: { version: 1, acts: [{ kind: 'change', field: 'name', evidence: 'mi nombre es Eva', mention: null, confidence: .99, operationIndexes: [0] }] } } : {}),firstReply:raw===undefined?{opening:'Bien, gracias por preguntar.',closing:null,factIds:input.firstReplyFacts?.map(f=>f.id)??[],variantChoices:null}:raw}}, {respond:async()=>{calls++;throw new Error('style call forbidden')}}) as AiInterpretationProvider
  const result=await respondWithAiInterpreter(context,state,message,selectedPort,provider)
  assert.equal(calls,1);assert.equal(result.interpretation.aiCalls,1);return result
 }

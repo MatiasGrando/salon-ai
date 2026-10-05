@@ -180,6 +180,9 @@ const professionalProvider=Object.assign(async(input:AiInterpretationInput)=>{
   return {...base,turnPlan:{version:1,operations:[
     {kind:'date',expression:'mañana',value:'2026-10-04',evidence:'mañana',confidence:1},
     {kind:'professional',mode:'specific',mention:'Rama',evidence:'con Rama',confidence:1}]},
+    communicativeActs:{version:1,acts:[
+      {kind:'request',field:'date',evidence:'mañana',confidence:1,mention:null,operationIndexes:[0]},
+      {kind:'request',field:'professional',evidence:'con Rama',confidence:1,mention:'Rama',operationIndexes:[1]}]},
     firstReply:{salutation:null,opening:'Te ayudo a buscarlo.',factIds:input.firstReplyFacts!.map(f=>f.id),closing:null}}
 },{respond:async()=>{professionalCalls++;throw new Error('No aesthetic response call')}}) as AiInterpretationProvider
 const professional=await respondWithAiInterpreter(context,{...state,introduced:true},'un turno con Rama mañana',port,professionalProvider)

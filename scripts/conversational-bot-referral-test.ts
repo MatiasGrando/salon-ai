@@ -22,8 +22,9 @@ const port: DialoguePort = {
 const base = { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null,
   serviceConfidence: 'certain', serviceCandidateIds: [], serviceCorrection: false, informationTarget: null, firstReply: null, intakeReply: null }
 const operation = (kind: string, evidence: string, fields: object = {}) => ({ kind, evidence, confidence: 1, ...fields })
-const provider = (operations: object[]) => (async () => ({ ...base, turnPlan: { version: 1, operations } })) as AiInterpretationProvider
-const say = (state: DialogueState, message: string, operations: object[]) => respondWithAiInterpreter(context, state, message, port, provider(operations))
+const act = (kind: string, field: string, evidence: string, operationIndexes: number[]) => ({ kind, field, evidence, operationIndexes, mention: null, confidence: 1 })
+const provider = (operations: object[], acts?: object[]) => (async () => ({ ...base, ...(acts ? { communicativeActs: { version: 1, acts } } : {}), turnPlan: { version: 1, operations } })) as AiInterpretationProvider
+const say = (state: DialogueState, message: string, operations: object[], acts?: object[]) => respondWithAiInterpreter(context, state, message, port, provider(operations, acts))
 const initial = { ...initialDialogueState('tenant'), customerName: 'Matías', date: '2026-10-05' }
 const unknownOp = operation('service_request', 'corte francés', {
   purpose: 'booking', disposition: 'unverified_variant', serviceIds: [], correction: false,
@@ -67,7 +68,7 @@ assert.equal(blockedReturn.state.serviceId, 'review')
 assert.equal(blockedReturn.proposal, null, 'return does not bypass review policy')
 assert.match(blockedReturn.reply, /consulta|equipo/)
 assert.equal(agenda, 0)
-const changed = await say(pendingBlock.state, 'mejor Corte', [operation('service', 'Corte', { mode: 'single', serviceIds: ['cut'], correction: true })])
+const changed = await say(pendingBlock.state, 'mejor Corte', [operation('service', 'Corte', { mode: 'single', serviceIds: ['cut'], correction: true })], [act('change', 'service', 'mejor Corte', [0])])
 assert.equal((changed.state as any).referral, undefined, 'valid service replacement leaves consultation')
 assert.equal(changed.state.serviceId, 'cut')
 assert.equal(changed.state.customerName, 'Matías')
@@ -83,7 +84,7 @@ const basketPending = await say(basket.state, 'consultar al equipo', [operation(
 const member = basketPending.state.basket!.members.find(item => item.serviceIds.includes('review'))!
 const removed = await say(basketPending.state, 'quitar Coloración', [operation('basket', 'quitar Coloración', {
   mutation: 'remove', scope: 'members', targetMemberIds: [member.memberId], members: []
-})])
+})], [act('change', 'service', 'quitar Coloración', [0])])
 assert.equal((removed.state as any).referral, undefined)
 assert.deepEqual(removed.state.basket?.members.flatMap(item => item.serviceIds), ['cut'], 'removal preserves companion')
 const roundtrip = parseDialogueState(JSON.parse(JSON.stringify(consulting.state)), 'tenant')
@@ -110,7 +111,7 @@ assert.equal((previewReturn.state as any).referral, undefined)
 assert.equal(previewReturn.state.serviceRequest?.request, 'corte francés')
 
 
-const activeUnknown = await say({ ...initial, serviceId: 'cut' }, 'corte francés', [unknownOp])
+const activeUnknown = await say({ ...initial, serviceId: 'cut' }, 'corte francés', [unknownOp], [act('request', 'service', 'corte francés', [0])])
 const activeConsult = await say(activeUnknown.state, 'consultar al equipo', [operation('referral', 'consultar al equipo', { action: 'consult' })])
 const beforeLegacyAgenda = agenda
 const legacyDate = await respondWithAiInterpreter(context, activeConsult.state, 'mañana', port, (async () => base) as AiInterpretationProvider)
@@ -118,8 +119,12 @@ assert.equal(agenda, beforeLegacyAgenda, 'legacy turns cannot advance agenda whi
 assert.equal((legacyDate.state as any).referral?.status, 'pending')
 const legacyChange = await respondWithAiInterpreter(context, activeConsult.state, 'Corte', port,
   (async () => ({ ...base, serviceId: 'cut', serviceEvidence: 'Corte' })) as AiInterpretationProvider)
-assert.equal((legacyChange.state as any).referral, undefined, 'explicit known legacy service exits the unknown request even with the same valid draft')
-assert.equal(legacyChange.state.serviceRequest, undefined)
+assert.equal((legacyChange.state as any).referral?.status, 'pending', 'root legacy entity alone cannot cancel a current consultation')
+assert.equal(legacyChange.state.serviceRequest?.request, activeConsult.state.serviceRequest?.request)
+assert.equal(legacyChange.state.serviceId, 'cut')
+const currentChange = await say(activeConsult.state, 'Corte', [operation('service', 'Corte', { mode: 'single', serviceIds: ['cut'], correction: true })], [act('change', 'service', 'Corte', [0])])
+assert.equal((currentChange.state as any).referral, undefined, 'explicit current service exits the unknown request even with the same valid draft')
+assert.equal(currentChange.state.serviceRequest, undefined)
 
 const sandboxContext = { ...context, sandboxBooking: true }
 const sandboxPort: DialoguePort = { ...port, availability: async () => ({
@@ -134,7 +139,7 @@ const shownProposal = await respond(sandboxContext, initial, 'Corte con cualquie
     { kind: 'time', value: '17:00', evidence: '17', confidence: 1 }
   ] } })
 assert.ok(shownProposal.state.sandboxReservation, 'the consent regression uses an actually presented sandbox proposal')
-const proposedInquiry = await respondWithAiInterpreter(sandboxContext, shownProposal.state, 'corte francés', sandboxPort, provider([unknownOp]))
+const proposedInquiry = await respondWithAiInterpreter(sandboxContext, shownProposal.state, 'corte francés', sandboxPort, provider([unknownOp], [act('request', 'service', 'corte francés', [0])]))
 const unsafeYes = await respond(sandboxContext, proposedInquiry.state, 'sí', sandboxPort,
   { serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [
     { kind: 'confirm_proposal', evidence: 'sí', confidence: 1 }
@@ -167,7 +172,7 @@ assert.equal((missing.state as any).referral, undefined, 'without a pending requ
 const pendingData = await say(consulting.state, 'mañana soy Ana', [
   operation('date', 'mañana', { expression: 'mañana', value: '2026-10-05' }),
   operation('name', 'Ana', { value: 'Ana' })
-])
+], [act('request', 'date', 'mañana', [0]), act('change', 'name', 'soy Ana', [1])])
 assert.equal(pendingData.state.customerName, 'Ana')
 assert.equal((pendingData.state as any).referral?.status, 'pending')
 

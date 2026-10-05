@@ -22,6 +22,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
   | { kind: 'professional'; mode: 'any' | 'clear' }
+  | { kind: 'professional_reference'; action: 'prefer' | 'dismiss' }
   | { kind: 'date'; expression: string; value?: string }
   | { kind: 'time'; value: string }
   | { kind: 'time_preference'; preference: TimePreference }
@@ -66,6 +67,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('estimate', { serviceId: stringSchema(128), optionId: { type: ['string','null'], minLength: 1, maxLength: 128 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
+    operationSchema('professional_reference', { action: { type: 'string', enum: ['prefer', 'dismiss'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
     operationSchema('time', { value: { type: 'string', pattern: '^(?:[01]\\d|2[0-3]):[0-5]\\d$' } }),
     operationSchema('time_clarification', { candidateTimes: { type: 'array', minItems: 2, maxItems: 2, items: stringSchema(5) } }),
@@ -162,6 +164,10 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     } else if (raw.kind === 'professional') {
       exactKeys(raw, raw.mode === 'specific' ? [...common, 'mode', 'mention'] : [...common, 'mode'])
       if (!['specific', 'any', 'clear'].includes(String(raw.mode)) || raw.mode === 'specific' && (!bounded(raw.mention, 100) || !contains(raw.evidence, raw.mention))) fail('professional')
+    } else if (raw.kind === 'professional_reference') {
+      exactKeys(raw, [...common, 'action'])
+      if (!['prefer', 'dismiss'].includes(String(raw.action))) fail('professional reference')
+      identity = 'professional'
     } else if (raw.kind === 'date') {
       exactKeys(raw, [...common, 'expression'], ['value'])
       if (!bounded(raw.expression, 300) || !contains(raw.evidence, raw.expression) || Object.hasOwn(raw, 'value') && raw.value !== null && !validTurnPlanDate(raw.value)) fail('date')

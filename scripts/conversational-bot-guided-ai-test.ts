@@ -33,6 +33,12 @@ const estimate = (serviceId: string, optionId: string | null, evidence: string) 
 const plan = (...operations: object[]) => ({ version: 1, operations })
 const candidate = (turnPlan: unknown, extra: object = {}) => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
   serviceConfidence: 'certain', serviceCandidateIds: [], serviceCorrection: false, informationTarget: null, firstReply: null, intakeReply: null, turnPlan, ...extra })
+// Explicit positive stimuli adopt the new contract; invalid/legacy proposals do not.
+const currentActs = (...claims: [kind: 'request' | 'change' | 'answer' | 'inquiry', field: string, evidence: string, index: number, mention?: string][]) => ({
+  communicativeActs: { version: 1, acts: claims.map(([kind, field, evidence, index, mention]) => ({
+    kind, field, evidence, operationIndexes: [index], mention: mention ?? null, confidence: .99
+  })) }
+})
 const completed = (output: unknown) => ({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }] })
 let request: Record<string, any> | undefined
 let nextOutput: unknown = candidate(plan())
@@ -95,7 +101,8 @@ const ai = Object.assign(http, { respond: async (value: { facts: readonly { id: 
 const say = async (previous: DialogueState, message: string, output: unknown, selectedPort = port) => { nextOutput = output; return respondWithAiInterpreter(context, previous, message, selectedPort, ai) }
 const first = await say(initial, 'soy Matías, quiero corte y alisado mañana con Ramiro', candidate(plan(
   basket('set', [member('single', [cut.id], 'corte'), member('single', [smooth.id], 'alisado')], 'corte y alisado'),
-  { kind: 'name', value: 'Matías', ...ev('Matías') }, { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') })))
+  { kind: 'name', value: 'Matías', ...ev('Matías') }, { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') }),
+  currentActs(['request', 'service', 'corte y alisado', 0], ['request', 'name', 'Matías', 1], ['request', 'date', 'mañana', 2], ['request', 'professional', 'Ramiro', 3, 'Ramiro'])))
 assert.equal(first.state.pending, 'service'); assert.equal(first.state.basket?.members[0]?.mode, 'alternatives'); assert.equal(first.state.customerName, 'Matías')
 assert.equal(jointCalls + singularCalls, 0)
 const early = await say(first.state, 'lo tengo hasta los hombros', candidate(plan(estimate(smooth.id, smooth.id + '-short', 'lo tengo hasta los hombros'))))
@@ -118,7 +125,7 @@ assert.doesNotMatch(JSON.stringify(chosen.interpretation), /private|Matías|Rami
 for (const pending of ['service', 'estimate', 'date', 'professional', 'time', 'name', 'proposal'] as const) {
   const previous = { ...complete.state, pending, ...(pending === 'estimate' ? { slot: null } : {}) }
   const changed = await say(previous, 'mejor hasta los hombros el lunes soy Matías', candidate(plan(estimate(smooth.id, smooth.id + '-short', 'hasta los hombros'),
-    { kind: 'date', expression: 'el lunes', value: '2026-10-05', ...ev('el lunes') }, { kind: 'name', value: 'Matías', ...ev('Matías') })))
+    { kind: 'date', expression: 'el lunes', value: '2026-10-05', ...ev('el lunes') }, { kind: 'name', value: 'Matías', ...ev('Matías') }), currentActs(['change', 'estimate', 'mejor hasta los hombros', 0], ['change', 'date', 'el lunes', 1], ['request', 'name', 'soy Matías', 2])))
   assert.equal(changed.state.serviceEstimates?.[smooth.id]?.optionId, smooth.id + '-short', pending)
   assert.equal(changed.state.date, '2026-10-05'); assert.equal(changed.state.slot, null); assert.equal(changed.proposal, null); assert.notEqual(changed.interpretation.replyRoute, 'first_call')
 }
@@ -134,7 +141,7 @@ for (const operation of [estimate(paint.id, paint.id + '-short', 'hasta los homb
   assert.doesNotMatch(JSON.stringify(rejected.interpretation), /invented-private|not mentioned|priceMin/)
 }
 const agendaBeforeClear = jointCalls
-const cleared = await say(chosen.state, 'sacá la elección del largo', candidate(plan(estimate(smooth.id, null, 'sacá la elección del largo'))))
+const cleared = await say(chosen.state, 'sacá la elección del largo', candidate(plan(estimate(smooth.id, null, 'sacá la elección del largo')), currentActs(['change', 'estimate', 'sacá la elección del largo', 0])))
 assert.equal(cleared.state.pending, 'estimate'); assert.equal(cleared.state.serviceEstimates?.[smooth.id], undefined); assert.equal(jointCalls, agendaBeforeClear)
 assert.equal(cleared.state.customerName, 'Matías'); assert.equal(cleared.state.date, '2026-10-03')
 const malicious = Object.assign(async () => candidate(plan(estimate(smooth.id, smooth.id + '-short', 'hasta los hombros'))), {
@@ -154,7 +161,7 @@ assert.deepEqual(JSON.parse(request!.input).estimateChoices[0].options, [{ id: '
 services = [cut, woman, smooth, paint]
 const together = await say(ambiguous, 'corte hombre, hasta los hombros y dirección', candidate(plan(
   basket('replace', [member('single', [cut.id], 'corte hombre')], 'corte hombre', ['m1']), estimate(smooth.id, smooth.id + '-short', 'hasta los hombros'),
-  { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') })))
+  { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') }), currentActs(['answer', 'service', 'corte hombre', 0], ['answer', 'estimate', 'hasta los hombros', 1], ['inquiry', 'general', 'dirección', 2])))
 assert.equal(together.interpretation.mode, 'ai'); assert.equal(together.state.serviceEstimates?.[smooth.id]?.optionId, smooth.id + '-short'); assert.match(together.reply, /Calle 123/)
 for (const message of ['hola', 'dónde están?']) {
   const agendaBefore: number = jointCalls, copiesBefore: number = copyCalls
@@ -170,7 +177,7 @@ assert.equal(one.state.pending, 'estimate'); assert.equal(one.state.serviceEstim
 await http({ message: 'debajo de los hombros', state: one.state, services }, new AbortController().signal)
 assert.equal(JSON.parse(request!.input).pendingEstimateServiceId, paint.id); assert.equal(JSON.parse(request!.input).estimateSelections.length, 1)
 const both = await say(one.state, 'debajo de los hombros mañana con Ramiro', candidate(plan(estimate(paint.id, paint.id + '-long', 'debajo de los hombros'),
-  { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') })))
+  { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') }), currentActs(['answer', 'estimate', 'debajo de los hombros', 0], ['request', 'date', 'mañana', 1], ['request', 'professional', 'Ramiro', 2, 'Ramiro'])))
 assert.equal(both.state.pending, 'time'); assert.equal(Object.keys(both.state.serviceEstimates ?? {}).length, 2)
 
 const runtimePolicy = { businessId: context.businessId, deploymentId: 'dep', generation: 1, configurationId: 'cfg', engine: 'conversational-booking-v1', schemaVersion: 1 } as const
@@ -179,7 +186,8 @@ const dependencies = { load: async (phone: string) => stored.has(phone) ? readCo
   save: async (phone: string, _message: string, _reply: string, value: DialogueState) => { stored.set(phone, projectConversationDraft(value, runtimePolicy)) },
   createPort: async () => ({ context, port }), interpretationProvider: ai }
 nextOutput = candidate(plan(basket('set', [member('single', [cut.id], 'corte'), member('single', [smooth.id], 'alisado')], 'corte y alisado'),
-  { kind: 'name', value: 'Matías', ...ev('Matías') }, { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') }))
+  { kind: 'name', value: 'Matías', ...ev('Matías') }, { kind: 'date', expression: 'mañana', value: null, ...ev('mañana') }, { kind: 'professional', mode: 'specific', mention: 'Ramiro', ...ev('Ramiro') }),
+  currentActs(['request', 'service', 'corte y alisado', 0], ['request', 'name', 'Matías', 1], ['request', 'date', 'mañana', 2], ['request', 'professional', 'Ramiro', 3, 'Ramiro']))
 const previewFirst = await runConversationalPreview(dependencies, context.businessId, 'preview-only', 'Matías corte y alisado mañana con Ramiro')
 nextOutput = candidate(plan(basket('replace', [member('single', [cut.id], 'corte hombre')], 'corte hombre', [previewFirst.state.basket!.members[0]!.memberId])))
 const previewGuide = await runConversationalPreview(dependencies, context.businessId, 'preview-only', 'corte hombre')

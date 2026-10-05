@@ -21,7 +21,7 @@ const basket = (members:ReturnType<typeof member>[],evidence:string,mutation:'se
 const candidate = (operations:object[],intent='other') => ({intent,serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations}})
 async function say(state:DialogueState,message:string,operations:object[]=[],intent='other',framing=true,identity=false) {
  let calls=0
- const provider = Object.assign(async(input:AiInterpretationInput)=>{calls++;return {...candidate(operations,intent),firstReply:{opening:framing?'Bien, gracias por preguntar.':null,closing:null,factIds:input.firstReplyFacts?.map(f=>f.id)??[],variantChoices:null}}},
+ const provider = Object.assign(async(input:AiInterpretationInput)=>{calls++;return {...candidate(operations,intent),...(['mejor sólo el corte','mejor sólo Corte hombre','mejor Corte mujer'].includes(message) ? { communicativeActs: { version: 1, acts: [{ kind: 'change', field: 'service', evidence: message, mention: null, confidence: .99, operationIndexes: [0] }] } } : {}),firstReply:{opening:framing?'Bien, gracias por preguntar.':null,closing:null,factIds:input.firstReplyFacts?.map(f=>f.id)??[],variantChoices:null}}},
  {respond:async(input:{facts:readonly {id:string;text:string}[]})=>{calls++;return {opening:null,closing:null,factIds:input.facts.map(f=>f.id),variantChoices:null}}}) as AiInterpretationProvider
  const response=await respondWithAiInterpreter(context,state,message,identity?{...port,identity:async()=>({businessId:context.businessId,assistantName:'Asistente',businessName:'Local',treatment:'vos'})}:port,provider)
  return {response,calls}

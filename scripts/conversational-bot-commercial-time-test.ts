@@ -9,6 +9,9 @@ const message = 'tipo 4 tenes lugar?'
 const comment = 'de la tarde obviamente, quien se va a cortar a las 4 de la mañana'
 const plan = (evidence:string) => ({version:1,operations:[{kind:'time_clarification',candidateTimes:['04:00','16:00'],evidence,confidence:1}]})
 const legacy = {intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null}
+const act = (kind: string, field: string, evidence: string, operationIndexes: number[]) => ({kind,field,evidence,operationIndexes,mention:null,confidence:1})
+const currentDayChange = {version:1,acts:[act('change','date','miércoles',[0]),act('request','time','tipo 4',[1])]}
+const currentPeriod = (evidence: string) => ({version:1,acts:[act('answer','time',evidence,[0])]})
 let proofReads = 0
 const businessTimeContext = (date:string,candidateTimes:readonly string[]) => {
   proofReads++
@@ -21,7 +24,7 @@ assert.equal(first.state.timeClarification,undefined)
 assert.equal(first.state.slot,null);assert.equal(first.proposal,null);assert.equal(first.bookingCommand,undefined)
 assert.equal(proofReads,1,'AI and engine reuse same daily proof')
 const pending = {...selected,timeClarification:{candidateTimes:['04:00','16:00']}}
-const continued = await respondWithAiInterpreter(context,pending,comment,port,async()=>({...legacy,turnPlan:plan('de la tarde')}))
+const continued = await respondWithAiInterpreter(context,pending,comment,port,async()=>({...legacy,communicativeActs:currentPeriod('de la tarde'),turnPlan:plan('de la tarde')}))
 assert.equal(continued.interpretation.mode,'ai','affirmative period evidence remains valid with rhetorical comment')
 assert.equal(continued.state.date,'2026-10-06')
 assert.deepEqual(continued.state.timePreference,{kind:'around',time:'16:00'})
@@ -35,7 +38,7 @@ for (const text of ['no de la tarde','de la tarde?','de la tarde o de la mañana
   assert.deepEqual(result.state.timeClarification,pending.timeClarification,text)
   assert.equal(result.state.date,selected.date);assert.equal(result.state.requestedTime,null);assert.equal(result.state.slot,null)
 }
-const morning = await respondWithAiInterpreter(context,pending,'de la mañana, no de la tarde',port,async()=>({...legacy,turnPlan:plan('de la mañana')}))
+const morning = await respondWithAiInterpreter(context,pending,'de la mañana, no de la tarde',port,async()=>({...legacy,communicativeActs:currentPeriod('de la mañana'),turnPlan:plan('de la mañana')}))
 assert.equal(morning.interpretation.mode,'ai')
 assert.deepEqual(morning.state.timePreference,{kind:'around',time:'04:00'},'explicit morning clarification overrides commercial plausibility, never selects a slot')
 assert.equal(morning.state.date,selected.date);assert.equal(morning.state.requestedTime,null);assert.equal(morning.state.slot,null);assert.equal(morning.proposal,null)
@@ -73,7 +76,7 @@ let nextProofDate: string | undefined
 const correctedDay = await respondWithAiInterpreter(context,selected,'miércoles tipo 4', {...port,businessTimeContext:(date,times)=>{
  nextProofDate=date
  return projectBusinessTimeContext(snapshot,date,times)
-}}, async()=>({...legacy,turnPlan:{version:1,operations:[{kind:'date',expression:'miércoles',value:'2026-10-07',evidence:'miércoles',confidence:1},{kind:'time_clarification',candidateTimes:candidates,evidence:'tipo 4',confidence:1}]}}))
+}}, async()=>({...legacy,communicativeActs:currentDayChange,turnPlan:{version:1,operations:[{kind:'date',expression:'miércoles',value:'2026-10-07',evidence:'miércoles',confidence:1},{kind:'time_clarification',candidateTimes:candidates,evidence:'tipo 4',confidence:1}]}}))
 assert.equal(correctedDay.interpretation.mode,'ai');assert.equal(correctedDay.state.date,'2026-10-07')
 assert.equal(nextProofDate,'2026-10-07','date correction uses proof for prospective day, never Tuesday proof')
 assert.deepEqual(correctedDay.state.timeClarification,{candidateTimes:candidates})
@@ -81,7 +84,7 @@ assert.equal(correctedDay.state.timePreference,undefined);assert.equal(corrected
 let pendingProviderDate: string | undefined
 const pendingDayChange = await respondWithAiInterpreter(context,pending,'miércoles tipo 4', {...port,businessTimeContext:(date,times)=>projectBusinessTimeContext(snapshot,date,times)}, async input=>{
  pendingProviderDate=input.businessTimeContext?.date
- return {...legacy,turnPlan:{version:1,operations:[{kind:'date',expression:'miércoles',value:'2026-10-07',evidence:'miércoles',confidence:1},{kind:'time_clarification',candidateTimes:candidates,evidence:'tipo 4',confidence:1}]}}
+ return {...legacy,communicativeActs:currentDayChange,turnPlan:{version:1,operations:[{kind:'date',expression:'miércoles',value:'2026-10-07',evidence:'miércoles',confidence:1},{kind:'time_clarification',candidateTimes:candidates,evidence:'tipo 4',confidence:1}]}}
 })
 assert.equal(pendingProviderDate,'2026-10-07','model never receives old daily proof during prospective date correction')
 assert.equal(pendingDayChange.state.date,'2026-10-07');assert.deepEqual(pendingDayChange.state.timeClarification,{candidateTimes:candidates})

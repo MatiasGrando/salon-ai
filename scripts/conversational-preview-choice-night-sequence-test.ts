@@ -49,7 +49,7 @@ const ev = (evidence: string) => ({ evidence, confidence: 1 })
 const member = (mode: 'single' | 'alternatives', serviceIds: string[], evidence: string) => ({ mode, serviceIds, ...ev(evidence) })
 const basket = (mutation: 'set' | 'add', members: object[], evidence: string) => ({ kind: 'basket', mutation, scope: 'all', targetMemberIds: [], members, ...ev(evidence) })
 const plans: Record<string, object[]> = {
-  'hola quiero corte hombre hoy': [basket('set', [member('single', ['man'], 'corte hombre')], 'corte hombre'), { kind: 'date', expression: 'hoy', value: date, ...ev('hoy') }, { kind: 'professional', mode: 'any', ...ev('quiero') }],
+  'hola quiero corte hombre hoy con cualquier profesional': [basket('set', [member('single', ['man'], 'corte hombre')], 'corte hombre'), { kind: 'date', expression: 'hoy', value: date, ...ev('hoy') }, { kind: 'professional', mode: 'any', ...ev('cualquier profesional') }],
   'no mejor corte mujer': [basket('set', [member('single', ['woman'], 'corte mujer')], 'corte mujer')],
   'agrega baño de crema': [basket('add', [member('single', ['cream'], 'baño de crema')], 'baño de crema')],
   'Karsell': [{ kind: 'estimate', serviceId: 'cream', optionId: 'karsell', ...ev('Karsell') }],
@@ -58,8 +58,19 @@ const plans: Record<string, object[]> = {
   'quiero corte mujer hoy con Cin': [basket('set', [member('single', ['woman'], 'corte mujer')], 'corte mujer'),
     { kind: 'date', expression: 'hoy', value: date, ...ev('hoy') }, { kind: 'professional', mode: 'specific', mention: 'Cin', ...ev('Cin') }]
 }
+const act = (kind: string, field: string, evidence: string, operationIndexes: number[], mention: string | null = null) => ({ kind, field, evidence, operationIndexes, mention, confidence: 1 })
+// Manually declared current acts are independent of candidate operation kinds.
+const currentActs: Record<string, object[]> = {
+  'hola quiero corte hombre hoy con cualquier profesional': [act('request', 'service', 'corte hombre', [0]), act('request', 'date', 'hoy', [1]), act('request', 'professional', 'cualquier profesional', [2])],
+  'no mejor corte mujer': [act('change', 'service', 'no mejor corte mujer', [0])],
+  'agrega baño de crema': [act('change', 'service', 'agrega baño de crema', [0])],
+  'Karsell': [act('answer', 'estimate', 'Karsell', [0])],
+  'mejor solo el corte': [act('change', 'service', 'mejor solo el corte', [0])],
+  'corte mujer': [act('answer', 'service', 'corte mujer', [0])],
+  'quiero corte mujer hoy con Cin': [act('request', 'service', 'corte mujer', [0]), act('request', 'date', 'hoy', [1]), act('request', 'professional', 'con Cin', [2], 'Cin')]
+}
 let providerCalls = 0
-const provider: AiInterpretationProvider = async input => { providerCalls++; const operations = plans[input.message]; assert.ok(operations, 'fixture message: ' + input.message); return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } } }
+const provider: AiInterpretationProvider = async input => { providerCalls++; const operations = plans[input.message]; assert.ok(operations, 'fixture message: ' + input.message); return { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, communicativeActs: { version: 1, acts: currentActs[input.message] }, turnPlan: { version: 1, operations } } }
 const say = (message: string) => runPrismaDemoPreview(client, businessId, userId, session, message, factory, provider)
 for (const message of Object.keys(plans).filter(message => message !== 'quiero corte mujer hoy con Cin')) {
   const result: any = await say(message)

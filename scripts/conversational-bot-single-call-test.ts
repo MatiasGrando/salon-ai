@@ -180,7 +180,22 @@ assert.equal(selectedIntake.availabilityCalls, 0)
 assert.equal(selectedIntake.response.state.serviceId, 'service')
 assert.equal(selectedIntake.response.state.pending, 'date')
 assert.match(selectedIntake.response.reply, /día/)
-const ambiguousIntake = await run('quiero un corte con Ramiro mañana', { extraService: 'Corte mujer', candidate: { intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['service', 'service2'], serviceConfidence: 'uncertain', professionalMention: 'Ramiro', intakeReply: intakeDraft('service', null, ['service', 'service2']) } })
+// Modern provider states the current actions explicitly; legacy roots do not
+// authorize inferring missing date/professional operations from an old intake.
+const ambiguousIntake = await run('quiero un corte con Ramiro mañana', { extraService: 'Corte mujer', candidate: {
+  intent: 'booking', intakeReply: intakeDraft('service', null, ['service', 'service2']),
+  turnPlan: { version: 1, operations: [
+    { kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [], evidence: 'quiero un corte', confidence: 1,
+      members: [{ mode: 'alternatives', serviceIds: ['service', 'service2'], evidence: 'corte', confidence: 1 }] },
+    { kind: 'date', expression: 'mañana', value: '2026-09-30', evidence: 'mañana', confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Ramiro', evidence: 'con Ramiro', confidence: 1 }
+  ] },
+  communicativeActs: { version: 1, acts: [
+    { kind: 'request', field: 'service', evidence: 'quiero un corte', mention: null, confidence: 1, operationIndexes: [0] },
+    { kind: 'request', field: 'date', evidence: 'mañana', mention: null, confidence: 1, operationIndexes: [1] },
+    { kind: 'request', field: 'professional', evidence: 'con Ramiro', mention: 'Ramiro', confidence: 1, operationIndexes: [2] }
+  ] }
+} })
 assert.equal(ambiguousIntake.calls, 1)
 assert.equal(ambiguousIntake.availabilityCalls, 0)
 assert.equal(ambiguousIntake.response.state.date, '2026-09-30')

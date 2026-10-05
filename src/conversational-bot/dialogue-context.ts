@@ -1,3 +1,4 @@
+import { parseProfessionalReference } from './communicative-act.js'
 import { canonicalPreferenceOptionId } from './dialogue-choice-presentation.js'
 import { assign, initialTransition, setup, transition } from 'xstate'
 import { basketIsResolved, basketServiceIds, selectionBasket } from './service-basket.js'
@@ -120,6 +121,10 @@ export function parseDialogueQuestion(value: unknown, state: DialogueState): Dia
   return parsed
 }
 export function expectedDialogueAnswer(state: DialogueState) {
+  if (state.professionalReference) {
+    const reference = parseProfessionalReference(state.professionalReference, state)
+    return { field: 'professional' as const, role: 'professional' as const, question: reference.question, options: [], complete: false, targetServiceId: null }
+  }
   if (state.questionContext) { const { matchConfigurationKey: _configuration, ...answer } = state.questionContext; return answer }
   return { field: state.pending, role: state.pending === 'proposal' && state.sandboxReservation && !state.sandboxReservation.receipt ? 'confirmation' : questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
 }
