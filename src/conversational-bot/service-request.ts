@@ -108,7 +108,8 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
     if (confidence < 0.85)
         return { ...request, disposition: 'needs_detail' };
     // A yes answers a single proposed catalog identity, never authorizes an undocumented variant.
-    if (request.continuation && !request.correction && previous?.disposition === 'needs_detail' &&
+    if (request.continuation && !request.correction &&
+        !(request.purpose === 'inquiry' && previous?.purpose === 'booking') && previous?.disposition === 'needs_detail' &&
         previous.basis === 'semantic_equivalent' && previous.serviceIds.length === 1 &&
         request.serviceIds.length === 1 && request.serviceIds[0] === previous.serviceIds[0] &&
         previous.candidateName === services.find(service => service.id === previous.serviceIds[0])?.name &&
@@ -141,6 +142,9 @@ export function serviceRequestReply(request: ServiceRequestContext, services: re
     if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && candidates.length === 1) {
         return 'No tengo información confirmada sobre «' + request.request + '». ' +
             '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
+    }
+    if (request.disposition === 'needs_detail' && request.purpose === 'inquiry') {
+        return 'No tengo información confirmada sobre «' + request.request + '». ¿Qué otra información necesitás?';
     }
     if (request.disposition === 'needs_detail') {
         return 'Para ayudarte con «' + request.request + '», ¿podés contarme un poco más sobre el resultado que buscás?';

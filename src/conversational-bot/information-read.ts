@@ -67,21 +67,30 @@ export function businessSubject(message: string): BusinessInformationSubject | u
   if (/\b(contacto|telefono|whatsapp|correo|email)\b/.test(text)) return 'contact'
   return undefined
 }
+const informationNameTerms = (name: string) => normalizeAnswer(name).split(' ').filter(word => !['de', 'del', 'y'].includes(word))
+const partialInformationServices = (tokens: readonly string[], services: readonly DialogueService[]) =>
+  services.filter(service => informationNameTerms(service.name).some(word => tokens.includes(word)))
 function namedInformationServices(message: string, services: readonly DialogueService[]) {
   const tokens = normalizeAnswer(message).split(' ')
-  const terms = (name: string) => normalizeAnswer(name).split(' ').filter(word => !['de', 'del', 'y'].includes(word))
+  const terms = informationNameTerms
   let found = services.filter(service => terms(service.name).every(word => tokens.includes(word)))
-  const partial = services.filter(service => terms(service.name).some(word => tokens.includes(word)))
-  if (!found.length || found.length === 1 && partial.some(other => other.id !== found[0]!.id && terms(found[0]!.name).every(word => terms(other.name).includes(word)))) found = partial
+  const partial = partialInformationServices(tokens, services)
+  // A shared category may expose alternatives, but one partial name is not identity.
+  if (!found.length) return partial.length > 1 ? partial : []
+  if (found.length === 1 && partial.some(other => other.id !== found[0]!.id && terms(found[0]!.name).every(word => terms(other.name).includes(word)))) found = partial
   return found
 }
 /** Infer only bounded read targets; the provider remains the semantic path for richer language. */
 export function inferInformationTarget(state: DialogueState, message: string, services: readonly DialogueService[], actions: readonly InformationAction[] = routeActions(message).information): InformationTarget | null {
-  if (explicitBooking(message)) return null
+  if (explicitBooking(message) || state.serviceRequest?.purpose === 'inquiry') return null
   if (actions.includes('SERVICES')) return { kind: 'business', actions }
   const focus = state.informationFocus
   const aspect = informationAspect(message)
   const named = namedInformationServices(message, services)
+  // An unresolved new catalog mention cannot borrow an older service's facts.
+  // Elliptical followups have no such mention and may retain their current focus.
+  const choiceAnswer = focus?.awaitingChoice && !actions.length && !aspect
+  if (!choiceAnswer && !named.length && partialInformationServices(normalizeAnswer(message).split(' '), services).length) return null
   if ((actions.includes('SERVICE_DETAILS') || actions.includes('PRICES')) && named.length) {
     return { kind: 'service', actions: [], serviceIds: named.length > 10 ? [] : named.map(service => service.id), aspect: actions.includes('PRICES') ? 'price' : aspect ?? 'overview' }
   }

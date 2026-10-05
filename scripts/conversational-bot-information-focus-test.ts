@@ -418,6 +418,154 @@ try {
   assert.match(oneCallGeneral.reply, /¿En qué más te puedo ayudar\?/)
   assert.equal(oneCallGeneral.state.serviceId, null)
   assert.equal(agendaCalls, beforeInformativeAgenda)
+  // Qualified procedure inquiries stay reads; synthetic providers never prove model understanding.
+  const inquiryCatalog: DialogueService[] = [...services, { id: 'light', name: 'Iluminación', price: 12000, durationMinutes: 60, requiresConsultation: false }]
+  const inquiryPort: DialoguePort = { ...port, catalog: async () => inquiryCatalog }
+  const inquiryFailures: string[] = []
+  let inquiryPassed = 0
+  const inquiryCheck = async (name: string, assertion: () => Promise<void>) => {
+    try { await assertion(); inquiryPassed++; console.log('PASS inquiry ' + name) }
+    catch (error) { inquiryFailures.push(name); console.error('RED inquiry ' + name + ': ' + (error instanceof Error ? error.message.split('\n')[0] : String(error))) }
+  }
+  const procedure = (evidence: string, ids = ['light'], disposition = 'unverified_variant', continuation = false, purpose = 'inquiry') => ({
+    kind: 'service_request', purpose, disposition, serviceIds: ids, correction: false,
+    basis: 'related_category', sourceQuote: null, continuation, ...ev(evidence)
+  })
+  let inquiryProviderCalls = 0
+  const inquirySay = (state: DialogueState, message: string, operation: object, modern = true, customPort = inquiryPort) =>
+    respondWithAiInterpreter(context, state, message, customPort, async () => {
+      inquiryProviderCalls++
+      return { ...legacy, turnPlan: { version: 1, operations: [operation] }, ...(modern ? {
+        communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: message,
+          confidence: 1, mention: null, operationIndexes: [0] }] }
+      } : {}) }
+    })
+  const inquiryNoEffects = (result: Awaited<ReturnType<typeof inquirySay>>, before: DialogueState, agendaBefore: number) => {
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(before))
+    for (const field of ['serviceId', 'date', 'customerName', 'professionalNameHint', 'timePreference'] as const)
+      assert.deepEqual(result.state[field], before[field])
+    assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    assert.equal(agendaCalls, agendaBefore); assert.equal(result.interpretation.aiCalls, 1)
+  }
+  for (const modern of [false, true]) await inquiryCheck('light query keeps object ' + (modern ? 'modern' : 'legacy'), async () => {
+    const beforeAgenda = agendaCalls, beforeCalls = inquiryProviderCalls
+    const result = await inquirySay(initial, '¿Cuánto cuesta el baño de luz?', procedure('baño de luz'), modern)
+    assert.equal(result.interpretation.reason, null)
+    assert.equal(result.state.serviceRequest?.purpose, 'inquiry')
+    assert.equal(result.state.serviceRequest?.request, 'baño de luz')
+    assert.deepEqual(result.state.serviceRequest?.serviceIds, ['light'])
+    assert.notEqual(result.state.informationFocus?.serviceId, 'cream')
+    assert.doesNotMatch(result.reply, /Baño de crema|25[.,]?000|40[.,]?000/)
+    assert.match(result.reply, /baño de luz/)
+    inquiryNoEffects(result, initial, beforeAgenda)
+    assert.equal(inquiryProviderCalls, beforeCalls + 1)
+  })
+  await inquiryCheck('pre-provider partial singleton cannot become a price fact', async () => {
+    let prepared = ''
+    const result = await respondWithAiInterpreter(context, initial, '¿Cuánto cuesta el baño de luz?', inquiryPort, async input => {
+      prepared = (input.firstReplyFacts ?? []).map(fact => fact.text).join(' ')
+      return { ...legacy, turnPlan: { version: 1, operations: [procedure('baño de luz')] } }
+    })
+    assert.doesNotMatch(prepared, /Baño de crema|25[.,]?000|40[.,]?000/)
+    assert.notEqual(result.state.informationFocus?.serviceId, 'cream')
+    const generic = await say(initial, '¿Precio de corte?', [info('Precio de corte', business(['PRICES']))])
+    assert.equal(generic.state.informationFocus?.awaitingChoice, true)
+    assert.deepEqual(generic.state.informationFocus?.options.map(option => option.id).sort(), ['cut', 'cut-beard', 'woman'])
+    const exact = await say(initial, '¿Precio de baño de crema?', [info('Precio de baño de crema', service(['cream'], 'price'))])
+    assert.equal(exact.state.informationFocus?.serviceId, 'cream')
+  })
+  await inquiryCheck('unknown inclusion preserves the question, not a new procedure', async () => {
+    const beforeAgenda = agendaCalls
+    const result = await inquirySay(initial, '¿El corte incluye lavado?', procedure('El corte incluye lavado', ['cut'], 'needs_detail'))
+    assert.equal(result.state.serviceRequest?.request, 'El corte incluye lavado')
+    assert.match(result.reply, /información.*confirmada|confirmad.*información/i)
+    assert.match(result.reply, /incluye lavado/)
+    assert.doesNotMatch(result.reply, /resultado que buscás|producto elegís|Baño de crema|Voy a consultar|te aviso/)
+    inquiryNoEffects(result, initial, beforeAgenda)
+    const published = inquiryCatalog.map(item => item.id === 'cut' ? { ...item, description: 'Prestación publicada: incluye lavado.' } : item)
+    const known = await inquirySay(initial, '¿El corte incluye lavado?', info('El corte incluye lavado', service(['cut'], 'description')), true,
+      { ...inquiryPort, catalog: async () => published })
+    assert.match(known.reply, /Prestación publicada: incluye lavado/)
+    inquiryNoEffects(known, initial, beforeAgenda)
+  })
+  const retainedRequest: NonNullable<DialogueState['serviceRequest']> = {
+    businessId: context.businessId, purpose: 'booking', disposition: 'needs_detail', serviceIds: ['cut'],
+    correction: false, continuation: false, basis: 'related_category', sourceQuote: null, request: 'corte especial'
+  }
+  const inquiryDraft = { ...active, serviceRequest: retainedRequest }
+  for (const modern of [false, true]) await inquiryCheck('lateral inquiry retains booking request ' + (modern ? 'modern' : 'legacy'), async () => {
+    const beforeAgenda = agendaCalls
+    const result = await inquirySay(inquiryDraft, '¿El corte incluye lavado?', procedure('El corte incluye lavado', ['cut'], 'needs_detail'), modern)
+    assert.deepEqual(result.state.serviceRequest, retainedRequest)
+    assert.match(result.reply, /incluye lavado/)
+    inquiryNoEffects(result, inquiryDraft, beforeAgenda)
+  })
+  await inquiryCheck('pending inquiry blocks an unrelated inferred price', async () => {
+    const previous = { ...initial, serviceRequest: { ...retainedRequest, purpose: 'inquiry' as const, serviceIds: ['light'], request: 'baño de luz' } }
+    const result = await say(previous, '¿Cuánto cuesta el baño?', [])
+    assert.doesNotMatch(result.reply, /Baño de crema|25[.,]?000|40[.,]?000/)
+    assert.notEqual(result.state.informationFocus?.serviceId, 'cream')
+    assert.equal(result.state.serviceRequest?.request, 'baño de luz')
+  })
+  await inquiryCheck('continuation retains its actual qualifier without authorizing a variant', async () => {
+    const previous = { ...initial, serviceRequest: { ...retainedRequest, purpose: 'inquiry' as const, serviceIds: ['light'], request: 'baño de luz' } }
+    const result = await inquirySay(previous, 'Sólo en raíces', procedure('Sólo en raíces', ['light'], 'unverified_variant', true))
+    assert.equal(result.state.serviceRequest?.request, 'Sólo en raíces')
+    assert.equal(result.state.serviceRequest?.disposition, 'unverified_variant')
+    assert.deepEqual(result.state.serviceRequest?.serviceIds, ['light'])
+    assert.match(result.reply, /raíces/)
+    assert.equal(result.state.serviceId, null)
+  })
+  await inquiryCheck('an inquiry cannot confirm a pending booking identity', async () => {
+    const previous = { ...initial, serviceRequest: { ...retainedRequest, basis: 'semantic_equivalent' as const,
+      candidateName: 'Corte hombre' } }
+    const beforeAgenda = agendaCalls
+    const result = await inquirySay(previous, 'sí', { ...procedure('sí', ['cut'], 'needs_detail', true), basis: 'semantic_equivalent' })
+    assert.deepEqual(result.state.serviceRequest, previous.serviceRequest)
+    inquiryNoEffects(result, previous, beforeAgenda)
+  })
+  for (const modern of [false, true]) await inquiryCheck('an exact public price is read with retained booking ' + (modern ? 'modern' : 'legacy'), async () => {
+    const beforeAgenda = agendaCalls
+    const result = await inquirySay(inquiryDraft, '¿Precio de Corte mujer?', {
+      ...procedure('Corte mujer', ['woman'], 'clear'), basis: 'exact_public_name'
+    }, modern)
+    assert.deepEqual(result.state.serviceRequest, retainedRequest)
+    assert.equal(result.state.informationFocus?.serviceId, 'woman')
+    assert.equal(result.state.informationFocus?.aspect, 'price')
+    assert.match(result.reply, /37[.,]?000/)
+    assert.doesNotMatch(result.reply, /25[.,]?000/)
+    inquiryNoEffects(result, inquiryDraft, beforeAgenda)
+  })
+  await inquiryCheck('a qualified new query cannot inherit an old price focus', async () => {
+    const cream = await say(initial, '¿Precio de baño de crema?', [info('Precio de baño de crema', service(['cream'], 'price'))])
+    const elliptical = await say(cream.state, '¿Y el precio?', [])
+    assert.equal(elliptical.state.informationFocus?.serviceId, 'cream')
+    assert.match(elliptical.reply, /25[.,]?000|40[.,]?000/)
+    let prepared = ''
+    const result = await respondWithAiInterpreter(context, cream.state, '¿Cuánto cuesta el baño de luz?', inquiryPort, async input => {
+      prepared = (input.firstReplyFacts ?? []).map(fact => fact.text).join(' ')
+      return { ...legacy, turnPlan: { version: 1, operations: [procedure('baño de luz')] } }
+    })
+    assert.doesNotMatch(prepared, /Baño de crema|25[.,]?000|40[.,]?000/)
+    assert.doesNotMatch(result.reply, /Baño de crema|25[.,]?000|40[.,]?000/)
+    assert.equal(result.state.serviceRequest?.request, 'baño de luz')
+  })
+  await inquiryCheck('a current explicit booking replaces a prior inquiry without granting consent', async () => {
+    const previous = { ...initial, serviceRequest: { ...retainedRequest, purpose: 'inquiry' as const, serviceIds: ['light'], request: 'baño de luz' } }
+    const beforeAgenda = agendaCalls
+    const result = await respondWithAiInterpreter(context, previous, 'Quiero reservar Corte mujer', inquiryPort, async () => ({
+      ...legacy, intent: 'booking', turnPlan: { version: 1, operations: [{
+        ...procedure('Corte mujer', ['woman'], 'clear', false, 'booking'), basis: 'exact_public_name'
+      }] }, communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'service', evidence: 'Quiero reservar Corte mujer',
+        confidence: 1, mention: null, operationIndexes: [0] }] }
+    }))
+    assert.equal(result.state.serviceRequest, undefined)
+    assert.equal(result.state.serviceId, 'woman')
+    assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda); assert.equal(result.interpretation.aiCalls, 1)
+  })
+  console.log('qualified inquiry: ' + inquiryPassed + ' passed, ' + inquiryFailures.length + ' failed')
+  assert.deepEqual(inquiryFailures, [], 'qualified inquiry regressions')
   console.log('information focus, price continuity, loaded service facts and missing-data regression: PASS')
 } finally {
   globalThis.fetch = originalFetch

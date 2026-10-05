@@ -169,7 +169,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
       return true
     }
-    const read = original?.kind === 'information' || original?.kind === 'unsupported_action'
+    const read = original?.kind === 'information' || original?.kind === 'unsupported_action' ||
+      original?.kind === 'service_request' && original.purpose === 'inquiry'
     const sameField = act?.field === field
     const current = act && ['request', 'change', 'answer'].includes(act.kind)
     const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current

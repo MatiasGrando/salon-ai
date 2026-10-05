@@ -780,6 +780,37 @@ try {
     assert.deepEqual(response.state.basket, pendingProcedure.basket)
     assert.equal(response.state.customerName, pendingProcedure.customerName)
   })
+  await check('a scoped current procedure inquiry is a read, not a service mutation', () => {
+    const message = '¿El corte incluye lavado?'
+    const operation = { kind: 'service_request', purpose: 'inquiry', disposition: 'needs_detail', serviceIds: ['cut-m'],
+      correction: false, continuation: false, basis: 'related_category', sourceQuote: null, ...ev('El corte incluye lavado') }
+    const plan = parseTurnPlan({ version: 1, operations: [operation] }, message, services.map(item => item.id))
+    const metadata = parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'El corte incluye lavado', [0])] }, message, 1)
+    const admitted = admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services)
+    assert.deepEqual(admitted.plan, plan)
+    assert.deepEqual(admitted.blockedFields, [])
+  })
+  await check('inquiry authority cannot acquire a booking procedure or change its field', () => {
+    const message = '¿El corte incluye lavado?'
+    for (const purpose of ['inquiry', 'booking']) for (const [kind, field, confidence] of [
+      ['inquiry', 'general', .99], ['reference', 'service', .99], ['uncertain', 'service', .99], ['inquiry', 'service', .5],
+      ['notice', 'service', .99], ['pause', 'service', .99], ['repair', 'service', .99]
+    ] as const) {
+      const operation = { kind: 'service_request', purpose, disposition: 'needs_detail', serviceIds: ['cut-m'],
+        correction: false, continuation: false, basis: 'related_category', sourceQuote: null, ...ev('El corte incluye lavado') }
+      const plan = parseTurnPlan({ version: 1, operations: [operation] }, message, services.map(item => item.id))
+      const metadata = parseCommunicativeActs({ version: 1, acts: [act(kind, field, 'El corte incluye lavado', [0], null, confidence)] }, message, 1)
+      const admitted = admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services)
+      assert.equal(admitted.plan.operations.length, 0)
+      assert.deepEqual(admitted.blockedFields, ['service'])
+    }
+    const booking = parseTurnPlan({ version: 1, operations: [{ kind: 'service_request', purpose: 'booking', disposition: 'needs_detail', serviceIds: ['cut-m'],
+      correction: false, continuation: false, basis: 'related_category', sourceQuote: null, ...ev('El corte incluye lavado') }] }, message, services.map(item => item.id))
+    const inquiry = parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'El corte incluye lavado', [0])] }, message, 1)
+    assert.equal(admitCommunicativePlan(inquiry, booking, booking, message, pendingProcedure, services).plan.operations.length, 0)
+    assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'Cita inventada', [0])] }, message, 1), /communicative/)
+    assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'El corte incluye lavado', [1])] }, message, 1), /communicative/)
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

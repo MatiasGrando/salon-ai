@@ -16,7 +16,7 @@ import { presentAvailability, presentProfessionals, presentVerifiedDates, presen
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
 import { parseTimePreference, approximateTimeRequest, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
 import { parseInformationFocus, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
-import { normalizeInformativeEstimates, readInformation, inferInformationTarget, informationNext, type InformationRead } from './information-read.js'
+import { normalizeInformativeEstimates, readInformation, inferInformationTarget, informationAspect, informationNext, type InformationRead } from './information-read.js'
 export type { InformationTarget } from './information-contract.js'
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
 import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, matchPresentedServiceAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
@@ -902,8 +902,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     ...(communicative?.reference ? { reference: communicative.reference } : {}) }, state)
   raw = prospective.plan
   if (prospective.blockedFields.length) communicative = prospective
-  const suppressMatching = semanticPending || prospective.blockedFields.length > 0
   const procedureOp = raw.operations.find(operation => operation.kind === 'service_request')
+  const inquiryTurn = procedureOp?.purpose === 'inquiry' || state.serviceRequest?.purpose === 'inquiry' &&
+    !raw.operations.some(operation => ['service', 'basket'].includes(operation.kind) || operation.kind === 'service_request' && operation.purpose === 'booking')
+  const suppressMatching = semanticPending || prospective.blockedFields.length > 0 || inquiryTurn
   let procedureQuestion = ''
   if (state.serviceRequest) {
     const ids = state.serviceRequest.serviceIds.filter(id => services.some(service => service.id === id))
@@ -920,20 +922,23 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       businessId: context.businessId,
       ...(request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.serviceIds.length === 1
         ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
-      request: request.continuation && previousRequest && !request.correction ? previousRequest.request : procedureOp.evidence
+      request: request.continuation && previousRequest && !request.correction && affirmativeMatchAnswer(procedureOp.evidence, [])
+        ? previousRequest.request : procedureOp.evidence
     }
-    delete state.serviceRequest
+    // A lateral read is local: the retained booking request still owns its continuation.
+    const retainBooking = request.purpose === 'inquiry' && previousRequest?.purpose === 'booking'
+    if (!retainBooking) delete state.serviceRequest
     procedureQuestion = ''
     const others = raw.operations.filter(operation => operation !== procedureOp)
     if (request.disposition === 'clear') {
       const resolvedOperation: TurnPlan['operations'][number] = request.purpose === 'inquiry'
         ? { kind: 'information', evidence: procedureOp.evidence, confidence: procedureOp.confidence,
-            target: { kind: 'service', actions: [], serviceIds: [...request.serviceIds], aspect: 'overview' } }
+            target: { kind: 'service', actions: [], serviceIds: [...request.serviceIds], aspect: informationAspect(message) ?? 'overview' } }
         : { kind: 'service', mode: 'single', serviceIds: request.serviceIds, correction: request.correction,
             evidence: procedureOp.evidence, confidence: procedureOp.confidence }
       raw = { ...raw, operations: [...others, resolvedOperation] }
     } else {
-      state.serviceRequest = requestContext
+      if (!retainBooking) state.serviceRequest = requestContext
       procedureQuestion = serviceRequestReply(requestContext, services)
       raw = { ...raw, operations: others }
     }
@@ -941,7 +946,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     delete state.serviceRequest
     procedureQuestion = ''
   }
-  const implicitRead = inferInformationTarget(state, message, services)
+  const implicitRead = inquiryTurn ? null : inferInformationTarget(state, message, services)
   const explicitBooking = /\b(reservar|agendar|turno)\b/.test(normalizeAnswer(message)) && !routeActions(message).information.length
   if (implicitRead && intent !== 'booking' && !explicitBooking && !raw.operations.some(op => op.kind === 'information') &&
       raw.operations.every(op => ['name', 'service', 'basket'].includes(op.kind))) {
