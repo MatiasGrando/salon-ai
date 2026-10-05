@@ -10,7 +10,7 @@ export type PresentationScope = { businessId: string; serviceIds: readonly strin
 export type AvailabilityRead = { fresh: boolean; scope: PresentationScope; slots: readonly AvailabilitySlot[] }
 export type AvailabilityPresentationInput = {
   scope: PresentationScope; read: AvailabilityRead; timezone: string; now: Date
-  preference?: TimePreference; requestedTime?: string | null; cursor?: number
+  preference?: TimePreference; requestedTime?: string | null; cursor?: number; orderedDates?: readonly string[]
 }
 export type PresentationChoice =
   | { kind: 'slot'; label: string; slot: AvailabilitySlot }
@@ -113,7 +113,12 @@ export function presentDateTimeQuestion(input: { date: string | null; hasTempora
 export function presentVerifiedDates(input: AvailabilityPresentationInput): ChoicePresentation & { example: string | null } {
   const slots = freshSlots(input)
   const start = cursorStart(input.cursor, Math.min(3, BOOKING_DATE_PAGE_SIZE))
-  const dates = [...new Set(slots.map(slot => slot.date))]
+  const verified = [...new Set(slots.map(slot => slot.date))]
+  if (input.orderedDates && (input.scope.date !== null || input.orderedDates.length < 2 || input.orderedDates.length > 3 ||
+      new Set(input.orderedDates).size !== input.orderedDates.length || input.orderedDates.some(date =>
+        !/^\d{4}-\d{2}-\d{2}$/.test(date) || resolveDialogueDate(date, null).kind !== 'resolved'))) throw new Error('invalid ordered dates')
+  const dates = input.orderedDates ? input.orderedDates.filter(date => verified.includes(date)) : verified
+  const unverified = input.orderedDates?.filter(date => !verified.includes(date)) ?? []
   const today = localDateKey(input.now, input.timezone)
   const tomorrow = new Date(today + 'T12:00:00Z'); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
   const tomorrowKey = tomorrow.toISOString().slice(0, 10)
@@ -122,5 +127,6 @@ export function presentVerifiedDates(input: AvailabilityPresentationInput): Choi
   const first = slots.find(slot => slot.date === choices.find(choice => choice.kind === 'date')?.date)
   const example = first ? `${first.date} a las ${first.time}` : null
   const displayExample = first ? (first.date === today ? 'Hoy' : first.date === tomorrowKey ? 'Mañana' : formatDeliveryDate(first.date)) + ' a las ' + first.time : null
-  return { kind: 'dates', text: `¿Qué día y horario te vendrían bien?\n\n${choices.length ? `Hay disponibilidad:\n${choices.map(choice => '• ' + choice.label).join('\n')}` : 'No encontré fechas disponibles.'}${displayExample ? `\n\nPodés escribir, por ejemplo: ${displayExample}.` : ''}`, choices, hasMore: start + choices.length < dates.length, example }
+  const unknown = unverified.length ? '\n\nNo pude verificar disponibilidad para ' + unverified.map(date => formatDeliveryDate(date)).join(' / ') + ' con esta búsqueda. Mantengo tu orden de preferencia.' : ''
+  return { kind: 'dates', text: `¿Qué día y horario te vendrían bien?\n\n${choices.length ? `Hay disponibilidad:\n${choices.map(choice => '• ' + choice.label).join('\n')}` : input.orderedDates ? 'Mantengo tus fechas pendientes de verificar.' : 'No encontré fechas disponibles.'}${displayExample ? `\n\nPodés escribir, por ejemplo: ${displayExample}.` : ''}${unknown}`, choices, hasMore: start + choices.length < dates.length, example }
 }

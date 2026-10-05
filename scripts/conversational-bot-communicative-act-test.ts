@@ -811,6 +811,19 @@ try {
     assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'Cita inventada', [0])] }, message, 1), /communicative/)
     assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', 'El corte incluye lavado', [1])] }, message, 1), /communicative/)
   })
+  await check('date priorities share date authority, not a general or historical act', () => {
+    const message = 'prefiero viernes o martes'
+    const operation = { kind: 'date_preferences', candidates: [
+      { expression: 'viernes', value: '2026-10-09' }, { expression: 'martes', value: '2026-10-06' }
+    ], ...ev(message) }
+    const plan = parseTurnPlan({ version: 1, operations: [operation] }, message)
+    const current = parseCommunicativeActs({ version: 1, acts: [act('request', 'date', message, [0])] }, message, 1)
+    assert.equal(admitCommunicativePlan(current, plan, plan, message, pendingProcedure, services).plan.operations.length, 1)
+    for (const kind of ['inquiry', 'reference', 'notice'] as const) {
+      const metadata = parseCommunicativeActs({ version: 1, acts: [act(kind, 'date', message, [0])] }, message, 1)
+      assert.deepEqual(admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services).blockedFields, ['date'])
+    }
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

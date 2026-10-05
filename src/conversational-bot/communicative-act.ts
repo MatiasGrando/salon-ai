@@ -1,3 +1,4 @@
+import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
 import { preferenceOptionId } from './dialogue-choice-presentation.js'
 import { serviceGuidance } from './service-guidance.js'
@@ -65,6 +66,7 @@ function operationKey(operation: TurnOperation): string {
   if (['basket', 'service', 'service_request'].includes(operation.kind)) return 'service'
   if (['time', 'time_preference', 'time_clarification'].includes(operation.kind)) return 'time'
   if (operation.kind === 'professional_reference') return 'professional'
+  if (operation.kind === 'date_preferences') return 'date'
   return operation.kind
 }
 /** Known server projection changes representation, not the original speech act. */
@@ -138,7 +140,8 @@ function changesExisting(operation: TurnOperation, state: DialogueState): boolea
   if (['basket', 'service'].includes(operation.kind)) return selectionBasket(state).members.length > 0
   if (operation.kind === 'service_request') return operation.purpose === 'booking' && selectionBasket(state).members.length > 0
   if (operation.kind === 'professional' || operation.kind === 'professional_reference') return true
-  if (operation.kind === 'date') return !!state.date && operation.value !== state.date
+  if (operation.kind === 'date_preferences') return !!(state.date || state.datePreferences)
+  if (operation.kind === 'date') return !!state.datePreferences || !!state.date && operation.value !== state.date
   if (['time', 'time_preference', 'time_clarification'].includes(operation.kind)) return !!(state.slot || state.requestedTime || state.timePreference || state.timeClarification)
   if (operation.kind === 'name') return !!state.customerName && normalized(state.customerName) !== normalized(operation.value)
   if (operation.kind === 'estimate') return Object.hasOwn(state.serviceEstimates ?? {}, operation.serviceId)
@@ -154,7 +157,7 @@ function repeatedAdd(operation: TurnOperation, state: DialogueState): boolean {
 }
 /** Typed/evidence/catalog validation precedes this semantic admission; no unsafe candidate rescue. */
 export function admitCommunicativePlan(metadata: CommunicativeActs | null, source: TurnPlan, plan: TurnPlan,
-  message: string, state: DialogueState, services: readonly DialogueService[]): CommunicativeAdmission {
+  message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string): CommunicativeAdmission {
   const blocked = new Set<CommunicativeField>()
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
   const admitted = plan.operations.filter(operation => {
@@ -176,6 +179,9 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current
     if (!act || !sameField || !appropriate || act.confidence < .85 || !contains(act.evidence, operation.evidence)) {
       blocked.add(field); return false
+    }
+    if (operation.kind === 'date' && businessDate && !dateExpressionCoversCurrentEvidence(operation.expression, act.evidence, businessDate)) {
+      blocked.add('date'); return false
     }
     if (operation.kind === 'professional_reference' && (act.kind !== 'answer' || !state.professionalReference ||
         act.evidence !== message || operation.evidence !== message)) { blocked.add(field); return false }
@@ -207,7 +213,8 @@ export function protectProspectiveBasket(admission: CommunicativeAdmission, stat
 }
 export function professionalReferenceScope(state: DialogueState): string {
   return choiceDraftFingerprint({ businessId: state.businessId, basket: selectionBasket(state).members.map(member => [member.memberId, member.mode, member.serviceIds]),
-    estimates: state.serviceEstimates ?? {}, date: state.date, professional: state.professional, hint: state.professionalNameHint,
+    estimates: state.serviceEstimates ?? {}, date: state.date,
+    ...(state.datePreferences ? { datePreferences: state.datePreferences.map(item => [item.expression, item.value]) } : {}), professional: state.professional, hint: state.professionalNameHint,
     time: state.requestedTime, preference: state.timePreference ?? null, clarification: state.timeClarification ?? null,
     slot: state.slot, name: state.customerName })
 }

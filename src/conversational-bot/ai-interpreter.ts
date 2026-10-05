@@ -1,6 +1,6 @@
 import { admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
-import { memoBusinessTimeContext, scopedBusinessTimeContext, temporalPlanDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
+import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { groundTemporalPlan } from './temporal-grounding.js'
@@ -98,7 +98,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         // Validate that estimate against the safely retained draft; invalid IDs,
         // configuration and evidence still fail globally before semantic admission.
         validateEstimateOperations(protectProspectiveBasket({ plan: parsed, blockedFields: [] }, state).plan, state, services)
-        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services), state)
+        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services, localDateKey(context.dbNow, context.timezone)), state)
         const grounded = parseTurnPlan({ ...communicative.plan, operations: communicative.plan.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
@@ -336,7 +336,7 @@ export async function respondWithAiInterpreter(
   // Commercial proof supports an implicit numeric request, not an explicit period answer.
   // Re-resolve its prospective date even when a previous AM/PM clarification is pending.
   const candidateTimes = approximateTimeRequest(message)?.candidateTimes
-  const temporalDate = temporalPlanDate({operations:[{kind:'date',expression:message,confidence:1}]},state.date,businessDate) ?? state.date
+  const temporalDate = prospectiveMessageDate(message,state.date,businessDate)
   const commercialProof = temporalDate && candidateTimes ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const controller = new AbortController()

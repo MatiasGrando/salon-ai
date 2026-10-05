@@ -64,11 +64,12 @@ export function dialogueQuestion(field: DialogueField): string {
 }
 /** Keep the previous scope shape while making professional insertion order irrelevant. */
 const scopeOf = (state: DialogueState) => JSON.stringify({ basket: selectionBasket(state).members.map(member => [member.memberId, member.mode, member.serviceIds]), date: state.date,
+  ...(state.datePreferences ? { datePreferences: state.datePreferences.map(item => [item.expression, item.value]) } : {}),
   professional: state.professional?.kind === 'specific' ? { kind: 'specific', id: state.professional.id } : state.professional })
 function scopeMatches(scope: string, state: DialogueState): boolean {
   try {
     const value: unknown = JSON.parse(scope)
-    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'basket,date,professional') return false
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !['basket,date,professional', 'basket,date,datePreferences,professional'].includes(Object.keys(value).sort().join(','))) return false
     const row = value as Record<string, unknown>, professional = row.professional
     let canonicalProfessional: DialogueState['professional'] = null
     if (professional !== null) {
@@ -79,7 +80,7 @@ function scopeMatches(scope: string, state: DialogueState): boolean {
       else return false
     }
     // Arrays retain member order/multiplicity, and every real draft value must still match.
-    return JSON.stringify({ basket: row.basket, date: row.date, professional: canonicalProfessional }) === scopeOf(state)
+    return JSON.stringify({ basket: row.basket, date: row.date, ...(Object.hasOwn(row, 'datePreferences') ? { datePreferences: row.datePreferences } : {}), professional: canonicalProfessional }) === scopeOf(state)
   } catch { return false }
 }
 const validText = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f]/.test(value)

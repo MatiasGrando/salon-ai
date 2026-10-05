@@ -91,6 +91,7 @@ export function createOpenAiInterpretationProvider(options: {
           professionalNameHint: input.state.professionalNameHint,
           professionalReference: state.professionalReference ?? null,
           date: input.state.date,
+          datePreferences: input.state.datePreferences ?? null,
           professional: input.state.professional,
           requestedTime: input.state.requestedTime,
           timePreference: input.state.timePreference ?? null,

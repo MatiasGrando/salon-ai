@@ -1,3 +1,4 @@
+import { DATE_PREFERENCES_JSON_SCHEMA, parseDatePreferenceCandidates, type DatePreferenceCandidate } from './date-preference.js'
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { isCustomerText } from './customer-text.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
@@ -24,6 +25,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'professional'; mode: 'any' | 'clear' }
   | { kind: 'professional_reference'; action: 'prefer' | 'dismiss' }
   | { kind: 'date'; expression: string; value?: string }
+  | { kind: 'date_preferences'; candidates: readonly DatePreferenceCandidate[] }
   | { kind: 'time'; value: string }
   | { kind: 'time_preference'; preference: TimePreference }
   | { kind: 'time_clarification'; candidateTimes: readonly string[] }
@@ -69,6 +71,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
     operationSchema('professional_reference', { action: { type: 'string', enum: ['prefer', 'dismiss'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
+    operationSchema('date_preferences', { candidates: DATE_PREFERENCES_JSON_SCHEMA }),
     operationSchema('time', { value: { type: 'string', pattern: '^(?:[01]\\d|2[0-3]):[0-5]\\d$' } }),
     operationSchema('time_clarification', { candidateTimes: { type: 'array', minItems: 2, maxItems: 2, items: stringSchema(5) } }),
     operationSchema('time_preference', { preference: TIME_PREFERENCE_JSON_SCHEMA }),
@@ -171,6 +174,10 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     } else if (raw.kind === 'date') {
       exactKeys(raw, [...common, 'expression'], ['value'])
       if (!bounded(raw.expression, 300) || !contains(raw.evidence, raw.expression) || Object.hasOwn(raw, 'value') && raw.value !== null && !validTurnPlanDate(raw.value)) fail('date')
+    } else if (raw.kind === 'date_preferences') {
+      exactKeys(raw, [...common, 'candidates'])
+      try { parseDatePreferenceCandidates(raw.candidates, raw.evidence) } catch { return fail('date preferences') }
+      identity = 'date'
     } else if (raw.kind === 'time') {
       exactKeys(raw, [...common, 'value'])
       if (typeof raw.value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw.value)) fail('time')

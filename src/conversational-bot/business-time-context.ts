@@ -65,6 +65,7 @@ export function commercialTimeCandidate(proof: BusinessTimeContext | undefined, 
 /** A typed date operation must agree with the same central resolver used by the engine. */
 export function temporalPlanDate(value: unknown, stateDate: string | null, businessDate: string): string | null {
   if (!row(value) || !Array.isArray(value.operations)) return stateDate
+  if (value.operations.some(operation => row(operation) && operation.kind === 'date_preferences')) return null
   const dates = value.operations.filter(operation => row(operation) && operation.kind === 'date')
   if (!dates.length) return stateDate
   if (dates.length !== 1) return null
@@ -72,6 +73,11 @@ export function temporalPlanDate(value: unknown, stateDate: string | null, busin
   if (!row(operation) || typeof operation.expression !== 'string' || typeof operation.confidence !== 'number' || operation.confidence < .85) return null
   const resolved = resolveDialogueDate(operation.expression, businessDate)
   return resolved.kind === 'resolved' && (operation.value == null || operation.value === resolved.date) ? resolved.date : null
+}
+/** Unknown/no calendar expression can retain a selected date; contradictions never can. */
+export function prospectiveMessageDate(message: string, stateDate: string | null, businessDate: string): string | null {
+  const resolution = resolveDialogueDate(message, businessDate)
+  return resolution.kind === 'resolved' ? resolution.date : resolution.kind === 'unsupported' ? stateDate : null
 }
 /** One pure, scoped proof per candidate set for the entire interpretation/engine turn. */
 export function memoBusinessTimeContext(read: BusinessTimeContextReader | undefined): BusinessTimeContextReader | undefined {

@@ -1,3 +1,4 @@
+import { presentVerifiedDates } from '../src/conversational-bot/availability-presentation.js'
 import assert from 'node:assert/strict'
 import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices } from '../src/conversational-bot/prisma-basket-availability.js'
 const context = { businessId: 'a', timezone: 'UTC', dbNow: new Date('2026-10-02T10:00:00Z') }
@@ -46,4 +47,10 @@ const exact = await loadPrismaVerifiedDateChoices(client, context, settings, [se
 assert.ok(exact.ok && exact.slots.length === 2 && exact.slots.every(s => s.time === '15:00'))
 const huge = await loadPrismaVerifiedDateChoices(client, context, {...settings,horizonDays:90}, [selected])
 assert.ok(huge.ok && huge.slots.length === 90, 'verified dates stay bounded despite thousands of real horizon slots')
+const presentationQueries = agendaQueries
+const scope = { businessId: 'a', serviceIds: ['s'], date: null, professionalId: null }
+const input = { scope, read: { fresh: true, scope, slots: after.ok ? after.slots : [] }, timezone: 'UTC', now: context.dbNow,
+  orderedDates: ['2026-10-03', '2026-10-02'] }
+assert.deepEqual(presentVerifiedDates(input).choices.flatMap(choice => choice.kind === 'date' ? [choice.date] : []), input.orderedDates, 'fresh horizon proof follows customer priorities')
+assert.equal(agendaQueries, presentationQueries, 'ranking cannot issue another agenda read')
 console.log('conversational verified date choices: PASS')

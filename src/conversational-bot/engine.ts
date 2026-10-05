@@ -1,4 +1,5 @@
 import { conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
+import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
 import { assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
@@ -60,6 +61,8 @@ export type DialogueState = {
   editRequest?: { fields: DraftEditField[] }
   pending: 'service' | 'estimate' | 'date' | 'professional' | 'time' | 'name' | 'proposal'
   serviceId: string | null; basket?: ServiceBasket; serviceEstimates?: Record<string, GuidedSelection>; date: string | null
+  /** Ordered dates remain unresolved until the client selects one concrete date. */
+  datePreferences?: DatePreference[]
   professional: null | { kind: 'any' } | { kind: 'specific'; id: string }
   /** Unverified name until uniquely identified publicly and checked against fresh booking eligibility. */
   professionalNameHint: string | null
@@ -92,7 +95,7 @@ function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, '
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan; informationOnly?: true; communicative?: CommunicativeAdmission }
 export function hasActiveBooking(state: DialogueState): boolean {
-  return Boolean(hasBasketSelection(state) || state.date || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.dialogueContext?.lastQuestion || state.pending !== 'service')
+  return Boolean(hasBasketSelection(state) || state.date || state.datePreferences || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
 /** Resume context without presenting an old availability result as freshly checked. */
 export function socialQuestion(state: DialogueState): string {
@@ -136,6 +139,10 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
       s.pending !== s.editRequest.fields[0] || s.sandboxReservation !== undefined)) throw new Error('invalid draft edit request')
   for (const v of [s.serviceId, s.customerName]) if (v !== null && !bounded(v, v === s.customerName ? 100 : 128)) throw new Error('invalid dialogue field')
   if (s.date !== null && !validCalendarDate(s.date)) throw new Error('invalid date')
+  if (s.datePreferences !== undefined) {
+    parseDatePreferences(s.datePreferences)
+    if (s.date !== null || s.slot !== null) throw new Error('date priorities cannot select a date or slot')
+  }
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
   if (s.timeClarification !== undefined) { parseTimeClarification(s.timeClarification); if (s.requestedTime !== null || s.slot !== null || s.timePreference !== undefined) throw new Error('clarification cannot select a slot') }
   if (s.timePreference !== undefined) { parseTimePreference(s.timePreference); if (s.requestedTime !== null || s.slot !== null) throw new Error('preference cannot select a slot') }
@@ -537,7 +544,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const serviceMatch = catalogQuestion || decision ? null : matchNamedItems({ businessId: context.businessId, category: 'service' }, message, services)
     if (serviceMatch?.kind === 'candidates' && (!decision && !hasBasketSelection(state))) {
       const date = extractDate(text, context)
-      if (date && date !== state.date) { state.date = date; clearSlot(state) }
+      if (date && date !== state.date) { state.date = date; delete state.datePreferences; clearSlot(state) }
       preserveTemporal()
       return askMatch(serviceMatch, 'service')
     }
@@ -546,7 +553,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     if (decision && found.length !== new Set([...decision.candidateIds, ...(decision.serviceId ? [decision.serviceId] : [])]).size) throw new Error('invalid decision catalog')
     if (found.length > 1) {
       const earlyDate = extractDate(text, context)
-      if (earlyDate && earlyDate !== state.date) { state.date = earlyDate; clearSlot(state) }
+      if (earlyDate && earlyDate !== state.date) { state.date = earlyDate; delete state.datePreferences; clearSlot(state) }
       preserveTemporal()
       state.pending = resolveDialogueRoute(state, [], 'service').pending
       questionOptions = found.map(item => ({ id: item.id, label: item.name }))
@@ -564,7 +571,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       state.date = null; clearSlot(state); state.pending = resolveDialogueRoute(state, [], 'date').pending
       return finish('Esa fecha no es válida. ¿Qué día querés consultar?')
     }
-    if (date && date !== state.date) { state.date = date; clearSlot(state) }
+    if (date && date !== state.date) { state.date = date; delete state.datePreferences; clearSlot(state) }
     if (/^(otro dia|probamos otro dia)$/.test(text)) { state.date = null; clearSlot(state) }
     preserveTemporal()
     if (temporal?.kind === 'ambiguous') return finish('No pude confirmar una preferencia horaria única. ¿Qué horario o franja preferís?')
@@ -628,7 +635,9 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (!state.date) {
     state.pending = resolveDialogueRoute(state, [], 'date').pending
     const question = presentDateTimeQuestion({ date: null, hasTemporalRequest: Boolean(state.timePreference || state.requestedTime), serviceName: service.name })!
-    if (!port.verifiedDateChoices) return { ...finish(prefix + question), replyPrepared: true }
+    if (!port.verifiedDateChoices) return { ...finish(prefix + (state.datePreferences
+      ? 'Mantengo tus fechas por orden de preferencia; no pude verificar disponibilidad con esta búsqueda. ¿Qué fecha querés que consultemos?'
+      : question)), replyPrepared: true }
     const result = await port.verifiedDateChoices(selectedServices as DialogueService[], state.professional?.kind === 'specific' ? state.professional.id : undefined,
       state.serviceEstimates, { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
     if (!result.ok) {
@@ -643,6 +652,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     validateBasketAvailability(result, basketServiceIds(state), state.serviceEstimates)
     const scope = { businessId: context.businessId, serviceIds: basketServiceIds(state), date: null, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null }
     const dates = presentVerifiedDates({ scope, read: { fresh: true, scope, slots: result.slots }, timezone: context.timezone, now: context.dbNow,
+      ...(state.datePreferences ? { orderedDates: state.datePreferences.map(item => item.value) } : {}),
       ...(presentationPage?.kind === 'dates' ? { cursor: presentationPage.cursor } : {}) })
     choicePresentation = adaptChoicePresentation(dates, 'dates', presentationPage?.kind === 'dates' ? presentationPage.cursor : 0)
     questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
@@ -1002,7 +1012,17 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (!repeated) mutateStateBasket(state, { kind: 'basket', mutation: group ? 'replace' : 'set', scope: group ? 'members' : 'all', targetMemberIds: group ? [group.memberId] : [], members, evidence: serviceOp.evidence, confidence: serviceOp.confidence })
   }
   const dateOp = plan.operations.find(op => op.kind === 'date')
+  const prioritiesOp = plan.operations.find(op => op.kind === 'date_preferences')
   let uncertainDate = false
+  if (prioritiesOp?.kind === 'date_preferences') {
+    const resolved = resolveDatePreferences(prioritiesOp.candidates, localDateKey(context.dbNow, context.timezone))
+    const priorities = resolved && resolved.every(item => localDateTimeToInstants(item.value, 720, context.timezone).length) ? resolved : null
+    uncertainDate = !priorities
+    if (priorities) {
+      if (state.date || state.slot || JSON.stringify(state.datePreferences) !== JSON.stringify(priorities)) invalidate(Boolean(state.slot))
+      state.date = null; state.datePreferences = priorities
+    }
+  }
   if (dateOp?.kind === 'date') {
     const today = localDateKey(context.dbNow, context.timezone)
     const resolution = resolveDialogueDate(dateOp.expression, today)
@@ -1011,6 +1031,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const date = resolved && resolved >= today && localDateTimeToInstants(resolved, 720, context.timezone).length ? resolved : null
     uncertainDate = !date
     if (date !== state.date || !date) { invalidate(Boolean(state.date) || !date); state.date = date }
+    if (date) delete state.datePreferences
   }
   const professionalOp = plan.operations.find(op => op.kind === 'professional')
   if (professionalOp?.kind === 'professional') {
@@ -1058,7 +1079,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (JSON.stringify(previousChoice) !== JSON.stringify(nextChoice)) invalidate(Boolean(previousChoice))
     state.serviceEstimates = Object.fromEntries(nextChoice ? [...entries,[op.serviceId,nextChoice]] : entries)
   }
-  const appliedFields = new Set(updates.flatMap(op => op.kind === 'basket' ? ['service'] : op.kind === 'time_preference' ? ['time'] : DRAFT_EDIT_FIELDS.includes(op.kind as DraftEditField) ? [op.kind] : []))
+  const appliedFields = new Set(updates.flatMap(op => op.kind === 'basket' ? ['service'] : op.kind === 'date_preferences' && !uncertainDate ? ['date'] : op.kind === 'time_preference' ? ['time'] : DRAFT_EDIT_FIELDS.includes(op.kind as DraftEditField) ? [op.kind] : []))
   const requests = plan.operations.flatMap(op => op.kind === 'request_change' ? [op.field] : [])
   const editing = [...new Set([...(state.editRequest?.fields ?? []).filter(field => !appliedFields.has(field)), ...requests])]
   if (editing.length) {
@@ -1368,13 +1389,14 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   }
   const response = await respondBookingEnvelope(context, previous, message, deliveryPort, decision)
   const basketValue = (state: DialogueState) => selectionBasket(state).members.map(member => [member.mode, member.serviceIds])
-  const values = (state: DialogueState) => [basketValue(state), state.date, [state.professional, state.professionalNameHint], [state.requestedTime, state.timePreference ?? null], state.customerName, state.serviceEstimates ?? {}]
+  const values = (state: DialogueState) => [basketValue(state), [state.date, state.datePreferences ?? null], [state.professional, state.professionalNameHint], [state.requestedTime, state.timePreference ?? null], state.customerName, state.serviceEstimates ?? {}]
   const oldValues = values(before), newValues = values(response.state)
   const fields: (DraftEditField | 'estimate')[] = [...DRAFT_EDIT_FIELDS, 'estimate']
   const changedFields = fields.filter((_field, index) => JSON.stringify(oldValues[index]) !== JSON.stringify(newValues[index]))
   const explicitFields = new Set<DraftEditField | 'estimate'>()
   for (const operation of decision?.turnPlan?.operations ?? []) {
     if (operation.kind === 'basket' || operation.kind === 'service') explicitFields.add('service')
+    else if (operation.kind === 'date_preferences') explicitFields.add('date')
     else if (operation.kind === 'time_preference') explicitFields.add('time')
     else if (operation.kind === 'estimate' || DRAFT_EDIT_FIELDS.includes(operation.kind as DraftEditField)) explicitFields.add(operation.kind as DraftEditField | 'estimate')
   }
@@ -1487,7 +1509,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
       { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
     if (!result.ok || !result.slots.some(slot => slot.date === operation.date && Date.parse(slot.startAt) > context.dbNow.getTime())) return reject()
     validateBasketAvailability(result,basketServiceIds(state),state.serviceEstimates)
-    clearDependent(Boolean(state.date)); state.date = operation.date
+    clearDependent(Boolean(state.date)); state.date = operation.date; delete state.datePreferences
   } else if (operation.kind === 'professional' || operation.kind === 'any_professional') {
     clearDependent(Boolean(state.slot) || Boolean(state.professional))
     state.professionalNameHint = null
