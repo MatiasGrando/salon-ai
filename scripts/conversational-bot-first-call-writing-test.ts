@@ -193,4 +193,22 @@ try {
 assert.equal(agenda,0)
 assert.equal(boundaryFailures,0,'partial acquisition and modular guidance regressions')
 
+// The captured numeric framing stays unsafe; a qualitative frame retains both entities.
+const capturedOpening='¡Bien, gracias! Entiendo que estás buscando un turno para mañana, viernes, alrededor de las 18.'
+assert.equal(validateReplyDraft({salutation:'greeting',opening:capturedOpening,factIds:['next'],closing:null},facts,contract,[]).validation.reason,'unverified_value')
+assert.ok(REPLY_CONTRACT_INSTRUCTIONS.includes('Reconocimiento cualitativo:'),'shared briefing must separate acknowledgment from requested values')
+let suffixCalls=0
+const suffixProvider=Object.assign(async(input:AiInterpretationInput)=>{
+  suffixCalls++
+  return {...base,turnPlan:{version:1,operations:[
+    {kind:'date',expression:'mañana viernes',value:'2026-08-28',evidence:'mañana viernes',confidence:.99},
+    {kind:'time_preference',preference:{kind:'around',time:'18:00'},evidence:'a las 18 aprox',confidence:.99}]},
+    firstReply:{salutation:'greeting',opening:'Bien, gracias por preguntar. Te ayudo con el turno.',factIds:input.firstReplyFacts!.map(f=>f.id),closing:null}}
+},{respond:async()=>{suffixCalls++;throw new Error('No aesthetic response request')}}) as AiInterpretationProvider
+const suffix=await respondWithAiInterpreter({...context,dbNow:new Date('2026-08-27T18:24:01.258Z')},state,
+  'Buenas! Como va? Tendran turno para mañana viernes, a las 18 aprox?',port,suffixProvider)
+assert.equal(suffix.interpretation.mode,'ai');assert.deepEqual(suffix.state.timePreference,{kind:'around',time:'18:00'})
+assert.equal(suffix.state.date,'2026-08-28');assert.equal(suffixCalls,1);assert.equal(suffix.state.requestedTime,null)
+assert.equal(suffix.proposal,null);assert.equal(suffix.bookingCommand,undefined)
+assert.match(suffix.reply,/Bien, gracias por preguntar/);assert.match(suffix.reply,/¿Qué servicio necesitás/)
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')

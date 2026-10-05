@@ -1,3 +1,4 @@
+import { approximateTimeRequest } from '../src/conversational-bot/time-preference.js'
 import assert from 'node:assert/strict'
 import httpTransport from 'node:http'
 import httpsTransport from 'node:https'
@@ -6,6 +7,20 @@ import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/
 import { parseTurnPlan, TURN_PLAN_JSON_SCHEMA } from '../src/conversational-bot/turn-plan.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 
+// Captured approximation is literal and semantically correct; no real transport is replayed.
+const capturedMixed='Buenas! Como va? Tendran turno para mañana viernes, a las 18 aprox?'
+assert.deepEqual(approximateTimeRequest(capturedMixed),{evidence:'a las 18 aprox',candidateTimes:['18:00']})
+for(const [input,evidence,candidates] of [
+  ['a las 18 aproximadamente','a las 18 aproximadamente',['18:00']],
+  ['18:30 aprox.','18:30 aprox',['18:30']],
+  ['a las 6 aprox','a las 6 aprox',['06:00','18:00']],
+  ['6 pm aprox','6 pm aprox',['18:00']],
+  ['6 aprox de la tarde','6 aprox de la tarde',['18:00']],
+  ['tipo 18 aprox','tipo 18 aprox',['18:00']]
+] as const)assert.deepEqual(approximateTimeRequest(input),{evidence,candidateTimes:[...candidates]},input)
+for(const input of ['no a las 18 aprox','sin horario a las 18 aprox','a las 25 aprox','18:99 aprox',
+  'a las 18 aprox o tipo 19','tipo 18 o a las 19','a las 18 aprox y a las 19','18 aprox o 19:00','18 aprox o 19','tipo 18 y 19'])
+  assert.equal(approximateTimeRequest(input),null,input)
 const forbiddenTransport = () => { throw new Error('external transport forbidden') }
 httpTransport.request = forbiddenTransport; httpTransport.get = forbiddenTransport
 httpsTransport.request = forbiddenTransport; httpsTransport.get = forbiddenTransport

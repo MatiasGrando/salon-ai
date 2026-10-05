@@ -85,9 +85,27 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
 export function approximateTimeRequest(message: string): ApproximateTimeRequest | null {
   const text = message.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
   if (/\b(no|ni|nunca|sin)\b/.test(text)) return null
-  const matches = [...text.matchAll(/\b(?:tipo|aproximadamente|alrededor de|cerca de|mas o menos a)\s+(?:a\s+)?(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g)]
+  const prefix = /\b(?:tipo|aproximadamente|alrededor de|cerca de|mas o menos a)\s+(?:a\s+)?(?:las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  const suffix = /\b(?:a\s+las?\s+)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?\s+(?:aprox\.?|aproximadamente)(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  // Merge overlapping prefix/suffix forms of the same anchor, never two separate requests.
+  const spans = [...text.matchAll(prefix), ...text.matchAll(suffix)].sort((a,b)=>a.index-b.index)
+  const matches: RegExpMatchArray[] = []
+  for (const span of spans) {
+    const previous = matches.at(-1)
+    if (previous && span.index < previous.index! + previous[0].length) {
+      const end = Math.max(previous.index! + previous[0].length, span.index + span[0].length)
+      previous[0] = text.slice(previous.index!, end)
+      if (!previous[3] && span[3]) previous[3] = span[3]
+      if (!previous[4] && span[4]) previous[4] = span[4]
+    } else matches.push(span)
+  }
   if (matches.length !== 1) return null
   const match = matches[0]!
+  // An independent numeric clock contradicts a single approximation; calendar numbers do not.
+  const remainder = text.slice(0,match.index) + text.slice(match.index! + match[0].length)
+  const tail = text.slice(match.index! + match[0].length)
+  if (/^\s*(?:o|y)\s+(?:a\s+las?\s+)?\d{1,2}(?=\s|$|[?!.,])/.test(tail)) return null
+  if (/\ba\s+las?\s+\d|\b\d{1,2}:[0-9]{2}\b|\b\d{1,2}\s*(?:am|pm|hs?|horas)\b/.test(remainder)) return null
   let hour = Number(match[1])
   const minute = match[2] ?? '00'
   if (hour > 23) return null
@@ -98,5 +116,5 @@ export function approximateTimeRequest(message: string): ApproximateTimeRequest 
   if (period === 'am' || period === 'manana') hour %= 12
   const candidates = explicitPeriod || hour === 0 || hour > 12 ? [clock(String(hour), minute)!]
     : hour === 12 ? ['00:' + minute, '12:' + minute] : [clock(String(hour), minute)!, clock(String(hour + 12), minute)!]
-  return { evidence: message.slice(match.index, match.index + match[0].length), candidateTimes: candidates }
+  return { evidence: message.slice(match.index!, match.index! + match[0].length), candidateTimes: candidates }
 }
