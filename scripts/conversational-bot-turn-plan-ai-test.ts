@@ -264,7 +264,13 @@ assert.match(request!.instructions, /fromInclusive/); assert.match(request!.inst
 const discardedUpper = await say(completeIntervalMessage,
   plan(operation('time_preference', completeIntervalMessage, { preference: { kind: 'after', time: '16:00' } })),
   undefined, 'booking', { acts: [{ kind: 'request', field: 'time', evidence: completeIntervalMessage, operationIndexes: [0] }] })
-assert.equal(discardedUpper.response.interpretation.reason, 'invalid_output', 'a one-bound candidate may not stand in for a two-bound request')
+assert.equal(discardedUpper.response.interpretation.mode, 'ai')
+assert.equal(discardedUpper.response.interpretation.reason, null)
+assert.deepEqual(discardedUpper.response.interpretation.temporalGrounding, { outcome: 'field_rejected', field: 'time', reason: 'constraint_mismatch' })
+assert.equal(discardedUpper.response.state.timeMeaningClarification, true, 'a one-bound candidate still cannot stand in for a two-bound request')
+assert.equal(discardedUpper.response.state.timePreference, undefined)
+assert.equal(discardedUpper.response.bookingCommand, undefined)
+assert.equal(discardedUpper.availabilityCalls, 0)
 assert.equal(discardedUpper.response.state.slot, null); assert.equal(discardedUpper.response.state.requestedTime, null)
 console.log('conversational complete-interval AI: offline PASS (same-call schema and no partial acceptance)')
 
@@ -483,3 +489,25 @@ assert.equal(pRejectedDuration.calls, 1); assert.equal(pRejectedDuration.availab
 assert.equal(pRejectedDuration.response.bookingCommand, undefined)
 assert.ok(!JSON.stringify(request!.text.format.schema).includes('rejectedInformation'), 'denial provenance never enters provider schema')
 console.log('P original rejection / independent actual dimension / same-call schema: PASS')
+
+// V uses the real provider instruction seam, without executing a model or changing the schema.
+await http({ message: '17 en adelante', state: initialDialogueState('tenant'), services }, new AbortController().signal)
+assert.match(request!.instructions, /l[ií]mite[^.]*postpuesto/i)
+assert.match(request!.instructions, /after[^.]*inclusiv/i)
+const vActual = 'miércoles; si no, martes, a las19'
+const vPriorityMismatch = await say(vActual, plan(
+  operation('date_preferences', 'miércoles; si no, martes', { candidates: priorityDates }),
+  operation('time_preference', 'a las19', { preference: { kind: 'after', time: '19:00' } })
+), undefined, 'booking', { acts: [
+  { kind: 'request', field: 'date', evidence: 'miércoles; si no, martes', operationIndexes: [0] },
+  { kind: 'request', field: 'time', evidence: 'a las19', operationIndexes: [1] }
+] })
+assert.equal(vPriorityMismatch.response.interpretation.mode, 'ai')
+assert.equal(vPriorityMismatch.response.interpretation.temporalGrounding?.outcome, 'field_rejected')
+assert.deepEqual(vPriorityMismatch.response.state.datePreferences, priorityDates)
+assert.equal(vPriorityMismatch.response.state.timeMeaningClarification, true)
+assert.equal(vPriorityMismatch.response.state.slot, null)
+assert.equal(vPriorityMismatch.response.state.requestedTime, null)
+assert.equal(vPriorityMismatch.response.bookingCommand, undefined)
+assert.equal(vPriorityMismatch.availabilityCalls, 0)
+console.log('V provider guidance / temporal rejection / ordered dates: PASS; model quality not evaluated')

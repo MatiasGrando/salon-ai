@@ -43,7 +43,7 @@ export type DecisionTrace = {
 
 export type InterpretationDiagnostics = {
   decision: DecisionTrace
-  temporalGrounding?: { outcome: 'field_rejected'; field: 'time'; reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' }
+  temporalGrounding?: { outcome: 'field_rejected'; field: 'time'; reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' | 'constraint_mismatch' }
   replyValidation?: ReplyValidationTrace
   mode: 'ai' | 'fallback'
   reason: 'provider_error' | 'timeout' | 'invalid_output' | null

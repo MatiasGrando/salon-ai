@@ -1,12 +1,12 @@
 import { commercialTimeCandidate, temporalPlanDate, type BusinessTimeContextReader } from './business-time-context.js'
 import { TurnPlanValidationError } from './turn-plan.js'
-import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timePreferenceMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
+import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timeOperationMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
 import { parseMinutes } from '../bot-options/application/availability-queries.js'
 /** A proved semantic mismatch, not authority to relax structural or evidence validation. */
 export class TemporalMeaningConflictError extends Error {
   readonly field = 'time' as const
-  constructor(readonly reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' = 'unproven_approximation') { super(reason === 'unproven_approximation' ? 'unproven temporal approximation' : reason) }
+  constructor(readonly reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' | 'constraint_mismatch' = 'unproven_approximation') { super(reason === 'unproven_approximation' ? 'unproven temporal approximation' : reason) }
 }
 
 type Context = Pick<DialogueState, 'timePreference'> & Partial<Pick<DialogueState, 'date' | 'businessId'>> & { timeClarification?: { candidateTimes: string[] } }
@@ -37,6 +37,18 @@ function wellShapedTemporal(op: Record<string, unknown>): boolean {
   }
   return false
 }
+/** Called only after contextual approximation projection; never constructs a missing operation. */
+function validateCanonicalMeaning(value: Record<string, unknown>, message: string): unknown {
+  if (!Array.isArray(value.operations)) return value
+  for (const operation of value.operations) {
+    if (!record(operation) || !wellShapedTemporal(operation) || typeof operation.evidence !== 'string') continue
+    const temporal = operation.kind === 'time' ? { kind: 'time' as const, value: operation.value as string }
+      : operation.kind === 'time_preference' ? { kind: 'time_preference' as const, preference: parseTimePreference(operation.preference) } : null
+    if (temporal && !timeOperationMatchesEvidence(temporal, message, operation.evidence)) throw new TemporalMeaningConflictError('constraint_mismatch')
+  }
+  return value
+}
+const rhetoricalTail = /^[,;.!]\s*(?:[¿?]\s*)?(?:quien|que persona|nadie)\b/
 /** Affirmative period clause answers the current pair; trailing commentary is not a new date/time request. */
 export function contextualTimeAnswer(message: string, candidates: readonly string[]): {evidence:string;candidateTimes:string[]} | null {
   const text = message.normalize('NFD').replace(/\p{M}/gu,'').toLowerCase().trim()
@@ -47,7 +59,7 @@ export function contextualTimeAnswer(message: string, candidates: readonly strin
   const tail = text.slice(clause.length)
   if (tail && new RegExp('\\b' + match[1] + '\\b').test(tail)) return null
   const otherPeriods = [...tail.matchAll(/\b(manana|tarde|noche)\b/g)]
-  const rhetorical = /^[,;.!]\s*(?:[¿?]\s*)?(?:quien|que persona|nadie)\b/.test(tail)
+  const rhetorical = rhetoricalTail.test(tail)
   const negativeComplement = /^[,;.!]\s*(?:no|nunca)\s+(?:(?:de|por|a)\s+)?(?:la\s+)?(?:manana|tarde|noche)\b/.test(tail)
   if (otherPeriods.length && (otherPeriods.length !== 1 || !rhetorical && !negativeComplement)) return null
   const selected = candidates.filter(time => match[1] === 'manana' ? parseMinutes(time)! < 720 : parseMinutes(time)! >= 720)
@@ -63,11 +75,8 @@ export function groundTemporalPlan(value: unknown, message: string, state: Conte
     if (meaning.kind === 'alternatives') throw new TemporalMeaningConflictError('clock_alternatives')
     if (meaning.kind === 'single' && meaning.time !== operation.value) throw new TemporalMeaningConflictError('clock_value_mismatch')
   }
-  for (const operation of value.operations) {
-    if (record(operation) && operation.kind === 'time_preference' && wellShapedTemporal(operation) &&
-        !timePreferenceMatchesEvidence(parseTimePreference(operation.preference), message)) throw new TurnPlanValidationError('evidence')
-  }
-  let constraint = state.timeClarification ? contextualTimeAnswer(message,state.timeClarification.candidateTimes) : null
+  const periodAnswer = state.timeClarification ? contextualTimeAnswer(message,state.timeClarification.candidateTimes) : null
+  let constraint = periodAnswer
   constraint ??= approximateTimeRequest(message)
   if (!constraint) {
     const explicitRequest = fallbackTemporalRequest(message,true)
@@ -79,7 +88,7 @@ export function groundTemporalPlan(value: unknown, message: string, state: Conte
       if (record(unproven) && wellShapedTemporal(unproven)) throw new TemporalMeaningConflictError()
       throw new TurnPlanValidationError('evidence')
     }
-    return value
+    return validateCanonicalMeaning(value, message)
   }
   const temporal = value.operations.filter(op => record(op) && ['time','time_preference','time_clarification'].includes(String(op.kind)))
   if (temporal.length > 1 || temporal.some(op => !wellShapedTemporal(op))) return value
@@ -94,7 +103,7 @@ export function groundTemporalPlan(value: unknown, message: string, state: Conte
   const confidence = temporal.length ? temporal[0].confidence : 1
   const operation = target ? {kind:'time_preference',preference:{kind:'around',time:target},evidence:constraint.evidence,confidence}
     : {kind:'time_clarification',candidateTimes:constraint.candidateTimes,evidence:constraint.evidence,confidence}
-  return { ...value, operations: [...value.operations.filter(op => !temporal.includes(op)), operation] }
+  return validateCanonicalMeaning({ ...value, operations: [...value.operations.filter(op => !temporal.includes(op)), operation] }, message)
 }
 export function temporalClarificationQuestion(value: {candidateTimes: readonly string[]}): string {
   const hour = Number(value.candidateTimes[1]!.slice(0,2)) % 12 || 12

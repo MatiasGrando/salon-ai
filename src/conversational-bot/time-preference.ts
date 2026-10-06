@@ -67,10 +67,39 @@ export function fallbackTemporalRequest(message: string, allowBare = false): Tem
   if (/[?¿]/.test(text) || /\b(no|nunca|quizas|tal vez)\b/.test(text)) return null
   return classifyTemporalRequest(message, allowBare)
 }
+type BoundarySpan = { start: number; end: number; preference: { kind: 'after' | 'before'; time: string } }
+/** Operators own their complete clock span, regardless of whether they precede or follow it. */
+function boundarySpans(text: string): BoundarySpan[] | null {
+  const patterns = [
+    /\b(despues de|desde|a partir de|antes de)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g,
+    /\b(?:(?:a\s+)?las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\s+en\s+adelante\b/g
+  ]
+  const spans: BoundarySpan[] = []
+  for (const [index, pattern] of patterns.entries()) for (const match of text.matchAll(pattern)) {
+    const time = index === 0 ? clock(match[2]!, match[3]) : clock(match[1]!, match[2])
+    if (!time) return null
+    spans.push({ start: match.index!, end: match.index! + match[0].length, preference: { kind: index === 0 && match[1] === 'antes de' ? 'before' : 'after', time } })
+  }
+  const merged: BoundarySpan[] = []
+  for (const span of spans.sort((a,b) => a.start - b.start)) {
+    const previous = merged.at(-1)
+    if (previous && span.start < previous.end && span.preference.kind === previous.preference.kind && span.preference.time === previous.preference.time) previous.end = Math.max(previous.end, span.end)
+    else merged.push(span)
+  }
+  return merged
+}
 /** Recognizes preference shape even in questions; this classification alone never authorizes a mutation. */
 export function classifyTemporalRequest(message: string, allowBare = false): TemporalRequest | null {
   const approximate = approximateTimeRequest(message)
-  if (approximate) return approximate.candidateTimes.length === 1 ? { kind: 'preference', preference: { kind: 'around', time: approximate.candidateTimes[0]! } } : { kind: 'ambiguous', candidateTimes: approximate.candidateTimes }
+  if (approximate) {
+    const start = message.indexOf(approximate.evidence)
+    const remainder = message.slice(0, start) + ' '.repeat(approximate.evidence.length) + message.slice(start + approximate.evidence.length)
+    // An approximation is not permission to discard another bound, band or explicit choice.
+    if (classifyTemporalRequest(remainder, true)) return { kind: 'ambiguous' }
+    return approximate.candidateTimes.length === 1
+      ? { kind: 'preference', preference: { kind: 'around', time: approximate.candidateTimes[0]! } }
+      : { kind: 'ambiguous', candidateTimes: approximate.candidateTimes }
+  }
   let text = normalize(message)
   const requests: TemporalRequest[] = []
   const pairs = [...text.matchAll(/\b(entre|desde)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\s+(y|hasta)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
@@ -81,25 +110,24 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
     requests.push({ kind: 'preference', preference: { kind: 'range', from, to, fromInclusive: true, toInclusive: true } })
     text = text.slice(0, pair.index) + text.slice(pair.index! + pair[0].length)
   }
-  const boundary = /\b(despues de|desde|a partir de|antes de)\s+(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g
-  const boundaries = [...text.matchAll(boundary)]
-  for (const match of boundaries) {
-    const time = clock(match[2]!, match[3]); if (!time) return null
-    requests.push({ kind: 'preference', preference: { kind: match[1] === 'antes de' ? 'before' : 'after', time } })
-  }
+  const boundaries = boundarySpans(text)
+  if (boundaries === null) return null
+  for (const span of boundaries) requests.push({ kind: 'preference', preference: span.preference })
   if (/\bantes del mediodia\b/.test(text)) requests.push({ kind: 'preference', preference: { kind: 'before', time: '12:00' } })
   const bands = [...text.matchAll(/\b(?:por|a)\s+la\s+(manana|tarde|noche)\b/g)]
   for (const match of bands) requests.push({ kind: 'preference', preference: { kind: 'band', band: match[1] === 'manana' ? 'MORNING' : match[1] === 'tarde' ? 'AFTERNOON' : 'EVENING' } })
   if (/\b(?:lo mas temprano(?: posible)?|primer horario|primero disponible|^(?:primero|temprano)$)\b/.test(text)) requests.push({ kind: 'preference', preference: { kind: 'earliest' } })
   if (/\b(?:cualquier horario|cualquier hora|cualquierhora|cualquiera hora)\b/.test(text)) requests.push({ kind: 'preference', preference: { kind: 'any' } })
   // An exact clause alongside a preference is contradictory, not permission to pick its bound.
-  const exactText = text.replace(boundary, '').replace(/\bantes del mediodia\b/g, '')
+  let exactText = text
+  for (const span of [...boundaries].reverse()) exactText = exactText.slice(0,span.start) + ' '.repeat(span.end-span.start) + exactText.slice(span.end)
+  exactText = exactText.replace(/\bantes del mediodia\b/g, '')
   const explicit = [...exactText.matchAll(/\ba las?\s*(\d{1,2})(?::([0-5]\d))?(?:\s*(?:hs?|horas))?\b(?![:\d])/g)]
   for (const match of explicit) { const time = clock(match[1]!, match[2]); if (!time) return null; requests.push({ kind: 'exact', time }) }
   if (requests.length === 2) {
     const lower = requests.find(request => request.kind === 'preference' && request.preference.kind === 'after')
     const upper = requests.find(request => request.kind === 'preference' && request.preference.kind === 'before')
-    const connector = boundaries.length === 2 ? text.slice(boundaries[0]!.index! + boundaries[0]![0].length, boundaries[1]!.index).trim() : null
+    const connector = boundaries.length === 2 ? text.slice(boundaries[0]!.end, boundaries[1]!.start).trim() : null
     if (lower?.kind === 'preference' && lower.preference.kind === 'after' && upper?.kind === 'preference' && upper.preference.kind === 'before' &&
         connector !== null && /^(?:y|pero|,)?$/.test(connector)) {
       if (parseMinutes(lower.preference.time)! >= parseMinutes(upper.preference.time)!) return { kind: 'ambiguous' }
@@ -156,15 +184,77 @@ export function approximateTimeRequest(message: string): ApproximateTimeRequest 
   return { evidence: message.slice(match.index!, match.index! + match[0].length), candidateTimes: candidates }
 }
 
+/** A disjoint bare clock is not proof that a unique approximation quote became an exact request.
+ * This parser-only compatibility check grants no authority and never hides compound constraints.
+ * Contextual grounding still requires a unique approximation in the complete current message.
+ */
+function disjointApproximationConstraint(message: string, evidence: string, exact: string): TemporalRequest | null {
+  const text = normalize(message), quote = normalize(evidence)
+  const start = text.indexOf(quote)
+  if (!quote || start < 0 || text.indexOf(quote, start + 1) >= 0) return null
+  const quoted = approximateTimeRequest(quote)
+  if (!quoted || !quoted.candidateTimes.includes(exact)) return null
+  const remainder = text.slice(0, start) + ' '.repeat(quote.length) + text.slice(start + quote.length)
+  // Negation, alternatives, a bound or a separately explicit choice cannot be discarded as unrelated.
+  if (/\b(?:no|ni|nunca|sin|entre|desde|antes de|despues de|a partir de|en adelante|a las?)\b|\//.test(remainder)) return null
+  const clocks = [...remainder.matchAll(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g)]
+  if (clocks.length !== 1 || clock(clocks[0]![1]!, clocks[0]![2]) !== exact) return null
+  const external = clocks[0]!
+  const externalEnd = external.index! + external[0].length
+  const bridge = externalEnd <= start ? text.slice(externalEnd, start) : text.slice(start + quote.length, external.index)
+  if (/\b(?:o|y)\b|\//.test(bridge)) return null
+  return classifyTemporalRequest(quote, true)
+}
+/** Semantic projection only: a literal affirmative period and its rhetorical opposite are not two requests.
+ * No pair or authority is created here. Grounding must still validate the real active clarification.
+ */
+function contextualPeriodMeaning(message: string, evidence: string, selectedTime: string): string {
+  const quote = normalize(evidence)
+  const period = /^(?:(?:por|de|a)\s+)?(?:la\s+)?(manana|tarde|noche)$/.exec(quote)
+  const minute = parseMinutes(selectedTime)
+  const text = normalize(message)
+  if (!period || minute === null || !text.startsWith(quote) || text.indexOf(quote, quote.length) >= 0 ||
+      (period[1] === 'manana' ? minute >= 720 : minute < 720)) return message
+  const clause = message.split(/[,;.!]/)[0]!
+  const tail = message.slice(clause.length)
+  const normalizedTail = normalize(tail)
+  if (!/^[,;.!]\s*(?:[¿?]\s*)?(?:quien|que persona|nadie)\b/.test(normalizedTail) ||
+      /\b(?:no|ni|nunca|sin)\b/.test(normalizedTail) ||
+      [...normalizedTail.matchAll(/\b(?:manana|tarde|noche)\b/g)].length !== 1) return message
+  const clocks = [...tail.matchAll(/\ba\s+las?\s*\d{1,2}(?::[0-5]\d)?\s+(?:am|pm|de la\s+(?:mañana|tarde|noche))\b/gi)]
+  const rhetorical = clocks.filter(match => {
+    const meaning = literalClockMeaning(tail, match[0])
+    return meaning.kind === 'single' && Math.abs(parseMinutes(meaning.time)! - minute) === 720
+  })
+  if (rhetorical.length !== 1) return message
+  const match = rhetorical[0]!
+  return clause + tail.slice(0, match.index) + ' '.repeat(match[0].length) + tail.slice(match.index! + match[0].length)
+}
 /** Reject loss or invention of an explicit compound constraint; classification does not grant authority. */
-export function timePreferenceMatchesEvidence(preference: TimePreference, message: string): boolean {
-  const constraint = classifyTemporalRequest(message, true)
-  // Alternative clauses cannot lose a branch; AM/PM candidates still need contextual grounding.
-  if (constraint?.kind === 'ambiguous' && !constraint.candidateTimes) return false
-  if (constraint?.kind !== 'preference' || constraint.preference.kind !== 'range') return preference.kind !== 'range' || constraint === null
-  if (preference.kind !== 'range') return false
-  const range = constraint.preference
-  return preference.from === range.from && preference.to === range.to && preference.fromInclusive === range.fromInclusive && preference.toInclusive === range.toInclusive
+export function timePreferenceMatchesEvidence(preference: TimePreference, message: string, evidence = message): boolean {
+  const semanticMessage = preference.kind === 'around' ? contextualPeriodMeaning(message, evidence, preference.time) : message
+  let constraint = classifyTemporalRequest(semanticMessage, true)
+  if (constraint?.kind === 'exact') constraint = disjointApproximationConstraint(message, evidence, constraint.time) ?? constraint
+  if (!constraint) return true // Unknown grammar is not proof of a contradiction or of authority.
+  if (constraint.kind === 'exact') return false
+  if (constraint.kind === 'ambiguous') return preference.kind === 'around' && !!constraint.candidateTimes?.includes(preference.time)
+  const actual = constraint.preference
+  if (preference.kind !== actual.kind) return false
+  if (preference.kind === 'range' && actual.kind === 'range') return preference.from === actual.from && preference.to === actual.to && preference.fromInclusive === actual.fromInclusive && preference.toInclusive === actual.toInclusive
+  if (preference.kind === 'band' && actual.kind === 'band') return preference.band === actual.band
+  if ('time' in preference && 'time' in actual) return preference.time === actual.time
+  return true
+}
+export type CanonicalTimeOperation = { kind: 'time'; value: string } | { kind: 'time_preference'; preference: TimePreference }
+/** Same deny-only semantic check for public parsing and the server's grounded canonical operation. */
+export function timeOperationMatchesEvidence(operation: CanonicalTimeOperation, message: string, evidence: string): boolean {
+  if (operation.kind === 'time_preference') return timePreferenceMatchesEvidence(operation.preference, message, evidence)
+  const meaning = literalClockMeaning(message, evidence)
+  if (meaning.kind === 'alternatives' || meaning.kind === 'single' && meaning.time !== operation.value) return false
+  const temporal = classifyTemporalRequest(message, true) ?? classifyTemporalRequest(evidence, true)
+  const disjointClock = temporal?.kind === 'ambiguous' && !temporal.candidateTimes && meaning.kind === 'single' &&
+    !/\b(?:tipo|aproximadamente|alrededor|cerca|antes de|despues de|desde|entre|a partir de|en adelante)\b/.test(normalize(message))
+  return !temporal || temporal.kind === 'exact' || disjointClock
 }
 
 export type LiteralClockMeaning = { kind: 'single'; time: string } | { kind: 'alternatives' } | { kind: 'unknown' }

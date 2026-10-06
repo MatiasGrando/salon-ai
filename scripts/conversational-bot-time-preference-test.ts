@@ -1,3 +1,4 @@
+import { admitCommunicativePlan, parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
 import { approximateTimeRequest } from '../src/conversational-bot/time-preference.js'
 import assert from 'node:assert/strict'
 import httpTransport from 'node:http'
@@ -360,14 +361,23 @@ await intervalCheck('ambiguous candidates never acquire authority through AI', a
   const failures: string[] = []
   for (const candidate of ambiguousIntervals) {
     const before = structuredClone(offered.state)
+    const readsBefore = reads
     const result = await respondWithAiInterpreter(context, before, candidate.message, port, async () => ({
       ...legacy, turnPlan: { version: 1, operations: [pref(candidate.preference, candidate.evidence)] },
       communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'time', evidence: candidate.evidence, confidence: 1, mention: null, operationIndexes: [0] }] }
     }))
     try {
-      assert.equal(result.interpretation.mode, 'fallback')
-      assert.equal(result.interpretation.reason, 'invalid_output')
-      assert.deepEqual(result.state.timePreference, before.timePreference)
+      assert.equal(result.interpretation.mode, 'ai')
+      assert.equal(result.interpretation.reason, null)
+      assert.deepEqual(result.interpretation.temporalGrounding, { outcome: 'field_rejected', field: 'time', reason: 'constraint_mismatch' })
+      assert.equal(result.state.timePreference, undefined)
+      assert.equal(result.state.timeMeaningClarification, true)
+      assert.equal(reads, readsBefore)
+      assert.deepEqual(parseDialogueState(JSON.parse(JSON.stringify(result.state)), context.businessId), result.state)
+      assert.equal(result.state.serviceId, before.serviceId)
+      assert.equal(result.state.date, before.date)
+      assert.deepEqual(result.state.professional, before.professional)
+      assert.equal(result.state.customerName, before.customerName)
       assert.equal(result.state.slot, null); assert.equal(result.state.requestedTime, null)
       assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
       assert.deepEqual(offered.state, before)
@@ -377,3 +387,288 @@ await intervalCheck('ambiguous candidates never acquire authority through AI', a
 })
 if (intervalFailures.length) throw new Error('Interval regressions: ' + intervalFailures.length + '\n' + intervalFailures.join('\n'))
 console.log('PASS complete intervals: structured contract, filters, state and independent choice')
+
+// V: operator and clock must agree; full-source validation precedes per-field rejection.
+const vFailures: string[] = []
+async function vCheck(label: string, check: () => void | Promise<void>) {
+  try {
+    await check()
+    console.log('PASS V ' + label)
+  } catch (error) {
+    vFailures.push(label + ': ' + String(error))
+    console.error('RED V ' + label + ': ' + String(error))
+  }
+}
+const vMismatches: readonly (readonly [string, object])[] = [
+  ['a las19', { kind: 'after', time: '19:00' }],
+  ['antes de las19', { kind: 'after', time: '19:00' }],
+  ['después de las17', { kind: 'before', time: '17:00' }],
+  ['después de las17', { kind: 'after', time: '18:00' }],
+  ['por la mañana', { kind: 'band', band: 'AFTERNOON' }],
+  ['lo más temprano posible', { kind: 'any' }],
+  ['entre las17 y las19', { kind: 'range', from: '17:00', to: '19:00', fromInclusive: true, toInclusive: false }]
+]
+await vCheck('strict canonical preference class and parameters', () => {
+  for (const [body, preference] of vMismatches) {
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [pref(preference, body)] }, body), body)
+  }
+  const body = 'alrededor de las17:00'
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [pref({ kind: 'after', time: '17:00' }, body)] }, body))
+})
+const vLowerBodies = [
+  '17 en adelante', 'a las17 en adelante', '17hs en adelante',
+  '17:30 en adelante', 'a las17:30hs\nen adelante', '17\t en adelante'
+] as const
+await vCheck('postposed boundary spans compose without a second exact clock', () => {
+  for (const body of vLowerBodies) {
+    const time = body.includes('17:30') ? '17:30' : '17:00'
+    assert.deepEqual(classifyTemporalRequest(body, true), { kind: 'preference', preference: { kind: 'after', time } }, body)
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [{ kind: 'time', value: time, ...ev(body) }] }, body))
+  }
+  assert.deepEqual(classifyTemporalRequest('13:30 en adelante y antes de las19'), {
+    kind: 'preference', preference: { kind: 'range', from: '13:30', to: '19:00', fromInclusive: true, toInclusive: false }
+  })
+  assert.deepEqual(classifyTemporalRequest('17 en adelante o antes de las19'), { kind: 'ambiguous' })
+})
+const vAct = (kind: string, field: string, evidence: string, index: number, confidence = 1) => ({
+  kind, field, evidence, operationIndexes: [index], mention: null, confidence
+})
+const vSay = (state: DialogueState, body: string, operations: object[], acts: object[]) =>
+  respondWithAiInterpreter(context, state, body, port, async () => ({
+    ...legacy, turnPlan: { version: 1, operations }, communicativeActs: { version: 1, acts }
+  }))
+times = ['13:00', '17:00', '17:30', '19:00']
+const vSelected = await vSay(offered.state, 'a las13',
+  [{ kind: 'time', value: '13:00', ...ev('a las13') }], [vAct('change', 'time', 'a las13', 0)])
+assert.equal(vSelected.state.slot?.time, '13:00')
+await vCheck('typed rejection persists, clears an old slot and retains independent fields', async () => {
+  const body = 'a las19; domingo04/10; soy María; con Ramiro'
+  const before = reads
+  const result = await vSay(vSelected.state, body, [
+    pref({ kind: 'after', time: '19:00' }, 'a las19'),
+    { kind: 'date', expression: 'domingo04/10', value: '2026-10-04', ...ev('domingo04/10') },
+    { kind: 'name', value: 'María', ...ev('María') }, specific
+  ], [
+    vAct('change', 'time', 'a las19', 0), vAct('change', 'date', 'domingo04/10', 1),
+    vAct('change', 'name', 'soy María', 2), { ...vAct('change', 'professional', 'con Ramiro', 3), mention: 'Ramiro' }
+  ])
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.equal(result.interpretation.temporalGrounding?.outcome, 'field_rejected')
+  assert.equal(result.state.timeMeaningClarification, true)
+  assert.equal(result.state.requestedTime, null)
+  assert.equal(result.state.slot, null)
+  assert.equal(result.state.timePreference, undefined)
+  assert.equal(result.state.date, '2026-10-04')
+  assert.equal(result.state.customerName, 'María')
+  // A new professional mention is retained as a hint, never a fresh ID without roster verification.
+  assert.equal(result.state.professionalNameHint, 'ramiro')
+  assert.equal(result.state.professional, null)
+  assert.equal(result.state.sandboxReservation, undefined)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+  assert.equal(reads, before)
+  const restored = parseDialogueState(JSON.parse(JSON.stringify(result.state)), context.businessId, context.timezone)
+  const later = await vSay(restored, 'soy Laura', [{ kind: 'name', value: 'Laura', ...ev('Laura') }],
+    [vAct('change', 'name', 'soy Laura', 0)])
+  assert.equal(later.state.timeMeaningClarification, true)
+  assert.equal(later.state.customerName, 'Laura')
+  assert.equal(later.state.slot, null)
+  assert.equal(reads, before)
+  assert.doesNotMatch(later.reply, /mañana o de la tarde/)
+})
+await vCheck('all scalar mismatches reject time only without agenda or consent', async () => {
+  for (const [body, preference] of vMismatches) {
+    const before = reads
+    const result = await vSay(vSelected.state, body, [pref(preference, body)], [vAct('change', 'time', body, 0)])
+    assert.equal(result.interpretation.mode, 'ai', body)
+    assert.equal(result.interpretation.temporalGrounding?.outcome, 'field_rejected', body)
+    assert.equal(result.state.timeMeaningClarification, true, body)
+    assert.equal(result.state.slot, null)
+    assert.equal(reads, before)
+    assert.equal(result.bookingCommand, undefined)
+    assert.deepEqual(result.state.professional, vSelected.state.professional)
+    assert.equal(result.state.date, vSelected.state.date)
+    assert.equal(result.state.customerName, vSelected.state.customerName)
+  }
+})
+await vCheck('weak historical wrong-field and weak operation cannot erase old time', async () => {
+  const owners = [
+    ['reference', 'time', 1, 1], ['uncertain', 'time', 1, 1], ['change', 'name', 1, 1],
+    ['change', 'time', .5, 1], ['change', 'time', 1, .5]
+  ] as const
+  for (const [kind, field, confidence, opConfidence] of owners) {
+    const body = 'a las19', before = reads
+    const result = await vSay(vSelected.state, body,
+      [{ ...pref({ kind: 'after', time: '19:00' }, body), confidence: opConfidence }],
+      [vAct(kind, field, body, 0, confidence)])
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.equal(result.state.slot?.time, '13:00')
+    assert.equal(result.state.timeMeaningClarification, undefined)
+    assert.equal(reads, before)
+    assert.equal(result.bookingCommand, undefined)
+  }
+})
+await vCheck('valid lower limits offer inclusive fresh options, even a singleton is not selection', async () => {
+  for (const body of vLowerBodies) {
+    times = body.includes('17:30') ? ['17:30'] : ['13:00', '17:00', '17:30']
+    const time = body.includes('17:30') ? '17:30' : '17:00'
+    const result = await vSay(offered.state, body, [pref({ kind: 'after', time }, body)], [vAct('change', 'time', body, 0)])
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.deepEqual(result.state.timePreference, { kind: 'after', time })
+    assert.equal(result.state.slot, null)
+    assert.equal(result.state.requestedTime, null)
+    assert.equal(result.proposal, null)
+    assert.equal(result.bookingCommand, undefined)
+    const slots = result.choicePresentation?.choices.filter(choice => choice.operation.kind === 'slot')
+    assert.ok(slots?.length)
+    assert.ok(slots.every(choice => choice.operation.kind === 'slot' && choice.operation.time >= time))
+    assert.ok(slots.some(choice => choice.operation.kind === 'slot' && choice.operation.time === time))
+  }
+})
+await vCheck('global malformed source and original indexes are never rescued', async () => {
+  const malformedPlans = [
+    [pref({ kind: 'after', time: '19:00' }, 'invented quote')],
+    [pref({ kind: 'after', time: '19:00' }, 'a las19'), { kind: 'time', value: '19:00', ...ev('a las19') }],
+    [pref({ kind: 'after', time: '19:00' }, 'a las19'),
+      { kind: 'service', mode: 'single', serviceIds: ['foreign'], correction: false, ...ev('a las19') }]
+  ]
+  for (const malformed of malformedPlans) {
+    const result = await vSay(vSelected.state, 'a las19', malformed, [vAct('change', 'time', 'a las19', 0)])
+    assert.equal(result.interpretation.reason, 'invalid_output')
+    assert.equal(result.interpretation.temporalGrounding, undefined)
+    assert.equal(result.bookingCommand, undefined)
+  }
+  const invalidIndex = await vSay(vSelected.state, 'a las19', [pref({ kind: 'after', time: '19:00' }, 'a las19')],
+    [vAct('change', 'time', 'a las19', 9)])
+  assert.equal(invalidIndex.interpretation.reason, 'invalid_output')
+  assert.equal(invalidIndex.interpretation.temporalGrounding, undefined)
+})
+await vCheck('no missing operation reconstruction or twelve-hour precision regression', async () => {
+  const none = await vSay(vSelected.state, '17 en adelante', [], [])
+  assert.equal(none.state.slot?.time, '13:00')
+  assert.equal(none.state.timePreference, undefined)
+  times = ['17:00']
+  const afternoonBody = 'por la tarde'
+  const afternoon = await vSay(offered.state, afternoonBody,
+    [pref({ kind: 'band', band: 'AFTERNOON' }, afternoonBody)], [vAct('change', 'time', afternoonBody, 0)])
+  assert.deepEqual(afternoon.state.timePreference, { kind: 'band', band: 'AFTERNOON' })
+  const established = await vSay(afternoon.state, 'tipo 5',
+    [pref({ kind: 'band', band: 'AFTERNOON' }, 'tipo 5')], [vAct('change', 'time', 'tipo 5', 0)])
+  assert.deepEqual(established.state.timePreference, { kind: 'around', time: '17:00' })
+  assert.equal(established.state.slot, null)
+  assert.equal(established.bookingCommand, undefined)
+})
+await vCheck('owned approximation is not rejected by a disjoint orphan clock or granted authority', async () => {
+  const body = 'Ana mañana pasado mañana 17:00 tipo 5 dirección Alisado Hasta los hombros Corte y barba pausa'
+  const operation = pref({ kind: 'around', time: '17:00' }, 'tipo 5')
+  const plan = parseTurnPlan({ version: 1, operations: [operation] }, body)
+  for (const kind of ['notice', 'pause', 'repair']) {
+    const metadata = parseCommunicativeActs({ version: 1, acts: [{
+      kind, field: 'general', evidence: body, confidence: 1, mention: null, operationIndexes: []
+    }] }, body, 1, plan)
+    const admission = admitCommunicativePlan(metadata, plan, plan, body, vSelected.state, [])
+    assert.deepEqual(admission.plan.operations, [])
+    assert.deepEqual(admission.blockedFields, [])
+    assert.equal(admission.continuity, kind)
+    const before = reads
+    const result = await vSay(vSelected.state, body, [operation], [{
+      kind, field: 'general', evidence: body, confidence: 1, mention: null, operationIndexes: []
+    }])
+    assert.equal(result.state.slot?.time, '13:00')
+    assert.equal(result.state.timeMeaningClarification, undefined)
+    assert.equal(result.bookingCommand, undefined)
+    assert.equal(reads, before)
+  }
+  // Structural parsing alone does not authorize the operation; a current owner is still required.
+  const history = 'Antes 17:00; ahora tipo 5'
+  const historicalPlan = parseTurnPlan({ version: 1, operations: [operation] }, history)
+  const metadata = parseCommunicativeActs({ version: 1, acts: [vAct('change', 'time', 'ahora tipo 5', 0)] }, history, 1, historicalPlan)
+  const admission = admitCommunicativePlan(metadata, historicalPlan, historicalPlan, history, offered.state, [])
+  assert.equal(admission.plan.operations.length, 1)
+  for (const message of ['a las19, tipo 5', '19:00 tipo 5', '17:00 o tipo 5',
+    '17:00 y tipo 5', '17:00 / tipo 5', '17:00 después de las13 y antes de las19 tipo 5',
+    '17:00 tipo 5 tipo 5']) {
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [operation] }, message), message)
+  }
+  assert.throws(() => parseTurnPlan({ version: 1, operations: [
+    { kind: 'time', value: '18:00', ...ev('martes06/10 a las17:00 con Cin') }
+  ] }, 'martes06/10 a las17:00 con Cin'), /clock value evidence/)
+})
+await vCheck('quote scoping cannot hide full-message bounds or clock alternatives', async () => {
+  const compounds = [
+    ['Alrededor de las17:00, pero antes de las19:00', { kind: 'around', time: '17:00' }, 'Alrededor de las17:00'],
+    ['Después de las17 y antes de las19', { kind: 'after', time: '17:00' }, 'Después de las17'],
+    ['Tipo17:00 o a las19:00', { kind: 'around', time: '17:00' }, 'Tipo17:00']
+  ] as const
+  for (const [body, preference, quote] of compounds) {
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [pref(preference, quote)] }, body), body)
+    for (const kind of ['change', 'reference', 'uncertain']) {
+      const message = body + '; soy Laura'
+      const before = reads
+      const result = await vSay(vSelected.state, message, [
+        pref(preference, quote), { kind: 'name', value: 'Laura', ...ev('Laura') }
+      ], [vAct(kind, 'time', body, 0), vAct('change', 'name', 'soy Laura', 1)])
+      assert.equal(result.interpretation.mode, 'ai')
+      assert.equal(result.interpretation.temporalGrounding?.outcome, 'field_rejected')
+      assert.equal(result.state.customerName, 'Laura')
+      assert.deepEqual(result.state.professional, vSelected.state.professional)
+      assert.equal(result.state.date, vSelected.state.date)
+      assert.equal(result.state.timeMeaningClarification, kind === 'change' ? true : undefined)
+      assert.equal(result.state.slot?.time ?? null, kind === 'change' ? null : '13:00')
+      assert.equal(result.bookingCommand, undefined)
+      assert.equal(reads, before)
+    }
+  }
+  assert.ok(vLowerBodies.some(body => body.includes('\n')))
+  assert.ok(vLowerBodies.some(body => body.includes('\t')))
+})
+await vCheck('current period clarification owns meaning without hiding another request', async () => {
+  const pair: DialogueState = {
+    ...offered.state, timeClarification: { candidateTimes: ['04:00', '16:00'] }
+  }
+  delete pair.timePreference
+  const body = 'de la tarde obviamente, quien se va a cortar a las 4 de la mañana'
+  const operation = { kind: 'time_clarification', candidateTimes: ['04:00', '16:00'], ...ev('de la tarde') }
+  times = ['16:00', '17:00', '19:00']
+  const result = await vSay(pair, body, [operation], [vAct('answer', 'time', 'de la tarde', 0)])
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.deepEqual(result.state.timePreference, { kind: 'around', time: '16:00' })
+  assert.equal(result.state.slot, null)
+  assert.equal(result.state.requestedTime, null)
+  assert.equal(result.bookingCommand, undefined)
+  for (const message of [body + '; quiero a las19', body + '; después de las17',
+    'de la tarde o de la mañana', body + '; o a las19:00']) {
+    const blocked = await vSay(pair, message, [operation], [vAct('answer', 'time', 'de la tarde', 0)])
+    assert.notDeepEqual(blocked.state.timePreference, { kind: 'around', time: '16:00' }, message)
+    assert.equal(blocked.state.slot, null)
+    assert.equal(blocked.bookingCommand, undefined)
+  }
+  for (const kind of ['reference', 'uncertain']) {
+    const weak = await vSay(pair, body, [operation], [vAct(kind, 'time', 'de la tarde', 0)])
+    assert.deepEqual(weak.state.timeClarification, pair.timeClarification)
+    assert.equal(weak.state.timePreference, undefined)
+    assert.equal(weak.bookingCommand, undefined)
+  }
+  for (const [message, time] of [
+    [body, '17:00'], [body.replace('las 4 ', 'las 4:30 '), '16:00'],
+    [body + '; quiero a las19', '16:00'], [body + '; después de las17', '16:00'],
+    [body + '; no a las18', '16:00'], [body + '; o de la mañana', '16:00']
+  ] as const) {
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [
+      pref({ kind: 'around', time }, 'de la tarde')
+    ] }, message), message + ' / ' + time)
+  }
+  const noOperation = await vSay(pair, body, [], [])
+  assert.deepEqual(noOperation.state.timeClarification, pair.timeClarification)
+  assert.equal(noOperation.state.timePreference, undefined)
+  assert.equal(noOperation.state.slot, null)
+  assert.equal(noOperation.bookingCommand, undefined)
+  const absent = await vSay(offered.state, body, [operation], [vAct('answer', 'time', 'de la tarde', 0)])
+  assert.notDeepEqual(absent.state.timePreference, { kind: 'around', time: '16:00' })
+  const otherPair: DialogueState = { ...pair, timeClarification: { candidateTimes: ['05:00', '17:00'] } }
+  const foreign = await vSay(otherPair, body, [operation], [vAct('answer', 'time', 'de la tarde', 0)])
+  assert.notDeepEqual(foreign.state.timePreference, { kind: 'around', time: '16:00' })
+  assert.equal(foreign.state.slot, null)
+  assert.equal(foreign.bookingCommand, undefined)
+})
+assert.deepEqual(vFailures, [], 'V canonical temporal constraints')

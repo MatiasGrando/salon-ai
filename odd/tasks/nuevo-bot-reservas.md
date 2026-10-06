@@ -2668,7 +2668,7 @@ Sin túnel/WhatsApp/Meta/Railway/push. Último grant api.openai.comgpt-6-luna10N
 **Decisión/contrato.** Targetsingleton actualcatálogoúnico +proof moderna OWNED/CurrentRead positiva puede iniciar nuevalecturafueraoldpool; antes validarTODOSoldlabels/currentbusiness/freshcatalog. No filtrar nuevaidentidad aeligibleold ni autorizar cesta. Closedanswer sinproofcontinúaoldpool. Legacy sin metadata FULLbody conserva guardanterior: opquote truncada no prueba que el mensaje completo no sea histórico/calificado. Arreglolegacy amplio NO autorizado enU2, gap reportado; engine/fence3rdfile exige propuesta aparte.
 
 - [x] U.1: REDpublic con prefix actual menú de cortes→consultaactual fuerte Brushing singletonfueraoldoptions, respuesta/foco brush ydraft intacto; controles enoldpool/closedambiguous/weak/history/foreign/stalecatalog/label/business/negaciones/proposedIDalone.
-- [ ] U.2: EXACT2GREEN/focus+scope+serviceevidence+act regressions/strictreal/UTF8/hash/freeze/commit/native; corroborar respuestas ynoagenda-noacquisition-noeffects. No nuevo modelo ni alias.
+- [x] U.2: EXACT2GREEN/focus+scope+serviceevidence+act regressions/strictreal/UTF8/hash/freeze/commit/native; corroborar respuestas ynoagenda-noacquisition-noeffects. No nuevo modelo ni alias.
 - Writer porahora READONLYespera GO despuésTfrozencommit. NoAPIgrantvencido19Z/DB/env/server/Git/doc/reports/journals/artefactos; no originalm19PASS porcontrolcounterfactualcontextIncomplete. Legacylimitación pendiente explícita.
 
 ### T ampliación causal acotada, después de S
@@ -2713,7 +2713,7 @@ Sin túnel/WhatsApp/Meta/Railway/push. Último grant api.openai.comgpt-6-luna10N
 - Contradicción de significado → error temporal tipado yrejeción porcampo H, únicamentecurrentstrong borra oldslot ypersisteclarificación; conservar fecha/nombre/profesional/servicios independientesválidos. Weak/history/wrongfield no borran selección ni ganan autoridad.
 - Validaroriginalestructura completa IDs/citas/índices/límites/duplicados GLOBAL antes filtrado; noflagIA/schema/estado/portsnuevos ni reinterpretaciónmotor de operaciónrechazada. Publicparser permaneceestricto, estructuralservidor unchanged. GuíaIAactual orienta clases/límites, no palabra-a-palabra casos.
 - No consent/bookingauto yuna únicaoferta tampoco se acepta sola. Datosparaofrecer siempreagendaactual.
-- [ ] V.1: REDantesfuente comparacionesclase/valores/inclusividad/rangos/around/band, postposedminutes/sufijos/LF/tab yPUBLICpersistence/independientes/noautoselect/weak-history-structure.
+- [x] V.1: REDantesfuente comparacionesclase/valores/inclusividad/rangos/around/band, postposedminutes/sufijos/LF/tab yPUBLICpersistence/independientes/noautoselect/weak-history-structure.
 - [ ] V.2: EXACT7GREEN+relatedQ/S/H/rangos/consent/choices/Tscope, strictREAL7 rootsactualtsconfig/noEmit/typesnode, UTF8/diff/readback/hashes/freeze; padrecommit exact/native.
 **Límite honesto.** Glow001/m0071 operación temporal omitida porIA NOse recupera por este cambio; noacreditarla resuelta. Fuentes7 requieren másarchivo → informarantes. NoAPIgrantexpired19Z/env/DB/WhatsApp/servidor/Git/native/docs/artefactos/journals/reportes porwriter.
 
@@ -2757,3 +2757,17 @@ Cerrar unidades U y V del punto2 con verificaciones conjuntas antes de levantar 
 - Relatedcommercial-time aúnFAILporVdirty contextualrespuesta4/16, no fuenteU (writerVreparándolo yregresionesnuevasantesfreeze). Combinadofinalpendiente; no claimglobalPASS. Un runnerparent inventadonombre service-evidence-test.tsNOexiste, se detectóantesinvocación, seleyólista yrunnerrealservice-evidence-grounding-test.ts ejecutadoPASS.
 - U.2funcional/strictverificado; commitexact2+docpróximo, nativefrom1b59a861T305pending ycombinedVcheckpendientesantesactivation. Nohistoricalm19PASS legacylimitunchanged. Engrammirror/sessionunavailable.
 - Vcontextcommercialrationaleaceptado: contextualTimeAnswerparejaactualya probada puedeproyectar sólo relojretóricodeOTROcandidatoexplícitoperíodo dentrocola existentehelperreconocida, exclusivamenteDENYcomparison. Noocultarel resto ni crearpair/operación/authority. Tests4tarde positive y19exact/after17/alternativacontinúanrechazados, sin cambiarcommercialtestajeno. Scope7no8th.
+
+
+- **U commit/nativa:** b9080aee2cbedc34025ff9c197152fa3ad44d63b EXACT2+doc3paths275authored, source/tests218. ASSESST+Ufrom1b59a861 EXIT0 medium5paths580/due slice_budget_reached; STATUScanónico+exclude4ed14a…→STARTrelayconsent_required targetd7146348…lineagereview-531cbbace622180a. Preguntaespecíficaalhumano enviada, aúnno decisión/no revisión ejecutada/no cierre nativo. Frontera1b59a861 pendiente hastarespuesta, Vno commit todavía.
+- **V commercial diseño compartido aceptado:** parserse repite trasground ypostadmission yenginefallback; no bypass estructural/contextflagIA. Helperpurotime-preference paraaroundselected sólo comparaaffirmperiodactualinicio+únicacola retórica ya reconocida, clockEXPLÍCITO exactamente12hopuesto/minutosiguales; enmascarasóloese spanNOresto, noauthority/pairfabricada. Groundloinvoca sólo parejaactualvalidada porcontextualTimeAnswer yselectedmatch; sinpairactual mismatchedcontext mantieneunproven_approximation. Pruebaswrongaround17/4morning/minutosmismatch/otrasrequests-límites-alternativas/weak/absentpair/noopmissing, source7only.
+
+
+## Recuperación y cierre conjunto — continuación actual
+- U revisión específica omitida por el humano: transición nativa EXIT0 declined_this_candidate, target d7146348a32fdffb08add586ede9e4d6574861154f37c83a2a8485565caaba66. No revisión ejecutada ni aprobación ficticia. Frontera siguiente b9080aee2cbedc34025ff9c197152fa3ad44d63b; RDD continúa ON. U.2 cerrado con pruebas, commit y decisión específica.
+- V EXACT7 congelado: 458 adiciones +38 eliminaciones =496 líneas autoradas; solución coherente de comparación temporal compartida y controles, sin minificar, omitir pruebas o dividir artificialmente. RED observado antes de fuentes y correcciones de regresiones posteriores. Padre verificó SHA7 y repitió time-preference, turn-plan-ai, communicative-act111/0, commercial-time5grupos, information-focus36/0+26/0, around-time y date-preference43/0: todas PASS.
+- Pendiente V: strict real/UTF8 finales del padre, commit exacto y gate nativo. Después levantar sólo CRM3000. No API nueva: autorización temporal vencida; sin DB, WhatsApp, túnel, Railway o producción.
+- Límite: operación horaria omitida por IA no se reconstruye; exclusión comprimida «no18» todavía no reconocida. Los controles actuales no acreditan 92 conversaciones originales completas PASS. Presupuestos exactos/capacidad de derivación y casos sin contexto suficiente siguen separados.
+- Engram mem_* no expuestos: resumen de sesión y espejo completo pendientes; recuperación conservada localmente, sin fingir guardado remoto.
+
+- V cierre funcional del padre: strict real7roots/316files/0diagnósticos, strict/exactOptional/noUnchecked/noEmit/typesnode; npm run test:text-encoding PASS; git diff --check PASS; siete hashes finales coinciden. Advertencia Git LF/CRLF no es error de codificación. Commit exact7+seguimiento siguiente, revisión nativa pendiente; V.2 aún no cerrado.
