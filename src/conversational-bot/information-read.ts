@@ -144,17 +144,19 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     // Identity proof remains catalog-wide: a generic or undocumented qualifier cannot hide
     // behind the proposed singleton, and every previously presented option stays revalidated.
     const specificTarget = target.serviceIds.length === 1 && selected.length === 1 &&
-      eligible.some(service => service.id === selected[0]!.id) &&
-      (currentProof || currentReadProof || assessServiceIdentity(message, selected[0]!.id, 1, services).kind === 'supported')
-    if (specificTarget) selected = eligible.filter(service => service.id === target.serviceIds[0])
-    else if (old.candidateId && !/[?¿]/.test(message) && affirmativeMatchAnswer(message)) selected = eligible.filter(service => service.id === old.candidateId)
-    else {
-      const pool = old.options.length ? eligible : services
-      const result = matchPresentedServiceAnswer({ businessId: state.businessId, category: 'service' }, message, pool.map(service => ({ businessId: state.businessId, category: 'service', id: service.id, label: service.name })))
-      if (result.kind !== 'exact' || result.items.length !== 1 || !result.complete) return clarifyService(state, eligible, target.aspect,
-        result.kind === 'candidates' && result.items.length === 1 ? result.items[0]!.id : null)
-      if (!old.options.length && normalizeAnswer(message) !== normalizeAnswer(result.items[0]!.label)) return clarifyService(state, [], target.aspect)
-      selected = pool.filter(service => service.id === result.items[0]!.id)
+      (currentProof || currentReadProof || eligible.some(service => service.id === selected[0]!.id) &&
+        assessServiceIdentity(message, selected[0]!.id, 1, services).kind === 'supported')
+    // A proved current object may leave the old menu; legacy quotes remain bounded to its options.
+    if (!specificTarget) {
+      if (old.candidateId && !/[?¿]/.test(message) && affirmativeMatchAnswer(message)) selected = eligible.filter(service => service.id === old.candidateId)
+      else {
+        const pool = old.options.length ? eligible : services
+        const result = matchPresentedServiceAnswer({ businessId: state.businessId, category: 'service' }, message, pool.map(service => ({ businessId: state.businessId, category: 'service', id: service.id, label: service.name })))
+        if (result.kind !== 'exact' || result.items.length !== 1 || !result.complete) return clarifyService(state, eligible, target.aspect,
+          result.kind === 'candidates' && result.items.length === 1 ? result.items[0]!.id : null)
+        if (!old.options.length && normalizeAnswer(message) !== normalizeAnswer(result.items[0]!.label)) return clarifyService(state, [], target.aspect)
+        selected = pool.filter(service => service.id === result.items[0]!.id)
+      }
     }
   }
   if (target.serviceIds.length && selected.length !== target.serviceIds.length && !choiceAnswer) return missing('la información vigente de ese servicio')

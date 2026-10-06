@@ -1320,6 +1320,200 @@ try {
     assert.doesNotMatch(failed.reply, /No pude confirmar esa consulta/)
   })
 
+
+  // U uses actually produced synthetic prefixes, never historical/outbound state reconstruction.
+  const uCatalog: DialogueService[] = [...services, {
+    id: 'brush', name: 'Brushing', price: 19000, durationMinutes: 45,
+    description: 'Secado con cepillo.', requiresConsultation: false
+  }]
+  const uPort: DialoguePort = {
+    ...port, catalog: async () => uCatalog,
+    availabilityBasket: async (chosen, date) => {
+      agendaCalls++
+      return { ok: true, services: chosen, durationMinutes: 60, totalPrice: 64000,
+        professionals: [{ id: 'leo', name: 'Leo', priority: 0 }],
+        slots: [{ date, time: '13:00', startAt: date + 'T16:00:00.000Z',
+          professionalId: 'leo', professionalName: 'Leo', band: 'AFTERNOON', occupiedMinutes: 0 }] }
+    }
+  }
+  const uSetupBody = 'Quiero Corte hombre y Corte mujer mañana después de las 13, soy Ana.'
+  const uDraftStart = await respondWithAiInterpreter(context, initial, uSetupBody, uPort, async () => ({
+    ...legacy, intent: 'booking', turnPlan: { version: 1, operations: [
+      { kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [],
+        members: [{ mode: 'single', serviceIds: ['cut'], ...ev('Corte hombre') },
+          { mode: 'single', serviceIds: ['woman'], ...ev('Corte mujer') }], ...ev(uSetupBody) },
+      { kind: 'date', expression: 'mañana', value: '2026-10-03', ...ev('mañana') },
+      { kind: 'time_preference', preference: { kind: 'after', time: '13:00' }, ...ev('después de las 13') },
+      { kind: 'name', value: 'Ana', ...ev('Ana') }
+    ] }, communicativeActs: { version: 1, acts: ['service','date','time','name'].map((field, index) => ({
+      kind: 'request', field, evidence: uSetupBody, confidence: 1, mention: null, operationIndexes: [index]
+    })) }
+  }))
+  const uDraft = await respondWithAiInterpreter(context, uDraftStart.state, 'Leo', uPort, async () => ({
+    ...legacy, intent: 'booking', turnPlan: { version: 1, operations: [
+      { kind: 'professional', mode: 'specific', mention: 'Leo', ...ev('Leo') }
+    ] }, communicativeActs: { version: 1, acts: [{
+      kind: 'answer', field: 'professional', evidence: 'Leo', confidence: 1, mention: 'Leo', operationIndexes: [0]
+    }] }
+  }))
+  assert.deepEqual(basketServiceIds(uDraft.state), ['cut','woman'])
+  assert.equal(uDraft.state.date, '2026-10-03')
+  assert.deepEqual(uDraft.state.professional, { kind: 'specific', id: 'leo' })
+  assert.equal(uDraft.state.customerName, 'Ana')
+  assert.deepEqual(uDraft.state.timePreference, { kind: 'after', time: '13:00' })
+  const uMenuBody = '¿Precio de corte?'
+  const uMenu = async (state: DialogueState) => (await respondWithAiInterpreter(context, state, uMenuBody, uPort,
+    async () => ({ ...legacy, turnPlan: { version: 1, operations: [
+      info(uMenuBody, service(['cut','woman','cut-beard'], 'price'))
+    ] } }))).state
+  const uMenus = [await uMenu(initial), await uMenu(uDraft.state)]
+  for (const state of uMenus) {
+    assert.equal(state.informationFocus?.awaitingChoice, true)
+    assert.deepEqual(state.informationFocus?.options.map(option => option.id), ['cut','woman','cut-beard'])
+  }
+  const uAsk = async (state: DialogueState, body = 'Brushing', quote = body, owner: object = {},
+      aspect = 'price', targetId = 'brush', currentPort = uPort, modern = true, confidence = 1) => {
+    const before = structuredClone(state), agendaBefore = agendaCalls
+    let calls = 0
+    const raw = { ...legacy, turnPlan: { version: 1, operations: [{
+      ...info(quote, service([targetId], aspect)), confidence
+    }] }, ...(modern ? { communicativeActs: { version: 1, acts: [{
+      kind: 'inquiry', field: 'service', evidence: body, confidence: 1,
+      mention: 'Brushing', operationIndexes: [0], ...owner
+    }] } } : {}) }
+    const rawBefore = structuredClone(raw)
+    const result = await respondWithAiInterpreter(context, state, body, currentPort, async () => { calls++; return raw })
+    assert.deepEqual(state, before); assert.deepEqual(raw, rawBefore)
+    assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1); assert.equal(agendaCalls, agendaBefore)
+    assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    for (const field of ['basket','serviceId','date','datePreferences','professional','professionalNameHint',
+      'customerName','requestedTime','slot','timePreference','serviceEstimates','serviceRequest','referral',
+      'sandboxReservation','pending'] as const)
+      assert.deepEqual(result.state[field], before[field], 'U must preserve draft/consent scope: ' + field)
+    const newInformationObject = result.state.informationFocus?.serviceId === targetId &&
+      !result.state.informationFocus.awaitingChoice
+    if (hasActiveBooking(before) || !newInformationObject) {
+      assert.deepEqual(result.state.questionContext, before.questionContext)
+      assert.deepEqual(result.state.dialogueContext, before.dialogueContext)
+    } else {
+      assert.equal(result.state.serviceId, null); assert.equal(result.state.basket, undefined)
+      assert.equal(result.state.slot, null); assert.equal(result.state.sandboxReservation, undefined)
+      assert.equal(result.state.questionContext?.businessId, context.businessId)
+      assert.equal(result.state.questionContext?.scope, JSON.stringify({ basket: [], date: null, professional: null }))
+      assert.deepEqual(result.state.questionContext?.options, [{ id: targetId, label: 'Brushing' }])
+      assert.equal(result.state.questionContext?.role, 'service')
+      assert.notEqual(result.state.questionContext?.role, 'confirmation')
+      assert.equal(result.state.dialogueContext?.presentedOffer ?? null, null)
+    }
+    return result
+  }
+  await currentCheck('U explicit new current object escapes a fresh old menu without acquiring', async () => {
+    for (const state of uMenus) {
+      const result = await uAsk(state)
+      assert.equal(result.interpretation.mode, 'ai')
+      assert.equal(result.state.informationFocus?.serviceId, 'brush')
+      assert.equal(result.state.informationFocus?.awaitingChoice, false)
+      assert.deepEqual(result.state.informationFocus?.options, [{ id: 'brush', label: 'Brushing' }])
+      assert.match(result.reply, /Brushing:[\s\S]*19[.,]?000/)
+      assert.doesNotMatch(result.reply, /Corte hombre:|Corte mujer:|Corte y barba:|cuál de estos/)
+    }
+  })
+  await currentCheck('U owned facets and full-body exact-name read proof keep the new object', async () => {
+    for (const [body, quote, aspect, expected] of [
+      ['¿Cuál es la duración de Brushing?', 'Cuál es la duración', 'duration', /45 min(?:utos)?/],
+      ['Quiero saber la descripción de Brushing.', 'la descripción de Brushing', 'description', /Secado con cepillo/]
+    ] as const) {
+      const result = await uAsk(uMenus[1]!, body, quote, {}, aspect)
+      assert.equal(result.state.informationFocus?.serviceId, 'brush')
+      assert.equal(result.state.informationFocus?.aspect, aspect)
+      assert.match(result.reply, expected); assert.doesNotMatch(result.reply, /19[.,]?000/)
+    }
+    const nullMention = await uAsk(uMenus[0]!, 'Brushing', 'Brushing', { mention: null })
+    assert.equal(nullMention.state.informationFocus?.serviceId, 'brush')
+    assert.match(nullMention.reply, /19[.,]?000/)
+  })
+  await currentCheck('U weak historical ambiguous qualified and ID-only proposals cannot escape', async () => {
+    for (const [body, quote, owner, target, confidence] of [
+      ['Brushing', 'Brushing', { confidence: .84 }, 'brush', 1],
+      ['Brushing', 'Brushing', { kind: 'reference' }, 'brush', 1],
+      ['Brushing', 'Brushing', { field: 'general' }, 'brush', 1],
+      ['Brushing', 'Brushing', { operationIndexes: [] }, 'brush', 1],
+      ['Brushing', 'Brushing', {}, 'brush', .84],
+      ['Antes consulté Brushing.', 'Brushing', {}, 'brush', 1],
+      ['No Brushing.', 'Brushing', {}, 'brush', 1],
+      ['Brushing sin lavado.', 'Brushing', {}, 'brush', 1],
+      ['Si conviene, Brushing.', 'Brushing', {}, 'brush', 1],
+      ['Brushing extraño.', 'Brushing', {}, 'brush', 1],
+      ['Brushing y Corte mujer.', 'Brushing', {}, 'brush', 1],
+      ['Brushing Brushing.', 'Brushing', {}, 'brush', 1],
+      ['Brushing', 'Brushing', {}, 'woman', 1],
+      ['Otro', 'Otro', { mention: null }, 'brush', 1]
+    ] as const) {
+      const result = await uAsk(uMenus[1]!, body, quote, owner, 'price', target, uPort, true, confidence)
+      assert.deepEqual(result.state.informationFocus, uMenus[1]!.informationFocus, body)
+      assert.doesNotMatch(result.reply, /19[.,]?000/, body)
+    }
+  })
+  await currentCheck('U all old labels and the new catalog identity must remain fresh', async () => {
+    for (const catalog of [
+      uCatalog.filter(item => item.id !== 'cut'),
+      uCatalog.map(item => item.id === 'woman' ? { ...item, name: 'Retirado' } : item),
+      uCatalog.map(item => item.id === 'brush' ? { ...item, name: 'Renombrado' } : item)
+    ]) {
+      const result = await uAsk(uMenus[1]!, 'Brushing', 'Brushing', {}, 'price', 'brush',
+        { ...uPort, catalog: async () => catalog })
+      assert.deepEqual(result.state.informationFocus, uMenus[1]!.informationFocus)
+      assert.doesNotMatch(result.reply, /19[.,]?000/)
+    }
+    const removed = await uAsk(uMenus[1]!, 'Brushing', 'Brushing', {}, 'price', 'brush',
+      { ...uPort, catalog: async () => uCatalog.filter(item => item.id !== 'brush') })
+    assert.equal(removed.interpretation.reason, 'invalid_output')
+    assert.doesNotMatch(removed.reply, /19[.,]?000/)
+  })
+  await currentCheck('U legacy closed answers remain bounded to the old pool', async () => {
+    const legacyOutside = await uAsk(uMenus[1]!, 'Brushing', 'Brushing', {}, 'price', 'brush', uPort, false)
+    assert.deepEqual(legacyOutside.state.informationFocus, uMenus[1]!.informationFocus,
+      'LIMITATION: legacy partial operation quotes do not prove the original full body')
+    assert.doesNotMatch(legacyOutside.reply, /19[.,]?000/)
+    const inside = await uAsk(uMenus[1]!, 'Corte mujer', 'Corte mujer', { mention: 'Corte mujer' }, 'price', 'woman')
+    assert.equal(inside.state.informationFocus?.serviceId, 'woman')
+    const closed = await say(uMenus[0]!, 'hombre')
+    assert.equal(closed.state.informationFocus?.serviceId, 'cut')
+    const ambiguous = await say(uMenus[0]!, 'corte')
+    assert.equal(ambiguous.state.informationFocus?.serviceId, null)
+    assert.equal(ambiguous.state.informationFocus?.awaitingChoice, true)
+  })
+
+
+  await currentCheck('U current proof cannot cross business or rejected projection boundaries', async () => {
+    const { readInformation } = await import('../src/conversational-bot/information-read.js')
+    const scope = { operationIndex: 0, businessId: context.businessId, serviceId: 'brush', aspect: 'price' as const,
+      identityMention: 'Brushing', ownerEvidence: 'Brushing', inquiryEvidence: 'Brushing', operationEvidence: 'Brushing' }
+    for (const [state, readContext] of [
+      [uMenus[1]!, { currentServiceInquiry: { ...scope, businessId: 'foreign' } }],
+      [{ ...uMenus[1]!, informationFocus: { ...uMenus[1]!.informationFocus!, businessId: 'foreign' } },
+        { currentServiceInquiry: scope }],
+      [uMenus[1]!, { currentServiceRead: { ...scope, projectionRejected: true as const } }]
+    ] as const) {
+      const before = structuredClone(state), agendaBefore = agendaCalls
+      const read = await readInformation(context, state, 'Brushing', uPort,
+        { kind: 'service', actions: [], serviceIds: ['brush'], aspect: 'price' }, uCatalog, readContext)
+      assert.notEqual(read.outcome, 'found')
+      assert.equal(read.focus, undefined)
+      assert.doesNotMatch(read.reply, /19[.,]?000/)
+      assert.deepEqual(state, before); assert.equal(agendaCalls, agendaBefore)
+    }
+    for (const [target, catalog] of [
+      ['foreign', uCatalog],
+      ['brush', [...uCatalog, { ...uCatalog.at(-1)!, id: 'brush-other' }]]
+    ] as const) {
+      const result = await uAsk(uMenus[1]!, 'Brushing', 'Brushing', {}, 'price', target,
+        { ...uPort, catalog: async () => [...catalog] })
+      assert.deepEqual(result.state.informationFocus, uMenus[1]!.informationFocus)
+      assert.doesNotMatch(result.reply, /19[.,]?000/)
+    }
+  })
+
   console.log('current service inquiry: ' + currentPassed + ' passed, ' + currentFailures.length + ' failed')
   assert.deepEqual(currentFailures, [], 'current service inquiry regressions')
 
