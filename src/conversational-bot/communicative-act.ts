@@ -171,7 +171,7 @@ export function deriveCurrentServiceInquiries(metadata: CommunicativeActs | null
         owner.confidence < .85 || owner.confidence > 1 || !Number.isFinite(owner.confidence) || owner.mention === null) return []
     const scope: CurrentServiceInquiry = { operationIndex, businessId, serviceId: operation.target.serviceIds[0]!,
       aspect: operation.target.aspect, identityMention: owner.mention,
-      inquiryEvidence: owner.evidence, operationEvidence: operation.evidence }
+      ownerEvidence: owner.evidence, inquiryEvidence: message, operationEvidence: operation.evidence }
     return validCurrentServiceInquiry(scope, operation, message, businessId) ? [scope] : []
   })
 }

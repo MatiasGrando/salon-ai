@@ -716,6 +716,103 @@ try {
         communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: message,
           confidence: 1, mention: identity, operationIndexes: [0], ...fields }] } }
     })
+  await currentCheck('N raw V7 separates short current owner quote from full neutral body', async () => {
+    const message = 'De esas opciones, me interesa el valor del corte de mujer.'
+    const quote = 'me interesa el valor del corte de mujer'
+    const catalog = services.slice(0, 3).map((item, index) => ({ ...item,
+      id: ['cut-m', 'cut-w', 'cut-b'][index]!, price: [15000, 20000, 18000][index]! }))
+    const scopedPort = { ...port, catalog: async () => catalog }
+    const state = { ...namelessPrice.state, informationFocus: { ...namelessPrice.state.informationFocus!,
+      options: catalog.map(item => ({ id: item.id, label: item.name })) } }
+    const beforeProvider = currentProviderCalls, beforeAgenda = agendaCalls
+    const result = await respondWithAiInterpreter(context, state, message, scopedPort, async () => {
+      currentProviderCalls++
+      return { ...legacy, turnPlan: { version: 1, operations: [info(quote, service(['cut-w'], 'price'))] },
+        communicativeActs: { version: 1, acts: [
+          { kind: 'answer', field: 'service', ...ev('el corte de mujer'), mention: 'corte de mujer', operationIndexes: [] },
+          { kind: 'inquiry', field: 'service', ...ev(quote), mention: 'corte de mujer', operationIndexes: [0] }
+        ] } }
+    })
+    assert.equal(result.state.informationFocus?.serviceId, 'cut-w'); assert.equal(result.state.informationFocus?.awaitingChoice, false)
+    assert.match(result.reply, /20[.,]?000/); assert.doesNotMatch(result.reply, /15[.,]?000|18[.,]?000|Corte hombre|Corte y barba/)
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(state)); assert.equal(result.state.serviceId, null)
+    assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+    assert.equal(currentProviderCalls, beforeProvider + 1); assert.equal(agendaCalls, beforeAgenda)
+  })
+  await currentCheck('N short owners keep full-body residue and dimension grammar authoritative', async () => {
+    for (const [message, quote, aspect] of [
+      ['De esas opciones, me interesa el valor del corte de mujer.', 'me interesa el valor del corte de mujer', 'price'],
+      ['De esas opciones, quiero saber la duración del corte de mujer.', 'la duración del corte de mujer', 'duration'],
+      ['De esas opciones, quiero saber la descripción del corte de mujer.', 'la descripción del corte de mujer', 'description'],
+      ['De esas opciones,\nme interesa el valor del\tcorte de mujer.', 'corte de mujer', 'price']
+    ] as const) {
+      const result = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: quote }, port,
+        [info(quote, service(['woman'], aspect))])
+      assert.equal(result.state.informationFocus?.serviceId, 'woman', message)
+      assert.equal(result.state.informationFocus?.aspect, aspect); assert.equal(result.state.serviceId, null)
+    }
+    const quote = 'me interesa el valor del corte de mujer'
+    for (const message of ['De esas opciones, ' + quote + ' sin lavado.', 'Sin lavado, ' + quote + '.',
+      'No, ' + quote + '.', 'Si conviene, ' + quote + '.', quote + ' extraño.', 'Extraño, ' + quote + '.',
+      'De esas opciones, ' + quote + ' más barato.', quote + ' '.repeat(2000 - quote.length - 'sin lavado.'.length) + 'sin lavado.'])
+      for (const state of [initial, namelessPrice.state]) {
+        const result = await currentRead(state, message, quote, mention, 'woman', { evidence: quote })
+        assert.doesNotMatch(result.reply, /37[.,]?000|27[.,]?000|32[.,]?000/)
+        assert.deepEqual(result.state.informationFocus, state.informationFocus)
+        assert.deepEqual(selectionBasket(result.state), selectionBasket(state)); assert.equal(result.state.serviceId, state.serviceId)
+        assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+      }
+  })
+  await currentCheck('N short ownership cannot rescue weak missing foreign stale or duplicate identity proof', async () => {
+    const message = 'De esas opciones, me interesa el valor del corte de mujer.'
+    const quote = 'me interesa el valor del corte de mujer'
+    for (const fields of [{ confidence: .84 }, { kind: 'reference' }, { field: 'general' },
+      { operationIndexes: [] }, { mention: null }]) {
+      const result = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: quote, ...fields })
+      assert.doesNotMatch(result.reply, /37[.,]?000|27[.,]?000|32[.,]?000/, 'short-owner controls: ' + JSON.stringify(fields))
+      assert.deepEqual(result.state.informationFocus, namelessPrice.state.informationFocus)
+      assert.deepEqual(selectionBasket(result.state), selectionBasket(namelessPrice.state))
+    }
+    const beforeProvider = currentProviderCalls, beforeAgenda = agendaCalls
+    const malformed = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: 'me interesa' })
+    assert.equal(malformed.interpretation.reason, 'invalid_output')
+    assert.throws(() => assert.doesNotMatch(malformed.reply, /37[.,]?000|27[.,]?000|32[.,]?000/),
+      'original absolute-no-price assertion fails in the existing global malformed fallback, not in N admission')
+    console.log('OBSERVED N malformed global fallback: original no-price and whole-focus assertions FAIL; confirmed three-option menu, details/variants baseline')
+    assert.match(malformed.reply, /Corte hombre/); assert.match(malformed.reply, /Corte mujer/); assert.match(malformed.reply, /Corte y barba/)
+    assert.equal(malformed.state.informationFocus?.serviceId, null); assert.equal(malformed.state.informationFocus?.awaitingChoice, true)
+    // LIMITATION outside N: global rejection keeps the menu but changes its informational topic/aspect.
+    assert.throws(() => assert.deepEqual(malformed.state.informationFocus, namelessPrice.state.informationFocus),
+      'original whole-focus equality assertion fails in the existing malformed global fallback')
+    assert.deepEqual(malformed.state.informationFocus?.options, namelessPrice.state.informationFocus?.options)
+    assert.equal(malformed.state.informationFocus?.candidateId, null)
+    assert.equal(malformed.state.informationFocus?.topic, 'details'); assert.equal(malformed.state.informationFocus?.aspect, 'variants')
+    const source = { version: 1 as const, operations: [info(quote, service(['woman'], 'price'))] }
+    assert.deepEqual(currentModule.deriveCurrentServiceInquiries({ version: 1, acts: [{ kind: 'inquiry', field: 'service',
+      evidence: 'me interesa', confidence: 1, mention, operationIndexes: [0] }] } as any, source as any, source as any,
+      message, context.businessId), [])
+    assert.deepEqual(selectionBasket(malformed.state), selectionBasket(namelessPrice.state))
+    assert.equal(malformed.state.serviceId, namelessPrice.state.serviceId)
+    assert.equal(malformed.bookingCommand, undefined); assert.equal(malformed.proposal, null)
+    assert.equal(currentProviderCalls, beforeProvider + 1); assert.equal(agendaCalls, beforeAgenda)
+    const wrong = await currentRead(namelessPrice.state, message, quote, mention, 'cut', { evidence: quote })
+    assert.doesNotMatch(wrong.reply, /37[.,]?000|27[.,]?000|32[.,]?000/)
+    const foreign = await currentRead(namelessPrice.state, message, quote, mention, 'foreign', { evidence: quote })
+    assert.equal(foreign.interpretation.reason, 'invalid_output')
+    const badIndex = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: quote, operationIndexes: [9] })
+    assert.equal(badIndex.interpretation.reason, 'invalid_output')
+    for (const currentPort of [
+      { ...port, catalog: async () => services.map(item => item.id === 'woman' || item.id === 'cut' ? { ...item, name: 'Renombrado' } : item) },
+      { ...port, catalog: async () => services.filter(item => item.id !== 'cut') }
+    ]) {
+      const result = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: quote }, currentPort)
+      assert.doesNotMatch(result.reply, /37[.,]?000|27[.,]?000|32[.,]?000/)
+      assert.deepEqual(result.state.informationFocus, namelessPrice.state.informationFocus)
+    }
+    const duplicate = await currentRead(namelessPrice.state, message + ' corte de mujer', quote, mention, 'woman', { evidence: quote })
+    assert.doesNotMatch(duplicate.reply, /37[.,]?000|27[.,]?000|32[.,]?000/)
+    assert.deepEqual(duplicate.state.informationFocus, namelessPrice.state.informationFocus)
+  })
   await currentCheck('captured V6 current identity keeps one price and no effects', async () => {
     const before = currentProviderCalls, agendaBefore = agendaCalls
     const result = await currentRead(namelessPrice.state)
@@ -751,8 +848,10 @@ try {
     }
   })
   await currentCheck('weak reference wrong field missing mention and inherited quote cannot rescue singleton', async () => {
+    const partialNeutral = await currentRead(namelessPrice.state, query, queryQuote, mention, 'woman', { evidence: queryQuote })
+    assert.equal(partialNeutral.state.informationFocus?.serviceId, 'woman', 'original short neutral quote now has separately proven full-body scope')
     for (const [identity, fields] of [[null, {}], [mention, { confidence: .84 }], [mention, { kind: 'reference' }],
-      [mention, { field: 'general' }], [mention, { operationIndexes: [] }], [mention, { evidence: queryQuote }]] as const) {
+      [mention, { field: 'general' }], [mention, { operationIndexes: [] }], [mention, { evidence: 'Me interesa saber' }]] as const) {
       const result = await currentRead(namelessPrice.state, query, queryQuote, identity, 'woman', fields)
       assert.notEqual(result.state.informationFocus?.serviceId, 'woman')
       assert.equal(result.state.serviceId, null)
@@ -820,7 +919,7 @@ try {
     const message = 'Corte mujer' + ' '.repeat(301 - 'Corte mujer'.length)
     const operation = info('Corte mujer', service(['woman'], 'price')) as any
     const proof = { operationIndex: 0, businessId: context.businessId, serviceId: 'woman',
-      aspect: 'price' as const, identityMention: 'Corte mujer', inquiryEvidence: message, operationEvidence: 'Corte mujer' }
+      aspect: 'price' as const, identityMention: 'Corte mujer', ownerEvidence: message, inquiryEvidence: message, operationEvidence: 'Corte mujer' }
     assert.equal(scope.validCurrentServiceInquiry(proof, operation, message, context.businessId), false,
       'positive act scope keeps the provider evidence bound even when server body is longer')
   })
@@ -876,7 +975,7 @@ try {
     const acts = { version: 1, acts: [{ kind: 'inquiry', field: 'service', confidence: 1, evidence: query, mention, operationIndexes: [1] }] }
     const scopes = module.deriveCurrentServiceInquiries!(acts, source, final, query, context.businessId)
     assert.equal(scopes.length, 1); assert.equal(scopes[0].operationIndex, 0)
-    assert.equal(scopes[0].identityMention, mention); assert.equal(scopes[0].inquiryEvidence, query); assert.equal(scopes[0].operationEvidence, queryQuote)
+    assert.equal(scopes[0].identityMention, mention); assert.equal(scopes[0].ownerEvidence, query); assert.equal(scopes[0].inquiryEvidence, query); assert.equal(scopes[0].operationEvidence, queryQuote)
     assert.deepEqual(module.remapCurrentServiceInquiries!(scopes, final, structuredClone(final), query, context.businessId), scopes)
     assert.deepEqual(module.remapCurrentServiceInquiries!(scopes, final, { version: 1, operations: [] }, query, context.businessId), [])
     for (const patch of [{ businessId: 'foreign' }, { operationIndex: 8 }, { serviceId: 'cut' }, { aspect: 'duration' }, { operationEvidence: 'inventado' }, { identityMention: 'inventado' }])

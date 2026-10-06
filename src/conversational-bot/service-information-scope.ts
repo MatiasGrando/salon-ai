@@ -7,7 +7,7 @@ import type { TurnOperation } from './turn-plan.js'
 /** Ephemeral current-turn evidence, not a provider field or persisted focus. */
 export type CurrentServiceInquiry = {
   operationIndex: number; businessId: string; serviceId: string; aspect: ServiceInformationAspect
-  identityMention: string; inquiryEvidence: string; operationEvidence: string
+  identityMention: string; ownerEvidence: string; inquiryEvidence: string; operationEvidence: string
 }
 /** Locate against original text; Unicode normalization must never supply offsets. */
 export function uniqueLiteralSpan(text: string, mention: string): { start: number; end: number } | null {
@@ -17,7 +17,7 @@ export function uniqueLiteralSpan(text: string, mention: string): { start: numbe
   return { start, end: start + mention.length }
 }
 /** A complete current body fences modern reads even when no identity scope was proved. */
-export type CurrentServiceReadEvidence = Omit<CurrentServiceInquiry, 'identityMention'> & { projectionRejected?: true }
+export type CurrentServiceReadEvidence = Omit<CurrentServiceInquiry, 'identityMention' | 'ownerEvidence'> & { projectionRejected?: true }
 export function validCurrentServiceReadOrigin(scope: CurrentServiceReadEvidence, operation: TurnOperation | undefined,
   message: string, businessId: string): boolean {
   return scope.businessId === businessId &&
@@ -38,9 +38,11 @@ export function validCurrentServiceRead(scope: CurrentServiceReadEvidence, opera
 }
 export function validCurrentServiceInquiry(scope: CurrentServiceInquiry, operation: TurnOperation | undefined,
   message: string, businessId: string): boolean {
-  return validCurrentServiceRead(scope, operation, message, businessId) && isCustomerText(scope.inquiryEvidence, 300) &&
+  return validCurrentServiceRead(scope, operation, message, businessId) &&
+    isCustomerText(scope.ownerEvidence, 300) && message.includes(scope.ownerEvidence) &&
     isCustomerText(scope.identityMention, 100) &&
-    !!uniqueLiteralSpan(message, scope.identityMention) && !!uniqueLiteralSpan(scope.operationEvidence, scope.identityMention)
+    !!uniqueLiteralSpan(message, scope.identityMention) && !!uniqueLiteralSpan(scope.ownerEvidence, scope.identityMention) &&
+    !!uniqueLiteralSpan(scope.operationEvidence, scope.identityMention)
 }
 const dimensions: Record<ServiceInformationAspect, readonly string[]> = {
   price: ['precio', 'valor', 'costo', 'coste'], duration: ['duracion'],

@@ -1027,6 +1027,35 @@ try {
   })
 
 
+  await check('N owner evidence is current and bounded separately from the complete inquiry body', async () => {
+    const module = await import('../src/conversational-bot/communicative-act.js')
+    const scopeModule = await import('../src/conversational-bot/service-information-scope.js')
+    const message = 'De esas opciones, me interesa el valor del corte de mujer.'
+    const quote = 'me interesa el valor del corte de mujer', mention = 'corte de mujer'
+    const source = parseTurnPlan({ version: 1, operations: [{ kind: 'information',
+      target: { kind: 'service', actions: [], serviceIds: ['cut-w'], aspect: 'price' }, ...ev(quote) }] },
+      message, services.map(item => item.id))
+    const owner = act('inquiry', 'service', quote, [0], mention)
+    const metadata = parseCommunicativeActs({ version: 1, acts: [act('answer', 'service', 'el corte de mujer', [], mention), owner] },
+      message, source.operations.length, source)
+    const scopes = module.deriveCurrentServiceInquiries(metadata, source, source, message, context.businessId)
+    assert.equal(scopes.length, 1)
+    const scope = scopes[0]! as unknown as Record<string, any>
+    assert.equal(scope.ownerEvidence, quote); assert.equal(scope.inquiryEvidence, message); assert.equal(scope.operationEvidence, quote)
+    assert.deepEqual(module.remapCurrentServiceInquiries(scopes, source, structuredClone(source), message, context.businessId), scopes)
+    for (const patch of [{ ownerEvidence: 'inventado' }, { ownerEvidence: 'me interesa' },
+      { ownerEvidence: quote + ' ' + mention }, { ownerEvidence: quote + ' '.repeat(300) },
+      { inquiryEvidence: quote }, { businessId: 'foreign' }, { operationEvidence: 'corte de mujer' }]) {
+      assert.equal(scopeModule.validCurrentServiceInquiry({ ...scope, ...patch } as any, source.operations[0], message, context.businessId), false)
+      assert.deepEqual(module.remapCurrentServiceInquiries([{ ...scope, ...patch }] as any, source, source, message, context.businessId), [])
+    }
+    for (const patch of [{ confidence: .84 }, { mention: null }, { operationIndexes: [] },
+      { evidence: 'me interesa' }, { kind: 'reference' }, { field: 'general' }])
+      assert.deepEqual(module.deriveCurrentServiceInquiries({ version: 1, acts: [{ ...owner, ...patch }] } as any,
+        source, source, message, context.businessId), [])
+    assert.deepEqual(module.deriveCurrentServiceInquiries({ version: 1, acts: [owner, owner] } as any,
+      source, source, message, context.businessId), [])
+  })
   await check('M only one current strong service inquiry owns an exact operation scope', async () => {
     const module = await import('../src/conversational-bot/communicative-act.js') as unknown as Record<string, (...args: any[]) => any>
     const message = 'Me interesa saber el valor del corte de mujer.'
@@ -1035,8 +1064,9 @@ try {
     const owner = act('inquiry', 'service', message, [0], 'corte de mujer')
     const derive = (acts: object[], final = source) => module.deriveCurrentServiceInquiries!({ version: 1, acts }, source, final, message, context.businessId)
     assert.equal(derive([owner]).length, 1)
+    assert.equal(derive([{ ...owner, evidence: operation.evidence }]).length, 1, 'original current short quote now proves ownership separately')
     for (const patch of [{ confidence: .84 }, { confidence: 1.5 }, { confidence: Infinity }, { kind: 'reference' }, { field: 'general' }, { mention: null },
-      { operationIndexes: [] }, { evidence: operation.evidence }, { mention: 'Inventado' }])
+      { operationIndexes: [] }, { evidence: 'Me interesa saber' }, { mention: 'Inventado' }])
       assert.deepEqual(derive([{ ...owner, ...patch }]), [])
     assert.deepEqual(derive([owner, owner]), [])
     assert.deepEqual(derive([owner], { version: 1, operations: [] }), [])
