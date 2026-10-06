@@ -1,6 +1,6 @@
 /** This module handles calendar days only. The caller supplies the business-local date, not a UTC instant. */
 export type DialogueDateResolution =
-  | { kind: 'resolved'; date: string; source: 'relative' | 'weekday' | 'numeric' | 'iso' | 'mixed' }
+  | { kind: 'resolved'; date: string; source: 'relative' | 'weekday' | 'numeric' | 'named' | 'iso' | 'mixed' }
   | { kind: 'ambiguous'; reason: 'missing_reference' | 'past_week' | 'week_modifier' | 'contradictory_dates' }
   | { kind: 'invalid'; reason: 'invalid_reference' | 'invalid_calendar_date' | 'past_date' }
   | { kind: 'unsupported'; reason: 'unsupported_expression' }
@@ -9,6 +9,10 @@ type DateSource = Extract<DialogueDateResolution, { kind: 'resolved' }>['source'
 type Candidate = { date: string; source: DateSource }
 const weekdays: Readonly<Record<string, number>> = {
   domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6
+}
+const months: Readonly<Record<string, number>> = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12
 }
 const iso = (year: number, month: number, day: number) =>
   `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -43,6 +47,18 @@ function nextYearlessDate(day: number, month: number, reference: string): string
   return null
 }
 
+
+/** Both written and numeric calendar dates obey the same explicit/yearless policy. */
+function resolveCalendarDate(day: number, month: number, year: string | undefined,
+  referenceDate: string | null, source: 'numeric' | 'named'): DialogueDateResolution {
+  if (!year && !referenceDate) return { kind: 'ambiguous', reason: 'missing_reference' }
+  const date = year ? (validCalendarDate(Number(year), month, day) ? iso(Number(year), month, day) : null)
+    : nextYearlessDate(day, month, referenceDate!)
+  if (!date) return { kind: 'invalid', reason: 'invalid_calendar_date' }
+  if (referenceDate && date < referenceDate) return { kind: 'invalid', reason: 'past_date' }
+  return { kind: 'resolved', date, source }
+}
+
 /** Resolve a typed Spanish date expression without guessing unsupported phrases or a timezone. */
 export function resolveDialogueDate(expression: string, referenceDate: string | null): DialogueDateResolution {
   if (referenceDate != null && !parseIso(referenceDate)) return { kind: 'invalid', reason: 'invalid_reference' }
@@ -72,15 +88,18 @@ export function resolveDialogueDate(expression: string, referenceDate: string | 
   }
   const numericPattern = /(?<![\d/-])(\d{1,2})[/-](\d{1,2})(?:[/-](\d{4}))?(?![\d/-])/g
   for (const match of text.matchAll(numericPattern)) {
-    const day = Number(match[1]), month = Number(match[2])
-    if (!match[3] && !referenceDate) return { kind: 'ambiguous', reason: 'missing_reference' }
-    const date = match[3] ? (validCalendarDate(Number(match[3]), month, day) ? iso(Number(match[3]), month, day) : null)
-      : nextYearlessDate(day, month, referenceDate!)
-    if (!date) return { kind: 'invalid', reason: 'invalid_calendar_date' }
-    if (referenceDate && date < referenceDate) return { kind: 'invalid', reason: 'past_date' }
-    candidates.push({ date, source: 'numeric' })
+    const resolution = resolveCalendarDate(Number(match[1]), Number(match[2]), match[3], referenceDate, 'numeric')
+    if (resolution.kind !== 'resolved') return resolution
+    candidates.push({ date: resolution.date, source: 'numeric' })
   }
-  const explicitDates = candidates.filter(candidate => candidate.source === 'iso' || candidate.source === 'numeric')
+  const namedPattern = new RegExp('(?<![\\p{L}\\p{N}/-])(\\d+)\\s+(?:de\\s+)?(' +
+    Object.keys(months).join('|') + ')(?:\\s+(?:de(?:l)?\\s+)?(\\d+)(?![\\d:]))?(?![\\p{L}\\p{N}])', 'gu')
+  for (const match of text.matchAll(namedPattern)) {
+    const resolution = resolveCalendarDate(Number(match[1]), months[match[2]!]!, match[3], referenceDate, 'named')
+    if (resolution.kind !== 'resolved') return resolution
+    candidates.push({ date: resolution.date, source: 'named' })
+  }
+  const explicitDates = candidates.filter(candidate => candidate.source === 'iso' || candidate.source === 'numeric' || candidate.source === 'named')
   for (const mention of weekdayMentions) {
     const day = weekdays[mention[1]!]!
     if (explicitDates.length) {

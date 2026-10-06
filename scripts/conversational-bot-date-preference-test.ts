@@ -8,6 +8,7 @@ import { parseDialogueQuestion } from '../src/conversational-bot/dialogue-contex
 import { presentVerifiedDates, type AvailabilityPresentationInput } from '../src/conversational-bot/availability-presentation.js'
 import { choiceDraftFingerprint } from '../src/conversational-bot/choices.js'
 import { temporalPlanDate } from '../src/conversational-bot/business-time-context.js'
+import { resolveDialogueDate } from '../src/conversational-bot/dialogue-date.js'
 
 // Offline proposals test admission/state/freshness, not live model comprehension.
 // No credentials, real agenda, network, persistence or reservation adapter.
@@ -557,6 +558,171 @@ await check('temporal meaning rejection removes an unexecuted sandbox nonce and 
   assert.deepEqual(preserved.state.sandboxReservation?.receipt, reservation.receipt)
   assert.equal(meaningPending(preserved.state), undefined)
   assert.equal(preserved.bookingCommand, undefined); assert.equal(preserved.proposal, null)
+})
+
+await check('named calendar retains captured day and month before weekday resolution', () => {
+  assert.deepEqual(resolveDialogueDate('Para el sábado 5 de septiembre', '2026-08-01'),
+    { kind: 'resolved', date: '2026-09-05', source: 'mixed' })
+})
+await check('all twelve named months share numeric calendar policy', () => {
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  months.forEach((month, index) => {
+    const numeric = String(index + 1).padStart(2, '0')
+    for (const expression of ['5 de ' + month, '5 ' + month, '5 de ' + month + ' de 2026', '5 de ' + month + ' 2026']) {
+      const expected = resolveDialogueDate('5/' + numeric + '/2026', '2026-01-01')
+      const actual = resolveDialogueDate(expression, '2026-01-01')
+      assert.equal(actual.kind, expected.kind, expression)
+      assert.equal(actual.kind === 'resolved' ? actual.date : null, '2026-' + numeric + '-05', expression)
+    }
+  })
+})
+await check('invalid named calendar and contradictory weekday never degrade to nearby weekday', () => {
+  for (const expression of ['sábado 31 de septiembre', 'sábado 0 de septiembre', 'sábado 32 de septiembre', 'sábado 29 de febrero de 2026', 'sábado 5 de septiembre de 2300']) {
+    assert.equal(resolveDialogueDate(expression, '2026-08-01').kind, 'invalid', expression)
+  }
+  assert.deepEqual(resolveDialogueDate('viernes 5 de septiembre', '2026-08-01'),
+    { kind: 'ambiguous', reason: 'contradictory_dates' })
+  assert.deepEqual(resolveDialogueDate('5 de septiembre y 6 de septiembre', '2026-08-01'),
+    { kind: 'ambiguous', reason: 'contradictory_dates' })
+})
+await check('named explicit year and yearless rollover match existing numeric decisions', () => {
+  for (const [named, numeric, reference] of [
+    ['5 de septiembre de 2025', '5/9/2025', '2026-08-01'],
+    ['5 de septiembre', '5/9', '2026-10-01'],
+    ['29 de febrero', '29/2', '2026-03-01'],
+    ['5 de septiembre de 2026', '5/9/2026', null],
+    ['5 de septiembre', '5/9', null]
+  ] as const) {
+    const expected = resolveDialogueDate(numeric, reference), actual = resolveDialogueDate(named, reference)
+    assert.equal(actual.kind, expected.kind, named)
+    if (actual.kind === 'resolved' && expected.kind === 'resolved') assert.equal(actual.date, expected.date, named)
+    else assert.deepEqual(actual, expected, named)
+  }
+})
+const namedContext = { businessId: 'named-calendar-qa', timezone: 'UTC', dbNow: new Date('2026-08-01T10:00:00Z') }
+let namedAgendaCalls = 0, namedProviderCalls = 0
+const namedPort: DialoguePort = {
+  catalog: async () => [service],
+  availability: async () => { namedAgendaCalls++; return { professionals: [professional], slots: [] } }
+}
+async function namedState() {
+  const result = await respond(namedContext, initialDialogueState(namedContext.businessId), 'Corte hombre', namedPort,
+    { serviceId: service.id, candidateIds: [], correction: false })
+  namedAgendaCalls = 0; namedProviderCalls = 0
+  return result.state
+}
+async function namedSay(state: DialogueState, text: string, output: unknown) {
+  const previous = JSON.stringify(state), original = JSON.stringify(output)
+  const result = await respondWithAiInterpreter(namedContext, state, text, namedPort, async () => {
+    namedProviderCalls++; return structuredClone(output)
+  })
+  assert.equal(JSON.stringify(state), previous, 'caller input bytes stay intact')
+  assert.equal(JSON.stringify(output), original, 'model evidence is not rewritten')
+  assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+  assert.deepEqual(result.state.basket, state.basket)
+  assert.equal(namedProviderCalls, 1)
+  return result
+}
+await check('public named-date proposal preserves September instead of dropping or selecting August', async () => {
+  const state = await namedState(), text = 'Para el sábado 5 de septiembre'
+  const result = await namedSay(state, text, candidate([
+    { kind: 'date', expression: text, value: '2026-09-05', ...ev(text) }
+  ], text))
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.equal(result.state.date, '2026-09-05'); assert.equal(result.state.slot, null)
+  assert.equal(result.state.requestedTime, null); assert.equal(namedAgendaCalls, 1)
+  parseDialogueState(result.state, namedContext.businessId, namedContext.timezone)
+})
+await check('current named date keeps independent professional and customer identity without consent', async () => {
+  const state = await namedState(), date = 'sábado 5 de septiembre'
+  const text = 'Para el ' + date + ' con Profesional QA; soy Matías'
+  const output = { ...candidate([
+    { kind: 'date', expression: date, value: '2026-09-05', ...ev(date) },
+    { kind: 'professional', mode: 'specific', mention: 'Profesional QA', ...ev('Profesional QA') },
+    { kind: 'name', value: 'Matías', ...ev('Matías') }
+  ], text), communicativeActs: { version: 1, acts: [
+    { kind: 'request', field: 'date', ...ev('Para el ' + date), mention: null, operationIndexes: [0] },
+    { kind: 'request', field: 'professional', ...ev('con Profesional QA'), mention: 'Profesional QA', operationIndexes: [1] },
+    { kind: 'request', field: 'name', ...ev('soy Matías'), mention: null, operationIndexes: [2] }
+  ] } }
+  const result = await namedSay(state, text, output)
+  assert.equal(result.state.date, '2026-09-05'); assert.equal(result.state.customerName, 'Matías')
+  assert.deepEqual(result.state.professional, { kind: 'specific', id: professional.id })
+  assert.equal(result.state.slot, null); assert.equal(result.state.sandboxReservation, undefined)
+  assert.equal(namedAgendaCalls, 2, 'existing professional eligibility and availability reads remain separate')
+})
+await check('named dates still require current strong same-field authority', async () => {
+  for (const [kind, field, confidence] of [['request', 'date', .5], ['reference', 'date', .99], ['request', 'service', .99], ['inquiry', 'date', .99]] as const) {
+    const state = await namedState(), text = 'Para el sábado 5 de septiembre'
+    const result = await namedSay(state, text, candidate([
+      { kind: 'date', expression: text, value: '2026-09-05', ...ev(text) }
+    ], text, kind, field, confidence))
+    assert.equal(result.state.date, null, kind + '/' + field)
+    assert.equal(namedAgendaCalls, 0)
+  }
+})
+await check('rejected named-date contradiction preserves independent current identity', async () => {
+  const state = await namedState(), date = 'viernes 5 de septiembre', text = 'Soy Matías; ' + date
+  const output = candidate([
+    { kind: 'date', expression: date, value: '2026-09-05', ...ev(date) },
+    { kind: 'name', value: 'Matías', ...ev('Matías') }
+  ], text)
+  output.communicativeActs.acts = [
+    { kind: 'request', field: 'date', ...ev(date), mention: null, operationIndexes: [0] },
+    { kind: 'request', field: 'name', ...ev('Soy Matías'), mention: null, operationIndexes: [1] }
+  ]
+  const result = await namedSay(state, text, output)
+  assert.equal(result.state.date, null); assert.equal(result.state.customerName, 'Matías')
+  assert.equal(namedAgendaCalls, 0)
+})
+await check('adjacent colon clock never becomes the optional named year across all months', () => {
+  const months = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  const weekdays = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+  months.forEach((month, index) => {
+    const numeric = '05/' + String(index + 1).padStart(2, '0')
+    const expected = resolveDialogueDate(numeric, '2026-08-01')
+    assert.equal(expected.kind, 'resolved')
+    if (expected.kind !== 'resolved') throw new Error('numeric control did not resolve')
+    const weekday = weekdays[new Date(expected.date + 'T12:00:00Z').getUTCDay()]!
+    for (const clock of ['17:00', '11:30', '23:00']) {
+      for (const prefix of ['', weekday + ' ']) {
+        const named = prefix + '5 de ' + month + ' ' + clock
+        const control = resolveDialogueDate(prefix + numeric + ' ' + clock, '2026-08-01')
+        const actual = resolveDialogueDate(named, '2026-08-01')
+        assert.equal(actual.kind, control.kind, named)
+        assert.equal(actual.kind === 'resolved' ? actual.date : null, expected.date, named)
+      }
+    }
+  })
+})
+await check('full named year survives adjacent clock while invalid and past years keep numeric policy', () => {
+  for (const clock of ['17:00', '11:30', '23:00']) {
+    for (const year of ['2026', 'de 2026']) {
+      const actual = resolveDialogueDate('5 de septiembre ' + year + ' ' + clock, '2026-08-01')
+      assert.equal(actual.kind, 'resolved')
+      assert.equal(actual.kind === 'resolved' ? actual.date : null, '2026-09-05')
+    }
+  }
+  for (const year of ['202', '2300', '2025']) {
+    const actual = resolveDialogueDate('sábado 5 de septiembre de ' + year, '2026-08-01')
+    assert.equal(actual.kind, 'invalid', year + ' must not degrade to weekday or a partial year')
+  }
+  assert.deepEqual(resolveDialogueDate('5 de septiembre de 2300', '2026-08-01'),
+    resolveDialogueDate('05/09/2300', '2026-08-01'), 'existing calendar-year bound, not an agenda horizon')
+})
+await check('current named date and adjacent exact clock remain independently owned', async () => {
+  const state = await namedState(), date = 'sábado 5 de septiembre', text = 'Para el ' + date + ' 17:00'
+  const output = candidate([
+    { kind: 'date', expression: date, value: '2026-09-05', ...ev(text) },
+    { kind: 'time', value: '17:00', ...ev('17:00') }
+  ], text)
+  output.communicativeActs.acts = [
+    { kind: 'request', field: 'date', ...ev(text), mention: null, operationIndexes: [0] },
+    { kind: 'request', field: 'time', ...ev('17:00'), mention: null, operationIndexes: [1] }
+  ]
+  const result = await namedSay(state, text, output)
+  assert.equal(result.state.date, '2026-09-05'); assert.equal(result.state.requestedTime, '17:00')
+  assert.equal(result.state.slot, null); assert.equal(namedAgendaCalls, 1)
 })
 console.log('date priority controlled checks: ' + passed + ' PASS / ' + failures.length + ' FAIL; provider proposals=' + providerCalls)
 if (failures.length) process.exitCode = 1
