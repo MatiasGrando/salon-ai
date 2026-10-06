@@ -14,6 +14,8 @@ export type ServiceRequest = {
 export type ServiceRequestContext = ServiceRequest & {
     businessId: string;
     request: string;
+    /** Latest original clarification; never inherited evidence or catalog identity. */
+    detail?: string;
     /** Server-rendered candidate name; a renamed catalog entry requires fresh clarification. */
     candidateName?: string;
 };
@@ -50,13 +52,26 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
 export function parseServiceRequestContext(value: unknown, businessId: string): ServiceRequestContext {
     const item = value as Record<string, unknown>;
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
-    if (!item || Object.keys(item).filter(key => key !== 'candidateName').sort().join(',') !== keys ||
+    if (!item || Object.keys(item).filter(key => key !== 'candidateName' && key !== 'detail').sort().join(',') !== keys ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
+        item.detail !== undefined && !isCustomerText(item.detail, 300) ||
         item.businessId !== businessId || !isCustomerText(item.request, 300)) {
         throw new Error('invalid service request scope');
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,
-        ...(item.candidateName !== undefined ? { candidateName: item.candidateName as string } : {}) };
+        ...(item.candidateName !== undefined ? { candidateName: item.candidateName as string } : {}),
+        ...(item.detail !== undefined ? { detail: item.detail as string } : {}) };
+}
+/** Retain an object only for an admitted current clarification of the same request. */
+export function retainServiceRequestBase(previous: ServiceRequestContext | undefined, current: ServiceRequest,
+    evidence: string, services: readonly DialogueService[], admitted: boolean): string {
+    if (!admitted || !previous || !current.continuation || current.correction || current.disposition === 'clear' ||
+        previous.purpose !== current.purpose ||
+        previous.serviceIds.some(id => !services.some(service => service.id === id)) ||
+        current.serviceIds.some(id => !previous.serviceIds.includes(id)) ||
+        previous.candidateName !== undefined && (previous.serviceIds.length !== 1 ||
+            previous.candidateName !== services.find(service => service.id === previous.serviceIds[0])?.name)) return evidence;
+    return previous.request;
 }
 export type ServiceIdentityAssessment = { kind: 'supported' | 'alternatives' | 'confirm' | 'unproven'; serviceIds: string[] };
 const articles = new Set(['un', 'una', 'el', 'la', 'de', 'del']);
@@ -135,21 +150,22 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
 }
 export function serviceRequestReply(request: ServiceRequestContext, services: readonly DialogueService[]): string {
     const candidates = services.filter(service => request.serviceIds.includes(service.id));
+    const description = request.request + (request.detail ? ' — ' + request.detail : '');
     if (request.disposition === 'alternatives') {
-        return 'Para «' + request.request + '», ¿cuál de estas opciones te interesa?\n' +
+        return 'Para «' + description + '», ¿cuál de estas opciones te interesa?\n' +
             candidates.map(service => '• ' + service.name).join('\n');
     }
     if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && candidates.length === 1) {
-        return 'No tengo información confirmada sobre «' + request.request + '». ' +
+        return 'No tengo información confirmada sobre «' + description + '». ' +
             '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
     }
     if (request.disposition === 'needs_detail' && request.purpose === 'inquiry') {
-        return 'No tengo información confirmada sobre «' + request.request + '». ¿Qué otra información necesitás?';
+        return 'No tengo información confirmada sobre «' + description + '». ¿Qué otra información necesitás?';
     }
     if (request.disposition === 'needs_detail') {
-        return 'Para ayudarte con «' + request.request + '», ¿podés contarme un poco más sobre el resultado que buscás?';
+        return 'Para ayudarte con «' + description + '», ¿podés contarme un poco más sobre el resultado que buscás?';
     }
-    return 'No tengo información confirmada sobre «' + request.request +
+    return 'No tengo información confirmada sobre «' + description +
         '». ¿Querés consultarlo con el equipo o contarme más sobre lo que necesitás?';
 }
 /** Bounded public catalog text is context, not instructions or variant authorization. */

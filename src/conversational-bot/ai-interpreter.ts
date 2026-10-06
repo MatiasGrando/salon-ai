@@ -1,4 +1,4 @@
-import { admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
+import { deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
@@ -135,6 +135,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
         }) }, message, services.map(service => service.id))
         communicative = protectProspectiveBasket({ ...communicative, plan: grounded }, state)
+        communicative = { ...communicative, inquiryBindings: deriveInquiryBindings(communicativeActs, original, communicative.plan) }
         turnPlan = communicative.plan
         validateEstimateOperations(turnPlan, state, services)
       } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }

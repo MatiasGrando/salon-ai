@@ -1,8 +1,8 @@
-import { conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
+import { remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
+import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -929,16 +929,21 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     }) }
   }) }
   // Composition is checked on a copy after identity grounding, before any draft effect.
-  const prospective = protectProspectiveBasket({ plan: raw, blockedFields: communicative?.blockedFields ?? [],
+  const currentBindings = communicative ? remapInquiryBindings(communicative.inquiryBindings ?? [], communicative.plan, raw) : []
+  const beforeProtection = raw
+  const prospective = protectProspectiveBasket({ ...communicative, plan: raw, blockedFields: communicative?.blockedFields ?? [],
     ...(communicative?.reference ? { reference: communicative.reference } : {}),
     ...(communicative?.timeMeaningRejected ? { timeMeaningRejected: true as const } : {}) }, state)
   raw = prospective.plan
-  if (prospective.blockedFields.length) communicative = prospective
+  prospective.inquiryBindings = remapInquiryBindings(currentBindings, beforeProtection, raw)
+  if (communicative || prospective.blockedFields.length) communicative = prospective
   const procedureOp = raw.operations.find(operation => operation.kind === 'service_request')
   const inquiryTurn = procedureOp?.purpose === 'inquiry' || state.serviceRequest?.purpose === 'inquiry' &&
     !raw.operations.some(operation => ['service', 'basket'].includes(operation.kind) || operation.kind === 'service_request' && operation.purpose === 'booking')
   const suppressMatching = semanticPending || prospective.blockedFields.length > 0 || inquiryTurn
   let procedureQuestion = ''
+  const previousProcedureRequest = state.serviceRequest
+  const unverifiedReads = new Map<string, ServiceRequestContext>()
   if (state.serviceRequest) {
     const ids = state.serviceRequest.serviceIds.filter(id => services.some(service => service.id === id))
     if (ids.length !== state.serviceRequest.serviceIds.length) {
@@ -949,13 +954,15 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (procedureOp?.kind === 'service_request') {
     const request = resolveServiceRequest(procedureOp, procedureOp.evidence, procedureOp.confidence, services, state.serviceRequest)
     const previousRequest = state.serviceRequest
+    const requestBase = retainServiceRequestBase(previousProcedureRequest, request, procedureOp.evidence, services, procedureOp.confidence >= .85)
     const requestContext: ServiceRequestContext = {
       ...request,
       businessId: context.businessId,
       ...(request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.serviceIds.length === 1
         ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
-      request: request.continuation && previousRequest && !request.correction && affirmativeMatchAnswer(procedureOp.evidence, [])
-        ? previousRequest.request : procedureOp.evidence
+      request: requestBase,
+      ...(previousProcedureRequest && requestBase === previousProcedureRequest.request && requestBase !== procedureOp.evidence
+        ? { detail: procedureOp.evidence } : {})
     }
     // A lateral read is local: the retained booking request still owns its continuation.
     const retainBooking = request.purpose === 'inquiry' && previousRequest?.purpose === 'booking'
@@ -972,6 +979,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     } else {
       if (!retainBooking) state.serviceRequest = requestContext
       procedureQuestion = serviceRequestReply(requestContext, services)
+      for (const binding of prospective.inquiryBindings ?? []) {
+        if (raw.operations[binding.requestOperationIndex] !== procedureOp) continue
+        const information = raw.operations[binding.informationOperationIndex]
+        if (information?.kind === 'information') unverifiedReads.set(JSON.stringify(information), requestContext)
+      }
       raw = { ...raw, operations: others }
     }
   } else if (raw.operations.some(operation => operation.kind === 'basket' || operation.kind === 'service')) {
@@ -1129,7 +1141,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         : 'No tengo una oferta de horarios mostrada para identificar.')
       continue
     }
-    const read = await readInformation(context, state, op.evidence, port, op.target, services)
+    const procedure = unverifiedReads.get(JSON.stringify(op))
+    const read = await readInformation(context, state, op.evidence, port, op.target, services,
+      procedure ? { unverifiedProcedure: procedure } : undefined)
     informationReads.push(read)
     if (read.focus) state.informationFocus = read.focus
     informationAnswers.set(answers.length, read)

@@ -17,8 +17,11 @@ export type CommunicativeAct = {
 }
 export type CommunicativeActs = { version: 1; acts: CommunicativeAct[] }
 export type ProfessionalReference = { businessId: string; mention: string; evidence: string; scope: string; question: string }
+export type InquiryBinding = { requestOperationIndex: number; informationOperationIndex: number }
 export type CommunicativeAdmission = {
   plan: TurnPlan; blockedFields: CommunicativeField[]
+  /** Server-only links between two reads admitted from the same current inquiry. */
+  inquiryBindings?: readonly InquiryBinding[]
   /** Server-only current temporal authority; never a model or persisted claim. */
   timeMeaningRejected?: true
   reference?: { mention: string; evidence: string }
@@ -91,6 +94,46 @@ function sourceOperationIndex(operation: TurnOperation, source: TurnPlan): numbe
     item.serviceId === target.serviceIds[0] && item.optionId === target.estimateOptionId &&
     item.evidence === operation.evidence && item.confidence === operation.confidence)
   return matches.length === 1 ? matches[0]!.index : -1
+}
+function unresolvedInquiry(operation: TurnOperation | undefined): boolean {
+  return operation?.kind === 'service_request' && operation.purpose === 'inquiry' &&
+    operation.disposition !== 'clear' && operation.confidence >= .85
+}
+function emptyServiceRead(operation: TurnOperation | undefined): boolean {
+  return operation?.kind === 'information' && operation.target.kind === 'service' &&
+    operation.target.serviceIds.length === 0 && operation.target.estimateOptionId === undefined && operation.confidence >= .85
+}
+/** Derive only after the final server projection; old state never creates read ownership. */
+export function deriveInquiryBindings(metadata: CommunicativeActs | null, source: TurnPlan, final: TurnPlan): InquiryBinding[] {
+  if (!metadata) return []
+  const bindings: InquiryBinding[] = []
+  final.operations.forEach((request, requestOperationIndex) => {
+    if (!unresolvedInquiry(request)) return
+    const requestSourceIndex = sourceOperationIndex(request, source)
+    final.operations.forEach((information, informationOperationIndex) => {
+      if (!emptyServiceRead(information)) return
+      const informationSourceIndex = sourceOperationIndex(information, source)
+      if (requestSourceIndex < 0 || informationSourceIndex < 0) return
+      const act = metadata.acts.find(item => item.kind === 'inquiry' && item.field === 'service' && item.confidence >= .85 &&
+        item.operationIndexes.includes(requestSourceIndex) && item.operationIndexes.includes(informationSourceIndex) &&
+        contains(item.evidence, request.evidence) && contains(item.evidence, information.evidence))
+      if (act) bindings.push({ requestOperationIndex, informationOperationIndex })
+    })
+  })
+  return bindings
+}
+/** Structural remapping rejects corrupt metadata and follows cloned/filter-projected operations. */
+export function remapInquiryBindings(bindings: readonly InquiryBinding[], source: TurnPlan, final: TurnPlan): InquiryBinding[] {
+  const result: InquiryBinding[] = []
+  for (const binding of bindings) {
+    if (!Number.isSafeInteger(binding.requestOperationIndex) || !Number.isSafeInteger(binding.informationOperationIndex)) continue
+    const request = source.operations[binding.requestOperationIndex], information = source.operations[binding.informationOperationIndex]
+    if (!unresolvedInquiry(request) || !emptyServiceRead(information)) continue
+    const locate = (operation: TurnOperation | undefined) => final.operations.findIndex(item => JSON.stringify(item) === JSON.stringify(operation))
+    const requestOperationIndex = locate(request), informationOperationIndex = locate(information)
+    if (requestOperationIndex >= 0 && informationOperationIndex >= 0) result.push({ requestOperationIndex, informationOperationIndex })
+  }
+  return result
 }
 function fieldOf(operation: TurnOperation): CommunicativeField {
   if (operation.kind === 'information') return operation.target.kind === 'service' ? 'service' : operation.target.kind === 'professional' ? 'professional' : 'general'

@@ -307,6 +307,7 @@ try {
     assert.match(failed.reply, /Baño de crema|producto|presupuesto/)
     assert.doesNotMatch(failed.reply, /Qué servicio necesitás/)
   }
+  assert.ok(creamPrice.state.informationFocus, 'the current informative estimate has a proved focus')
   const lateralEstimate = await say({ ...active, informationFocus: creamPrice.state.informationFocus }, 'Schwarzkopf', [info('Schwarzkopf', informativeTarget)])
   assert.deepEqual(selectionBasket(lateralEstimate.state), selectionBasket(active))
   assert.equal(lateralEstimate.state.date, active.date)
@@ -510,7 +511,8 @@ try {
   await inquiryCheck('continuation retains its actual qualifier without authorizing a variant', async () => {
     const previous = { ...initial, serviceRequest: { ...retainedRequest, purpose: 'inquiry' as const, serviceIds: ['light'], request: 'baño de luz' } }
     const result = await inquirySay(previous, 'Sólo en raíces', procedure('Sólo en raíces', ['light'], 'unverified_variant', true))
-    assert.equal(result.state.serviceRequest?.request, 'Sólo en raíces')
+    assert.equal(result.state.serviceRequest?.request, 'baño de luz')
+    assert.equal((result.state.serviceRequest as any)?.detail, 'Sólo en raíces')
     assert.equal(result.state.serviceRequest?.disposition, 'unverified_variant')
     assert.deepEqual(result.state.serviceRequest?.serviceIds, ['light'])
     assert.match(result.reply, /raíces/)
@@ -564,6 +566,122 @@ try {
     assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
     assert.equal(agendaCalls, beforeAgenda); assert.equal(result.interpretation.aiCalls, 1)
   })
+
+  // I: current-act bindings are server metadata, never inferred from a retained draft.
+  const bindingSource = () => ({version:1,operations:[procedure('corte francés', [], 'needs_detail'),info('precio',service([], 'price'))]})
+  const bindingActs = (indexes = [0,1], confidence = 1, kind = 'inquiry', field = 'service') => ({version:1,acts:[{kind,field,evidence:'corte francés precio',confidence,mention:null,operationIndexes:indexes}]})
+  const iModule = await import('../src/conversational-bot/communicative-act.js') as any
+  const requestModule = await import('../src/conversational-bot/service-request.js') as any
+  const boundSay = (state = initial, acts = bindingActs(), operations = bindingSource().operations, message = 'corte francés precio') =>
+    respondWithAiInterpreter(context,state,message,port,async () => ({...legacy,turnPlan:{version:1,operations},communicativeActs:acts}))
+  await inquiryCheck('I1 unknown price has one specific clarification and no empty focus', async () => {
+    const result = await boundSay()
+    assert.equal(result.interpretation.mode,'ai'); assert.match(result.reply,/corte francés/)
+    assert.doesNotMatch(result.reply,/De qué servicio querés consultar|Sobre qué servicio querés información/)
+    assert.equal(result.state.informationFocus,undefined); assert.equal(result.interpretation.aiCalls,1)
+    assert.equal((result.reply.match(/¿/g) ?? []).length,1)
+  })
+  await inquiryCheck('I2 current qualifier keeps base and latest detail', async () => {
+    const state={...initial,serviceRequest:{...retainedRequest,purpose:'inquiry' as const,serviceIds:[],request:'corte francés'}}
+    const result=await inquirySay(state,'con tijera',procedure('con tijera',[],'needs_detail',true))
+    assert.equal(result.state.serviceRequest?.request,'corte francés'); assert.equal((result.state.serviceRequest as any)?.detail,'con tijera')
+    assert.match(result.reply,/corte francés/); assert.match(result.reply,/con tijera/)
+    assert.equal((parseDialogueState(JSON.parse(JSON.stringify(result.state)),context.businessId).serviceRequest as any)?.detail,'con tijera')
+    for(const detail of [7,'x'.repeat(301),'bad\u0007text','bad\u0000text']) assert.throws(()=>parseDialogueState({...result.state,serviceRequest:{...result.state.serviceRequest,detail}},context.businessId))
+    assert.throws(()=>parseDialogueState({...result.state,serviceRequest:{...result.state.serviceRequest,detail:'current',unexpected:true}},context.businessId))
+    const changed=await inquirySay(result.state,'otro procedimiento',procedure('otro procedimiento',[],'needs_detail',false))
+    assert.equal((changed.state.serviceRequest as any)?.detail,undefined); assert.equal(changed.state.serviceRequest?.request,'otro procedimiento')
+  })
+  await inquiryCheck('I3 independent public read remains visible', async () => {
+    const message='corte francés precio dónde están'
+    const acts={version:1,acts:[{...bindingActs().acts[0]!,evidence:message},{kind:'inquiry',field:'general',evidence:'dónde están',confidence:1,mention:null,operationIndexes:[2]}]}
+    const result=await boundSay(initial,acts,[...bindingSource().operations,info('dónde están',business(['ADDRESS']))],message)
+    assert.match(result.reply,/Calle 123/); assert.match(result.reply,/corte francés/)
+    assert.doesNotMatch(result.reply,/De qué servicio querés consultar/)
+    assert.equal(result.bookingCommand,undefined); assert.equal(result.proposal,null)
+  })
+  await inquiryCheck('I4 separate acts cannot bind independent empty reads', async () => {
+    const source=bindingSource(), metadata={version:1,acts:[{...bindingActs([0]).acts[0]!,evidence:'corte francés'},{...bindingActs([1]).acts[0]!,evidence:'precio'}]}
+    assert.deepEqual(iModule.deriveInquiryBindings(metadata,source,source),[])
+    assert.match((await boundSay(initial,metadata)).reply,/De qué servicio querés consultar/)
+  })
+  await inquiryCheck('I5 weak reference uncertain wrong field and incomplete coverage do not bind', async () => {
+    const source=bindingSource()
+    for(const metadata of [bindingActs([0,1],.84),bindingActs([0,1],1,'reference'),bindingActs([0,1],1,'uncertain'),bindingActs([0,1],1,'inquiry','general'),bindingActs([0])])
+      assert.deepEqual(iModule.deriveInquiryBindings(metadata,source,source),[])
+  })
+  await inquiryCheck('I6 identified and estimate reads keep their normal route', async () => {
+    for(const target of [service(['cut'],'price'),{...service([],'price'),estimateOptionId:'k'}]) {
+      const source={version:1,operations:[bindingSource().operations[0],info('precio',target)]}
+      assert.deepEqual(iModule.deriveInquiryBindings(bindingActs(),source,source),[])
+    }
+  })
+  await inquiryCheck('I7 final positions survive preceding rejected operation', async () => {
+    const pair=bindingSource(), name={kind:'name',value:'Ana',evidence:'Ana',confidence:1}
+    const source={version:1,operations:[name,...pair.operations]}
+    const metadata={version:1,acts:[{...bindingActs([1,2]).acts[0]}]}
+    assert.deepEqual(iModule.deriveInquiryBindings(metadata,source,pair),[{requestOperationIndex:0,informationOperationIndex:1}])
+    assert.deepEqual(iModule.deriveInquiryBindings(metadata,source,{version:1,operations:[pair.operations[1]]}),[])
+  })
+  await inquiryCheck('I8 corrupt internal indexes never suppress a read', async () => {
+    const plan=bindingSource()
+    for(const binding of [{requestOperationIndex:9,informationOperationIndex:1},{requestOperationIndex:1,informationOperationIndex:0}]) {
+      const result=await respond(context,initial,'corte francés precio',port,{intent:'information',turnPlan:plan as any,serviceId:null,candidateIds:[],correction:false,communicative:{plan:plan as any,blockedFields:[],inquiryBindings:[binding]} as any})
+      assert.match(result.reply,/De qué servicio querés consultar/)
+    }
+  })
+  await inquiryCheck('I9 correction purpose identity and retired catalog reject base inheritance', async () => {
+    const old={...retainedRequest,purpose:'inquiry',request:'corte francés',candidateName:'Corte hombre'}
+    const next=procedure('actual',['cut'],'needs_detail',true) as any
+    for(const [current,catalog,admitted] of [[{...next,correction:true},services,true],[{...next,purpose:'booking'},services,true],[{...next,serviceIds:['woman']},services,true],[next,services.filter(s=>s.id!=='cut'),true],[next,services,false]])
+      assert.equal(requestModule.retainServiceRequestBase(old,current,'actual',catalog,admitted),'actual')
+  })
+  await inquiryCheck('I10 current yes resolves candidate while renamed candidate stays unproven', async () => {
+    const old={...initial,serviceRequest:{...retainedRequest,purpose:'inquiry' as const,basis:'semantic_equivalent' as const,candidateName:'Corte hombre'}}
+    const request={...procedure('sí',['cut'],'clear',true),basis:'exact_public_name'}
+    const result=await inquirySay(old,'sí',request)
+    assert.equal(result.state.serviceRequest,undefined); assert.equal(result.state.serviceId,null)
+    const renamed={...port,catalog:async()=>services.map(s=>s.id==='cut'?{...s,name:'Otro'}:s)}
+    assert.ok((await inquirySay(old,'sí',request,true,renamed)).state.serviceRequest)
+  })
+  await inquiryCheck('I11 invalid companion remains a global rejected interpretation', async () => {
+    const malformed=await boundSay(initial,bindingActs(),[bindingSource().operations[0]!,info('invented',service([],'price'))])
+    assert.equal(malformed.interpretation.mode,'fallback')
+    assert.equal(malformed.state.serviceRequest,undefined)
+    assert.equal(malformed.bookingCommand,undefined)
+  })
+  await inquiryCheck('I12 temporal pending and independent fields remain while linked read is quiet', async () => {
+    const beforeAgenda=agendaCalls,state={...initial,timeMeaningClarification:true as const,customerName:'Ana'}
+    const result=await boundSay(state)
+    assert.equal(result.state.timeMeaningClarification,true); assert.equal(result.state.customerName,'Ana')
+    assert.equal(agendaCalls,beforeAgenda); assert.equal(result.state.slot,null)
+    assert.doesNotMatch(result.reply,/De qué servicio querés consultar/)
+    assert.equal(result.bookingCommand,undefined)
+  })
+
+  await inquiryCheck('I13 detail preserves current customer formatting and replaces previous qualifier', async () => {
+    const message = 'con tijera\nsolamente arriba'
+    const current = {...initial,serviceRequest:{...retainedRequest,purpose:'inquiry' as const,request:'corte francés',serviceIds:[]}}
+    const first = await inquirySay(current,message,procedure(message,[],'needs_detail',true))
+    assert.equal(first.state.serviceRequest?.request,'corte francés')
+    assert.equal(first.state.serviceRequest?.detail,message)
+    assert.equal(parseDialogueState(JSON.parse(JSON.stringify(first.state)),context.businessId).serviceRequest?.detail,message)
+    const evidence = 'más corto', operation = procedure(evidence,[],'needs_detail',true)
+    const candidate = {...legacy,turnPlan:{version:1,operations:[operation]},communicativeActs:{version:1,acts:[{
+      kind:'inquiry',field:'service',evidence,confidence:1,mention:null,operationIndexes:[0]}]}}
+    const result = await respondWithAiInterpreter(context,first.state,evidence,inquiryPort,async input => {
+      assert.equal(input.message,evidence)
+      assert.equal(input.state.serviceRequest?.request,'corte francés')
+      assert.equal(input.state.serviceRequest?.detail,message)
+      return candidate
+    })
+    assert.equal(operation.evidence,evidence, 'retaining the base never rewrites current provider evidence')
+    assert.equal(result.state.serviceRequest?.request,'corte francés')
+    assert.equal(result.state.serviceRequest?.detail,evidence)
+    assert.doesNotMatch(result.reply,/solamente arriba/)
+    assert.match(result.reply,/corte francés/); assert.match(result.reply,/más corto/)
+  })
+
   console.log('qualified inquiry: ' + inquiryPassed + ' passed, ' + inquiryFailures.length + ' failed')
   assert.deepEqual(inquiryFailures, [], 'qualified inquiry regressions')
   console.log('information focus, price continuity, loaded service facts and missing-data regression: PASS')

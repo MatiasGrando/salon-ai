@@ -30,6 +30,9 @@ assert.deepEqual((parseDialogueState(JSON.parse(JSON.stringify(unknown.state)), 
 const follow = await say('con tijera', { ...req('con tijera', 'inquiry', 'needs_detail'), continuation: true }, unknown.state);
 assert.equal(follow.state.serviceRequest?.request, 'corte francés', 'follow-up retains the initial literal request');
 assert.match(follow.reply, /corte francés/);
+assert.equal((follow.state.serviceRequest as any)?.detail, 'con tijera');
+assert.match(follow.reply, /con tijera/);
+assert.equal((parseDialogueState(JSON.parse(JSON.stringify(follow.state)), 'tenant').serviceRequest as any)?.detail, 'con tijera');
 const different = await say('teñirme arcoíris', req('teñirme arcoíris'), follow.state);
 assert.equal(different.state.serviceRequest?.request, 'teñirme arcoíris', 'a new procedure must not inherit the old literal request');
 const pendingCategory = await say('color fantasía', req('color fantasía', 'inquiry', 'unverified_variant', ['lights']));

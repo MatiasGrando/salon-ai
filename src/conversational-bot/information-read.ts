@@ -1,4 +1,4 @@
-import { assessServiceIdentity } from './service-request.js'
+import { assessServiceIdentity, type ServiceRequestContext } from './service-request.js'
 import { stageContent } from '../bot-options/domain/service-content.js'
 import { hasBasketSelection, selectionBasket } from './service-basket.js'
 import type { TurnPlan } from './turn-plan.js'
@@ -12,6 +12,7 @@ import { renderInformation, renderServices, validateFacts, pendingQuestion, type
 import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ServiceInformationAspect, type BusinessInformationSubject, type ProfessionalInformationFacts } from './information-contract.js'
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
+export type InformationReadContext = { unverifiedProcedure: ServiceRequestContext }
 export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
 /** An informational focus is evidence for a read, never an implicit basket selection. */
 export function focusedInformationService(state: DialogueState, services: readonly DialogueService[]): DialogueService | null {
@@ -215,7 +216,7 @@ function professionalRead(value: ProfessionalInformationFacts, businessId: strin
   return { reply: informationBody({ kind: 'professionals', names: value.professionals.map(pro => pro.name), details, complete: value.complete, overview: target.aspect === 'overview' }),
     outcome: !value.complete || target.aspect === 'schedule' && value.professionals.every(professional => !professional.schedule) || target.aspect === 'services' && value.professionals.every(professional => !professional.services.length) ? 'missing' : 'found' }
 }
-export async function readInformation(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawTarget: InformationTarget, preparedServices?: readonly DialogueService[]): Promise<InformationRead> {
+export async function readInformation(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawTarget: InformationTarget, preparedServices?: readonly DialogueService[], readContext?: InformationReadContext): Promise<InformationRead> {
   const target = parseInformationTarget(rawTarget)
   if (target.kind === 'presented_offer') throw new Error('presented offer requires the existing reference route')
   if (target.kind === 'professional') {
@@ -228,7 +229,12 @@ export async function readInformation(context: DialogueContext, state: DialogueS
       service.price !== null && (!Number.isFinite(service.price) || service.price < 0) ||
       [service.durationMinutes, service.durationMinMinutes, service.durationMaxMinutes].some(value => value != null && (!Number.isFinite(value) || value <= 0)) ||
       service.description != null && (service.description.length > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(service.description))) || new Set(services.map(service => service.id)).size !== services.length) throw new Error('invalid information catalog')
-  if (target.kind === 'service') return serviceRead(state, message, target, services)
+  if (target.kind === 'service') {
+    const procedure = readContext?.unverifiedProcedure
+    if (procedure?.businessId === context.businessId && procedure.purpose === 'inquiry' && procedure.disposition !== 'clear' &&
+        !target.serviceIds.length && target.estimateOptionId === undefined) return { reply: '', outcome: 'missing' }
+    return serviceRead(state, message, target, services)
+  }
   if (target.actions.includes('PRICES') || target.actions.includes('SERVICE_DETAILS')) {
     if (target.actions.includes('SERVICES') && !namedInformationServices(message, services).length) return { reply: renderServices(services), outcome: 'found' }
     const focusedTarget = inferInformationTarget(state, message, services, target.actions.filter(action => action !== 'SERVICES'))
