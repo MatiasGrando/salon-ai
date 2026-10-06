@@ -1,4 +1,4 @@
-import { remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
+import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
@@ -1025,6 +1025,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const contextual = contextualizeIdentity(matched.plan, state, message)
   const tentativeTemporal = contextual.plan.operations.some(op => (op.kind === 'time_preference' || op.kind === 'time' || op.kind === 'time_clarification') && op.confidence < 0.85)
   const plan = { ...contextual.plan, operations: contextual.plan.operations.filter(op => op.kind !== 'time_preference' && op.kind !== 'time' && op.kind !== 'time_clarification' || op.confidence >= 0.85) }
+  const currentServiceInquiries = communicative ? remapCurrentServiceInquiries(communicative.currentServiceInquiries ?? [],
+    communicative.plan, plan, message, context.businessId) : []
+  const currentServiceReads = communicative ? remapCurrentServiceReads(communicative.currentServiceReads ?? [],
+    communicative.plan, plan, message, context.businessId) : []
   const identityClarification = contextual.clarify && matched.matching?.category !== 'professional' ? '¿Ese nombre corresponde al cliente o al profesional? Indicame a quién te referís.' : ''
   const clarificationReply = [identityClarification, tentativeTemporal ? 'No pude confirmar esa elección o preferencia horaria. ¿Qué horario o franja preferís?' : ''].filter(Boolean).join('\n')
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
@@ -1142,8 +1146,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       continue
     }
     const procedure = unverifiedReads.get(JSON.stringify(op))
+    const currentServiceInquiry = currentServiceInquiries.find(scope => scope.operationIndex === plan.operations.indexOf(op))
+    const currentServiceRead = currentServiceReads.find(scope => scope.operationIndex === plan.operations.indexOf(op))
     const read = await readInformation(context, state, op.evidence, port, op.target, services,
-      procedure ? { unverifiedProcedure: procedure } : undefined)
+      procedure || currentServiceInquiry || currentServiceRead ? { ...(procedure ? { unverifiedProcedure: procedure } : {}),
+        ...(currentServiceInquiry ? { currentServiceInquiry } : {}), ...(currentServiceRead ? { currentServiceRead } : {}) } : undefined)
     informationReads.push(read)
     if (read.focus) state.informationFocus = read.focus
     informationAnswers.set(answers.length, read)

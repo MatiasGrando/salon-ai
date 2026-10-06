@@ -1,3 +1,4 @@
+import { neutralCatalogServiceInquiry, neutralServiceInquiry, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { assessServiceIdentity, type ServiceRequestContext } from './service-request.js'
 import { stageContent } from '../bot-options/domain/service-content.js'
 import { hasBasketSelection, selectionBasket } from './service-basket.js'
@@ -12,7 +13,7 @@ import { renderInformation, renderServices, validateFacts, pendingQuestion, type
 import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ServiceInformationAspect, type BusinessInformationSubject, type ProfessionalInformationFacts } from './information-contract.js'
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
-export type InformationReadContext = { unverifiedProcedure: ServiceRequestContext }
+export type InformationReadContext = { unverifiedProcedure?: ServiceRequestContext; currentServiceInquiry?: CurrentServiceInquiry; currentServiceRead?: CurrentServiceReadEvidence }
 export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
 /** An informational focus is evidence for a read, never an implicit basket selection. */
 export function focusedInformationService(state: DialogueState, services: readonly DialogueService[]): DialogueService | null {
@@ -116,13 +117,27 @@ function clarifyService(state: DialogueState, services: readonly DialogueService
   return { reply: candidateId || !services.length ? question : renderServices(services, aspect === 'price' ? 'price' : 'details'), outcome: 'clarifying',
     focus: focusFor(state, services, aspect, null, candidateId) }
 }
-function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[]): InformationRead {
+function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[], currentInquiry?: CurrentServiceInquiry, currentRead?: CurrentServiceReadEvidence): InformationRead {
   const old = state.informationFocus
   if (old?.serviceId && !services.some(service => service.id === old.serviceId) && !target.serviceIds.length) return missing('la información vigente de ese servicio')
+  if ((currentInquiry || currentRead) && old && (old.businessId !== state.businessId || old.options.some(option =>
+      !services.some(service => service.id === option.id && normalizeAnswer(option.label) === normalizeAnswer(service.name)))))
+    return missing('la información vigente de ese servicio')
+  const currentProof = currentInquiry && validCurrentServiceInquiry(currentInquiry,
+    { kind: 'information', target, evidence: message, confidence: 1 }, currentInquiry.inquiryEvidence, state.businessId) &&
+    neutralServiceInquiry(currentInquiry.inquiryEvidence, currentInquiry.identityMention, target.aspect) &&
+    assessServiceIdentity(currentInquiry.identityMention, currentInquiry.serviceId, 1, services).kind === 'supported'
+  // Material residue is not a request for a generic catalog price; keep the old focus.
+  const currentReadProof = currentRead && validCurrentServiceRead(currentRead,
+    { kind: 'information', target, evidence: message, confidence: 1 }, currentRead.inquiryEvidence, state.businessId) &&
+    (currentProof || neutralCatalogServiceInquiry(currentRead.inquiryEvidence, currentRead.serviceId, target.aspect, services))
+  const unprovenModernRead = currentRead && !currentReadProof
+  if (currentInquiry && !currentProof || unprovenModernRead) return { outcome: 'clarifying',
+    reply: 'No tengo información confirmada para esa consulta tal como está expresada. ¿Qué dato o variante querés precisar?' }
   let selected = services.filter(service => target.serviceIds.includes(service.id))
   if (!target.serviceIds.length) selected = namedInformationServices(message, services)
   const choiceAnswer = old?.awaitingChoice && !routeActions(message).information.length
-  if (choiceAnswer) {
+  if (choiceAnswer || (currentInquiry || currentReadProof) && old?.awaitingChoice) {
     const eligible = services.filter(service => old.options.some(option => option.id === service.id && normalizeAnswer(option.label) === normalizeAnswer(service.name)))
     if (eligible.length !== old.options.length) return missing('la información vigente de ese servicio')
     // A current, evidenced target is already a read decision, not a new closed-answer search.
@@ -130,7 +145,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     // behind the proposed singleton, and every previously presented option stays revalidated.
     const specificTarget = target.serviceIds.length === 1 && selected.length === 1 &&
       eligible.some(service => service.id === selected[0]!.id) &&
-      assessServiceIdentity(message, selected[0]!.id, 1, services).kind === 'supported'
+      (currentProof || currentReadProof || assessServiceIdentity(message, selected[0]!.id, 1, services).kind === 'supported')
     if (specificTarget) selected = eligible.filter(service => service.id === target.serviceIds[0])
     else if (old.candidateId && !/[?¿]/.test(message) && affirmativeMatchAnswer(message)) selected = eligible.filter(service => service.id === old.candidateId)
     else {
@@ -233,7 +248,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
     const procedure = readContext?.unverifiedProcedure
     if (procedure?.businessId === context.businessId && procedure.purpose === 'inquiry' && procedure.disposition !== 'clear' &&
         !target.serviceIds.length && target.estimateOptionId === undefined) return { reply: '', outcome: 'missing' }
-    return serviceRead(state, message, target, services)
+    return serviceRead(state, message, target, services, readContext?.currentServiceInquiry, readContext?.currentServiceRead)
   }
   if (target.actions.includes('PRICES') || target.actions.includes('SERVICE_DETAILS')) {
     if (target.actions.includes('SERVICES') && !namedInformationServices(message, services).length) return { reply: renderServices(services), outcome: 'found' }

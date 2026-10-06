@@ -1,3 +1,4 @@
+import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
 import { preferenceOptionId } from './dialogue-choice-presentation.js'
@@ -22,6 +23,9 @@ export type CommunicativeAdmission = {
   plan: TurnPlan; blockedFields: CommunicativeField[]
   /** Server-only links between two reads admitted from the same current inquiry. */
   inquiryBindings?: readonly InquiryBinding[]
+  /** Server-only proof of the identity span of one current factual inquiry. */
+  currentServiceInquiries?: readonly CurrentServiceInquiry[]
+  currentServiceReads?: readonly CurrentServiceReadEvidence[]
   /** Server-only current temporal authority; never a model or persisted claim. */
   timeMeaningRejected?: true
   reference?: { mention: string; evidence: string }
@@ -152,6 +156,73 @@ export function remapInquiryBindings(bindings: readonly InquiryBinding[], source
   }
   return result
 }
+/** Current ownership is derived against the final admitted operation, never an old focus. */
+export function deriveCurrentServiceInquiries(metadata: CommunicativeActs | null, source: TurnPlan, final: TurnPlan,
+  message: string, businessId: string): CurrentServiceInquiry[] {
+  if (!metadata) return []
+  return final.operations.flatMap((operation, operationIndex) => {
+    if (operation.kind !== 'information' || operation.target.kind !== 'service' ||
+        operation.target.serviceIds.length !== 1 || operation.target.estimateOptionId !== undefined) return []
+    const sourceIndex = sourceOperationIndex(operation, source)
+    if (sourceIndex < 0 || JSON.stringify(source.operations[sourceIndex]) !== JSON.stringify(operation)) return []
+    const owners = metadata.acts.filter(act => act.operationIndexes.includes(sourceIndex))
+    const owner = owners[0]
+    if (owners.length !== 1 || !owner || owner.kind !== 'inquiry' || owner.field !== 'service' ||
+        owner.confidence < .85 || owner.confidence > 1 || !Number.isFinite(owner.confidence) || owner.mention === null) return []
+    const scope: CurrentServiceInquiry = { operationIndex, businessId, serviceId: operation.target.serviceIds[0]!,
+      aspect: operation.target.aspect, identityMention: owner.mention,
+      inquiryEvidence: owner.evidence, operationEvidence: operation.evidence }
+    return validCurrentServiceInquiry(scope, operation, message, businessId) ? [scope] : []
+  })
+}
+/** Recheck immutable evidence/target and follow structural clones through final engine filters. */
+export function remapCurrentServiceInquiries(scopes: readonly CurrentServiceInquiry[], source: TurnPlan, final: TurnPlan,
+  message: string, businessId: string): CurrentServiceInquiry[] {
+  return scopes.flatMap(scope => {
+    if (scopes.filter(other => other.operationIndex === scope.operationIndex).length !== 1) return []
+    const original = source.operations[scope.operationIndex]
+    if (!validCurrentServiceInquiry(scope, original, message, businessId)) return []
+    const matches = final.operations.map((operation, index) => ({ operation, index }))
+      .filter(({ operation }) => JSON.stringify(operation) === JSON.stringify(original))
+    if (matches.length !== 1) return []
+    const current = { ...scope, operationIndex: matches[0]!.index }
+    return validCurrentServiceInquiry(current, matches[0]!.operation, message, businessId) ? [current] : []
+  })
+}
+
+/** Only original modern singleton information operations carry this no-authority fence. */
+export function deriveCurrentServiceReads(metadata: CommunicativeActs | null, source: TurnPlan, final: TurnPlan,
+  message: string, businessId: string): CurrentServiceReadEvidence[] {
+  if (!metadata) return []
+  return final.operations.flatMap((operation, operationIndex) => {
+    if (operation.kind !== 'information' || operation.target.kind !== 'service' || operation.target.serviceIds.length !== 1) return []
+    const sourceIndex = sourceOperationIndex(operation, source), original = source.operations[sourceIndex]
+    if (original?.kind !== 'information' || original.target.kind !== 'service' || original.target.serviceIds.length !== 1) return []
+    const scope: CurrentServiceReadEvidence = { operationIndex: sourceIndex, businessId, serviceId: original.target.serviceIds[0]!,
+      aspect: original.target.aspect, inquiryEvidence: message, operationEvidence: original.evidence }
+    if (!validCurrentServiceReadOrigin(scope, original, message, businessId)) return []
+    return [{ ...scope, operationIndex,
+      ...(!validCurrentServiceRead(scope, original, message, businessId) ||
+        !validCurrentServiceRead(scope, operation, message, businessId) ? { projectionRejected: true as const } : {}) }]
+  })
+}
+/** A changed singleton retains rejection provenance instead of downgrading to a legacy quote. */
+export function remapCurrentServiceReads(scopes: readonly CurrentServiceReadEvidence[], source: TurnPlan, final: TurnPlan,
+  message: string, businessId: string): CurrentServiceReadEvidence[] {
+  return scopes.flatMap(scope => {
+    const original = source.operations[scope.operationIndex]
+    const exact = final.operations.map((operation, index) => ({ operation, index }))
+      .filter(({ operation }) => JSON.stringify(operation) === JSON.stringify(original))
+    const candidates = exact.length === 1 ? exact : final.operations.map((operation, index) => ({ operation, index }))
+      .filter(({ operation }) => operation.kind === 'information' && operation.target.kind === 'service')
+    if (candidates.length !== 1) return []
+    const current = { ...scope, operationIndex: candidates[0]!.index }
+    const unique = scopes.filter(other => other.operationIndex === scope.operationIndex).length === 1
+    return [{ ...current, ...(!unique || !validCurrentServiceRead(scope, original, message, businessId) ||
+      !validCurrentServiceRead(current, candidates[0]!.operation, message, businessId) ? { projectionRejected: true as const } : {}) }]
+  })
+}
+
 function fieldOf(operation: TurnOperation): CommunicativeField {
   if (operation.kind === 'information') return operation.target.kind === 'service' ? 'service' : operation.target.kind === 'professional' ? 'professional' : 'general'
   if (operation.kind === 'request_change') return operation.field

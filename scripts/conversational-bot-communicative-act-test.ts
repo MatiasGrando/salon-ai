@@ -568,9 +568,23 @@ try {
     const admission = admitCommunicativePlan(metadata, original, projected, message, initial, services)
     assert.equal(admission.plan.operations.length, 1)
     assert.deepEqual(admission.blockedFields, [])
-    const price = await say(initial, '¿Precio del Alisado?', acted([
+    const originalInsufficient = await say(initial, '¿Precio del Alisado?', acted([
       { kind: 'information', target: { kind: 'service', actions: [], serviceIds: [smooth.id], aspect: 'price' }, ...ev('Precio del Alisado') }
     ], [act('inquiry', 'service', 'Precio del Alisado', [0])], 'information'))
+    assert.equal(originalInsufficient.state.informationFocus?.serviceId, smooth.id, 'complete neutral body with exact public name proves the fallback')
+    assert.equal(originalInsufficient.state.serviceId, initial.serviceId)
+    assert.deepEqual(originalInsufficient.state.basket, initial.basket)
+    assert.match(originalInsufficient.reply, /85[.,]?000|95[.,]?000/)
+    const qualifiedUnscoped = await say(initial, '¿Precio del Alisado sin lavado?', acted([
+      { kind: 'information', target: { kind: 'service', actions: [], serviceIds: [smooth.id], aspect: 'price' }, ...ev('Precio del Alisado') }
+    ], [act('inquiry', 'service', 'Precio del Alisado', [0])], 'information'))
+    assert.deepEqual(qualifiedUnscoped.state.informationFocus, initial.informationFocus)
+    assert.deepEqual(qualifiedUnscoped.state.basket, initial.basket)
+    assert.equal(qualifiedUnscoped.state.serviceId, initial.serviceId)
+    assert.doesNotMatch(qualifiedUnscoped.reply, /85[.,]?000|95[.,]?000/)
+    const price = await say(initial, '¿Precio del Alisado?', acted([
+      { kind: 'information', target: { kind: 'service', actions: [], serviceIds: [smooth.id], aspect: 'price' }, ...ev('Precio del Alisado') }
+    ], [act('inquiry', 'service', '¿Precio del Alisado?', [0], 'Alisado')], 'information'))
     const result = await say(price.state, message, acted([...original.operations], [act('answer', 'estimate', message, [0])], 'information'))
     assert.equal(result.interpretation.mode, 'ai')
     assert.equal(result.state.basket, undefined)
@@ -1010,6 +1024,24 @@ try {
     assert.equal(foreign.interpretation.reason, 'invalid_output')
     assert.equal(foreign.state.serviceRequest, undefined)
     assert.equal(foreign.state.serviceId, null)
+  })
+
+
+  await check('M only one current strong service inquiry owns an exact operation scope', async () => {
+    const module = await import('../src/conversational-bot/communicative-act.js') as unknown as Record<string, (...args: any[]) => any>
+    const message = 'Me interesa saber el valor del corte de mujer.'
+    const operation = { kind: 'information', target: { kind: 'service', actions: [], serviceIds: ['cut-w'], aspect: 'price' }, ...ev('el valor del corte de mujer') }
+    const source = parseTurnPlan({ version: 1, operations: [operation] }, message, services.map(item => item.id))
+    const owner = act('inquiry', 'service', message, [0], 'corte de mujer')
+    const derive = (acts: object[], final = source) => module.deriveCurrentServiceInquiries!({ version: 1, acts }, source, final, message, context.businessId)
+    assert.equal(derive([owner]).length, 1)
+    for (const patch of [{ confidence: .84 }, { confidence: 1.5 }, { confidence: Infinity }, { kind: 'reference' }, { field: 'general' }, { mention: null },
+      { operationIndexes: [] }, { evidence: operation.evidence }, { mention: 'Inventado' }])
+      assert.deepEqual(derive([{ ...owner, ...patch }]), [])
+    assert.deepEqual(derive([owner, owner]), [])
+    assert.deepEqual(derive([owner], { version: 1, operations: [] }), [])
+    const changed = { ...source, operations: [{ ...operation, target: { ...operation.target, serviceIds: ['cut-m'] } }] }
+    assert.deepEqual(derive([owner], changed as typeof source), [])
   })
 
   await check('all checks use controlled provider and no real network or reservation adapter', () => {

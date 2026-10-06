@@ -386,7 +386,7 @@ await check('temporal semantic rejection keeps independent current customer iden
   assert.equal(result.proposal, null); assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
   assert.deepEqual(result.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['date_preferences', 'name'])
 })
-await check('temporal rejection keeps an independently scoped current information read', async () => {
+await check('temporal rejection retains information admission but unpartitioned evidence cannot publish a price', async () => {
   const state = await selected(), text = capturedPriorityMessage + ' Cuánto cuesta Corte hombre?'
   horizonCalls = 0; fixedCalls = 0
   const output = capturedTemporalProposal()
@@ -397,7 +397,11 @@ await check('temporal rejection keeps an independently scoped current informatio
   assert.deepEqual(preferences(result.state), capturedPriorities)
   assert.equal(result.state.requestedTime, null); assert.equal(result.state.slot, null)
   assert.equal(result.proposal, null); assert.equal(horizonCalls, 0); assert.equal(fixedCalls, 0)
-  assert.match(result.reply, /100/)
+  assert.doesNotMatch(result.reply, /100/)
+  assert.match(result.reply, /No tengo información confirmada|precisar/)
+  assert.deepEqual(result.state.basket, state.basket)
+  assert.equal(result.state.serviceId, state.serviceId)
+  assert.deepEqual(result.state.informationFocus, state.informationFocus)
   assert.match(result.reply, /hora|horario|franja/)
   assert.deepEqual(result.interpretation.validation?.turnPlan?.validationAcceptedKinds, ['date_preferences', 'information'])
 })
