@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { presentGroupCancellation, confirmGroupCancellation, cancellationFingerprint, assertCancellationSnapshot, type CancellationSnapshot } from '../src/conversational-bot/appointment-management.js'
+import { presentGroupReschedule, confirmGroupReschedule, assertGroupMoves, presentGroupCancellation, confirmGroupCancellation, cancellationFingerprint, assertCancellationSnapshot, type CancellationSnapshot } from '../src/conversational-bot/appointment-management.js'
 
 const original: CancellationSnapshot = { scope: { businessId: 'business', customerId: 'customer', sessionId: 'session', normalizedPhone: '5491112345678' },
   groupId: 'group', dbNow: '2026-10-06T10:00:00.000Z', members: ['a','b'].map((id,index) => ({
@@ -28,3 +28,20 @@ for (const [snapshot, message] of [
   [{ ...original, members: [{ ...original.members[0]!, serviceIds: [] }] }, /services/]
 ] as const) assert.throws(() => assertCancellationSnapshot(snapshot), message)
 console.log('appointment management domain: PASS')
+
+const moves = [{appointmentId:'a',newStartAt:'2026-10-08T15:00:00.000Z'},{appointmentId:'b',newStartAt:'2026-10-08T15:30:00.000Z'}]
+const rp=presentGroupReschedule(original,moves)
+const rc=confirmGroupReschedule(rp,{nonce:rp.nonce,fingerprint:rp.fingerprint})
+assert.equal(rc.kind,'RESCHEDULE_APPOINTMENT_GROUP')
+assert.deepEqual(rc.moves,moves)
+assert.deepEqual(original,before)
+assert.throws(()=>confirmGroupReschedule(rp,{nonce:'wrong',fingerprint:rp.fingerprint}),/consent/)
+assert.throws(()=>confirmGroupReschedule({...rp,moves:[{...moves[0]!,newStartAt:'2026-10-09T15:00:00.000Z'},moves[1]!]},{nonce:rp.nonce,fingerprint:rp.fingerprint}),/fingerprint/)
+assert.throws(()=>assertGroupMoves(original,moves.slice(0,1)),/coverage/)
+assert.throws(()=>assertGroupMoves(original,[moves[0]!,moves[0]!]),/coverage/)
+assert.throws(()=>assertGroupMoves(original,[moves[0]!,{...moves[1]!,appointmentId:'foreign'}]),/coverage/)
+assert.throws(()=>assertGroupMoves(original,[moves[0]!,{...moves[1]!,newStartAt:moves[0]!.newStartAt}]),/overlap/)
+assert.throws(()=>assertGroupMoves({...original,members:[original.members[0]!,{...original.members[1]!,startAt:'2026-10-07T15:30:00.000Z'}]},[{...moves[0]!,newStartAt:'2026-10-07T15:30:00.000Z'},moves[1]!]),/original/)
+assert.throws(()=>assertGroupMoves(original,[{...moves[0]!,newStartAt:'2026-10-05T15:00:00.000Z'},moves[1]!]),/future/)
+assert.throws(()=>assertGroupMoves({...original,members:[{...original.members[0]!,customerDurationMinutes:90},original.members[1]!] },moves),/overlap/)
+console.log('group reschedule domain: PASS')
