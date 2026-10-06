@@ -13,7 +13,7 @@ const act = (kind: string, field: string, evidence: string, operationIndexes: nu
 const currentDayChange = {version:1,acts:[act('change','date','miércoles',[0]),act('request','time','tipo 4',[1])]}
 const currentPeriod = (evidence: string) => ({version:1,acts:[act('answer','time',evidence,[0])]})
 let proofReads = 0
-const businessTimeContext = (date:string,candidateTimes:readonly string[]) => {
+const businessTimeContext: NonNullable<DialoguePort['businessTimeContext']> = (date,candidateTimes) => {
   proofReads++
   return {businessId:context.businessId,timezone:context.timezone,date,candidateTimes:[...candidateTimes],candidates:candidateTimes.map(time=>({time,status:time==='16:00'?'open':'closed'}))}
 }
@@ -123,3 +123,103 @@ const foldProof=projectBusinessTimeContext({...snapshot,timezone:'America/New_Yo
 assert.equal(foldProof?.candidates[0]?.status,'unknown','DST fold cannot prove a unique wall-clock instant')
 assert.equal(commercialTimeCandidate(foldProof,{...scoped,timezone:'America/New_York',date:'2026-11-01'},['01:30','13:30']),null)
 console.log('PASS bounded provider roundtrip, false proof, occupancy independence and DST')
+
+
+// Q captured V11: an admitted precise approximation must replace an actual selected 17:00 slot.
+const preciseChangeBody = 'En vez de ese horario, prefiero alrededor de las 11:00 del mismo día.'
+const preciseChangeEvidence = 'alrededor de las 11:00'
+let preciseProviderCalls = 0, preciseAgendaReads = 0, preciseProofReads = 0
+const precisePort: DialoguePort = {
+  catalog: async () => services,
+  availability: async (_service, date) => {
+    preciseAgendaReads++
+    return {
+      professionals: [{id:'p',name:'Leo',priority:0}],
+      slots: ['11:00','17:00'].map(time => ({
+        date, time, startAt: date + 'T' + (time === '11:00' ? '14' : '20') + ':00:00.000Z',
+        professionalId:'p', professionalName:'Leo', band:'AFTERNOON' as const, occupiedMinutes:0
+      }))
+    }
+  },
+  businessTimeContext: () => { preciseProofReads++; return undefined }
+}
+const preciseBase: DialogueState = {
+  ...selected,
+  basket: {version:1,nextMemberId:2,members:[{memberId:'m1',mode:'single',serviceIds:['cut'],evidence:'Corte'}]}
+}
+const preciseBaseBefore = structuredClone(preciseBase)
+const selectedSeventeen = await respondWithAiInterpreter(context, preciseBase, 'a las 17:00', precisePort, async () => ({
+  ...legacy,
+  turnPlan:{version:1,operations:[{kind:'time',value:'17:00',evidence:'a las 17:00',confidence:0.99}]},
+  communicativeActs:{version:1,acts:[{...act('answer','time','a las 17:00',[0]),confidence:0.99}]}
+}))
+assert.equal(selectedSeventeen.interpretation.mode,'ai')
+assert.equal(selectedSeventeen.state.slot?.time,'17:00', 'the prior selection came from a fresh real offer')
+assert.equal(selectedSeventeen.state.requestedTime,'17:00')
+assert.deepEqual(preciseBase,preciseBaseBefore)
+const precisePrior = structuredClone(selectedSeventeen.state)
+const preciseCandidate = {
+  ...legacy,
+  turnPlan:{version:1,operations:[{kind:'time_preference',preference:{kind:'around',time:'11:00'},evidence:preciseChangeEvidence,confidence:0.99}]},
+  communicativeActs:{version:1,acts:[{...act('change','time',preciseChangeBody,[0]),confidence:0.99}]}
+}
+const preciseCandidateBefore = structuredClone(preciseCandidate)
+const beforePreciseAgenda = preciseAgendaReads, beforePreciseProof = preciseProofReads
+const preciseChanged = await respondWithAiInterpreter(context, selectedSeventeen.state, preciseChangeBody, precisePort, async () => {
+  preciseProviderCalls++
+  return preciseCandidate
+})
+assert.equal(preciseChanged.interpretation.mode,'ai')
+assert.deepEqual(preciseChanged.state.timePreference,{kind:'around',time:'11:00'})
+assert.equal(preciseChanged.state.timeClarification,undefined)
+assert.equal(preciseChanged.state.timeMeaningClarification,undefined)
+assert.equal(preciseChanged.state.slot,null)
+assert.equal(preciseChanged.state.requestedTime,null)
+assert.equal(preciseChanged.state.date,precisePrior.date)
+assert.deepEqual(preciseChanged.state.professional,precisePrior.professional)
+assert.equal(preciseChanged.state.professionalNameHint,precisePrior.professionalNameHint)
+assert.equal(preciseChanged.state.customerName,precisePrior.customerName)
+assert.equal(preciseChanged.state.serviceId,precisePrior.serviceId)
+assert.deepEqual(preciseChanged.state.basket,precisePrior.basket)
+assert.deepEqual(preciseChanged.state.serviceEstimates,precisePrior.serviceEstimates)
+assert.deepEqual(preciseChanged.state.informationFocus,precisePrior.informationFocus)
+assert.equal(preciseChanged.state.pending,'time')
+assert.equal(preciseChanged.state.questionContext?.role,'time')
+assert.equal(preciseChanged.state.questionContext?.scope,JSON.stringify({
+  basket:precisePrior.basket!.members.map(member => [member.memberId,member.mode,member.serviceIds]),
+  date:precisePrior.date,professional:precisePrior.professional
+}), 'the new time question uses the preserved basket/date/professional scope')
+assert.equal(preciseChanged.proposal,null)
+assert.equal(preciseChanged.bookingCommand,undefined)
+assert.equal(preciseChanged.state.sandboxReservation,undefined)
+assert.doesNotMatch(preciseChanged.reply,/mañana.*tarde|tarde.*mañana|23:00/)
+assert.equal(preciseProviderCalls,1)
+assert.equal(preciseAgendaReads-beforePreciseAgenda,1,'only the ordinary fresh offer query is needed')
+assert.equal(preciseProofReads-beforePreciseProof,0,'an explicit HH:mm anchor needs no commercial meridiem proof')
+assert.deepEqual(selectedSeventeen.state,precisePrior)
+assert.deepEqual(preciseCandidate,preciseCandidateBefore)
+console.log('PASS Q public precise approximation replaces real exact slot without selecting or booking')
+
+for (const [body, time] of [['tipo 11:00pm','23:00'],['tipo 5:30pm','17:30'],['tipo 17','17:00']] as const) {
+  const agendaBefore = preciseAgendaReads, proofBefore = preciseProofReads
+  let calls = 0
+  const unambiguous = await respondWithAiInterpreter(context,precisePrior,body,precisePort,async () => {
+    calls++
+    return {
+      ...legacy,
+      turnPlan:{version:1,operations:[{kind:'time_preference',preference:{kind:'around',time},evidence:body,confidence:0.99}]},
+      communicativeActs:{version:1,acts:[{...act('change','time',body,[0]),confidence:0.99}]}
+    }
+  })
+  assert.equal(unambiguous.interpretation.mode,'ai',body)
+  assert.deepEqual(unambiguous.state.timePreference,{kind:'around',time},body)
+  assert.equal(unambiguous.state.timeClarification,undefined,body)
+  assert.equal(unambiguous.state.slot,null,body)
+  assert.equal(unambiguous.state.requestedTime,null,body)
+  assert.equal(unambiguous.proposal,null,body)
+  assert.equal(unambiguous.bookingCommand,undefined,body)
+  assert.equal(calls,1,body)
+  assert.equal(preciseProofReads-proofBefore,0,'explicit period or 24-hour number needs no meridiem proof: ' + body)
+  assert.equal(preciseAgendaReads-agendaBefore,1,body)
+}
+console.log('PASS Q explicit period and 24-hour number skip commercial proof; ambiguous pair controls remain unchanged')

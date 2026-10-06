@@ -21,6 +21,46 @@ for(const [input,evidence,candidates] of [
 for(const input of ['no a las 18 aprox','sin horario a las 18 aprox','a las 25 aprox','18:99 aprox',
   'a las 18 aprox o tipo 19','tipo 18 o a las 19','a las 18 aprox y a las 19','18 aprox o 19:00','18 aprox o 19','tipo 18 y 19'])
   assert.equal(approximateTimeRequest(input),null,input)
+
+// Q: explicit two-digit clocks retain their precision; a one-digit clock is still twelve-hour ambiguous.
+const preciseApproximationCases: readonly (readonly [string, readonly string[] | null])[] = [
+  ['alrededor de las 11:00', ['11:00']],
+  ['aproximadamente a las 11:30', ['11:30']],
+  ['cerca de las 12:00', ['12:00']],
+  ['tipo 00:00', ['00:00']],
+  ['tipo 05:30', ['05:30']],
+  ['a las 11:00 aproximadamente', ['11:00']],
+  ['11:30 aprox.', ['11:30']],
+  ['12:00 aprox', ['12:00']],
+  ['00:00 aproximadamente', ['00:00']],
+  ['05:30 aprox', ['05:30']],
+  ['tipo 5:30', ['05:30', '17:30']],
+  ['5:30 aprox', ['05:30', '17:30']],
+  ['tipo 11', ['11:00', '23:00']],
+  ['tipo 11:00pm', ['23:00']],
+  ['05:30 pm aprox', ['17:30']],
+  ['tipo 12:00am', ['00:00']],
+  ['tipo 05:30 de la tarde', ['17:30']],
+  ['11:30 aprox de la mañana', ['11:30']],
+  ['no alrededor de las 11:00', null],
+  ['tipo 23:00am', null],
+  ['tipo 11:00pm o 11:00am', null],
+  ['tipo 11:00 y a las 17:00', null]
+]
+let preciseApproximationFailures = 0
+for (const [body, expected] of preciseApproximationCases) {
+  try {
+    const actual = approximateTimeRequest(body)
+    assert.deepEqual(actual?.candidateTimes ?? null, expected, body)
+    if (actual) assert.ok(body.includes(actual.evidence), 'anchor evidence remains an original literal slice')
+  } catch (error) {
+    preciseApproximationFailures++
+    console.error('FAIL explicit approximate clock:', body, (error as Error).message)
+  }
+}
+console.log('Q approximate clock cases:', preciseApproximationCases.length, 'failures:', preciseApproximationFailures)
+if (preciseApproximationFailures) throw new Error('explicit approximate clock regressions: ' + preciseApproximationFailures)
+
 const forbiddenTransport = () => { throw new Error('external transport forbidden') }
 httpTransport.request = forbiddenTransport; httpTransport.get = forbiddenTransport
 httpsTransport.request = forbiddenTransport; httpsTransport.get = forbiddenTransport

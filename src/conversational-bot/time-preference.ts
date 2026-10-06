@@ -149,7 +149,9 @@ export function approximateTimeRequest(message: string): ApproximateTimeRequest 
   if (explicitPeriod && hour > 12) return null
   if (period === 'pm' || period === 'tarde' || period === 'noche') hour = hour % 12 + 12
   if (period === 'am' || period === 'manana') hour %= 12
-  const candidates = explicitPeriod || hour === 0 || hour > 12 ? [clock(String(hour), minute)!]
+  // A two-digit HH:mm anchor is a precise 24-hour clock; explicit periods still take precedence.
+  const explicitClock = match[1]!.length === 2 && match[2] !== undefined
+  const candidates = explicitPeriod || explicitClock || hour === 0 || hour > 12 ? [clock(String(hour), minute)!]
     : hour === 12 ? ['00:' + minute, '12:' + minute] : [clock(String(hour), minute)!, clock(String(hour + 12), minute)!]
   return { evidence: message.slice(match.index!, match.index! + match[0].length), candidateTimes: candidates }
 }

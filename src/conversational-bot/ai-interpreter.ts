@@ -378,7 +378,7 @@ export async function respondWithAiInterpreter(
   // Re-resolve its prospective date even when a previous AM/PM clarification is pending.
   const candidateTimes = approximateTimeRequest(message)?.candidateTimes
   const temporalDate = prospectiveMessageDate(message,state.date,businessDate)
-  const commercialProof = temporalDate && candidateTimes ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
+  const commercialProof = temporalDate && candidateTimes?.length === 2 ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
