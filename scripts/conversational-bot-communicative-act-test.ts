@@ -715,6 +715,110 @@ try {
       assert.equal(result.interpretation.aiCalls, 1)
     })
   }
+  const pauseMessage = 'Lo dejamos en pausa por hoy; después seguimos.'
+  const orphanBasket = basket('set', [member('single', ['cut-b'], pauseMessage)], pauseMessage)
+  await check('O raw V8 orphan basket preserves a paused date question without menu or effects', async () => {
+    const selected = await say(initial, 'Quiero Corte y barba', acted([
+      basket('set', [member('single', ['cut-b'], 'Corte y barba')], 'Corte y barba')
+    ], [act('request', 'service', 'Quiero Corte y barba', [0])]))
+    const state = selected.state, before = JSON.stringify(state), calls = providerCalls, reads = agendaCalls
+    assert.equal(state.pending, 'date')
+    const output = { ...acted([orphanBasket], [act('pause', 'general', pauseMessage)]),
+      firstReply: { opening: 'Entendido, lo dejamos en pausa por hoy.', factIds: ['next'], followUp: null } }
+    const outputBefore = JSON.stringify(output), result = await say(state, pauseMessage, output)
+    assert.equal(result.interpretation.mode, 'ai'); assert.match(result.reply, /cuando quieras seguimos/i)
+    assert.doesNotMatch(result.reply, /[¿?]|elegir|cambiar|Corte hombre|Corte mujer|Qué servicio/i)
+    assert.deepEqual(result.state, state); assert.equal(JSON.stringify(state), before)
+    assert.equal(JSON.stringify(output), outputBefore); assert.equal(result.bookingCommand, undefined)
+    assert.equal(providerCalls, calls + 1); assert.equal(agendaCalls, reads)
+  })
+  await check('O all orphan operation kinds are filtered without invented blocked fields under sole continuity', () => {
+    const message = 'Ana mañana pasado mañana 17:00 tipo 5 dirección Alisado Hasta los hombros Corte y barba pausa'
+    const operations = [
+      basket('set', [member('single', ['cut-b'], message)], message),
+      { kind: 'service_request', purpose: 'booking', disposition: 'clear', serviceIds: ['cut-b'],
+        correction: false, continuation: false, basis: 'exact_public_name', sourceQuote: null, ...ev(message) },
+      { kind: 'service', mode: 'single', serviceIds: ['cut-b'], correction: false, ...ev(message) },
+      { kind: 'referral', action: 'resume', ...ev(message) }, { kind: 'confirm_proposal', ...ev(message) },
+      { kind: 'request_change', field: 'service', ...ev(message) },
+      { kind: 'estimate', serviceId: 'smooth', optionId: 'shoulders', ...ev(message) },
+      { kind: 'professional', mode: 'any', ...ev(message) }, { kind: 'professional_reference', action: 'dismiss', ...ev(message) },
+      { kind: 'date', expression: 'mañana', ...ev('mañana') },
+      { kind: 'date_preferences', candidates: [{ expression: 'mañana', value: null }, { expression: 'pasado mañana', value: null }], ...ev(message) },
+      { kind: 'time', value: '17:00', ...ev('17:00') }, { kind: 'time_preference', preference: { kind: 'around', time: '17:00' }, ...ev('tipo 5') },
+      { kind: 'time_clarification', candidateTimes: ['05:00', '17:00'], ...ev('tipo 5') },
+      { kind: 'name', value: 'Ana', ...ev('Ana') },
+      { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') },
+      { kind: 'unsupported_action', action: 'CANCEL', ...ev(message) }
+    ]
+    for (const operation of operations) for (const kind of ['notice', 'pause', 'repair']) {
+      const plan = parseTurnPlan({ version: 1, operations: [operation] }, message, services.map(item => item.id))
+      const metadata = parseCommunicativeActs({ version: 1, acts: [act(kind, 'general', message)] }, message, 1, plan)
+      const result = admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services)
+      assert.equal(result.plan.operations.length, 0, operation.kind); assert.deepEqual(result.blockedFields, [], operation.kind)
+      assert.equal(result.continuity, kind, operation.kind)
+    }
+  })
+  await check('O weak conflicting owned and server-rejected authority cannot become orphan continuity', () => {
+    const plan = parseTurnPlan({ version: 1, operations: [orphanBasket] }, pauseMessage, services.map(item => item.id))
+    const pause = act('pause', 'general', pauseMessage)
+    for (const acts of [[{ ...pause, confidence: .84 }], [{ ...pause, field: 'service' }],
+      [pause, act('notice', 'general', pauseMessage)], [pause, act('request', 'service', pauseMessage)],
+      [pause, act('inquiry', 'general', pauseMessage)], [pause, act('uncertain', 'general', pauseMessage)],
+      [pause, act('reference', 'general', pauseMessage)], [pause, act('request', 'name', pauseMessage, [0])],
+      [pause, act('request', 'service', pauseMessage, [0], null, .5)]]) {
+      const metadata = parseCommunicativeActs({ version: 1, acts }, pauseMessage, 1, plan)
+      const result = admitCommunicativePlan(metadata, plan, plan, pauseMessage, pendingProcedure, services)
+      assert.equal(result.continuity, undefined); assert.deepEqual(result.blockedFields, ['service'])
+      assert.equal(result.plan.operations.length, 0)
+    }
+    assert.equal(admitCommunicativePlan(null, plan, plan, pauseMessage, pendingProcedure, services).continuity, undefined)
+    const metadata = parseCommunicativeActs({ version: 1, acts: [pause] }, pauseMessage, 1, plan)
+    const blocked = admitCommunicativePlan(metadata, plan, plan, pauseMessage, pendingProcedure, services, undefined, ['service'])
+    assert.equal(blocked.continuity, undefined); assert.deepEqual(blocked.blockedFields, ['service'])
+    for (const patch of [{ confidence: NaN }, { confidence: Infinity }, { confidence: 1.5 }, { evidence: 'inventado' }])
+      assert.equal(admitCommunicativePlan({ version: 1, acts: [{ ...pause, ...patch }] } as any,
+        plan, plan, pauseMessage, pendingProcedure, services).continuity, undefined)
+  })
+  await check('O sole pause cannot rescue global IDs quotes or duplicate indexes', async () => {
+    for (const corrupt of [
+      () => acted([basket('set', [member('single', ['foreign'], pauseMessage)], pauseMessage)], [act('pause', 'general', pauseMessage)]),
+      () => acted([{ ...orphanBasket, evidence: 'inventado' }], [act('pause', 'general', pauseMessage)]),
+      () => acted([orphanBasket], [act('pause', 'general', pauseMessage, [0, 0])]),
+      () => acted([orphanBasket], [act('pause', 'general', 'inventado')])
+    ]) {
+      const before = providerCalls, reads = agendaCalls, result = await say(pendingProcedure, pauseMessage, corrupt())
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.deepEqual(selectionBasket(result.state), selectionBasket(pendingProcedure))
+      assert.equal(result.bookingCommand, undefined); assert.equal(providerCalls, before + 1); assert.equal(agendaCalls, reads)
+    }
+  })
+  await check('O owned current companions retain their normal route rather than being hidden by pause', () => {
+    const message = 'Ana mañana 17:00 dirección Corte y barba después seguimos'
+    for (const [operation, field, kind] of [
+      [{ kind: 'name', value: 'Ana', ...ev('Ana') }, 'name', 'change'],
+      [{ kind: 'date', expression: 'mañana', ...ev('mañana') }, 'date', 'request'],
+      [{ kind: 'time', value: '17:00', ...ev('17:00') }, 'time', 'request'],
+      [basket('set', [member('single', ['cut-b'], 'Corte y barba')], 'Corte y barba'), 'service', 'change'],
+      [{ kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, ...ev('dirección') }, 'general', 'inquiry']
+    ] as const) {
+      const plan = parseTurnPlan({ version: 1, operations: [operation] }, message, services.map(item => item.id))
+      const metadata = parseCommunicativeActs({ version: 1, acts: [act('pause', 'general', 'después seguimos'),
+        act(kind, field, message, [0])] }, message, 1, plan)
+      const result = admitCommunicativePlan(metadata, plan, plan, message, pendingProcedure, services)
+      assert.deepEqual(result.plan, plan); assert.deepEqual(result.blockedFields, []); assert.equal(result.continuity, undefined)
+    }
+  })
+  await check('O orphan confirmation under pause never consumes an existing proposal or reference', async () => {
+    const state = structuredClone(pendingReference.state), calls = providerCalls, beforeReads = syntheticSandboxReads
+    const result = await respondWithAiInterpreter(sandboxContext, state, pauseMessage, sandboxPort, async () => {
+      providerCalls++
+      return acted([{ kind: 'confirm_proposal', ...ev(pauseMessage) }], [act('pause', 'general', pauseMessage)])
+    })
+    assert.deepEqual(result.state, state); assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+    assert.match(result.reply, /cuando quieras seguimos/i); assert.doesNotMatch(result.reply, /[¿?]|confirmad|reservad/i)
+    assert.equal(providerCalls, calls + 1); assert.equal(syntheticSandboxReads, beforeReads)
+  })
   await check('a pause does not consume a proposal or reference scope', async () => {
     const state = structuredClone(pendingReference.state)
     const result = await say(state, 'Lo pienso y después sigo', acted([], [act('pause', 'general', 'Lo pienso y después sigo')], 'other'))

@@ -314,6 +314,13 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   const blocked = new Set<CommunicativeField>()
   let timeMeaningRejected = false
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
+  // Establish sole current nonoperative ownership before inspecting unowned proposals.
+  const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
+    act.field === 'general' && Number.isFinite(act.confidence) && act.confidence >= .85 && act.confidence <= 1 &&
+    act.operationIndexes.length === 0 && isCustomerText(act.evidence, 300) && message.includes(act.evidence)) ?? []
+  const distinct = [...new Set(continuityActs.map(act => act.kind))]
+  const continuityCandidate = distinct.length === 1 && continuityActs.length === metadata?.acts.length
+    ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
@@ -326,6 +333,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
           act.confidence >= .85 && operation.confidence >= .85 && contains(act.evidence, operation.evidence)) timeMeaningRejected = true
       return false
     }
+    // An orphan cannot authorize effects or reopen a field under sole validated continuity.
+    if (continuityCandidate && owners.length === 0) return false
     // Preserve already selected exact identities before generic grounding can widen them.
     if (repeatedAdd(operation, state)) return false
 
@@ -353,14 +362,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) { blocked.add(field); return false }
     return true
   })
-  const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
-    act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0) ?? []
-  // Only an unambiguous nonoperative current turn can suspend progression. An
-  // independently proposed request/inquiry (even empty) still owns its usual route.
-  const distinct = [...new Set(continuityActs.map(act => act.kind))]
-  const continuity = source.operations.length === 0 && admitted.length === 0 && blocked.size === 0 && !reference && distinct.length === 1 &&
-    !metadata?.acts.some(act => ['request', 'change', 'answer', 'inquiry', 'uncertain'].includes(act.kind))
-    ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
+  const continuity = admitted.length === 0 && blocked.size === 0 ? continuityCandidate : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(continuity ? { continuity } : {}),
