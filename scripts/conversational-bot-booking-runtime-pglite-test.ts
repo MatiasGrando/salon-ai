@@ -1,0 +1,161 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { PGlite } from '@electric-sql/pglite'
+import { Prisma } from '../src/generated/prisma/client.js'
+import { executePrismaConversationBooking, runtimeBookingFingerprint, runtimeServiceConfigurationHash, type RuntimeBookingInput, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
+
+const db = new PGlite()
+const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
+const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','ServiceCombinationRule','BotOperation']
+for (const name of ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode']) {
+  const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
+  const values = body.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
+  await db.exec('CREATE TYPE "'+name+'" AS ENUM ('+values.map(v=>"'"+v+"'").join(',')+')')
+}
+for (const name of models) {
+  const body = schema.match(new RegExp('model '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
+  const columns = body.split('\n').flatMap(line => {
+    const field = line.trim().match(/^(\w+)\s+(\w+)(\?)?(?:\s|$)/)
+    if (!field || /\[\]/.test(line)) return []
+    const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision'} as Record<string,string>)[field[2]!]
+    const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode'].includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
+    const primary = field[1] === (name === 'BusinessBotOptionsSettings' ? 'businessId' : 'id')
+    return type ? ['"'+field[1]+'" '+type+(primary?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')] : []
+  })
+  await db.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
+}
+await db.exec('CREATE UNIQUE INDEX operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX appointment_visit ON "Appointment" ("visitId")')
+await db.exec(`
+INSERT INTO "Business" ("id","name","botEnabled") VALUES ('b','Salon',true),('foreign','Other',true);
+INSERT INTO "Conversation" ("id","businessId","phone") VALUES ('c','b','5491112345678');
+INSERT INTO "Customer" ("id","businessId","phone","normalizedPhone","name") VALUES ('customer','b','5491112345678','5491112345678','Ana');
+INSERT INTO "BotChannelDeployment" ("id","businessId","channel","generation","dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','b','WHATSAPP',2,3,'cfg',1);
+INSERT INTO "BusinessBotConfiguration" ("id","businessId","status") VALUES ('cfg','b','ACTIVE');
+INSERT INTO "BotSession" ("id","businessId","conversationId","deploymentId","deploymentGeneration","status","revision","handoffFenceEpoch","businessTimezone") VALUES ('session','b','c','dep',2,'ACTIVE',4,5,'America/Argentina/Buenos_Aires');
+INSERT INTO "BusinessBotOptionsSettings" ("businessId","timezone","bookingHorizonDays","bookingLeadTimeHours") VALUES ('b','America/Argentina/Buenos_Aires',20000,0);
+INSERT INTO "ServiceCategory" ("id","businessId","isActive") VALUES ('category','b',true);
+INSERT INTO "Service" ("id","businessId","catalogCategoryId","name","duration","price","priceMode","isBookable","isActive","attentionMode","requiresPhoto","validationEnabled","estimateAllowsBooking","depositMode") VALUES
+('s1','b','category','Corte',30,1000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE'),
+('s2','b','category','Crema',30,2000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE');
+INSERT INTO "Professional" ("id","businessId","name","isActive","acceptsBotBookings","botBookingPriority") VALUES ('p1','b','Elisa',true,true,0),('p2','b','Leo',true,true,0);
+INSERT INTO "ProfessionalService" ("id","professionalId","serviceId") VALUES ('ps1','p1','s1'),('ps2','p2','s2');
+INSERT INTO "BusinessHours" ("id","businessId","dayOfWeek","startTime","endTime") VALUES ('bh','b',1,'09:00','20:00');
+INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('ph1','p1',1,'09:00','20:00'),('ph2','p2',1,'09:00','20:00');
+`)
+type QuerySource = Pick<PGlite, 'query'>
+const statements: string[] = []
+let rejectSecondChild = false
+let lateSlotConflict = false
+function orm(pg: QuerySource): Prisma.TransactionClient {
+  const query = async (sql: string, values: unknown[] = []) => {
+    statements.push(sql)
+    if (sql.includes('pg_advisory_xact_lock')) return [{locked:1}]
+    if (rejectSecondChild && sql.includes('INSERT INTO "Appointment"') && values.includes('p2')) throw new Error('controlled second child failure')
+    const rows = (await pg.query(sql, values.map(v=>v instanceof Date ? v.toISOString() : v !== null && typeof v === 'object' ? JSON.stringify(v) : v))).rows as Record<string, unknown>[]
+    if(lateSlotConflict && sql.includes('FROM "BusinessBotOptionsSettings" s') && values.some(v=>v instanceof Date && v.toISOString()==='2030-09-02T13:30:00.000Z')) for(const row of rows) row.insideWindow=false
+    for (const row of rows) for (const key of ['startAt','endAt','dbNow','scheduledStartAt','expiresAt']) if (row[key] != null) row[key] = new Date(String(row[key]))
+    return rows
+  }
+  const select = async (table: string, where: Record<string, unknown>) => {
+    const values: unknown[] = []
+    const clauses = Object.entries(where).map(([key,v]) => {
+      if (v && typeof v === 'object' && 'in' in v) {
+        const list = (v as {in: unknown[]}).in
+        return '"'+key+'" IN ('+list.map(item=>{values.push(item);return '$'+values.length}).join(',')+')'
+      }
+      values.push(v); return '"'+key+'"=$'+values.length
+    })
+    return query('SELECT * FROM "'+table+'" WHERE '+clauses.join(' AND '),values)
+  }
+  const delegates: Record<string, unknown> = {}
+  for (const [name,table] of Object.entries({professional:'Professional',service:'Service',professionalService:'ProfessionalService',businessHours:'BusinessHours',professionalHours:'ProfessionalHours'})) delegates[name] = {
+    findMany: async ({where}:{where:Record<string, unknown>})=>select(table,where),
+    findFirst: async ({where}:{where:Record<string, unknown>})=>(await select(table,where))[0]??null,
+    count: async ({where}:{where:Record<string, unknown>})=>(await select(table,where)).length
+  }
+  return {...delegates, scheduleBlock:{findFirst:async()=>null},
+    $queryRaw:async(q:Prisma.Sql)=>query(q.text,q.values),
+    $executeRaw:async(q:Prisma.Sql)=>{await query(q.text,q.values);return 1}
+  } as unknown as Prisma.TransactionClient
+}
+const terms: RuntimeBookingTerms = { version:1,businessId:'b',timezone:'America/Argentina/Buenos_Aires',date:'2030-09-02',customerName:'Ana',preference:{kind:'any'},segments:[
+  {serviceId:'s1',serviceName:'Corte',professionalId:'p1',professionalName:'Elisa',startAt:'2030-09-02T13:00:00.000Z',endAt:'2030-09-02T13:30:00.000Z',durationMinutes:30,customerDurationMinutes:30,priceMinor:1000,priceMode:'FIXED',configurationHash:null},
+  {serviceId:'s2',serviceName:'Crema',professionalId:'p2',professionalName:'Leo',startAt:'2030-09-02T13:30:00.000Z',endAt:'2030-09-02T14:00:00.000Z',durationMinutes:30,customerDurationMinutes:30,priceMinor:2000,priceMode:'FIXED',configurationHash:null}
+],totalPriceMinor:3000 }
+for(const segment of terms.segments) segment.configurationHash=runtimeServiceConfigurationHash((await db.query<Record<string,unknown>>('SELECT * FROM "Service" WHERE id=$1',[segment.serviceId])).rows[0]!)
+const shownScope={businessId:'b',sessionId:'session',deploymentId:'dep',generation:2,revision:'4',configurationId:'cfg',dispatchFenceEpoch:3,handoffFenceEpoch:5}
+const presented = {scope:shownScope,version:1 as const,nonce:'9a3db2a0-c131-4262-883a-a7e9aec6fba8',fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true as const,terms}
+const draft = {businessId:'b',customerName:'Ana',date:terms.date,pending:'proposal',professional:terms.preference,basket:{members:terms.segments.map((s,i)=>({memberId:'m'+i,mode:'single',serviceIds:[s.serviceId]}))},
+  slot:{startAt:terms.segments[0]!.startAt,coordination:{segments:terms.segments.map(({priceMinor,priceMode,configurationHash,...s})=>s)}},bookingReservation:{presented}}
+const origin = {kind:'RUNTIME' as const,businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',revision:4n,deploymentId:'dep',generation:2,dispatchFenceEpoch:3,handoffFenceEpoch:5,configurationId:'cfg',operationKey:'runtime:nonce',newBookingAllowed:true}
+const input: RuntimeBookingInput = {origin,presented,currentDraft:draft,consent:{nonce:presented.nonce,fingerprint:presented.fingerprint,confirmed:true}}
+await db.query('UPDATE "BotSession" SET "state"=$1 WHERE "id"=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:draft}}),'session'])
+const counts = async () => (await db.query<{appointments:number;visits:number;operations:number}>(`SELECT (SELECT count(*)::int FROM "Appointment") appointments,(SELECT count(*)::int FROM "BookingVisit") visits,(SELECT count(*)::int FROM "BotOperation") operations`)).rows[0]!
+const execute = (value=input,failPersist=false)=>db.transaction(async tx=>{const result=await executePrismaConversationBooking(orm(tx),value);if(failPersist)throw new Error('caller persistence failure');return result})
+try {
+  for(const change of [{revision:3n},{canonicalPhone:'5491199999999'},{businessId:'foreign'},{handoffFenceEpoch:4},{dispatchFenceEpoch:2},{generation:1},{newBookingAllowed:false}]) {
+    const result=await execute({...input,origin:{...origin,...change}})
+    assert.equal(result.kind,'BLOCKED');assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+  }
+  assert.equal((await execute({...input,consent:{...input.consent,confirmed:false}})).kind,'BLOCKED')
+  await db.transaction(async tx=>{await tx.query('UPDATE "Conversation" SET phone=$1 WHERE id=$2',['demo:preview:admin:'+origin.canonicalPhone,'c']);assert.equal((await executePrismaConversationBooking(orm(tx),input)).kind,'BLOCKED');throw new Error('reset nonphone origin')}).catch(error=>assert.match(String(error),/reset nonphone origin/))
+  const before=structuredClone(input)
+  const noProofTerms={...terms,segments:terms.segments.map(s=>({...s,configurationHash:null}))}
+  const noProofPresented={...presented,terms:noProofTerms,fingerprint:runtimeBookingFingerprint(noProofTerms)}
+  await db.transaction(async tx=>{const noProofDraft={...draft,bookingReservation:{presented:noProofPresented}};await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:noProofDraft}}),'session']);assert.notEqual((await executePrismaConversationBooking(orm(tx),{...input,currentDraft:noProofDraft,presented:noProofPresented,consent:{confirmed:true,nonce:noProofPresented.nonce,fingerprint:noProofPresented.fingerprint}})).kind,'COMMITTED');throw new Error('reset no proof')}).catch(error=>assert.match(String(error),/reset no proof/))
+  for(const sql of [
+    `UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE "id"='s2'`,
+    `UPDATE "Service" SET "requiresPhoto"=true WHERE "id"='s2'`,
+    `UPDATE "Service" SET "duration"=60 WHERE "id"='s2'`,
+    `UPDATE "Service" SET "price"=2500 WHERE "id"='s2'`,
+    `UPDATE "Professional" SET "name"='Changed' WHERE "id"='p2'`,
+    `UPDATE "ServiceCategory" SET "isActive"=false WHERE "id"='category'`
+  ]) {
+    await db.transaction(async tx=>{await tx.exec(sql); const result=await executePrismaConversationBooking(orm(tx),input);assert.notEqual(result.kind,'COMMITTED');assert.equal((await tx.query<{n:number}>('SELECT count(*)::int n FROM "BotOperation"')).rows[0]!.n,0);throw new Error('reset negative')}).catch(error=>{assert.match(String(error),/reset negative/)})
+  }
+  lateSlotConflict=true
+  await assert.rejects(execute(),/child conflict/)
+  lateSlotConflict=false
+  assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+  rejectSecondChild=true
+  await assert.rejects(execute(),/second child/)
+  rejectSecondChild=false
+  assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+  await assert.rejects(execute(input,true),/caller persistence/)
+  assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+
+  for(const mode of ['missing','renamed'] as const) {
+    await db.transaction(async tx=>{
+      await tx.exec(mode==='missing' ? 'DELETE FROM "Customer"' : `UPDATE "Customer" SET name='Before'`)
+      const created=await executePrismaConversationBooking(orm(tx),input)
+      assert.equal(created.kind,'COMMITTED')
+      const rows=(await tx.query<{name:string;phone:string;normalizedPhone:string;businessId:string}>('SELECT name,phone,"normalizedPhone","businessId" FROM "Customer"')).rows
+      assert.deepEqual(rows,[{name:'Ana',phone:origin.canonicalPhone,normalizedPhone:origin.canonicalPhone,businessId:'b'}])
+      throw new Error('reset real identity')
+    }).catch(error=>assert.match(String(error),/reset real identity/))
+  }
+  for(const mutation of ['membership','date','preference','scope','conditions','unknownfield'] as const) {
+    const bad=structuredClone(input)
+    if(mutation==='membership') (bad.currentDraft as typeof draft).basket.members[1]!.serviceIds=['s1']
+    if(mutation==='date') (bad.currentDraft as typeof draft).date='2030-09-03'
+    if(mutation==='preference') (bad.currentDraft as typeof draft).professional={kind:'specific',id:'p1'} as typeof draft.professional
+    if(mutation==='scope') bad.presented.scope.revision='3'
+    if(mutation==='conditions') Object.assign(bad.presented,{conditionsPresented:false})
+    if(mutation==='unknownfield') Object.assign(bad.presented.terms,{priceOverride:1})
+    assert.equal((await execute(bad)).kind,'BLOCKED')
+    assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+  }
+  const result=await execute()
+  assert.equal(result.kind,'COMMITTED')
+  if(result.kind!=='COMMITTED')throw new Error('unreachable')
+  assert.equal(result.appointments.length,2)
+  assert.equal(new Set(result.appointments.map(a=>a.visitId)).size,2)
+  assert.deepEqual(await counts(),{appointments:2,visits:2,operations:3})
+  assert.deepEqual(await execute(),result,'replay before checking own occupied availability')
+  assert.deepEqual(input,before)
+  assert.equal((await execute({...input,presented:{...presented,fingerprint:'a'.repeat(64)}})).kind,'BLOCKED')
+  await db.transaction(async tx=>{await tx.exec(`UPDATE "Appointment" SET "coordinationGroupId"='foreign-group' WHERE "serviceId"='s2'`);await assert.rejects(executePrismaConversationBooking(orm(tx),input),/replay|membership/);throw new Error('reset replay')}).catch(error=>assert.match(String(error),/reset replay/))
+  await db.transaction(async tx=>{await tx.exec(`UPDATE "BotOperation" SET "requestHash"='tampered' WHERE "operationKey" LIKE '%segment:1:CONFIRM_VISIT'`);await assert.rejects(executePrismaConversationBooking(orm(tx),input),/replay/);throw new Error('reset child hash')}).catch(error=>assert.match(String(error),/reset child hash/))
+  assert.ok(statements.some(s=>s.includes('pg_advisory_xact_lock')),'existing agenda locks reused')
+  console.log('booking runtime PGlite: PASS (production F7 children; caller rollback; no network; no cross-process lock claim)')
+} finally { await db.close() }
