@@ -146,3 +146,20 @@ async function main() {
   console.log('PASS core configured intro, verified dates, adaptive typed choices, consent, stale/foreign rollback, AI and exact DST instant')
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })
+
+const { presentAvailability: presentCoordinatedAvailability } = await import('../src/conversational-bot/availability-presentation.js')
+const { adaptChoicePresentation: adaptCoordinatedChoice } = await import('../src/conversational-bot/dialogue-choice-presentation.js')
+const coordinationSegments = [
+  { serviceId: 'cut', serviceName: 'Corte', professionalId: 'ramiro', professionalName: 'Ramiro', startAt: '2026-10-06T14:00:00.000Z', endAt: '2026-10-06T14:30:00.000Z', durationMinutes: 30, customerDurationMinutes: 30 },
+  { serviceId: 'straightening', serviceName: 'Alisado', professionalId: 'cin', professionalName: 'Cin', startAt: '2026-10-06T14:30:00.000Z', endAt: '2026-10-06T16:00:00.000Z', durationMinutes: 90, customerDurationMinutes: 90 }
+]
+const { createHash: coordinationHash } = await import('node:crypto')
+const expectedCoordinationKey = coordinationHash('sha256').update(JSON.stringify({ businessId: 'tenant', segments: coordinationSegments })).digest('hex')
+const coordinatedOffer = presentCoordinatedAvailability({
+  scope: { businessId: 'tenant', serviceIds: ['cut', 'straightening'], date: '2026-10-06', professionalId: null },
+  read: { fresh: true, scope: { businessId: 'tenant', serviceIds: ['cut', 'straightening'], date: '2026-10-06', professionalId: null }, slots: [{ startAt: '2026-10-06T14:00:00.000Z', date: '2026-10-06', time: '11:00', band: 'MORNING', professionalId: 'ramiro', professionalName: 'Ramiro', occupiedMinutes: 120, coordination: { key: expectedCoordinationKey, segments: coordinationSegments } } as any] },
+  timezone: 'America/Argentina/Buenos_Aires', now: new Date('2026-10-01T12:00:00.000Z'), requestedTime: null
+})
+assert.match(coordinatedOffer.text, /Corte.*Ramiro/)
+assert.match(coordinatedOffer.text, /Alisado.*Cin/)
+assert.equal((adaptCoordinatedChoice(coordinatedOffer, 'slots')!.choices[0]!.operation as any).coordinationKey, expectedCoordinationKey)

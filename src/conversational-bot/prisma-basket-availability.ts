@@ -1,3 +1,5 @@
+import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
+import { coordinationKey, validateCoordinatedSlot, type CoordinatedSegment, type DialogueAvailabilitySlot } from './coordinated-booking.js'
 import { explanationForDate, parseAvailabilityExplanation, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { filterTimePreference, parseTimePreference, type TimePreference } from './time-preference.js'
@@ -110,7 +112,53 @@ async function loadGuardedBasketAvailability(
       missingServices: services.filter(service => failure.missingServiceIds.includes(service.id)).map(({ id, name }) => ({ id, name }))
     } } : {}) }
   }
-  if (!professionals.length) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
+  if (!professionals.length) {
+    // Combination consent/policy is identical even when assignment needs several professionals.
+    for (const policy of policies.values()) {
+      if (policy === 'BLOCKED') return {ok:false,reason:'COMBINATION_BLOCKED'}
+      if (policy === 'REVIEW_REQUIRED') return {ok:false,reason:'COMBINATION_REVIEW'}
+    }
+    if (services.length < 2 || professionalId) return {ok:false,reason:'NO_COMMON_PROFESSIONAL'}
+    const perService = await Promise.all(services.map(service => loadGuardedBasketAvailability(client,context,settings,[service],date,undefined,
+      selections[service.id] ? {[service.id]:selections[service.id]!} : {},undefined,serviceContent)))
+    if (perService.some(result => !result.ok)) return {ok:false,reason:'NO_COMMON_PROFESSIONAL'}
+    const reads = perService as Extract<DialogueBasketAvailability,{ok:true}>[]
+    const allProfessionals = [...new Map(reads.flatMap(read => read.professionals).map(pro => [pro.id,pro])).values()]
+    const loader = new BookingAvailabilitySearchEngine(async input => {
+      const read = reads[services.findIndex(service => service.id === input.serviceIds[0])]!
+      return {ok:true,slots:read.slots.filter(slot => slot.date === input.date && slot.professionalId === input.professionalId).map(slot => slot.time)}
+    })
+    const days = date ? [date] : [...new Set(reads.flatMap(read => read.slots.map(slot => slot.date)))].sort()
+    const slots: DialogueAvailabilitySlot[] = []
+    for (const day of days) {
+      const result = await loader.search({mode:{type:'DATE',date:day},assignmentMode:'MULTIPLE_PROFESSIONALS',maxResults:25,
+        services:services.map((service,index) => ({id:service.id,name:service.name,durationMinutes:service.durationMinutes!,
+          customerDurationMinutes:Math.max(service.durationMinutes!,service.customerDurationMinutes!),professionalIds:reads[index]!.professionals.map(pro => pro.id)})),
+        professionals:allProfessionals})
+      for (const option of result.options) {
+        const segments: CoordinatedSegment[] = option.segments.map(segment => {
+          const index = services.findIndex(service => service.id === segment.serviceId)
+          const source = reads[index]!.slots.find(slot => slot.date === day && slot.time === segment.startTime && slot.professionalId === segment.professionalId)
+          if (!source) throw Error('coordinated source slot missing')
+          const service = services[index]!
+          return {serviceId:service.id,serviceName:service.name,professionalId:source.professionalId,professionalName:source.professionalName,
+            startAt:source.startAt,endAt:new Date(Date.parse(source.startAt)+Math.max(service.durationMinutes!,service.customerDurationMinutes!)*60000).toISOString(),
+            durationMinutes:service.durationMinutes!,customerDurationMinutes:Math.max(service.durationMinutes!,service.customerDurationMinutes!)}
+        })
+        const first = reads[0]!.slots.find(slot => slot.date === day && slot.time === option.startTime && slot.professionalId === segments[0]!.professionalId)!
+        const coordinated = {...first,occupiedMinutes:(Date.parse(segments.at(-1)!.endAt)-Date.parse(first.startAt))/60000,
+          coordination:{key:coordinationKey(context.businessId,segments),segments}}
+        validateCoordinatedSlot(coordinated,{businessId:context.businessId,serviceIds:ids,timezone:context.timezone,services})
+        slots.push(coordinated)
+      }
+    }
+    const filtered = date === null ? slots.filter(slot => !temporal?.requestedTime || slot.time === temporal.requestedTime) : slots
+    const matching = date === null && temporal?.preference ? filterTimePreference(filtered,temporal.preference) : filtered
+    const offered = date === null ? matching.filter((slot,index) => matching.findIndex(other => other.date === slot.date) === index) : matching
+    const totalPrice = services.every(service => service.priceMode === 'FIXED' && service.price !== null && serviceGuidance(service).kind !== 'guided') ? services.reduce((sum,service) => sum+service.price!,0) : null
+    return {ok:true,services,durationMinutes,customerDurationMinutes,totalPrice:totalPrice !== null && Number.isSafeInteger(totalPrice) ? totalPrice : null,
+      professionals:allProfessionals,slots:offered}
+  }
   const professionalIds = professionals.map(professional => professional.id)
   let cart = buildCartSnapshot([])
   for (const service of services) {

@@ -42,8 +42,8 @@ function fixture() {
         return structuredClone(rules)
       }
       if (sql.includes('FROM "Professional"')) {
-        assert.ok(query.values.includes('cut') && query.values.includes('straightening'), 'query checks every basket member')
-        assert.ok(query.values.includes(2), 'common-professional HAVING checks the complete set')
+        const expectedIds = query.values.includes('cut') && query.values.includes('straightening') ? 2 : 1
+        assert.ok(query.values.includes(expectedIds), 'eligibility HAVING checks the complete requested set')
         return structuredClone(professionals).map(p => sql.includes('AS "serviceIds"') ? {...p,isActive:true,acceptsBotBookings:true,serviceIds:['cut','straightening']} : p)
       }
       if (sql.includes('FROM "BusinessHours"')) return [4, 5].map(dayOfWeek => ({ ownerId: 'tenant', dayOfWeek, startTime: '10:00', endTime: '14:00' }))
@@ -202,3 +202,84 @@ const shorterResult = await shorterPort.port.availabilityBasket!([selected('cut'
 assert.equal(shorterResult.ok, true, 'customer occupancy already covered by professional interval is representable')
 if (shorterResult.ok) assert.equal(shorterResult.durationMinutes, 120)
 console.log('basket order and representable occupancy: PASS')
+
+// Different professionals must preserve the complete basket, not drop a service.
+const coordinatedFixture = fixture()
+const originalQuery = coordinatedFixture.client.$queryRaw
+coordinatedFixture.client.$queryRaw = async (query: any) => {
+  const sql = query.strings.join(' ')
+  if (sql.includes('FROM "Professional"')) {
+    if (query.values.includes('cut') && query.values.includes('straightening')) return []
+    return query.values.includes('cut') ? [professional] : [{ id: 'cin', name: 'Cin', priority: 1 }]
+  }
+  if (sql.includes('FROM "ProfessionalHours"')) {
+    return ['ramiro', 'cin'].flatMap(ownerId => [4, 5].map(dayOfWeek => ({ ownerId, dayOfWeek, startTime: '10:00', endTime: '14:00' })))
+  }
+  return originalQuery(query)
+}
+const coordinatedPort = await createPrismaDialoguePort(coordinatedFixture.client, 'tenant')
+const coordinatedResult = await coordinatedPort.port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02')
+assert.equal(coordinatedResult.ok, true, 'P3-A must search a complete coordinated assignment when no common professional exists')
+if (!coordinatedResult.ok) throw new Error('coordinated assignment unavailable')
+const coordinatedSlot = coordinatedResult.slots[0] as any
+assert.deepEqual(coordinatedSlot.coordination.segments.map((segment: any) => [segment.serviceId, segment.professionalId]), [['cut', 'ramiro'], ['straightening', 'cin']])
+assert.equal(coordinatedSlot.coordination.segments[0].endAt, coordinatedSlot.coordination.segments[1].startAt)
+assert.match(coordinatedSlot.coordination.key, /^[a-f0-9]{64}$/)
+console.log('P3-A complete coordinated availability: PASS')
+
+const { respondConversationChoice: chooseCoordinated, parseDialogueState: parseCoordinatedState } = await import('../src/conversational-bot/engine.js')
+const { adaptChoicePresentation: coordinatedPresentation } = await import('../src/conversational-bot/dialogue-choice-presentation.js')
+const { coordinationKey: assignmentKey, validateCoordinatedSlot: validateAssignment } = await import('../src/conversational-bot/coordinated-booking.js')
+const coordinatedContext = {...coordinatedPort.context,sandboxBooking:true}
+const coordinatedState = {...proposal.state,date:'2026-10-02',pending:'time' as const,professional:{kind:'any' as const},requestedTime:null,slot:null}
+delete coordinatedState.sandboxReservation
+let freshCoordinatedResult = coordinatedResult
+const controlledCoordinatedPort = {...coordinatedPort.port,catalog:async () => [...coordinatedResult.services],availabilityBasket:async () => freshCoordinatedResult}
+const offeredCoordinated = await respond(coordinatedContext,coordinatedState,'stored choice',controlledCoordinatedPort)
+assert.equal(offeredCoordinated.state.slot,null,'offering a coordinated assignment never selects it')
+assert.equal(offeredCoordinated.bookingCommand,undefined)
+assert.match(offeredCoordinated.reply,/cut.*Ramiro/)
+assert.match(offeredCoordinated.reply,/straightening.*Cin/)
+const assignmentOperation = offeredCoordinated.choicePresentation!.choices[0]!.operation
+assert.equal(assignmentOperation.kind,'slot')
+const acceptedAssignment = await chooseCoordinated(coordinatedContext,offeredCoordinated.state,assignmentOperation,controlledCoordinatedPort)
+assert.deepEqual(acceptedAssignment.state.slot?.coordination,coordinatedSlot.coordination)
+assert.deepEqual(acceptedAssignment.proposal?.segments,coordinatedSlot.coordination.segments)
+assert.equal(acceptedAssignment.bookingCommand,undefined,'A cannot execute coordinated confirmation before B')
+assert.equal(acceptedAssignment.state.sandboxReservation,undefined)
+assert.deepEqual(parseCoordinatedState(acceptedAssignment.state,'tenant',coordinatedContext.timezone).slot,acceptedAssignment.state.slot,'complete assignment survives state round-trip')
+const corruptedAssignment = structuredClone(acceptedAssignment.state)
+corruptedAssignment.slot!.coordination!.segments[1]!.professionalId = 'foreign'
+assert.throws(() => parseCoordinatedState(corruptedAssignment,'tenant',coordinatedContext.timezone),/coordinated/)
+const wrongCoverage = structuredClone(coordinatedSlot)
+wrongCoverage.coordination.segments.reverse()
+assert.throws(() => validateAssignment(wrongCoverage,{businessId:'tenant',serviceIds:['cut','straightening']}),/coverage/)
+const wrongTenant = structuredClone(coordinatedSlot)
+assert.throws(() => validateAssignment(wrongTenant,{businessId:'foreign',serviceIds:['cut','straightening']}),/key/)
+const discontinuous = structuredClone(coordinatedSlot)
+discontinuous.coordination.segments[1].startAt = new Date(Date.parse(discontinuous.coordination.segments[1].startAt)+60000).toISOString()
+assert.throws(() => validateAssignment(discontinuous,{businessId:'tenant',serviceIds:['cut','straightening']}),/segment/)
+const shiftedAssignment = structuredClone(coordinatedResult)
+for (const slot of shiftedAssignment.slots) {
+  slot.coordination!.segments[1]!.professionalId = 'new-cin'
+  slot.coordination!.segments[1]!.professionalName = 'Nueva Cin'
+  slot.coordination!.key = assignmentKey('tenant',slot.coordination!.segments)
+}
+shiftedAssignment.professionals = [...shiftedAssignment.professionals,{id:'new-cin',name:'Nueva Cin',priority:2}]
+freshCoordinatedResult = shiftedAssignment
+await assert.rejects(() => chooseCoordinated(coordinatedContext,offeredCoordinated.state,assignmentOperation,controlledCoordinatedPort),/choice/i,'same anchor with changed second assignment must not authorize the old choice')
+assert.equal(offeredCoordinated.state.slot,null,'rejecting a stale choice cannot mutate the original draft')
+console.log('P3-A selection, assignment freshness, roundtrip and no effects: PASS')
+
+freshCoordinatedResult = coordinatedResult
+if (assignmentOperation.kind !== 'slot') throw new Error('coordinated choice must be a slot')
+const {coordinationKey: omittedAssignmentKey, ...anchorOnlyOperation} = assignmentOperation
+await assert.rejects(() => chooseCoordinated(coordinatedContext,offeredCoordinated.state,anchorOnlyOperation,controlledCoordinatedPort),/choice/i,'an anchor alone cannot select the full assignment')
+assert.ok(omittedAssignmentKey)
+const explicitPreferred = await coordinatedPort.port.availabilityBasket!([selected('cut'),selected('straightening')],'2026-10-02','ramiro')
+assert.equal(explicitPreferred.ok,false,'an incompatible requested professional is not silently replaced by coordination')
+if (!explicitPreferred.ok) assert.equal(explicitPreferred.reason,'PREFERRED_PROFESSIONAL_INCOMPATIBLE')
+coordinatedFixture.rules.push({serviceAId:'cut',serviceBId:'straightening',policy:'BLOCKED'})
+const blockedCoordination = await coordinatedPort.port.availabilityBasket!([selected('cut'),selected('straightening')],'2026-10-02')
+assert.deepEqual(blockedCoordination,{ok:false,reason:'COMBINATION_BLOCKED'})
+console.log('P3-A no anchor-only authorization, silent preference override or policy bypass: PASS')

@@ -15,7 +15,7 @@ export function canonicalPreferenceOptionId(id: string): string {
 export function adaptChoicePresentation(presentation: ChoicePresentation, questionKind: 'slots' | 'professionals' | 'dates', cursor = 0): ConversationChoicePresentation | undefined {
   if (!presentation.choices.length) return undefined
   const choices: { label: string; operation: ConversationChoiceOperation }[] = presentation.choices.map(choice => {
-    const operation: ConversationChoiceOperation = choice.kind === 'slot' ? { kind: 'slot', date: choice.slot.date, time: choice.slot.time, startAt: choice.slot.startAt, professionalId: choice.slot.professionalId }
+    const operation: ConversationChoiceOperation = choice.kind === 'slot' ? { kind: 'slot', date: choice.slot.date, time: choice.slot.time, startAt: choice.slot.startAt, professionalId: choice.slot.professionalId, ...(choice.slot.coordination ? {coordinationKey:choice.slot.coordination.key} : {}) }
       : choice.kind === 'preference' ? { kind: 'preference', preference: choice.preference }
       : choice.kind === 'date' ? { kind: 'date', date: choice.date }
       : choice.kind === 'professional' ? { kind: 'professional', professionalId: choice.professionalId } : { kind: 'any_professional' }
@@ -26,7 +26,7 @@ export function adaptChoicePresentation(presentation: ChoicePresentation, questi
   return { kind: presentation.kind === 'slots' ? 'slot' : presentation.kind === 'dates' ? 'date' : presentation.kind === 'professionals' ? 'professional' : 'preference', title: presentation.kind === 'slots' ? 'Horarios disponibles' : presentation.kind === 'dates' ? 'Días disponibles' : presentation.kind === 'professionals' ? 'Profesionales disponibles' : 'Preferencia horaria', choices }
 }
 export function choiceOptionId(operation: ConversationChoiceOperation): string {
-  return operation.kind === 'slot' ? operation.startAt + '/' + operation.professionalId : operation.kind === 'date' ? operation.date
+  return operation.kind === 'slot' ? operation.startAt + '/' + operation.professionalId + (operation.coordinationKey ? '/' + operation.coordinationKey : '') : operation.kind === 'date' ? operation.date
     : operation.kind === 'professional' ? operation.professionalId : operation.kind === 'any_professional' ? ANY_PROFESSIONAL_OPTION
     : operation.kind === 'preference' ? preferenceOptionId(operation) : operation.kind === 'service' ? operation.serviceId
     : operation.kind === 'estimate' ? operation.optionId : operation.kind === 'confirm' ? operation.nonce : `page:${operation.questionKind}:${operation.cursor}`

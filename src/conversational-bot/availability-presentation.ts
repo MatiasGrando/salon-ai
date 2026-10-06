@@ -1,5 +1,6 @@
+import { validateCoordinatedSlot, coordinationLabel, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { formatDeliveryDate, standardDateTimeQuestion, standardProfessionalChoices, standardSlotOffer, standardManySlots } from './standard-delivery.js'
-import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, localDateKey, parseMinutes, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
+import { BOOKING_DATE_PAGE_SIZE, BOOKING_SLOT_PAGE_SIZE, formatDateChoice, formatSlotOffset, localDateKey, parseMinutes } from '../bot-options/application/availability-queries.js'
 import { filterTimePreference, parseTimePreference, type TimePreference } from './time-preference.js'
 import { resolveDialogueDate } from './dialogue-date.js'
 
@@ -40,7 +41,8 @@ function freshSlots(input: AvailabilityPresentationInput): AvailabilitySlot[] {
       !['MORNING', 'AFTERNOON', 'EVENING'].includes(slot.band) || !Number.isSafeInteger(slot.occupiedMinutes) || slot.occupiedMinutes < 0 ||
       requested.date !== null && slot.date !== requested.date || requested.professionalId !== null && slot.professionalId !== requested.professionalId ||
       localDateKey(instant, input.timezone) !== slot.date || new Intl.DateTimeFormat('en-GB', { timeZone: input.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant) !== slot.time) throw new Error('invalid presentation slot')
-    const key = `${instant.toISOString()}\0${slot.professionalId}`
+    validateCoordinatedSlot(slot,{businessId:requested.businessId,serviceIds:requested.serviceIds,timezone:input.timezone})
+    const key = `${instant.toISOString()}\0${slot.professionalId}\0${slot.coordination?.key ?? ''}`
     const prior = unique.get(key)
     if (prior && JSON.stringify(prior) !== JSON.stringify(slot)) throw new Error('conflicting presentation slot')
     unique.set(key, structuredClone(slot))
@@ -54,7 +56,7 @@ function cursorStart(cursor: number | undefined, pageSize: number): number {
 function slotChoices(slots: readonly AvailabilitySlot[], all: readonly AvailabilitySlot[], timezone: string): PresentationChoice[] {
   return slots.map(slot => {
     const fold = all.some(other => other.date === slot.date && other.time === slot.time && other.startAt !== slot.startAt)
-    return { kind: 'slot', slot, label: `${formatDateChoice(slot.date, timezone)} a las ${slot.time}${fold ? ` (${formatSlotOffset(slot.startAt, timezone)})` : ''} con ${slot.professionalName}` }
+    return { kind: 'slot', slot, label: `${formatDateChoice(slot.date, timezone)} a las ${slot.time}${fold ? ` (${formatSlotOffset(slot.startAt, timezone)})` : ''} ${slot.coordination ? '· ' + coordinationLabel(slot,timezone) : 'con ' + slot.professionalName}` }
   })
 }
 /** Offers are never choices already applied: even one exact/preference match remains an explicit option. */
@@ -64,7 +66,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   cursorStart(input.cursor, BOOKING_SLOT_PAGE_SIZE)
   if (input.preference && input.requestedTime) throw new Error('conflicting temporal presentation')
   if (input.requestedTime && parseMinutes(input.requestedTime) === null) throw new Error('invalid exact time')
-  let filtered = input.preference?.kind === 'earliest' ? all : input.preference ? filterTimePreference(all, input.preference) : all
+  let filtered = input.preference?.kind === 'earliest' ? all : input.preference ? filterTimePreference(all, input.preference) as AvailabilitySlot[] : all
   const around = input.preference?.kind === 'around' ? input.preference.time : null
   if (around) filtered = [...all].sort((a,b) => Math.abs(parseMinutes(a.time)! - parseMinutes(around)!) - Math.abs(parseMinutes(b.time)! - parseMinutes(around)!) || Date.parse(a.startAt) - Date.parse(b.startAt) || a.professionalId.localeCompare(b.professionalId))
   let nearest = false
@@ -90,7 +92,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
   const choices = slotChoices(filtered.slice(start, start + pageSize), all, input.timezone)
   const band = new Set(filtered.map(slot => slot.band))
   const concentration = band.size === 1 ? filtered[0]!.band === 'MORNING' ? 'por la mañana' : filtered[0]!.band === 'AFTERNOON' ? 'por la tarde' : 'por la noche' : null
-  const professional = new Set(filtered.map(slot => slot.professionalId)).size === 1 ? filtered[0]!.professionalName : null
+  const professional = filtered.some(slot => slot.coordination) ? null : new Set(filtered.map(slot => slot.professionalId)).size === 1 ? filtered[0]!.professionalName : null
   const preference = around ? 'Alrededor de las ' + around : input.preference?.kind === 'after' ? 'Después de las ' + input.preference.time
     : input.preference?.kind === 'before' ? 'Antes de las ' + input.preference.time
       : input.preference?.kind === 'range' ? (input.preference.fromInclusive ? 'Desde las ' : 'Después de las ') + input.preference.from +

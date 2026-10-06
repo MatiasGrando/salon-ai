@@ -7,7 +7,7 @@ export type ConversationChoiceOperation =
   | { kind: 'professional'; professionalId: string }
   | { kind: 'any_professional' }
   | { kind: 'date'; date: string }
-  | { kind: 'slot'; date: string; time: string; startAt: string; professionalId: string }
+  | { kind: 'slot'; date: string; time: string; startAt: string; professionalId: string; coordinationKey?: string }
   | { kind: 'preference'; preference: TimePreference }
   | { kind: 'estimate'; serviceId: string; optionId: string; configurationKey: string }
   | { kind: 'confirm'; nonce: string }
@@ -69,9 +69,10 @@ export function parseConversationChoiceOperation(value: unknown): ConversationCh
       if (!validDate(value.date)) fail('date')
       break
     case 'slot':
-      keys(value, ['kind', 'date', 'time', 'startAt', 'professionalId'])
+      keys(value, ['kind', 'date', 'time', 'startAt', 'professionalId'], ['coordinationKey'])
       if (!validDate(value.date) || typeof value.time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value.time) ||
           !text(value.startAt, 40) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value.startAt) || !Number.isFinite(Date.parse(value.startAt)) || !text(value.professionalId, 128)) fail('slot')
+      if (value.coordinationKey !== undefined && (typeof value.coordinationKey !== 'string' || !/^[a-f0-9]{64}$/.test(value.coordinationKey))) fail('coordination key')
       break
     case 'preference': keys(value, ['kind', 'preference']); parseTimePreference(value.preference); break
     case 'estimate':

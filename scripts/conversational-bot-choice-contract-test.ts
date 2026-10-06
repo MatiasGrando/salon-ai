@@ -59,3 +59,8 @@ for (const operation of allOperations) {
 const configured = issueChoiceQuestion(scope, draft, { kind: 'estimate', title: 'Choose', choices: [{ label: 'Configured option', operation: { kind: 'estimate', serviceId: 'smooth', optionId: 'long', configurationKey: 'k'.repeat(6000) } }] }, token)
 assert.equal(publicChoiceQuestion(configured).mode, 'buttons')
 console.log('conversational server choices contract: OK')
+
+const { parseConversationChoiceOperation: parseCoordinatedChoice } = await import('../src/conversational-bot/choices.js')
+const coordinatedChoice = { kind: 'slot', date: '2026-10-06', time: '11:00', startAt: '2026-10-06T14:00:00.000Z', professionalId: 'ramiro', coordinationKey: 'a'.repeat(64) }
+assert.deepEqual(parseCoordinatedChoice(coordinatedChoice), coordinatedChoice, 'coordinated choices retain their complete assignment fingerprint')
+assert.throws(() => parseCoordinatedChoice({ ...coordinatedChoice, coordinationKey: 'not-a-fingerprint' }))

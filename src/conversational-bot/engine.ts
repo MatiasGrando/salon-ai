@@ -1,3 +1,4 @@
+import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
@@ -26,7 +27,7 @@ import { resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPol
 import { guidanceBlockMessage, guidanceQuestion, parseServiceEstimates, renderGuidedEstimates, resolveGuidance, serviceGuidance, type GuidanceBlock, type GuidedSelection, type ServiceEstimates } from './service-guidance.js'
 import { ACTION_REGISTRY, routeActions, type InformationAction } from './actions.js'
 import { pendingQuestion, renderInformation, renderServices, validateFacts, type BusinessFacts } from './information.js'
-import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional, type AvailabilitySlot } from '../bot-options/application/availability-queries.js'
+import { localDateKey, localDateTimeToInstants, parseMinutes, type AvailabilityProfessional } from '../bot-options/application/availability-queries.js'
 import { resolveDialogueDate } from './dialogue-date.js'
 import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperation, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
@@ -79,7 +80,7 @@ export type DialogueState = {
   /** Server-owned QA presentation/receipt; never a production booking capability. */
   sandboxReservation?: SandboxReservation
 }
-export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
+export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; segments?: CoordinatedSegment[]; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
 /** Ephemeral result of this turn only: never persisted as availability or customer state. */
 export type AvailabilityDiagnostic = {
   outcome: 'verified' | 'no_slots' | 'guidance_required' | 'blocked' | 'unsupported'
@@ -183,10 +184,12 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
       offer.businessId !== businessId || offer.serviceId !== s.serviceId || (basketServiceIds(s).length > 1 && !offer.serviceIds) || !validCalendarDate(offer.date) || offer.date !== s.date ||
       !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
+  if (s.slot?.coordination && s.sandboxReservation !== undefined) throw new Error('coordinated confirmation not enabled')
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
   if (s.informationFocus !== undefined) parseInformationFocus(s.informationFocus, businessId)
+  if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.slot && timezone) {
     const instant = new Date(s.slot.startAt)
     const time = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant)
@@ -760,6 +763,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     needsVerifiedSelection = freshNeedsVerifiedSelection
     verifiedCustomerDuration = result.customerDurationMinutes
     availability = { outcome: 'verified', phase: 'slots', reason: null, scope }
+    for (const slot of result.slots) validateCoordinatedSlot(slot,{businessId:context.businessId,serviceIds:basketServiceIds(state),timezone:context.timezone,services:result.services})
     selectedServices = [...result.services]
     service = { ...result.services[0]!, name: result.services.map(item => item.name).join(' + '), durationMinutes: result.durationMinutes, price: result.totalPrice }
     return result
@@ -835,6 +839,10 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     } else reply += '\n¿Qué otro día querés consultar?'
     return finish(reply)
   }
+  if (!state.professional && slots.some(slot => slot.coordination)) {
+    // Any assignment is only a search scope; the customer still selects an entire offered option.
+    state.professional = {kind:'any'}
+  }
   if (!state.professional) {
     state.pending = resolveDialogueRoute(state, [], 'professional').pending
     const cursor = presentationPage?.kind === 'professionals' ? presentationPage.cursor : 0
@@ -843,7 +851,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     questionOptions = (choicePresentation?.choices ?? []).map(choice => ({ id: choiceOptionId(choice.operation), label: choice.label }))
     return finish(prefix + rendered.text)
   }
-  if (state.slot && !slots.some(s => s.startAt === state.slot!.startAt && s.professionalId === state.slot!.professionalId)) state.slot = null
+  if (state.slot && !slots.some(s => s.startAt === state.slot!.startAt && s.professionalId === state.slot!.professionalId && s.coordination?.key === state.slot!.coordination?.key)) state.slot = null
   if (state.timePreference) {
     const unfiltered = slots
     slots = state.timePreference.kind === 'earliest' ? slots : filterTimePreference(slots, state.timePreference)
@@ -859,7 +867,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   }
   if (state.requestedTime && !state.slot) {
     const selected = slots.filter(s => s.time === state.requestedTime)
-    if (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any' && new Set(selected.map(slot => Date.parse(slot.startAt))).size === 1) state.slot = selected[0]!
+    if (!selected.some(slot => slot.coordination) && (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any' && new Set(selected.map(slot => Date.parse(slot.startAt))).size === 1)) state.slot = selected[0]!
 
   }
   if (!state.slot) {
@@ -880,11 +888,11 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   state.pending = resolveDialogueRoute(state, [], 'proposal').pending
   const summary = selectionSummary(selectedServices as DialogueService[])
   const finalGuidance = resolveGuidance(selectedServices as DialogueService[],state.serviceEstimates)
-  const proposal: BookingProposal = { kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName,
+  const proposal: BookingProposal = { ...(state.slot.coordination ? {segments:structuredClone(state.slot.coordination.segments)} : {}), kind: 'BOOKING_PROPOSAL', businessId: context.businessId, serviceId: service.id, professionalId: state.slot.professionalId, startAt: state.slot.startAt, customerName: state.customerName,
     ...(selectedServices.length > 1 || needsVerifiedSelection ? { serviceIds: basketServiceIds(state), services: selectedServices as DialogueService[], durationMinutes: summary.durationMinutes, totalPrice: summary.totalPrice } : {}), ...(verifiedCustomerDuration !== undefined ? {customerDurationMinutes:verifiedCustomerDuration} : {}), ...(Object.keys(finalGuidance.estimates).length ? {estimates:finalGuidance.estimates} : {}) }
   const details = selectedServices.length > 1 ? ' (' + summary.durationMinutes + ' min; ' + (summary.totalPrice === null ? 'precio total a consultar' : '$ ' + summary.totalPrice.toLocaleString('es-AR')) + ')' : ''
   const estimates = renderGuidedEstimates(selectedServices as DialogueService[],state.serviceEstimates ?? {},context.businessId)
-  return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} con ${state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.${estimates ? '\n' + estimates : ''}`, proposal)
+  return finish(`${prefix}Propuesta: ${service.name}${details}, ${state.date.split('-').reverse().join('/')} a las ${state.slot.time} ${state.slot.coordination ? '· ' + coordinationLabel(state.slot,context.timezone) : 'con ' + state.slot.professionalName}, a nombre de ${state.customerName}. Todavía no está reservado.${estimates ? '\n' + estimates : ''}`, proposal)
 }
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
@@ -1384,7 +1392,10 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
     if (response.state.dialogueContext) response.state.dialogueContext.lastQuestion = null
     return response
   }
-  if (response.proposal) {
+  if (response.proposal?.segments) {
+    delete response.state.sandboxReservation
+    response.reply += '\nLa confirmación coordinada todavía no está habilitada; no reservé ninguno de los servicios.'
+  } else if (response.proposal) {
     response.reply = presentSandboxProposal(context, response.state, catalog, response.proposal, reservation)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
@@ -1576,7 +1587,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   } else if (operation.kind === 'slot') {
     if (state.date !== operation.date || state.professional?.kind === 'specific' && state.professional.id !== operation.professionalId) return reject()
     const available = await freshAvailability()
-    const slot = available.slots.find(slot => slot.date === operation.date && slot.time === operation.time && slot.professionalId === operation.professionalId && Date.parse(slot.startAt) === Date.parse(operation.startAt) && Date.parse(slot.startAt) > context.dbNow.getTime())
+    const slot = available.slots.find(slot => slot.date === operation.date && slot.time === operation.time && slot.professionalId === operation.professionalId && slot.coordination?.key === operation.coordinationKey && Date.parse(slot.startAt) === Date.parse(operation.startAt) && Date.parse(slot.startAt) > context.dbNow.getTime())
     if (!slot || !available.professionals.some(professional => professional.id === slot.professionalId)) return reject()
     const scoped = parseDialogueState({ ...state, requestedTime: operation.time, slot, timePreference: undefined },context.businessId,context.timezone)
     delete state.timeClarification; clearDependent(false); delete state.timePreference; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
@@ -1584,7 +1595,10 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
     operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
-  if (response.proposal && context.sandboxBooking === true) {
+  if (response.proposal?.segments) {
+    delete response.state.sandboxReservation
+    response.reply += '\nLa confirmación coordinada todavía no está habilitada; no reservé ninguno de los servicios.'
+  } else if (response.proposal && context.sandboxBooking === true) {
     response.reply = presentSandboxProposal(context,response.state,services,response.proposal)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state,SANDBOX_CONFIRMATION_QUESTION)
