@@ -2,7 +2,7 @@ import { DATE_PREFERENCES_JSON_SCHEMA, parseDatePreferenceCandidates, type DateP
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { isCustomerText } from './customer-text.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
-import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, timePreferenceMatchesEvidence, type TimePreference } from './time-preference.js'
+import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, classifyTemporalRequest, timePreferenceMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
@@ -105,6 +105,13 @@ export function validTurnPlanDate(value: unknown): value is string {
 }
 /** Strict structural/evidence validation; catalogIds, when provided, are the trusted tenant catalog. */
 export function parseTurnPlan(value: unknown, message: string, catalogIds?: readonly string[]): TurnPlan {
+  return parseTurnPlanCore(value, message, catalogIds, true)
+}
+/** Server validation before deny-only semantic filtering; never an input flag on a model schema. */
+export function parseTurnPlanStructure(value: unknown, message: string, catalogIds?: readonly string[]): TurnPlan {
+  return parseTurnPlanCore(value, message, catalogIds, false)
+}
+function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly string[] | undefined, semantic: boolean): TurnPlan {
   if (!object(value)) fail('object')
   let serialized: string
   try { serialized = JSON.stringify(value) } catch { return fail('serialization') }
@@ -182,12 +189,18 @@ export function parseTurnPlan(value: unknown, message: string, catalogIds?: read
     } else if (raw.kind === 'time') {
       exactKeys(raw, [...common, 'value'])
       if (typeof raw.value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw.value)) fail('time')
-      const temporal = classifyTemporalRequest(message, true) ?? classifyTemporalRequest(raw.evidence, true)
-      if (temporal && temporal.kind !== 'exact') fail('preference is not exact time')
+      if (semantic) {
+        const meaning = literalClockMeaning(message, raw.evidence)
+        if (meaning.kind === 'alternatives' || meaning.kind === 'single' && meaning.time !== raw.value) fail('clock value evidence')
+        const temporal = classifyTemporalRequest(message, true) ?? classifyTemporalRequest(raw.evidence, true)
+        const disjointClock = temporal?.kind === 'ambiguous' && !temporal.candidateTimes && meaning.kind === 'single' &&
+          !/\b(?:tipo|aproximadamente|alrededor|cerca|antes de|despues de|desde|entre|a partir de)\b/.test(normalized(message))
+        if (temporal && temporal.kind !== 'exact' && !disjointClock) fail('preference is not exact time')
+      }
     } else if (raw.kind === 'time_preference') {
       exactKeys(raw, [...common, 'preference'])
       const preference = parseTimePreference(raw.preference)
-      if (!timePreferenceMatchesEvidence(preference, message)) fail('incomplete range evidence')
+      if (semantic && !timePreferenceMatchesEvidence(preference, message)) fail('incomplete range evidence')
       identity = 'time'
     } else if (raw.kind === 'time_clarification') {
       exactKeys(raw, [...common, 'candidateTimes'])

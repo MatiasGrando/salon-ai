@@ -1,7 +1,7 @@
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { issueChoiceQuestion, parseChoiceQuestion, publicChoiceQuestion, resolveChoice } from '../src/conversational-bot/choices.js'
 import assert from 'node:assert/strict'
-import { parseTimePreference, classifyTemporalRequest } from '../src/conversational-bot/time-preference.js'
+import { parseTimePreference, classifyTemporalRequest, literalClockMeaning } from '../src/conversational-bot/time-preference.js'
 import { initialDialogueState, parseDialogueState, respondConversationChoice, respond, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { buildRequestedStartEvidence } from '../src/bot-options/application/requested-start-evidence.js'
@@ -98,7 +98,13 @@ for (const [text, output] of [
  ['hola',plan(pref({kind:'around',time:'17:00'},'hola'))]
 ]) {
  const rejected=await respondWithAiInterpreter(ctx,base(),text as string,port,provider(output))
- assert.equal(rejected.interpretation.reason,'invalid_output')
+ if(text==='hola') {
+  assert.equal(rejected.interpretation.mode,'ai'); assert.equal(rejected.interpretation.reason,null)
+  assert.deepEqual(rejected.interpretation.temporalGrounding,{outcome:'field_rejected',field:'time',reason:'unproven_approximation'})
+  assert.deepEqual(rejected.state.timePreference,base().timePreference)
+  assert.equal(rejected.state.timeMeaningClarification,undefined)
+  assert.equal(rejected.bookingCommand,undefined)
+ } else assert.equal(rejected.interpretation.reason,'invalid_output')
  assert.equal(rejected.state.slot,null)
  assert.doesNotMatch(JSON.stringify(rejected.interpretation),/evidence-private-fake/)
 }
@@ -164,3 +170,72 @@ console.log('around temporal preference: offline PASS')
 
 
 
+
+// S: current literal clocks prove their values, not just a valid HH:mm shape.
+const semanticClockFailures: string[] = []
+async function clockCheck(label: string, check: () => void | Promise<void>) {
+ try { await check(); console.log('PASS semantic clock ' + label) }
+ catch(error) { semanticClockFailures.push(label + ': ' + String(error)); console.error('RED semantic clock ' + label + ': ' + String(error)) }
+}
+const literals = [
+ ['1330','13:00','13:30'], ['1130','11:00','11:30'], ['17hs','18:00','17:00'],
+ ['las19','18:00','19:00'], ['13:30','13:00','13:30']
+] as const
+await clockCheck('public strict parser rejects different values', () => {
+ for(const [evidence,wrong] of literals) assert.throws(()=>parseTurnPlan(plan({kind:'time',value:wrong,evidence,confidence:1}),evidence))
+ assert.throws(()=>parseTurnPlan(plan({kind:'time',value:'13:00',evidence:'13',confidence:1}),'13:30'),'a shortened quote cannot erase minutes')
+})
+await clockCheck('same clocks are accepted without selecting a preference', async () => {
+ times=['11:30','13:30','17:00','19:00']
+ for(const [evidence,_wrong,correct] of literals) {
+  const result=await respondWithAiInterpreter(ctx,base(),evidence,port,provider(plan({kind:'time',value:correct,evidence,confidence:1}),[act('change','time',evidence,[0])]))
+  assert.equal(result.interpretation.mode,'ai');assert.equal(result.state.requestedTime,correct)
+  assert.equal(result.state.slot?.time,correct);assert.equal(result.bookingCommand,undefined)
+ }
+})
+await clockCheck('known alternatives cannot be reduced to a branch', async () => {
+ times=['13:30','14:00']
+ for(const [message,evidence] of [['13:30/14:00','13:30'],['13:30 o 14:00','13:30'],['a las13:30 o a las14:00','a las13:30']] as const) {
+  const before=calls
+  const result=await respondWithAiInterpreter(ctx,base(),message,port,provider(plan({kind:'time',value:'13:30',evidence,confidence:1}),[act('change','time',message,[0])]))
+  assert.equal(result.interpretation.mode,'ai')
+  assert.deepEqual(result.interpretation.temporalGrounding,{outcome:'field_rejected',field:'time',reason:'clock_alternatives'})
+  assert.equal(result.state.timeMeaningClarification,true);assert.equal(result.state.timeClarification,undefined)
+  assert.equal(result.state.requestedTime,null);assert.equal(result.state.slot,null)
+  assert.equal(result.proposal,null);assert.equal(result.bookingCommand,undefined);assert.equal(calls,before)
+  assert.doesNotMatch(result.reply,/mañana o de la tarde|mañana.*tarde.*refer/i)
+ }
+})
+await clockCheck('twelve-hour literals do not prove a morning clock', () => {
+ for(const text of ['5','a las5','5hs','5:30','a las11']) assert.deepEqual(literalClockMeaning(text,text),{kind:'unknown'})
+ assert.doesNotThrow(()=>parseTurnPlan(plan({kind:'time',value:'11:00',evidence:'11',confidence:1}),'11'))
+})
+await clockCheck('explicit periods prove the converted clock without changing twelve-hour approximation', async () => {
+ for(const [evidence,correct,wrong] of [['a las5pm','17:00','18:00'],['a las11:00am','11:00','23:00'],['a las5 de la tarde','17:00','05:00']] as const) {
+  assert.throws(()=>parseTurnPlan(plan({kind:'time',value:wrong,evidence,confidence:1}),evidence))
+  times=[correct]
+  const result=await respondWithAiInterpreter(ctx,base(),evidence,port,provider(plan({kind:'time',value:correct,evidence,confidence:1}),[act('change','time',evidence,[0])]))
+  assert.equal(result.interpretation.mode,'ai');assert.equal(result.state.slot?.time,correct);assert.equal(result.bookingCommand,undefined)
+  const mismatch=await respondWithAiInterpreter(ctx,base(),evidence,port,provider(plan({kind:'time',value:wrong,evidence,confidence:1}),[act('change','time',evidence,[0])]))
+  assert.deepEqual(mismatch.interpretation.temporalGrounding,{outcome:'field_rejected',field:'time',reason:'clock_value_mismatch'})
+  assert.equal(mismatch.state.slot,null);assert.equal(mismatch.state.timeMeaningClarification,true)
+ }
+ times=['17:30']
+ const approximate=await respondWithAiInterpreter(ctx,base(),'tipo 5:30',port,provider(plan({kind:'time',value:'17:30',evidence:'tipo 5:30',confidence:1}),[act('change','time','tipo 5:30',[0])]))
+ assert.deepEqual(approximate.state.timePreference,{kind:'around',time:'17:30'});assert.equal(approximate.state.slot,null)
+})
+await clockCheck('history negation ranges and approximation are not slash alternatives', async () => {
+ times=['14:00']
+ for(const message of ['Antes venía a las13:30; ahora quiero a las14:00','No a las13:30; mejor a las14:00']) {
+  const evidence='a las14:00'
+  const result=await respondWithAiInterpreter(ctx,base(),message,port,provider(plan({kind:'time',value:'14:00',evidence,confidence:1}),[act('change','time',evidence,[0])]))
+  assert.equal(result.interpretation.mode,'ai');assert.equal(result.state.slot?.time,'14:00')
+ }
+ const interval={kind:'range',from:'13:00',to:'18:00',fromInclusive:true,toInclusive:false} as const
+ const rangeText='después de las13 y antes de las18'
+ const ranged=await respondWithAiInterpreter(ctx,base(),rangeText,port,provider(plan(pref(interval,rangeText)),[act('change','time',rangeText,[0])]))
+ assert.deepEqual(ranged.state.timePreference,interval);assert.equal(ranged.state.slot,null)
+ const around=await respondWithAiInterpreter(ctx,base(),'alrededor de las11:00',port,provider(plan(pref({kind:'around',time:'11:00'},'alrededor de las11:00')),[act('change','time','alrededor de las11:00',[0])]))
+ assert.deepEqual(around.state.timePreference,{kind:'around',time:'11:00'});assert.equal(around.state.slot,null)
+})
+if(semanticClockFailures.length)throw Error('Semantic clock failures: '+semanticClockFailures.join('\n'))

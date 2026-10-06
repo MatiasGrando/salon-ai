@@ -16,7 +16,7 @@ import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
 import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
-import { parseTurnPlan, TurnPlanValidationError, type TurnPlan, type TurnOperation } from './turn-plan.js'
+import { parseTurnPlan, parseTurnPlanStructure, TurnPlanValidationError, type TurnPlan, type TurnOperation } from './turn-plan.js'
 import { groundServicePlan, serviceEvidenceMeaning } from './service-evidence-grounding.js'
 import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, type BasketMemberProposal } from './service-basket.js'
 import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
@@ -43,7 +43,7 @@ export type DecisionTrace = {
 
 export type InterpretationDiagnostics = {
   decision: DecisionTrace
-  temporalGrounding?: { outcome: 'field_rejected'; field: 'time'; reason: 'unproven_approximation' }
+  temporalGrounding?: { outcome: 'field_rejected'; field: 'time'; reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' }
   replyValidation?: ReplyValidationTrace
   mode: 'ai' | 'fallback'
   reason: 'provider_error' | 'timeout' | 'invalid_output' | null
@@ -97,7 +97,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         const serviceGrounded = groundServicePlan(item.turnPlan, message, services)
         // Existing catalog-boundary alignment keeps every operation, property and index.
         // Validate that whole original source before temporal projection or act admission.
-        const original = parseTurnPlan(serviceGrounded, message, catalogIds)
+        const original = parseTurnPlanStructure(serviceGrounded, message, catalogIds)
         let parsedPlan: TurnPlan
         try {
           parsedPlan = parseTurnPlan(groundTemporalPlan(serviceGrounded, message, state,
@@ -108,7 +108,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           // This specific semantic mismatch cannot authorize a malformed original
           // proposal or a bad companion hidden by a service projection.
           parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original)
-          parsedPlan = parseTurnPlan(serviceGrounded, message, catalogIds)
+          parsedPlan = original
           temporalGrounding = { outcome: 'field_rejected', field: error.field, reason: error.reason }
         }
         // Validate the whole untrusted proposal before any semantic filtering. A reference

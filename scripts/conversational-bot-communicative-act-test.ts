@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, parseDialogueState, respond, respondConversationChoice, ConversationChoiceUnavailableError, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
 import { applyBasketMutation, parseServiceBasket, selectionBasket } from '../src/conversational-bot/service-basket.js'
-import { parseTurnPlan } from '../src/conversational-bot/turn-plan.js'
+import { parseTurnPlan, parseTurnPlanStructure } from '../src/conversational-bot/turn-plan.js'
 import { serviceConfigurationKey, type ServiceBookingPolicy } from '../src/bot-options/domain/service-booking.js'
 import type { BusinessFacts } from '../src/conversational-bot/information.js'
 import { expectedDialogueAnswer } from '../src/conversational-bot/dialogue-context.js'
@@ -370,7 +370,9 @@ try {
     assert.equal(admitCommunicativePlan(null, datePlan, datePlan, 'miércoles 07/10', dateState, services).plan.operations.length, 0)
     const timeState: DialogueState = { ...selectedWoman, date: '2026-10-06', pending: 'time', requestedTime: '16:00' }
     rememberDialogueQuestion(timeState, '¿Qué horario?', [{ id: '2026-10-06T20:00:00Z/cin', label: 'martes 06/10 a las 17:00 con Cin' }])
-    const timePlan = parseTurnPlan({ version: 1, operations: [{ kind: 'time', value: '18:00', ...ev('martes 06/10 a las 17:00 con Cin') }] }, 'martes 06/10 a las 17:00 con Cin')
+    const wrongClock = { version: 1, operations: [{ kind: 'time', value: '18:00', ...ev('martes 06/10 a las 17:00 con Cin') }] }
+    assert.throws(() => parseTurnPlan(wrongClock, 'martes 06/10 a las 17:00 con Cin'), /clock value evidence/)
+    const timePlan = parseTurnPlanStructure(wrongClock, 'martes 06/10 a las 17:00 con Cin')
     assert.equal(admitCommunicativePlan(null, timePlan, timePlan, 'martes 06/10 a las 17:00 con Cin', timeState, services).plan.operations.length, 0)
     const estimateState: DialogueState = { ...selectedAll, pending: 'estimate' }
     rememberDialogueQuestion(estimateState, '¿Hasta dónde?', [{ id: 'shoulders', label: 'Hasta los hombros' }], smooth.id)
@@ -1176,6 +1178,53 @@ try {
     assert.deepEqual(derive([owner], { version: 1, operations: [] }), [])
     const changed = { ...source, operations: [{ ...operation, target: { ...operation.target, serviceIds: ['cut-m'] } }] }
     assert.deepEqual(derive([owner], changed as typeof source), [])
+  })
+
+  // S uses a genuine earlier exact selection, then rejects only the mismatched current field.
+  let clockReads=0
+  const clockPort: DialoguePort={...port,availability:async(_service,date)=>{
+    clockReads++
+    return {professionals:[{id:'clock-pro',name:'Leo',priority:0}],slots:['13:00','13:30','17:00'].map(time=>({date,time,startAt:date+'T'+String(Number(time.slice(0,2))+3).padStart(2,'0')+':'+time.slice(3)+':00.000Z',professionalId:'clock-pro',professionalName:'Leo',band:'AFTERNOON' as const,occupiedMinutes:0}))}
+  }}
+  const clockStart=parseDialogueState({...initial,serviceId:'cut-m',date:'2026-10-07',professional:{kind:'specific',id:'clock-pro'},pending:'time'},context.businessId,context.timezone)
+  const selectedClock=await respondWithAiInterpreter(context,clockStart,'a las17:00',clockPort,async()=>acted([{kind:'time',value:'17:00',...ev('a las17:00')}],[act('request','time','a las17:00',[0])]))
+  assert.equal(selectedClock.state.slot?.time,'17:00')
+  await check('S mismatch retains independent name and original operation indexes',async()=>{
+    const message='13:30, soy Julia',before=clockReads
+    const result=await say(selectedClock.state,message,acted([{kind:'time',value:'13:00',...ev('13:30')},{kind:'name',value:'Julia',...ev('Julia')}],[act('change','time','13:30',[0]),act('answer','name','soy Julia',[1])]),clockPort)
+    assert.equal(result.interpretation.mode,'ai');assert.equal(result.interpretation.reason,null)
+    assert.deepEqual(result.interpretation.temporalGrounding,{outcome:'field_rejected',field:'time',reason:'clock_value_mismatch'})
+    assert.equal(result.state.customerName,'Julia');assert.equal(result.state.date,'2026-10-07')
+    assert.deepEqual(result.state.professional,selectedClock.state.professional)
+    assert.equal(result.state.timeMeaningClarification,true);assert.equal(result.state.slot,null);assert.equal(result.state.requestedTime,null)
+    assert.equal(clockReads,before);assert.equal(result.bookingCommand,undefined)
+    const restored=parseDialogueState(JSON.parse(JSON.stringify(result.state)),context.businessId,context.timezone)
+    const next=await say(restored,'soy Laura',acted([{kind:'name',value:'Laura',...ev('Laura')}],[act('change','name','soy Laura',[0])]),clockPort)
+    assert.equal(next.state.customerName,'Laura');assert.equal(next.state.timeMeaningClarification,true)
+    assert.equal(next.state.slot,null);assert.equal(clockReads,before)
+  })
+  await check('S weak historical and wrong-field mismatch cannot erase a valid selection',async()=>{
+    for(const owner of [act('reference','time','13:30',[0]),act('uncertain','time','13:30',[0]),act('change','service','13:30',[0]),act('change','time','13:30',[0],null,.6)]) {
+      const before=clockReads
+      const result=await say(selectedClock.state,'13:30',acted([{kind:'time',value:'13:00',...ev('13:30')}],[owner]),clockPort)
+      assert.equal(result.interpretation.mode,'ai');assert.equal(result.state.timeMeaningClarification,undefined)
+      assert.deepEqual(result.state.slot,selectedClock.state.slot);assert.equal(result.state.requestedTime,'17:00')
+      assert.equal(clockReads,before);assert.equal(result.bookingCommand,undefined)
+    }
+  })
+  await check('S temporal conflict cannot rescue malformed source or duplicate acts',async()=>{
+    const message='13:30 Corte hombre'
+    const time={kind:'time',value:'13:00',...ev('13:30')}
+    for(const output of [
+      acted([time,{kind:'service',mode:'single',serviceIds:['foreign-id'],correction:false,...ev('Corte hombre')}],[act('change','time','13:30',[0]),act('change','service','Corte hombre',[1])]),
+      acted([{...time,evidence:'inventado'}],[act('change','time','13:30',[0])]),
+      acted([time],[act('change','time','13:30',[0]),act('change','time','13:30',[0])]),
+      acted([time,{...time}],[act('change','time','13:30',[0,1])])
+    ]) {
+      const result=await say(initial,message,output)
+      assert.equal(result.interpretation.mode,'fallback');assert.equal(result.interpretation.reason,'invalid_output')
+      assert.equal(result.interpretation.temporalGrounding,undefined)
+    }
   })
 
   await check('all checks use controlled provider and no real network or reservation adapter', () => {

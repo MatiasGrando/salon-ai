@@ -1,13 +1,12 @@
 import { commercialTimeCandidate, temporalPlanDate, type BusinessTimeContextReader } from './business-time-context.js'
 import { TurnPlanValidationError } from './turn-plan.js'
-import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timePreferenceMatchesEvidence, type TimePreference } from './time-preference.js'
+import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timePreferenceMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
 import { parseMinutes } from '../bot-options/application/availability-queries.js'
 /** A proved semantic mismatch, not authority to relax structural or evidence validation. */
 export class TemporalMeaningConflictError extends Error {
   readonly field = 'time' as const
-  readonly reason = 'unproven_approximation' as const
-  constructor() { super('unproven temporal approximation') }
+  constructor(readonly reason: 'unproven_approximation' | 'clock_value_mismatch' | 'clock_alternatives' = 'unproven_approximation') { super(reason === 'unproven_approximation' ? 'unproven temporal approximation' : reason) }
 }
 
 type Context = Pick<DialogueState, 'timePreference'> & Partial<Pick<DialogueState, 'date' | 'businessId'>> & { timeClarification?: { candidateTimes: string[] } }
@@ -58,6 +57,12 @@ export function contextualTimeAnswer(message: string, candidates: readonly strin
 export function groundTemporalPlan(value: unknown, message: string, state: Context, commercial?: {businessId:string;timezone:string;businessDate:string;read?:BusinessTimeContextReader}): unknown {
   if (!record(value) || value.version !== 1 || !Array.isArray(value.operations) || value.operations.length > 12) return value
   // This guard runs before semantic admission, never in the engine after an operation was blocked.
+  for (const operation of value.operations) {
+    if (!record(operation) || operation.kind !== 'time' || !wellShapedTemporal(operation) || typeof operation.evidence !== 'string') continue
+    const meaning = literalClockMeaning(message, operation.evidence)
+    if (meaning.kind === 'alternatives') throw new TemporalMeaningConflictError('clock_alternatives')
+    if (meaning.kind === 'single' && meaning.time !== operation.value) throw new TemporalMeaningConflictError('clock_value_mismatch')
+  }
   for (const operation of value.operations) {
     if (record(operation) && operation.kind === 'time_preference' && wellShapedTemporal(operation) &&
         !timePreferenceMatchesEvidence(parseTimePreference(operation.preference), message)) throw new TurnPlanValidationError('evidence')

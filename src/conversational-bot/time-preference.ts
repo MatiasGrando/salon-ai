@@ -166,3 +166,47 @@ export function timePreferenceMatchesEvidence(preference: TimePreference, messag
   const range = constraint.preference
   return preference.from === range.from && preference.to === range.to && preference.fromInclusive === range.fromInclusive && preference.toInclusive === range.toInclusive
 }
+
+export type LiteralClockMeaning = { kind: 'single'; time: string } | { kind: 'alternatives' } | { kind: 'unknown' }
+/** Deny-only value proof from current quoted clock spans; never infer an owner or choose a branch. */
+export function literalClockMeaning(message: string, ownedEvidence: string): LiteralClockMeaning {
+  const text = normalize(message), quote = normalize(ownedEvidence)
+  if (!quote || !text.includes(quote)) return { kind: 'unknown' }
+  const ownedSpans: { start: number; end: number }[] = []
+  for (let from = 0; from < text.length;) {
+    const start = text.indexOf(quote, from)
+    if (start < 0) break
+    ownedSpans.push({ start, end: start + quote.length }); from = start + 1
+  }
+  const clocks: { start: number; end: number; time: string | null }[] = []
+  const pattern = /\b(?:(?:a\s+)?las?\s*)?(?:(\d{1,2}):([0-5]\d)|(\d{2})([0-5]\d)|(\d{1,2}))(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index!, end = start + match[0].length
+    const explicit = match[1] !== undefined || /^(?:a\s+)?las?/.test(match[0]) || match[6] !== undefined || match[7] !== undefined
+    // Unqualified integers/compact clocks are answers only, not calendar dates, years or prices.
+    const quotedWhole = quote === match[0] && ownedSpans.some(span => span.start === start && span.end === end)
+    if (!explicit && !quotedWhole) continue
+    let hour = Number(match[1] ?? match[3] ?? match[5])
+    const period = match[6] === 'am' || match[6] === 'pm' ? match[6] : match[7]
+    if (period === 'am' || period === 'manana') { if (hour === 12) hour = 0 }
+    else if (period && hour < 12) hour += 12
+    const precise = !!period || match[3] !== undefined || hour === 0 || hour > 12 || match[1]?.length === 2
+    // One-digit twelve-hour clocks need existing contextual grounding, not a fabricated morning value.
+    clocks.push({ start, end, time: precise ? clock(String(hour), match[2] ?? match[4]) : null })
+  }
+  const owned = clocks.filter(item => ownedSpans.some(span => span.start < item.end && span.end > item.start))
+  if (!owned.length) return { kind: 'unknown' }
+  for (let index = 1; index < clocks.length; index++) {
+    const left = clocks[index - 1]!, right = clocks[index]!
+    const connector = text.slice(left.end, right.start).trim()
+    if (/^(?:\/|o|y)$/.test(connector) && (owned.includes(left) || owned.includes(right))) {
+      const preceding = text.slice(0, left.start)
+      // Known ranges and explicitly negated/history clauses are not positive alternative choices.
+      if (!/\b(?:entre|desde|antes de|despues de|a partir de)\s*(?:las?\s*)?$/.test(preceding) &&
+          !/\b(?:no|ni|nunca|antes|anteriormente)\s*(?:(?:a\s+)?las?\s*)?$/.test(preceding)) return { kind: 'alternatives' }
+    }
+  }
+  if (owned.some(item => item.time === null)) return { kind: 'unknown' }
+  const values = [...new Set(owned.map(item => item.time!))]
+  return values.length === 1 ? { kind: 'single', time: values[0]! } : { kind: 'alternatives' }
+}

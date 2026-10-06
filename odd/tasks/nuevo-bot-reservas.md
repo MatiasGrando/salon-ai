@@ -2573,3 +2573,115 @@ Aceptación transversal: grupo completo consentido o cero efectos; preservar asi
 - **R cierreoffline final:** EXACT2/203authored194add9del, REDoriginal34PASS5FAIL→GREEN40/0; parentreviewreopened clockadjacent RED41PASS2FAIL→GREEN43/0. Sharedcalendar numeric/named12meses/weekdayyear-past1900–2200 intactos, colonhora excluida del optionalyear sinbacktrackingpartial; ownedcurrentdate+time/name/prof independentretain/noeffects/inputproof. RelatedtimeQ22/commercial/turnplanAI/act1080PASS, strict2real315files0diag yparent6real317files0diag strict/exactOptional/noUnchecked/noEmit/typesnode; UTF8readback/diffhash2final2118a34d0be080215855d451359d9d9599ccbb21718aa815638b74be180ed33a/40320a911eff115ab4e108db89ad13db3d8f5206fbb10766d25a462c529f40b6. Controlesagenda1→2/inputfixtureinference ystrictresolver corregidosdocumentados, nosourceadjacent/noorigcasePASS. Rcommitexact2+tracker/nativeassessment from82640eb(Q182pendingslice) próximoantesV12API.
 
 - **Retoma R 06/10 17:45Z:** documento/código congelado reconciliado por padre; mem_* no expuestos, resumen/espejo Engram pendiente. Padre rerun fechas43/0. Invocación errónea scripts/text-encoding-test.ts falló MODULE_NOT_FOUND; runner oficial npm run test:text-encoding ejecutado después EXIT0, no fallo de fuente ni ocultamiento. Preparado commit exact2+tracker; V12 aún sin tráfico.
+
+- **R commit/native final observado:**48fcc40ce02e9e77570ea251ae8080200bb7952a exact2+tracker3paths215authored; fuente203/regresiones43/0/hash2final/UTF8 oficialPASS. ASSESSinitialunassessable/highporinventario(noinferirlow)→canonicalSTATUSv2excludehash5c2755…→ASSESS EXIT0 medium/executable_change7paths395authored(ASSESS nativo; GitstatR215 por su propia métrica), review_duefalse under_budget from82640eb. NoSTART/receipt/consent/modeOFF; frontera82640eb conservaQ+Rpending395slice. Parentfreeze6 verifiedactual aftercommit, dirtysrcscripts0; V12 sinAPI aestaaltura. Engram sesión/espejo noexpuestos pendiente.
+
+- **V12 terminal observado 17:50Z:**3NEWIN/4HTTP/2dependientesomitidos/0errorlocal/typed1met2fallbacktimeout; runtime4c20ca588ea3b74f898d306a61e653f5e962e26f1b09df743e80b80d6e4021a6/HEAD48fcc40 frozen. PRICE1timeout15388.3ms: respaldo precio20k/fococut-w/cestavacía/offerbooking correcto, no pruebaIA; PRICE2omitido. DATE1IA cut-mfecha7Leo/exact17freshslot/namepending/noautoconfirm2HTTP PASSfuncional; DATE2timeout15696.6ms: respaldo around11/old17invalidado/fechaLeo intactos/no11autoselect correcto, no pruebaIA. DATE3pauseomitido. Finalrunneronlyskip0extraHTTP requests4igual; NOretry/resumeV12. Usageknown9444input777output8197cached0reasoning2unknownrequest; global82IN100HTTP, nuevaautorizaciónremaining2IN9HTTPhasta19Z sinreset. Cumul82completed62IAfunctional13semanticcontextfail7timeouts; originales92fullclosures0/59mapunchanged. JournalSHA36ca2618dbbe0977fb9b17880ea65e9510078a9083d957835e80cef793d0934b; criterios/artifactsinmutables, revisiónindependientependiente. V132newindependientesREADONLYproposal anteslease/wx, sin bootstrap para sortearprefijosdetenidos.
+
+## E2.26e — V13: dos consultas nuevas e independientes
+- Autorización humana vigente:10NEWIN20HTTP desde74IN89HTTP hasta2026-10-06T19:00Z, no reset; ahora82IN100HTTP. V13máximo2IN4HTTP→84/104 dentro84/109 y100/200, cero reintentos.
+- Ruta delegated direct corpus_replay_map: mapping/preparación4+ y escritura3artefactos. EXACT3NEW wx tmp/e223-corpus-replay/private/e226-current-qa/{source-v13.ndjson,manifest-v13.json,review-criteria-v13.json}. FixtureV1 idéntica, estados iniciales vacíos y conversaciones independientes; no bootstrap de V12 ni contexto reparado.
+- Cuerpos exactos: «Para el servicio Corte mujer, ¿cuántos minutos dura?» y «Quiero Corte hombre el miércoles con Leo, aproximadamente a las 11:00.» IDs qa-e226-v13-duration/qa-e226-v13-duration-m001 y qa-e226-v13-around/qa-e226-v13-around-m001.
+- Criterios previos independientes: duración40min/fococut-w/cestavacía/sin20k-niadquisición; cut-m/fecha7/Leo/around11/requestedTimeNULL/slotNULL/sin11-23-niconfirmaciónautomática. No acredita Pdeny-marker, cambio desde17 anterior, pausa, fecha nombradaR ni chatsoriginalescompletos.
+- STRICT heredado E2.25; artefactos tienen readback/hash/roundtrip/privacidad/pins17/1385keys/nooverlap y CLIvalidate existente, sin TDD de comportamiento de fuente. Generados excluidos de forecast; chain feature-branch vigente, espejoEngram pendiente por herramienta ausente.
+- [x] V13.1: preparar EXACT3 antes de tráfico, verificar fuentes6 congeladas/nativeunder_budget395/clock/pins y CLIvalidate.
+- [x] V13.2: padre uninput por llamada, evaluación manual antes de otro; cualquier fallo contextual no tipado STOPwholebatch/noresume; typedfallback sólo detiene su episodio. Cerrar diario y revisión independiente, sin modificar criterios/journals originales ni92.
+- V12terminal preservado SHA36ca2618dbbe0977fb9b17880ea65e9510078a9083d957835e80cef793d0934b; revisión independiente confirma1IAfunctional2timeouts/no3PASS. Preparar V13 no ejecuta API, DB, reservas, WhatsApp, servidor, Git ni producción.
+
+## E2.26s — Concordancia modular entre intención temporal y valor propuesto
+**Problema y alcance autorizado.** Las correcciones locales del punto2 incluyen relojes compactos, sufijos y alternativas. El mapa READONLY detectó que formato válido no comprueba significado: una propuesta puede convertir1330en13:00 o17hsen18:00; slash13:30/14:00no autoriza elegir primero. Son controles adversariales actuales, no capturas acreditadas de IA histórica. Esta unidad no añade reservas ni acciones de producto.
+
+**Ruta/lease.** Delegated direct temporal_contract_map: exploración4+ y writer6no triviales, lectura de este documento antes de escribir. EXACT6:
+- src/conversational-bot/time-preference.ts
+- src/conversational-bot/temporal-grounding.ts
+- src/conversational-bot/turn-plan.ts
+- src/conversational-bot/ai-interpreter.ts
+- scripts/conversational-bot-around-time-test.ts
+- scripts/conversational-bot-communicative-act-test.ts
+
+Escritura bloqueada hasta que V13 quede terminal y el padre autorice GO; no cambiar el runtime durante evaluación. TDD STRICT desde E2.25; runner real node node_modules/tsx/dist/cli.mjs scripts/<suite>-test.ts. Forecast250–450líneas autoradas orientativo, no límite ni motivo para omitir pruebas; estrategia feature-branch-chain ya aceptada. RDDON, frontera82640eb/Q+R395pendiente; ASSESS y STATUS nativos tras commit, sin fingir consentimiento. Engram odd/nuevo-bot-reservas/tasks pendiente porque mem_* no están expuestos.
+
+**Diseño aceptado.**
+- Helper puro literalClockMeaning(message,ownedEvidence): single/alternatives/unknown; comparar reloj actual citado, detectar recorte de par alternativo explícito. No usar primer reloj histórico ni generalizar una frase particular.
+- Extender rechazo semántico temporal tipado clock_value_mismatch/clock_alternatives, sin texto privado.
+- Separar validación estructural íntegra original del chequeo semántico, mediante núcleo compartido. parseTurnPlan público sigue estricto; servidor estructural conserva claves/tipos/citas/IDs/límites/duplicados/índices. Sin flag en esquema IA ni rescate de salida malformada.
+- Reutilizar H para rechazo por campo: únicamente autoridad actual fuerte suspende hora/slot anteriores y persiste pregunta genérica; conservar datos independientes válidos. Weak/history/wrongfield no ganan autoridad ni borran selección vigente.
+- Alternativas no soportadas piden aclaración genérica, nunca falsa mañana/tarde. Una aproximación correcta conserva around; sin elección ni confirmación automática.
+- «17enadelante» sigue unidad posterior separada; no introducir capacidad inferior sin pruebas.
+
+- [x] S.1: observar RED antes de fuente: valores distintos y equivalentes compactos/colon/sufijos; slash y «o»; datos independientes, índices y persistencia H; negativos estructurales, weak/history/wrongfield.
+- [ ] S.2: implementar EXACT6, GREEN/regresiones Q/R/H/rangos/consentimiento; tipos tsconfig real strict/exactOptional/noUnchecked/noEmit/typesnode; UTF8/diff/readback/SHA/freeze/commit local y native gate.
+- Baseline conocido around-time: fakequote invalid_output correcto; «hola» con around17/evidencehola produce Hfield_rejected y oldband intacta, no rechazoGLOBAL. Reconciliar expectativa sólo preservando esa seguridad, no ocultar una regresión.
+- Prohibidos API/env, DB real, WhatsApp, servidor, journals/reportes originales, otros archivos fuente, Git/review por writer; padre controla cierre. Hallazgo nuevo que exige séptimo archivo: reportar antes de tocarlo.
+
+- **V13 WHOLE STOP manual a17:56Z:**1NEWIN/2HTTP; automático criteria_met pero cláusula independiente duración40min incumplida: respuesta IA afirma no información y pide precisar, focoausente/cestavacía. Rechazar falsoPASS; GLOBALaccepted informationop pero causa exacta candidate/grounding en revisión READONLY. No seguir/resume/filter/bootstrap; aroundm001 NOINTENTADO, no fake skip ni retry. JournalSHA52ce673cada668d10a2a700b71e46ca6cbe2ac7b14c9dda50f5457f51912c921, runtime4c20ca588ea3b74f898d306a61e653f5e962e26f1b09df743e80b80d6e4021a6/HEAD48fcc40 fuentesfrozen. Usage9398input244output8197cached0reasoning0unknown. Global83IN102HTTP;10grantremaining1IN7HTTP hasta19Z, NO tráfico adicional planificado. Cumul83=62IAfunctional14semanticcontextfail7timeouts; originales92cierrescompletos0/59mapigual. SGO6files local autorizado tras terminalV13, REDbefore source/guards intactos; no impacto retroactivo enresultado congelado. Espejo Engram pendiente herramienta ausente.
+
+- **V13 revisión independiente final:** candidato actualinformation/serviceIds[cut-w]/aspectduration/confidence.99/opquote pregunta, únicoowner inquiryactual.fullbody/mentionCorte mujer/index0, GLOBALaccepted. deriveCurrentServiceInquiries0 por exigirmentionDENTROopquote peseownerfullbody, deriveCurrentServiceReads1originvalid pero neutralServiceInquiryfalse para duración en minutos/carrierservicio; information-read devuelveclarificaciónsin focus. Catálogo40 disponible, IA NO falló intención. EvaluaciónT causalREADONLY delegada antes lease; no sourcefueraS todavía. V13.2cerrado como ejecución/evaluación FALLIDA honesta, no como bugresuelto. Espejo/session Engram pendientes; docsprivadas/journalsoriginalesinmutables.
+
+## E2.26t — Evidencia actual de identidad y dimensión factual en un mismo acto
+**Causa observada.** V13.duration: IApropuso correctamente cut-w/duration y único inquiry actual que contiene nombre+pregunta; operationquote sólo pregunta. Dos guards del motor descartaron el vínculo y devolvieron aclaración pese catálogo40min. Candidato real capturado sintético, no expectativa convertida en provideroracle.
+
+**Ruta y lease.** Delegated direct corpus_replay_map por mapping/preparación4+ y writer3 no triviales. EXACT3:
+- src/conversational-bot/service-information-scope.ts
+- src/conversational-bot/information-read.ts
+- scripts/conversational-bot-information-focus-test.ts
+
+Disjuntos de S6; ningún cambio de parser global, schema, ai-interpreter ni engine. TDD STRICT fuenteE2.25, runner real node node_modules/tsx/dist/cli.mjs scripts/conversational-bot-information-focus-test.ts. Forecast180–320autoradas orientativo/400nohardcap/feature-branch-chain vigente. Verificaciones finales conjuntas esperan S/Tfrozen para no confundir edición en curso con regresión; cada writer conserva lease. Engram espejo pendiente no expuesto.
+
+**Contrato aceptado.**
+- Opquote actual íntegra debe estar dentro del mismo UNIQUEstrongCURRENTowner inquiry/service admitido y enlazado a índice FINAL; identidad literal única de ownermention en su ownerquote y mensaje completo, ligada al catálogo vigente. No exigir que el nombre aparezca dos veces, ni confiar en IDpropuesto por sí solo.
+- Operadores factuales generales de duración nominal/verbal/minutos con consumo completo del contexto OWNED; conservar residuos calificadores/negación/condiciones/lavado/mixed/múltiples identidades/exactbudget unknown. No aliases ni lista de frases particulares.
+- Ampliación sólo provenancia OWNEDvalidada. La gramática compartida de neutralCatalogfallback/independentP no se amplía, para no otorgar hechos a ownerweak/foreign/otroacto.
+- Mantener noadquisición/noagenda y precio→duración sin repetir precio ni reabrir variantes. Datos actuales de catálogo como fuente, no respuesta cruda.
+- Captura rawV13 firstReply no conoce nuevos hechos: pueden requerirse dos llamadas legítimas. Replayoffline exacto no obliga1llamada; prepared-compatible control separado sí comprueba1, ceroHTTP siempre.
+
+- [ ] T.1: REDobservado antes de fuente para proyecciónscope y respuesta/foco40min capturados; negativos shape/IDs/quote/ownerconfidence/índice/negación/lavado/2servicios/condiciones.
+- [ ] T.2: EXACT3GREEN; relatedI/service-request/act/information-offline guards; strictreal2roots+deps, UTF8/diff/readback/hash/freeze; commit local y nativecandidate por padre.
+- Prohibidos API/env, DB, WhatsApp, servidor, Git/native/doc/report/journal/artefactos por writer; no7tharchivoS ni4thT sin discutir. ScopeBrushing fueraoldfocus es siguiente hallazgo U separado, no incluirlo silenciosamente.
+
+## Recuperación de sesión — 06/10 17:00 Argentina
+### Goal
+Cerrar errores locales del punto2, preservando evidencia de corpus92; preparar despuésBookingV2 yCRM.
+### Instructions
+Sin túnel/WhatsApp/Meta/Railway/push. Último grant api.openai.comgpt-6-luna10NEWIN20HTTP hasta16ART vencido; no tráfico adicional. Sóloservidorlocalpreparado.
+### Discoveries
+- Q48HHprecision yRnamedcalendar guardados; Sparcial6/Tpendiente3 separados. Engrammem_* noexpuestos, contexto/espejo/resumensessionpendientes no fingidos.
+- V12terminal1IAfunctional2timeouts2blocked, V13manualSTOP: IAdurationcorrecta peroenginefences descartanscope/facet. Global83IN102HTTP;62IAfunctional14semanticcontextfail7timeouts nooriginalchatPASS.
+- Foco informativo antiguo puede atrapar petición vigenteBrushing fueraoldoptions; mappingUreadonlyreproduce, aúnsinlease. Presupuestosexactos faltaalcance/capacidad, no pérdida actualcestaverificada.
+### Accomplished
+- Q0fb6458 yR48fcc40 committedlocal/nativeaccum395mediumunder_budget desde82640eb; baselinearoundtestdiagnosticobsoletepreservado.
+- V13journal52ce673cada668d10a2a700b71e46ca6cbe2ac7b14c9dda50f5457f51912c921 terminalinmutable, aroundNOintentado. No92fullclosuresacreditados.
+### Next Steps
+- Resume S6STRICTactualpartial2tests+time-preference; T3REDantesfuente; comprobarcadaunidadyconjunta/freeze/commit/native.
+- Uexplicitnewinformationaltargetoldmenu despuésTfreeze; noampliarnegocios.
+- CRMactual3000codePold noQ/Rreloaded; nuevoidleconfirmation antesrestart. P3/P4todavíanoimplementados.
+### Relevant Files
+- odd/tasks/nuevo-bot-reservas.md: únicodocumentorecovery.
+- S6fuentes/tests listadosarriba; T3scope/read/focus-test listadosarriba.
+- tmp/e223-corpus-replay/private/e226-current-qa/V12V13: journalsinmutables; source/criteriacritériospretráfico.
+
+## E2.26u — Nueva consulta explícita fuera del menú informativo anterior
+**Hallazgo actual, no cierre histórico.** Mapa3pricecases readonly/candidateV2safe/hashintacto: canitas050/m0019Brushing modernoactualfuerte queda atrapado en old.optionsdecortes. Cesta no se pierde. m0003Corte mujer ya se resuelve en controlesactuales; m0011Presupuesto exacto tiene scope/capacidadinsuficiente, separado.
+
+**Ruta/lease futuro.** Delegated direct current_anchor_writer, mapping4+/writer2nontriviales. EXACT2 src/conversational-bot/information-read.ts +scripts/conversational-bot-information-focus-test.ts, esperarTfrozencommit antes cualquieraRED/write, sin superponerlease. STRICTE2.25 runnerreal focus-test; forecast80–160autoradasorientativo/chainfeaturebranchvigente/400nohardcap. MirrorEngrampendientenoexpuesto.
+
+**Decisión/contrato.** Targetsingleton actualcatálogoúnico +proof moderna OWNED/CurrentRead positiva puede iniciar nuevalecturafueraoldpool; antes validarTODOSoldlabels/currentbusiness/freshcatalog. No filtrar nuevaidentidad aeligibleold ni autorizar cesta. Closedanswer sinproofcontinúaoldpool. Legacy sin metadata FULLbody conserva guardanterior: opquote truncada no prueba que el mensaje completo no sea histórico/calificado. Arreglolegacy amplio NO autorizado enU2, gap reportado; engine/fence3rdfile exige propuesta aparte.
+
+- [ ] U.1: REDpublic con prefix actual menú de cortes→consultaactual fuerte Brushing singletonfueraoldoptions, respuesta/foco brush ydraft intacto; controles enoldpool/closedambiguous/weak/history/foreign/stalecatalog/label/business/negaciones/proposedIDalone.
+- [ ] U.2: EXACT2GREEN/focus+scope+serviceevidence+act regressions/strictreal/UTF8/hash/freeze/commit/native; corroborar respuestas ynoagenda-noacquisition-noeffects. No nuevo modelo ni alias.
+- Writer porahora READONLYespera GO despuésTfrozencommit. NoAPIgrantvencido19Z/DB/env/server/Git/doc/reports/journals/artefactos; no originalm19PASS porcontrolcounterfactualcontextIncomplete. Legacylimitación pendiente explícita.
+
+### T ampliación causal acotada, después de S
+- Humano06/10 confirmó explícitamente: «Sí, completar la corrección y conservar la prueba» del respaldo que adquiere servicio indebidamente; rechazonativo previo refactor informó faltaautorización y riesgomasking. Noacción ejecutada entonces niworkaround; nuevo consentimiento permite mismaacción local manteniendoassertnoacqintacta.
+- T positivamente25PASS/1FAIL: proyecciónscope/duración40 arregladas, negativo malformedowner yaFAILantesT. GuardP CandidateValidationError.rejectedInformation síexisteparaconsultas singletonoriginalstrong pero outerif exige informationFocus previo, asíEMPTYfallbackadquiere cut-w. Noexpandir gramática neutralCatalog ni usarIDdelrechazado.
+- Expandir leaseT aEXACT4 AÑADIENDO src/conversational-bot/ai-interpreter.ts sólodespuésSfreeze/commitlibereesearchivo. Trespreviossigueworker corpus_replay_map. NoVunidadficticia; son dosseamscoherentes de consulta40 yfallbackseguro, no acciónproducto.
+- Contrato fourthfile: extraer/validar markerDENYactual (business/bodyexactos) fueraouterfocus; si haymarkerlegítimoperosinpruebapositiva independiente, devolverclarificación preparada+clone deldraft/focus existente, no lexicalacquisition/agenda/nuevosIDs/facts/consent. ExistingPpositiveproof sigue únicamente trustedfocus actual/catálogogramática existente; closedchoicecompat existente intacta. Providererror/timeouts/shape-companioninvalid/foreignID/fakequotes sin marker no ganan nuevaautoridad. No ampliar señales de IA.
+- REDnoacq retenido25/1 + controlesempty/focused/oldbasket invalidowner/inheritedforeignbusiness/falsemarker/contradictorycurrentbodybeforefourthsource; GREENTcapturaactual40ynegativos/noacq; strictreal4roots+deps, UTF8/freeze/commit/native.
+- Forecast T180–320 más70–140 orientativo; solucióncoherente4filesnoartificialsplitting/omittest por400, chainfeaturebranch vigente. Padre ywriter releen sección anteswrite fourth; humanpermissions/localonly/Engrampending conservados.
+
+
+### S cierre de verificación local
+- EXACT6 frozen: 201 adiciones +15 eliminaciones =216 líneas autoradas. RED previo de valores/alternativas y dos controles añadidos por el padre (PM explícito y bare5) observado; guard estructural íntegro y datos independientes conservados. GREEN alrededor/actos111-0/Q22-0/R43-0 observados por padre, no mera afirmación del writer.
+- Padre strict REAL6 roots/316files strict/exactOptional/noUnchecked/noEmit/typesnode:0diagnósticos; seis SHA coincidieron con freeze. npm run test:text-encoding y git diff --check PASS. Cinco suites relacionadas adicionales PASS por writer.
+- Information-focus aún25PASS/1FAIL en T: fallback de consulta rechazada adquiere cut-w con estado vacío; preservada la aserción, defecto causal previo a S. S no se acredita como arreglo T ni todas las suites globales PASS.
+- Commit exact6+este documento siguiente; S.2 cierre queda pendiente de commit y evaluación nativa desde82640eb. Espejo/sesión Engram pendientes porque mem_* no está disponible. Sin tráfico IA ni producción; grant19Z vencido.
