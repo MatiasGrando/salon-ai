@@ -934,6 +934,84 @@ try {
       assert.equal(result.interpretation.reason, 'invalid_output'); assert.equal(result.interpretation.validation?.turnPlan?.outcome, 'rejected'); assert.equal(result.state.customerName, 'Ana', 'existing literal fallback may use the current name, never the malformed Eva proposal'); assert.deepEqual(result.state.basket, first.state.basket)
     }
   })
+
+  // K: only the mention may be re-anchored; current literal evidence is not relaxed.
+  const capturedInquiry = '¿Ese tratamiento incluye lavado?'
+  const capturedMention = 'ese tratamiento incluye lavado'
+  await check('K unique case-only mention returns current literal in cloned metadata', () => {
+    const value = { version: 1, acts: [act('inquiry', 'service', capturedInquiry, [], capturedMention)] }
+    const before = structuredClone(value)
+    const parsed = parseCommunicativeActs(value, capturedInquiry, 0)!
+    assert.equal(parsed.acts[0]?.mention, 'Ese tratamiento incluye lavado')
+    assert.equal(parsed.acts[0]?.evidence, capturedInquiry)
+    assert.deepEqual(value, before)
+    assert.notEqual(parsed, value); assert.notEqual(parsed.acts[0], value.acts[0])
+  })
+  await check('K literal regex metacharacters and accented Unicode case keep original spans', () => {
+    for (const [evidence, mention, expected] of [
+      ['¿ÁCIDO (A+B)?', 'ácido (a+b)', 'ÁCIDO (A+B)'],
+      ['¿ÑANDÚ?', 'ñandú', 'ÑANDÚ'],
+      ['😀 TRATAMIENTO 😀', 'tratamiento', 'TRATAMIENTO']
+    ]) {
+      const parsed = parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', evidence!, [], mention!)] }, evidence!, 0)!
+      assert.equal(parsed.acts[0]?.mention, expected)
+    }
+  })
+  await check('K exact and null mentions retain legacy acceptance even for repeated literals', () => {
+    assert.equal(parseCommunicativeActs(null, capturedInquiry, 0), null)
+    for (const mention of ['Tratamiento', null]) {
+      const value = { version: 1, acts: [act('inquiry', 'service', 'Tratamiento Tratamiento', [], mention)] }
+      assert.deepEqual(parseCommunicativeActs(value, 'Tratamiento Tratamiento', 0), value)
+    }
+  })
+  await check('K case-only anchoring rejects accents punctuation whitespace and homoglyph changes', () => {
+    for (const [evidence, mention] of [
+      ['¿Ácido?', 'acido'], ['¿Tratamiento?', 'tratamiento!'],
+      ['Ese  tratamiento', 'ese tratamiento'], ['Ese tratamiento', 'ese  tratamiento'],
+      ['Ese tratamiento', 'ese\u00a0tratamiento'], ['Tratamiento', 'tr\u0430tamiento'],
+      ['Straße', 'STRASSE'], ['A+B', 'a.b']
+    ]) assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', evidence!, [], mention!)] }, evidence!, 0), /communicative/)
+  })
+  await check('K case-only match must be unique including overlapping spans', () => {
+    for (const [evidence, mention] of [['Tratamiento TRATAMIENTO', 'tratamiento'], ['AAA', 'aa']])
+      assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', evidence!, [], mention!)] }, evidence!, 0), /communicative/)
+  })
+  await check('K current evidence remains exact and inherited or case-rewritten evidence fails', () => {
+    for (const evidence of ['¿ese tratamiento incluye lavado?', '¿El anterior tratamiento incluye lavado?'])
+      assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', evidence, [], capturedMention)] }, capturedInquiry, 0), /communicative/)
+  })
+  await check('K mention anchoring does not relax duplicate positions or invalid indexes', () => {
+    for (const indexes of [[0, 0], [1], [-1]])
+      assert.throws(() => parseCommunicativeActs({ version: 1, acts: [act('inquiry', 'service', capturedInquiry, indexes, capturedMention)] }, capturedInquiry, 1), /communicative/)
+  })
+  const capturedOperation = {
+    kind: 'service_request', purpose: 'inquiry', disposition: 'needs_detail', serviceIds: [],
+    correction: false, continuation: false, basis: 'related_category', sourceQuote: null, ...ev(capturedInquiry)
+  }
+  await check('K captured case-only inquiry crosses parser without acquiring a service', async () => {
+    const output = acted([capturedOperation], [act('inquiry', 'service', capturedInquiry, [0], capturedMention)], 'information')
+    const before = structuredClone(output)
+    const result = await say(initial, capturedInquiry, output)
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.equal(result.state.serviceRequest?.request, capturedInquiry)
+    assert.equal(result.state.serviceRequest?.purpose, 'inquiry')
+    assert.equal(result.state.serviceId, null)
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(initial))
+    assert.equal(result.bookingCommand, undefined)
+    assert.deepEqual(output, before)
+  })
+  await check('K valid case anchor cannot rescue weak ownership or foreign catalog IDs', async () => {
+    const weak = await say(initial, capturedInquiry, acted([capturedOperation],
+      [act('inquiry', 'service', capturedInquiry, [0], capturedMention, .84)], 'information'))
+    assert.equal(weak.interpretation.mode, 'ai')
+    assert.equal(weak.state.serviceRequest, undefined)
+    const foreign = await say(initial, capturedInquiry, acted([{ ...capturedOperation, serviceIds: ['foreign'] }],
+      [act('inquiry', 'service', capturedInquiry, [0], capturedMention)], 'information'))
+    assert.equal(foreign.interpretation.reason, 'invalid_output')
+    assert.equal(foreign.state.serviceRequest, undefined)
+    assert.equal(foreign.state.serviceId, null)
+  })
+
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

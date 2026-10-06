@@ -366,3 +366,104 @@ assert.equal(aligned.response.state.basket?.members[0]?.evidence, 'Cortehombre')
 assert.equal(aligned.response.state.timeMeaningClarification, true); assert.equal(aligned.response.state.requestedTime, null)
 assert.equal(aligned.response.state.customerName, 'Ana'); assert.equal(aligned.response.state.date, '2026-10-02'); assert.equal(aligned.availabilityCalls, 0)
 console.log('aligned catalog evidence / full original / shared basket / H conflict: PASS')
+
+
+// K guidance contracts inspect the actual Responses payload, not an imagined prompt.
+await http({ message: 'Prefiero miércoles; si no, martes, a las17.', state: initialDialogueState('tenant'), services }, new AbortController().signal)
+const currentGuidanceFailures: string[] = []
+const guidanceCheck = (name: string, expected: RegExp) => {
+  try { assert.match(request!.instructions, expected); console.log('PASS K guidance ' + name) }
+  catch { currentGuidanceFailures.push(name); console.log('RED K guidance ' + name) }
+}
+guidanceCheck('exact clock uses time HH:mm', /Hora exacta[^.]*time[^.]*HH:mm/)
+guidanceCheck('around requires actual linguistic approximation', /around[^.]*s[oó]lo[^.]*aproximaci[oó]n[^.]*actual/)
+guidanceCheck('same-object inquiry explicitly continues', /An[aá]fora[^.]*mismo objeto[^.]*continuation true/)
+guidanceCheck('new object purpose and lateral inquiry do not inherit', /objeto nuevo[^.]*cambio[^.]*purpose[^.]*lateral[^.]*continuation false/)
+guidanceCheck('current offer choice is not historical reference', /elecci[oó]n actual[^.]*oferta[^.]*no[^.]*reference/)
+guidanceCheck('current selection uses expected answer and quoted draft', /expectedAnswer[^.]*borrador[^.]*citad[^.]*selecci[oó]n actual/)
+
+const exactPriorityMessage = 'Prefiero miércoles; si no, martes, a las17.'
+const priorityDates = [
+  { expression: 'miércoles', value: '2026-10-07' },
+  { expression: 'martes', value: '2026-10-06' }
+]
+const priorityActs = [
+  { kind: 'request', field: 'date', evidence: 'miércoles; si no, martes', operationIndexes: [0] },
+  { kind: 'request', field: 'time', evidence: 'a las17', operationIndexes: [1] }
+]
+const exactPriority = await say(exactPriorityMessage, plan(
+  operation('date_preferences', 'miércoles; si no, martes', { candidates: priorityDates }),
+  operation('time', 'a las17', { value: '17:00' })
+), undefined, 'booking', { acts: priorityActs })
+assert.equal(exactPriority.response.interpretation.mode, 'ai')
+assert.deepEqual(exactPriority.response.state.datePreferences, priorityDates)
+assert.equal(exactPriority.response.state.requestedTime, '17:00')
+assert.equal(exactPriority.response.state.timePreference, undefined)
+assert.equal(exactPriority.response.state.slot, null); assert.equal(exactPriority.availabilityCalls, 0)
+const wrongPriority = await say(exactPriorityMessage, plan(
+  operation('date_preferences', 'miércoles; si no, martes', { candidates: priorityDates }),
+  operation('time_preference', 'a las17', { preference: { kind: 'around', time: '17:00' } })
+), undefined, 'booking', { acts: priorityActs })
+assert.equal(wrongPriority.response.interpretation.mode, 'ai')
+assert.deepEqual(wrongPriority.response.state.datePreferences, priorityDates)
+assert.equal(wrongPriority.response.state.requestedTime, null)
+assert.equal(wrongPriority.response.state.timePreference, undefined)
+assert.equal(wrongPriority.response.state.timeMeaningClarification, true)
+assert.equal(wrongPriority.response.interpretation.temporalGrounding?.outcome, 'field_rejected')
+assert.equal(wrongPriority.availabilityCalls, 0)
+
+const actualChoiceState: DialogueState = {
+  ...initialDialogueState('tenant'), serviceId: 'cut-private-id', date: '2026-10-02',
+  requestedTime: '17:00', professional: { kind: 'specific', id: 'ramiro-private-id' }, pending: 'time',
+  dialogueContext: { lastQuestion: '¿Qué horario con Ramiro elegís?', presentedOffer: {
+    businessId: 'tenant', serviceId: 'cut-private-id', date: '2026-10-02', professionalId: 'ramiro-private-id'
+  } }
+}
+const actualChoiceMessage = 'Con Ramiro, a las17.'
+await http({ message: actualChoiceMessage, state: actualChoiceState, services }, new AbortController().signal)
+assert.deepEqual(JSON.parse(request!.input).professional, actualChoiceState.professional)
+assert.ok(JSON.stringify(JSON.parse(request!.input)).includes('Ramiro'), 'actual quoted offer reaches the provider')
+const currentSelection = await say(actualChoiceMessage, plan(
+  operation('professional', 'Ramiro', { mode: 'specific', mention: 'Ramiro' }),
+  operation('time', 'a las17', { value: '17:00' })
+), actualChoiceState, 'booking', { acts: [
+  { kind: 'answer', field: 'professional', evidence: 'Con Ramiro', operationIndexes: [0], mention: 'Ramiro' },
+  { kind: 'answer', field: 'time', evidence: 'a las17', operationIndexes: [1] }
+] })
+assert.equal(currentSelection.response.interpretation.mode, 'ai')
+assert.equal(currentSelection.response.state.professionalReference, undefined)
+assert.deepEqual(currentSelection.response.state.professional, actualChoiceState.professional)
+assert.equal(currentSelection.response.state.requestedTime, '17:00')
+assert.equal(currentSelection.response.bookingCommand, undefined)
+const wrongReference = await say(actualChoiceMessage, plan(), actualChoiceState, 'booking', { acts: [
+  { kind: 'reference', field: 'professional', evidence: 'Con Ramiro', operationIndexes: [], mention: 'Ramiro' }
+] })
+assert.equal(wrongReference.response.state.professionalReference?.mention, 'Ramiro', 'wrong semantic generation is not silently converted into current preference')
+assert.deepEqual(wrongReference.response.state.professional, actualChoiceState.professional)
+assert.equal(wrongReference.response.bookingCommand, undefined)
+
+const inquiryOperation = (evidence: string, continuation = false) => operation('service_request', evidence, {
+  purpose: 'inquiry', disposition: 'needs_detail', serviceIds: [], correction: false,
+  basis: 'related_category', sourceQuote: null, continuation
+})
+const baseInquiry = 'tratamiento especial'
+const firstInquiry = await say('¿Cuánto cuesta el tratamiento especial?', plan(inquiryOperation(baseInquiry)),
+  undefined, 'information', { acts: [{ kind: 'inquiry', field: 'service', evidence: baseInquiry, operationIndexes: [0] }] })
+assert.equal(firstInquiry.response.state.serviceRequest?.request, baseInquiry)
+const anaphora = '¿Ese tratamiento incluye lavado?'
+const continuedInquiry = await say(anaphora, plan(inquiryOperation(anaphora, true)), firstInquiry.response.state,
+  'information', { acts: [{ kind: 'inquiry', field: 'service', evidence: anaphora, mention: 'Ese tratamiento', operationIndexes: [0] }] })
+assert.equal(continuedInquiry.response.state.serviceRequest?.request, baseInquiry)
+assert.equal(continuedInquiry.response.state.serviceRequest?.detail, anaphora)
+assert.equal(continuedInquiry.response.state.serviceRequest?.continuation, true)
+assert.equal(continuedInquiry.response.state.serviceId, null)
+assert.equal(continuedInquiry.availabilityCalls, 0)
+assert.equal(continuedInquiry.response.bookingCommand, undefined)
+const newObject = '¿El otro procedimiento incluye lavado?'
+const independentInquiry = await say(newObject, plan(inquiryOperation(newObject)), continuedInquiry.response.state,
+  'information', { acts: [{ kind: 'inquiry', field: 'service', evidence: newObject, operationIndexes: [0] }] })
+assert.equal(independentInquiry.response.state.serviceRequest?.request, newObject)
+assert.equal(independentInquiry.response.state.serviceRequest?.detail, undefined)
+assert.equal(independentInquiry.response.state.serviceId, null)
+console.log('K controlled exact clock / current professional / inquiry continuation: PASS; live generation remains unverified')
+assert.deepEqual(currentGuidanceFailures, [], 'unresolved actual payload guidance contracts')

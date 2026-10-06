@@ -45,12 +45,25 @@ const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, 
 const contains = (text: string, evidence: string) => (' ' + normalized(text) + ' ').includes(' ' + normalized(evidence) + ' ')
 const plain = (value: unknown, max: number): value is string => isCustomerText(value, max) && !/[\u0000-\u001f]/.test(value)
 function fail(cause: 'shape' | 'evidence' | 'conflict'): never { throw new TurnPlanValidationError(cause, 'invalid communicative acts') }
+/** Case-only tolerance is a literal, uniquely located span, never identity normalization. */
+function anchoredMention(evidence: string, mention: string): string | null {
+  if (evidence.includes(mention)) return mention
+  const escaped = mention.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(escaped, 'giu')
+  const first = pattern.exec(evidence)
+  if (!first) return null
+  // Include overlapping candidates without starting inside a Unicode code point.
+  pattern.lastIndex = first.index + (evidence.codePointAt(first.index)! > 0xffff ? 2 : 1)
+  if (pattern.exec(evidence)) return null
+  return evidence.slice(first.index, first.index + first[0].length)
+}
 /** Validate claims against the original utterance/operation positions, before any filtering. */
 export function parseCommunicativeActs(value: unknown, message: string, operationCount: number, source?: TurnPlan): CommunicativeActs | null {
   if (value === undefined || value === null) return null
   if (!record(value) || Object.keys(value).sort().join(',') !== 'acts,version' || value.version !== 1 ||
       !Array.isArray(value.acts) || value.acts.length > 12 || JSON.stringify(value).length > 8000) fail('shape')
   if (source && source.operations.length !== operationCount) fail('conflict')
+  const anchored: (string | null)[] = []
   const owned = new Set<number>()
   for (const raw of (value as Record<string, unknown>).acts as unknown[]) {
     if (!record(raw) || Object.keys(raw).sort().join(',') !== 'confidence,evidence,field,kind,mention,operationIndexes' ||
@@ -58,8 +71,10 @@ export function parseCommunicativeActs(value: unknown, message: string, operatio
         typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1 ||
         !Array.isArray(raw.operationIndexes) || raw.operationIndexes.length > 12 ||
         !(raw.mention === null || plain(raw.mention, 100))) fail('shape')
-    if (!isCustomerText(raw.evidence, 300) || !message.includes(raw.evidence) ||
-        raw.mention !== null && !raw.evidence.includes(raw.mention)) fail('evidence')
+    if (!isCustomerText(raw.evidence, 300) || !message.includes(raw.evidence)) fail('evidence')
+    const mention = raw.mention === null ? null : anchoredMention(raw.evidence, raw.mention as string)
+    if (raw.mention !== null && mention === null) fail('evidence')
+    anchored.push(mention)
     const local = new Set<number>()
     for (const index of raw.operationIndexes) {
       if (!Number.isSafeInteger(index) || index < 0 || index >= operationCount || local.has(index) ||
@@ -67,7 +82,9 @@ export function parseCommunicativeActs(value: unknown, message: string, operatio
       local.add(index); owned.add(index)
     }
   }
-  return structuredClone(value) as unknown as CommunicativeActs
+  const result = structuredClone(value) as unknown as CommunicativeActs
+  result.acts.forEach((act, index) => { act.mention = anchored[index]! })
+  return result
 }
 function operationKey(operation: TurnOperation): string {
   if (operation.kind === 'information') return 'information:' + operation.target.kind
