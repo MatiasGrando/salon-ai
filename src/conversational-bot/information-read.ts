@@ -1,4 +1,4 @@
-import { neutralCatalogServiceInquiry, neutralServiceInquiry, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
+import { neutralCatalogServiceInquiry, neutralOwnedServiceInquiry, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { assessServiceIdentity, type ServiceRequestContext } from './service-request.js'
 import { stageContent } from '../bot-options/domain/service-content.js'
 import { hasBasketSelection, selectionBasket } from './service-basket.js'
@@ -125,7 +125,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     return missing('la información vigente de ese servicio')
   const currentProof = currentInquiry && validCurrentServiceInquiry(currentInquiry,
     { kind: 'information', target, evidence: message, confidence: 1 }, currentInquiry.inquiryEvidence, state.businessId) &&
-    neutralServiceInquiry(currentInquiry.inquiryEvidence, currentInquiry.identityMention, target.aspect) &&
+    neutralOwnedServiceInquiry(currentInquiry.inquiryEvidence, currentInquiry.identityMention, target.aspect) &&
     assessServiceIdentity(currentInquiry.identityMention, currentInquiry.serviceId, 1, services).kind === 'supported'
   // Material residue is not a request for a generic catalog price; keep the old focus.
   const currentReadProof = currentRead && validCurrentServiceRead(currentRead,

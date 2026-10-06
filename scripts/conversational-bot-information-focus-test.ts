@@ -776,17 +776,8 @@ try {
     const beforeProvider = currentProviderCalls, beforeAgenda = agendaCalls
     const malformed = await currentRead(namelessPrice.state, message, quote, mention, 'woman', { evidence: 'me interesa' })
     assert.equal(malformed.interpretation.reason, 'invalid_output')
-    assert.throws(() => assert.doesNotMatch(malformed.reply, /37[.,]?000|27[.,]?000|32[.,]?000/),
-      'original absolute-no-price assertion fails in the existing global malformed fallback, not in N admission')
-    console.log('OBSERVED N malformed global fallback: original no-price and whole-focus assertions FAIL; confirmed three-option menu, details/variants baseline')
-    assert.match(malformed.reply, /Corte hombre/); assert.match(malformed.reply, /Corte mujer/); assert.match(malformed.reply, /Corte y barba/)
-    assert.equal(malformed.state.informationFocus?.serviceId, null); assert.equal(malformed.state.informationFocus?.awaitingChoice, true)
-    // LIMITATION outside N: global rejection keeps the menu but changes its informational topic/aspect.
-    assert.throws(() => assert.deepEqual(malformed.state.informationFocus, namelessPrice.state.informationFocus),
-      'original whole-focus equality assertion fails in the existing malformed global fallback')
-    assert.deepEqual(malformed.state.informationFocus?.options, namelessPrice.state.informationFocus?.options)
-    assert.equal(malformed.state.informationFocus?.candidateId, null)
-    assert.equal(malformed.state.informationFocus?.topic, 'details'); assert.equal(malformed.state.informationFocus?.aspect, 'variants')
+    assert.doesNotMatch(malformed.reply, /37[.,]?000|27[.,]?000|32[.,]?000/)
+    assert.deepEqual(malformed.state.informationFocus, namelessPrice.state.informationFocus)
     const source = { version: 1 as const, operations: [info(quote, service(['woman'], 'price'))] }
     assert.deepEqual(currentModule.deriveCurrentServiceInquiries({ version: 1, acts: [{ kind: 'inquiry', field: 'service',
       evidence: 'me interesa', confidence: 1, mention, operationIndexes: [0] }] } as any, source as any, source as any,
@@ -1117,6 +1108,218 @@ try {
     assert.match(closed.reply, /37[.,]?000/); assert.equal(closed.state.serviceId, pFocus.serviceId)
     assert.equal(closed.bookingCommand, undefined); assert.equal(closed.proposal, null)
   })
+
+  // T: V13 captured semantic intent was correct; ownership and dimension fences lost it.
+  const tScope = await import('../src/conversational-bot/service-information-scope.js')
+  const tCatalog = services.slice(0, 3).map((item, index) => ({ ...item,
+    id: ['cut-m', 'cut-w', 'cut-b'][index]!, price: [15000, 20000, 18000][index]!,
+    durationMinutes: index === 1 ? 40 : item.durationMinutes }))
+  const tPort: DialoguePort = { ...port, catalog: async () => tCatalog }
+  const tBody = 'Para el servicio Corte mujer, ¿cuántos minutos dura?'
+  const tQuote = '¿cuántos minutos dura?'
+  const tRaw = {
+    turnPlan: { version: 1, operations: [{ kind: 'information', evidence: tQuote, confidence: .99,
+      target: { kind: 'service', actions: [], serviceIds: ['cut-w'], aspect: 'duration' } }] },
+    communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: tBody,
+      confidence: .99, mention: 'Corte mujer', operationIndexes: [0] }] },
+    ...legacy, serviceConfidence: 'certain', serviceCandidateIds: [], serviceCorrection: false,
+    informationTarget: null, intakeReply: null,
+    firstReply: { salutation: null, opening: 'Con gusto te ayudo con esa consulta.',
+      factIds: ['next'], closing: null, variantChoices: null }
+  }
+  const tAsk = async (message = tBody, quote = tQuote, fields: object = {}, state = initial,
+    operations?: object[], acts?: object[]) => {
+    let calls = 0
+    const before = JSON.stringify(state), reads = agendaCalls
+    const result = await respondWithAiInterpreter(context, state, message, tPort, async () => {
+      calls++
+      return { ...tRaw, turnPlan: { version: 1, operations: operations ??
+        [{ ...tRaw.turnPlan.operations[0]!, evidence: quote }] },
+        communicativeActs: { version: 1, acts: acts ??
+          [{ ...tRaw.communicativeActs.acts[0]!, evidence: message, ...fields }] } }
+    })
+    assert.equal(calls, 1); assert.equal(agendaCalls, reads)
+    assert.equal(JSON.stringify(state), before); assert.deepEqual(selectionBasket(result.state), selectionBasket(state), JSON.stringify({message, fields, operations, acts}))
+    assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+    return result
+  }
+  await currentCheck('T captured V13 projects identity from the same current owner, not only opquote', async () => {
+    const plan = tRaw.turnPlan as any, metadata = tRaw.communicativeActs as any
+    const scopes = currentModule.deriveCurrentServiceInquiries(metadata, plan, plan, tBody, context.businessId)
+    assert.equal(scopes.length, 1)
+    assert.equal(scopes[0]!.identityMention, 'Corte mujer')
+    assert.equal(scopes[0]!.operationEvidence, tQuote)
+  })
+  await currentCheck('T captured V13 public answer is duration40 and focused, not merely safe typed state', async () => {
+    const result = await tAsk()
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.equal(result.interpretation.validation?.turnPlan?.outcome, 'accepted')
+    assert.match(result.reply, /40 min(?:utos)?/); assert.doesNotMatch(result.reply, /20[.,]?000|precisar|confirmada/)
+    assert.equal(result.state.informationFocus?.serviceId, 'cut-w')
+    assert.equal(result.state.informationFocus?.aspect, 'duration')
+    assert.equal(result.state.serviceId, null)
+  })
+  await currentCheck('T verbal duration operators work only with owned current identity and full neutral body', async () => {
+    for (const [message, quote] of [
+      [tBody, tQuote], ['Sobre Corte mujer, ¿cuánto dura?', '¿cuánto dura?'],
+      ['¿Cuántos minutos dura Corte mujer?', '¿Cuántos minutos dura Corte mujer?'],
+      ['Para Corte mujer, ¿cuál es la duración?', '¿cuál es la duración?'],
+      ['Del servicio Corte mujer, ¿qué duración tiene?', '¿qué duración tiene?']
+    ]) {
+      const result = await tAsk(message!, quote!)
+      assert.match(result.reply, /40 min(?:utos)?/); assert.doesNotMatch(result.reply, /20[.,]?000/)
+      assert.equal(result.state.informationFocus?.aspect, 'duration')
+    }
+    assert.equal(tScope.neutralCatalogServiceInquiry(tBody, 'cut-w', 'duration', tCatalog), false,
+      'new owned grammar must not expand catalog-only fallback or P rejection provenance')
+  })
+  await currentCheck('T owners, literal quotes, catalog identity and final indices remain boundaries', async () => {
+    for (const fields of [{ confidence: .5 }, { mention: null }, { mention: 'Corte hombre' },
+      { evidence: tQuote }, { field: 'professional' }, { operationIndexes: [] }, { operationIndexes: [8] }]) {
+      const result = await tAsk(tBody, tQuote, fields)
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?/)
+      assert.notEqual(result.state.informationFocus?.serviceId, 'cut-w')
+    }
+    const owner = tRaw.communicativeActs.acts[0]!
+    const duplicate = await tAsk(tBody, tQuote, {}, initial, undefined, [owner, owner])
+    assert.doesNotMatch(duplicate.reply, /40 min(?:utos)?/)
+    for (const op of [{ ...tRaw.turnPlan.operations[0]!, confidence: .5 },
+      { ...tRaw.turnPlan.operations[0]!, evidence: 'inventado' },
+      { ...tRaw.turnPlan.operations[0]!, target: service(['foreign'], 'duration') },
+      { ...tRaw.turnPlan.operations[0]!, target: service(['cut-m'], 'duration') }]) {
+      const result = await tAsk(tBody, tQuote, {}, initial, [op])
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?|30 min(?:utos)?/)
+    }
+    const plan = tRaw.turnPlan as any
+    const scopes = currentModule.deriveCurrentServiceInquiries(tRaw.communicativeActs as any, plan, plan, tBody, context.businessId)
+    assert.deepEqual(currentModule.remapCurrentServiceInquiries(scopes, plan, { version: 1, operations: [] }, tBody, context.businessId), [])
+    assert.equal(tScope.validCurrentServiceInquiry({ ...scopes[0]!, businessId: 'foreign' }, plan.operations[0], tBody, context.businessId), false)
+    assert.deepEqual(currentModule.remapCurrentServiceInquiries([{ ...scopes[0]!, operationIndex: 8 }],
+      plan, plan, tBody, context.businessId), [])
+  })
+  await currentCheck('T qualifiers, mixed clauses and unknown facets cannot borrow base catalog facts', async () => {
+    for (const message of [tBody + ' con lavado.', 'No quiero saber: ' + tBody, 'Si incluye lavado, ' + tBody,
+      tBody + ' y cuánto cuesta.', tBody + ' para Corte hombre.', tBody + ' presupuesto exacto.',
+      'Para el servicio Corte mujer sin lavado, ¿cuántos minutos dura?',
+      'Para el servicio Corte mujer, ¿cuántos minutos dura si incluye lavado?']) {
+      const quote = message.includes(tQuote) ? tQuote : '¿cuántos minutos dura'
+      const result = await tAsk(message, quote)
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?|20[.,]?000/)
+      assert.equal(result.state.informationFocus, undefined)
+    }
+  })
+  await currentCheck('T current duration replaces produced price focus, without acquisition or extra agenda', async () => {
+    const priceMessage = '¿Cuánto cuesta Corte mujer?'
+    const priced = await respondWithAiInterpreter(context, initial, priceMessage, tPort, async () => ({ ...legacy,
+      turnPlan: { version: 1, operations: [info(priceMessage, service(['cut-w'], 'price'))] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: priceMessage,
+        confidence: 1, mention: 'Corte mujer', operationIndexes: [0] }] } }))
+    assert.match(priced.reply, /20[.,]?000/)
+    const result = await tAsk(tBody, tQuote, {}, priced.state)
+    assert.match(result.reply, /40 min(?:utos)?/); assert.doesNotMatch(result.reply, /20[.,]?000/)
+    assert.equal(result.state.informationFocus?.aspect, 'duration')
+    let calls = 0
+    // Build an active draft through the public API; its pending date is not a service-choice menu.
+    const bookingBody = 'Quiero Corte hombre'
+    const draft = await respondWithAiInterpreter(context, initial, bookingBody, tPort, async () => ({ ...legacy, intent: 'booking',
+      turnPlan: { version: 1, operations: [{ kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [],
+        members: [{ mode: 'single', serviceIds: ['cut-m'], evidence: 'Corte hombre', confidence: 1 }], ...ev('Corte hombre') }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'service', evidence: bookingBody,
+        confidence: 1, mention: 'Corte hombre', operationIndexes: [0] }] } }))
+    const focusedDraft = await tAsk(tBody, tQuote, {}, draft.state)
+    // Separate compatible prepared query: raw V13 legitimately creates new facts after admission.
+    const preparedBody = '¿Cuál es la duración de Corte mujer?'
+    const prepared = await respondWithAiInterpreter(context, focusedDraft.state, preparedBody, tPort, async input => {
+      calls++
+      return { ...tRaw, turnPlan: { version: 1, operations: [{ ...tRaw.turnPlan.operations[0]!, evidence: preparedBody }] },
+        communicativeActs: { version: 1, acts: [{ ...tRaw.communicativeActs.acts[0]!, evidence: preparedBody }] },
+        firstReply: { salutation: null, opening: 'Con gusto te ayudo.',
+        factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null, variantChoices: null } }
+    })
+    assert.equal(calls, 1); assert.equal(prepared.interpretation.aiCalls, 1)
+    assert.equal(prepared.interpretation.replyValidation?.firstCall.status, 'accepted')
+    assert.equal(prepared.interpretation.replyValidation?.secondCall.status, 'not_attempted')
+    assert.equal(prepared.interpretation.copyMode, 'ai')
+    assert.match(prepared.reply, /40 min(?:utos)?/)
+  })
+
+
+  await currentCheck('T rejected current inquiry denies acquisition without an old focus', async () => {
+    const draftBody = 'Quiero Corte hombre'
+    const draft = await respondWithAiInterpreter(context, initial, draftBody, tPort, async () => ({ ...legacy, intent: 'booking',
+      turnPlan: { version: 1, operations: [{ kind: 'basket', mutation: 'set', scope: 'all', targetMemberIds: [],
+        members: [{ mode: 'single', serviceIds: ['cut-m'], ...ev('Corte hombre') }], ...ev('Corte hombre') }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'service', evidence: draftBody,
+        confidence: 1, mention: 'Corte hombre', operationIndexes: [0] }] } }))
+    for (const state of [initial, pFocus, draft.state]) {
+      const result = await tAsk(tBody, tQuote, { mention: 'Corte hombre' }, state)
+      assert.equal(result.interpretation.mode, 'fallback'); assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.deepEqual(result.state.informationFocus, state.informationFocus)
+      assert.equal(result.state.serviceId, state.serviceId)
+      assert.equal(result.state.date, state.date); assert.equal(result.state.slot, state.slot)
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?|20[.,]?000|reservar tu/)
+      assert.match(result.reply, /No pude confirmar.*consulta/)
+    }
+  })
+  await currentCheck('T original malformed companions and forged markers gain no new denial authority', async () => {
+    for (const patch of [
+      { turnPlan: { version: 1, operations: [{ ...tRaw.turnPlan.operations[0]!, evidence: 'inventado' }] } },
+      { turnPlan: { version: 1, operations: [{ ...tRaw.turnPlan.operations[0]!, target: service(['foreign'], 'duration') }] } },
+      { turnPlan: { version: 1, operations: [tRaw.turnPlan.operations[0]!, info(tQuote, service(['cut-w'], 'duration'))] } },
+      { rejectedInformation: { businessId: context.businessId, currentBody: tBody } },
+      { rejectedInformation: { businessId: 'foreign', currentBody: 'previous body' } }
+    ]) {
+      let calls = 0
+      const before = JSON.stringify(initial), reads = agendaCalls
+      const result = await respondWithAiInterpreter(context, initial, tBody, tPort, async () => { calls++; return { ...tRaw, ...patch } })
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.equal(result.interpretation.validation?.outcome, 'rejected')
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?/)
+      assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+      assert.equal(JSON.stringify(initial), before); assert.equal(calls, 1); assert.equal(agendaCalls, reads)
+      // Malformed original sources carry no eligible marker. The retained original no-acquisition
+      // regression above independently verifies this boundary; rejection alone is not safety proof.
+    }
+    let providerCalls = 0
+    await assert.rejects(() => respondWithAiInterpreter(context, initialDialogueState('foreign'), tBody, tPort,
+      async () => { providerCalls++; return tRaw }), /state|scope/)
+    assert.equal(providerCalls, 0)
+  })
+
+
+  await currentCheck('T independent rejection denial preserves empty or produced draft without trusting invalid IDs', async () => {
+    for (const state of [initial, pFocus]) for (const patch of [
+      { evidence: 'inventado' }, { target: service(['foreign'], 'duration') }
+    ]) {
+      const result = await tAsk(tBody, tQuote, {}, state, [{ ...tRaw.turnPlan.operations[0]!, ...patch }])
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.deepEqual(result.state.informationFocus, state.informationFocus)
+      assert.equal(result.state.serviceId, state.serviceId)
+      assert.doesNotMatch(result.reply, /40 min(?:utos)?|20[.,]?000|reservar tu/)
+      assert.match(result.reply, /No pude confirmar.*consulta/)
+    }
+  })
+  await currentCheck('T deny-only body gate does not widen qualified history mixed or provider-failure routes', async () => {
+    for (const message of [tBody + ' con lavado.', 'Antes consulté: ' + tBody,
+      tBody + ' y Corte hombre.', tBody + ' Quiero agendar Corte hombre.']) {
+      const before = JSON.stringify(initial), reads = agendaCalls
+      assert.equal(tScope.neutralOwnedServiceInquiry(message, 'Corte mujer', 'duration'), false)
+      const result = await respondWithAiInterpreter(context, initial, message, tPort,
+        async () => ({ ...tRaw, turnPlan: { version: 1, operations: [{ ...tRaw.turnPlan.operations[0]!, evidence: 'inventado' }] } }))
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.doesNotMatch(result.reply, /No pude confirmar esa consulta/)
+      if (!message.includes('Corte hombre')) assert.doesNotMatch(result.reply, /40 min(?:utos)?/)
+      // Mixed or multi-identity legacy menus may show existing catalog facts; the new deny guard supplies none.
+      assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+      assert.equal(JSON.stringify(initial), before); assert.equal(agendaCalls, reads)
+    }
+    const failed = await respondWithAiInterpreter(context, initial, tBody, tPort,
+      async () => { throw new Error('controlled provider failure') })
+    assert.equal(failed.interpretation.mode, 'fallback')
+    assert.notEqual(failed.interpretation.reason, 'invalid_output')
+    assert.doesNotMatch(failed.reply, /No pude confirmar esa consulta/)
+  })
+
   console.log('current service inquiry: ' + currentPassed + ' passed, ' + currentFailures.length + ' failed')
   assert.deepEqual(currentFailures, [], 'current service inquiry regressions')
 

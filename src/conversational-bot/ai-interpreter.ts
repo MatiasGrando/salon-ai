@@ -1,4 +1,4 @@
-import { independentServiceInformationInquiry } from './service-information-scope.js'
+import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
 import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
@@ -443,21 +443,32 @@ export async function respondWithAiInterpreter(
   }
   const fallbackFocus = reason ? focusedInformationService(state, services) : null
   let focusedFallback: DialogueResponse | undefined
-  if (reason && state.informationFocus?.serviceId && !state.informationFocus.awaitingChoice) {
+  // This private origin denies acquisition only; it supplies no service ID or factual authority.
+  // Consume it even at an empty episode start, before the generic booking fallback.
+  const rejectedInformation = validationError instanceof CandidateValidationError ? validationError.rejectedInformation : undefined
+  const denial = reason && rejectedInformation?.businessId === context.businessId && rejectedInformation.currentBody === message
+    ? rejectedInformation : undefined
+  // Independent current text can forbid acquisition after a rejected proposal; it cannot
+  // authorize a read, provide a target ID, or become P's positive ownership marker.
+  const dimension = informationAspect(message)
+  const currentNames = services.filter(service => uniqueLiteralSpan(message, service.name))
+  const denyRejectedInquiry = reason === 'invalid_output' && isCustomerText(message, 2000) &&
+    dimension !== null && currentNames.length === 1 &&
+    neutralOwnedServiceInquiry(message, currentNames[0]!.name, dimension)
+  if (reason && (state.informationFocus?.serviceId && !state.informationFocus.awaitingChoice || denial || denyRejectedInquiry)) {
     const focus = state.informationFocus, aspect = informationAspect(message)
-    const fresh = focus.options.every(option => services.some(service => service.id === option.id && service.name === option.label))
+    const fresh = !!focus && focus.options.every(option => services.some(service => service.id === option.id && service.name === option.label))
     const choice = fresh ? matchPresentedServiceAnswer({ businessId: context.businessId, category: 'service' }, message,
       focus.options.map(option => ({ businessId: context.businessId, category: 'service', id: option.id, label: option.label }))) : null
     const closedChoice = !aspect && choice?.kind === 'exact' && choice.complete && choice.items.length === 1 &&
-      choice.items[0]!.id === focus.serviceId && !!fallbackFocus
+      choice.items[0]!.id === focus?.serviceId && !!fallbackFocus
     if (closedChoice) {
       const independent = fallbackIndependentTurnPlan(context, state, message, services, cachedPort)
       decision = { intent: 'information', serviceId: null, candidateIds: [], correction: false, informationOnly: true,
         turnPlan: { version: 1, operations: [...independent.operations, { kind: 'information',
           target: { kind: 'service', actions: [], serviceIds: [fallbackFocus!.id], aspect: focus.aspect }, evidence: message, confidence: 1 }] } }
     } else {
-      const denial = validationError instanceof CandidateValidationError ? validationError.rejectedInformation : undefined
-      const proof = denial?.businessId === context.businessId && denial.currentBody === message
+      const proof = denial
         ? independentServiceInformationInquiry(message, aspect, focus, context.businessId, services) : null
       const nextState = structuredClone(state)
       if (proof) {
@@ -481,7 +492,7 @@ export async function respondWithAiInterpreter(
     rememberDialogueQuestion(response.state, question, [{ id: selected.id, label: selected.name }], null, { candidateIds: [selected.id] })
     response = { ...response, proposal: null, reply: clarification }
   }
-  const typoService = safeBasketFallback || turnPlan || candidate?.serviceId || candidates.length ? null :
+  const typoService = denyRejectedInquiry || safeBasketFallback || turnPlan || candidate?.serviceId || candidates.length ? null :
     candidate?.serviceEvidence ? suggestedService(candidate.serviceEvidence, services) :
     !candidate ? suggestedService(message, services) : null
   if (typoService && !response.state.serviceId && !response.state.informationFocus) {

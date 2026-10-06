@@ -42,7 +42,8 @@ export function validCurrentServiceInquiry(scope: CurrentServiceInquiry, operati
     isCustomerText(scope.ownerEvidence, 300) && message.includes(scope.ownerEvidence) &&
     isCustomerText(scope.identityMention, 100) &&
     !!uniqueLiteralSpan(message, scope.identityMention) && !!uniqueLiteralSpan(scope.ownerEvidence, scope.identityMention) &&
-    !!uniqueLiteralSpan(scope.operationEvidence, scope.identityMention)
+    !!uniqueLiteralSpan(scope.ownerEvidence, scope.operationEvidence) &&
+    !!uniqueLiteralSpan(message, scope.operationEvidence)
 }
 const dimensions: Record<ServiceInformationAspect, readonly string[]> = {
   price: ['precio', 'valor', 'costo', 'coste'], duration: ['duracion'],
@@ -74,6 +75,31 @@ export function neutralServiceInquiry(evidence: string, mention: string, aspect:
   const after = '(?:sobre|de|para) (?:(?:ese|esa|el|la) )?@ (?:que ' + dimension + ' tiene|cual es ' + article + dimension + ')'
   const priceVerb = aspect === 'price' ? referential + carrier + 'cuanto (?:cuesta|sale|vale) ' + article + '@' : '(?!)'
   return new RegExp('^(?:' + before + '|' + after + '|' + priceVerb + ')$').test(text)
+}
+
+
+/**
+ * Recognize a neutral factual form, not ownership or authority. Positive reads require
+ * the complete validated current owner scope; catalog-only/P positive fallback is unchanged.
+ * An independent denial may use this form only to forbid acquisition, never to grant facts.
+ * Full-body consumption keeps qualifiers, negation and independent clauses as fences.
+ */
+export function neutralOwnedServiceInquiry(evidence: string, mention: string, aspect: ServiceInformationAspect): boolean {
+  if (neutralServiceInquiry(evidence, mention, aspect)) return true
+  if (aspect !== 'duration') return false
+  const span = uniqueLiteralSpan(evidence, mention)
+  if (!span) return false
+  const remainder = (evidence.slice(0, span.start) + ' @ ' + evidence.slice(span.end))
+    .normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  if (/[^a-z\s@¿?.,]/u.test(remainder)) return false
+  const text = remainder.replace(/[¿?.,]/g, ' ').trim().split(/\s+/u).join(' ')
+  const article = '(?:(?:el|la|ese|esa) )?'
+  const service = article + '(?:servicio )?@'
+  const subject = '(?:sobre|para|de|del) ' + service
+  const verbal = '(?:cuanto(?: tiempo)?|cuantos minutos) (?:dura|tarda)'
+  const nominal = '(?:que duracion tiene|cual es (?:la )?duracion)'
+  return new RegExp('^(?:' + subject + ' (?:' + verbal + '|' + nominal + ')|' +
+    verbal + ' ' + service + ')$').test(text)
 }
 
 /** Complete-body fallback uses current exact public names, never partial quotes or proposed IDs alone. */

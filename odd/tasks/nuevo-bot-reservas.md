@@ -2610,7 +2610,7 @@ Escritura bloqueada hasta que V13 quede terminal y el padre autorice GO; no camb
 - «17enadelante» sigue unidad posterior separada; no introducir capacidad inferior sin pruebas.
 
 - [x] S.1: observar RED antes de fuente: valores distintos y equivalentes compactos/colon/sufijos; slash y «o»; datos independientes, índices y persistencia H; negativos estructurales, weak/history/wrongfield.
-- [ ] S.2: implementar EXACT6, GREEN/regresiones Q/R/H/rangos/consentimiento; tipos tsconfig real strict/exactOptional/noUnchecked/noEmit/typesnode; UTF8/diff/readback/SHA/freeze/commit local y native gate.
+- [x] S.2: implementar EXACT6, GREEN/regresiones Q/R/H/rangos/consentimiento; tipos tsconfig real strict/exactOptional/noUnchecked/noEmit/typesnode; UTF8/diff/readback/SHA/freeze/commit local y native gate.
 - Baseline conocido around-time: fakequote invalid_output correcto; «hola» con around17/evidencehola produce Hfield_rejected y oldband intacta, no rechazoGLOBAL. Reconciliar expectativa sólo preservando esa seguridad, no ocultar una regresión.
 - Prohibidos API/env, DB real, WhatsApp, servidor, journals/reportes originales, otros archivos fuente, Git/review por writer; padre controla cierre. Hallazgo nuevo que exige séptimo archivo: reportar antes de tocarlo.
 
@@ -2635,7 +2635,7 @@ Disjuntos de S6; ningún cambio de parser global, schema, ai-interpreter ni engi
 - Mantener noadquisición/noagenda y precio→duración sin repetir precio ni reabrir variantes. Datos actuales de catálogo como fuente, no respuesta cruda.
 - Captura rawV13 firstReply no conoce nuevos hechos: pueden requerirse dos llamadas legítimas. Replayoffline exacto no obliga1llamada; prepared-compatible control separado sí comprueba1, ceroHTTP siempre.
 
-- [ ] T.1: REDobservado antes de fuente para proyecciónscope y respuesta/foco40min capturados; negativos shape/IDs/quote/ownerconfidence/índice/negación/lavado/2servicios/condiciones.
+- [x] T.1: REDobservado antes de fuente para proyecciónscope y respuesta/foco40min capturados; negativos shape/IDs/quote/ownerconfidence/índice/negación/lavado/2servicios/condiciones.
 - [ ] T.2: EXACT3GREEN; relatedI/service-request/act/information-offline guards; strictreal2roots+deps, UTF8/diff/readback/hash/freeze; commit local y nativecandidate por padre.
 - Prohibidos API/env, DB, WhatsApp, servidor, Git/native/doc/report/journal/artefactos por writer; no7tharchivoS ni4thT sin discutir. ScopeBrushing fueraoldfocus es siguiente hallazgo U separado, no incluirlo silenciosamente.
 
@@ -2685,3 +2685,22 @@ Sin túnel/WhatsApp/Meta/Railway/push. Último grant api.openai.comgpt-6-luna10N
 - Padre strict REAL6 roots/316files strict/exactOptional/noUnchecked/noEmit/typesnode:0diagnósticos; seis SHA coincidieron con freeze. npm run test:text-encoding y git diff --check PASS. Cinco suites relacionadas adicionales PASS por writer.
 - Information-focus aún25PASS/1FAIL en T: fallback de consulta rechazada adquiere cut-w con estado vacío; preservada la aserción, defecto causal previo a S. S no se acredita como arreglo T ni todas las suites globales PASS.
 - Commit exact6+este documento siguiente; S.2 cierre queda pendiente de commit y evaluación nativa desde82640eb. Espejo/sesión Engram pendientes porque mem_* no está disponible. Sin tráfico IA ni producción; grant19Z vencido.
+
+
+### S commit y T denegación independiente acordada
+- S commit1b59a8614ac1ecf153587c312cc7fc854bef8339 EXACT6+documento7paths328authored(totalconseguimiento incluido); fuente216. NativeASSESSfrom82640eb Q+R+S11paths723medium/executable_change, due slice_budget_reached. PreflightSTATUSverbatim seguido inventarioexclude4ed14a…; candidato b5537385… espera consentimiento específico, no revisado ni aprobación ficticia.
+- T marcadorlegítimo ya evitaadquisición desdeEMPTY/focus/cesta; aserciones originalesnoacq fakeOPquote/foreignID retenidas sin suavizar. MappingREADONLYpúblico confirma originalshape/evidence rechazados antesmarker; fallbacklegacyadquierecut-w indebidamente, ceroagenda/HTTP.
+- Se autoriza dentro MISMAleaseT4 protecciónDENY separada e independiente para reasoninvalid_output: textoACTUAL completo limitado, únicaidentidad literal exacta delcatálogovigente y dimensiónactual cuya neutralOwnedServiceInquiry consume todoelbody. Helpers4actuales; boolean sólo-denegar, SINmarkerpositivo/SINidentityproof/SINhechos/SINderivarIDdelcandidatoinválido/SINadquirir/SINagenda. Noampliar gramática positiva ni rescatar shape/companionmalformed; bookingmixed/history/IDalone/weaknofacts, providererror/timeoutcompatintacta. REDnoacq original se mantiene; añadircontroles de esta frontera antessource. Si requieremásarchivo, informarantes.
+- N pruebaesperabafallo anterior con assert.throws sobre no-price/whole-focus equality. Padreleyóactual: autorización paraFORTALECER retirandoesperadebug y afirmardoesNotMatch/deepEqual delFOCOCOMPLETOactual; conservarcesta/ID/effects/provider1/agenda0. No cambiar noacq originales T.
+- GrantIAexpirado19Z/noAPI; mirrorEngram pendienteherramientasnoexpuestas.
+
+
+- **S cierre nativo observado:** humano decidió «Omitir esta revisión» para Q+R+S11archivos/3commits. START exacto consentimiento declined retornó EXIT0 actiondeclined_this_candidate targetb5537385…/medium/723líneas; no revisión ejecutada, no receipt/granted ficticio, revisiones futuras siguenON. Frontera aceptada siguiente1b59a8614ac1ecf153587c312cc7fc854bef8339. S.2cerradofuncional+commit+decisiónnativa, nada desplegado.
+- **T controles nuevos precisados sin suavizar originales:** Nassertthrows esperaba bugviejo se fortalece anoprice+whole-focus intacto; mixed/multiidentity controlNUEVO verifica denegaciónindependiente FALSE yno hechos proporcionadosPOResta frontera (menúlegacy no se acredita como respuesta correcta universal). ÍndiceFINAL8 se prueba contra remap/derive conplancompleto, porque validCurrentServiceInquiry recibeoperaciónsola; businessforeigncontinúaFALSE. Todos deepEqualbasket originales Tfakequote/foreignID se mantienen literalmente. La corrección no amplía los permisos delmodelo ni promete cubrir todos los respaldos calificados.
+
+
+### T verificado y preparado para commit
+- Lease finalEXACT4: scope/read/ai-interpreter/focus-test; 281líneas autoradas antes comentario mecánico. REDporproyección40 +marcadorEMPTY +denegaciónindependiente observadosanteslasfuentescorrespondientes. GREEN padre repitió focus30actuales/0 +26qualified/0; 6suitesrelacionadasPASS writer.
+- Aserciones originalesnoacq TODOScasos fakequote/foreignID byteidénticas preservadas yAHORAPASS. Nexpectativa de fallo previo fortalecida no-price/WHOLEfocus; controles nuevos index/API y mixed guard ajustados conaprobación padre, no fuentes debilitadas. PUBLIC duración40focus correcto, preciosno repetidos/noagenda/noacquisition/inputinmutable/providercontrolado1. Independientecompatpreparedcopyfirst-call1 comprobada aparte de rawV13 newfacts.
+- Parent strictreal4roots315dependencias0diag strict/exactOptional/noUnchecked/noEmit/typesnode; encoding oficial/diffPASS; SHA4finaldd6d5d…/50b042…/3b6b21…/f6fb1d… coinciden. Comentario scope aclaraforma neutralNOownership, sóloDENY sinlectura.
+- Límite: GLOBALmalformed mixed/multiidentity con residuos no reconocidos conserva legacyfueraesta frontera; no seafirma que todoslosfallback estén corregidos. DiarioV13inmutable sigueFALLIDOhistórico, no nuevaIAproof. Commitexact4+documentopróximo/nativefrom1b59a861; sinAPI/DB/WA/producción. Engrammirror/sessionpendingunavailable.
