@@ -467,3 +467,19 @@ assert.equal(independentInquiry.response.state.serviceRequest?.detail, undefined
 assert.equal(independentInquiry.response.state.serviceId, null)
 console.log('K controlled exact clock / current professional / inquiry continuation: PASS; live generation remains unverified')
 assert.deepEqual(currentGuidanceFailures, [], 'unresolved actual payload guidance contracts')
+
+const pFocused: DialogueState = { ...initialDialogueState('tenant'), introduced: true,
+  informationFocus: { version: 1, businessId: 'tenant', topic: 'price', aspect: 'price', serviceId: 'cut-private-id',
+    awaitingChoice: false, candidateId: null, options: services.map(item => ({ id: item.id, label: item.name })) } }
+const pDurationBody = 'Sobre ese Corte hombre, ¿qué duración tiene?'
+const pRejectedDuration = await say(pDurationBody, plan(operation('information', 'qué duración tiene',
+  { target: { kind: 'service', actions: [], serviceIds: ['cut-private-id'], aspect: 'duration' } })),
+  pFocused, 'information', { acts: [{ kind: 'inquiry', field: 'service', evidence: '¿qué duración tiene?',
+    operationIndexes: [0], mention: 'Corte hombre' }] })
+assert.equal(pRejectedDuration.response.interpretation.reason, 'invalid_output')
+assert.match(pRejectedDuration.response.reply, /30 min(?:utos)?/); assert.doesNotMatch(pRejectedDuration.response.reply, /\$ ?100|precio[^\n]*100/)
+assert.equal(pRejectedDuration.response.state.informationFocus?.aspect, 'duration')
+assert.equal(pRejectedDuration.calls, 1); assert.equal(pRejectedDuration.availabilityCalls, 0)
+assert.equal(pRejectedDuration.response.bookingCommand, undefined)
+assert.ok(!JSON.stringify(request!.text.format.schema).includes('rejectedInformation'), 'denial provenance never enters provider schema')
+console.log('P original rejection / independent actual dimension / same-call schema: PASS')

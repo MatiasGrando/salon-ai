@@ -1,3 +1,5 @@
+import { independentServiceInformationInquiry } from './service-information-scope.js'
+import { matchPresentedServiceAnswer } from './contextual-matching.js'
 import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
@@ -20,7 +22,7 @@ import { BASKET_LIMITS, applyBasketMutation, basketServiceIds, selectionBasket, 
 import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-guidance.js'
 import { pendingQuestion, validateFacts } from './information.js'
 import { parseInformationTarget } from './information-contract.js'
-import { focusedInformationService, normalizeInformativeEstimates, validInformationEstimate, inferInformationTarget, readInformation, informationReply } from './information-read.js'
+import { informationAspect, focusedInformationService, normalizeInformativeEstimates, validInformationEstimate, inferInformationTarget, readInformation, informationReply } from './information-read.js'
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
@@ -68,6 +70,12 @@ export type InterpretationDiagnostics = {
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
 type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission; temporalGrounding?: InterpretationDiagnostics['temporalGrounding'] }
 
+/** Rejected validated origins restrict fallback eligibility; they never supply a positive fact. */
+class CandidateValidationError extends TurnPlanValidationError {
+  constructor(cause: TurnPlanValidationError['validationCause'], readonly rejectedInformation?: { businessId: string; currentBody: string }) {
+    super(cause)
+  }
+}
 const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
 const evidenceWords = (value: string) => ' ' + normalized(value).replace(/[^a-z0-9]+/g, ' ').trim() + ' '
@@ -105,7 +113,19 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         }
         // Validate the whole untrusted proposal before any semantic filtering. A reference
         // label cannot rescue foreign catalog IDs, fabricated quotes, targets or estimates.
-        communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original)
+        try { communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original) }
+        catch (error) {
+          const operation = original.operations[0]
+          const eligible = item.intent === 'information' && original.operations.length === 1 &&
+            operation?.kind === 'information' && operation.target.kind === 'service' && operation.target.serviceIds.length === 1 &&
+            operation.target.estimateOptionId === undefined && operation.confidence >= .85 && Number.isFinite(operation.confidence) &&
+            item.serviceId === null && item.serviceEvidence === null && item.professionalMention === null &&
+            (item.serviceCorrection === undefined || item.serviceCorrection === false) && item.informationTarget == null &&
+            (item.serviceCandidateIds === undefined || Array.isArray(item.serviceCandidateIds) && item.serviceCandidateIds.length === 0) &&
+            (item.serviceConfidence === undefined || ['certain', 'uncertain'].includes(String(item.serviceConfidence)))
+          throw new CandidateValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape',
+            eligible ? { businessId: context.businessId, currentBody: message } : undefined)
+        }
         for (const operation of parsedPlan.operations) {
           if (operation.kind === 'basket' && operation.targetMemberIds.some(id => !selectionBasket(state).members.some(member => member.memberId === id))) throw new TurnPlanValidationError('conflict')
           if (operation.kind === 'service_request' && operation.continuation && !state.serviceRequest) throw new TurnPlanValidationError('conflict')
@@ -140,7 +160,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           currentServiceReads: deriveCurrentServiceReads(communicativeActs, original, communicative.plan, message, state.businessId) }
         turnPlan = communicative.plan
         validateEstimateOperations(turnPlan, state, services)
-      } catch (error) { throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
+      } catch (error) { if (error instanceof CandidateValidationError) throw error; throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
     }
   }
   for (const key of ['serviceId', 'professionalMention'] as const) {
@@ -422,14 +442,37 @@ export async function respondWithAiInterpreter(
       basis: 'semantic_equivalent', sourceQuote: null, evidence, confidence: candidate.serviceConfidence === 'certain' ? 1 : 0 }] }
   }
   const fallbackFocus = reason ? focusedInformationService(state, services) : null
-  if (fallbackFocus) {
-    const independent = fallbackIndependentTurnPlan(context, state, message, services, cachedPort)
-    decision = { intent: 'information', serviceId: null, candidateIds: [], correction: false, informationOnly: true,
-      turnPlan: { version: 1, operations: [...independent.operations, { kind: 'information',
-        target: { kind: 'service', actions: [], serviceIds: [fallbackFocus.id], aspect: state.informationFocus!.aspect }, evidence: message, confidence: 1 }] } }
+  let focusedFallback: DialogueResponse | undefined
+  if (reason && state.informationFocus?.serviceId && !state.informationFocus.awaitingChoice) {
+    const focus = state.informationFocus, aspect = informationAspect(message)
+    const fresh = focus.options.every(option => services.some(service => service.id === option.id && service.name === option.label))
+    const choice = fresh ? matchPresentedServiceAnswer({ businessId: context.businessId, category: 'service' }, message,
+      focus.options.map(option => ({ businessId: context.businessId, category: 'service', id: option.id, label: option.label }))) : null
+    const closedChoice = !aspect && choice?.kind === 'exact' && choice.complete && choice.items.length === 1 &&
+      choice.items[0]!.id === focus.serviceId && !!fallbackFocus
+    if (closedChoice) {
+      const independent = fallbackIndependentTurnPlan(context, state, message, services, cachedPort)
+      decision = { intent: 'information', serviceId: null, candidateIds: [], correction: false, informationOnly: true,
+        turnPlan: { version: 1, operations: [...independent.operations, { kind: 'information',
+          target: { kind: 'service', actions: [], serviceIds: [fallbackFocus!.id], aspect: focus.aspect }, evidence: message, confidence: 1 }] } }
+    } else {
+      const denial = validationError instanceof CandidateValidationError ? validationError.rejectedInformation : undefined
+      const proof = denial?.businessId === context.businessId && denial.currentBody === message
+        ? independentServiceInformationInquiry(message, aspect, focus, context.businessId, services) : null
+      const nextState = structuredClone(state)
+      if (proof) {
+        const read = await readInformation(context, nextState, message, cachedPort,
+          { kind: 'service', actions: [], serviceIds: [proof.serviceId], aspect: proof.aspect }, services)
+        if (read.focus) nextState.informationFocus = read.focus
+        focusedFallback = { state: nextState, reply: informationReply(read, nextState, hasActiveBooking(nextState)),
+          proposal: null, replyPrepared: true }
+      } else focusedFallback = { state: nextState, proposal: null, replyPrepared: true,
+        reply: 'No pude confirmar esa consulta tal como está expresada. ' +
+          (fresh && fallbackFocus ? 'Sobre ' + fallbackFocus.name + ', ¿qué dato o variante querés precisar?' : '¿Qué dato o variante querés precisar?') }
+    }
   }
   const engineStarted = performance.now()
-  let response = await respond(context, state, message, cachedPort, decision, { deferIntroduction: true })
+  let response = focusedFallback ?? await respond(context, state, message, cachedPort, decision, { deferIntroduction: true })
   if (uncertain && selected && !response.state.informationFocus && !response.state.serviceRequest) {
     const clarification = serviceRequestReply({ businessId: context.businessId, purpose: 'booking', disposition: 'needs_detail',
       serviceIds: [selected.id], correction: false, continuation: false, basis: 'semantic_equivalent', sourceQuote: null, request: evidence }, services)

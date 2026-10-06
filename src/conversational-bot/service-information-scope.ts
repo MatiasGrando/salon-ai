@@ -85,3 +85,24 @@ export function neutralCatalogServiceInquiry(evidence: string, serviceId: string
   return neutralServiceInquiry(evidence, name, aspect) &&
     assessServiceIdentity(name, serviceId, 1, services).kind === 'supported'
 }
+
+/** Independent current-body proof. Catalog labels provide grammar tokens, not rejected-model authority. */
+export function independentServiceInformationInquiry(message: string, aspect: ServiceInformationAspect | null,
+  focus: import('./information-contract.js').InformationFocus | undefined, businessId: string,
+  services: readonly DialogueService[]): { serviceId: string; identityMention: string; aspect: ServiceInformationAspect } | null {
+  if (!isCustomerText(message, 2000) || !aspect || !focus?.serviceId || focus.awaitingChoice || focus.businessId !== businessId ||
+      focus.options.some(option => !services.some(service => service.id === option.id && service.name === option.label))) return null
+  const escape = (value: string) => value.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')
+  const candidates = services.flatMap(service => {
+    const tokens = service.name.trim().split(/\s+/u)
+    if (!tokens.length || !tokens.every(Boolean)) return []
+    const pattern = tokens.map(escape).join('\\s+(?:(?:de|del|el|la|los|las)\\s+)*')
+    const matches = [...message.matchAll(new RegExp('(?<![\\p{L}\\p{N}])' + pattern + '(?![\\p{L}\\p{N}])', 'giu'))]
+    return matches.map(match => ({ serviceId: service.id, identityMention: match[0] }))
+  })
+  if (candidates.length !== 1 || candidates[0]!.serviceId !== focus.serviceId) return null
+  const current = candidates[0]!
+  return neutralServiceInquiry(message, current.identityMention, aspect) &&
+    assessServiceIdentity(current.identityMention, current.serviceId, 1, services).kind === 'supported'
+    ? { ...current, aspect } : null
+}

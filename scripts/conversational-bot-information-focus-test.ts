@@ -1016,6 +1016,107 @@ try {
     assert.equal(scope.neutralServiceInquiry('corte de mujer corte de mujer', mention, 'price'), false)
     assert.equal(scope.neutralServiceInquiry('Me interesa saber el valor de corte de mujer con algo', mention, 'price'), false)
   })
+  await currentCheck('P raw V9 rejects the act but answers the independently proven current duration', async () => {
+    const catalog = services.slice(0, 3).map((item, index) => ({ ...item,
+      id: ['cut-m', 'cut-w', 'cut-b'][index]!, price: [15000, 20000, 18000][index]!, durationMinutes: index === 1 ? 40 : item.durationMinutes }))
+    const scopedPort = { ...port, catalog: async () => catalog }
+    const state = { ...initial, informationFocus: { version: 1 as const, businessId: context.businessId,
+      topic: 'price' as const, aspect: 'price' as const, serviceId: 'cut-w', awaitingChoice: false, candidateId: null,
+      options: catalog.map(item => ({ id: item.id, label: item.name })) } }
+    const message = 'Sobre ese corte de mujer, ¿qué duración tiene?', before = JSON.stringify(state), reads = agendaCalls
+    let calls = 0
+    const result = await respondWithAiInterpreter(context, state, message, scopedPort, async () => {
+      calls++
+      return { ...legacy, turnPlan: { version: 1, operations: [info('qué duración tiene', service(['cut-w'], 'duration'))] },
+        communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', ...ev('¿qué duración tiene?'),
+          mention: 'corte de mujer', operationIndexes: [0] }] } }
+    })
+    assert.equal(result.interpretation.reason, 'invalid_output'); assert.equal(result.interpretation.mode, 'fallback')
+    assert.match(result.reply, /40 min(?:utos)?/); assert.doesNotMatch(result.reply, /20[.,]?000|15[.,]?000|18[.,]?000/)
+    assert.equal(result.state.informationFocus?.aspect, 'duration'); assert.equal(result.state.informationFocus?.serviceId, 'cut-w')
+    assert.equal(JSON.stringify(state), before); assert.deepEqual(selectionBasket(result.state), selectionBasket(state))
+    assert.equal(result.state.serviceId, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+    assert.equal(calls, 1); assert.equal(agendaCalls, reads)
+  })
+  const pFocus: DialogueState = { ...sidePrice.state, informationFocus: { ...namelessPrice.state.informationFocus!,
+    serviceId: 'woman', awaitingChoice: false } }
+  const pRead = (message: string, quote = 'qué duración tiene', aspect = 'duration', confidence = .99,
+    targetId = 'woman', currentPort = port, providerError = false) =>
+    respondWithAiInterpreter(context, pFocus, message, currentPort, async () => {
+      currentProviderCalls++
+      if (providerError) throw new Error('controlled offline provider error')
+      return { ...legacy, turnPlan: { version: 1, operations: [{ ...info(quote, service([targetId], aspect)), confidence }] },
+        communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', ...ev(quote),
+          mention: 'corte de mujer', operationIndexes: [0] }] } }
+    })
+  await currentCheck('P independent facets preserve booking draft and original rejection', async () => {
+    for (const [message, quote, aspect] of [
+      ['Sobre ese corte de mujer, ¿qué duración tiene?', 'qué duración tiene', 'duration'],
+      ['Sobre ese corte de mujer, ¿cuál es la descripción?', 'cuál es la descripción', 'description'],
+      ['Sobre ese corte de mujer, ¿cuál es el precio?', 'cuál es el precio', 'price'],
+      ['Sobre ese\ncorte de mujer,\t¿qué duración tiene?', 'qué duración tiene', 'duration']
+    ] as const) {
+      const reads = agendaCalls, calls = currentProviderCalls, result = await pRead(message, quote, aspect)
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.equal(result.state.informationFocus?.aspect, aspect)
+      if (aspect === 'duration') { assert.match(result.reply, /30 min(?:utos)?/); assert.doesNotMatch(result.reply, /37[.,]?000/) }
+      for (const key of ['basket', 'serviceId', 'date', 'customerName', 'professionalNameHint', 'timePreference'] as const)
+        assert.deepEqual(result.state[key], pFocus[key])
+      assert.equal(result.bookingCommand, undefined); assert.equal(result.proposal, null)
+      assert.equal(agendaCalls, reads); assert.equal(currentProviderCalls, calls + 1)
+    }
+  })
+  await currentCheck('P denial-only provenance and whole-body residue prevent fallback old facts', async () => {
+    for (const message of ['Sin lavado, sobre ese corte de mujer, ¿qué duración tiene?',
+      'Sobre ese corte de mujer, ¿qué duración tiene sin lavado?', 'No, sobre ese corte de mujer, ¿qué duración tiene?',
+      'Si conviene, sobre ese corte de mujer, ¿qué duración tiene?', 'Sobre ese corte de mujer, ¿qué duración tiene extraño?',
+      'Sobre ese corte de mujer, ¿qué duración tiene y precio?', '¿Qué duración tiene?', 'Sobre Corte hombre, ¿qué duración tiene?']) {
+      const result = await pRead(message)
+      assert.doesNotMatch(result.reply, /30 min(?:utos)?|37[.,]?000|27[.,]?000|32[.,]?000/)
+      assert.deepEqual(result.state, pFocus)
+    }
+    for (const [confidence, target, quote] of [[.84, 'woman', 'qué duración tiene'], [.5, 'woman', 'qué duración tiene'],
+      [.99, 'foreign', 'qué duración tiene'], [.99, 'woman', 'inventado']] as const) {
+      const result = await pRead('Sobre ese corte de mujer, ¿qué duración tiene?', quote, 'duration', confidence, target)
+      assert.doesNotMatch(result.reply, /30 min(?:utos)?|37[.,]?000/); assert.deepEqual(result.state, pFocus)
+    }
+    const failed = await pRead('Sobre ese corte de mujer, ¿qué duración tiene?', 'qué duración tiene', 'duration', .99, 'woman', port, true)
+    assert.equal(failed.interpretation.reason, 'provider_error'); assert.doesNotMatch(failed.reply, /30 min(?:utos)?|37[.,]?000/)
+    assert.deepEqual(failed.state, pFocus)
+    for (const currentPort of [{ ...port, catalog: async () => services.map(item => item.id === 'woman' || item.id === 'cut'
+      ? { ...item, name: 'Renombrado' } : item) }, { ...port, catalog: async () => services.filter(item => item.id !== 'cut') }]) {
+      const result = await pRead('Sobre ese corte de mujer, ¿qué duración tiene?', 'qué duración tiene', 'duration', .99, 'woman', currentPort)
+      assert.doesNotMatch(result.reply, /30 min(?:utos)?|37[.,]?000/); assert.deepEqual(result.state, pFocus)
+    }
+  })
+  await currentCheck('P full-body proof remains independent of rejected targets and finite catalog aliases', async () => {
+    const scope = await import('../src/conversational-bot/service-information-scope.js')
+    const message = 'Sobre ese corte de mujer, ¿qué duración tiene?'
+    assert.equal(scope.independentServiceInformationInquiry(message, 'duration', pFocus.informationFocus, context.businessId, services)?.serviceId, 'woman')
+    for (const body of ['Sobre ese córte de mujer, ¿qué duración tiene?', message + ' corte de mujer', message + ' especial.',
+      'Sobre ese corte de mujer, ¿qué duración tiene? Soy Ana.']) {
+      assert.equal(scope.independentServiceInformationInquiry(body, 'duration', pFocus.informationFocus, context.businessId, services), null)
+      const result = await pRead(body); assert.doesNotMatch(result.reply, /30 min(?:utos)?|37[.,]?000/)
+      assert.deepEqual(result.state, pFocus)
+    }
+    const long = 'Sobre ese corte de mujer,' + ' '.repeat(2000 - 'Sobre ese corte de mujer,'.length - '¿qué duración tiene?'.length) + '¿qué duración tiene?'
+    const result = await pRead(long)
+    assert.match(result.reply, /30 min(?:utos)?/); assert.doesNotMatch(result.reply, /37[.,]?000/)
+    assert.equal(result.state.informationFocus?.aspect, 'duration')
+    const deniedWrongTarget = await pRead(message, 'qué duración tiene', 'price', .99, 'cut')
+    assert.match(deniedWrongTarget.reply, /30 min(?:utos)?/); assert.doesNotMatch(deniedWrongTarget.reply, /37[.,]?000|27[.,]?000/)
+    assert.equal(deniedWrongTarget.state.informationFocus?.serviceId, 'woman', 'rejected ID/aspect only restrict eligibility, never provide positive proof')
+    const original = info('qué duración tiene', service(['woman'], 'duration'))
+    const weakCompanion = await respondWithAiInterpreter(context, pFocus, message, port, async () => ({ ...legacy,
+      turnPlan: { version: 1, operations: [original, { ...original, confidence: .5 }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', ...ev('qué duración tiene'),
+        mention: 'corte de mujer', operationIndexes: [0, 1] }] } }))
+    assert.equal(weakCompanion.interpretation.reason, 'invalid_output')
+    assert.doesNotMatch(weakCompanion.reply, /30 min(?:utos)?|37[.,]?000/); assert.deepEqual(weakCompanion.state, pFocus)
+    const closed = await respondWithAiInterpreter(context, pFocus, 'Corte mujer', port, async () => { throw new Error('controlled offline') })
+    assert.match(closed.reply, /37[.,]?000/); assert.equal(closed.state.serviceId, pFocus.serviceId)
+    assert.equal(closed.bookingCommand, undefined); assert.equal(closed.proposal, null)
+  })
   console.log('current service inquiry: ' + currentPassed + ' passed, ' + currentFailures.length + ' failed')
   assert.deepEqual(currentFailures, [], 'current service inquiry regressions')
 
