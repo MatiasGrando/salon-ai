@@ -329,6 +329,8 @@ export async function respondWithAiInterpreter(
 ): Promise<InterpretedDialogueResponse> {
   const started = performance.now()
   const state = parseDialogueState(previous, context.businessId, context.timezone)
+  const temporalState: DialogueState = state.appointmentManagement ? { ...state, date: state.appointmentManagement.date ?? null, requestedTime: state.appointmentManagement.selectedTime ?? null, slot: null, pending: state.appointmentManagement.date ? 'time' : 'date' } : state
+  if (state.appointmentManagement) delete temporalState.bookingReservation
   const services = await port.catalog()
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
@@ -400,7 +402,7 @@ export async function respondWithAiInterpreter(
   let candidate: Candidate | null = null
   let validationError: unknown
   if (!reason) {
-    try { candidate = validateCandidate(raw, message, services, state, context, commercialRead) }
+    try { candidate = validateCandidate(raw, message, services, temporalState, context, commercialRead) }
     catch (error) { validationError = error; reason = 'invalid_output' }
   }
   const proposal = summarizeProposal(raw)
@@ -512,7 +514,7 @@ export async function respondWithAiInterpreter(
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? '¿Qué servicio necesitás?' : response.reply
-  const canonicalOnly = informationPreparationFailed || Boolean(port.identity && planHasUpdates && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
+  const canonicalOnly = Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let modelFraming = false

@@ -1,3 +1,4 @@
+import { publicAppointmentManagement } from './dialogue-context.js'
 import { COMMUNICATIVE_ACTS_JSON_SCHEMA } from './communicative-act.js'
 import { focusedInformationService } from './information-read.js'
 import { parseEstimateOptions } from '../bot-options/domain/service-booking.js'
@@ -56,6 +57,7 @@ export function createOpenAiInterpretationProvider(options: {
     const state = parseDialogueState(input.state, input.state.businessId)
     if (input.message.length > 2000 || input.services.length > 200 ||
         input.firstReplyFacts && (input.firstReplyFacts.length > 100 || input.firstReplyFacts.some(fact => fact.text.length > 1000))) throw new Error('AI input too large')
+    const management = publicAppointmentManagement(state)
     const exactIds = selectionBasket(state).members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds)
     const selectedServices = exactIds.flatMap(id => input.services.filter(service => service.id === id))
     const guidance = resolveGuidance(selectedServices, state.serviceEstimates)
@@ -79,9 +81,10 @@ export function createOpenAiInterpretationProvider(options: {
           ...(input.businessDate ? { businessDate: input.businessDate } : {}),
           ...(input.timezone ? { timezone: input.timezone } : {}),
           replyContract: input.replyContract ?? replyContract('social', false, state.introduced === true, input.firstReplyFacts ?? []),
-          pending: input.state.pending,
+          management,
+          pending: management?.stage === 'date' ? 'date' : management?.stage === 'time' ? 'time' : input.state.pending,
           editRequest: input.state.editRequest ?? null,
-          expectedAnswer: expectedDialogueAnswer(state),
+          expectedAnswer: management ? {role:management.stage === 'confirmation' ? 'confirmation' : management.stage,question:management.question} : expectedDialogueAnswer(state),
           serviceId: input.state.serviceId,
           basket: selectionBasket(state),
           estimateChoices: guidedChoiceTargets(input.services, exactIds),
@@ -90,10 +93,10 @@ export function createOpenAiInterpretationProvider(options: {
           estimateSelections: Object.entries(guidance.selections).map(([serviceId, selection]) => ({ serviceId, optionId: selection.optionId })),
           professionalNameHint: input.state.professionalNameHint,
           professionalReference: state.professionalReference ?? null,
-          date: input.state.date,
+          date: management ? management.date : input.state.date,
           datePreferences: input.state.datePreferences ?? null,
           professional: input.state.professional,
-          requestedTime: input.state.requestedTime,
+          requestedTime: management ? management.requestedTime : input.state.requestedTime,
           timePreference: input.state.timePreference ?? null,
           timeClarification: input.state.timeClarification ?? null,
           businessTimeContext: input.businessTimeContext ?? null,

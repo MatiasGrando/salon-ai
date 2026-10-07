@@ -1,9 +1,12 @@
+import { loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
+import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
+import { routeActions } from './actions.js'
 import { canonicalJsonHash } from './canonical-json.js'
 import { explicitReferralAction } from './conversational-referral.js'
 import { isCustomerText } from './customer-text.js'
 import { prismaHandoffEffectExecutor } from '../bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { executePrismaConversationBooking, runtimeBookingReceiptReply } from './prisma-conversational-booking.js'
-import { finalizeRuntimeBooking } from './engine.js'
+import { finalizeRuntimeBooking, finalizeAppointmentManagement } from './engine.js'
 import { enqueueConversationalHandoffTx } from './prisma-conversational-handoff.js'
 import type { ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx, type ConsolidationEnvelope } from './inbound-consolidation.js'
@@ -374,10 +377,32 @@ export async function processConversationInbox(input: {
       `))
       const parsed = parseBotOptionsState(activeSession.state)
       if (!parsed.ok) throw new Error('invalid conversation session state')
-      if (!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') {
+      let serverManagementSnapshot: CancellationSnapshot | undefined
+      let runtimeManagementAllowed = false
+      if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !input.isRestart(payload.textBody)) {
+        const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
+        const requested = routeActions(String(payload.textBody ?? '')).pendingAction
+        if (draft.bookingReservation?.receipt && (draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')) {
+          try {
+            serverManagementSnapshot = await loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
+            runtimeManagementAllowed = true
+          } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
+        }
+      }
+      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed) {
+        let protectedReply = 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.'
+        let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
+        try { protectedDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) } catch { /* Preserve the protected session without trusting malformed sidecars. */ }
+        if (parsed.state.booking === 'CANCELLED' && protectedDraft?.appointmentManagement?.outcome?.kind === 'CANCELLED') {
+          protectedReply = 'El grupo de turnos fue cancelado. No inicié otra reserva.'
+        } else if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && protectedDraft?.bookingReservation?.receipt) {
+          protectedReply = protectedDraft.appointmentManagement
+            ? 'No pude verificar el estado actual de la gestión. El equipo debe revisarlo; no modifiqué tus turnos ni inicié otra reserva.'
+            : runtimeBookingReceiptReply(protectedDraft.bookingReservation)
+        }
         await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
           transitionId: `transition:${activeSession.sessionId}:${activeSession.revision}:protected:${row.id}`, toPhone: phone, dbNow: row.dbNow,
-          view: textView(parsed.state.booking==='CONFIRMED' && parsed.state.deposit==='NONE' && parsed.state.handoff==='NONE' && (()=>{try{return readConversationDraft(activeSession.state,policy,row.businessTimezone).bookingReservation?.receipt!==undefined}catch{return false}})() ? runtimeBookingReceiptReply(readConversationDraft(activeSession.state,policy,row.businessTimezone).bookingReservation!) : 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.') }))
+          view: textView(protectedReply) }))
         await finish(tx, row)
         return null
       }
@@ -394,14 +419,14 @@ export async function processConversationInbox(input: {
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
       const reset = !isChoice && payload.messageType === 'text' && input.isRestart(payload.textBody)
-      const consolidation = eligibleText ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
+      const consolidation = eligibleText && !runtimeManagementAllowed ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
         phone, currentEventId: row.providerEventId, isRestart: input.isRestart })) : null
-      if (eligibleText && !consolidation) { await retry(tx, row, true); return null }
+      if (eligibleText && !runtimeManagementAllowed && !consolidation) { await retry(tx, row, true); return null }
       const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset, selectedChoice }
+      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
@@ -419,6 +444,7 @@ export async function processConversationInbox(input: {
     if (prepared.context.businessId !== policy.businessId || prepared.context.timezone !== snapshot.row.businessTimezone) throw new Error('dialogue context mismatch')
     // Preserve port method receivers. Catalog includes repository pages already traced separately.
     const port: DialoguePort = {
+      ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
       ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
@@ -437,7 +463,7 @@ export async function processConversationInbox(input: {
         return {state:snapshot.draft,reply:'Esa opción ya no está disponible. Escribime cómo querés continuar; conservé tu borrador.',proposal:null}
       }
     }
-    const operationalContext = { ...prepared.context, humanHandoff: true as const, serverRuntimeBookingScope: {businessId:policy.businessId,sessionId:snapshot.session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,revision:String(snapshot.session.revision+1n),configurationId:policy.configurationId,dispatchFenceEpoch:snapshot.row.fenceEpoch,handoffFenceEpoch:snapshot.session.handoffFenceEpoch} }
+    const operationalContext = { ...prepared.context, ...('serverManagementSnapshot' in snapshot && snapshot.serverManagementSnapshot ? {serverManagementSnapshot:snapshot.serverManagementSnapshot} : {}), humanHandoff: true as const, serverRuntimeBookingScope: {businessId:policy.businessId,sessionId:snapshot.session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,revision:String(snapshot.session.revision+1n),configurationId:policy.configurationId,dispatchFenceEpoch:snapshot.row.fenceEpoch,handoffFenceEpoch:snapshot.session.handoffFenceEpoch} }
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.selectedChoice ? await computeChoice()
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
@@ -488,7 +514,19 @@ export async function processConversationInbox(input: {
       const rejectedHandoff = Boolean(proposedHandoff && useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai')
       const handoffCommand = rejectedHandoff ? undefined : proposedHandoff
       const command='bookingCommand' in response ? response.bookingCommand : undefined
+      const managementCommand = 'managementCommand' in response ? response.managementCommand : undefined
       let finalResponse=response
+      if (managementCommand) {
+        if (command || handoffCommand) throw new Error('competing management effects')
+        if (useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai') {
+          finalResponse = { state: snapshot.draft, proposal: null, reply: 'No pude verificar ese consentimiento; no modifiqué tus turnos.' }
+        } else {
+          const fresh = await loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision })
+          if (cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) throw new GroupCancellationError('management snapshot changed; new consent required')
+          const receipt = managementCommand.kind === 'CANCEL_APPOINTMENT_GROUP' ? await cancelGroupInTransaction(tx, managementCommand) : await rescheduleGroupInTransaction(tx, managementCommand)
+          finalResponse = finalizeAppointmentManagement(response, receipt)
+        }
+      }
       if(command?.kind==='CONFIRM_BOOKING') {
         if(handoffCommand)throw new Error('competing runtime effects')
         if(useAi && (response as InterpretedDialogueResponse).interpretation.mode!=='ai') {
@@ -515,7 +553,7 @@ export async function processConversationInbox(input: {
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
       const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
       let question:ChoiceQuestion|undefined
-      if(!handoffCommand && !command && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+      if(!handoffCommand && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
         // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
         try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
