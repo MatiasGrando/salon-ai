@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows } from '../services/agenda-locks.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
+import { parseRuntimeBookingReservation, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash } from './prisma-conversational-booking.js'
 import { cancelManageableAppointmentInTransaction, type CancelManageableAppointmentInput, type CancelManageableAppointmentResult } from '../bot-options/application/appointment-management.js'
 import { rescheduleManageableAppointmentInTransaction, type RescheduleManageableAppointmentInput, type RescheduleManageableAppointmentResult } from '../bot-options/application/appointment-rescheduling.js'
 import { assertManagementScope, assertCancellationSnapshot, cancellationFingerprint, managementIdentifier, GroupCancellationError, assertGroupMoves, rescheduleFingerprint, type GroupRescheduleCommand, type GroupMove, type CancellationSnapshot, type GroupCancellationCommand, type ManagementScope } from './appointment-management.js'
@@ -160,4 +161,68 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
     WHERE "operationKey"=${key} AND status='STARTED' AND "requestHash"=${hash}`)
   if(completed!==1) throw new GroupCancellationError('reschedule completion fence failed')
   return {appointmentIds:members.map(m=>m.appointmentId),moves:receipt.moves,replayed:false}
+}
+export type RuntimeManagementContext = { businessId: string; sessionId: string; canonicalPhone: string; expectedRevision: bigint }
+const managementRecord = (value: unknown): value is Record<string,unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+const exactManagementKeys = (value: Record<string,unknown>, expected: readonly string[]) => Object.keys(value).sort().join(',') === [...expected].sort().join(',')
+
+/** Load server-persisted booking authority, not an appointment ID proposed by a customer/model.
+ * Original booking proof is immutable; current terms/versions come from the locked aggregate.
+ * The caller owns this transaction and its current runtime/CAS guards. No effects or consent here.
+ */
+export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: RuntimeManagementContext): Promise<CancellationSnapshot> {
+  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId','canonicalPhone','expectedRevision']) ||
+      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !/^[0-9]{10,15}$/.test(context.canonicalPhone)) throw new GroupCancellationError('invalid current management scope')
+  managementIdentifier(context.businessId); managementIdentifier(context.sessionId)
+  const sessions = await tx.$queryRaw<Array<{phone:string;customerId:string;state:unknown}>>(Prisma.sql`
+    SELECT co.phone,c.id AS "customerId",bs.state FROM "BotSession" bs
+    JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
+    JOIN "Customer" c ON c."businessId"=bs."businessId" AND c."normalizedPhone"=${context.canonicalPhone}
+    WHERE bs.id=${context.sessionId} AND bs."businessId"=${context.businessId} AND bs.revision=${context.expectedRevision} AND bs.status='ACTIVE'
+    FOR UPDATE OF bs,co FOR SHARE OF c`)
+  const session=sessions[0]
+  if (sessions.length!==1 || !session || !/^\+?[\d\s().-]+$/.test(session.phone) || normalizePhone(session.phone)!==context.canonicalPhone ||
+      !managementRecord(session.state) || session.state.booking!=='CONFIRMED' || session.state.deposit!=='NONE' || session.state.handoff!=='NONE' ||
+      !managementRecord(session.state.conversationDraft) || !managementRecord(session.state.conversationDraft.dialogue) || session.state.conversationDraft.dialogue.businessId!==context.businessId) throw new GroupCancellationError('current management ownership unavailable')
+  let reservation: ReturnType<typeof parseRuntimeBookingReservation>
+  try { reservation=parseRuntimeBookingReservation(session.state.conversationDraft.dialogue.bookingReservation,context.businessId) }
+  catch { throw new GroupCancellationError('invalid confirmed runtime receipt') }
+  const presented=reservation.presented,receipt=reservation.receipt
+  if (!receipt || presented.scope.sessionId!==context.sessionId) throw new GroupCancellationError('runtime receipt scope mismatch')
+  managementIdentifier(receipt.coordinationGroupId)
+  const appointmentIds=new Set<string>(),visitIds=new Set<string>()
+  for (const member of receipt.appointments) {
+    managementIdentifier(member.appointmentId); managementIdentifier(member.visitId)
+    appointmentIds.add(member.appointmentId); visitIds.add(member.visitId)
+  }
+  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId,normalizedPhone:context.canonicalPhone}
+  const snapshot=await lockManagedGroup(tx,scope,receipt.appointments[0]!.appointmentId)
+  assertCancellationSnapshot(snapshot)
+  if (snapshot.groupId!==receipt.coordinationGroupId || snapshot.members.length!==receipt.appointments.length || snapshot.members.some(m=>!appointmentIds.has(m.appointmentId))) throw new GroupCancellationError('runtime receipt group membership mismatch')
+  const parents=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;type:string;status:string;requestHash:string}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId",type,status,"requestHash" FROM "BotOperation"
+    WHERE "resultRef"=${receipt.coordinationGroupId} AND type='CONFIRM_VISIT' ORDER BY "operationKey" FOR UPDATE`)
+  const parent=parents[0], prefix='conversation-booking:',suffix=':'+presented.nonce, original=presented.scope
+  const requestHash=runtimeBookingRequestHash({ ...original,kind:'RUNTIME',canonicalPhone:context.canonicalPhone,
+    revision:BigInt(original.revision),operationKey:parent?.operationKey ?? '',newBookingAllowed:false },presented)
+  if (parents.length!==1 || !parent || parent.businessId!==context.businessId || parent.sessionId!==context.sessionId || parent.type!=='CONFIRM_VISIT' ||
+      parent.status!=='COMPLETED' || parent.requestHash!==requestHash || !parent.operationKey.startsWith(prefix) || !parent.operationKey.endsWith(suffix)) throw new GroupCancellationError('runtime parent receipt mismatch')
+  managementIdentifier(parent.operationKey.slice(prefix.length,-suffix.length))
+  const childPrefix=parent.operationKey+':segment:'
+  const children=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId",type,status,"requestHash","resultRef" FROM "BotOperation"
+    WHERE left("operationKey",length(${childPrefix}))=${childPrefix} ORDER BY "operationKey" FOR UPDATE`)
+  if (children.length!==receipt.appointments.length) throw new GroupCancellationError('runtime child receipt membership mismatch')
+  for (const [index,entry] of receipt.appointments.entries()) {
+    const segment=presented.terms.segments[index]!, member=snapshot.members.find(m=>m.appointmentId===entry.appointmentId)
+    const key=childPrefix+index+':CONFIRM_VISIT',child=children.find(c=>c.operationKey===key)
+    // Pure shared projection only; false never confers a new-booking capability.
+    const childRequestHash=runtimeBookingChildRequestHash(runtimeBookingChildInput(presented,parent.operationKey,index,false))
+    if (!child || child.businessId!==context.businessId || child.sessionId!==context.sessionId || child.type!=='CONFIRM_VISIT' || child.status!=='COMPLETED' ||
+        child.requestHash!==childRequestHash || child.resultRef!==entry.visitId || !member || member.visitId!==entry.visitId || member.professionalId!==segment.professionalId ||
+        !isDeepStrictEqual(member.serviceIds,[segment.serviceId]) || member.durationMinutes!==segment.durationMinutes || member.quotedPrice!==(segment.priceMode==='FIXED'?segment.priceMinor:null)) throw new GroupCancellationError('runtime child receipt mismatch')
+  }
+  const visits=await tx.$queryRaw<Array<{id:string;sessionId:string}>>(Prisma.sql`SELECT id,"sessionId" FROM "BookingVisit" WHERE id IN (${Prisma.join([...visitIds])}) ORDER BY id FOR UPDATE`)
+  if (visits.length!==visitIds.size || visits.some(v=>!visitIds.has(v.id) || v.sessionId!==context.sessionId)) throw new GroupCancellationError('runtime visit session mismatch')
+  return snapshot
 }
