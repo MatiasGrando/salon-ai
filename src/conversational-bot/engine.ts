@@ -1298,8 +1298,23 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!basketIsResolved(state) ? '\n' + pendingQuestion(state) : ''))
   }
   if (!matched.matching && !bookingUpdates.length && nameOp && !hasActiveBooking(state) && standaloneIdentityMessage(message,nameOp.value)) return finishWithoutAgenda('¿En qué te puedo ayudar con el local?')
+  const selectedCandidateIds = serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
+    ? serviceOp.serviceIds : basketOp?.kind === 'basket'
+      ? basketOp.members.filter(member => member.mode === 'single' && member.confidence >= .85).flatMap(member => member.serviceIds) : []
+  const chosenRelated = previousProcedureRequest?.businessId === context.businessId &&
+    previousProcedureRequest.purpose === 'booking' && previousProcedureRequest.basis === 'related_category' &&
+    !state.serviceRequest
+    ? services.filter(service => previousProcedureRequest.serviceIds.includes(service.id) &&
+        selectedCandidateIds.includes(service.id) && basketServiceIds(state).includes(service.id)) : []
+  // Selecting the public service resolves the choice, not an undocumented technique.
+  // Keep that distinction as brief information instead of another blocking procedure.
+  const selectionNote = chosenRelated.length
+    ? 'Perfecto, seguimos con ' + chosenRelated.map(service => service.name).join(' + ') + '.\n' +
+      'No tengo confirmado si incluye «' + previousProcedureRequest!.request + '».'
+    : ''
   const next = await respondBooking(context, state, message, port, undefined, services, matched.matching)
-  return { ...next, reply: [...combinedAnswers(next), next.reply, clarificationReply].filter(Boolean).join('\n') }
+  return { ...next, reply: [...combinedAnswers(next), selectionNote, next.reply, clarificationReply].filter(Boolean).join('\n'),
+    ...(selectionNote ? { replyPrepared: true as const } : {}) }
 }
 
 /** Route current-message reads before booking extraction; reads never publish a proposal. */

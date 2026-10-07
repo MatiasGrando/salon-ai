@@ -3,6 +3,7 @@ import { initialDialogueState, parseDialogueState, respond, type DialoguePort, t
 import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { expectedDialogueAnswer } from '../src/conversational-bot/dialogue-context.js'
+import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
 import { parseTurnPlan, TURN_PLAN_JSON_SCHEMA } from '../src/conversational-bot/turn-plan.js'
 import { admitCommunicativePlan, parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
 import { resolveServiceRequest } from '../src/conversational-bot/service-request.js'
@@ -215,6 +216,66 @@ await check('reference semantics do not authorize direct callers and preserve in
   assert.equal(result.state.date, initial.state.date); assert.equal(result.state.customerName, initial.state.customerName)
   const foreign = { ...initial.state, serviceRequest: { ...initial.state.serviceRequest!, businessId: 'foreign' } }
   assert.throws(() => parseDialogueState(foreign, context.businessId))
+})
+await check('actual three-turn choice continues the published service without proving the technique', async () => {
+  for (const representation of ['service', 'service_request']) {
+    const initial = await say('Quería mechas con gorra', [request('mechas con gorra', ['cut', 'tint', 'color'])])
+    const focusedMessage = 'Sí quería algo como la iluminación'
+    const focused = await say(focusedMessage, [{ ...request('iluminación', ['color']), continuation: true }], initial.state)
+    assert.equal(focused.state.serviceRequest?.request, 'mechas con gorra')
+    const message = 'Sí a Iluminación'
+    const operation = representation === 'service'
+      ? { kind: 'service', mode: 'single', serviceIds: ['color'], correction: false, evidence: 'Iluminación', confidence: 1 }
+      : request('Iluminación', ['color'], 'booking', 'clear', 'exact_public_name')
+    const selected = await say(message, [operation], focused.state, catalog, referenceActs(message))
+    assert.equal(selected.state.serviceId, color.id)
+    assert.equal(selected.state.pending, 'estimate'); assert.equal(selected.state.serviceRequest, undefined)
+    assert.equal(selected.state.referral, undefined)
+    assert.equal(selected.state.date, initial.state.date); assert.equal(selected.state.customerName, initial.state.customerName)
+    assert.match(selected.reply, /Perfecto.*Iluminación/)
+    assert.match(selected.reply, /no tengo confirmado.*mechas con gorra/i)
+    assert.match(selected.reply, /¿Qué largo tiene tu cabello/)
+    assert.doesNotMatch(selected.reply, /Qué servicio querés elegir|Querés elegir el servicio publicado|consulto con el equipo|sí hacemos/)
+  }
+})
+await check('explicit composition preserves companions while choosing a published candidate', async () => {
+  const prior = { ...state, date: null }
+  const cutSelected = await say('Corte hombre', [{ kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, evidence: 'Corte hombre', confidence: 1 }], prior)
+  const initial = await say('quiero además mechas con gorra', [request('mechas con gorra', ['color'])], cutSelected.state, catalog, referenceActs('quiero además mechas con gorra', 'request'))
+  assert.equal(initial.state.serviceRequest?.request, 'mechas con gorra')
+  const message = 'Sumá Iluminación'
+  const selected = await say(message, [{ kind: 'basket', mutation: 'add', scope: 'all', targetMemberIds: [],
+    members: [{ mode: 'single', serviceIds: ['color'], evidence: 'Iluminación', confidence: 1 }], evidence: message, confidence: 1 }],
+    initial.state, catalog, { version: 1, acts: [{ kind: 'request', field: 'service', evidence: message, confidence: 1, mention: 'Iluminación', operationIndexes: [0] }] })
+  assert.deepEqual(selected.state.basket?.members.flatMap(member => member.serviceIds), ['cut', 'color'])
+  assert.equal(selected.state.pending, 'estimate')
+  assert.match(selected.reply, /no tengo confirmado.*mechas con gorra/i)
+})
+await check('service choice guidance separates current published choice from unverified technique and reference', () => {
+  assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /Elección del servicio publicado/)
+  assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /continuation true/)
+  assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /service.*single/)
+})
+await check('a current contextual choice can advance on the second turn without a third confirmation', async () => {
+  const initial = await say('Quería mechas con gorra', [request('mechas con gorra', ['cut', 'tint', 'color'])])
+  const message = 'Sí quería algo como la iluminación'
+  const selected = await say(message, [{ kind: 'service', mode: 'single', serviceIds: ['color'], correction: false, evidence: 'iluminación', confidence: 1 }],
+    initial.state, catalog, referenceActs(message))
+  assert.equal(selected.state.serviceId, color.id); assert.equal(selected.state.pending, 'estimate')
+  assert.match(selected.reply, /no tengo confirmado.*mechas con gorra/i)
+  assert.match(selected.reply, /¿Qué largo tiene tu cabello/)
+  assert.equal(selected.state.referral, undefined)
+})
+await check('uncertain historical or foreign authority cannot choose the related service', async () => {
+  const initial = await say('mechas con gorra', [request('mechas con gorra', ['color'])])
+  for (const kind of ['uncertain', 'reference', 'inquiry']) {
+    const message = 'Iluminación'
+    const rejected = await say(message, [{ kind: 'service', mode: 'single', serviceIds: ['color'], correction: false, evidence: message, confidence: 1 }],
+      initial.state, catalog, referenceActs(message, kind))
+    assert.equal(rejected.state.serviceId, null)
+    assert.equal(rejected.state.serviceRequest?.request, 'mechas con gorra')
+    assert.doesNotMatch(rejected.reply, /Perfecto, seguimos con Iluminación/)
+  }
 })
 assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
 console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')
