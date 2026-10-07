@@ -3017,3 +3017,6 @@ src/conversational-bot/dialogue-identity.ts y prisma-dialogue-identity.ts: norma
 src/conversational-bot/prisma-dialogue-port.ts: puerto de agenda y perfil.
 src/conversational-bot/ai-interpreter.ts y openai-*-provider.ts: contexto público y preferencias de estilo.
 scripts/conversational-bot-runtime-management-test.ts, conversational-bot-runtime-test.ts y conversational-bot-personality-test.ts: regresiones del circuito completo.
+
+### Evidencia final P4
+Commit 6061426a64854d6d422ad7065cb763f6285b724e verificado: exact9 fuentes/pruebas + documento; 358 adiciones y23 bajas (381 autoradas). SHA9 del freeze, whitelist exact10, cached diff--check y test:text-encoding PASS antes de commit. Perfil conectado en ambos recorridos, no sólo simulador. Verificación funcional final: personality11/0, runtime25 bloques y runtime-management ALL/rollback EXIT0; strict OWN0/14 legacy, revisión nativa pendiente/manual y espejo Engram no disponible. Servidor no iniciado, sin API/producción/WhatsApp. Documentación de cierre local, no habilitación remota.
