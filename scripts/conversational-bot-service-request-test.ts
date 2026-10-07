@@ -23,6 +23,8 @@ assert.equal(unknown.state.date, previous.date);
 assert.equal(unknown.state.customerName, 'Matías');
 assert.match(unknown.reply, /corte francés/i);
 assert.match(unknown.reply, /confirmad|información/i);
+assert.match(unknown.reply, /resultado que buscás/);
+assert.doesNotMatch(unknown.reply, /¿Querés consultarlo|Qué otra información necesitás/);
 assert.doesNotMatch(unknown.reply, /no (?:lo )?(?:hacemos|ofrecemos)|foto|capacidad/i);
 assert.equal(calls, 0, 'a question about capabilities never queries agenda');
 assert.equal((unknown.state as any).serviceRequest.request, 'corte francés');
@@ -73,6 +75,8 @@ const needs = await say('Quiero aclararme el pelo', req('aclararme el pelo', 'bo
 assert.equal(needs.state.serviceId, null, 'a related category is not a verified requested variant');
 assert.match(needs.reply, /aclararme el pelo/i);
 assert.match(needs.reply, /cont|resultado|detalle/i);
+assert.match(needs.reply, /Iluminación/);
+assert.match(needs.reply, /podría estar relacionado/);
 assert.doesNotMatch(needs.reply, /foto|capacidad/i);
 const alternatives = await say('¿Hacen cortes?', req('cortes', 'inquiry', 'alternatives', ['cut', 'cut-w']));
 assert.equal(alternatives.state.serviceId, null);

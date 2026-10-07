@@ -55,7 +55,8 @@ test('other cannot suppress verified booking or unknown service',async()=>{
  const beforeUnknown=agenda
  const unknown=await say(initial(),'servicio inexistente',[{kind:'service',mode:'unresolved',serviceIds:[],correction:false,...ev('servicio inexistente')}])
  assert.match(unknown.response.reply,/No tengo información confirmada sobre «servicio inexistente»/)
- assert.match(unknown.response.reply,/consultarlo con el equipo o contarme más/)
+ assert.match(unknown.response.reply,/resultado que buscás/)
+ assert.doesNotMatch(unknown.response.reply,/¿Querés consultarlo/,'unknown procedure clarifies the desired result before a generic referral')
  assert.doesNotMatch(unknown.response.reply,/no (?:lo )?hacemos|foto|requiere consulta|reservado/i)
  assert.equal(unknown.response.state.serviceId,null);assert.equal(unknown.response.proposal,null)
  assert.equal(unknown.response.bookingCommand,undefined);assert.equal(unknown.response.state.sandboxReservation,undefined)

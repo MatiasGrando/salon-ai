@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict'
+import { initialDialogueState, parseDialogueState, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
+import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
+import { resolveServiceRequest } from '../src/conversational-bot/service-request.js'
+globalThis.fetch = (() => { throw new Error('network forbidden') }) as typeof fetch
+const context = { businessId: 'catalog-test', timezone: 'UTC', dbNow: new Date('2026-10-07T12:00:00Z') }
+const state = { ...initialDialogueState(context.businessId), customerName: 'Ana', date: '2026-10-08' }
+const base = { intent: 'booking', serviceId: null, serviceEvidence: null, professionalMention: null, firstReply: null, intakeReply: null }
+const cut: DialogueService = { id: 'cut', name: 'Corte hombre', description: 'Corte con tijera o máquina.', durationMinutes: 30, price: 100, requiresConsultation: false }
+const color: DialogueService = { id: 'color', name: 'Iluminación', description: 'Mechas y reflejos de color.', durationMinutes: 60, price: 500, priceMode: 'STARTING_AT', requiresConsultation: false,
+  bookingPolicy: { id: 'color', name: 'Iluminación', attentionMode: 'GUIDED_ESTIMATE', price: 500, priceMode: 'STARTING_AT', estimateAllowsBooking: true,
+    estimateQuestion: '¿Qué largo tiene tu cabello?', estimateOptions: [{ id: 'short', label: 'Hasta los hombros', priceMin: 500, priceMax: 600, note: null }],
+    estimateExplanation: 'El precio depende del largo.', estimateDisclaimer: null, requiresPhoto: false, validationEnabled: false, validationMessage: null, validationQuestion: null } }
+const tint: DialogueService = { id: 'tint', name: 'Coloración', description: 'Cambio de color completo.', durationMinutes: 60, price: 400, requiresConsultation: false }
+const catalog = [cut, color, tint]
+const request = (evidence: string, ids: string[], purpose: 'booking' | 'inquiry' = 'booking', disposition = 'unverified_variant', basis = 'related_category') => ({
+  kind: 'service_request', evidence, confidence: 1, purpose, disposition, basis, serviceIds: ids, sourceQuote: null, correction: false, continuation: false
+})
+let passed = 0, failed = 0, agenda = 0
+async function check(label: string, run: () => Promise<void> | void) {
+  try { await run(); passed++; console.log('PASS ' + label) } catch (error) { failed++; console.error('FAIL ' + label + ': ' + String(error)) }
+}
+function makePort(services: DialogueService[] = catalog): DialoguePort {
+  return { catalog: async () => services, availability: async () => { agenda++; throw new Error('agenda forbidden during clarification') },
+    information: async () => ({ businessId: context.businessId, name: 'Local', address: 'Calle 100', area: null, mapsUrl: null, hours: null,
+      website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null, description: null }) }
+}
+async function say(message: string, operations: object[], previous: DialogueState = state, services = catalog) {
+  let calls = 0
+  const provider = Object.assign(async (_input: AiInterpretationInput) => {
+    calls++; return { ...base, turnPlan: { version: 1, operations }, firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null } }
+  }, { respond: async () => { calls++; throw new Error('extra comparison/style call forbidden') } }) as AiInterpretationProvider
+  const result = await respondWithAiInterpreter(context, previous, message, makePort(services), provider)
+  assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1)
+  assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.handoffCommand, undefined)
+  return result
+}
+await check('one related candidate is visible and clarified, never selected or handed off', async () => {
+  const result = await say('quería unas mechas', [request('mechas', ['color'])])
+  assert.match(result.reply, /Iluminación/); assert.match(result.reply, /relacionad|referís|resultado/)
+  assert.doesNotMatch(result.reply, /consultarlo con el equipo|¿Querés consultarlo|te derivé|no (?:lo )?hacemos/)
+  assert.equal(result.state.serviceId, null); assert.equal(result.state.referral?.status, 'offered')
+  assert.equal(result.state.serviceRequest?.disposition, 'unverified_variant')
+  assert.equal(result.state.date, state.date); assert.equal(result.state.customerName, state.customerName)
+})
+await check('several existing candidates are shown without manufacturing a category', async () => {
+  const result = await say('quiero cambiar el color', [request('cambiar el color', ['color', 'tint'])])
+  assert.match(result.reply, /Iluminación/); assert.match(result.reply, /Coloración/)
+  assert.match(result.reply, /resultado|opcion|opción/); assert.doesNotMatch(result.reply, /¿Querés consultarlo/)
+  assert.equal(result.state.serviceId, null); assert.deepEqual(result.state.serviceRequest?.serviceIds, ['color', 'tint'])
+})
+for (const purpose of ['booking', 'inquiry'] as const) await check('no match asks for the desired result first: ' + purpose, async () => {
+  const result = await say('quiero un procedimiento nuevo', [request('procedimiento nuevo', [], purpose)])
+  assert.match(result.reply, /resultado|buscás|buscas/)
+  assert.doesNotMatch(result.reply, /¿Querés consultarlo|¿Qué otra información necesitás|no (?:lo )?hacemos/)
+  assert.equal(result.state.serviceId, null); assert.notEqual(result.state.referral?.status, 'pending')
+})
+for (const [name, description, evidence] of [
+  ['Revisión de frenos', 'Diagnóstico y mantenimiento del sistema de frenado.', 'ruido al frenar'],
+  ['Masaje relajante', 'Tratamiento de tensión muscular y relajación.', 'relajar la espalda']
+]) await check('catalog comparison is not hair-specific: ' + name, async () => {
+  const service = { ...cut, id: 'related', name: name!, description: description! }
+  const result = await say(evidence!, [request(evidence!, ['related'])], state, [service])
+  assert.ok(result.reply.includes(name!)); assert.equal(result.state.serviceId, null)
+  assert.doesNotMatch(result.reply, /Iluminación|consultarlo con el equipo/)
+})
+await check('current candidate name explicitly selected continues into its actual estimate', async () => {
+  const initial = await say('quiero unas mechas', [request('mechas', ['color'])])
+  const selected = await say('Iluminación', [request('Iluminación', ['color'], 'booking', 'clear', 'exact_public_name')], initial.state)
+  assert.equal(selected.state.serviceId, 'color'); assert.equal(selected.state.serviceRequest, undefined)
+  assert.equal(selected.state.referral, undefined); assert.equal(selected.state.pending, 'estimate')
+  assert.match(selected.reply, /¿Qué largo tiene tu cabello/); assert.match(selected.reply, /500/); assert.match(selected.reply, /600/)
+})
+await check('yes to an unverified technique does not prove the variant', async () => {
+  const initial = await say('quiero un color arcoíris', [request('color arcoíris', ['color'])])
+  const yes = await say('sí', [{ ...request('sí', ['color'], 'booking', 'clear'), continuation: true }], initial.state)
+  assert.equal(yes.state.serviceId, null); assert.ok(yes.state.serviceRequest)
+  assert.doesNotMatch(yes.reply, /requiere.*foto|reservado|confirmé/)
+})
+await check('literal documented variant resolves; fabricated quote still fails', async () => {
+  const good = await say('quiero mechas', [{ ...request('mechas', ['color'], 'booking', 'clear', 'documented_variant'), sourceQuote: color.description }])
+  assert.equal(good.state.serviceId, 'color'); assert.equal(good.state.pending, 'estimate')
+  const bad = await say('quiero arcoíris', [{ ...request('arcoíris', ['color'], 'booking', 'clear', 'documented_variant'), sourceQuote: 'Hacemos arcoíris.' }])
+  assert.equal(bad.state.serviceId, null); assert.ok(bad.state.serviceRequest)
+})
+await check('inquiry and lateral reading preserve the existing basket, identity and date', async () => {
+  const previous: DialogueState = { ...state, serviceId: 'cut', basket: { version: 1, nextMemberId: 2,
+    members: [{ memberId: 'm1', mode: 'single', serviceIds: ['cut'], evidence: 'Corte hombre' }] } }
+  const result = await say('hacen unas mechas', [request('mechas', ['color'], 'inquiry')], previous)
+  assert.deepEqual(result.state.basket, previous.basket); assert.equal(result.state.serviceId, 'cut')
+  const lateral = await say('dónde están', [{ kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, evidence: 'dónde están', confidence: 1 }], result.state)
+  assert.match(lateral.reply, /Calle 100/); assert.deepEqual(lateral.state.serviceRequest, result.state.serviceRequest)
+  assert.equal(lateral.state.date, previous.date); assert.equal(lateral.state.customerName, previous.customerName)
+})
+await check('clarification keeps explicit consultation and resume operational without automatic queue', async () => {
+  const initial = await say('quería unas mechas', [request('mechas', ['color'])])
+  const consult = await say('consultar al equipo', [{ kind: 'referral', action: 'consult', evidence: 'consultar al equipo', confidence: 1 }], initial.state)
+  assert.equal(consult.state.referral?.status, 'pending')
+  const resumed = await say('volver al bot', [{ kind: 'referral', action: 'resume', evidence: 'volver al bot', confidence: 1 }], consult.state)
+  assert.equal(resumed.state.referral, undefined); assert.ok(resumed.state.serviceRequest)
+  assert.match(resumed.reply, /Iluminación/); assert.doesNotMatch(resumed.reply, /¿Querés consultarlo/)
+})
+await check('stale or foreign catalog identity cannot be selected', async () => {
+  const initial = await say('quiero unas mechas', [request('mechas', ['color'])])
+  const removed = await say('sigo consultando', [], initial.state, [cut, tint])
+  assert.deepEqual(removed.state.serviceRequest?.serviceIds, [])
+  assert.doesNotMatch(removed.reply, /Iluminación/); assert.equal(removed.state.serviceId, null)
+  assert.throws(() => parseDialogueState({ ...initial.state, serviceRequest: { ...initial.state.serviceRequest, businessId: 'foreign' } }, context.businessId), /scope/)
+  assert.throws(() => resolveServiceRequest({ purpose: 'booking', disposition: 'clear', serviceIds: ['foreign'], correction: false,
+    continuation: false, basis: 'exact_public_name', sourceQuote: null }, 'mechas', 1, catalog), /catalog/)
+})
+await check('actual provider receives all current catalog descriptions and comparison guidance in one request', async () => {
+  let calls = 0, payload: Record<string, any> | undefined
+  const provider = createOpenAiInterpretationProvider({ apiKey: 'fake-only', fetchImpl: async (_url, init) => {
+    calls++; payload = JSON.parse(String(init?.body))
+    return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({
+      ...base, turnPlan: { version: 1, operations: [request('mechas', ['color'])] },
+      firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null }
+    }) }] }] }), { status: 200 })
+  } })
+  const result = await respondWithAiInterpreter(context, state, 'quiero unas mechas', makePort(), provider)
+  assert.equal(calls, 1); assert.equal(result.interpretation.mode, 'ai'); assert.match(result.reply, /Iluminación/)
+  const input = JSON.parse(payload!.input)
+  assert.deepEqual(input.services.map((service: { id: string }) => service.id), catalog.map(service => service.id))
+  assert.equal(input.services[1].description, color.description)
+  assert.match(payload!.instructions, /Comparación con el catálogo actual:/)
+  assert.match(payload!.instructions, /sin coincidencias|sin candidatos/)
+  assert.equal(payload!.store, false); assert.equal(result.state.serviceId, null)
+})
+assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
+console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')
+if (failed) process.exitCode = 1

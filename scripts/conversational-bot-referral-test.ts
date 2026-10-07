@@ -31,7 +31,7 @@ const unknownOp = operation('service_request', 'corte francés', {
   continuation: false, basis: 'related_category', sourceQuote: null
 })
 const unknown = await say(initial, 'corte francés', [unknownOp])
-assert.equal((unknown.state as any).referral?.status, 'offered', 'an actual offer to consult the team is recoverable state')
+assert.equal((unknown.state as any).referral?.status, 'offered', 'an unknown procedure keeps explicit consultation recoverable without automatic handoff')
 assert.equal((unknown.state as any).referral?.request, 'corte francés')
 const consulting = await say(unknown.state, 'consultar al equipo', [operation('referral', 'consultar al equipo', { action: 'consult' })])
 assert.equal(consulting.interpretation.mode, 'ai')
@@ -197,12 +197,13 @@ assert.equal(missingReasonProof.state.referral, undefined, 'no matching photo pr
 const copyIndependent = { state: structuredClone(unknown.state), reply: 'No tengo datos confirmados sobre esa prestación.', proposal: null }
 delete copyIndependent.state.referral
 attachReferralOffer(copyIndependent, services)
-assert.equal((copyIndependent.state as DialogueState).referral?.status, 'offered', 'typed unknown outcome creates an offer regardless of copy vocabulary')
-assert.match(copyIndependent.reply, /¿Querés consultarlo/, 'offered state must actually present a consultation question')
+assert.equal((copyIndependent.state as DialogueState).referral?.status, 'offered', 'typed unknown outcome keeps explicit consultation recoverable regardless of copy vocabulary')
+assert.equal(copyIndependent.reply, 'No tengo datos confirmados sobre esa prestación.', 'typed clarification must not be replaced by a generic consultation offer')
+assert.notEqual((copyIndependent.state as DialogueState).referral?.status, 'pending', 'internal recoverable consultation is not human ownership')
 const unchangedUnknown = { state: structuredClone(unknown.state), reply: unknown.reply, proposal: null }
 delete unchangedUnknown.state.referral
 attachReferralOffer(unchangedUnknown, services)
-assert.equal((unchangedUnknown.reply.match(/¿Querés consultarlo/g) ?? []).length, 1, 'canonical server offer is not repeated')
+assert.equal((unchangedUnknown.reply.match(/¿Querés consultarlo/g) ?? []).length, 0, 'active procedure clarification comes before a generic consultation offer')
 console.log('conversational referral: scoped pending/resume, draft preservation, policy guard and preview roundtrip PASS')
 
 const operationalContext = { ...context, humanHandoff: true as const }

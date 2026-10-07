@@ -61,13 +61,15 @@ export function attachReferralOffer(response: DialogueResponse, services: readon
   const unknown = state.serviceRequest?.disposition === 'unverified_variant' ? state.serviceRequest.request
     : selectionBasket(state).members.find(member => member.mode === 'unresolved')?.evidence
   if (unknown) {
-    // Copy never decides state. Reuse the canonical body only to avoid repeating an already-rendered offer.
+    // An active procedure question clarifies first. Internal offered state only keeps
+    // explicit consultation recoverable; it is not human ownership or consent.
+    const clarifyingRequest = state.serviceRequest?.request === unknown
     const offeredReply = serviceRequestReply({
       businessId: state.businessId, purpose: 'booking', disposition: 'unverified_variant',
       serviceIds: [], correction: false, continuation: false, basis: 'related_category',
       sourceQuote: null, request: unknown
     }, services)
-    if (!response.reply.includes(offeredReply)) {
+    if (!clarifyingRequest && !response.reply.includes(offeredReply)) {
       response.reply += '\nPara «' + unknown + '», ¿Querés consultarlo con el equipo?'
       response.replyPrepared = true
     }

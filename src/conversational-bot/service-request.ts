@@ -159,14 +159,18 @@ export function serviceRequestReply(request: ServiceRequestContext, services: re
         return 'No tengo información confirmada sobre «' + description + '». ' +
             '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
     }
-    if (request.disposition === 'needs_detail' && request.purpose === 'inquiry') {
-        return 'No tengo información confirmada sobre «' + description + '». ¿Qué otra información necesitás?';
+    const uncertainty = 'No tengo información confirmada sobre «' + description + '». ';
+    // Related catalog entries are clarification options, not proof of the requested technique.
+    if (candidates.length === 1) {
+        return uncertainty + 'En el catálogo está ' + candidates[0]!.name + ', que podría estar relacionado. ' +
+            '¿Te referís a ese servicio o qué resultado buscás?';
     }
-    if (request.disposition === 'needs_detail') {
-        return 'Para ayudarte con «' + description + '», ¿podés contarme un poco más sobre el resultado que buscás?';
+    if (candidates.length > 1) {
+        return uncertainty + 'Estas opciones del catálogo podrían estar relacionadas:\n' +
+            candidates.map(service => '• ' + service.name).join('\n') +
+            '\n¿Alguna corresponde a lo que buscás o podés contarme el resultado que querés?';
     }
-    return 'No tengo información confirmada sobre «' + description +
-        '». ¿Querés consultarlo con el equipo o contarme más sobre lo que necesitás?';
+    return uncertainty + '¿Podés contarme un poco más sobre el resultado que buscás?';
 }
 /** Bounded public catalog text is context, not instructions or variant authorization. */
 export function publicServiceRequestCatalog(services: readonly DialogueService[]) {
