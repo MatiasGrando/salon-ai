@@ -6,7 +6,8 @@ import { attachServiceContent, type ServiceContentConfiguration } from '../bot-o
 import { loadPrismaBasketAvailability, loadPrismaVerifiedDateChoices, projectDialogueService } from './prisma-basket-availability.js'
 import { loadPublicProfessionalFacts, type PublicProfessionalClient } from './prisma-public-professional-facts.js'
 import { queryPublicProfessionalFacts } from './public-professional-facts.js'
-import { loadDialogueIdentity, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
+import { loadDialogueAssistantProfile, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
+import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
 import { projectBusinessTimeContext } from './business-time-context.js'
 import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient, type PublicSourceSnapshot } from './public-source-stamp.js'
@@ -27,7 +28,7 @@ export type RuntimeBookingReadPort = { prepareRuntimeBooking(state: DialogueStat
 
 type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
-export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null, contentOptions: { qaPreview?: boolean } = {}): Promise<{ context: DialogueContext; port: DialoguePort & RuntimeBookingReadPort; cacheDiagnostics?: PublicCacheDiagnostics }> {
+export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null, contentOptions: { qaPreview?: boolean } = {}): Promise<{ context: DialogueContext; port: DialoguePort & RuntimeBookingReadPort & DialoguePersonalityPort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
   const availability = new PrismaAvailabilityRepository(client)
   const { settings, dbNow } = await availability.loadSettingsWithClock(businessId)
@@ -87,6 +88,9 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     return services.map(projectDialogueService).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, content) } : service)
   }
   let publicBusiness: { businessId: string; businessName: string } | undefined
+  // Each interpretation requests a fresh profile; its introduction reuses that same scoped read.
+  let assistantSnapshot: ReturnType<typeof loadDialogueAssistantProfile> | undefined
+  const readAssistant = () => loadDialogueAssistantProfile(client, businessId, publicBusiness)
   return { context, cacheDiagnostics, port: {
     /** Uncached server-only presentation proof. The write adapter still revalidates agenda atomically. */
     prepareRuntimeBooking: (previous, scope) => snapshot(async source => {
@@ -166,7 +170,17 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     }),
 
     businessTimeContext: (date,times) => projectBusinessTimeContext(commercialSnapshot,date,times),
-    ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {identity: () => loadDialogueIdentity(client,businessId,publicBusiness)} : {}),
+    ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {
+      personality: async () => {
+        assistantSnapshot = readAssistant()
+        const { profile } = await assistantSnapshot
+        return { businessId, profile }
+      },
+      identity: async () => {
+        const current = await (assistantSnapshot ??= readAssistant())
+        return { ...current.identity, preset: current.profile.preset }
+      }
+    } : {}),
     async information(actions) {
       const facts = await cached(!actions || actions.includes('HOURS') ? 'information:hours' : 'information:public', source => loadBusinessFacts(source, context, actions))
       publicBusiness = {businessId:facts.businessId,businessName:facts.name}

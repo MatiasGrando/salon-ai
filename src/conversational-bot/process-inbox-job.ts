@@ -1,3 +1,4 @@
+import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { routeActions } from './actions.js'
@@ -35,7 +36,7 @@ import { persistView, type projectInboundMessage, type lockExistingInitialSessio
 
 type Client = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
 export type ReplyPreparationHook = (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>
-export type DialogueFactory = (client: Client, businessId: string, serviceContent?: ServiceContentConfiguration) => Promise<{ context: DialogueContext; port: DialoguePort }>
+export type DialogueFactory = (client: Client, businessId: string, serviceContent?: ServiceContentConfiguration) => Promise<{ context: DialogueContext; port: DialoguePort & DialoguePersonalityPort }>
 const defaultFactory: DialogueFactory = (client, businessId, serviceContent) => {
   // Runtime receives the existing full Prisma client. No singleton or second connection.
   if (!('business' in client) || !('service' in client)) throw new Error('dialogue read delegates unavailable')
@@ -443,7 +444,8 @@ export async function processConversationInbox(input: {
     const prepared = await measureAttemptStage('conversation_context_load', () => (input.dialogueFactory ?? defaultFactory)(input.client, policy.businessId, policy.serviceContent))
     if (prepared.context.businessId !== policy.businessId || prepared.context.timezone !== snapshot.row.businessTimezone) throw new Error('dialogue context mismatch')
     // Preserve port method receivers. Catalog includes repository pages already traced separately.
-    const port: DialoguePort = {
+    const port: DialoguePort & DialoguePersonalityPort = {
+      ...(prepared.port.personality ? { personality: () => prepared.port.personality!() } : {}),
       ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),

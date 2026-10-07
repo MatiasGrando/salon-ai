@@ -2986,3 +2986,34 @@ NEWpersonality-test RED real3PASS/7FAIL observado, perfil privado/inputs/provide
 - [x] EXACT8: CANCEL/RESCHEDULE del grupo propio confirmado, propuestaALL independiente/consentimiento literal actual y scope vigente, puerto Prisma real consultaALLasignaciones/duraciones/offsets, caller recarga membresía/versiones/política y ejecuta C1/C2/F9 antesCAS/outbox en mismaTX. CANCELLED terminal válido/no autoreserva; RESCHEDULED resumenactual; proof original inmutable. Proyección IA pública sin snapshot/phone/privateIDs/nonce/fingerprint y contexto temporal actual de gestión. Literal de confirmación que incluye acción no reinicia nonce; loaderrechazado después reprogramación no repitefechaoriginal.
 - RED público42/fixturephysicalitems/projectioncancel/consentreset/fallbackoldsummary observados y corregidos sin suavizarassertions ni F9policy. Fixture inicialmente omitía escritura AppointmentServiceItem por routerSQL; corregidoSQLreal +assert2persistidos, no falloF9. Padre leyó7fuentes yNEWtest, repitió NEWcallerFINAL con realport/catalog/agendaSQL/PGlite + ambosrollback EXIT0 y fullruntime24 EXIT0; encodingoficial EXIT0. Worker nueve suites relacionadas y strict8roots OWN0/mismos14legacy; no globaltypecheckPASS. SHA8/readback/cachedscope/diffcheckantescommit. Prueba real caller usa admission/claims controlados, no contencióncrossprocess ni producción acreditada.
 - Unidadcoherente incorpora testcallerreal/PGlite grande para no omitir atomicidad; sobreforecast si supera400 es heurística, no artificialsplit/minification. Strategyfeature-branch-chaincached. No API/base real/server/WhatsApp/producción. Native STOP continúa pendiente/no disponible, sin reviewgranted ni activación. D3 commit5ed74421b710d8256a590d044593e0c2bb6f989a exact3+doc239autoradas; verificadopadre. P4disjunto2fuentes preparado, shared4lease liberado sólo después commitC3b2. Engram mirror/session pending porque no haytools.
+
+
+### P4 ampliación causal mínima del caller (EXACT9)
+Root al leer diff encontró wrapper de process-inbox-job.ts elimina personality aunque Prisma port lo carga; sólo simulador lo consumiría. Mappingwriter confirmó factory/port whitelist. Ampliar leaseP4 de7a9 únicamente process-inbox-job.ts y scripts/conversational-bot-runtime-test.ts: intersecciónport/factory tipada + forward personality conservando receiver; REDpúblico fixtureactual método assertthis/outsideTX/profilemutable/providercapture/count/0agenda antes fuente. No nuevohelperprod ni testexport, no tocar B/D3/C3b2guards. Preparada sinIA recibe preset seguro efímero vía port.identity (loaderpúblico exactshape sinPRIVATE intacto); realport test antesfuente. No cierrefalso de sólosimulador. STRICTE2.25/samerunner, noAPI/server/DBreal/Git/native/otrasfuentes. Forecast puede crecer por testcallercoherente, heurística nohardcap. C3b2commit6ea8a6106b4a3826d3fdf6cae463a2fa06841938 exact8+doc717autoradas verificado, nativeSTOP/Engram pendientes.
+
+
+### P4 cierre funcional verificado
+- [x] EXACT9: perfil completo existente del CRM normalizado y aislado por negocio, lectura compartida y fresca por turno, transporte privado a ambos proveedores, forward tipado del caller real conservando receiver y preset seguro para presentación preparada. Identidad pública conserva omisión de datos privados. Preferencias de estilo subordinadas a hechos, permisos y consentimiento; sin llamadas IA adicionales ni cambios del editor o esquema.
+- STRICT E2.25: RED inicial 3/7, RED público profileReads=0 y RED preparada 10/1 observados antes de sus correcciones; GREEN final 11/0. Padre leyó los nueve archivos y repitió personality 11 PASS, runtime COMPLETO 25 bloques, runtime-management con puerto y agenda SQL reales/PGlite y rollback integral: todos EXIT0. Test oficial de codificación EXIT0. Worker once suites relacionadas PASS; strict 249 archivos OWN0 y mismos14 errores legacy, no typecheck global PASS.
+- Fuente congelada exact9, SHA final y whitelist se verifican antes del commit local. Native STOP/manual_action_required sigue pendiente, no aprobación ni publicación. No API, base real, servidor ni WhatsApp. Pruebas de transporte con fake-fetch no acreditan obediencia del modelo real ni guardar/reabrir el editor en UI. Espejo Engram pendiente: herramientas no disponibles.
+
+## Resumen de sesión de recuperación
+### Goal
+Cerrar las correcciones generales y entregar el circuito mínimo Booking V2 y conexión del perfil CRM local, sin sobreingeniería.
+### Instructions
+No levantar servidor, túnel o WhatsApp. No producción, Railway, push, API ni base real. Preservar pruebas y cambios ajenos. Capa determinista posterior. No declarar aprobadas las 92 conversaciones completas.
+### Discoveries
+- JSONB reordena claves: fingerprints nuevos necesitan serialización canónica compartida; conservar hashes legacy.
+- El wrapper de runtime filtraba personality aunque el puerto la cargaba; validación del caller real detectó el vacío.
+- Preferencias del CRM son estilo privado de menor prioridad, nunca autorización para precios, agenda o reservas.
+### Accomplished
+Confirmación textual de grupo completa; gestión del grupo propio confirmado con propuestas y consentimiento separados, cancelación/reprogramación atómicas y rollback; derivación efectiva y salida segura de QUEUED; perfil CRM conectado a interpretación, respuesta y presentación preparada. Commits previos verificados: 44bfeaf5249d195d00b9e0a4fa9f98e4adca8a6e, eb1687a7b519228f70f58d9c6b7d5a3f11d90b3f, 5ed74421b710d8256a590d044593e0c2bb6f989a y 6ea8a6106b4a3826d3fdf6cae463a2fa06841938. P4 cierre probado, commit siguiente.
+### Next Steps
+Pruebas manuales del CRM y WhatsApp real cuando el usuario indique; control nativo requiere acción manual tras STOP. Pendientes fuera del mínimo: grupos históricos/QA para gestión, cambios de asignaciones al reprogramar, casos financieros, retoma de derivación TAKEN/HOME y botón de confirmación runtime (texto explícito funciona). No hay acreditación integral PASS de los 92 chats originales; informes históricos preservados. Capa determinista aplazada.
+### Relevant Files
+src/conversational-bot/appointment-management.ts y prisma-appointment-management.ts: contexto, ofertas y propiedad actuales.
+src/conversational-bot/process-inbox-job.ts: caller atómico y perfil privado.
+src/conversational-bot/dialogue-identity.ts y prisma-dialogue-identity.ts: normalización y lectura scoped.
+src/conversational-bot/prisma-dialogue-port.ts: puerto de agenda y perfil.
+src/conversational-bot/ai-interpreter.ts y openai-*-provider.ts: contexto público y preferencias de estilo.
+scripts/conversational-bot-runtime-management-test.ts, conversational-bot-runtime-test.ts y conversational-bot-personality-test.ts: regresiones del circuito completo.

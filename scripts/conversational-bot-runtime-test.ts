@@ -1,3 +1,5 @@
+import { normalizeAssistantPersonality } from '../src/services/assistant-personality-config.js'
+import type { DialoguePersonality, DialoguePersonalityPort } from '../src/conversational-bot/dialogue-identity.js'
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
 import { prismaHandoffEffectExecutor } from '../src/bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { randomUUID } from 'node:crypto'
@@ -96,7 +98,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -292,7 +294,11 @@ function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;b
     assert.equal(inTransaction, false, 'repository preparation must execute outside transaction')
     prepareHook?.()
     const outside = () => assert.equal(inTransaction, false, 'engine repository query must execute outside transaction')
-    const port: DialoguePort = {
+    const port: DialoguePort & DialoguePersonalityPort = {
+      ...(options.personality ? { personality: async function () {
+        assert.equal(this, port, 'personality receiver must be preserved'); outside()
+        return options.personality!()
+      } } : {}),
       catalog: async function () {
         assert.equal(this, port, 'catalog receiver must be preserved'); outside()
         if (!options.basketCatalog && !options.guidedCatalog) return [{ id: 'cut', name: 'Corte', durationMinutes: 30, requiresConsultation: false, price: 1000 }]
@@ -348,6 +354,44 @@ const runtimeMember = (mode: string, serviceIds: string[], evidence: string) => 
 const runtimeBasket = (mutation: string, members: object[], evidence: string, targets: string[] = []) => ({ kind: 'basket', mutation, members, scope: targets.length ? 'members' : 'all', targetMemberIds: targets, ...runtimeEv(evidence) })
 const runtimeAct = (kind: string, field: string, evidence: string, operationIndexes: number[], mention: string | null = null) => ({kind,field,...runtimeEv(evidence),mention,operationIndexes})
 const runtimeCandidate = (...operations: object[]) => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } })
+// Public receiver proof: style is private context, never a booking operation or extra AI call.
+let personalityReads = 0, personalityCalls = 0
+let currentPersonality = normalizeAssistantPersonality({ preset: 'elegant', name: 'Alba', commercialName: 'Local público',
+  role: 'asistente del local', treatment: 'usted', emojiLevel: 'none', responseLength: 'detailed',
+  preferredEmojis: ['✨'], customInstructions: 'PRIVATE_RUNTIME_STYLE' })
+const personalityInputs: unknown[] = [], personalityDiagnostics: unknown[] = []
+const personalityRuntime = runtimeFixture({ publicPorts: true, personality: async () => {
+  personalityReads++; return { businessId: 'biz', profile: currentPersonality }
+} })
+const personalityProvider: AiInterpretationProvider = async input => {
+  personalityCalls++; personalityInputs.push(input.personality)
+  return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+    turnPlan: { version: 1, operations: [] },
+    firstReply: { salutation: 'greeting', opening: null, closing: null,
+      factIds: input.firstReplyFacts!.map(fact => fact.id) } }
+}
+personalityRuntime.next('hola')
+await personalityRuntime.run('PROCESS_INBOX', { provider: personalityProvider, timeoutMs: 15000,
+  onDiagnostic: value => { personalityDiagnostics.push(value) } })
+assert.equal(personalityReads, 1, 'public receiver must forward current scoped personality')
+assert.deepEqual(personalityInputs[0], { businessId: 'biz', profile: currentPersonality })
+assert.match(personalityRuntime.replies[0]!, /^Hola\./)
+assert.match(personalityRuntime.replies[0]!, /Soy Alba, de Local público/)
+currentPersonality = { ...currentPersonality, responseLength: 'short', customInstructions: 'CURRENT_RUNTIME_STYLE' }
+personalityRuntime.next('gracias')
+await personalityRuntime.run('PROCESS_INBOX', { provider: personalityProvider, timeoutMs: 15000 })
+assert.equal(personalityReads, 2); assert.equal(personalityCalls, 2)
+assert.deepEqual(personalityInputs[1], { businessId: 'biz', profile: currentPersonality })
+assert.doesNotMatch(personalityRuntime.replies[1]!, /Soy Alba/)
+const personalityDraft = readConversationDraft(personalityRuntime.session.state, policy, 'UTC')
+assert.equal(personalityDraft.serviceId, null); assert.equal(personalityDraft.slot, null)
+assert.equal(personalityDraft.basket?.members.length ?? 0, 0)
+assert.equal(personalityDraft.bookingReservation, undefined)
+assert.equal(personalityRuntime.singularAgendaCalls, 0); assert.equal(personalityRuntime.basketAgendaCalls, 0)
+assert.equal(JSON.stringify(personalityDraft).includes('PRIVATE_RUNTIME_STYLE'), false)
+assert.equal(JSON.stringify(personalityDiagnostics).includes('PRIVATE_RUNTIME_STYLE'), false)
+console.log('P4 public receiver: fresh scoped profile/receiver/AI input/once intro/no agenda/no private diagnostics PASS')
+
 // Focal mode does not change or waive the default suite's original assertions.
 if (!process.argv.includes('--handoff-only')) {
 // Full basket runs through the public worker, real interpreter/motor and production state projection.

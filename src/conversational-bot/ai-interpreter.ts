@@ -1,3 +1,4 @@
+import { validateDialoguePersonality, type DialoguePersonality, type DialoguePersonalityPort } from './dialogue-identity.js'
 import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
 import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
@@ -26,8 +27,8 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
-export type AiResponseInput = { message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
+export type AiInterpretationInput = { personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
+export type AiResponseInput = { personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
@@ -324,7 +325,7 @@ function assembledIntakeReply(raw: unknown, facts: readonly ReplyFact[], state: 
 
 /** Interpret, let the deterministic engine establish facts, then compose from verified fact IDs. */
 export async function respondWithAiInterpreter(
-  context: DialogueContext, previous: unknown, message: string, port: DialoguePort,
+  context: DialogueContext, previous: unknown, message: string, port: DialoguePort & DialoguePersonalityPort,
   provider: AiInterpretationProvider, options: { timeoutMs?: number; responseProvider?: AiResponseProvider } = {}
 ): Promise<InterpretedDialogueResponse> {
   const started = performance.now()
@@ -332,6 +333,7 @@ export async function respondWithAiInterpreter(
   const temporalState: DialogueState = state.appointmentManagement ? { ...state, date: state.appointmentManagement.date ?? null, requestedTime: state.appointmentManagement.selectedTime ?? null, slot: null, pending: state.appointmentManagement.date ? 'time' : 'date' } : state
   if (state.appointmentManagement) delete temporalState.bookingReservation
   const services = await port.catalog()
+  const personality = port.personality ? validateDialoguePersonality(await port.personality(), context.businessId) : undefined
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
   const intakeReplyAllowed = !route.information.length && !route.pendingAction
@@ -349,7 +351,14 @@ export async function respondWithAiInterpreter(
   let informationPreparationFailed = false
   let availabilityCalls = 0
   const commercialRead = memoBusinessTimeContext(port.businessTimeContext)
-  const cachedPort: DialoguePort = { ...port, ...(commercialRead ? {businessTimeContext:commercialRead} : {}), catalog: async () => services,
+  const cachedPort: DialoguePort = { ...port,
+    ...(personality && port.identity ? { identity: async () => {
+      const current = await port.identity!()
+      const profile = personality.profile
+      return { ...current, assistantName: profile.name, businessName: profile.commercialName ?? current.businessName,
+        treatment: profile.treatment, greetingEmoji: profile.emojiLevel === 'none' ? null : profile.preferredEmojis[0] ?? null,
+        preset: profile.preset }
+    } } : {}), ...(commercialRead ? {businessTimeContext:commercialRead} : {}), catalog: async () => services,
     availability: async (...args) => { availabilityCalls++; return port.availability(...args) },
     ...(port.availabilityBasket ? { availabilityBasket: async (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => { availabilityCalls++; return port.availabilityBasket!(...args) } } : {}) }
   if (port.information) {
@@ -390,7 +399,7 @@ export async function respondWithAiInterpreter(
   const providerStarted = performance.now()
   try {
     raw = await Promise.race([
-      provider({ message, state, services, ...(commercialProof?{businessTimeContext:commercialProof}:{}), expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []), intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
+      provider({ message, state, services, ...(personality ? { personality } : {}), ...(commercialProof?{businessTimeContext:commercialProof}:{}), expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []), intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
     ])
   } catch (error) {
@@ -598,7 +607,7 @@ export async function respondWithAiInterpreter(
     const responseStarted = performance.now()
     try {
       const output = await Promise.race([
-        responseProvider({ message, intent: replyIntent!, state: response.state, facts, replyContract: finalContract }, responseController.signal),
+        responseProvider({ message, ...(personality ? { personality } : {}), intent: replyIntent!, state: response.state, facts, replyContract: finalContract }, responseController.signal),
         new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
       ])
       responseUsage = readAiUsage(output)
