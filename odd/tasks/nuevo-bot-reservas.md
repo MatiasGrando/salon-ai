@@ -3186,8 +3186,31 @@ Goal: corregir reset/presentación y aceptación contextual de servicio referenc
 Usuario autoriza explícitamente aplicar ajuste y reiniciar servidor después del chat real3candidatos→Iluminacion→Sí a iluminación. P9.4 validación humana reportó fallo, no cerrar comoPASS. Logs muestran1llamadaIA enúltimos2turnos, sin prueba exactaguardbloqueante porfalta propuesta/acts enlog; noatribuirfalso aIAapagada. Mappingdelegado identifica frasecommunicativeClarification serviceblocked ydesigndobleconfirmación.
 Objetivo: IA distingue elección del servicio publicado de confirmación de referente/variante/desconocimiento; selección clara usa operaciones existentes y avanza presupuesto/preguntaactual, sin loops ni aliasesfrases/segunda llamada. Técnica desconocida no se afirma: caveat breve, no permiso parahandoff nireserva. Negaciones,dudas,preguntas,historia y consentimiento conservan guardas. Nootherscope/.env/Meta/Railway/otrosnegocios.
 - [x] P10.1 corregir guía/continuidad y agregar regresión completa chat enviado, negativos/schema/tenant; ruta delegated direct pilot_activation_map (mapping4+ ywriter2nontrivial). EXACT3 src/conversational-bot/turn-plan-interpretation-guide.ts, src/conversational-bot/engine.ts, scripts/conversational-bot-catalog-comparison-test.ts. STRICT TDD E2.25 heredado: RED observado antes fuente→GREEN, runner node node_modules/tsx/dist/cli.mjs scripts/conversational-bot-catalog-comparison-test.ts; related engine/service-request/turn-plan/communicative-act/referral yruntime segúnimpacto. UTF8 oficial antescommit, strictOWN/baseline, hashesfreeze ywhitelist, Conventionalworkcommit local. Cambiosguía/técnica mantienencatalogocompleto yestado, no falsoefecto.
-- [ ] P10.2 gate nativo, idlefresh2snapshots yreinciar sóloBarber manteniendotúnel/callback/credenciales/flagsactuales; ready+CRM404. HumanWhatsAppquality pendiente. Fuente/noreserva enpruebasfake, noAPIevalnuevo.
+- [x] P10.2 gate nativo, idlefresh2snapshots yreinciar sóloBarber manteniendotúnel/callback/credenciales/flagsactuales; ready+CRM404. HumanWhatsAppquality pendiente. Fuente/noreserva enpruebasfake, noAPIevalnuevo.
 Forecast80–180autoradas heurístico, nohardcap; sliceacumulado303desdeboundarya29b46e, native assesspendingunder_budget. Deliveryfeature-branch-chaincached, branchcodex/new-bot-multivertical. RDDON, nueva revisión scoped si due sinheredaromitP8. Gate no habilitado porcheckbox; fuenteantesrestartprohibidapublicar. Engramcontext/search/get/save/session_summary noexpustos; recoverylocalactualizado ymirrorpendiente.
 
 ### P10.1 verificación observada
 STRICT RED catálogo19/3 antesfuente, GREEN24/0; padre independiente24/0+engine+runtimeCOMPLETOEXIT0 yUTF8, workeract111/0/turnplan/AI/servicerequest/referral/replycontractPASS. Strict3OWN0/10ajenos deposit-operations globalEXIT1. FreezeSHA3coincidenpadre; sólo3fuentes/pruebas+doc, sinclasificadorfrases niotrasllamadas. Selección yaeraadmitida conoperacionescorrectas; ajuste guía yack+caveat preparados trasaplicarla. Fakeproviders0HTTP no prueban calidadmodelo, pruebasWhatsApphumanaspendientes. LiveP9aún, no restart antesgate/idle. Engrammirror/session noexpuestos, recoverylocal.
+
+## P10 piloto actualizado
+P10.1 commit ab0361429d14ac12fbec5f68a8f8c51810e74eb0, exact3+documento,89 adiciones/2 bajas; SHA3, UTF8 y cachedcheck verificados. Native assess desde a29b46e EXIT0 medium/executable_change,13 archivos/392 líneas, review_due=false/under_budget. Boundary sigue a29b46e; no aprobación o decline nuevos inventados.
+
+Reinicio explícitamente pedido por usuario. Probe original readonly con warm SELECT1 en mismo cliente, sin editar helper/guards: snapshots20:48:25Z y20:48:27Z jobs/dispatch/outbox/inbox=0, watermark20:18:16.860Z estable, poison0/gen2/policy/credenciales listas. IDLE_VERIFIED. Identidad/propiedad9812 y launcher21512 verificadas antes detener sólo ambos (forzado, no graceful; carrera de nuevos ingresos conocida).
+
+Nuevo launcher5588/runner7076, conhost20964 sólohijo; túnel11716 preservado. Mismos overrides del proceso includeBarber, authoritative/workers/sender/coverage, IAtrue/gpt-6-luna/15000ms y diagnósticoWX-38N6UG; no .env, callback, Railway u otrosnegocios modificados. Logs C:/Users/cpu/AppData/Local/Temp/barber-pilot-20261007-204852.stdout.log y .stderr.log. Gatewayready observado, stderr0bytes,7076 propietario127.0.0.1:3311/3312; /crm404 local y por túnel. No mensaje sintético enviado.
+
+### Resumen de sesión P10
+#### Goal
+Resolver elección explícita tras comparación con catálogo y reiniciar sólo Barber.
+#### Instructions
+IA interpreta elección contextual; no aliases ni clasificador literal ni llamada adicional. Técnica desconocida no se afirma.
+#### Discoveries
+Con operaciones de selección correctas el motor ya avanzaba: faltaban guía clara y reconocimiento/caveat, no una función de alias.
+#### Accomplished
+RED19/3 y GREEN24/0; padre catálogo/motor/runtime completos EXIT0, UTF8 PASS; worker act111/0 y contratos PASS. Commit ab03614 y piloto actualizado.
+#### Pending checks
+Strict OWN0/10 errores ajenos en deposit-operations, global EXIT1. Calidad de clasificación IA real y nueva entrega WhatsApp pendientes; pruebas simuladas no la acreditan. Evaluación nativa del cierre documental a continuación; no heredar decisiones de otros bloques.
+#### Next Steps
+Humano prueba /reset→mechas con gorra→Iluminación y reporta resultado. No repetir corpus ni consultar producción innecesariamente.
+#### Relevant Files
+Guía de interpretación, engine.ts, catalog-comparison-test.ts y este documento; logs del piloto arriba. Engram no expone context/search/get/save/session_summary; recuperación local preservada y espejo pendiente.
