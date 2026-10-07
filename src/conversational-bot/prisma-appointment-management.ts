@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { canonicalJsonHash } from './canonical-json.js'
+import { assertManagementDate, managementRescheduleOfferKey, type ManagementAvailabilityReader, type ManagementRescheduleOffer } from './appointment-management.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows } from '../services/agenda-locks.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
@@ -64,7 +66,7 @@ export async function cancelGroupInTransaction(tx: Tx, command: GroupCancellatio
   if (command.kind !== 'CANCEL_APPOINTMENT_GROUP' || command.confirmed !== true || command.fingerprint !== cancellationFingerprint(command.snapshot)) throw new GroupCancellationError('current consent/snapshot mismatch')
   managementIdentifier(command.nonce)
   const scope=command.snapshot.scope, members=[...command.snapshot.members].sort((a,b)=>a.appointmentId.localeCompare(b.appointmentId))
-  const key='cancel-group:'+digest([scope,command.nonce,command.fingerprint]), hash=digest(command)
+  const key='cancel-group:'+canonicalJsonHash([scope,command.nonce,command.fingerprint]), hash=canonicalJsonHash(command)
   const locked=await lockManagedGroup(tx,scope,members[0]!.appointmentId)
   const receipt={ fingerprint:command.fingerprint, nonce:command.nonce, appointmentIds:members.map(m=>m.appointmentId),
     children:members.map(m=>({key:key+':'+m.appointmentId,id:m.appointmentId,hash:childHash(scope,m.appointmentId)})) }
@@ -115,7 +117,7 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
     command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves)) throw new GroupCancellationError('current reschedule consent/snapshot mismatch')
   managementIdentifier(command.nonce)
   const scope=command.snapshot.scope, members=[...command.snapshot.members].sort((a,b)=>a.appointmentId.localeCompare(b.appointmentId))
-  const key='reschedule-group:'+digest([scope,command.nonce,command.fingerprint]), hash=digest(command)
+  const key='reschedule-group:'+canonicalJsonHash([scope,command.nonce,command.fingerprint]), hash=canonicalJsonHash(command)
   const locked=await lockManagedGroup(tx,scope,members[0]!.appointmentId)
   const children=members.map(member=>{
     const move=command.moves.find(m=>m.appointmentId===member.appointmentId)!
@@ -225,4 +227,35 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
   const visits=await tx.$queryRaw<Array<{id:string;sessionId:string}>>(Prisma.sql`SELECT id,"sessionId" FROM "BookingVisit" WHERE id IN (${Prisma.join([...visitIds])}) ORDER BY id FOR UPDATE`)
   if (visits.length!==visitIds.size || visits.some(v=>!visitIds.has(v.id) || v.sessionId!==context.sessionId)) throw new GroupCancellationError('runtime visit session mismatch')
   return snapshot
+}
+/** Read-only candidate construction. Reader is server-owned and queried for each actual assignment.
+ * These offers are not effects authority; C2 rechecks live policy and snapshots in the caller transaction.
+ */
+export async function prepareGroupRescheduleOffers(snapshot: CancellationSnapshot, date: string,
+  reader: ManagementAvailabilityReader): Promise<readonly ManagementRescheduleOffer[]> {
+  assertCancellationSnapshot(snapshot); assertManagementDate(date)
+  const members = [...snapshot.members].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt) || a.appointmentId.localeCompare(b.appointmentId))
+  const options = await Promise.all(members.map(async member => {
+    const slots = await reader(structuredClone(member), date)
+    if (!Array.isArray(slots) || slots.length > 1000) throw new GroupCancellationError('invalid assignment availability bound')
+    for (const slot of slots) {
+      if (slot.date !== date || !Number.isFinite(Date.parse(slot.startAt)) || new Date(slot.startAt).toISOString() !== slot.startAt ||
+        slot.professionalId !== member.professionalId || !isDeepStrictEqual(slot.serviceIds, member.serviceIds) ||
+        slot.durationMinutes !== member.durationMinutes || slot.customerDurationMinutes !== (member.customerDurationMinutes ?? member.durationMinutes)) throw new GroupCancellationError('assignment availability proof mismatch')
+    }
+    return slots
+  }))
+  const offers: ManagementRescheduleOffer[] = [], seen = new Set<string>()
+  for (const slot of options[0]!) {
+    const delta = Date.parse(slot.startAt) - Date.parse(members[0]!.startAt)
+    const moves = snapshot.members.map(member => ({ appointmentId: member.appointmentId, newStartAt: new Date(Date.parse(member.startAt) + delta).toISOString() }))
+    if (!members.every((member, index) => options[index]!.some(option => option.startAt === moves.find(move => move.appointmentId === member.appointmentId)!.newStartAt))) continue
+    // Only a known conservative C2 rejection excludes a candidate; reader/shape errors propagate.
+    try { assertGroupMoves(snapshot, moves) }
+    catch (error) { if (error instanceof GroupCancellationError) continue; throw error }
+    const key = managementRescheduleOfferKey(snapshot, date, moves)
+    if (!seen.has(key)) { offers.push({ key, date, moves }); seen.add(key) }
+    if (offers.length === 10) break
+  }
+  return offers
 }
