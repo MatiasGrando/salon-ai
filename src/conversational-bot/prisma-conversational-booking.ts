@@ -43,23 +43,23 @@ export function runtimeServiceConfigurationHash(service: Record<string, unknown>
   return hash(['attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
     'requiresPhoto','validationEnabled','validationMessage','validationQuestion','customerDurationMin','customerDurationMax','depositMode','depositValue'].map(key=>service[key]??null))
 }
-function validPresented(p: RuntimePresentedBooking): boolean {
+function validPresented(p: unknown): p is RuntimePresentedBooking {
   if (!object(p) || !keys(p,['scope','version','nonce','fingerprint','conditionsPresented','terms']) || p.version !== 1 || p.conditionsPresented !== true ||
-    !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) return false
+    typeof p.nonce!=='string' || typeof p.fingerprint!=='string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) return false
   if(!object(p.scope) || !keys(p.scope,['businessId','sessionId','deploymentId','generation','revision','configurationId','dispatchFenceEpoch','handoffFenceEpoch']) ||
-    ![p.scope.businessId,p.scope.sessionId,p.scope.deploymentId,p.scope.configurationId].every(value=>text(value)) || !/^\d+$/.test(p.scope.revision) ||
-    ![p.scope.generation,p.scope.dispatchFenceEpoch,p.scope.handoffFenceEpoch].every(value=>Number.isSafeInteger(value)&&value>=0)) return false
+    ![p.scope.businessId,p.scope.sessionId,p.scope.deploymentId,p.scope.configurationId].every(value=>text(value)) || typeof p.scope.revision!=='string' || !/^\d+$/.test(p.scope.revision) ||
+    ![p.scope.generation,p.scope.dispatchFenceEpoch,p.scope.handoffFenceEpoch].every(value=>typeof value==='number' && Number.isSafeInteger(value)&&value>=0)) return false
   const t=p.terms, name=object(t) && typeof t.customerName==='string' ? validateCustomerName(t.customerName) : null
   if (!object(t) || !keys(t,['version','businessId','timezone','date','customerName','preference','segments','totalPriceMinor']) || t.version!==1 ||
-    !text(t.businessId) || !text(t.timezone) || !/^\d{4}-\d{2}-\d{2}$/.test(t.date) || !name?.ok || name.normalized!==t.customerName ||
+    !text(t.businessId) || !text(t.timezone) || typeof t.date!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(t.date) || !name?.ok || name.normalized!==t.customerName ||
     !object(t.preference) || !(t.preference.kind==='any' && keys(t.preference,['kind']) || t.preference.kind==='specific' && keys(t.preference,['kind','id']) && text(t.preference.id)) ||
     !Array.isArray(t.segments) || !t.segments.length || t.segments.length>8 || !money(t.totalPriceMinor) || JSON.stringify(p).length>12000) return false
-  let previousEnd: string | null=null
+  let previousEnd: string | null=null, total=0, fixed=true
   for(const s of t.segments) {
     if(!object(s) || !keys(s,['serviceId','serviceName','professionalId','professionalName','startAt','endAt','durationMinutes','customerDurationMinutes','priceMinor','priceMode','configurationHash'],['estimate']) ||
       ![s.serviceId,s.serviceName,s.professionalId,s.professionalName].every(value=>text(value)) || !instant(s.startAt) || !instant(s.endAt) ||
       typeof s.durationMinutes!=='number' || !Number.isSafeInteger(s.durationMinutes) || s.durationMinutes<=0 || s.durationMinutes>720 || typeof s.customerDurationMinutes!=='number' || !Number.isSafeInteger(s.customerDurationMinutes) ||
-      s.customerDurationMinutes<s.durationMinutes || s.customerDurationMinutes>720 || Date.parse(s.endAt)-Date.parse(s.startAt)!==s.durationMinutes*60000 ||
+      s.customerDurationMinutes<s.durationMinutes || s.customerDurationMinutes>720 || Date.parse(s.endAt)-Date.parse(s.startAt)!==Math.max(s.durationMinutes,s.customerDurationMinutes)*60000 ||
       previousEnd!==null && previousEnd!==s.startAt || !money(s.priceMinor) || typeof s.priceMode!=='string' || !['FIXED','STARTING_AT'].includes(s.priceMode) ||
       s.configurationHash!==null && (typeof s.configurationHash!=='string' || !/^[a-f0-9]{64}$/.test(s.configurationHash))) return false
     if(s.estimate && (!object(s.estimate) || !keys(s.estimate,['optionId','optionLabel','priceMin','priceMax']) ||
@@ -72,10 +72,15 @@ function validPresented(p: RuntimePresentedBooking): boolean {
       const part=(kind:string)=>parts.find(p=>p.type===kind)?.value
       if([part('year'),part('month'),part('day')].join('-')!==t.date) return false
     } catch {return false}
+    if(s.priceMode==='FIXED' && s.priceMinor!==null) total+=s.priceMinor
+    else fixed=false
     previousEnd=s.endAt
   }
-  const total=t.segments.every(s=>s.priceMode==='FIXED' && s.priceMinor!==null) ? t.segments.reduce((sum,s)=>sum+s.priceMinor!,0) : null
-  return t.totalPriceMinor===total && p.fingerprint===runtimeBookingFingerprint(t)
+  return t.totalPriceMinor===(fixed?total:null) && p.fingerprint===hash(t)
+}
+/** Bounded parsing only: this is not booking or consent authority. */
+export function parseRuntimePresentedBooking(value: unknown): RuntimePresentedBooking | null {
+  return validPresented(value) ? structuredClone(value) : null
 }
 function validDraft(draft: unknown, p: RuntimePresentedBooking): boolean {
   if(!object(draft) || !object(draft.bookingReservation) || !isDeepStrictEqual(draft.bookingReservation.presented,p) ||

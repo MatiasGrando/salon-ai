@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { loadActiveServiceContent, serviceContentFromPublicSnapshot } from './prisma-service-content.js'
 import { explanationForDate, parseAvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
 import { attachServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
@@ -13,11 +13,20 @@ import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
-import type { DialogueContext, DialoguePort, DialogueService } from './engine.js'
+import { parseDialogueState, type DialogueContext, type DialoguePort, type DialogueService, type DialogueState } from './engine.js'
+import { Prisma } from '../generated/prisma/client.js'
+import { isDeepStrictEqual } from 'node:util'
+import { basketServiceIds } from './service-basket.js'
+import { coordinationKey, type CoordinatedSegment, type DialogueAvailabilitySlot } from './coordinated-booking.js'
+import { reservationDurationLimits } from '../services/service-duration.js'
+import { parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey } from '../bot-options/domain/service-booking.js'
+import { parseRuntimePresentedBooking, runtimeServiceConfigurationHash, runtimeBookingFingerprint, type RuntimeBookingSegment, type RuntimeBookingTerms, type RuntimePresentedBooking, type RuntimeShownScope } from './prisma-conversational-booking.js'
+
+export type RuntimeBookingReadPort = { prepareRuntimeBooking(state: DialogueState, scope: RuntimeShownScope): Promise<{presented:RuntimePresentedBooking;slot:DialogueAvailabilitySlot}|null> }
 
 type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
-export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null, contentOptions: { qaPreview?: boolean } = {}): Promise<{ context: DialogueContext; port: DialoguePort; cacheDiagnostics?: PublicCacheDiagnostics }> {
+export async function createPrismaDialoguePort(client: DialogueClient, businessId: string, serviceContent: ServiceContentConfiguration | null = null, contentOptions: { qaPreview?: boolean } = {}): Promise<{ context: DialogueContext; port: DialoguePort & RuntimeBookingReadPort; cacheDiagnostics?: PublicCacheDiagnostics }> {
   if (!businessId || businessId.length > 128) throw new Error('invalid tenant')
   const availability = new PrismaAvailabilityRepository(client)
   const { settings, dbNow } = await availability.loadSettingsWithClock(businessId)
@@ -78,6 +87,83 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   }
   let publicBusiness: { businessId: string; businessName: string } | undefined
   return { context, cacheDiagnostics, port: {
+    /** Uncached server-only presentation proof. The write adapter still revalidates agenda atomically. */
+    prepareRuntimeBooking: (previous, scope) => snapshot(async source => {
+      try {
+        if(scope.businessId!==businessId || !/^[1-9]\d*$/.test(scope.revision)) return null
+        const state=parseDialogueState(previous,businessId,context.timezone)
+        if(state.pending!=='proposal' || !state.slot || !state.customerName || !state.professional || state.professionalReference ||
+          state.professionalNameHint || state.referral || state.serviceRequest || state.editRequest || state.timeMeaningClarification) return null
+        const ids=basketServiceIds(state)
+        if(!ids.length || ids.length>8 || new Set(ids).size!==ids.length || state.basket?.members.some(m=>m.mode!=='single' || m.serviceIds.length!==1)) return null
+        const scopes=await source.$queryRaw<Array<{phone:string;timezone:string}>>(Prisma.sql`
+          /* runtime-booking-presentation-scope */
+          SELECT c."phone",s."businessTimezone" AS timezone FROM "BotSession" s
+          JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+          JOIN "BotChannelDeployment" d ON d.id=s."deploymentId" AND d."businessId"=s."businessId"
+          JOIN "BusinessBotConfiguration" cfg ON cfg.id=d."activeConfigurationId" AND cfg."businessId"=d."businessId"
+          JOIN "Business" b ON b.id=s."businessId"
+          WHERE s.id=${scope.sessionId} AND s."businessId"=${businessId} AND s.revision=${BigInt(scope.revision)-1n}
+            AND s.status='ACTIVE' AND s."handoffClaimsPausedAt" IS NULL AND s."handoffFenceEpoch"=${scope.handoffFenceEpoch}
+            AND s."deploymentId"=${scope.deploymentId} AND s."deploymentGeneration"=${scope.generation}
+            AND d.generation=${scope.generation} AND d."dispatchFenceEpoch"=${scope.dispatchFenceEpoch} AND d."claimsPausedAt" IS NULL
+            AND d.channel='WHATSAPP' AND d."activeConfigurationId"=${scope.configurationId} AND cfg.status='ACTIVE'
+            AND d."legacyDispatchCoverageVersion">=1 AND b."botEnabled"=true
+            AND s.state->>'deposit'='NONE' AND s.state->>'handoff'='NONE' AND s.state->>'booking' IN ('NONE','DRAFT')
+        `)
+        if(scopes.length!==1 || scopes[0]!.timezone!==context.timezone || !/^\+?[\d\s().-]+$/.test(scopes[0]!.phone)) return null
+        const rows=await source.$queryRaw<Prisma.ServiceGetPayload<undefined>[]>(Prisma.sql`
+          /* runtime-booking-presentation-services */
+          SELECT s.* FROM "Service" s JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true
+          WHERE s."businessId"=${businessId} AND s.id IN (${Prisma.join(ids)}) AND s."isActive"=true AND s."isBookable"=true
+        `)
+        if(rows.length!==ids.length || new Set(rows.map(s=>s.id)).size!==ids.length || rows.some(s=>s.businessId!==businessId || !ids.includes(s.id))) return null
+        const ordered=ids.map(id=>rows.find(s=>s.id===id)!)
+        if(ordered.some(s=>s.depositMode!=='NONE' || s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
+        let slot=structuredClone(state.slot)
+        const assigned=slot.coordination?.segments.map(s=>s.professionalId) ?? ids.map(()=>slot.professionalId)
+        const professionals=await source.$queryRaw<Array<{serviceId:string;professionalId:string;professionalName:string}>>(Prisma.sql`
+          /* runtime-booking-presentation-professionals */
+          SELECT ps."serviceId",p.id AS "professionalId",p.name AS "professionalName" FROM "Professional" p
+          JOIN "ProfessionalService" ps ON ps."professionalId"=p.id
+          WHERE p."businessId"=${businessId} AND p.id IN (${Prisma.join([...new Set(assigned)])}) AND ps."serviceId" IN (${Prisma.join(ids)})
+            AND p."isActive"=true AND p."acceptsBotBookings"=true
+        `)
+        if(assigned.length!==ids.length) return null
+        const canonical:CoordinatedSegment[]=[]
+        let next=slot.startAt
+        for(const [index,s] of ordered.entries()) {
+          const p=professionals.filter(p=>p.serviceId===s.id && p.professionalId===assigned[index])
+          if(p.length!==1 || (slot.coordination ? slot.coordination.segments[index]!.professionalName : slot.professionalName)!==p[0]!.professionalName) return null
+          const durations=reservationDurationLimits(s)
+          const segment={serviceId:s.id,serviceName:s.name,professionalId:p[0]!.professionalId,professionalName:p[0]!.professionalName,
+            startAt:next,endAt:new Date(Date.parse(next)+Math.max(durations.professional,durations.business)*60000).toISOString(),
+            durationMinutes:durations.professional,customerDurationMinutes:durations.business}
+          if(slot.coordination && !isDeepStrictEqual(segment,slot.coordination.segments[index])) return null
+          canonical.push(segment);next=segment.endAt
+        }
+        if(!slot.coordination && slot.occupiedMinutes!==ordered.reduce((sum,s)=>sum+s.duration,0)) return null
+        if(ids.length>1) slot={...slot,occupiedMinutes:(Date.parse(next)-Date.parse(slot.startAt))/60000,coordination:{key:coordinationKey(businessId,canonical),segments:canonical}}
+        const segments:RuntimeBookingSegment[]=[]
+        for(const [index,s] of ordered.entries()) {
+          const estimate=s.attentionMode==='GUIDED_ESTIMATE' ? resolveServiceEstimate({...s,estimateOptions:parseEstimateOptions(s.estimateOptions)},state.serviceEstimates?.[s.id]?.optionId??null) : null
+          if(s.attentionMode==='GUIDED_ESTIMATE') {
+            const policy=attachServiceContent({...s,attentionMode:'GUIDED_ESTIMATE' as const,estimateOptions:parseEstimateOptions(s.estimateOptions)},businessId,serviceContent)
+            if(!s.estimateAllowsBooking || !estimate || state.serviceEstimates?.[s.id]?.configurationKey!==serviceConfigurationKey(policy)) return null
+          }
+          segments.push({...canonical[index]!,priceMinor:estimate?.priceMin??s.price,priceMode:estimate?'STARTING_AT':s.priceMode,
+            configurationHash:runtimeServiceConfigurationHash(s),...(estimate?{estimate}:{})})
+        }
+        const terms:RuntimeBookingTerms={version:1,businessId,timezone:context.timezone,date:state.date!,customerName:state.customerName,
+          preference:state.professional,segments,totalPriceMinor:segments.every(s=>s.priceMode==='FIXED' && s.priceMinor!==null)?segments.reduce((sum,s)=>sum+s.priceMinor!,0):null}
+        const presented=parseRuntimePresentedBooking({scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms})
+        return presented ? {presented,slot} : null
+      } catch(error) {
+        if(error instanceof PublicSourceIntegrityError) throw error
+        return null
+      }
+    }),
+
     businessTimeContext: (date,times) => projectBusinessTimeContext(commercialSnapshot,date,times),
     ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {identity: () => loadDialogueIdentity(client,businessId,publicBusiness)} : {}),
     async information(actions) {
