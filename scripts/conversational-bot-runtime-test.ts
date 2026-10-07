@@ -1,3 +1,5 @@
+import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
+import { prismaHandoffEffectExecutor } from '../src/bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { readFileSync } from 'node:fs'
@@ -145,7 +147,7 @@ function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;b
       if(bookingSql && q.sql.includes('pg_advisory_xact_lock'))return [{locked:1}]
       if(bookingSql && q.sql.includes('conversation-inbox-lock'))return [structuredClone(row)]
       if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
-          q.sql.includes('conversational-handoff-') || q.sql.includes('SELECT "status"::text AS "status"') || q.sql.includes('humanHandoffAtText'))) {
+          q.sql.includes('conversational-handoff-') || q.sql.includes('UPDATE "BotSession" SET "status" =') || q.sql.includes('SELECT "status"::text AS "status"') || q.sql.includes('humanHandoffAtText') || q.sql.includes('UPDATE "Conversation" c SET "currentStep"'))) {
         return (await handoffSql.query(q.text,q.values)).rows
       }
       if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: row.payload.fromPhone }]
@@ -241,7 +243,7 @@ function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;b
     async $executeRaw(q: Query) {
       statements.push(q)
       if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
-          q.sql.includes('conversational-handoff-') || q.sql.includes('SET "status" = \'HUMAN_QUEUED\'') ||
+          q.sql.includes('conversational-handoff-') || q.sql.includes('UPDATE "BotSession" SET "status" =') || q.sql.includes('SET "status" = \'HUMAN_QUEUED\'') ||
           q.sql.includes('SET "currentStep" = \'HUMAN_HANDOFF\''))) {
         const result = await handoffSql.query(q.text,q.values)
         const saved = (await handoffSql.query<{status:string;state:unknown;revision:string|number}>('SELECT "status","state","revision" FROM "BotSession"')).rows[0]
@@ -1323,13 +1325,19 @@ try {
     CREATE TABLE "BotHandoff" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"status" "BotHandoffStatus",
       "reason" text,"detail" text,"context" jsonb,"queuedAt" timestamptz,"updatedAt" timestamptz);
     CREATE UNIQUE INDEX one_active_handoff ON "BotHandoff" ("sessionId") WHERE "status" IN ('QUEUED','TAKEN');
+    ALTER TABLE "BotHandoff" ADD COLUMN "cancelledAt" timestamptz;
+    ALTER TABLE "BotChannelDeployment" ADD COLUMN "engineKey" text DEFAULT 'deterministic-options';
+    CREATE TABLE "Business" (id text PRIMARY KEY,"customerCode" text);
+    CREATE TABLE "BusinessBotConfiguration" (id text PRIMARY KEY,"businessId" text,status text,definition jsonb);
+    INSERT INTO "Business" VALUES ('biz','WX-38N6UG');
     ALTER TABLE "BotActionInbox" ADD PRIMARY KEY ("id");
     ALTER TABLE "BotProviderEvent" ADD PRIMARY KEY ("id");
     ALTER TABLE "BotDispatchClaim" ADD PRIMARY KEY ("id");
     ALTER TABLE "BotJob" ADD PRIMARY KEY ("id");
-    INSERT INTO "BotChannelDeployment" VALUES ('dep','biz',1,'cfg',NULL);
+    INSERT INTO "BotChannelDeployment" (id,"businessId",generation,"activeConfigurationId","claimsPausedAt") VALUES ('dep','biz',1,'cfg',NULL);
     INSERT INTO "Conversation" ("id","businessId","currentStep","updatedAt") VALUES ('conversation','biz','BOOKING_IN_PROGRESS',now());
   `)
+  await handoffDb.query(`INSERT INTO "BusinessBotConfiguration" VALUES ('cfg','biz','ACTIVE',$1::jsonb)`,[JSON.stringify(config.definition)])
   const consentRuntime = runtimeFixture({handoffDb})
   let activeRuntime = consentRuntime
   stopHandoffEvents = subscribeToCrmRealtimeEvents({businessId:'biz',send(event){activeRuntime.assertOutside();handoffEvents.push(event)}})
@@ -1422,7 +1430,7 @@ try {
   for (const guard of ['revision','fence','taken'] as const) {
     const rejected = await freshConsent()
     const before = structuredClone(rejected.session.state)
-    if(guard==='taken') await handoffDb.query(`INSERT INTO "BotHandoff" VALUES ('taken','biz','session','TAKEN','UNVERIFIED_SERVICE',NULL,'{}',now(),now())`)
+    if(guard==='taken') await handoffDb.query(`INSERT INTO "BotHandoff" (id,"businessId","sessionId",status,reason,detail,context,"queuedAt","updatedAt") VALUES ('taken','biz','session','TAKEN','UNVERIFIED_SERVICE',NULL,'{}',now(),now())`)
     const queuesBefore = await queueCount()
     rejected.hook(()=>{if(guard==='revision')rejected.session.revision++;else if(guard==='fence')rejected.session.handoffFenceEpoch++;else rejected.session.status='HUMAN_TAKEN'})
     await rejected.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
@@ -1435,6 +1443,94 @@ try {
   assert.equal(literal.session.status,'HUMAN_QUEUED','server literal consent does not require an AI call')
   assert.equal(await queueCount(),1)
   console.log('handoff final transaction: fallback denial, caller rollback, revision/fence/TAKEN and no-AI literal PASS')
+
+  const freshQueued = async () => {const runtime=await freshConsent();await runtime.run();return runtime}
+  const cancelScope = async (runtime: ReturnType<typeof runtimeFixture>) => ({
+    handoffId:(await handoffDb.query<{id:string}>('SELECT id FROM "BotHandoff" WHERE status=\'QUEUED\'')).rows[0]!.id,
+    revision:runtime.session.revision,handoffFenceEpoch:runtime.session.handoffFenceEpoch,
+    deploymentId:'dep',generation:1,configurationId:'cfg',policyHash:canonicalJsonHash(policy),evidence:'cancelar derivación'
+  })
+  const executeCancel = (scope: Awaited<ReturnType<typeof cancelScope>>, operationKey='conversation-handoff-cancel:controlled',businessId='biz',sessionId='session') =>
+    handoffDb.transaction(async sql => prismaHandoffEffectExecutor({
+      $queryRaw:async(q:Query)=>(await sql.query(q.text,q.values)).rows,
+      $executeRaw:async(q:Query)=>(await sql.query(q.text,q.values)).affectedRows??0
+    } as never,{businessId,sessionId,operationKey,cancelScope:scope,effects:[{kind:'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER'}]}))
+  const proofRejected = await freshQueued()
+  const proof = await cancelScope(proofRejected)
+  await assert.rejects(()=>executeCancel({...proof,handoffId:'different'}),/scope|target|proof/,'server proof cannot cancel a different current target')
+  assert.equal((await handoffDb.query<{status:string}>('SELECT status FROM "BotHandoff"')).rows[0]!.status,'QUEUED')
+  for(const key of ['revision','handoffFenceEpoch','deploymentId','generation','configurationId','policyHash','evidence'] as const) {
+    const wrong = {...proof,[key]:key==='revision'?proof.revision+1n:key==='handoffFenceEpoch'||key==='generation'?99:key==='evidence'?'no quiero cancelar la derivación':'different'}
+    await assert.rejects(()=>executeCancel(wrong),/scope|target|proof|fence/,'wrong '+key+' cannot cancel')
+  }
+  for(const guard of ['paused','deployment-paused'] as const) {
+    const table=guard==='paused'?'BotSession':'BotChannelDeployment',field=guard==='paused'?'handoffClaimsPausedAt':'claimsPausedAt'
+    await handoffDb.exec('UPDATE "'+table+'" SET "'+field+'"=now()')
+    await assert.rejects(()=>executeCancel(proof),/scope|fence|proof/)
+    await handoffDb.exec('UPDATE "'+table+'" SET "'+field+'"=NULL')
+  }
+
+  await assert.rejects(()=>executeCancel(proof,'conversation-handoff-cancel:foreign','other'),/tenant|session/)
+  await assert.rejects(()=>executeCancel(proof,'conversation-handoff-cancel:foreign','biz','other'),/tenant|session/)
+  await assert.rejects(()=>executeCancel(proof,'legacy-key'),/namespace/)
+  await assert.rejects(()=>executeCancel(undefined as never),/namespace/)
+  await handoffDb.exec('UPDATE "BusinessBotConfiguration" SET status=\'DRAFT\'')
+  await assert.rejects(()=>executeCancel(proof),/policy|scope/)
+  await handoffDb.exec('UPDATE "BusinessBotConfiguration" SET status=\'ACTIVE\'; UPDATE "BotSession" SET status=\'HUMAN_TAKEN\'; UPDATE "BotHandoff" SET status=\'TAKEN\'')
+  await assert.rejects(()=>executeCancel(proof),/cannot cancel|target|scope/)
+  await handoffDb.exec('UPDATE "BotSession" SET status=\'HUMAN_QUEUED\'; UPDATE "BotHandoff" SET status=\'QUEUED\'')
+
+  await executeCancel(proof)
+  const completed=(await handoffDb.query<{requestHash:string;resultRef:string}>('SELECT "requestHash","resultRef" FROM "BotOperation" WHERE type=\'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER\'')).rows[0]!
+  assert.equal(completed.resultRef,proof.handoffId)
+  await executeCancel(proof)
+  for(const changed of [{...proof,evidence:'volver al bot'},{...proof,handoffId:'new-queue'},{...proof,revision:proof.revision+1n}]) {
+    await assert.rejects(()=>executeCancel(changed),/replay|scope|target|proof/)
+  }
+  await handoffDb.exec('UPDATE "BotSession" SET status=\'HUMAN_QUEUED\'; INSERT INTO "BotHandoff" (id,"businessId","sessionId",status,context,"queuedAt","updatedAt") VALUES (\'new-queue\',\'biz\',\'session\',\'QUEUED\',\'{}\',now(),now())')
+  await executeCancel(proof)
+  assert.equal((await handoffDb.query<{status:string}>('SELECT status FROM "BotHandoff" WHERE id=\'new-queue\'')).rows[0]!.status,'QUEUED','exact replay cannot retarget a new queue')
+  const customerCancel = await freshQueued()
+  const beforeCancel = readConversationDraft(customerCancel.session.state,policy,'UTC')
+  const cancelRevision=customerCancel.session.revision, cancelEvents=handoffEvents.length
+  customerCancel.next('cancelar derivación')
+  let cancelProviderCalls=0
+  await customerCancel.run('PROCESS_INBOX',{provider:async()=>{cancelProviderCalls++;throw Error('must not invoke AI')},timeoutMs:15000})
+  assert.equal(customerCancel.session.status,'ACTIVE','public current literal must effectively leave queue')
+  assert.equal(customerCancel.session.revision,cancelRevision+1n)
+  assert.equal(cancelProviderCalls,0)
+  const cancelledDraft=readConversationDraft(customerCancel.session.state,policy,'UTC')
+  for(const key of ['basket','date','professional','customerName','serviceEstimates','serviceRequest'] as const)assert.deepEqual(cancelledDraft[key],beforeCancel[key],key+' preserved')
+  for(const key of ['referral','dialogueContext','questionContext','bookingReservation','sandboxReservation'] as const)assert.equal(cancelledDraft[key],undefined,key+' cannot retain old consent or queue')
+  assert.equal(cancelledDraft.slot,null)
+  assert.equal((await handoffDb.query<{status:string}>('SELECT status FROM "BotHandoff"')).rows[0]!.status,'CANCELLED')
+  assert.equal(customerCancel.singularAgendaCalls+customerCancel.basketAgendaCalls,0)
+  assert.match(customerCancel.replies.at(-1)!,/cancel|fuera de la cola/i)
+  assert.ok(handoffEvents.length>cancelEvents)
+  const countAfter=(await handoffDb.query('SELECT * FROM "BotOperation"')).rows
+  await customerCancel.run()
+  assert.deepEqual((await handoffDb.query('SELECT * FROM "BotOperation"')).rows,countAfter)
+  for(const message of ['no quiero cancelar la derivación','si hace falta cancelar la derivación','cancelar derivación o seguir esperando']) {
+    const retained=await freshQueued();const before=structuredClone(retained.session.state)
+    retained.next(message);await retained.run()
+    assert.equal(retained.session.status,'HUMAN_QUEUED')
+    assert.deepEqual(retained.session.state,before)
+  }
+  const cancelledRollback=await freshQueued()
+  const durableBefore=(await handoffDb.query('SELECT state,revision::text,status FROM "BotSession"')).rows
+  const replyBefore=(await handoffDb.query('SELECT * FROM "BotOutbox"')).rows
+  const operationBefore=(await handoffDb.query('SELECT * FROM "BotOperation"')).rows
+  const crmBefore=(await handoffDb.query('SELECT * FROM "Conversation"')).rows
+  const rollbackEvents=handoffEvents.length
+  cancelledRollback.next('volver al bot');cancelledRollback.failCommit()
+  await assert.rejects(()=>cancelledRollback.run(),/COMMIT failed/)
+  assert.deepEqual((await handoffDb.query('SELECT state,revision::text,status FROM "BotSession"')).rows,durableBefore)
+  assert.deepEqual((await handoffDb.query('SELECT * FROM "BotOutbox"')).rows,replyBefore)
+  assert.deepEqual((await handoffDb.query('SELECT * FROM "BotOperation"')).rows,operationBefore)
+  assert.deepEqual((await handoffDb.query('SELECT * FROM "Conversation"')).rows,crmBefore)
+  assert.equal((await handoffDb.query<{status:string}>('SELECT status FROM "BotHandoff"')).rows[0]!.status,'QUEUED')
+  assert.equal(handoffEvents.length,rollbackEvents)
+  console.log('D3 queued cancellation: scoped proof/replay, public literal, preserved draft, no AI/agenda and caller rollback PASS')
 } finally {stopHandoffEvents();await handoffDb.close()}
 
 

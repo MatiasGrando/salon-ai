@@ -1,3 +1,7 @@
+import { canonicalJsonHash } from './canonical-json.js'
+import { explicitReferralAction } from './conversational-referral.js'
+import { isCustomerText } from './customer-text.js'
+import { prismaHandoffEffectExecutor } from '../bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { executePrismaConversationBooking, runtimeBookingReceiptReply } from './prisma-conversational-booking.js'
 import { finalizeRuntimeBooking } from './engine.js'
 import { enqueueConversationalHandoffTx } from './prisma-conversational-handoff.js'
@@ -284,6 +288,54 @@ export async function processConversationInbox(input: {
         await measureAttemptStage('conversation_inbound_project', () => input.projectInbound(tx, { businessId: row.businessId, conversationId: fallbackConversationId, phone, providerMessageId: row.providerMessageId,
           body: typeof payload.textBody === 'string' && payload.textBody.trim() ? payload.textBody.trim() : `[${String(payload.messageType ?? 'message')}]`, messageType: payload.messageType }, events))
       }
+
+      if (row.botEnabled && session?.status === 'HUMAN_QUEUED' && !session.handoffClaimsPausedAt &&
+          eligibleText && isCustomerText(payload.textBody,2000) && explicitReferralAction(payload.textBody) === 'resume') {
+        // This cancellation belongs to the currently locked queue, not to an AI
+        // interpretation, a former presentation or an operator-owned conversation.
+        if (session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation) {
+          await retry(tx,row);return null
+        }
+        if (!await ordered(tx,row,phone)) {await retry(tx,row);return null}
+        const parsed = parseBotOptionsState(session.state)
+        if (!parsed.ok || parsed.state.handoff !== 'QUEUED' || !['NONE','DRAFT'].includes(parsed.state.booking) ||
+            parsed.state.deposit !== 'NONE') {await finish(tx,row);return null}
+        const draft = readConversationDraft(session.state,policy,row.businessTimezone)
+        if (draft.bookingReservation?.receipt || draft.sandboxReservation?.receipt) {await finish(tx,row);return null}
+        const queued = await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+          /* conversational-handoff-cancel-target */
+          SELECT "id" FROM "BotHandoff" WHERE "businessId"=${row.businessId} AND "sessionId"=${session.sessionId}
+            AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus") FOR UPDATE
+        `)
+        if (queued.length !== 1) throw new Error('ambiguous current handoff target')
+        await prismaHandoffEffectExecutor(tx,{businessId:row.businessId,sessionId:session.sessionId,
+          operationKey:'conversation-handoff-cancel:'+row.id,cancelScope:{handoffId:queued[0]!.id,
+            revision:session.revision,handoffFenceEpoch:session.handoffFenceEpoch,deploymentId:policy.deploymentId,
+            generation:policy.generation,configurationId:policy.configurationId,policyHash:canonicalJsonHash(policy),
+            evidence:payload.textBody},effects:[{kind:'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER'}],pendingConversationUpdates:updates})
+        draft.slot=null
+        delete draft.referral;delete draft.dialogueContext;delete draft.questionContext
+        delete draft.bookingReservation;delete draft.sandboxReservation;delete draft.timeClarification
+        if (draft.pending === 'proposal') draft.pending='time'
+        const state=projectConversationDraft(draft,policy),revision=session.revision+1n
+        const transitionId='transition:'+session.sessionId+':'+revision
+        const reply='Cancelé la derivación; tu pedido ya no está en cola. Conservé tu borrador, pero los horarios y propuestas anteriores deben verificarse de nuevo. ¿Cómo querés continuar?'
+        const atomicText=input.writeView===persistView
+        const update=await persistConversationTurnTx(tx,{businessId:row.businessId,sessionId:session.sessionId,
+          expectedRevision:session.revision,revision,handoffFenceEpoch:session.handoffFenceEpoch,state,transitionId,
+          deploymentId:policy.deploymentId,generation:policy.generation,providerEventId:row.providerEventId,
+          actionType:'handoff.cancel',step:conversationStepForBotOptionsState(state),
+          ...(atomicText?{finalizeText:{reply,toPhone:phone,dbNow:row.dbNow,inboxId:row.id,coveredIds:[row.providerEventId],
+            dispatchToken:token,jobId:input.job.id,jobToken:input.job.claimToken}}:{})})
+        if(update)updates.push(update)
+        if(!atomicText) {
+          await input.writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision,transitionId,toPhone:phone,
+            dbNow:row.dbNow,view:textView(reply)})
+          await finish(tx,row)
+        }
+        return null
+      }
+
       if (!row.botEnabled || (session && (session.status !== 'ACTIVE' || session.handoffClaimsPausedAt))) { await finish(tx, row); return null }
       if (session && (session.deploymentId !== policy.deploymentId || session.deploymentGeneration > policy.generation)) throw new Error('conversation session requires cutover')
       if (payload.contextWindowEvaluated !== true) {
@@ -352,7 +404,7 @@ export async function processConversationInbox(input: {
       return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset, selectedChoice }
     })
     flushInboundConversationMessages(events)
-    if (!snapshot) { markSettled(); return 'PROCESSED' }
+    if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
     // This is a best-effort notification, not part of the durable computation or its latency.
     if (input.onPreparingReply && snapshot.payload.messageType === 'text' && !snapshot.reset &&
         snapshot.row.providerPhoneNumberId && snapshot.row.providerMessageId) {

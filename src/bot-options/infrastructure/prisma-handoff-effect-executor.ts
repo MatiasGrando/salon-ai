@@ -1,3 +1,8 @@
+import { resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
+import { canonicalJsonHash } from '../../conversational-bot/canonical-json.js'
+import { explicitReferralAction } from '../../conversational-bot/conversational-referral.js'
+import { isCustomerText } from '../../conversational-bot/customer-text.js'
+import { parseBotOptionsState } from '../domain/state.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '../../generated/prisma/client.js'
 import type { BotOptionsEffect } from '../domain/effects.js'
@@ -5,7 +10,16 @@ import { normalizePhone, phoneSearchVariants } from '../../services/phone-normal
 import { validateCustomerName } from '../domain/customer-name-validation.js'
 import type { ConversationUpdatedEvent } from '../../services/crm-realtime-events.js'
 
+
+type CurrentCancellationScope = {
+  handoffId: string; revision: bigint; handoffFenceEpoch: number
+  deploymentId: string; generation: number; configurationId: string
+  policyHash: string; evidence: string
+}
+
 type HandoffEffectInput = {
+  /** Server-only; absent keeps the legacy hash and semantics unchanged. */
+  cancelScope?: CurrentCancellationScope
   businessId: string
   sessionId: string
   operationKey: string
@@ -34,6 +48,23 @@ function handoffRequestHash(effect: Extract<BotOptionsEffect, { kind: 'REQUEST_H
 
 function handoffCancellationHash(): string {
   return createHash('sha256').update(JSON.stringify({ kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }), 'utf8').digest('hex')
+}
+
+
+function scopedCancellationHash(input: HandoffEffectInput): string {
+  const scope = input.cancelScope
+  const modern = input.operationKey.startsWith('conversation-handoff-cancel:')
+  if (modern !== Boolean(scope)) throw new Error('handoff cancellation proof namespace mismatch')
+  if (!scope) return handoffCancellationHash()
+  const id = (value: unknown) => typeof value === 'string' && /^[^\s\u0000-\u001f]{1,128}$/.test(value)
+  if (!id(scope.handoffId) || !id(scope.deploymentId) || !id(scope.configurationId) ||
+      typeof scope.revision !== 'bigint' || scope.revision < 0n ||
+      !Number.isSafeInteger(scope.handoffFenceEpoch) || scope.handoffFenceEpoch < 0 ||
+      !Number.isSafeInteger(scope.generation) || scope.generation < 1 ||
+      !/^[a-f0-9]{64}$/.test(scope.policyHash) || !isCustomerText(scope.evidence,2000) ||
+      explicitReferralAction(scope.evidence) !== 'resume') throw new Error('invalid handoff cancellation proof')
+  return canonicalJsonHash({kind:'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER',businessId:input.businessId,
+    sessionId:input.sessionId,...scope,revision:String(scope.revision)})
 }
 
 /**
@@ -202,7 +233,7 @@ async function cancelHandoffByCustomer(
 ): Promise<void> {
   const effectKind = 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER'
   const effectOperationKey = `${input.operationKey}:${effectKind}`
-  const requestHash = handoffCancellationHash()
+  const requestHash = scopedCancellationHash(input)
   const sessions = await tx.$queryRaw<Array<{ status: string }>>(Prisma.sql`
     SELECT "status"::text AS "status" FROM "BotSession"
     WHERE "id" = ${input.sessionId} AND "businessId" = ${input.businessId} FOR UPDATE
@@ -229,9 +260,36 @@ async function cancelHandoffByCustomer(
         AND "businessId" = ${input.businessId} AND "sessionId" = ${input.sessionId}
         AND "status" = 'CANCELLED'::"BotHandoffStatus" FOR UPDATE
     `)
-    if (handoffs.length !== 1) throw new Error('handoff cancellation result reference is invalid')
+    if (handoffs.length !== 1 || input.cancelScope && operation.resultRef !== input.cancelScope.handoffId) throw new Error('handoff cancellation result reference is invalid')
     return
   }
+
+  const scope = input.cancelScope
+  const current = scope ? (await tx.$queryRaw<Array<PolicyRow & {revision:string;state:Prisma.JsonValue;handoffFenceEpoch:number;
+    handoffClaimsPausedAt:Date|null;deploymentId:string;deploymentGeneration:number;
+    generation:number;configurationId:string;claimsPausedAt:Date|null}>>(Prisma.sql`
+    /* conversational-handoff-cancel-scope */
+    SELECT s."revision"::text AS "revision",s."state",s."handoffFenceEpoch",s."handoffClaimsPausedAt",
+      s."deploymentId",s."deploymentGeneration",d."generation",d."activeConfigurationId" AS "configurationId",d."claimsPausedAt",d."businessId",d."engineKey",b."customerCode",
+      cfg."businessId" AS "configurationBusinessId",cfg."status"::text AS "configurationStatus",cfg."definition"
+    FROM "BotSession" s JOIN "BotChannelDeployment" d ON d."id"=s."deploymentId" AND d."businessId"=s."businessId"
+    JOIN "Business" b ON b."id"=d."businessId"
+    JOIN "BusinessBotConfiguration" cfg ON cfg."id"=d."activeConfigurationId" AND cfg."businessId"=d."businessId"
+    WHERE s."id"=${input.sessionId} AND s."businessId"=${input.businessId} FOR UPDATE OF s FOR SHARE OF d,cfg,b
+  `))[0] : null
+  if (scope) {
+    const parsed = current ? parseBotOptionsState(current.state) : null
+    const sidecar = current?.state as {conversationDraft?:{policy?:unknown}}
+    const actualPolicy=current?resolveConversationPolicy(current):null
+    if (!current || current.revision !== String(scope.revision) || current.handoffFenceEpoch !== scope.handoffFenceEpoch ||
+        current.handoffClaimsPausedAt || current.claimsPausedAt || current.deploymentId !== scope.deploymentId ||
+        current.deploymentGeneration !== scope.generation || current.generation !== scope.generation ||
+        current.configurationId !== scope.configurationId || !actualPolicy || canonicalJsonHash(actualPolicy)!==scope.policyHash ||
+        !sidecar.conversationDraft?.policy || canonicalJsonHash(sidecar.conversationDraft.policy) !== scope.policyHash ||
+        !parsed?.ok || parsed.state.handoff !== 'QUEUED' || !['NONE','DRAFT'].includes(parsed.state.booking) ||
+        parsed.state.deposit !== 'NONE') throw new Error('handoff cancellation scope or fence changed')
+  }
+
   if (sessions[0]!.status !== 'HUMAN_QUEUED') throw new Error(`cannot cancel handoff from session status ${sessions[0]!.status}`)
   const active = await tx.$queryRaw<Array<{ id: string; status: string; context: Prisma.JsonValue | null }>>(Prisma.sql`
     SELECT "id", "status"::text AS "status", "context" FROM "BotHandoff"
@@ -239,7 +297,7 @@ async function cancelHandoffByCustomer(
       AND "status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
     FOR UPDATE
   `)
-  if (active.length !== 1 || active[0]!.status !== 'QUEUED') throw new Error('handoff is not safely cancellable')
+  if (active.length !== 1 || active[0]!.status !== 'QUEUED' || scope && active[0]!.id !== scope.handoffId) throw new Error('handoff target is not safely cancellable')
   const cancelled = await tx.$executeRaw(Prisma.sql`
     UPDATE "BotHandoff" SET "status" = 'CANCELLED'::"BotHandoffStatus", "cancelledAt" = clock_timestamp(), "updatedAt" = clock_timestamp()
     WHERE "id" = ${active[0]!.id} AND "businessId" = ${input.businessId} AND "sessionId" = ${input.sessionId}
