@@ -1,3 +1,4 @@
+import { canonicalJsonHash } from './canonical-json.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
@@ -26,11 +27,15 @@ export type RuntimeBookingOrigin = {
 }
 export type RuntimeBookingInput = { origin: RuntimeBookingOrigin; presented: RuntimePresentedBooking; currentDraft: unknown
   consent: { confirmed: boolean; nonce: string; fingerprint: string } }
-type Receipt = { kind: 'COMMITTED'; coordinationGroupId: string; proposalNonce: string; fingerprint: string
-  appointments: Array<{ segmentIndex: number; appointmentId: string; visitId: string }> }
-export type RuntimeBookingResult = Receipt | { kind: 'BLOCKED'; reason: 'SCOPE_REJECTED' | 'FINANCIAL_OR_GUIDANCE' } | { kind: 'REQUOTE' }
+export type RuntimeBookingReceipt = { kind: 'COMMITTED'; coordinationGroupId: string; proposalNonce: string; fingerprint: string
+  appointments: Array<{ segmentIndex: number; appointmentId: string; visitId: string }>; businessAddress?: string }
+export type RuntimeBookingResult = RuntimeBookingReceipt | { kind: 'BLOCKED'; reason: 'SCOPE_REJECTED' | 'FINANCIAL_OR_GUIDANCE' } | { kind: 'REQUOTE' }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
-export const runtimeBookingFingerprint = (terms: RuntimeBookingTerms): string => hash(terms)
+export const runtimeBookingFingerprint = (terms: RuntimeBookingTerms): string => canonicalJsonHash(terms)
+export function runtimeBookingRequestHash(o:RuntimeBookingOrigin,p:RuntimePresentedBooking):string {
+  return canonicalJsonHash({presented:p,origin:{businessId:o.businessId,sessionId:o.sessionId,canonicalPhone:o.canonicalPhone,deploymentId:o.deploymentId,generation:o.generation,
+    dispatchFenceEpoch:o.dispatchFenceEpoch,handoffFenceEpoch:o.handoffFenceEpoch,configurationId:o.configurationId,revision:String(o.revision)}})
+}
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown, max = 128): value is string => typeof value === 'string' && !!value.trim() && value.length <= max && !/[\u0000-\u001f]/.test(value)
 const keys = (value: object, required: string[], optional: string[] = []) => required.every(key=>Object.hasOwn(value,key)) && Object.keys(value).every(key=>required.includes(key)||optional.includes(key))
@@ -40,7 +45,7 @@ const blocked = (): RuntimeBookingResult => ({kind:'BLOCKED',reason:'SCOPE_REJEC
 
 /** Hash of the current service configuration, not of an AI quote or suggested ID. */
 export function runtimeServiceConfigurationHash(service: Record<string, unknown>): string {
-  return hash(['attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
+  return canonicalJsonHash(['attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
     'requiresPhoto','validationEnabled','validationMessage','validationQuestion','customerDurationMin','customerDurationMax','depositMode','depositValue'].map(key=>service[key]??null))
 }
 function validPresented(p: unknown): p is RuntimePresentedBooking {
@@ -76,7 +81,7 @@ function validPresented(p: unknown): p is RuntimePresentedBooking {
     else fixed=false
     previousEnd=s.endAt
   }
-  return t.totalPriceMinor===(fixed?total:null) && p.fingerprint===hash(t)
+  return t.totalPriceMinor===(fixed?total:null) && p.fingerprint===canonicalJsonHash(t)
 }
 /** Bounded parsing only: this is not booking or consent authority. */
 export function parseRuntimePresentedBooking(value: unknown): RuntimePresentedBooking | null {
@@ -86,9 +91,10 @@ function validDraft(draft: unknown, p: RuntimePresentedBooking): boolean {
   if(!object(draft) || !object(draft.bookingReservation) || !isDeepStrictEqual(draft.bookingReservation.presented,p) ||
     draft.businessId!==p.terms.businessId || draft.customerName!==p.terms.customerName || draft.date!==p.terms.date || draft.pending!=='proposal' ||
     !isDeepStrictEqual(draft.professional,p.terms.preference) || draft.referral || draft.serviceRequest || draft.editRequest || draft.professionalReference ||
-    !object(draft.basket) || !Array.isArray(draft.basket.members) || !object(draft.slot) || draft.slot.startAt!==p.terms.segments[0]!.startAt) return false
-  const ids: unknown[]=[]
-  for(const member of draft.basket.members) {
+    !object(draft.slot) || draft.slot.startAt!==p.terms.segments[0]!.startAt) return false
+  const ids: unknown[]=draft.basket===undefined && text(draft.serviceId)?[draft.serviceId]:[]
+  if(draft.basket!==undefined && (!object(draft.basket)||!Array.isArray(draft.basket.members)))return false
+  for(const member of object(draft.basket)&&Array.isArray(draft.basket.members)?draft.basket.members:[]) {
     if(!object(member) || member.mode!=='single' || !Array.isArray(member.serviceIds) || member.serviceIds.length!==1) return false
     ids.push(member.serviceIds[0])
   }
@@ -98,11 +104,11 @@ function validDraft(draft: unknown, p: RuntimePresentedBooking): boolean {
   const segments=p.terms.segments.map(({priceMinor,priceMode,configurationHash,estimate,...segment})=>segment)
   return isDeepStrictEqual(draft.slot.coordination.segments,segments)
 }
-type ScopeRow={phone:string;state:unknown;customerId:string|null;customerName:string|null}
+type ScopeRow={phone:string;state:unknown;customerId:string|null;customerName:string|null;businessAddress?:string|null}
 async function lockScope(tx: Prisma.TransactionClient, o: RuntimeBookingOrigin): Promise<ScopeRow | undefined> {
   const rows=await tx.$queryRaw<ScopeRow[]>(Prisma.sql`
     /* runtime-booking-scope */
-    SELECT c."phone",s."state",customer."id" AS "customerId",customer."name" AS "customerName"
+    SELECT c."phone",s."state",customer."id" AS "customerId",customer."name" AS "customerName",b."publicAddress" AS "businessAddress"
     FROM "BotSession" s JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "BotChannelDeployment" d ON d."id"=s."deploymentId" AND d."businessId"=s."businessId"
     JOIN "BusinessBotConfiguration" cfg ON cfg."id"=d."activeConfigurationId" AND cfg."businessId"=d."businessId"
@@ -120,18 +126,24 @@ async function lockScope(tx: Prisma.TransactionClient, o: RuntimeBookingOrigin):
   return rows.length===1 ? rows[0] : undefined
 }
 const childKey=(key:string,index:number)=>key+':segment:'+index
-function childInput(input: RuntimeBookingInput, key: string, index: number): ConfirmBookingWithoutDepositInput {
-  const s=input.presented.terms.segments[index]!,o=input.origin
-  return {businessId:o.businessId,sessionId:o.sessionId,operationKey:childKey(key,index),newBookingAllowed:o.newBookingAllowed,
-    services:[{serviceId:s.serviceId,name:s.serviceName,durationMinutes:s.durationMinutes,priceMinor:s.priceMinor,priceMode:s.priceMode,...(s.estimate?{estimate:s.estimate}:{})}],
-    professional:{professionalId:s.professionalId,name:s.professionalName,assignedByBalancer:false},date:input.presented.terms.date,slotStartAt:s.startAt,totalDurationMinutes:s.durationMinutes,
+/** Pure projection only; the caller must independently establish every write guard. */
+export function runtimeBookingChildInput(p:RuntimePresentedBooking,key:string,index:number,newBookingAllowed:boolean):ConfirmBookingWithoutDepositInput {
+  if(!validPresented(p)||!text(key,256)||!Number.isSafeInteger(index)||index<0||index>=p.terms.segments.length)throw new Error('invalid runtime child proof')
+  const s=p.terms.segments[index]!
+  const estimate=s.estimate?{optionId:s.estimate.optionId,optionLabel:s.estimate.optionLabel,priceMin:s.estimate.priceMin,priceMax:s.estimate.priceMax}:undefined
+  return {businessId:p.scope.businessId,sessionId:p.scope.sessionId,operationKey:childKey(key,index),newBookingAllowed,
+    services:[{serviceId:s.serviceId,name:s.serviceName,durationMinutes:s.durationMinutes,priceMinor:s.priceMinor,priceMode:s.priceMode,...(estimate?{estimate}:{})}],
+    professional:{professionalId:s.professionalId,name:s.professionalName,assignedByBalancer:false},date:p.terms.date,slotStartAt:s.startAt,totalDurationMinutes:s.durationMinutes,
     totalPriceMinor:s.priceMode==='FIXED'?s.priceMinor:null}
 }
+function childInput(input:RuntimeBookingInput,key:string,index:number):ConfirmBookingWithoutDepositInput {
+  return runtimeBookingChildInput(input.presented,key,index,input.origin.newBookingAllowed)
+}
 /** F7's persisted legacy payload/order remains unchanged; only verify its durable child receipt. */
-function childHash(input: ConfirmBookingWithoutDepositInput): string {
+export function runtimeBookingChildRequestHash(input: ConfirmBookingWithoutDepositInput): string {
   return hash({services:input.services,professional:input.professional,date:input.date,slotStartAt:input.slotStartAt,totalDurationMinutes:input.totalDurationMinutes,totalPriceMinor:input.totalPriceMinor})
 }
-async function replay(tx: Prisma.TransactionClient, input: RuntimeBookingInput, key: string, requestHash: string, customerId: string | null): Promise<Receipt | null> {
+async function replay(tx: Prisma.TransactionClient, input: RuntimeBookingInput, key: string, requestHash: string, customerId: string | null): Promise<RuntimeBookingReceipt | null> {
   const rows=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`SELECT * FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE`)
   const parent=rows[0]
   if(!parent) return null
@@ -145,11 +157,11 @@ async function replay(tx: Prisma.TransactionClient, input: RuntimeBookingInput, 
     WHERE a."coordinationGroupId"=${parent.resultRef} FOR UPDATE OF a,v
   `)
   if(members.length!==input.presented.terms.segments.length) throw new Error('runtime booking replay membership mismatch')
-  const appointments:Receipt['appointments']=[]
+  const appointments:RuntimeBookingReceipt['appointments']=[]
   for(const [index,segment] of input.presented.terms.segments.entries()) {
     const ops=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`SELECT * FROM "BotOperation" WHERE "operationKey"=${childKey(key,index)+':CONFIRM_VISIT'} FOR UPDATE`)
     const op=ops[0], member=members.find(m=>m.visitId===op?.resultRef), price=segment.priceMode==='FIXED'?segment.priceMinor:null
-    if(ops.length!==1 || !op || op.businessId!==input.origin.businessId || op.sessionId!==input.origin.sessionId || op.type!=='CONFIRM_VISIT' || op.status!=='COMPLETED' || op.requestHash!==childHash(childInput(input,key,index)) || !member ||
+    if(ops.length!==1 || !op || op.businessId!==input.origin.businessId || op.sessionId!==input.origin.sessionId || op.type!=='CONFIRM_VISIT' || op.status!=='COMPLETED' || op.requestHash!==runtimeBookingChildRequestHash(childInput(input,key,index)) || !member ||
       member.businessId!==input.origin.businessId || member.customerId!==customerId || member.visitCustomer!==customerId || member.serviceId!==segment.serviceId ||
       member.professionalId!==segment.professionalId || member.visitProfessional!==segment.professionalId || member.status!=='CONFIRMED' || member.visitStatus!=='CONFIRMED' ||
       member.visitSession!==input.origin.sessionId || new Date(member.startAt).toISOString()!==segment.startAt || new Date(member.visitStart).toISOString()!==segment.startAt ||
@@ -175,11 +187,10 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
     !isDeepStrictEqual(scope.state.conversationDraft.dialogue,input.currentDraft) || !['NONE','DRAFT'].includes(String(scope.state.booking)) ||
     scope.state.deposit!=='NONE' || scope.state.handoff!=='NONE') return blocked()
   const key='conversation-booking:'+o.operationKey+':'+p.nonce
-  const requestHash=hash({presented:p,origin:{businessId:o.businessId,sessionId:o.sessionId,canonicalPhone:o.canonicalPhone,deploymentId:o.deploymentId,generation:o.generation,
-    dispatchFenceEpoch:o.dispatchFenceEpoch,handoffFenceEpoch:o.handoffFenceEpoch,configurationId:o.configurationId,revision:String(o.revision)}})
+  const requestHash=runtimeBookingRequestHash(o,p)
   await acquireAgendaHierarchy(tx,{businessId:o.businessId,professionalIds:p.terms.segments.map(s=>s.professionalId)})
   const prior=await replay(tx,input,key,requestHash,scope.customerId)
-  if(prior) return prior
+  if(prior) return {...prior,...(text(scope.businessAddress,1000)?{businessAddress:scope.businessAddress}:{})}
   if(!o.newBookingAllowed) return blocked()
   const clocks=await tx.$queryRaw<Array<{timezone:string;dbNow:Date;bookingLeadTimeHours:number;bookingHorizonDays:number}>>(Prisma.sql`SELECT timezone,"bookingLeadTimeHours","bookingHorizonDays",clock_timestamp() AS "dbNow" FROM "BusinessBotOptionsSettings" WHERE "businessId"=${o.businessId}`)
   const settings=clocks[0]
@@ -211,7 +222,7 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${key},'CONFIRM_VISIT',${o.businessId},${o.sessionId},'STARTED',${requestHash},${groupId},clock_timestamp())`)
   if(scope.customerName!==p.terms.customerName || !scope.customerId) await prismaHandoffEffectExecutor(tx,{businessId:o.businessId,sessionId:o.sessionId,operationKey:key,
     effects:[{kind:'PERSIST_CUSTOMER_NAME',name:p.terms.customerName}]})
-  const appointments:Receipt['appointments']=[]
+  const appointments:RuntimeBookingReceipt['appointments']=[]
   for(const [index,s] of p.terms.segments.entries()) {
     const result=await confirmBookingWithoutDeposit(tx,childInput(input,key,index))
     if(result.kind!=='CONFIRMED') throw new Error('runtime booking child conflict; rollback required')
@@ -221,5 +232,49 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
   }
   const completed=await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${key} AND "requestHash"=${requestHash} AND status='STARTED'`)
   if(completed!==1) throw new Error('runtime booking completion failure; rollback required')
-  return {kind:'COMMITTED',coordinationGroupId:groupId,proposalNonce:p.nonce,fingerprint:p.fingerprint,appointments}
+  return {kind:'COMMITTED',coordinationGroupId:groupId,proposalNonce:p.nonce,fingerprint:p.fingerprint,appointments,...(text(scope.businessAddress,1000)?{businessAddress:scope.businessAddress}:{})}
+}
+
+
+export type RuntimeBookingReservation = { presented: RuntimePresentedBooking; receipt?: RuntimeBookingReceipt }
+/** Persisted server proof is bounded, never permission for a fresh write. */
+function validateRuntimeBookingReservation(value: unknown, businessId: string): asserts value is RuntimeBookingReservation {
+  if (!object(value) || !keys(value,['presented'],['receipt']) || !validPresented(value.presented) ||
+    value.presented.scope.businessId!==businessId || value.presented.terms.businessId!==businessId) throw new Error('invalid runtime reservation')
+  const p=value.presented, r=value.receipt
+  if (r!==undefined) {
+    if (!object(r) || !keys(r,['kind','coordinationGroupId','proposalNonce','fingerprint','appointments'],['businessAddress']) ||
+      r.kind!=='COMMITTED' || !text(r.coordinationGroupId) || r.proposalNonce!==p.nonce || r.fingerprint!==p.fingerprint ||
+      r.businessAddress!==undefined && !text(r.businessAddress,1000) || !Array.isArray(r.appointments) || r.appointments.length!==p.terms.segments.length) throw new Error('invalid runtime receipt')
+    const ids=new Set<string>(), visits=new Set<string>()
+    for (const [index,member] of r.appointments.entries()) {
+      if (!object(member) || !keys(member,['segmentIndex','appointmentId','visitId']) || member.segmentIndex!==index ||
+        !text(member.appointmentId) || !text(member.visitId) || ids.has(member.appointmentId) || visits.has(member.visitId)) throw new Error('invalid runtime receipt members')
+      ids.add(member.appointmentId); visits.add(member.visitId)
+    }
+  }
+  return
+}
+export function parseRuntimeBookingReservation(value: unknown, businessId: string): RuntimeBookingReservation {
+  validateRuntimeBookingReservation(value,businessId)
+  return structuredClone(value)
+}
+export function runtimeProposalMatchesState(p: RuntimePresentedBooking, draft: unknown): boolean { return validPresented(p) && validDraft(draft,p) }
+function runtimeBookingDetail(p: RuntimePresentedBooking): string {
+  const formatter=new Intl.DateTimeFormat('es-AR',{timeZone:p.terms.timezone,year:'numeric',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
+  const money=(amount:number)=>'$'+amount.toLocaleString('es-AR')
+  const lines=p.terms.segments.map(s=>{
+    const price=s.estimate
+      ? (s.estimate.optionLabel?s.estimate.optionLabel+' · ':'')+'Estimado '+(s.estimate.priceMax===null?'desde '+money(s.estimate.priceMin):money(s.estimate.priceMin)+' a '+money(s.estimate.priceMax))
+      : s.priceMinor===null?'Precio a confirmar':(s.priceMode==='STARTING_AT'?'Desde ':'')+money(s.priceMinor)
+    return s.serviceName+' con '+s.professionalName+' · '+formatter.format(new Date(s.startAt))+' · '+s.customerDurationMinutes+' min · '+price
+  })
+  return p.terms.customerName+':\n'+lines.join('\n')+'\n'+(p.terms.totalPriceMinor===null?'Total a consultar.':'Total: '+money(p.terms.totalPriceMinor))
+}
+export function runtimeBookingSummary(p: RuntimePresentedBooking): string {
+  return 'Propuesta para '+runtimeBookingDetail(p)+'\nSin seña requerida. La disponibilidad se verifica otra vez al confirmar.'
+}
+export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservation): string {
+  if(!reservation.receipt) throw new Error('runtime receipt required')
+  return 'La reserva fue confirmada.\n'+runtimeBookingDetail(reservation.presented)+(reservation.receipt.businessAddress?'\nTe esperamos en '+reservation.receipt.businessAddress:'')
 }

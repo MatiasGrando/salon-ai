@@ -1,3 +1,5 @@
+import { executePrismaConversationBooking, runtimeBookingReceiptReply } from './prisma-conversational-booking.js'
+import { finalizeRuntimeBooking } from './engine.js'
 import { enqueueConversationalHandoffTx } from './prisma-conversational-handoff.js'
 import type { ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx, type ConsolidationEnvelope } from './inbound-consolidation.js'
@@ -323,7 +325,7 @@ export async function processConversationInbox(input: {
       if (!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') {
         await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
           transitionId: `transition:${activeSession.sessionId}:${activeSession.revision}:protected:${row.id}`, toPhone: phone, dbNow: row.dbNow,
-          view: textView('Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.') }))
+          view: textView(parsed.state.booking==='CONFIRMED' && parsed.state.deposit==='NONE' && parsed.state.handoff==='NONE' && (()=>{try{return readConversationDraft(activeSession.state,policy,row.businessTimezone).bookingReservation?.receipt!==undefined}catch{return false}})() ? runtimeBookingReceiptReply(readConversationDraft(activeSession.state,policy,row.businessTimezone).bookingReservation!) : 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.') }))
         await finish(tx, row)
         return null
       }
@@ -368,6 +370,7 @@ export async function processConversationInbox(input: {
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
       ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
+      ...(prepared.port.prepareRuntimeBooking ? {prepareRuntimeBooking:(...args:Parameters<NonNullable<DialoguePort['prepareRuntimeBooking']>>)=>prepared.port.prepareRuntimeBooking!(...args)} : {}),
       ...(prepared.port.identity ? {identity:()=>prepared.port.identity!()} : {}),
       ...(prepared.port.professionalInformation ? {professionalInformation:(...args:Parameters<NonNullable<DialoguePort['professionalInformation']>>)=>prepared.port.professionalInformation!(...args)} : {}),
       ...(prepared.port.verifiedDateChoices ? {verifiedDateChoices:(...args:Parameters<NonNullable<DialoguePort['verifiedDateChoices']>>)=>prepared.port.verifiedDateChoices!(...args)} : {}),
@@ -376,13 +379,13 @@ export async function processConversationInbox(input: {
     const computedStarted = performance.now()
     const useAi = input.conversationalAi && !snapshot.selectedChoice && !snapshot.reset && snapshot.payload.messageType === 'text'
     const computeChoice = async () => {
-      try {return await respondConversationChoice(prepared.context,snapshot.draft,snapshot.selectedChoice!.operation,port)}
+      try {return await respondConversationChoice(operationalContext,snapshot.draft,snapshot.selectedChoice!.operation,port)}
       catch(error) {
         if(!(error instanceof ConversationChoiceUnavailableError)) throw error
         return {state:snapshot.draft,reply:'Esa opción ya no está disponible. Escribime cómo querés continuar; conservé tu borrador.',proposal:null}
       }
     }
-    const operationalContext = { ...prepared.context, humanHandoff: true as const }
+    const operationalContext = { ...prepared.context, humanHandoff: true as const, serverRuntimeBookingScope: {businessId:policy.businessId,sessionId:snapshot.session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,revision:String(snapshot.session.revision+1n),configurationId:policy.configurationId,dispatchFenceEpoch:snapshot.row.fenceEpoch,handoffFenceEpoch:snapshot.session.handoffFenceEpoch} }
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.selectedChoice ? await computeChoice()
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
@@ -432,7 +435,25 @@ export async function processConversationInbox(input: {
       // That route is conversational help, never the current dispatch authorization.
       const rejectedHandoff = Boolean(proposedHandoff && useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai')
       const handoffCommand = rejectedHandoff ? undefined : proposedHandoff
-      const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
+      const command='bookingCommand' in response ? response.bookingCommand : undefined
+      let finalResponse=response
+      if(command?.kind==='CONFIRM_BOOKING') {
+        if(handoffCommand)throw new Error('competing runtime effects')
+        if(useAi && (response as InterpretedDialogueResponse).interpretation.mode!=='ai') {
+          const deniedState=structuredClone(response.state)
+          delete deniedState.bookingReservation;delete deniedState.questionContext
+          if(deniedState.dialogueContext)deniedState.dialogueContext.lastQuestion=null
+          finalResponse={state:deniedState,proposal:null,reply:'No pude verificar ese consentimiento. Conservé tu propuesta; todavía no hay una reserva confirmada.'}
+        } else {
+          const result=await executePrismaConversationBooking(tx,{origin:{kind:'RUNTIME',businessId:row.businessId,sessionId:session.sessionId,
+            canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),revision:session.revision,deploymentId:policy.deploymentId,generation:policy.generation,
+            dispatchFenceEpoch:row.fenceEpoch,handoffFenceEpoch:session.handoffFenceEpoch,configurationId:policy.configurationId,
+            operationKey:row.id,newBookingAllowed:true},presented:command.presented,currentDraft:snapshot.draft,
+            consent:{confirmed:true,nonce:command.presented.nonce,fingerprint:command.presented.fingerprint}})
+          finalResponse=finalizeRuntimeBooking(response,result)
+        }
+      }
+      const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(finalResponse.state, policy)
       const revision = session.revision + 1n
       const transitionId = `transition:${session.sessionId}:${revision}`
       const deliveryEnvelope:ConsolidationEnvelope|undefined=snapshot.consolidation?.envelope ?? (snapshot.selectedChoice ? {
@@ -442,14 +463,14 @@ export async function processConversationInbox(input: {
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
       const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
       let question:ChoiceQuestion|undefined
-      if(!handoffCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+      if(!handoffCommand && !command && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
         // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
         try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
       }
       const atomicText = input.writeView === persistView && !question
       const reply = rejectedHandoff ? 'No pude verificar ese consentimiento. Para enviar esta consulta al equipo, escribí «consultar al equipo». Conservé tu borrador.'
-        : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply
+        : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + finalResponse.reply
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,

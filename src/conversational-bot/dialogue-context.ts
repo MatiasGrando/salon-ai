@@ -88,7 +88,7 @@ const validText = (value: unknown, max: number): value is string => typeof value
 export function rememberDialogueQuestion(state: DialogueState, question: string, options: readonly DialogueQuestionOption[] = [], targetServiceId: string | null = null, matching: { candidateIds: readonly string[]; configurationKey?: string; targetMemberId?: string } | null = null): void {
   if (!validText(question, 240)) { delete state.questionContext; return }
   const route = resolveDialogueRoute(state, [], state.pending)
-  let context: DialogueQuestionContext = { businessId: state.businessId, field: state.pending, role: state.pending === 'proposal' && state.sandboxReservation ? 'confirmation' : route.role, question,
+  let context: DialogueQuestionContext = { businessId: state.businessId, field: state.pending, role: state.pending === 'proposal' && (state.sandboxReservation || state.bookingReservation) ? 'confirmation' : route.role, question,
     scope: scopeOf(state), options: options.map(option => ({ ...option })), complete: true, targetServiceId,
     ...(matching ? { matchCandidateIds: [...matching.candidateIds], ...(matching.configurationKey ? { matchConfigurationKey: matching.configurationKey } : {}), ...(matching.targetMemberId ? { matchTargetMemberId: matching.targetMemberId } : {}) } : {}) }
   if (options.length > 50 || options.some(option => !validText(option.id, 128) || !validText(option.label, 200)) || new Set(options.map(option => option.id)).size !== options.length || JSON.stringify(context).length > 4096) context = { ...context, options: [], complete: false }
@@ -101,7 +101,7 @@ export function parseDialogueQuestion(value: unknown, state: DialogueState): Dia
   const item = value as DialogueQuestionContext
   if (Object.keys(item).filter(key => !['matchCandidateIds','matchConfigurationKey','matchTargetMemberId'].includes(key)).sort().join(',') !== 'businessId,complete,field,options,question,role,scope,targetServiceId' ||
       JSON.stringify(item).length > 4096 || item.businessId !== state.businessId || !fields.includes(item.field) ||
-      item.role !== (item.field === 'proposal' && state.sandboxReservation ? 'confirmation' : questions[item.field].role) || !validText(item.question, 240) || !validText(item.scope, 4096) ||
+      item.role !== (item.field === 'proposal' && (state.sandboxReservation || state.bookingReservation) ? 'confirmation' : questions[item.field].role) || !validText(item.question, 240) || !validText(item.scope, 4096) ||
       typeof item.complete !== 'boolean' || !Array.isArray(item.options) || item.options.length > 50 ||
       !item.complete && item.options.length !== 0 || new Set(item.options.map(option => option?.id)).size !== item.options.length ||
       item.options.some(option => !option || Object.keys(option).sort().join(',') !== 'id,label' || !validText(option.id, 128) || !validText(option.label, 200)) ||
@@ -127,7 +127,7 @@ export function expectedDialogueAnswer(state: DialogueState) {
     return { field: 'professional' as const, role: 'professional' as const, question: reference.question, options: [], complete: false, targetServiceId: null }
   }
   if (state.questionContext) { const { matchConfigurationKey: _configuration, ...answer } = state.questionContext; return answer }
-  return { field: state.pending, role: state.pending === 'proposal' && state.sandboxReservation && !state.sandboxReservation.receipt ? 'confirmation' : questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
+  return { field: state.pending, role: state.pending === 'proposal' && (state.sandboxReservation && !state.sandboxReservation.receipt || state.bookingReservation && !state.bookingReservation.receipt) ? 'confirmation' : questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
 }
 export const normalizeAnswer = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 export function explicitIdentity(message: string, value: string): boolean {

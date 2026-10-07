@@ -1,3 +1,4 @@
+import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
@@ -33,7 +34,7 @@ import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperati
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
 export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
-export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true }
+export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true; serverRuntimeBookingScope?: RuntimeShownScope }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[]; professionalFailure?: ProfessionalEligibilityFailure }
@@ -46,6 +47,7 @@ export type DialoguePort = {
   verifiedDateChoices?(services: readonly DialogueService[], professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: { requestedTime: string | null; preference?: TimePreference }): Promise<DialogueBasketAvailability>
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
   professionalInformation?(target: ProfessionalInformationTarget): Promise<ProfessionalInformationFacts>
+  prepareRuntimeBooking?(state: DialogueState, scope: RuntimeShownScope): Promise<{presented: RuntimePresentedBooking; slot: AvailabilitySlot}|null>
   catalog(): Promise<DialogueService[]>
   availabilityBasket?(services: readonly DialogueService[], date: string, professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: {requestedTime:string|null;preference?:TimePreference}): Promise<DialogueBasketAvailability>
   availability(service: DialogueService, date: string, professionalId?: string, temporal?: {requestedTime:string|null;preference?:TimePreference}): Promise<{ professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; explanation?: AvailabilityExplanation; preferredProfessionalIncompatible?: true; professionalFailure?: ProfessionalEligibilityFailure; requestedStartEvidence?: RequestedStartEvidence }>
@@ -78,6 +80,7 @@ export type DialogueState = {
   questionContext?: DialogueQuestionContext
   informationFocus?: InformationFocus
   /** Server-owned QA presentation/receipt; never a production booking capability. */
+  bookingReservation?: RuntimeBookingReservation
   sandboxReservation?: SandboxReservation
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; segments?: CoordinatedSegment[]; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
@@ -90,7 +93,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -185,6 +188,10 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
       !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
   if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
+  if (s.bookingReservation !== undefined) {
+    parseRuntimeBookingReservation(s.bookingReservation,businessId)
+    if (s.sandboxReservation || !runtimeProposalMatchesState(s.bookingReservation.presented,s) || timezone && s.bookingReservation.presented.terms.timezone!==timezone) throw new Error('invalid runtime proposal state')
+  }
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
@@ -1357,6 +1364,55 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   return { ...delivered(renderInformationContinuation(read, state)), ...(read.outcome === 'clarifying' && read.focus ? informationChoiceFields(state) : {}) }
 }
 
+const RUNTIME_CONFIRMATION_QUESTION='¿Confirmás este turno?'
+function runtimeCurrentScope(context: DialogueContext,p:RuntimePresentedBooking):boolean {
+  const scope=context.serverRuntimeBookingScope
+  if(!scope || !/^\d+$/.test(scope.revision) || BigInt(scope.revision)<1n) return false
+  return Object.entries({...scope,revision:String(BigInt(scope.revision)-1n)}).every(([key,value])=>p.scope[key as keyof RuntimeShownScope]===value) && Object.keys(scope).length===Object.keys(p.scope).length
+}
+async function respondRuntimeBookingEnvelope(context:DialogueContext,state:DialogueState,message:string,port:DialoguePort,decision?:DialogueDecision):Promise<DialogueResponse> {
+  const prior=state.bookingReservation
+  if(prior?.receipt) return {state,proposal:null,reply:runtimeBookingReceiptReply(prior)}
+  const plan=decision?.turnPlan?parseTurnPlan(decision.turnPlan,message):null, lexical=routeActions(message), normalized=normalize(message)
+  const veto=/[?¿]/.test(message) || /\b(no|pero|mejor|antes|depende|quizas|tal vez|cuando|sujeto)\b/.test(normalized) || /\bsi\b/.test(normalized) && !/^(si|si confirmo)$/.test(normalized)
+  const explicit=/^(si( confirmo)?|confirmo( el| este| ese)?( turno| propuesta)?|confirma( el| este| ese)? turno( por favor)?|confirmar( el turno)?|quiero reservar|reservar|dale)$/.test(normalized)
+  const semantic=explicit && !veto && plan?.operations.length===1 && plan.operations[0]?.kind==='confirm_proposal' && plan.operations[0].confidence>=0.85 && normalize(plan.operations[0].evidence)===normalized
+  const literal=!veto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention && /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalized)
+  if(prior && port.prepareRuntimeBooking && runtimeCurrentScope(context,prior.presented) && state.questionContext?.role==='confirmation' && !state.questionContext.matchCandidateIds && runtimeProposalMatchesState(prior.presented,state) && (semantic||literal))
+    return {state,proposal:null,reply:'Voy a verificar y confirmar el turno.',bookingCommand:{kind:'CONFIRM_BOOKING',presented:structuredClone(prior.presented)}}
+  delete state.bookingReservation
+  if(state.questionContext?.role==='confirmation')delete state.questionContext
+  const nextDecision=plan?.operations.some(op=>op.kind==='confirm_proposal')?{...decision!,turnPlan:{...plan,operations:plan.operations.filter(op=>op.kind!=='confirm_proposal')}}:decision
+  const response=await respondCore(context,state,message,port,nextDecision)
+  if(context.serverRuntimeBookingScope && port.prepareRuntimeBooking && !response.handoffCommand && !response.state.referral && !response.state.serviceRequest && !response.state.editRequest && response.state.pending==='proposal' && (response.proposal || prior)) {
+    const prepared=await port.prepareRuntimeBooking(response.state,context.serverRuntimeBookingScope)
+    if(prepared) {
+      response.state.slot=prepared.slot
+      response.state.bookingReservation={presented:prepared.presented}
+      if(!runtimeProposalMatchesState(prepared.presented,response.state))throw new Error('runtime preparation mismatch')
+      response.reply=(response.proposal?'':response.reply+'\n')+runtimeBookingSummary(prepared.presented)+'\n'+RUNTIME_CONFIRMATION_QUESTION
+      response.state.dialogueContext={lastQuestion:RUNTIME_CONFIRMATION_QUESTION,presentedOffer:response.state.dialogueContext?.presentedOffer??null}
+      rememberDialogueQuestion(response.state,RUNTIME_CONFIRMATION_QUESTION)
+    }
+  }
+  return response
+}
+export function finalizeRuntimeBooking(response:DialogueResponse,result:RuntimeBookingResult):DialogueResponse {
+  if(response.bookingCommand?.kind!=='CONFIRM_BOOKING')throw new Error('runtime command required')
+  const state=structuredClone(response.state)
+  delete state.questionContext
+  if(state.dialogueContext)state.dialogueContext.lastQuestion=null
+  if(result.kind==='COMMITTED') {
+    const reservation=parseRuntimeBookingReservation({presented:response.bookingCommand.presented,receipt:result},state.businessId)
+    state.bookingReservation=reservation
+    if(!runtimeProposalMatchesState(reservation.presented,state))throw new Error('runtime committed state mismatch')
+    return {state,proposal:null,reply:runtimeBookingReceiptReply(reservation),replyPrepared:true}
+  }
+  delete state.bookingReservation
+  state.slot=null;state.pending='time'
+  return {state,proposal:null,reply:result.kind==='REQUOTE'?'La propuesta cambió. Necesitamos verificar una nueva propuesta antes de confirmar.':'No pude confirmar esta propuesta. Conservé tus servicios y datos; no hay una reserva confirmada.',replyPrepared:true}
+}
+
 /** Trusted sandbox capability changes only proposal delivery; effects remain an adapter responsibility. */
 async function respondBookingEnvelope(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse> {
   if (!isCustomerText(message, 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
@@ -1364,8 +1420,8 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
   const reservation = state.sandboxReservation
   if (context.sandboxBooking !== true) {
     delete state.sandboxReservation
-    if (state.questionContext?.role === 'confirmation') delete state.questionContext
-    return respondCore(context, state, message, port, decision)
+    if (!state.bookingReservation && state.questionContext?.role === 'confirmation') delete state.questionContext
+    return respondRuntimeBookingEnvelope(context, state, message, port, decision)
   }
   const plan = decision?.turnPlan ? parseTurnPlan(decision.turnPlan, message) : null
   const onlyInformation = !!plan?.operations.length && plan.operations.every(operation => operation.kind === 'information')
@@ -1521,6 +1577,8 @@ export async function respondConversationChoice(context: DialogueContext, previo
       state.referral?.status === 'pending' && operation.kind !== 'service') return reject()
   if (!question?.complete) return reject()
   if (operation.kind === 'confirm') {
+    if(state.bookingReservation && port.prepareRuntimeBooking && runtimeCurrentScope(context,state.bookingReservation.presented) && question.role==='confirmation' && !question.matchCandidateIds && state.bookingReservation.presented.nonce===operation.nonce && !state.bookingReservation.receipt && runtimeProposalMatchesState(state.bookingReservation.presented,state))
+      return {state,proposal:null,reply:'Voy a verificar y confirmar el turno.',bookingCommand:{kind:'CONFIRM_BOOKING',presented:structuredClone(state.bookingReservation.presented)}}
     const reservation = state.sandboxReservation
     if (state.editRequest || context.sandboxBooking !== true || question.role !== 'confirmation' || question.matchCandidateIds || !reservation || reservation.receipt || reservation.presented.conditionsPresented !== true ||
       reservation.presented.nonce !== operation.nonce || !sandboxProposalMatchesState(reservation.presented, state)) return reject()

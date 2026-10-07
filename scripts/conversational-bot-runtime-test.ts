@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto'
+import { Prisma } from '../src/generated/prisma/client.js'
+import { readFileSync } from 'node:fs'
+import { runtimeBookingFingerprint, runtimeServiceConfigurationHash, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { coordinationKey } from '../src/conversational-bot/coordinated-booking.js'
 import { createQueueMilestoneTracker, type QueueMilestoneTracker } from '../src/bot-options/observability/queue-milestones.js'
 import assert from 'node:assert/strict'
 import {issueChoiceQuestion,publicChoiceQuestion,type ConversationChoiceOperation} from '../src/conversational-bot/choices.js'
@@ -89,11 +94,12 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
   let handoffSql: Transaction | undefined
+  let bookingSql: Transaction | undefined
   const businessId = options.businessId ?? 'biz'
   let inTransaction = false
   let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', actionType:'input.initial',expectedRevision:null as bigint|null, deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true, conversationChoice:undefined as unknown },
@@ -121,6 +127,7 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
           if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
           return result
         }
+        if (options.bookingDb) return await options.bookingDb.transaction(async tx=>{bookingSql=tx;return execute()})
         if (options.handoffDb) return await options.handoffDb.transaction(async tx => { handoffSql = tx; return execute() })
         if (options.computeDb) return await options.computeDb.transaction(async tx => { computeSql = tx; return execute() })
         return options.sessionDb ? await options.sessionDb.transaction(async tx => {
@@ -130,10 +137,13 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       } catch (error) {
         ;({ row, session, replies, settled, retried, messages } = backup)
         throw error
-      } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined }
+      } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined;bookingSql=undefined }
     },
     async $queryRaw(q: Query) {
       statements.push(q)
+      if(bookingSql && q.sql.includes('extract(minute FROM'))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows
+      if(bookingSql && q.sql.includes('pg_advisory_xact_lock'))return [{locked:1}]
+      if(bookingSql && q.sql.includes('conversation-inbox-lock'))return [structuredClone(row)]
       if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
           q.sql.includes('conversational-handoff-') || q.sql.includes('SELECT "status"::text AS "status"') || q.sql.includes('humanHandoffAtText'))) {
         return (await handoffSql.query(q.text,q.values)).rows
@@ -179,7 +189,7 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
           await handoffSql.query(`INSERT INTO "BotJob" VALUES ($1,'LEASED','job-token',NULL,NULL,NULL) ON CONFLICT ("id") DO UPDATE SET "status"='LEASED'`,[`job-${number}`])
         }
         session.revision = q.values.find(v => typeof v === 'bigint') as bigint
-        const physical = handoffSql ? (await handoffSql.query<Record<string,unknown>>(q.text,q.values)).rows[0]! : null
+        const physical = (bookingSql ?? handoffSql) ? (await (bookingSql ?? handoffSql)!.query<Record<string,unknown>>(q.text,q.values)).rows[0]! : null
         const payloads = q.values.filter(v => typeof v === 'string' && v.startsWith('{')).map(v => JSON.parse(v as string)).filter(v => v.item)
         for (const payload of payloads) replies.push(payload.item.body)
         if (q.sql.includes('settled_inbox')) {
@@ -222,6 +232,10 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
         for (const payload of payloads) { assert.ok(['informative_text', 'interactive'].includes(payload.item.type)); replies.push(payload.item.body) }
         return [{ choiceCount: q.sql.includes('INSERT INTO "BotPromptChoice"') ? 5n : 0n, outboxCount: BigInt(payloads.length) }]
       }
+      if(bookingSql) {
+        if(options.bookingFault?.secondChild && q.sql.includes('INSERT INTO "Appointment"') && q.values.includes('s2'))throw new Error('controlled second booking child failure')
+        return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows
+      }
       throw new Error(`unhandled runtime query: ${q.sql.slice(0, 160)}`)
     },
     async $executeRaw(q: Query) {
@@ -234,6 +248,8 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
         if(session && saved) {session.status=saved.status;session.state=saved.state;session.revision=BigInt(saved.revision)}
         return result.affectedRows ?? 0
       }
+      if(bookingSql && options.bookingFault?.secondChild && q.sql.includes('INSERT INTO "Appointment"') && q.values.includes('s2'))throw new Error('controlled second booking child failure')
+      if(bookingSql && /"Appointment"|"BookingVisit"|"BotOperation"/.test(q.sql))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).affectedRows??0
       if (options.computeDb && (q.sql.includes('pg_advisory') || q.sql.includes('UPDATE "BotDispatchClaim"'))) {
         const result = computeSql ? await computeSql.query(q.text, q.values) : await options.computeDb.query(q.text, q.values)
         return result.affectedRows ?? 1
@@ -253,6 +269,20 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       }
       return 1
     }
+  }
+  // Prisma delegates used by the existing F7 revalidation, bound to the caller transaction.
+  if(options.bookingDb) {
+    const select=async(table:string,where:Record<string,unknown>)=>{
+      if(!bookingSql)throw new Error('booking delegate outside TX')
+      const values:unknown[]=[],clauses=Object.entries(where).map(([key,value])=>{
+        if(value && typeof value==='object' && 'in' in value){const list=(value as {in:unknown[]}).in;return '"'+key+'" IN ('+list.map(v=>{values.push(v);return '$'+values.length}).join(',')+')'}
+        values.push(value);return '"'+key+'"=$'+values.length
+      })
+      return (await bookingSql.query('SELECT * FROM "'+table+'" WHERE '+clauses.join(' AND '),values)).rows
+    }
+    for(const [name,table] of Object.entries({professional:'Professional',service:'Service',professionalService:'ProfessionalService',businessHours:'BusinessHours',professionalHours:'ProfessionalHours'}))Object.assign(client,{[name]:{
+      findMany:({where}:{where:Record<string,unknown>})=>select(table,where),findFirst:async({where}:{where:Record<string,unknown>})=>(await select(table,where))[0]??null,count:async({where}:{where:Record<string,unknown>})=>(await select(table,where)).length}})
+    Object.assign(client,{scheduleBlock:{findFirst:async()=>null}})
   }
   let basketAgendaCalls = 0, singularAgendaCalls = 0
   const dialogueFactory = async (_client: unknown, tenant: string, content?: unknown) => {
@@ -293,7 +323,7 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       port.verifiedDateChoices=async function(services){assert.equal(this,port);outside();return {ok:true,services,durationMinutes:services.reduce((total,service)=>total+service.durationMinutes!,0),totalPrice:1000,
         professionals:[{id:'ana',name:'Ana',priority:0}],slots:[{date:'2026-10-02',time:'14:00',startAt:'2026-10-02T14:00:00Z',professionalId:'ana',professionalName:'Ana',band:'AFTERNOON',occupiedMinutes:0}]}}
     }
-    return { context: { businessId, timezone: 'UTC', dbNow: now }, port }
+    return { context: { businessId, timezone: 'UTC', dbNow: now }, port:options.bookingPort??port }
   }
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
@@ -309,7 +339,7 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       row.actionType='conversation.choice';row.expectedRevision=session.revision
       row.payload.conversationChoice={question,choiceId:publicChoiceQuestion(question).choices[0]!.id}
     },
-    assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
+    assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, allowCommit(){failCommit=false}, invalidateClaim() { invalidClaim = true } }
 }
 const runtimeEv = (evidence: string) => ({ evidence, confidence: .99 })
 const runtimeMember = (mode: string, serviceIds: string[], evidence: string) => ({ mode, serviceIds, ...runtimeEv(evidence) })
@@ -1406,3 +1436,110 @@ try {
   assert.equal(await queueCount(),1)
   console.log('handoff final transaction: fallback denial, caller rollback, revision/fence/TAKEN and no-AI literal PASS')
 } finally {stopHandoffEvents();await handoffDb.close()}
+
+
+// Production caller + production F7 SQL share one PGlite transaction. Claims/admission
+// are the existing controlled fixture; this does not claim cross-process contention.
+const bookingDb=new PGlite()
+try {
+  const prismaSchema=readFileSync(new URL('../prisma/schema.prisma',import.meta.url),'utf8')
+  for(const match of prismaSchema.matchAll(/enum (\w+) \{([\s\S]*?)\n\}/g)) {
+    const values=match[2]!.split('\n').flatMap(line=>{const label=line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1];return label?[line.match(/@map\("([^"]+)"\)/)?.[1]??label]:[]})
+    await bookingDb.exec('CREATE TYPE "'+match[1]+'" AS ENUM ('+values.map(v=>"'"+v+"'").join(',')+')')
+  }
+  const models=['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','ServiceCombinationRule','BotOperation','BotTransitionLog','BotPrompt','BotPromptChoice','BotOutbox','BotActionInbox','BotProviderEvent','BotDispatchClaim','BotJob']
+  for(const name of models) {
+    const body=prismaSchema.match(new RegExp('model '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
+    const columns=body.split('\n').flatMap(line=>{
+      const field=line.trim().match(/^(\w+)\s+(\w+)(\?)?(?:\s|$)/)
+      if(!field||/\[\]/.test(line))return []
+      const scalar=({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision'} as Record<string,string>)[field[2]!]
+      const type=scalar??(prismaSchema.includes('enum '+field[2]+' {')?'"'+field[2]+'"':null)
+      const column=line.match(/@map\("([^"]+)"\)/)?.[1]??field[1]
+      return type?['"'+column+'" '+type+(field[1]===(name==='BusinessBotOptionsSettings'?'businessId':'id')?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')]:[]
+    })
+    await bookingDb.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
+  }
+  await bookingDb.exec('CREATE UNIQUE INDEX booking_operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX booking_visit_unique ON "Appointment" ("visitId"); CREATE UNIQUE INDEX booking_outbox_key ON "BotOutbox" ("idempotencyKey")')
+  await bookingDb.exec(`
+    INSERT INTO "Business" (id,name,"botEnabled","publicAddress") VALUES ('biz','Salón ficticio',true,'Calle ficticia 123');
+    INSERT INTO "Conversation" (id,"businessId",phone) VALUES ('conversation','biz','5491112345678');
+    INSERT INTO "Customer" (id,"businessId",phone,"normalizedPhone",name) VALUES ('customer','biz','5491112345678','5491112345678','Ana');
+    INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','biz','WHATSAPP',1,1,'cfg',1);
+    INSERT INTO "BusinessBotConfiguration" (id,"businessId",status) VALUES ('cfg','biz','ACTIVE');
+    INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch","businessTimezone",state) VALUES ('session','biz','conversation','dep',1,'ACTIVE',0,0,'UTC','{}');
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId",timezone,"bookingHorizonDays","bookingLeadTimeHours") VALUES ('biz','UTC',20000,0);
+    INSERT INTO "ServiceCategory" (id,"businessId","isActive") VALUES ('category','biz',true);
+    INSERT INTO "Service" (id,"businessId","catalogCategoryId",name,duration,price,"priceMode","isBookable","isActive","attentionMode","requiresPhoto","validationEnabled","estimateAllowsBooking","depositMode") VALUES
+    ('s1','biz','category','Corte',30,1000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE'),('s2','biz','category','Crema',30,2000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE');
+    INSERT INTO "Professional" (id,"businessId",name,"isActive","acceptsBotBookings","botBookingPriority") VALUES ('p1','biz','Elisa',true,true,0);
+    INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps1','p1','s1'),('ps2','p1','s2');
+    INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh','biz',1,'09:00','20:00');
+    INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('ph','p1',1,'09:00','20:00');
+  `)
+  const services=[{id:'s1',name:'Corte',durationMinutes:30,price:1000,requiresConsultation:false},{id:'s2',name:'Crema',durationMinutes:30,price:2000,requiresConsultation:false}]
+  const segments=services.map((service,index)=>({serviceId:service.id,serviceName:service.name,professionalId:'p1',professionalName:'Elisa',startAt:'2030-09-02T10:'+String(index*30).padStart(2,'0')+':00.000Z',endAt:index?'2030-09-02T11:00:00.000Z':'2030-09-02T10:30:00.000Z',durationMinutes:30,customerDurationMinutes:30}))
+  const bookingSlot={date:'2030-09-02',time:'10:00',startAt:segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa',band:'MORNING' as const,occupiedMinutes:60,coordination:{key:coordinationKey('biz',segments),segments}}
+  const bookingPort:DialoguePort={catalog:async()=>services,availability:async()=>{throw new Error('singular port not used')},availabilityBasket:async()=>({ok:true,services,durationMinutes:60,totalPrice:3000,professionals:[{id:'p1',name:'Elisa',priority:0}],slots:[bookingSlot]}),prepareRuntimeBooking:async(state,scope)=>{
+    const raw=(await bookingDb.query<Record<string,unknown>>('SELECT * FROM "Service" ORDER BY id')).rows
+    const terms:RuntimeBookingTerms={version:1,businessId:'biz',timezone:'UTC',date:state.date!,customerName:state.customerName!,preference:state.professional!,segments:segments.map((segment,index)=>({...segment,priceMinor:services[index]!.price,priceMode:'FIXED',configurationHash:runtimeServiceConfigurationHash(raw[index]!)})),totalPriceMinor:3000}
+    return {slot:bookingSlot,presented:{scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms}}
+  }}
+  const fault={secondChild:false}, live=runtimeFixture({bookingDb,bookingPort,bookingFault:fault,phone:'5491112345678',now:new Date('2030-09-01T12:00:00Z')})
+  const seed=async()=>{
+    const id=live.row.id,event=live.row.providerEventId,job='job-'+id.replace('inbox-','').replace('inbox','0')
+    await bookingDb.query(`INSERT INTO "BotActionInbox" (id,"businessId","providerEventId",status) VALUES ($1,'biz',$2,'ADMITTED')`,[id,event])
+    await bookingDb.query(`INSERT INTO "BotProviderEvent" (id,"businessId",status) VALUES ($1,'biz','ADMITTED')`,[event])
+    await bookingDb.query(`INSERT INTO "BotDispatchClaim" (id,"claimToken",status) VALUES ($1,'dispatch-token','CLAIMED')`,[id])
+    await bookingDb.query(`INSERT INTO "BotJob" (id,status,"leaseToken") VALUES ($1,'LEASED','job-token')`,[job])
+  }
+  await seed();await live.run()
+  const ready={...initialDialogueState('biz'),customerName:'Ana',date:'2030-09-02',professional:{kind:'specific' as const,id:'p1'},pending:'proposal' as const,slot:bookingSlot,basket:{version:1 as const,nextMemberId:3,members:services.map((service,index)=>({memberId:'m'+(index+1),mode:'single' as const,serviceIds:[service.id],evidence:service.name}))}}
+  live.session.state=projectConversationDraft(ready,policy)
+  await bookingDb.query(`UPDATE "BotSession" SET state=$1::jsonb,revision=$2 WHERE id='session'`,[JSON.stringify(live.session.state),String(live.session.revision)])
+  live.next('Quiero reservar ambos servicios.');await seed();await live.run()
+  assert.ok(readConversationDraft(live.session.state,policy,'UTC').bookingReservation)
+  for(const [kind,provider] of [
+    ['provider_error',async()=>{throw new Error('controlled offline provider error')}],
+    ['invalid_output',async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'confirm_proposal',evidence:'inventado',confidence:1}]}})],
+    ['timeout',async()=>new Promise<never>(()=>{})]
+  ] as const) {
+    live.next('Confirmo el turno.');await seed();await live.run('PROCESS_INBOX',{provider,timeoutMs:25})
+    assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,0,kind+' cannot authorize real F7 effects')
+    assert.doesNotMatch(live.replies.at(-1)!,/La reserva fue confirmada|Te esperamos/)
+    live.next('Quiero reservar ambos servicios.');await seed();await live.run()
+    assert.ok(readConversationDraft(live.session.state,policy,'UTC').bookingReservation)
+  }
+  live.next('Confirmo el turno y cambialo a mañana.');await seed();await live.run('PROCESS_INBOX',{provider:async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'confirm_proposal',evidence:'Confirmo el turno y cambialo a mañana.',confidence:1}]}}),timeoutMs:15000})
+  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,0,'model confirmation cannot erase actual new constraints')
+  live.next('Quiero reservar ambos servicios.');await seed();await live.run()
+  const offeredState=structuredClone(live.session.state),offeredRevision=live.session.revision
+  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,0)
+  fault.secondChild=true
+  live.next('Confirmo el turno.');await seed()
+  await assert.rejects(()=>live.run(),/second booking child/)
+  assert.deepEqual(live.session.state,offeredState)
+  assert.equal(live.session.revision,offeredRevision)
+  for(const table of ['Appointment','BookingVisit','BotOperation'])assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "'+table+'"')).rows[0]!.n,0,'second child rollback ALL '+table)
+  fault.secondChild=false;live.failCommit()
+  await assert.rejects(()=>live.run(),/COMMIT failed/)
+  for(const table of ['Appointment','BookingVisit','BotOperation'])assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "'+table+'"')).rows[0]!.n,0,'caller failure rollback ALL '+table)
+  live.allowCommit();await live.run()
+  assert.equal(parseBotOptionsState(live.session.state).ok,true)
+  assert.equal((live.session.state as {booking:string}).booking,'CONFIRMED')
+  const confirmed=readConversationDraft(live.session.state,policy,'UTC').bookingReservation!
+  assert.equal(confirmed.receipt!.appointments.length,2)
+  assert.equal(new Set(confirmed.receipt!.appointments.map(a=>a.visitId)).size,2)
+  assert.match(live.replies.at(-1)!,/La reserva fue confirmada/)
+  assert.match(live.replies.at(-1)!,/Te esperamos en Calle ficticia 123/)
+  assert.doesNotMatch(live.replies.at(-1)!,/Propuesta|otra vez al confirmar|Confirmás/i)
+  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,2)
+  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "BookingVisit"')).rows[0]!.n,2)
+  const body=(await bookingDb.query<{payload:{item:{body:string}}}>('SELECT payload FROM "BotOutbox" ORDER BY "createdAt" DESC LIMIT 1')).rows[0]!.payload.item.body
+  assert.equal(body,live.replies.at(-1))
+  live.next('Gracias.');await seed();await live.run()
+  assert.deepEqual(readConversationDraft(live.session.state,policy,'UTC').bookingReservation,confirmed,'protected confirmed acknowledgement retains receipt')
+  assert.match(live.replies.at(-1)!,/La reserva fue confirmada/)
+  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,2,'ack cannot book twice')
+  console.log('runtime actual F7 ALL visits + caller CAS/outbox + second-child/caller rollback + confirmed acknowledgement: PASS')
+}finally{await bookingDb.close()}

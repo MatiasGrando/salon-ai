@@ -162,7 +162,7 @@ export function sandboxReceiptReply(reservation: SandboxReservation): string {
 /** Buffered result only: the transactional caller must commit the effect, receipt and chat before returning it. */
 export function finalizeSandboxBooking(response: DialogueResponse, result: SandboxBookingResult): DialogueResponse {
   const command = response.bookingCommand
-  if (!command || !response.state.sandboxReservation || command.presented.fingerprint !== response.state.sandboxReservation.presented.fingerprint || command.presented.nonce !== response.state.sandboxReservation.presented.nonce) throw new Error('sandbox command missing')
+  if (!command || command.kind!=='CONFIRM_SANDBOX_BOOKING' || !response.state.sandboxReservation || command.presented.fingerprint !== response.state.sandboxReservation.presented.fingerprint || command.presented.nonce !== response.state.sandboxReservation.presented.nonce) throw new Error('sandbox command missing')
   const state = structuredClone(response.state)
   if (result.kind === 'COMMITTED') {
     if (Object.hasOwn(result, 'businessAddress') && !validReceiptAddress(result.businessAddress)) throw new Error('invalid sandbox receipt address')

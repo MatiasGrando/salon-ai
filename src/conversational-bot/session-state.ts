@@ -24,7 +24,7 @@ export function readConversationDraft(value: unknown, policy: ConversationPolicy
 export function projectConversationDraft(draft: DialogueState, policy: ConversationPolicy): ConversationSessionState {
   const state = parseDialogueState(draft, policy.businessId)
   const base = createInitialBotOptionsState()
-  const projected: ConversationSessionState = { ...base, flow: flows[state.pending], booking: 'DRAFT',
+  const projected: ConversationSessionState = { ...base, flow: state.bookingReservation?.receipt ? 'BOOKING_CONFIRMED' : flows[state.pending], booking: state.bookingReservation?.receipt ? 'CONFIRMED' : 'DRAFT',
     cart: basketServiceIds(state).map(serviceId => ({ serviceId })), nameCandidate: state.customerName,
     selections: { ...base.selections, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null,
       anyProfessional: state.professional?.kind === 'any', date: state.date, slotStartAt: state.slot?.startAt ?? null,
