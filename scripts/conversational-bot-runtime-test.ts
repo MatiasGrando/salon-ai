@@ -14,7 +14,7 @@ import { subscribeToCrmRealtimeEvents } from '../src/services/crm-realtime-event
 import type { AttemptMetricEvent } from '../src/bot-options/observability/attempt-metrics.js'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
-import { readConversationDraft, projectConversationDraft } from '../src/conversational-bot/session-state.js'
+import { readConversationDraft, projectConversationDraft, reconcileConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
@@ -1770,5 +1770,28 @@ try {
   assert.match(live.replies.at(-1)!,/No cancelé turnos confirmados/)
   for (const [table,before] of preserved) assert.deepEqual((await bookingDb.query('SELECT * FROM "'+table+'" ORDER BY 1,2')).rows,before,'confirmed reset preserves ALL '+table)
   console.log('runtime confirmed /reset: actual F7 appointments, visits, ledger, customer and history preserved PASS')
+  // Recover the persisted JSONB value, rather than the fixture's insertion-order object.
+  const restored = (await bookingDb.query<{state:unknown}>('SELECT state FROM "BotSession" WHERE id=$1',['session'])).rows[0]!.state
+  const resetFailures:string[]=[]
+  try { assert.deepEqual(readConversationDraft(restored,barberResetPolicy,'UTC'),initialDialogueState(barberResetId)) }
+  catch (error) { resetFailures.push('JSONB initial read: '+String(error)) }
+  try { assert.equal(reconcileConversationDraft(restored,barberResetPolicy,'UTC').reset,false) }
+  catch (error) { resetFailures.push('JSONB initial reconcile: '+String(error)) }
+  live.session.state=restored
+  let nextCalls=0
+  live.next('Hola, ¿qué tal?'); await seed()
+  await live.run('PROCESS_INBOX',{provider:async input=>{
+    nextCalls++; assert.deepEqual(input.state,initialDialogueState(barberResetId),'next AI receives only the fresh draft')
+    return {intent:'other',serviceId:null,serviceEvidence:null,professionalMention:null,
+      firstReply:{salutation:'greeting',opening:'Bien, gracias.',factIds:null,closing:null,variantChoices:null}}
+  },timeoutMs:100})
+  try { assert.doesNotMatch(live.replies.at(-1)!,/La configuración cambió|borrador nuevo/) }
+  catch (error) { resetFailures.push('caller reset→greeting: '+String(error)) }
+  assert.equal(nextCalls,1)
+  for (const [table,before] of preserved) assert.deepEqual((await bookingDb.query('SELECT * FROM "'+table+'" ORDER BY 1,2')).rows,before,'next greeting preserves ALL '+table)
+  for (const failure of resetFailures) console.error('FAIL P9 '+failure)
+  assert.deepEqual(resetFailures,[])
+  console.log('P9 actual JSONB reset→next greeting: no false policy reset, clean AI state, confirmed effects preserved PASS')
+
   console.log('runtime actual F7 ALL visits + caller CAS/outbox + second-child/caller rollback + confirmed acknowledgement: PASS')
 }finally{await bookingDb.close()}

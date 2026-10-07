@@ -15,7 +15,7 @@ export function readConversationDraft(value: unknown, policy: ConversationPolicy
   const sidecar = (value as Partial<ConversationSessionState>).conversationDraft
   if (sidecar === undefined) {
     // Activation is not a migration of a partially completed/financial legacy session.
-    if (JSON.stringify(parsed.state) !== JSON.stringify(createInitialBotOptionsState())) throw new Error('legacy session requires explicit reset')
+    if (!isDeepStrictEqual(parsed.state, createInitialBotOptionsState())) throw new Error('legacy session requires explicit reset')
     return initialDialogueState(policy.businessId)
   }
   if (!sidecar || !sidecar.policy || Object.keys(policy).some(key => !isDeepStrictEqual(sidecar.policy[key as keyof ConversationPolicy], policy[key as keyof ConversationPolicy])) || !isDeepStrictEqual(sidecar.policy.serviceContent, policy.serviceContent)) throw new Error('conversation policy changed; reset required')
@@ -42,7 +42,7 @@ export function reconcileConversationDraft(value: unknown, policy: ConversationP
     const parsed = parseBotOptionsState(value)
     if (!parsed.ok) throw new Error('invalid legacy session state')
     if (!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') throw new Error('protected legacy session')
-    return { draft: initialDialogueState(policy.businessId), reset: JSON.stringify(parsed.state) !== JSON.stringify(createInitialBotOptionsState()) }
+    return { draft: initialDialogueState(policy.businessId), reset: !isDeepStrictEqual(parsed.state, createInitialBotOptionsState()) }
   }
   if (!sidecar.policy || sidecar.policy.businessId !== policy.businessId) throw new Error('invalid conversation sidecar tenant')
   const previous = readConversationDraft(value, sidecar.policy, timezone)
