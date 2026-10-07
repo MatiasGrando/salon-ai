@@ -98,7 +98,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -116,6 +116,7 @@ function runtimeFixture(options: { personality?: () => Promise<DialoguePersonali
   let blocked = false
   let failCommit = false
   let invalidClaim = false
+  let pendingEffect = options.pendingEffect
   const statements: Query[] = []
   let prepareHook: (() => void) | undefined
   let inputs: Array<{ id: string; text: string }> | undefined
@@ -151,6 +152,12 @@ function runtimeFixture(options: { personality?: () => Promise<DialoguePersonali
       if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
           q.sql.includes('conversational-handoff-') || q.sql.includes('UPDATE "BotSession" SET "status" =') || q.sql.includes('SELECT "status"::text AS "status"') || q.sql.includes('humanHandoffAtText') || q.sql.includes('UPDATE "Conversation" c SET "currentStep"'))) {
         return (await handoffSql.query(q.text,q.values)).rows
+      }
+      if (q.sql.includes('test-reset-pending-effects')) {
+        assert.ok(q.values.includes(businessId) && q.values.includes(session!.sessionId), 'reset effect guard must be scoped')
+        assert.match(q.sql, /'PENDING','CLAIMED','RETRY','SENDING','UNKNOWN'/)
+        assert.match(q.sql, /IS DISTINCT FROM 'COMPLETED'/)
+        return bookingSql ? (await bookingSql.query(q.text, q.values)).rows : [{ blocked: Boolean(pendingEffect) }]
       }
       if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: row.payload.fromPhone }]
       if (q.sql.includes('consolidation-previous')) return []
@@ -336,6 +343,7 @@ function runtimeFixture(options: { personality?: () => Promise<DialoguePersonali
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get basketAgendaCalls() { return basketAgendaCalls }, get singularAgendaCalls() { return singularAgendaCalls }, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
+    pendingEffect(status?: string) { pendingEffect = status },
     inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
     next(text: string, type = 'text') { number++; row = { ...row, id: `inbox-${number}`, providerEventId: `event-${number}`, providerMessageId: `msg-${number}`, status: 'ADMITTED', actionType:'input.initial',expectedRevision:null, payload: { ...row.payload, textBody: text, messageType: type,conversationChoice:undefined } } },
     choice(operation:ConversationChoiceOperation) {
@@ -810,6 +818,49 @@ runtime.next('/reiniciar'); await runtime.run()
 assert.deepEqual(runtime.session.state, createInitialBotOptionsState(), 'restart removes the sidecar')
 runtime.next('hola'); await runtime.run()
 assert.equal((runtime.session.state as typeof projected).conversationDraft.dialogue.serviceId, null)
+
+
+const barberResetId = 'cmpvr0oqo0000o0vcnhgyv054'
+const barberResetPolicy = { businessId: barberResetId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }
+const resetRuntime = runtimeFixture({ businessId: barberResetId })
+await resetRuntime.run()
+const resetBeforeRevision = resetRuntime.session.revision
+const resetBeforeMessages = resetRuntime.messages
+resetRuntime.session.state = projectConversationDraft({ ...initialDialogueState(barberResetId), introduced: true, customerName: 'Ana',
+  date: '2026-10-02', serviceId: 'cut', pending: 'date',
+  referral: { businessId: barberResetId, status: 'pending', reason: 'UNVERIFIED_SERVICE', request: 'otro', serviceId: null } }, barberResetPolicy)
+resetRuntime.next('/reset')
+await resetRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('scoped reset must not call AI') }, timeoutMs: 10 })
+assert.deepEqual(resetRuntime.session.state, createInitialBotOptionsState(), '/reset Barber clears the complete sidecar')
+assert.equal(resetRuntime.session.revision, resetBeforeRevision + 1n)
+assert.equal(resetRuntime.messages, resetBeforeMessages + 1, 'reset appends the inbound without removing CRM history')
+assert.match(resetRuntime.replies.at(-1)!, /no.*cancel|conserv/i)
+for (const ownership of ['HUMAN_QUEUED', 'HUMAN_TAKEN']) {
+  const owned = runtimeFixture({ businessId: barberResetId }); await owned.run()
+  owned.session.status = ownership; const before = structuredClone(owned.session)
+  owned.next('/reset'); await owned.run()
+  assert.deepEqual(owned.session, before, 'reset must not take human ownership: ' + ownership)
+}
+const foreignReset = runtimeFixture(); await foreignReset.run()
+const foreignBefore = structuredClone(foreignReset.session.state)
+foreignReset.next('/reset')
+await foreignReset.run('PROCESS_INBOX', { provider: async () => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }), timeoutMs: 100 })
+assert.deepEqual(foreignReset.session.state, foreignBefore, 'other businesses do not gain /reset')
+for (const status of ['PENDING', 'CLAIMED', 'RETRY', 'SENDING', 'UNKNOWN', 'STARTED']) {
+  const pending = runtimeFixture({ businessId: barberResetId, pendingEffect: status }); await pending.run()
+  const before = structuredClone(pending.session)
+  pending.next('/reset'); await pending.run('PROCESS_INBOX', { provider: async () => { throw new Error('reset cannot call AI') }, timeoutMs: 10 })
+  assert.deepEqual(pending.session, before, 'pending effect is not erased: ' + status)
+  assert.equal(pending.retried, 0, 'reset cannot retry an uncertain effect')
+  assert.match(pending.replies.at(-1)!, /No reinicié/)
+}
+const lateEffect = runtimeFixture({ businessId: barberResetId }); await lateEffect.run()
+const lateBefore = structuredClone(lateEffect.session)
+lateEffect.hook(() => lateEffect.pendingEffect('UNKNOWN')); lateEffect.next('/reset'); await lateEffect.run()
+assert.deepEqual(lateEffect.session, lateBefore, 'fresh commit guard preserves effects appearing after snapshot')
+assert.match(lateEffect.replies.at(-1)!, /No reinicié/)
+assert.equal(resetRuntime.statements.filter(q => q.sql.includes('test-reset-pending-effects')).length, 2, 'snapshot and commit both check effects')
+console.log('scoped Barber reset: zero AI, complete draft, CRM, pending effects and real human ownership guards PASS')
 
 for (const change of ['revision', 'config', 'human', 'disabled', 'fence', 'order'] as const) {
   const race = runtimeFixture()
@@ -1582,6 +1633,10 @@ try {
 // are the existing controlled fixture; this does not claim cross-process contention.
 const bookingDb=new PGlite()
 try {
+  const barberResetId = 'cmpvr0oqo0000o0vcnhgyv054'
+  const barberResetPolicy = { businessId: barberResetId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }
+  const resetProbe = runtimeFixture({ businessId: barberResetId }); await resetProbe.run()
+  resetProbe.next('/reset'); await resetProbe.run()
   const prismaSchema=readFileSync(new URL('../prisma/schema.prisma',import.meta.url),'utf8')
   for(const match of prismaSchema.matchAll(/enum (\w+) \{([\s\S]*?)\n\}/g)) {
     const values=match[2]!.split('\n').flatMap(line=>{const label=line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1];return label?[line.match(/@map\("([^"]+)"\)/)?.[1]??label]:[]})
@@ -1600,45 +1655,64 @@ try {
     })
     await bookingDb.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
   }
+  // Execute the captured production guard, not a copied SQL approximation.
+  const resetGuard = resetProbe.statements.find(q => q.sql.includes('test-reset-pending-effects'))!
+  const guarded = async () => (await bookingDb.query<{blocked:boolean}>(resetGuard.text, resetGuard.values)).rows[0]!.blocked
+  assert.equal(await guarded(), false)
+  for (const status of ['PENDING','CLAIMED','RETRY','SENDING','UNKNOWN']) {
+    await bookingDb.query('INSERT INTO "BotOutbox" (id,"businessId","sessionId",status) VALUES ($1,$2,$3,$4::"BotOutboxStatus")', ['reset-pending',barberResetId,'session',status])
+    assert.equal(await guarded(), true, 'production SQL blocks outbox ' + status)
+    await bookingDb.query('DELETE FROM "BotOutbox" WHERE id=$1', ['reset-pending'])
+  }
+  await bookingDb.query('INSERT INTO "BotOutbox" (id,"businessId","sessionId",status) VALUES ($1,$2,$3,$4::"BotOutboxStatus"),($5,$6,$7,$8::"BotOutboxStatus")',
+    ['foreign-reset','foreign','session','UNKNOWN','other-session',barberResetId,'other','UNKNOWN'])
+  assert.equal(await guarded(), false, 'pending effects in another tenant/session are not reset authority')
+  await bookingDb.exec('DELETE FROM "BotOutbox"')
+  for (const status of ['STARTED','UNKNOWN','FAILED',null,'COMPLETED']) {
+    await bookingDb.query('INSERT INTO "BotOperation" (id,"businessId","sessionId",status) VALUES ($1,$2,$3,$4)', ['reset-operation',barberResetId,'session',status])
+    assert.equal(await guarded(), status !== 'COMPLETED', 'production SQL conservatively blocks operation ' + status)
+    await bookingDb.query('DELETE FROM "BotOperation" WHERE id=$1', ['reset-operation'])
+  }
+  console.log('reset captured production SQL: actual Prisma columns/enums, pending/terminal and tenant/session scope PASS')
   await bookingDb.exec('CREATE UNIQUE INDEX booking_operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX booking_visit_unique ON "Appointment" ("visitId"); CREATE UNIQUE INDEX booking_outbox_key ON "BotOutbox" ("idempotencyKey")')
   await bookingDb.exec(`
-    INSERT INTO "Business" (id,name,"botEnabled","publicAddress") VALUES ('biz','Salón ficticio',true,'Calle ficticia 123');
-    INSERT INTO "Conversation" (id,"businessId",phone) VALUES ('conversation','biz','5491112345678');
-    INSERT INTO "Customer" (id,"businessId",phone,"normalizedPhone",name) VALUES ('customer','biz','5491112345678','5491112345678','Ana');
-    INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','biz','WHATSAPP',1,1,'cfg',1);
-    INSERT INTO "BusinessBotConfiguration" (id,"businessId",status) VALUES ('cfg','biz','ACTIVE');
-    INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch","businessTimezone",state) VALUES ('session','biz','conversation','dep',1,'ACTIVE',0,0,'UTC','{}');
-    INSERT INTO "BusinessBotOptionsSettings" ("businessId",timezone,"bookingHorizonDays","bookingLeadTimeHours") VALUES ('biz','UTC',20000,0);
-    INSERT INTO "ServiceCategory" (id,"businessId","isActive") VALUES ('category','biz',true);
+    INSERT INTO "Business" (id,name,"botEnabled","publicAddress") VALUES ('cmpvr0oqo0000o0vcnhgyv054','Salón ficticio',true,'Calle ficticia 123');
+    INSERT INTO "Conversation" (id,"businessId",phone) VALUES ('conversation','cmpvr0oqo0000o0vcnhgyv054','5491112345678');
+    INSERT INTO "Customer" (id,"businessId",phone,"normalizedPhone",name) VALUES ('customer','cmpvr0oqo0000o0vcnhgyv054','5491112345678','5491112345678','Ana');
+    INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','cmpvr0oqo0000o0vcnhgyv054','WHATSAPP',1,1,'cfg',1);
+    INSERT INTO "BusinessBotConfiguration" (id,"businessId",status) VALUES ('cfg','cmpvr0oqo0000o0vcnhgyv054','ACTIVE');
+    INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch","businessTimezone",state) VALUES ('session','cmpvr0oqo0000o0vcnhgyv054','conversation','dep',1,'ACTIVE',0,0,'UTC','{}');
+    INSERT INTO "BusinessBotOptionsSettings" ("businessId",timezone,"bookingHorizonDays","bookingLeadTimeHours") VALUES ('cmpvr0oqo0000o0vcnhgyv054','UTC',20000,0);
+    INSERT INTO "ServiceCategory" (id,"businessId","isActive") VALUES ('category','cmpvr0oqo0000o0vcnhgyv054',true);
     INSERT INTO "Service" (id,"businessId","catalogCategoryId",name,duration,price,"priceMode","isBookable","isActive","attentionMode","requiresPhoto","validationEnabled","estimateAllowsBooking","depositMode") VALUES
-    ('s1','biz','category','Corte',30,1000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE'),('s2','biz','category','Crema',30,2000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE');
-    INSERT INTO "Professional" (id,"businessId",name,"isActive","acceptsBotBookings","botBookingPriority") VALUES ('p1','biz','Elisa',true,true,0);
+    ('s1','cmpvr0oqo0000o0vcnhgyv054','category','Corte',30,1000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE'),('s2','cmpvr0oqo0000o0vcnhgyv054','category','Crema',30,2000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE');
+    INSERT INTO "Professional" (id,"businessId",name,"isActive","acceptsBotBookings","botBookingPriority") VALUES ('p1','cmpvr0oqo0000o0vcnhgyv054','Elisa',true,true,0);
     INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps1','p1','s1'),('ps2','p1','s2');
-    INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh','biz',1,'09:00','20:00');
+    INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh','cmpvr0oqo0000o0vcnhgyv054',1,'09:00','20:00');
     INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('ph','p1',1,'09:00','20:00');
   `)
   const services=[{id:'s1',name:'Corte',durationMinutes:30,price:1000,requiresConsultation:false},{id:'s2',name:'Crema',durationMinutes:30,price:2000,requiresConsultation:false}]
   const segments=services.map((service,index)=>({serviceId:service.id,serviceName:service.name,professionalId:'p1',professionalName:'Elisa',startAt:'2030-09-02T10:'+String(index*30).padStart(2,'0')+':00.000Z',endAt:index?'2030-09-02T11:00:00.000Z':'2030-09-02T10:30:00.000Z',durationMinutes:30,customerDurationMinutes:30}))
-  const bookingSlot={date:'2030-09-02',time:'10:00',startAt:segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa',band:'MORNING' as const,occupiedMinutes:60,coordination:{key:coordinationKey('biz',segments),segments}}
+  const bookingSlot={date:'2030-09-02',time:'10:00',startAt:segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa',band:'MORNING' as const,occupiedMinutes:60,coordination:{key:coordinationKey('cmpvr0oqo0000o0vcnhgyv054',segments),segments}}
   const bookingPort:DialoguePort={catalog:async()=>services,availability:async()=>{throw new Error('singular port not used')},availabilityBasket:async()=>({ok:true,services,durationMinutes:60,totalPrice:3000,professionals:[{id:'p1',name:'Elisa',priority:0}],slots:[bookingSlot]}),prepareRuntimeBooking:async(state,scope)=>{
     const raw=(await bookingDb.query<Record<string,unknown>>('SELECT * FROM "Service" ORDER BY id')).rows
-    const terms:RuntimeBookingTerms={version:1,businessId:'biz',timezone:'UTC',date:state.date!,customerName:state.customerName!,preference:state.professional!,segments:segments.map((segment,index)=>({...segment,priceMinor:services[index]!.price,priceMode:'FIXED',configurationHash:runtimeServiceConfigurationHash(raw[index]!)})),totalPriceMinor:3000}
+    const terms:RuntimeBookingTerms={version:1,businessId:'cmpvr0oqo0000o0vcnhgyv054',timezone:'UTC',date:state.date!,customerName:state.customerName!,preference:state.professional!,segments:segments.map((segment,index)=>({...segment,priceMinor:services[index]!.price,priceMode:'FIXED',configurationHash:runtimeServiceConfigurationHash(raw[index]!)})),totalPriceMinor:3000}
     return {slot:bookingSlot,presented:{scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms}}
   }}
-  const fault={secondChild:false}, live=runtimeFixture({bookingDb,bookingPort,bookingFault:fault,phone:'5491112345678',now:new Date('2030-09-01T12:00:00Z')})
+  const fault={secondChild:false}, live=runtimeFixture({businessId:barberResetId,bookingDb,bookingPort,bookingFault:fault,phone:'5491112345678',now:new Date('2030-09-01T12:00:00Z')})
   const seed=async()=>{
     const id=live.row.id,event=live.row.providerEventId,job='job-'+id.replace('inbox-','').replace('inbox','0')
-    await bookingDb.query(`INSERT INTO "BotActionInbox" (id,"businessId","providerEventId",status) VALUES ($1,'biz',$2,'ADMITTED')`,[id,event])
-    await bookingDb.query(`INSERT INTO "BotProviderEvent" (id,"businessId",status) VALUES ($1,'biz','ADMITTED')`,[event])
+    await bookingDb.query(`INSERT INTO "BotActionInbox" (id,"businessId","providerEventId",status) VALUES ($1,'cmpvr0oqo0000o0vcnhgyv054',$2,'ADMITTED')`,[id,event])
+    await bookingDb.query(`INSERT INTO "BotProviderEvent" (id,"businessId",status) VALUES ($1,'cmpvr0oqo0000o0vcnhgyv054','ADMITTED')`,[event])
     await bookingDb.query(`INSERT INTO "BotDispatchClaim" (id,"claimToken",status) VALUES ($1,'dispatch-token','CLAIMED')`,[id])
     await bookingDb.query(`INSERT INTO "BotJob" (id,status,"leaseToken") VALUES ($1,'LEASED','job-token')`,[job])
   }
   await seed();await live.run()
-  const ready={...initialDialogueState('biz'),customerName:'Ana',date:'2030-09-02',professional:{kind:'specific' as const,id:'p1'},pending:'proposal' as const,slot:bookingSlot,basket:{version:1 as const,nextMemberId:3,members:services.map((service,index)=>({memberId:'m'+(index+1),mode:'single' as const,serviceIds:[service.id],evidence:service.name}))}}
-  live.session.state=projectConversationDraft(ready,policy)
+  const ready={...initialDialogueState('cmpvr0oqo0000o0vcnhgyv054'),customerName:'Ana',date:'2030-09-02',professional:{kind:'specific' as const,id:'p1'},pending:'proposal' as const,slot:bookingSlot,basket:{version:1 as const,nextMemberId:3,members:services.map((service,index)=>({memberId:'m'+(index+1),mode:'single' as const,serviceIds:[service.id],evidence:service.name}))}}
+  live.session.state=projectConversationDraft(ready,barberResetPolicy)
   await bookingDb.query(`UPDATE "BotSession" SET state=$1::jsonb,revision=$2 WHERE id='session'`,[JSON.stringify(live.session.state),String(live.session.revision)])
   live.next('Quiero reservar ambos servicios.');await seed();await live.run()
-  assert.ok(readConversationDraft(live.session.state,policy,'UTC').bookingReservation)
+  assert.ok(readConversationDraft(live.session.state,barberResetPolicy,'UTC').bookingReservation)
   for(const [kind,provider] of [
     ['provider_error',async()=>{throw new Error('controlled offline provider error')}],
     ['invalid_output',async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'confirm_proposal',evidence:'inventado',confidence:1}]}})],
@@ -1648,7 +1722,7 @@ try {
     assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,0,kind+' cannot authorize real F7 effects')
     assert.doesNotMatch(live.replies.at(-1)!,/La reserva fue confirmada|Te esperamos/)
     live.next('Quiero reservar ambos servicios.');await seed();await live.run()
-    assert.ok(readConversationDraft(live.session.state,policy,'UTC').bookingReservation)
+    assert.ok(readConversationDraft(live.session.state,barberResetPolicy,'UTC').bookingReservation)
   }
   live.next('Confirmo el turno y cambialo a mañana.');await seed();await live.run('PROCESS_INBOX',{provider:async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'confirm_proposal',evidence:'Confirmo el turno y cambialo a mañana.',confidence:1}]}}),timeoutMs:15000})
   assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,0,'model confirmation cannot erase actual new constraints')
@@ -1667,7 +1741,7 @@ try {
   live.allowCommit();await live.run()
   assert.equal(parseBotOptionsState(live.session.state).ok,true)
   assert.equal((live.session.state as {booking:string}).booking,'CONFIRMED')
-  const confirmed=readConversationDraft(live.session.state,policy,'UTC').bookingReservation!
+  const confirmed=readConversationDraft(live.session.state,barberResetPolicy,'UTC').bookingReservation!
   assert.equal(confirmed.receipt!.appointments.length,2)
   assert.equal(new Set(confirmed.receipt!.appointments.map(a=>a.visitId)).size,2)
   assert.match(live.replies.at(-1)!,/La reserva fue confirmada/)
@@ -1678,8 +1752,23 @@ try {
   const body=(await bookingDb.query<{payload:{item:{body:string}}}>('SELECT payload FROM "BotOutbox" ORDER BY "createdAt" DESC LIMIT 1')).rows[0]!.payload.item.body
   assert.equal(body,live.replies.at(-1))
   live.next('Gracias.');await seed();await live.run()
-  assert.deepEqual(readConversationDraft(live.session.state,policy,'UTC').bookingReservation,confirmed,'protected confirmed acknowledgement retains receipt')
+  assert.deepEqual(readConversationDraft(live.session.state,barberResetPolicy,'UTC').bookingReservation,confirmed,'protected confirmed acknowledgement retains receipt')
   assert.match(live.replies.at(-1)!,/La reserva fue confirmada/)
   assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,2,'ack cannot book twice')
+  // Simulate acceptance of previous replies before reset; no delivery/retry occurs here.
+  await bookingDb.query('UPDATE "BotOutbox" SET status=$1::"BotOutboxStatus"', ['ACCEPTED'])
+  // The protected acknowledgement uses fixture settlement; reflect its terminal claim before the next real SQL persist.
+  await bookingDb.query('UPDATE "BotDispatchClaim" SET status=$1::"BotDispatchStatus"', ['DONE'])
+  const preserved = new Map<string, unknown[]>()
+  for (const table of ['Appointment','AppointmentServiceItem','BookingVisit','BotOperation','Customer']) {
+    preserved.set(table, (await bookingDb.query('SELECT * FROM "'+table+'" ORDER BY 1,2')).rows)
+  }
+  const historyCount = live.messages
+  live.next('/reset'); await seed(); await live.run('PROCESS_INBOX', {provider:async()=>{throw new Error('confirmed reset must not call AI')},timeoutMs:10})
+  assert.deepEqual(live.session.state,createInitialBotOptionsState(),'confirmed reset discards only the conversation draft')
+  assert.equal(live.messages,historyCount+1,'CRM history remains and reset is appended')
+  assert.match(live.replies.at(-1)!,/No cancelé turnos confirmados/)
+  for (const [table,before] of preserved) assert.deepEqual((await bookingDb.query('SELECT * FROM "'+table+'" ORDER BY 1,2')).rows,before,'confirmed reset preserves ALL '+table)
+  console.log('runtime confirmed /reset: actual F7 appointments, visits, ledger, customer and history preserved PASS')
   console.log('runtime actual F7 ALL visits + caller CAS/outbox + second-child/caller rollback + confirmed acknowledgement: PASS')
 }finally{await bookingDb.close()}

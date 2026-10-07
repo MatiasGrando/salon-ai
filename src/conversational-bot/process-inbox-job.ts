@@ -1,3 +1,4 @@
+import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
@@ -111,6 +112,7 @@ export async function processConversationInbox(input: {
     if (actions.some(row=>row.actionType===CONVERSATION_CHOICE_ACTION)) throw new Error('conversation choice policy unavailable')
     return null
   }
+  const isRestart = (value: unknown) => input.isRestart(value) || isBarberTestReset(value, policy.businessId)
   const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number; phone: string | null }>>(Prisma.sql`
     /* conversation-target */ SELECT d."dispatchFenceEpoch" AS "fenceEpoch", e."payload"->>'fromPhone' AS "phone"
     FROM "BotChannelDeployment" d
@@ -248,6 +250,28 @@ export async function processConversationInbox(input: {
       if (rows[0]?.dispatchCount !== 1n) throw new Error('cannot complete stale dispatch claim')
       if (rows[0]?.jobCount !== 1n) throw new Error('cannot complete stale bot job claim')
     })
+    // Under the existing phone mutex and session/CAS guards; never cancel or retry uncertain effects.
+    const resetAllowedTx = async (tx: Prisma.TransactionClient, session: Session, timezone: string): Promise<boolean> => {
+      const parsed = parseBotOptionsState(session.state)
+      if (!parsed.ok || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE' ||
+          !['NONE', 'DRAFT', 'CONFIRMED'].includes(parsed.state.booking)) return false
+      try {
+        const draft = readConversationDraft(session.state, policy, timezone)
+        resetTestDialogue(draft)
+        if (parsed.state.booking === 'CONFIRMED' && !draft.bookingReservation?.receipt) return false
+      } catch { return false }
+      const rows = await tx.$queryRaw<Array<{ blocked: boolean }>>(Prisma.sql`
+        /* test-reset-pending-effects */
+        SELECT EXISTS (SELECT 1 FROM "BotOutbox"
+          WHERE "businessId" = ${policy.businessId} AND "sessionId" = ${session.sessionId}
+            AND "status"::text IN ('PENDING','CLAIMED','RETRY','SENDING','UNKNOWN'))
+          OR EXISTS (SELECT 1 FROM "BotOperation"
+            WHERE "businessId" = ${policy.businessId} AND "sessionId" = ${session.sessionId}
+              AND "status" IS DISTINCT FROM 'COMPLETED') AS "blocked"
+      `)
+      if (rows.length !== 1 || typeof rows[0]?.blocked !== 'boolean') throw new Error('test reset effect guard unavailable')
+      return !rows[0].blocked
+    }
     const retry = async (tx: Prisma.TransactionClient, row: Row, immediate = false) => {
       await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
       await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + (immediate ? 0 : 500)), { refundClaimAttempt: true }))
@@ -271,7 +295,7 @@ export async function processConversationInbox(input: {
       const phone = payload.fromPhone
       if (canonicalConversationPhone(phone) !== canonicalConversationPhone(targetPhone)) throw new Error('conversation computation identity changed')
       const isChoice = row.actionType === CONVERSATION_CHOICE_ACTION
-      const eligibleText = !isChoice && payload.messageType === 'text' && !input.isRestart(payload.textBody)
+      const eligibleText = !isChoice && payload.messageType === 'text' && !isRestart(payload.textBody)
       if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
       let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
       if(isChoice && !session) {await finish(tx,row);return null}
@@ -378,9 +402,16 @@ export async function processConversationInbox(input: {
       `))
       const parsed = parseBotOptionsState(activeSession.state)
       if (!parsed.ok) throw new Error('invalid conversation session state')
+      const testReset = !isChoice && payload.messageType === 'text' && isBarberTestReset(payload.textBody, row.businessId)
+      if (testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone)) {
+        await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
+          transitionId: 'test-reset-blocked:' + row.id, toPhone: phone, dbNow: row.dbNow,
+          view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
+        await finish(tx, row); return null
+      }
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
-      if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !input.isRestart(payload.textBody)) {
+      if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
         const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
         const requested = routeActions(String(payload.textBody ?? '')).pendingAction
         if (draft.bookingReservation?.receipt && (draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')) {
@@ -390,7 +421,7 @@ export async function processConversationInbox(input: {
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
-      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed) {
+      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset) {
         let protectedReply = 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.'
         let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
         try { protectedDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) } catch { /* Preserve the protected session without trusting malformed sidecars. */ }
@@ -419,15 +450,15 @@ export async function processConversationInbox(input: {
         await measureAttemptStage('conversation_transition_insert', () => tx.$executeRaw(Prisma.sql`INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId") VALUES (${randomUUID()}, ${row.businessId}, ${activeSession.sessionId}, ${row.deploymentId}, ${row.generation}, ${activeSession.revision}, ${revision}, 'system.configuration_reset', 'APPLIED', ${row.providerEventId})`))
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
-      const reset = !isChoice && payload.messageType === 'text' && input.isRestart(payload.textBody)
+      const reset = !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
       const consolidation = eligibleText && !runtimeManagementAllowed ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
-        phone, currentEventId: row.providerEventId, isRestart: input.isRestart })) : null
+        phone, currentEventId: row.providerEventId, isRestart })) : null
       if (eligibleText && !runtimeManagementAllowed && !consolidation) { await retry(tx, row, true); return null }
       const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot }
+      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
@@ -466,7 +497,7 @@ export async function processConversationInbox(input: {
       }
     }
     const operationalContext = { ...prepared.context, ...('serverManagementSnapshot' in snapshot && snapshot.serverManagementSnapshot ? {serverManagementSnapshot:snapshot.serverManagementSnapshot} : {}), humanHandoff: true as const, serverRuntimeBookingScope: {businessId:policy.businessId,sessionId:snapshot.session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,revision:String(snapshot.session.revision+1n),configurationId:policy.configurationId,dispatchFenceEpoch:snapshot.row.fenceEpoch,handoffFenceEpoch:snapshot.session.handoffFenceEpoch} }
-    const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
+    const response = await measureAttemptStage('conversation_compute', async () => snapshot.testReset ? resetTestDialogue(snapshot.draft) : snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.selectedChoice ? await computeChoice()
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
       : useAi ? await respondWithAiInterpreter(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
@@ -492,6 +523,12 @@ export async function processConversationInbox(input: {
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
           (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
+      if (snapshot.testReset && !await resetAllowedTx(tx, session, row.businessTimezone)) {
+        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+          transitionId: 'test-reset-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
+          view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
+        await finish(tx, row); return 'PROCESSED' as const
+      }
       if(snapshot.selectedChoice) {
         try {
           if(row.actionType!==CONVERSATION_CHOICE_ACTION || row.expectedRevision!==session.revision) throw new Error('stale conversation choice')
@@ -504,7 +541,7 @@ export async function processConversationInbox(input: {
       if (snapshot.consolidation) {
         const fresh = await selectConsolidationGroupTx(tx, { businessId: row.businessId, sessionId: session.sessionId,
           deploymentId: policy.deploymentId, generation: policy.generation, handoffFenceEpoch: session.handoffFenceEpoch,
-          revision: session.revision, state: session.state, phone: snapshot.phone, currentEventId: row.providerEventId, isRestart: input.isRestart })
+          revision: session.revision, state: session.state, phone: snapshot.phone, currentEventId: row.providerEventId, isRestart })
         if (!fresh || fresh.signature !== snapshot.consolidation.signature || fresh.previousTransitionId !== snapshot.consolidation.previousTransitionId ||
             (fresh.previousTransitionId && !await supersedeConsolidationOutboxTx(tx, row.businessId, session.sessionId, fresh.previousTransitionId))) {
           await retry(tx, row, true); return 'STALE_REVISION' as const

@@ -1,3 +1,4 @@
+import { resetTestDialogue, isTestResetCommand } from './test-conversation-reset.js'
 import type { ConversationChoiceOperation } from './choices.js'
 import { summarizeAvailability } from './ai-diagnostics.js'
 import { initialDialogueState, parseDialogueState, respond, respondConversationChoice, type DialogueContext, type DialoguePort, type DialogueState } from './engine.js'
@@ -12,6 +13,8 @@ export type PreviewDependencies = {
   interpretationProvider?: AiInterpretationProvider
   interpretationTimeoutMs?: number
   choiceOperation?: ConversationChoiceOperation
+  /** Server-only: Prisma caller has verified the authenticated QA scope. */
+  testResetVerified?: true
 }
 
 export async function runConversationalPreview(deps: PreviewDependencies, businessId: string, phone: string, message: string) {
@@ -22,7 +25,8 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
   if (context.businessId !== businessId) throw new Error('preview tenant mismatch')
   const contextAt = performance.now()
   const state = previous === null ? initialDialogueState(businessId) : parseDialogueState(previous, businessId, context.timezone)
-  const response = deps.choiceOperation
+  const reset = deps.testResetVerified === true && isTestResetCommand(message) && !deps.choiceOperation
+  const response = reset ? resetTestDialogue(state) : deps.choiceOperation
     ? await respondConversationChoice(context, state, deps.choiceOperation, port)
     : deps.interpretationProvider
     ? await respondWithAiInterpreter(context, state, message, port, deps.interpretationProvider, { timeoutMs: deps.interpretationTimeoutMs ?? DEFAULT_CONVERSATIONAL_AI_TIMEOUT_MS })
@@ -38,7 +42,7 @@ export async function runConversationalPreview(deps: PreviewDependencies, busine
     state: response.state,
     ...(response.bookingCommand ? { bookingCommand: response.bookingCommand } : {}),
     proposalReady: response.proposal !== null,
-    interpretation: deps.choiceOperation ? { mode: 'deterministic', reason: 'server_choice', aiCalls: 0, providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) } : deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
+    interpretation: reset ? { mode: 'deterministic', reason: 'test_reset', aiCalls: 0, providerMs: 0, validationMs: 0, totalMs: 0 } : deps.choiceOperation ? { mode: 'deterministic', reason: 'server_choice', aiCalls: 0, providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) } : deps.interpretationProvider ? (response as InterpretedDialogueResponse).interpretation : { mode: 'deterministic', reason: 'disabled', providerMs: 0, validationMs: 0, totalMs: 0, ...(availability ? { availability } : {}) },
     timings: {
       loadMs: ms(loadedAt - started),
       contextMs: ms(contextAt - loadedAt),

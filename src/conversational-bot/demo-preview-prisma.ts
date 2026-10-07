@@ -1,3 +1,4 @@
+import { isTestResetCommand } from './test-conversation-reset.js'
 import { preparePreviewTurnGroup, storePreviewTurnGroup, PreviewTurnGroupError } from './preview-turn-group.js'
 import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope, type ConversationChoiceOperation } from './choices.js'
 import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
@@ -74,7 +75,9 @@ async function processPreviewTurn(
   client: any, businessId: string, userId: string, phone: string, message: string,
   createPort: PreviewDependencies['createPort'], started: number, interpretationProvider?: AiInterpretationProvider, interpretationTimeoutMs?: number, sandboxBooking = false, interactiveReplyId?: string, turnGroupInput?: unknown
 ) {
-  if (sandboxBooking && !await verifySimulatorBookingScope(client, businessId, userId)) throw new SimulatorBookingScopeError()
+  const testReset = isTestResetCommand(message)
+  if (testReset && interactiveReplyId) throw new PreviewChoiceError()
+  if ((sandboxBooking || testReset) && !await verifySimulatorBookingScope(client, businessId, userId)) throw new SimulatorBookingScopeError()
   const key = { businessId_phone: { businessId, phone } }
   for (let attempt = 0; attempt < MAX_PREVIEW_ATTEMPTS; attempt++) {
     const loadingAt = performance.now()
@@ -88,7 +91,7 @@ async function processPreviewTurn(
     // Preview uses its own virtual policy version, never pretends to be a WhatsApp deployment.
     const scope: ChoiceScope = { businessId, conversationKey: phone, policyKey: sandboxBooking ? 'preview-sandbox:v1' : 'preview:v1', policyGeneration: 1, revision: ledger.revision }
     if (interactiveReplyId && turnGroupInput !== undefined) throw new PreviewTurnGroupError()
-    const group = turnGroupInput === undefined ? null : preparePreviewTurnGroup(snapshot?.supportBotState, ledger.draft, scope, turnGroupInput, message)
+    const group = testReset || turnGroupInput === undefined ? null : preparePreviewTurnGroup(snapshot?.supportBotState, ledger.draft, scope, turnGroupInput, message)
     const selection = interactiveReplyId ? resolvePreviewChoice(snapshot?.supportBotState, scope, interactiveReplyId) : null
     const inbound = selection?.label ?? message
     const engineDraft = group ? group.draft : ledger.draft
@@ -100,6 +103,7 @@ async function processPreviewTurn(
       save: async () => {},
       createPort: async id => { const created = await createPort(id); loadedTimezone = created.context.timezone; return { ...created, context: { ...created.context, sandboxBooking } } },
       ...(selection ? { choiceOperation: selection.operation } : {}),
+      ...(testReset ? { testResetVerified: true as const } : {}),
       ...(interpretationProvider ? { interpretationProvider } : {}),
       ...(interpretationTimeoutMs !== undefined ? { interpretationTimeoutMs } : {})
     }, businessId, phone, engineMessage).catch((error: unknown) => {
@@ -113,7 +117,7 @@ async function processPreviewTurn(
       const receipt = prepared.state.sandboxReservation?.receipt
       const command = prepared.bookingCommand ?? (sandboxBooking && receipt ? { kind: 'CONFIRM_SANDBOX_BOOKING' as const, presented: prepared.state.sandboxReservation!.presented } : undefined)
       if (command) await acquireAgendaHierarchy(tx, { businessId, professionalIds: bookingProfessionalIds(command.presented.terms) })
-      if (sandboxBooking && !await verifySimulatorBookingScope(tx, businessId, userId, true)) throw new SimulatorBookingScopeError()
+      if ((sandboxBooking || testReset) && !await verifySimulatorBookingScope(tx, businessId, userId, true)) throw new SimulatorBookingScopeError()
       const conversation = await tx.conversation.upsert({
         where: key, update: {}, create: { businessId, phone }
       })
