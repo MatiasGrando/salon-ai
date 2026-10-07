@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
-import { initialDialogueState, parseDialogueState, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, parseDialogueState, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
+import { expectedDialogueAnswer } from '../src/conversational-bot/dialogue-context.js'
+import { parseTurnPlan, TURN_PLAN_JSON_SCHEMA } from '../src/conversational-bot/turn-plan.js'
+import { admitCommunicativePlan, parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
 import { resolveServiceRequest } from '../src/conversational-bot/service-request.js'
 globalThis.fetch = (() => { throw new Error('network forbidden') }) as typeof fetch
 const context = { businessId: 'catalog-test', timezone: 'UTC', dbNow: new Date('2026-10-07T12:00:00Z') }
@@ -26,16 +29,20 @@ function makePort(services: DialogueService[] = catalog): DialoguePort {
     information: async () => ({ businessId: context.businessId, name: 'Local', address: 'Calle 100', area: null, mapsUrl: null, hours: null,
       website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null, description: null }) }
 }
-async function say(message: string, operations: object[], previous: DialogueState = state, services = catalog) {
+async function say(message: string, operations: object[], previous: DialogueState = state, services = catalog, communicativeActs?: object) {
   let calls = 0
   const provider = Object.assign(async (_input: AiInterpretationInput) => {
-    calls++; return { ...base, turnPlan: { version: 1, operations }, firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null } }
+    calls++; return { ...base, ...(communicativeActs ? { communicativeActs } : {}), turnPlan: { version: 1, operations }, firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null } }
   }, { respond: async () => { calls++; throw new Error('extra comparison/style call forbidden') } }) as AiInterpretationProvider
   const result = await respondWithAiInterpreter(context, previous, message, makePort(services), provider)
   assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1)
   assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.handoffCommand, undefined)
   return result
 }
+
+const referenceOp = (message: string, serviceId = 'color') => ({ kind: 'service_reference', action: 'confirm', serviceId, evidence: message, confidence: 1 })
+const referenceActs = (message: string, kind = 'answer', field = 'service') => ({ version: 1, acts: [{ kind, field, evidence: message, confidence: 1, mention: null, operationIndexes: [0] }] })
+const reference = (message: string, previous: DialogueState, services = catalog) => say(message, [referenceOp(message)], previous, services, referenceActs(message))
 await check('one related candidate is visible and clarified, never selected or handed off', async () => {
   const result = await say('quería unas mechas', [request('mechas', ['color'])])
   assert.match(result.reply, /Iluminación/); assert.match(result.reply, /relacionad|referís|resultado/)
@@ -127,6 +134,87 @@ await check('actual provider receives all current catalog descriptions and compa
   assert.match(payload!.instructions, /Comparación con el catálogo actual:/)
   assert.match(payload!.instructions, /sin coincidencias|sin candidatos/)
   assert.equal(payload!.store, false); assert.equal(result.state.serviceId, null)
+})
+
+await check('related reference answer is not a variant, booking selection or team consent', async () => {
+  const initial = await say('quería mechas con gorra', [request('mechas con gorra', ['color'])])
+  assert.equal(initial.state.serviceRequest?.candidateName, color.name)
+  assert.match(expectedDialogueAnswer(initial.state).question, /referís|resultado/)
+  assert.equal(initial.state.questionContext?.matchCandidateIds, undefined)
+  const answer = await reference('sí me refiero a ese', initial.state)
+  assert.equal((answer.state.serviceRequest as any)?.referenceConfirmed, true)
+  assert.equal(answer.state.serviceRequest?.request, 'mechas con gorra')
+  assert.equal(answer.state.serviceRequest?.disposition, 'unverified_variant')
+  assert.equal(answer.state.serviceId, null)
+  assert.notEqual(answer.state.referral?.status, 'pending')
+  assert.match(answer.reply, /Iluminación/)
+  assert.match(answer.reply, /no tengo confirmado|no está confirmad/i)
+  assert.match(answer.reply, /servicio publicado|consultar.*equipo/)
+  assert.doesNotMatch(answer.reply, /consulto con el equipo|Qué dato querés elegir|reservado/)
+  assert.equal((answer.reply.match(/\?/g) ?? []).length, 1)
+  assert.equal(parseDialogueState(JSON.parse(JSON.stringify(answer.state)), context.businessId).serviceRequest?.request, 'mechas con gorra')
+})
+await check('reference confirmation needs the actual live question and current catalog name', async () => {
+  const initial = await say('quería mechas con gorra', [request('mechas con gorra', ['color'])])
+  for (const message of ['sí', 'no, ese no', 'sí pero depende', '¿sí me refiero a ese?', 'si me refiero a ese y reservá']) {
+    const response = await say(message, [], initial.state)
+    assert.notEqual((response.state.serviceRequest as any)?.referenceConfirmed, true, message)
+  }
+  const noQuestion = { ...initial.state }; delete noQuestion.questionContext
+  assert.notEqual((await reference('sí me refiero a ese', noQuestion)).state.serviceRequest?.referenceConfirmed, true)
+  const renamed = await reference('sí me refiero a ese', initial.state, [cut, { ...color, name: 'Nombre nuevo' }, tint])
+  assert.notEqual((renamed.state.serviceRequest as any)?.referenceConfirmed, true)
+  const removed = await reference('sí me refiero a ese', initial.state, [cut, tint])
+  assert.notEqual((removed.state.serviceRequest as any)?.referenceConfirmed, true)
+})
+await check('reference answer coexists with semantic continuation, and selection stays explicit', async () => {
+  const initial = await say('quería mechas con gorra', [request('mechas con gorra', ['color'])])
+  const response = await reference('sí me refiero a ese', initial.state)
+  assert.equal((response.state.serviceRequest as any)?.referenceConfirmed, true)
+  assert.equal(response.state.serviceId, null)
+  const selected = await say('Iluminación', [request('Iluminación', ['color'], 'booking', 'clear', 'exact_public_name')], response.state)
+  assert.equal(selected.state.serviceId, color.id)
+  assert.equal(selected.state.serviceRequest, undefined)
+  assert.equal(selected.state.pending, 'estimate')
+})
+await check('a side query owns its displayed question; it does not confirm the old reference', async () => {
+  const initial = await say('mechas con gorra', [request('mechas con gorra', ['color'])])
+  const lateral = await say('dónde están', [{ kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, evidence: 'dónde están', confidence: 1 }], initial.state)
+  const staleQuestion = { ...lateral.state, questionContext: { ...initial.state.questionContext!, question: '¿Qué día preferís?' } }
+  assert.notEqual((await reference('sí me refiero a ese', staleQuestion)).state.serviceRequest?.referenceConfirmed, true)
+})
+await check('semantic reference has exact schema, current evidence and answer ownership', async () => {
+  const message = 'exactamente, esa categoría es la que digo'
+  const initial = await say('mechas con gorra', [request('mechas con gorra', ['color'])])
+  const response = await reference(message, initial.state)
+  assert.equal(response.state.serviceRequest?.referenceConfirmed, true)
+  assert.notEqual((await say('sí me refiero a ese', [], initial.state)).state.serviceRequest?.referenceConfirmed, true)
+  const plan = parseTurnPlan({ version: 1, operations: [referenceOp(message)] }, message, ['color'])
+  assert.ok(JSON.stringify(TURN_PLAN_JSON_SCHEMA).includes('service_reference'))
+  for (const invalid of [{ ...referenceOp(message), action: 'consult' }, { ...referenceOp(message), serviceId: 'foreign' }, { ...referenceOp(message), referenceConfirmed: true }, { ...referenceOp(message), evidence: 'otro mensaje' }]) assert.throws(() => parseTurnPlan({ version: 1, operations: [invalid] }, message, ['color']))
+  for (const acts of [null, referenceActs(message, 'request'), referenceActs(message, 'uncertain'), referenceActs(message, 'answer', 'professional')]) {
+    const metadata = parseCommunicativeActs(acts, message, 1, plan)
+    assert.equal(admitCommunicativePlan(metadata, plan, plan, message, initial.state, catalog).plan.operations.length, 0)
+  }
+  const stale = { ...initial.state, questionContext: { ...initial.state.questionContext!, options: [{ id: 'tint', label: tint.name }] } }
+  assert.notEqual((await reference(message, stale)).state.serviceRequest?.referenceConfirmed, true)
+})
+await check('reference semantics do not authorize direct callers and preserve independent information', async () => {
+  const initial = await say('mechas con gorra', [request('mechas con gorra', ['color'])])
+  const message = 'sí, ese, y dónde están'
+  const direct = await respond(context, initial.state, message, makePort(), { intent: 'booking', serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [referenceOp(message)] } } as any)
+  assert.notEqual(direct.state.serviceRequest?.referenceConfirmed, true)
+  assert.equal(direct.state.serviceId, null); assert.equal(direct.handoffCommand, undefined)
+  const acts = { version: 1, acts: [
+    { kind: 'answer', field: 'service', evidence: 'sí, ese', confidence: 1, mention: null, operationIndexes: [0] },
+    { kind: 'inquiry', field: 'general', evidence: 'dónde están', confidence: 1, mention: null, operationIndexes: [1] }
+  ] }
+  const result = await say(message, [referenceOp('sí, ese'), { kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, evidence: 'dónde están', confidence: 1 }], initial.state, catalog, acts)
+  assert.equal(result.state.serviceRequest?.referenceConfirmed, true)
+  assert.match(result.reply, /Calle 100/)
+  assert.equal(result.state.date, initial.state.date); assert.equal(result.state.customerName, initial.state.customerName)
+  const foreign = { ...initial.state, serviceRequest: { ...initial.state.serviceRequest!, businessId: 'foreign' } }
+  assert.throws(() => parseDialogueState(foreign, context.businessId))
 })
 assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
 console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')

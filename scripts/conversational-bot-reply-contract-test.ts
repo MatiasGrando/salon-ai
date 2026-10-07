@@ -184,7 +184,8 @@ async function main() {
     assert.deepEqual(projectValidatedReplyFrame(frame, current, true), { openingText: '¡Hola!', modelFraming: true })
     assert.deepEqual(current, snapshot); assert.deepEqual(original, [{ id: 'next', text: '¿Qué día preferís?' }])
     const exact = validateReplyDraft({ opening: '¿Cómo querés seguir?', factIds: ['next'], closing: null }, original, policy, [])
-    assert.deepEqual(projectValidatedReplyFrame(exact, { id: '0', text: '¿Cómo querés seguir?' }, true), { openingText: '', modelFraming: false })
+    assert.equal(exact.validation.reason, 'continuation_conflict', 'an unrelated operational question cannot be a reusable frame')
+    assert.equal(projectValidatedReplyFrame(exact, { id: '0', text: '¿Cómo querés seguir?' }, true), null)
     const partial = validateReplyDraft({ opening: 'Gracias. ¿Cómo querés seguir?', factIds: ['next'], closing: null }, original, policy, [])
     assert.equal(projectValidatedReplyFrame(partial, { id: '0', text: '¿Cómo querés seguir?' }, true), null, 'id0 never enables suffix-question stripping')
     for (const opening of ['¡Reservado por $100!', 'Cuesta $100. ¿Qué día preferís?', 'Soy Otra.', 'Corte mujer.']) {
@@ -194,6 +195,23 @@ async function main() {
     }
     const incomplete = { ...frame }; delete incomplete.validatedFraming
     assert.equal(projectValidatedReplyFrame(incomplete, current, true), null)
+  })
+
+  copyCheck('one operational question belongs to the server, social questions remain', () => {
+    const facts = [{ id: 'next', text: '¿Qué servicio necesitás?' }], rule = replyContract('continuation', false, false, facts)
+    for (const opening of ['¿Qué día preferís?', '¿Querés consultar al equipo?', 'Entiendo, ¿qué dato querés cambiar?']) {
+      assert.equal(validateReplyDraft({ opening, factIds: null, closing: null }, facts, rule, []).validation.reason, 'continuation_conflict')
+    }
+    for (const opening of ['Todo bien, gracias. ¿Vos?', 'Gracias, ¿cómo estás vos?']) {
+      assert.equal(validateReplyDraft({ opening, factIds: null, closing: null }, facts, rule, []).validation.status, 'accepted')
+    }
+  })
+  copyCheck('unexecuted team actions cannot be claimed by framing', () => {
+    const facts = [{ id: 'next', text: '¿En qué te puedo ayudar?' }], rule = replyContract('social', false, false, facts)
+    for (const opening of ['Entiendo, consulto con el equipo.', 'Ya consulté con el equipo.', 'Contacté al equipo.', 'Te derivo al equipo.', 'Lo envié al equipo.']) {
+      assert.equal(validateReplyDraft({ opening, factIds: null, closing: null }, facts, rule, []).validation.reason, 'unverified_action', opening)
+    }
+    assert.equal(validateReplyDraft({ opening: '¿Querés consultar con el equipo?', factIds: null, closing: null }, [], replyContract('social', false, false, []), []).validation.status, 'accepted')
   })
   assert.deepEqual(copyFailures, [], 'continuation ownership regressions')
   console.log('PASS contextual social contract, first-call viability, natural framing and honest canonical delivery')

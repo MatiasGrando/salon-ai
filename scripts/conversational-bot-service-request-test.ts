@@ -171,4 +171,7 @@ assert.deepEqual(crowdedResolution.serviceIds, []);
 const punctuationResolution = resolveServiceRequest(rawClear, '!!!', 1, crowdedCatalog);
 assert.equal(punctuationResolution.disposition, 'needs_detail', 'empty normalized evidence does not match every catalog item');
 assert.deepEqual(punctuationResolution.serviceIds, []);
+
+assert.throws(() => parseDialogueState({ ...pendingCategory.state, serviceRequest: { ...pendingCategory.state.serviceRequest, referenceConfirmed: false } }, 'tenant'), /scope/);
+assert.throws(() => parseDialogueState({ ...pendingCategory.state, serviceRequest: { ...pendingCategory.state.serviceRequest, referenceConfirmed: true, candidateName: undefined } }, 'tenant'), /scope/);
 console.log('service request semantic resolution PASS');

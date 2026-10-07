@@ -18,6 +18,8 @@ export type ServiceRequestContext = ServiceRequest & {
     detail?: string;
     /** Server-rendered candidate name; a renamed catalog entry requires fresh clarification. */
     candidateName?: string;
+    /** Server-confirmed catalog reference only; never proof of a requested variant. */
+    referenceConfirmed?: true;
 };
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -52,15 +54,19 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
 export function parseServiceRequestContext(value: unknown, businessId: string): ServiceRequestContext {
     const item = value as Record<string, unknown>;
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
-    if (!item || Object.keys(item).filter(key => key !== 'candidateName' && key !== 'detail').sort().join(',') !== keys ||
+    if (!item || Object.keys(item).filter(key => key !== 'candidateName' && key !== 'detail' && key !== 'referenceConfirmed').sort().join(',') !== keys ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
         item.detail !== undefined && !isCustomerText(item.detail, 300) ||
+        item.referenceConfirmed !== undefined && (item.referenceConfirmed !== true || !bounded(item.candidateName, 200) ||
+            !Array.isArray(item.serviceIds) || item.serviceIds.length !== 1 || item.basis !== 'related_category' ||
+            !['needs_detail', 'unverified_variant'].includes(String(item.disposition))) ||
         item.businessId !== businessId || !isCustomerText(item.request, 300)) {
         throw new Error('invalid service request scope');
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,
         ...(item.candidateName !== undefined ? { candidateName: item.candidateName as string } : {}),
-        ...(item.detail !== undefined ? { detail: item.detail as string } : {}) };
+        ...(item.detail !== undefined ? { detail: item.detail as string } : {}),
+        ...(item.referenceConfirmed === true ? { referenceConfirmed: true as const } : {}) };
 }
 /** Retain an object only for an admitted current clarification of the same request. */
 export function retainServiceRequestBase(previous: ServiceRequestContext | undefined, current: ServiceRequest,
@@ -148,9 +154,38 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
         disposition: request.basis === 'semantic_equivalent' ? 'needs_detail' : 'unverified_variant'
     };
 }
+
+/** Short actual question; catalog options remain context, not matching or selection authority. */
+export function serviceRequestQuestion(request: ServiceRequestContext): string {
+    if (request.referenceConfirmed) return '¿Querés elegir el servicio publicado o consultar esa técnica con el equipo?';
+    if (request.disposition === 'alternatives') return '¿Cuál de estas opciones te interesa?';
+    if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.candidateName) {
+        return '¿Te referís al servicio publicado ' + request.candidateName + ' o buscás un procedimiento distinto?';
+    }
+    if (request.serviceIds.length === 1) return '¿Te referís a ese servicio o qué resultado buscás?';
+    if (request.serviceIds.length > 1) return '¿Alguna corresponde a lo que buscás o podés contarme el resultado que querés?';
+    return '¿Podés contarme un poco más sobre el resultado que buscás?';
+}
+/** Verify only a server-owned live referent; the model owns the speech-act interpretation. */
+export function validServiceReferenceContext(request: ServiceRequestContext | undefined, serviceId: string,
+    businessId: string, services: readonly DialogueService[],
+    question: { role: string; question: string; options: readonly { id: string; label: string }[]; complete: boolean } | undefined): boolean {
+    return !!request && request.businessId === businessId && !request.referenceConfirmed && request.basis === 'related_category' &&
+        ['needs_detail', 'unverified_variant'].includes(request.disposition) && request.serviceIds.length === 1 &&
+        request.serviceIds[0] === serviceId && !!request.candidateName && !!question?.complete &&
+        question.role === 'service' && question.question === serviceRequestQuestion(request) &&
+        question.options.length === 1 && question.options[0]!.id === serviceId &&
+        question.options[0]!.label === request.candidateName &&
+        services.find(service => service.id === serviceId)?.name === request.candidateName;
+}
+
 export function serviceRequestReply(request: ServiceRequestContext, services: readonly DialogueService[]): string {
     const candidates = services.filter(service => request.serviceIds.includes(service.id));
     const description = request.request + (request.detail ? ' — ' + request.detail : '');
+    if (request.referenceConfirmed && candidates.length === 1 && candidates[0]!.name === request.candidateName) {
+        return 'Perfecto, te referís al servicio publicado ' + candidates[0]!.name + '.\n' +
+            'No tengo confirmado si incluye «' + request.request + '».\n' + serviceRequestQuestion(request);
+    }
     if (request.disposition === 'alternatives') {
         return 'Para «' + description + '», ¿cuál de estas opciones te interesa?\n' +
             candidates.map(service => '• ' + service.name).join('\n');

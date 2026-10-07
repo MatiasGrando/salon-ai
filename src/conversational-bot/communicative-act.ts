@@ -1,3 +1,4 @@
+import { validServiceReferenceContext } from './service-request.js'
 import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
@@ -92,7 +93,7 @@ export function parseCommunicativeActs(value: unknown, message: string, operatio
 }
 function operationKey(operation: TurnOperation): string {
   if (operation.kind === 'information') return 'information:' + operation.target.kind
-  if (['basket', 'service', 'service_request'].includes(operation.kind)) return 'service'
+  if (['basket', 'service', 'service_request', 'service_reference'].includes(operation.kind)) return 'service'
   if (['time', 'time_preference', 'time_clarification'].includes(operation.kind)) return 'time'
   if (operation.kind === 'professional_reference') return 'professional'
   if (operation.kind === 'date_preferences') return 'date'
@@ -338,6 +339,11 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     // Preserve already selected exact identities before generic grounding can widen them.
     if (repeatedAdd(operation, state)) return false
 
+    if (operation.kind === 'service_reference' && (owners.length !== 1 || act?.kind !== 'answer' || act.field !== 'service' ||
+        act.confidence < .85 || operation.confidence < .85 || !contains(act.evidence, operation.evidence) ||
+        !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext))) {
+      blocked.add('service'); return false
+    }
     if (!metadata) {
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
       return true

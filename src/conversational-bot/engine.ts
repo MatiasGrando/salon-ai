@@ -5,7 +5,7 @@ import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBin
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, type ServiceRequestContext } from './service-request.js'
+import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -960,6 +960,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     }) }
   }) }
   // Composition is checked on a copy after identity grounding, before any draft effect.
+  const admittedServiceReferences = communicative?.plan.operations.filter(operation => operation.kind === 'service_reference') ?? []
   const currentBindings = communicative ? remapInquiryBindings(communicative.inquiryBindings ?? [], communicative.plan, raw) : []
   const beforeProtection = raw
   const prospective = protectProspectiveBasket({ ...communicative, plan: raw, blockedFields: communicative?.blockedFields ?? [],
@@ -973,11 +974,23 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     !raw.operations.some(operation => ['service', 'basket'].includes(operation.kind) || operation.kind === 'service_request' && operation.purpose === 'booking')
   const suppressMatching = semanticPending || prospective.blockedFields.length > 0 || inquiryTurn
   let procedureQuestion = ''
+  const serviceReferenceOp = raw.operations.find(operation => operation.kind === 'service_reference')
+  const referenceAnswer = serviceReferenceOp?.kind === 'service_reference' && serviceReferenceOp.confidence >= .85 &&
+    admittedServiceReferences.some(operation => operation.kind === 'service_reference' &&
+      operation.action === serviceReferenceOp.action && operation.serviceId === serviceReferenceOp.serviceId &&
+      operation.evidence === serviceReferenceOp.evidence && operation.confidence === serviceReferenceOp.confidence) &&
+    validServiceReferenceContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
+  if (referenceAnswer && state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, referenceConfirmed: true }
+  // This operation updates referent context only, never the booking draft or consent.
+  raw = { ...raw, operations: raw.operations.filter(operation => operation.kind !== 'service_reference') }
   const previousProcedureRequest = state.serviceRequest
   const unverifiedReads = new Map<string, ServiceRequestContext>()
   if (state.serviceRequest) {
     const ids = state.serviceRequest.serviceIds.filter(id => services.some(service => service.id === id))
-    if (ids.length !== state.serviceRequest.serviceIds.length) {
+    if (ids.length !== state.serviceRequest.serviceIds.length || state.serviceRequest.candidateName !== undefined &&
+        (ids.length !== 1 || services.find(service => service.id === ids[0])?.name !== state.serviceRequest.candidateName)) {
+      delete state.serviceRequest.referenceConfirmed
+      delete state.serviceRequest.candidateName
       state.serviceRequest = { ...state.serviceRequest, serviceIds: ids, disposition: 'unverified_variant' }
     }
     procedureQuestion = serviceRequestReply(state.serviceRequest, services)
@@ -985,13 +998,18 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (procedureOp?.kind === 'service_request') {
     const request = resolveServiceRequest(procedureOp, procedureOp.evidence, procedureOp.confidence, services, state.serviceRequest)
     const previousRequest = state.serviceRequest
-    const requestBase = retainServiceRequestBase(previousProcedureRequest, request, procedureOp.evidence, services, procedureOp.confidence >= .85)
+    const requestBase = referenceAnswer ? previousProcedureRequest!.request : retainServiceRequestBase(previousProcedureRequest, request, procedureOp.evidence, services, procedureOp.confidence >= .85)
     const requestContext: ServiceRequestContext = {
       ...request,
       businessId: context.businessId,
-      ...(request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.serviceIds.length === 1
+      ...(request.disposition !== 'clear' && request.serviceIds.length === 1
         ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
       request: requestBase,
+      ...(previousProcedureRequest?.referenceConfirmed && requestBase === previousProcedureRequest.request &&
+        request.basis === 'related_category' && request.serviceIds.length === 1 &&
+        previousProcedureRequest.serviceIds[0] === request.serviceIds[0] &&
+        previousProcedureRequest.candidateName === services.find(service => service.id === request.serviceIds[0])?.name
+        ? { referenceConfirmed: true as const } : {}),
       ...(previousProcedureRequest && requestBase === previousProcedureRequest.request && requestBase !== procedureOp.evidence
         ? { detail: procedureOp.evidence } : {})
     }
@@ -1237,7 +1255,13 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (state.referral?.status === 'pending') {
     return { ...finishWithoutAgenda(referralPendingReply(state.referral)), replyPrepared: true }
   }
-  if (procedureQuestion) return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }
+  if (procedureQuestion) {
+    if (state.serviceRequest) {
+      rememberDialogueQuestion(state, serviceRequestQuestion(state.serviceRequest),
+        services.filter(service => state.serviceRequest!.serviceIds.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
+    }
+    return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }
+  }
   const estimateReadRequested = plan.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'service' && operation.target.estimateOptionId !== undefined)
   if ((informationOnly || estimateReadRequested) && !plan.operations.some(operation => ['basket', 'service', 'service_request', 'estimate', 'confirm_proposal'].includes(operation.kind))) {
     return { ...finishWithoutAgenda(''), replyPrepared: true }
