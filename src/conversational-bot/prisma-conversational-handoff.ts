@@ -61,7 +61,7 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
   const effect = { kind: 'REQUEST_HUMAN_HANDOFF' as const, reason: referral.reason, detail,
     context: referral.serviceId === null ? null : { serviceId: referral.serviceId } }
   const sessions = await tx.$queryRaw<LockedSession[]>(Prisma.sql`
-    SELECT s."state",s."status"::text AS "status",s."revision"::text AS "revision",s."businessTimezone",s."handoffFenceEpoch",s."handoffClaimsPausedAt",
+    /* conversational-handoff-session */ SELECT s."state",s."status"::text AS "status",s."revision"::text AS "revision",s."businessTimezone",s."handoffFenceEpoch",s."handoffClaimsPausedAt",
       s."deploymentId",s."deploymentGeneration",d."generation",d."activeConfigurationId",d."claimsPausedAt",
       clock_timestamp() AS "dbNow"
     FROM "BotSession" s JOIN "BotChannelDeployment" d ON d."id"=s."deploymentId" AND d."businessId"=s."businessId"
@@ -72,7 +72,7 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
   if (sessions.length !== 1 || !session) throw new Error('conversational handoff session not found in tenant')
   const key = input.operationKey + ':REQUEST_HUMAN_HANDOFF'
   const operations = await tx.$queryRaw<Array<{ resultRef: string | null }>>(Prisma.sql`
-    SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE
+    /* conversational-handoff-replay */ SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE
   `)
   if (operations.length) {
     // The existing executor validates tenant/session/type/hash/status/exact resultRef,
@@ -101,7 +101,7 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
     ...(input.pendingConversationUpdates ? { pendingConversationUpdates: input.pendingConversationUpdates } : {}) })
   const revision = input.expectedRevision + 1n
   const updated = await tx.$executeRaw(Prisma.sql`
-    UPDATE "BotSession" SET "state"=${JSON.stringify(requested.state)}::jsonb,"revision"=${revision},"updatedAt"=clock_timestamp()
+    /* conversational-handoff-revision */ UPDATE "BotSession" SET "state"=${JSON.stringify(requested.state)}::jsonb,"revision"=${revision},"updatedAt"=clock_timestamp()
     WHERE "id"=${input.sessionId} AND "businessId"=${input.businessId} AND "revision"=${input.expectedRevision}
       AND "status"='HUMAN_QUEUED'::"BotSessionStatus" AND "handoffFenceEpoch"=${input.handoffFenceEpoch}
       AND "handoffClaimsPausedAt" IS NULL

@@ -1,3 +1,4 @@
+import { enqueueConversationalHandoffTx } from './prisma-conversational-handoff.js'
 import type { ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { canonicalConversationPhone, lockConversationPhoneTx, selectConsolidationGroupTx, supersedeConsolidationOutboxTx, type ConsolidationEnvelope } from './inbound-consolidation.js'
 import { observeQueueProducerTransaction, type QueueMilestoneTracker } from '../bot-options/observability/queue-milestones.js'
@@ -381,11 +382,12 @@ export async function processConversationInbox(input: {
         return {state:snapshot.draft,reply:'Esa opción ya no está disponible. Escribime cómo querés continuar; conservé tu borrador.',proposal:null}
       }
     }
+    const operationalContext = { ...prepared.context, humanHandoff: true as const }
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.selectedChoice ? await computeChoice()
       : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
-      : useAi ? await respondWithAiInterpreter(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
-      : await respond(prepared.context, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
+      : useAi ? await respondWithAiInterpreter(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
+      : await respond(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
     const computedAt = performance.now()
     let committedTransitionId: string | null = null
     const result = await measureAttemptTransaction('conversation_final', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, txOptions), body), async (tx: Prisma.TransactionClient) => {
@@ -425,6 +427,11 @@ export async function processConversationInbox(input: {
           await retry(tx, row, true); return 'STALE_REVISION' as const
         }
       }
+      const proposedHandoff = 'handoffCommand' in response ? response.handoffCommand : undefined
+      // A failed AI interpretation may reconstruct literal operations through fallback.
+      // That route is conversational help, never the current dispatch authorization.
+      const rejectedHandoff = Boolean(proposedHandoff && useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai')
+      const handoffCommand = rejectedHandoff ? undefined : proposedHandoff
       const state = snapshot.reset ? createInitialBotOptionsState() : projectConversationDraft(response.state, policy)
       const revision = session.revision + 1n
       const transitionId = `transition:${session.sessionId}:${revision}`
@@ -435,23 +442,33 @@ export async function processConversationInbox(input: {
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
       const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
       let question:ChoiceQuestion|undefined
-      if(input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+      if(!handoffCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
         // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
         try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
       }
       const atomicText = input.writeView === persistView && !question
-      const reply = (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply
+      const reply = rejectedHandoff ? 'No pude verificar ese consentimiento. Para enviar esta consulta al equipo, escribí «consultar al equipo». Conservé tu borrador.'
+        : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + response.reply
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
         generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
-        step: conversationStepForBotOptionsState(state),
+        step: handoffCommand ? null : conversationStepForBotOptionsState(state),
         ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
           coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],
           dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken } } : {})
       }))
       if (update) updates.push(update)
+      if (handoffCommand) {
+        // The ACTIVE CAS and outbox are still uncommitted. D1 queues this exact
+        // persisted draft at r+1, producing r+2; failure must escape and roll back all.
+        await enqueueConversationalHandoffTx(tx,{businessId:row.businessId,sessionId:session.sessionId,policy,
+          expectedRevision:revision,handoffFenceEpoch:session.handoffFenceEpoch,
+          operationKey:'conversation-handoff:'+row.id,
+          command:{referral:handoffCommand.referral,consent:{revision,evidence:handoffCommand.evidence}},
+          pendingConversationUpdates:updates})
+      }
       if (question) {
         await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))
         await finish(tx,row,snapshot.consolidation?.envelope.eventIds)

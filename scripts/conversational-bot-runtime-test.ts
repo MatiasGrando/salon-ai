@@ -89,10 +89,11 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
+  let handoffSql: Transaction | undefined
   const businessId = options.businessId ?? 'biz'
   let inTransaction = false
   let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', actionType:'input.initial',expectedRevision:null as bigint|null, deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true, conversationChoice:undefined as unknown },
@@ -120,6 +121,7 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
           if (failCommit && replies.length > backup.replies.length) throw new Error('COMMIT failed')
           return result
         }
+        if (options.handoffDb) return await options.handoffDb.transaction(async tx => { handoffSql = tx; return execute() })
         if (options.computeDb) return await options.computeDb.transaction(async tx => { computeSql = tx; return execute() })
         return options.sessionDb ? await options.sessionDb.transaction(async tx => {
           sessionSql = tx
@@ -128,10 +130,14 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       } catch (error) {
         ;({ row, session, replies, settled, retried, messages } = backup)
         throw error
-      } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined }
+      } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined }
     },
     async $queryRaw(q: Query) {
       statements.push(q)
+      if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
+          q.sql.includes('conversational-handoff-') || q.sql.includes('SELECT "status"::text AS "status"') || q.sql.includes('humanHandoffAtText'))) {
+        return (await handoffSql.query(q.text,q.values)).rows
+      }
       if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: row.payload.fromPhone }]
       if (q.sql.includes('consolidation-previous')) return []
       if (q.sql.includes('consolidation-candidates') && blocked) return [{ id: 'barrier', admittedAt: now, payload: { messageType: 'image' }, actionType: 'input.initial' }]
@@ -159,14 +165,28 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
       }
       if (q.sql.includes('conversation-turn-persist')) {
         assert.ok(session)
+        const backupState = structuredClone(session.state)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
+        const previous = session.revision
+        if (handoffSql) {
+          await handoffSql.query(`INSERT INTO "BotSession" ("id","businessId","conversationId","deploymentId","deploymentGeneration","businessTimezone",
+            "state","revision","status","handoffFenceEpoch","handoffClaimsPausedAt") VALUES ($1,$2,'conversation','dep',1,'UTC',$3,$4,$5,0,NULL)
+            ON CONFLICT ("id") DO UPDATE SET "state"=$3,"revision"=$4,"status"=$5`,
+            [session.sessionId,businessId,JSON.stringify(backupState),String(previous),session.status])
+          await handoffSql.query(`INSERT INTO "BotActionInbox" VALUES ($1,$2,$3,'ADMITTED',NULL) ON CONFLICT ("id") DO UPDATE SET "status"='ADMITTED'`,[row.id,businessId,row.providerEventId])
+          await handoffSql.query(`INSERT INTO "BotProviderEvent" VALUES ($1,$2,'ADMITTED') ON CONFLICT ("id") DO UPDATE SET "status"='ADMITTED'`,[row.providerEventId,businessId])
+          await handoffSql.query(`INSERT INTO "BotDispatchClaim" VALUES ('claim','dispatch-token','CLAIMED',NULL) ON CONFLICT ("id") DO UPDATE SET "status"='CLAIMED'`)
+          await handoffSql.query(`INSERT INTO "BotJob" VALUES ($1,'LEASED','job-token',NULL,NULL,NULL) ON CONFLICT ("id") DO UPDATE SET "status"='LEASED'`,[`job-${number}`])
+        }
         session.revision = q.values.find(v => typeof v === 'bigint') as bigint
+        const physical = handoffSql ? (await handoffSql.query<Record<string,unknown>>(q.text,q.values)).rows[0]! : null
         const payloads = q.values.filter(v => typeof v === 'string' && v.startsWith('{')).map(v => JSON.parse(v as string)).filter(v => v.item)
         for (const payload of payloads) replies.push(payload.item.body)
         if (q.sql.includes('settled_inbox')) {
           if (computeSql) await computeSql.query(`UPDATE "BotDispatchClaim" SET "status"='DONE' WHERE "claimToken"=ANY($1::text[])`, [q.values.filter(value => typeof value === 'string')])
           row.status = 'PROCESSED'; settled++
         }
+        if (physical) return [Object.fromEntries(Object.entries(physical).map(([key,value]) => [key,key.endsWith('Count')?BigInt(value as string|number):value]))]
         return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 1n, outboxCount: BigInt(payloads.length),
           inboxCount: 1n, dispatchCount: 1n, jobCount: 1n, conversationId: 'conversation', updatedAt: now }]
       }
@@ -206,6 +226,14 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
     },
     async $executeRaw(q: Query) {
       statements.push(q)
+      if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
+          q.sql.includes('conversational-handoff-') || q.sql.includes('SET "status" = \'HUMAN_QUEUED\'') ||
+          q.sql.includes('SET "currentStep" = \'HUMAN_HANDOFF\''))) {
+        const result = await handoffSql.query(q.text,q.values)
+        const saved = (await handoffSql.query<{status:string;state:unknown;revision:string|number}>('SELECT "status","state","revision" FROM "BotSession"')).rows[0]
+        if(session && saved) {session.status=saved.status;session.state=saved.state;session.revision=BigInt(saved.revision)}
+        return result.affectedRows ?? 0
+      }
       if (options.computeDb && (q.sql.includes('pg_advisory') || q.sql.includes('UPDATE "BotDispatchClaim"'))) {
         const result = computeSql ? await computeSql.query(q.text, q.values) : await options.computeDb.query(q.text, q.values)
         return result.affectedRows ?? 1
@@ -283,14 +311,17 @@ function runtimeFixture(options: { publicPorts?:boolean; availabilityReason?: 'C
     },
     assertOutside() { assert.equal(inTransaction, false, 'AI must run outside transactions') }, hook(fn: () => void) { prepareHook = fn }, block(value: boolean) { blocked = value }, failCommit() { failCommit = true }, invalidateClaim() { invalidClaim = true } }
 }
+const runtimeEv = (evidence: string) => ({ evidence, confidence: .99 })
+const runtimeMember = (mode: string, serviceIds: string[], evidence: string) => ({ mode, serviceIds, ...runtimeEv(evidence) })
+const runtimeBasket = (mutation: string, members: object[], evidence: string, targets: string[] = []) => ({ kind: 'basket', mutation, members, scope: targets.length ? 'members' : 'all', targetMemberIds: targets, ...runtimeEv(evidence) })
+const runtimeAct = (kind: string, field: string, evidence: string, operationIndexes: number[], mention: string | null = null) => ({kind,field,...runtimeEv(evidence),mention,operationIndexes})
+const runtimeCandidate = (...operations: object[]) => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } })
+// Focal mode does not change or waive the default suite's original assertions.
+if (!process.argv.includes('--handoff-only')) {
 // Full basket runs through the public worker, real interpreter/motor and production state projection.
 const basketRuntime = runtimeFixture({ basketCatalog: true })
 let basketOutput: unknown
 let basketInterpretations = 0, basketCopies = 0
-const runtimeEv = (evidence: string) => ({ evidence, confidence: .99 })
-const runtimeMember = (mode: string, serviceIds: string[], evidence: string) => ({ mode, serviceIds, ...runtimeEv(evidence) })
-const runtimeBasket = (mutation: string, members: object[], evidence: string, targets: string[] = []) => ({ kind: 'basket', mutation, members, scope: targets.length ? 'members' : 'all', targetMemberIds: targets, ...runtimeEv(evidence) })
-const runtimeCandidate = (...operations: object[]) => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null, turnPlan: { version: 1, operations } })
 const basketProvider: AiInterpretationProvider = Object.assign(async () => { basketRuntime.assertOutside(); basketInterpretations++; return basketOutput }, {
   respond: async (input: { facts: readonly { id: string; text: string }[] }) => { basketRuntime.assertOutside(); basketCopies++; return { opening: null, closing: null, factIds: input.facts.map(fact => fact.id) } }
 })
@@ -298,6 +329,9 @@ basketRuntime.next('Matias corte y alisado mañana con Ana')
 basketOutput = runtimeCandidate(runtimeBasket('set', [runtimeMember('single', ['cut'], 'corte'), runtimeMember('single', ['smooth'], 'alisado')], 'corte y alisado'),
   { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }, { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
   { kind: 'professional', mode: 'specific', mention: 'Ana', ...runtimeEv('Ana') })
+basketOutput = {...basketOutput as object, communicativeActs:{version:1,acts:[
+  runtimeAct('request','service','corte y alisado',[0]),runtimeAct('request','name','Matias',[1]),
+  runtimeAct('request','date','mañana',[2]),runtimeAct('request','professional','Ana',[3],'Ana')]}}
 await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
 const runtimeFirst = readConversationDraft(basketRuntime.session.state, policy, 'UTC')
 assert.equal(runtimeFirst.basket?.members.length, 2, 'public runtime must preserve every requested basket member')
@@ -309,11 +343,13 @@ assert.equal(basketRuntime.singularAgendaCalls, 0)
 assert.equal(runtimeFirst.customerName, 'Matias')
 basketRuntime.next('corte hombre')
 basketOutput = runtimeCandidate(runtimeBasket('replace', [runtimeMember('single', ['cut'], 'corte hombre')], 'corte hombre', [runtimeFirst.basket!.members[0]!.memberId]))
+basketOutput = {...basketOutput as object,communicativeActs:{version:1,acts:[runtimeAct('answer','service','corte hombre',[0])]}}
 await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
 assert.deepEqual((basketRuntime.session.state as typeof projected).cart.map(item => item.serviceId), ['cut', 'smooth'])
 const copiesBeforeProposal = basketCopies
 basketRuntime.next('14hs')
 basketOutput = runtimeCandidate({ kind: 'time', value: '14:00', ...runtimeEv('14hs') })
+basketOutput = {...basketOutput as object,communicativeActs:{version:1,acts:[runtimeAct('answer','time','14hs',[0])]}}
 await basketRuntime.run('PROCESS_INBOX', { provider: basketProvider, timeoutMs: 4500 })
 const runtimeComplete = readConversationDraft(JSON.parse(JSON.stringify(basketRuntime.session.state)), policy, 'UTC')
 assert.equal(runtimeComplete.pending, 'proposal', JSON.stringify({ date: runtimeComplete.date, hasName: Boolean(runtimeComplete.customerName), hasProfessional: Boolean(runtimeComplete.professional), memberCount: runtimeComplete.basket?.members.length, memberModes: runtimeComplete.basket?.members.map(member => member.mode), hasSlot: Boolean(runtimeComplete.slot), lastReply: basketRuntime.replies.at(-1) }))
@@ -329,6 +365,32 @@ assert.equal(basketRuntime.singularAgendaCalls, 0)
 assert.ok(basketRuntime.basketAgendaCalls > 0)
 assert.ok(!basketRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)), 'public basket worker never reserves')
 console.log('conversational public runtime complete basket/ambiguity/sidecar/proposal-only: PASS')
+
+const legacyBasket = runtimeFixture({basketCatalog:true})
+legacyBasket.next('Matias corte y alisado mañana con Ana')
+await legacyBasket.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+  runtimeBasket('set',[runtimeMember('single',['cut'],'corte'),runtimeMember('single',['smooth'],'alisado')],'corte y alisado'),
+  {kind:'name',value:'Matias',...runtimeEv('Matias')},{kind:'date',expression:'mañana',value:null,...runtimeEv('mañana')},
+  {kind:'professional',mode:'specific',mention:'Ana',...runtimeEv('Ana')}),timeoutMs:15000})
+const legacyFirst = readConversationDraft(legacyBasket.session.state,policy,'UTC')
+assert.equal(legacyFirst.customerName,'Matias')
+assert.equal(legacyFirst.date,'2026-10-02')
+assert.equal(legacyFirst.basket?.members.length,2)
+assert.equal(legacyFirst.professional,null,'legacy model-only professional has no current owner')
+assert.equal(legacyFirst.questionContext,undefined)
+legacyBasket.next('corte hombre')
+await legacyBasket.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+  runtimeBasket('replace',[runtimeMember('single',['cut'],'corte hombre')],'corte hombre',[legacyFirst.basket!.members[0]!.memberId])),timeoutMs:15000})
+const legacyAfter = readConversationDraft(legacyBasket.session.state,policy,'UTC')
+assert.deepEqual(legacyAfter.basket,legacyFirst.basket,'no old question scope means no legacy answer replacement')
+assert.equal(legacyAfter.customerName,legacyFirst.customerName)
+assert.equal(legacyAfter.date,legacyFirst.date)
+assert.deepEqual((legacyBasket.session.state as typeof projected).cart,[])
+assert.equal(legacyBasket.basketAgendaCalls+legacyBasket.singularAgendaCalls,0)
+assert.ok(!legacyBasket.statements.some(q=>/INSERT INTO "(?:Appointment|BookingVisit)"/.test(q.sql)))
+assert.match(legacyBasket.replies.at(-1)!,/¿|eleg|no pude/i)
+console.log('original legacy basket fixture retained: no owner/no scope does not authorize replacement PASS')
+
 // Guided services traverse the same public worker/sidecar contract, including the fourth port argument.
 const guidedRuntime = runtimeFixture({ basketCatalog: true, guidedCatalog: true })
 let guidedOutput: unknown
@@ -340,11 +402,15 @@ guidedRuntime.next('Matias corte y alisado mañana con Ana')
 guidedOutput = runtimeCandidate(runtimeBasket('set', [runtimeMember('single', ['cut'], 'corte'), runtimeMember('single', ['smooth'], 'alisado')], 'corte y alisado'),
   { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }, { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
   { kind: 'professional', mode: 'specific', mention: 'Ana', ...runtimeEv('Ana') })
+guidedOutput = {...guidedOutput as object, communicativeActs:{version:1,acts:[
+  runtimeAct('request','service','corte y alisado',[0]),runtimeAct('request','name','Matias',[1]),
+  runtimeAct('request','date','mañana',[2]),runtimeAct('request','professional','Ana',[3],'Ana')]}}
 await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
 const guidedFirst = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
 assert.equal(guidedFirst.pending, 'service'); assert.equal(guidedRuntime.basketAgendaCalls, 0)
 guidedRuntime.next('corte hombre')
 guidedOutput = runtimeCandidate(runtimeBasket('replace', [runtimeMember('single', ['cut'], 'corte hombre')], 'corte hombre', [guidedFirst.basket!.members[0]!.memberId]))
+guidedOutput = {...guidedOutput as object,communicativeActs:{version:1,acts:[runtimeAct('answer','service','corte hombre',[0])]}}
 await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
 const guidedQuestion = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
 assert.equal(guidedQuestion.pending, 'estimate'); assert.equal(guidedRuntime.basketAgendaCalls, 0)
@@ -352,6 +418,7 @@ assert.match(guidedRuntime.replies.at(-1)!, /Qué largo/)
 assert.equal(guidedQuestion.customerName, 'Matias'); assert.equal(guidedQuestion.date, '2026-10-02')
 guidedRuntime.next('hasta los hombros')
 guidedOutput = runtimeCandidate({ kind: 'estimate', serviceId: 'smooth', optionId: 'short', ...runtimeEv('hasta los hombros') })
+guidedOutput = {...guidedOutput as object,communicativeActs:{version:1,acts:[runtimeAct('answer','estimate','hasta los hombros',[0])]}}
 await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
 const guidedChosen = readConversationDraft(JSON.parse(JSON.stringify(guidedRuntime.session.state)), policy, 'UTC')
 assert.equal(guidedChosen.pending, 'time'); assert.equal(guidedChosen.serviceEstimates?.smooth?.optionId, 'short')
@@ -359,6 +426,7 @@ assert.ok(guidedRuntime.basketAgendaCalls > 0); assert.equal(guidedRuntime.singu
 const copiesBeforeGuidedProposal = guidedCopies
 guidedRuntime.next('14hs')
 guidedOutput = runtimeCandidate({ kind: 'time', value: '14:00', ...runtimeEv('14hs') })
+guidedOutput = {...guidedOutput as object,communicativeActs:{version:1,acts:[runtimeAct('answer','time','14hs',[0])]}}
 await guidedRuntime.run('PROCESS_INBOX', { provider: guidedProvider, timeoutMs: 4500 })
 const guidedProposal = readConversationDraft(guidedRuntime.session.state, policy, 'UTC')
 assert.equal(guidedProposal.pending, 'proposal'); assert.equal(guidedProposal.serviceEstimates?.smooth?.optionId, 'short')
@@ -860,12 +928,12 @@ const availabilityRuntime = runtimeFixture({ basketCatalog: true, availabilityRe
 availabilityRuntime.next('Corte hombre y alisado mañana cualquiera 14:00 soy Matias')
 const availabilityTraces: unknown[] = []
 await availabilityRuntime.run('PROCESS_INBOX', { timeoutMs: 15000,
-  provider: async () => runtimeCandidate(
+  provider: async () => ({...runtimeCandidate(
     runtimeBasket('set', [runtimeMember('single', ['cut'], 'Corte hombre'), runtimeMember('single', ['smooth'], 'alisado')], 'Corte hombre y alisado'),
     { kind: 'date', expression: 'mañana', value: null, ...runtimeEv('mañana') },
     { kind: 'professional', mode: 'any', ...runtimeEv('cualquiera') },
     { kind: 'time', value: '14:00', ...runtimeEv('14:00') },
-    { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }),
+    { kind: 'name', value: 'Matias', ...runtimeEv('Matias') }),communicativeActs:{version:1,acts:[runtimeAct('request','service','Corte hombre y alisado',[0]),runtimeAct('request','date','mañana',[1]),runtimeAct('request','professional','cualquiera',[2]),runtimeAct('request','time','14:00',[3]),runtimeAct('request','name','Matias',[4])]}}),
   onDiagnostic: value => { availabilityTraces.push(value) } })
 const availabilityTrace = availabilityTraces[0] as { availability?: unknown }
 assert.deepEqual(availabilityTrace.availability, { outcome: 'blocked', phase: 'query', reason: 'COMBINATION_REVIEW', scope: 'all_compatible' })
@@ -882,6 +950,21 @@ await availabilityRuntime.run('PROCESS_INBOX', { timeoutMs: 15000,
 assert.equal((availabilityTraces[1] as { availability?: unknown }).availability, undefined)
 assert.equal(availabilityRuntime.basketAgendaCalls, 1, 'social turn does not refresh or replay agenda')
 assert.match(availabilityRuntime.replies.at(-1)!, /cambiar|quitar|equipo/)
+
+const legacyAvailability = runtimeFixture({basketCatalog:true,availabilityReason:'COMBINATION_REVIEW'})
+legacyAvailability.next('Corte hombre y alisado mañana cualquiera 14:00 soy Matias')
+await legacyAvailability.run('PROCESS_INBOX',{timeoutMs:15000,provider:async()=>runtimeCandidate(
+  runtimeBasket('set',[runtimeMember('single',['cut'],'Corte hombre'),runtimeMember('single',['smooth'],'alisado')],'Corte hombre y alisado'),
+  {kind:'date',expression:'mañana',value:null,...runtimeEv('mañana')},{kind:'professional',mode:'any',...runtimeEv('cualquiera')},
+  {kind:'time',value:'14:00',...runtimeEv('14:00')},{kind:'name',value:'Matias',...runtimeEv('Matias')})})
+const unownedAvailability = readConversationDraft(legacyAvailability.session.state,policy,'UTC')
+assert.equal(unownedAvailability.professional,null)
+assert.equal(unownedAvailability.customerName,'Matias')
+assert.equal(unownedAvailability.date,'2026-10-02')
+assert.equal(unownedAvailability.basket?.members.length,2)
+assert.equal(legacyAvailability.basketAgendaCalls+legacyAvailability.singularAgendaCalls,0,'legacy ownerless professional cannot query agenda')
+assert.ok(!legacyAvailability.statements.some(q=>/INSERT INTO "(?:Appointment|BookingVisit)"/.test(q.sql)))
+
 console.log('conversational worker availability diagnostics: closed cause, no persistence/query/leak PASS')
 
 const fallbackRuntime = runtimeFixture()
@@ -1184,3 +1267,142 @@ for (const status of ['HUMAN_QUEUED', 'HUMAN_TAKEN']) {
   assert.equal(protectedReferral.replies.length, beforeReplies)
 }
 console.log('conversational referral real HUMAN_QUEUED/HUMAN_TAKEN ownership remains protected: PASS')
+
+}
+
+const handoffDb = new PGlite()
+const handoffEvents: unknown[] = []
+let stopHandoffEvents = () => {}
+try {
+  // Reuse the already-exercised runtime final-CAS schema; extend only handoff columns.
+  const runtimeSource = await import('node:fs').then(fs => fs.readFileSync('scripts/conversational-bot-runtime-test.ts','utf8'))
+  const start = runtimeSource.indexOf('await atomicDb.exec(`') + 'await atomicDb.exec(`'.length
+  const end = runtimeSource.indexOf('INSERT INTO "BotSession" VALUES',start)
+  const schema = runtimeSource.slice(start,end)
+    .replace("('ACTIVE','HUMAN_TAKEN')", "('ACTIVE','HUMAN_QUEUED','HUMAN_TAKEN')")
+    .replace("('BOOKING_IN_PROGRESS')", "('BOOKING_IN_PROGRESS','HUMAN_HANDOFF','COMPLETED')")
+    .replace('"deploymentGeneration" integer,"state"', '"deploymentGeneration" integer,"deploymentId" text DEFAULT \'dep\',"businessTimezone" text DEFAULT \'UTC\',"state"')
+    .replace('"currentStep" "ConversationStep","updatedAt" timestamptz', '"currentStep" "ConversationStep","updatedAt" timestamptz,"aiEnabled" boolean DEFAULT true,"humanHandoffAt" timestamptz,"humanHandoffResolvedAt" timestamptz')
+  assert.ok(schema.startsWith('CREATE TYPE'), 'reuse matching in-memory SQL schema only')
+  await handoffDb.exec(schema + `
+    CREATE TYPE "BotHandoffStatus" AS ENUM ('QUEUED','TAKEN','CANCELLED','RESOLVED');
+    CREATE TABLE "BotChannelDeployment" ("id" text PRIMARY KEY,"businessId" text,"generation" int,
+      "activeConfigurationId" text,"claimsPausedAt" timestamptz);
+    CREATE TABLE "BotOperation" ("id" text PRIMARY KEY,"operationKey" text UNIQUE,"type" text,"businessId" text,
+      "sessionId" text,"status" text,"requestHash" text,"resultRef" text,"updatedAt" timestamptz);
+    CREATE TABLE "BotHandoff" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"status" "BotHandoffStatus",
+      "reason" text,"detail" text,"context" jsonb,"queuedAt" timestamptz,"updatedAt" timestamptz);
+    CREATE UNIQUE INDEX one_active_handoff ON "BotHandoff" ("sessionId") WHERE "status" IN ('QUEUED','TAKEN');
+    ALTER TABLE "BotActionInbox" ADD PRIMARY KEY ("id");
+    ALTER TABLE "BotProviderEvent" ADD PRIMARY KEY ("id");
+    ALTER TABLE "BotDispatchClaim" ADD PRIMARY KEY ("id");
+    ALTER TABLE "BotJob" ADD PRIMARY KEY ("id");
+    INSERT INTO "BotChannelDeployment" VALUES ('dep','biz',1,'cfg',NULL);
+    INSERT INTO "Conversation" ("id","businessId","currentStep","updatedAt") VALUES ('conversation','biz','BOOKING_IN_PROGRESS',now());
+  `)
+  const consentRuntime = runtimeFixture({handoffDb})
+  let activeRuntime = consentRuntime
+  stopHandoffEvents = subscribeToCrmRealtimeEvents({businessId:'biz',send(event){activeRuntime.assertOutside();handoffEvents.push(event)}})
+  const inquiry = 'Demo corte francés mañana'
+  consentRuntime.next(inquiry)
+  await consentRuntime.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+    {kind:'service_request',purpose:'booking',disposition:'unverified_variant',serviceIds:[],correction:false,
+      continuation:false,basis:'related_category',sourceQuote:null,...runtimeEv('corte francés')},
+    {kind:'name',value:'Demo',...runtimeEv('Demo')},{kind:'date',expression:'mañana',value:null,...runtimeEv('mañana')}
+  ),timeoutMs:15000})
+  const before = structuredClone(readConversationDraft(consentRuntime.session.state,policy,'UTC'))
+  assert.equal(before.referral?.status,'offered')
+  const revision = consentRuntime.session.revision
+  const eventCount = handoffEvents.length
+  consentRuntime.next('consultar al equipo')
+  await consentRuntime.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+    {kind:'referral',action:'consult',...runtimeEv('consultar al equipo')}),timeoutMs:15000})
+  assert.equal(consentRuntime.session.status,'HUMAN_QUEUED','public worker must actually enqueue after consent')
+  assert.equal(consentRuntime.session.revision,revision+2n,'turn CAS and enqueue have explicit successive revisions')
+  const saved = readConversationDraft(consentRuntime.session.state,policy,'UTC')
+  assert.equal(saved.customerName,before.customerName)
+  assert.equal(saved.date,before.date)
+  assert.deepEqual(saved.basket,before.basket)
+  assert.equal(consentRuntime.singularAgendaCalls+consentRuntime.basketAgendaCalls,0)
+  const queue = (await handoffDb.query<{status:string;detail:string}>('SELECT * FROM "BotHandoff"')).rows
+  assert.equal(queue.length,1)
+  assert.equal(queue[0]!.status,'QUEUED')
+  assert.match(queue[0]!.detail,/^conversational-consent:[a-f0-9]{64}$/)
+  const crm = (await handoffDb.query<{currentStep:string;aiEnabled:boolean}>('SELECT * FROM "Conversation"')).rows[0]!
+  assert.equal(crm.currentStep,'HUMAN_HANDOFF')
+  assert.equal(crm.aiEnabled,true,'queue is not human-owned TAKE')
+  assert.ok(handoffEvents.length>eventCount)
+  assert.doesNotMatch(consentRuntime.replies.at(-1)!,/no les envié/)
+  assert.match(consentRuntime.replies.at(-1)!,/cola|envi.*consulta/i)
+  const beforeDuplicate = await handoffDb.query('SELECT * FROM "BotHandoff"')
+  await consentRuntime.run()
+  assert.deepEqual(await handoffDb.query('SELECT * FROM "BotHandoff"'),beforeDuplicate,'same processed inbox does not create a second queue')
+  console.log('visible conversational handoff: public worker, real SQL CAS/queue, CRM and preserved draft PASS')
+
+  const freshConsent = async () => {
+    await handoffDb.exec(`TRUNCATE "BotSession","BotTransitionLog","BotPrompt","BotPromptChoice","BotOutbox","BotActionInbox","BotProviderEvent","BotDispatchClaim","BotJob","BotOperation","BotHandoff" CASCADE; UPDATE "Conversation" SET "currentStep"='BOOKING_IN_PROGRESS',"aiEnabled"=true,"humanHandoffAt"=NULL`)
+    const runtime = runtimeFixture({handoffDb})
+    activeRuntime = runtime
+    runtime.next(inquiry)
+    await runtime.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+      {kind:'service_request',purpose:'booking',disposition:'unverified_variant',serviceIds:[],correction:false,
+        continuation:false,basis:'related_category',sourceQuote:null,...runtimeEv('corte francés')},
+      {kind:'name',value:'Demo',...runtimeEv('Demo')},{kind:'date',expression:'mañana',value:null,...runtimeEv('mañana')}
+    ),timeoutMs:15000})
+    assert.equal(readConversationDraft(runtime.session.state,policy,'UTC').referral?.status,'offered')
+    runtime.next('consultar al equipo')
+    return runtime
+  }
+  const queueCount = async () => (await handoffDb.query<{count:number}>('SELECT count(*)::integer AS count FROM "BotHandoff"')).rows[0]!.count
+  for (const kind of ['invalid_output','provider_error','timeout'] as const) {
+    const denied = await freshConsent()
+    const draftBefore = readConversationDraft(denied.session.state,policy,'UTC')
+    const diagnostics: Array<{mode:string;reason:string|null}> = []
+    const provider: AiInterpretationProvider = kind === 'invalid_output' ? async()=>runtimeCandidate(
+      {kind:'information',target:{kind:'service',actions:[],serviceIds:['foreign'],aspect:'price'},...runtimeEv('consultar al equipo')})
+      : kind === 'provider_error' ? async()=>{throw new Error('synthetic provider failure')}
+      : async()=>new Promise(()=>{})
+    await denied.run('PROCESS_INBOX',{provider,timeoutMs:kind==='timeout'?1:15000,onDiagnostic:value=>{diagnostics.push(value as typeof diagnostics[number])}})
+    assert.equal(diagnostics[0]!.mode,'fallback')
+    assert.equal(diagnostics[0]!.reason,kind)
+    assert.equal(denied.session.status,'ACTIVE')
+    assert.equal(await queueCount(),0,'fallback cannot reconstruct dispatch consent')
+    const after = readConversationDraft(denied.session.state,policy,'UTC')
+    assert.equal(after.customerName,draftBefore.customerName)
+    assert.equal(after.date,draftBefore.date)
+    assert.deepEqual(after.basket,draftBefore.basket)
+    assert.doesNotMatch(denied.replies.at(-1)!,/quedó en cola|ya.*envi/i)
+    assert.match(denied.replies.at(-1)!,/consultar al equipo/i)
+    assert.equal(denied.singularAgendaCalls+denied.basketAgendaCalls,0)
+  }
+  const rollback = await freshConsent()
+  const sqlBefore = (await handoffDb.query('SELECT "state","revision"::text,"status" FROM "BotSession"')).rows
+  const outboxBefore = (await handoffDb.query('SELECT * FROM "BotOutbox"')).rows
+  const stateBefore = structuredClone(rollback.session.state)
+  const eventsBefore = handoffEvents.length
+  rollback.failCommit()
+  await assert.rejects(()=>rollback.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+    {kind:'referral',action:'consult',...runtimeEv('consultar al equipo')}),timeoutMs:15000}),/COMMIT failed/)
+  assert.equal(await queueCount(),0,'caller failure rolls queue back')
+  assert.deepEqual((await handoffDb.query('SELECT "state","revision"::text,"status" FROM "BotSession"')).rows,sqlBefore)
+  assert.deepEqual((await handoffDb.query('SELECT * FROM "BotOutbox"')).rows,outboxBefore)
+  assert.deepEqual(rollback.session.state,stateBefore)
+  assert.equal(handoffEvents.length,eventsBefore,'no CRM event or success escapes failed commit')
+  assert.equal((await handoffDb.query<{currentStep:string}>('SELECT "currentStep" FROM "Conversation"')).rows[0]!.currentStep,'BOOKING_IN_PROGRESS')
+  for (const guard of ['revision','fence','taken'] as const) {
+    const rejected = await freshConsent()
+    const before = structuredClone(rejected.session.state)
+    if(guard==='taken') await handoffDb.query(`INSERT INTO "BotHandoff" VALUES ('taken','biz','session','TAKEN','UNVERIFIED_SERVICE',NULL,'{}',now(),now())`)
+    const queuesBefore = await queueCount()
+    rejected.hook(()=>{if(guard==='revision')rejected.session.revision++;else if(guard==='fence')rejected.session.handoffFenceEpoch++;else rejected.session.status='HUMAN_TAKEN'})
+    await rejected.run('PROCESS_INBOX',{provider:async()=>runtimeCandidate(
+      {kind:'referral',action:'consult',...runtimeEv('consultar al equipo')}),timeoutMs:15000})
+    assert.equal(await queueCount(),queuesBefore,'final '+guard+' guard cannot enqueue')
+    assert.deepEqual(rejected.session.state,before)
+  }
+  const literal = await freshConsent()
+  await literal.run()
+  assert.equal(literal.session.status,'HUMAN_QUEUED','server literal consent does not require an AI call')
+  assert.equal(await queueCount(),1)
+  console.log('handoff final transaction: fallback denial, caller rollback, revision/fence/TAKEN and no-AI literal PASS')
+} finally {stopHandoffEvents();await handoffDb.close()}

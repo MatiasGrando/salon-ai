@@ -197,10 +197,37 @@ assert.equal(missingReasonProof.state.referral, undefined, 'no matching photo pr
 const copyIndependent = { state: structuredClone(unknown.state), reply: 'No tengo datos confirmados sobre esa prestación.', proposal: null }
 delete copyIndependent.state.referral
 attachReferralOffer(copyIndependent, services)
-assert.equal(copyIndependent.state.referral?.status, 'offered', 'typed unknown outcome creates an offer regardless of copy vocabulary')
+assert.equal((copyIndependent.state as DialogueState).referral?.status, 'offered', 'typed unknown outcome creates an offer regardless of copy vocabulary')
 assert.match(copyIndependent.reply, /¿Querés consultarlo/, 'offered state must actually present a consultation question')
 const unchangedUnknown = { state: structuredClone(unknown.state), reply: unknown.reply, proposal: null }
 delete unchangedUnknown.state.referral
 attachReferralOffer(unchangedUnknown, services)
 assert.equal((unchangedUnknown.reply.match(/¿Querés consultarlo/g) ?? []).length, 1, 'canonical server offer is not repeated')
 console.log('conversational referral: scoped pending/resume, draft preservation, policy guard and preview roundtrip PASS')
+
+const operationalContext = { ...context, humanHandoff: true as const }
+const exactConsent = 'consultar al equipo'
+const operational = await respondWithAiInterpreter(operationalContext, unknown.state, exactConsent, port,
+  provider([operation('referral', exactConsent, { action: 'consult' })]))
+assert.deepEqual(operational.handoffCommand, { referral: operational.state.referral, evidence: exactConsent })
+assert.equal(operational.bookingCommand, undefined)
+assert.equal(operational.proposal, null)
+assert.equal(operational.state.date, unknown.state.date)
+assert.equal(operational.state.customerName, unknown.state.customerName)
+assert.equal(consulting.handoffCommand, undefined, 'preview lacks real handoff capability')
+for (const message of ['no quiero consultar al equipo', 'si hace falta consultar al equipo', 'consultar al equipo o seguir acá']) {
+  const rejected = await respondWithAiInterpreter(operationalContext, unknown.state, message, port,
+    provider([operation('referral', 'consultar al equipo', { action: 'consult' })]))
+  assert.equal(rejected.handoffCommand, undefined, 'whole current message must prove explicit consent')
+}
+const weakConsent = await respondWithAiInterpreter(operationalContext, unknown.state, exactConsent, port,
+  provider([{ ...operation('referral', exactConsent, { action: 'consult' }), confidence: .84 }]))
+assert.equal(weakConsent.handoffCommand, undefined)
+const missingReferral = await respondWithAiInterpreter(operationalContext, initial, exactConsent, port,
+  provider([operation('referral', exactConsent, { action: 'consult' })]))
+assert.equal(missingReferral.handoffCommand, undefined)
+const contextualYes = await respondWithAiInterpreter(operationalContext, unknown.state, 'sí', port,
+  provider([operation('referral', 'sí', { action: 'consult' })]))
+assert.equal(contextualYes.handoffCommand, undefined, 'unproven contextual yes is not dispatch consent')
+assert.match(contextualYes.reply, /consultar al equipo|envi.*consulta/i, 'provide an explicit path instead of a yes loop')
+console.log('operational handoff consent: capability, full-body intent, weak and preview guards PASS')

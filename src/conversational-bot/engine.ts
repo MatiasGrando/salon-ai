@@ -33,7 +33,7 @@ import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperati
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
 export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
-export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean }
+export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[]; professionalFailure?: ProfessionalEligibilityFailure }
@@ -90,7 +90,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -1192,8 +1192,14 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (referralOperation?.kind === 'referral' && referralOperation.confidence >= 0.85) {
     if (referralOperation.action === 'consult') {
       if (!state.referral) return finishWithoutAgenda('¿Qué pedido querés consultar con el equipo?')
+      // A runtime capability is not consent. The whole current message must
+      // independently select consultation; a model fragment or contextual yes cannot.
+      if (context.humanHandoff && explicitReferralAction(message) !== 'consult') {
+        return { ...finishWithoutAgenda('Para enviar esta consulta al equipo, escribí «consultar al equipo». Conservé tu borrador.'), replyPrepared: true }
+      }
       state.referral = { ...state.referral, status: 'pending' }
-      return { ...finishWithoutAgenda(referralPendingReply(state.referral)), replyPrepared: true }
+      return { ...finishWithoutAgenda(referralPendingReply(state.referral)), replyPrepared: true,
+        ...(context.humanHandoff ? { handoffCommand: { referral: structuredClone(state.referral), evidence: message } } : {}) }
     }
     delete state.referral
     if (state.serviceRequest) {
