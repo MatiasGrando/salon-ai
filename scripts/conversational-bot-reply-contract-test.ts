@@ -34,6 +34,10 @@ async function main() {
   const policy = replyContract('continuation', true, true, facts)
   const draft = { opening: 'Hola, seguimos cuando quieras.', factIds: ['data', 'next'], closing: null }
   assert.equal(validateReplyDraft(draft, facts, policy, []).validation.status, 'accepted')
+  const serverMaterial = validateReplyDraft({ ...draft, factIds: null }, facts, policy, [])
+  assert.equal(serverMaterial.validation.status, 'accepted')
+  assert.equal(serverMaterial.text, validateReplyDraft(draft, facts, policy, []).text)
+  assert.equal(serverMaterial.validation.providedCount, 0, 'server assembly is not a model-provided list')
   for (const [bad, reason] of [
     [null, 'missing_draft'], [{ ...draft, factIds: ['next', 'data'] }, 'fact_order'], [{ ...draft, factIds: ['foreign', 'next'] }, 'fact_membership'],
     [{ ...draft, opening: 'Cuesta $999' }, 'unverified_value'], [{ ...draft, opening: 'Reservado' }, 'unverified_action'],

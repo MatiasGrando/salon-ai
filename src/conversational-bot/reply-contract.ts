@@ -27,7 +27,7 @@ export const REPLY_DRAFT_SCHEMA = {
   properties: {
     salutation: { type: ['string', 'null'], enum: ['greeting', null] },
     opening: { type: ['string', 'null'] },
-    factIds: { type: 'array', items: { type: 'string' } },
+    factIds: { type: 'null' },
     closing: { type: ['string', 'null'] },
     variantChoices: { type: ['array', 'null'], items: { type: 'object', additionalProperties: false, required: ['factId', 'variantId'], properties: { factId: { type: 'string' }, variantId: { type: 'string' } } } }
   }
@@ -37,7 +37,7 @@ export const REPLY_COMPOSITION_GUIDE = [
   'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
   'Reconocimiento cualitativo: en opening respondé la cortesía y reconocé que vas a ayudar con el pedido sin repetir sus valores concretos. Fecha, hora, cifras, nombres de prestaciones y otros datos solicitados pertenecen a las operaciones y al cuerpo verificado por el servidor, no al encuadre libre, aunque provengan del cliente. No anticipes disponibilidad ni resumas esos valores en opening/closing; una transición breve basta antes de la pregunta pertinente.',
-  'Cuerpo material: incluí todos los factIds exactamente una vez en el orden recibido; el servidor inserta sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
+  'Cuerpo material: devolvé factIds:null para indicar cuerpo completo del servidor. No enumeres, selecciones ni copies los IDs obligatorios: el servidor inserta siempre TODOS los hechos recibidos exactamente una vez, en su orden, incluidos precios, condiciones y next, con sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
   'Continuación pertinente: si hay next debe ir al final y closing es null. No agregues otra pregunta de adquisición o confirmación en opening. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. Si no necesitás encuadre, salutation/opening/closing son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
 ] as const
 export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ')
@@ -45,7 +45,7 @@ export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ')
 /** Interpretation shares the writing policy, but its facts precede semantic updates. */
 export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
   'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. La respuesta a cortesía explícita no se omite por una reserva, una consulta lateral o un cambio de datos; después va la pregunta pertinente del servidor. ' +
-  'Usá todos los factIds originales en orden y closing null cuando hay next. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null. ' +
+  'Usá factIds:null y closing null cuando hay next; el servidor conserva todos los hechos originales en orden. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null. ' +
   'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante charla conservá la pregunta pendiente; pedidos ajenos se encauzan brevemente a ayuda del local. '
 
 export function replyContract(role: ReplyRole, identityAvailable: boolean, introduced: boolean,
@@ -109,11 +109,15 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation').sort().join(',')) || !Array.isArray(value.factIds)) return result('invalid_shape')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return result('invalid_shape')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return result('invalid_shape')
-  if (value.factIds.length !== facts.length || new Set(value.factIds).size !== facts.length ||
-      value.factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
-  if (JSON.stringify(value.factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
+  // Explicit null assigns the complete material body to the server. Legacy lists
+  // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
+  // providedCount above stays zero for null; these IDs were not supplied by the model.
+  const factIds = value.factIds === null ? facts.map(fact => fact.id) : value.factIds
+  if (factIds.length !== facts.length || new Set(factIds).size !== facts.length ||
+      factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
+  if (JSON.stringify(factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
   if (value.variantChoices !== undefined && value.variantChoices !== null) {
     if (!Array.isArray(value.variantChoices) || value.variantChoices.length > facts.length) return result('invalid_shape')
     for (const rawChoice of value.variantChoices) {
@@ -126,7 +130,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
       selectedVariants.set(choice.factId, variant.text)
     }
   }
-  if (contract.continuation && (value.factIds.at(-1) !== 'next' || value.closing !== null)) return result('continuation_conflict')
+  if (contract.continuation && (factIds.at(-1) !== 'next' || value.closing !== null)) return result('continuation_conflict')
   if (contract.neutral && value.opening !== null) return result('neutral_frame')
   const framing = [value.opening, value.closing]
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')

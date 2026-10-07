@@ -54,7 +54,8 @@ for (const request of requests) {
 }
 assert.match(requests[0]!.instructions, /Primera llamada, cualquier intención:/)
 assert.match(requests[0]!.instructions, /booking con operations vacío/)
-assert.match(requests[0]!.instructions, /factIds originales/)
+assert.match(requests[0]!.instructions, /factIds:null/)
+assert.match(requests[0]!.instructions, /todos los hechos originales en orden/)
 assert.match(requests[0]!.instructions, /no es necesario predecir la nueva pregunta/)
 
 // These fixtures verify delivery and safety, not the real model's language quality.
