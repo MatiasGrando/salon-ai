@@ -17,7 +17,7 @@ export function coordinationKey(businessId: string, segments: readonly Coordinat
   return createHash('sha256').update(JSON.stringify({ businessId, segments: canonical })).digest('hex')
 }
 /** Shape is not agenda authority: callers must still re-read the complete assignment. */
-export function validateCoordinatedSlot(slot: DialogueAvailabilitySlot, scope: {
+export function validateCoordinatedSlot(slot: Pick<DialogueAvailabilitySlot, 'date' | 'time' | 'startAt' | 'professionalId' | 'professionalName' | 'occupiedMinutes' | 'coordination'>, scope: {
   businessId: string; serviceIds: readonly string[]; timezone?: string
   services?: readonly { id: string; name: string; durationMinutes: number | null; customerDurationMinutes?: number | null }[]
 }): void {
@@ -38,9 +38,17 @@ export function validateCoordinatedSlot(slot: DialogueAvailabilitySlot, scope: {
   const first = c.segments[0]!, last = c.segments.at(-1)!
   if (slot.startAt !== first.startAt || slot.professionalId !== first.professionalId || slot.professionalName !== first.professionalName || slot.occupiedMinutes !== (Date.parse(last.endAt)-Date.parse(first.startAt))/60000 || parseMinutes(slot.time) === null || coordinationKey(scope.businessId,c.segments) !== c.key) throw Error('invalid coordinated anchor or key')
 }
-export function coordinationLabel(slot: DialogueAvailabilitySlot, timezone: string): string {
+export function coordinationLabel(slot: Pick<DialogueAvailabilitySlot, 'professionalName' | 'coordination'>, timezone: string): string {
   return slot.coordination?.segments.map(s => {
     const time = new Intl.DateTimeFormat('en-GB',{timeZone:timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(s.startAt))
     return time + ' ' + s.serviceName + ' con ' + s.professionalName
   }).join(' → ') ?? slot.professionalName
+}
+
+/** Lock every assigned professional in the same order before touching the conversation. */
+export function bookingProfessionalIds(terms: { professionalId: string; coordination?: SlotCoordination }): string[] {
+  return [...new Set(terms.coordination?.segments.map(segment => segment.professionalId) ?? [terms.professionalId])].sort()
+}
+export function sandboxCoordinationGroupId(businessId: string, conversationId: string, nonce: string, fingerprint: string): string {
+  return 'simqa_group_' + createHash('sha256').update(JSON.stringify([businessId, conversationId, nonce, fingerprint])).digest('hex')
 }

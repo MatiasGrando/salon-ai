@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { serviceConfigurationKey, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
+import { validateCoordinatedSlot, coordinationLabel, type SlotCoordination } from './coordinated-booking.js'
 import { basketServiceIds } from './service-basket.js'
 import { resolveGuidance, attendanceContent } from './service-guidance.js'
 import type { BookingProposal, DialogueContext, DialogueResponse, DialogueService, DialogueState } from './engine.js'
@@ -16,11 +17,12 @@ export type SandboxBookingTerms = {
   preference: { kind: 'any' } | { kind: 'specific'; id: string }
   durationMinutes: number; customerDurationMinutes: number; totalPrice: number | null
   services: SandboxBookingService[]
+  coordination?: SlotCoordination
 }
 export type PresentedSandboxProposal = { schemaVersion: 1; nonce: string; fingerprint: string; terms: SandboxBookingTerms; conditionsPresented?: true }
 export const SANDBOX_RECEIPT_ADDRESS_MAX_LENGTH = 1000
 /** Optional commit-time location snapshot; legacy receipts deliberately have none. */
-export type SandboxBookingReceipt = { appointmentId: string; proposalNonce: string; fingerprint: string; businessAddress?: string }
+export type SandboxBookingReceipt = { appointmentId: string; proposalNonce: string; fingerprint: string; businessAddress?: string; appointmentIds?: string[]; coordinationGroupId?: string }
 export type SandboxReservation = { schemaVersion: 1; presented: PresentedSandboxProposal; receipt?: SandboxBookingReceipt }
 export type SandboxBookingCommand = { kind: 'CONFIRM_SANDBOX_BOOKING'; presented: PresentedSandboxProposal }
 export type SandboxBookingBlockReason = 'DEPOSIT_REQUIRED' | 'POLICY_BLOCKED' | 'SERVICE_UNAVAILABLE' | 'SCOPE_REJECTED' | 'TEMPORARILY_UNAVAILABLE'
@@ -61,14 +63,16 @@ export function buildSandboxBookingTerms(context: DialogueContext, state: Dialog
   const terms: SandboxBookingTerms = { businessId: context.businessId, timezone: context.timezone, date: state.date, startAt: state.slot.startAt, time: state.slot.time,
     customerName: state.customerName, professionalId: state.slot.professionalId, professionalName: state.slot.professionalName, preference: structuredClone(state.professional),
     durationMinutes: rows.reduce((sum, service) => sum + service.durationMinutes, 0), customerDurationMinutes: rows.reduce((sum, service) => sum + service.customerDurationMinutes, 0),
+    ...(state.slot.coordination ? { coordination: structuredClone(state.slot.coordination) } : {}),
     totalPrice: rows.every(service => !service.estimate && service.priceMode === 'FIXED' && service.price !== null) ? rows.reduce((sum, service) => sum + service.price!, 0) : null, services: rows }
+  if (JSON.stringify(proposal.segments) !== JSON.stringify(state.slot.coordination?.segments)) throw new Error('sandbox assignment does not match proposal')
   validateTerms(terms)
   if (terms.customerDurationMinutes > terms.durationMinutes && proposal.customerDurationMinutes !== terms.customerDurationMinutes) throw new Error('sandbox customer duration proof missing')
   if (proposal.durationMinutes !== undefined && proposal.durationMinutes !== terms.durationMinutes || proposal.totalPrice !== undefined && proposal.totalPrice !== terms.totalPrice) throw new Error('sandbox proposal aggregate changed')
   return terms
 }
 function validateTerms(terms: SandboxBookingTerms) {
-  if (!terms || typeof terms !== 'object' || !keys(terms, 'businessId,customerDurationMinutes,customerName,date,durationMinutes,preference,professionalId,professionalName,services,startAt,time,timezone,totalPrice') ||
+  if (!terms || typeof terms !== 'object' || !keys(terms, (Object.hasOwn(terms, 'coordination') ? 'businessId,coordination,' : 'businessId,') + 'customerDurationMinutes,customerName,date,durationMinutes,preference,professionalId,professionalName,services,startAt,time,timezone,totalPrice') ||
       !text(terms.businessId, 128) || !text(terms.timezone, 100) || !text(terms.customerName, 100) || !text(terms.professionalId, 128) || !text(terms.professionalName, 200) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(terms.date) || !/^\d{2}:\d{2}$/.test(terms.time) || !Number.isFinite(Date.parse(terms.startAt)) || new Date(terms.startAt).toISOString() !== terms.startAt ||
       !minutes(terms.durationMinutes) || !minutes(terms.customerDurationMinutes) || !money(terms.totalPrice) || !terms.preference ||
@@ -85,6 +89,12 @@ function validateTerms(terms: SandboxBookingTerms) {
     if (estimate !== null && (!estimate || !keys(estimate, 'optionId,optionLabel,priceMax,priceMin') || estimate.optionId !== null && !text(estimate.optionId, 128) || estimate.optionLabel !== null && !text(estimate.optionLabel, 200) || !money(estimate.priceMin) || estimate.priceMin === null || !money(estimate.priceMax) || estimate.priceMax !== null && estimate.priceMax < estimate.priceMin)) throw new Error('invalid sandbox estimate')
   }
   if (terms.durationMinutes !== terms.services.reduce((sum, service) => sum + service.durationMinutes, 0) || terms.customerDurationMinutes !== terms.services.reduce((sum, service) => sum + service.customerDurationMinutes, 0)) throw new Error('invalid sandbox aggregate')
+  if (Object.hasOwn(terms, 'coordination')) {
+    if (!terms.coordination || !Array.isArray(terms.coordination.segments)) throw new Error('invalid sandbox assignment')
+    const last = terms.coordination.segments.at(-1)
+    validateCoordinatedSlot({ date: terms.date, time: terms.time, startAt: terms.startAt, professionalId: terms.professionalId, professionalName: terms.professionalName, occupiedMinutes: (Date.parse(last?.endAt ?? '') - Date.parse(terms.startAt)) / 60000, coordination: terms.coordination }, { businessId: terms.businessId, timezone: terms.timezone, serviceIds: terms.services.map(service => service.id), services: terms.services.map(service => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes, customerDurationMinutes: service.customerDurationMinutes })) })
+    if (terms.preference.kind !== 'any') throw new Error('invalid sandbox coordinated preference')
+  }
   const fixed = terms.services.every(service => !service.estimate && service.priceMode === 'FIXED' && service.price !== null) ? terms.services.reduce((sum, service) => sum + service.price!, 0) : null
   if (fixed !== terms.totalPrice) throw new Error('invalid sandbox price aggregate')
 }
@@ -92,6 +102,7 @@ export function sandboxProposalMatchesState(presented: PresentedSandboxProposal,
   const t = presented.terms
   return state.pending === 'proposal' && t.businessId === state.businessId && t.date === state.date && t.startAt === state.slot?.startAt && t.time === state.slot?.time &&
     t.professionalId === state.slot.professionalId && t.professionalName === state.slot.professionalName && t.customerName === state.customerName &&
+    JSON.stringify(t.coordination) === JSON.stringify(state.slot.coordination) &&
     JSON.stringify(t.preference) === JSON.stringify(state.professional) && JSON.stringify(t.services.map(service => service.id)) === JSON.stringify(basketServiceIds(state)) &&
     t.services.every(service => service.estimate === null ? !state.serviceEstimates?.[service.id] : state.serviceEstimates?.[service.id]?.optionId === service.estimate.optionId && digest(state.serviceEstimates[service.id]!.configurationKey) === service.configurationHash)
 }
@@ -102,13 +113,22 @@ export function parseSandboxReservation(value: unknown, state: DialogueState): S
   if (!p || !keys(p, Object.hasOwn(p, 'conditionsPresented') ? 'conditionsPresented,fingerprint,nonce,schemaVersion,terms' : 'fingerprint,nonce,schemaVersion,terms') || p.conditionsPresented !== undefined && p.conditionsPresented !== true || p.schemaVersion !== 1 || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(p.nonce) || !/^[a-f0-9]{64}$/.test(p.fingerprint)) throw new Error('invalid sandbox proposal')
   validateTerms(p.terms)
   if (sandboxProposalFingerprint(p.terms) !== p.fingerprint || !sandboxProposalMatchesState(p, state)) throw new Error('stale sandbox proposal')
-  if (reservation.receipt) {
-    const receipt = reservation.receipt, hasAddress = Object.hasOwn(receipt, 'businessAddress')
-    if (!keys(receipt, hasAddress ? 'appointmentId,businessAddress,fingerprint,proposalNonce' : 'appointmentId,fingerprint,proposalNonce') ||
-        hasAddress && !validReceiptAddress(receipt.businessAddress) || !text(receipt.appointmentId, 128) || !receipt.appointmentId.startsWith('simqa_appointment_') ||
-        receipt.proposalNonce !== p.nonce || receipt.fingerprint !== p.fingerprint) throw new Error('invalid sandbox receipt')
-  }
+  if (reservation.receipt) validateReceipt(reservation.receipt, p)
   return structuredClone(reservation)
+}
+function validateReceipt(receipt: SandboxBookingReceipt, presented: PresentedSandboxProposal): void {
+  const expected = ['appointmentId', 'fingerprint', 'proposalNonce']
+  if (Object.hasOwn(receipt, 'businessAddress')) expected.push('businessAddress')
+  const coordinated = presented.terms.coordination
+  if (coordinated) expected.push('appointmentIds', 'coordinationGroupId')
+  if (!keys(receipt, expected.sort().join(',')) ||
+      Object.hasOwn(receipt, 'businessAddress') && !validReceiptAddress(receipt.businessAddress) ||
+      !text(receipt.appointmentId, 128) || !receipt.appointmentId.startsWith('simqa_appointment_') ||
+      receipt.proposalNonce !== presented.nonce || receipt.fingerprint !== presented.fingerprint) throw new Error('invalid sandbox receipt')
+  if (coordinated && (!Array.isArray(receipt.appointmentIds) || receipt.appointmentIds.length !== coordinated.segments.length ||
+      new Set(receipt.appointmentIds).size !== receipt.appointmentIds.length || receipt.appointmentIds[0] !== receipt.appointmentId ||
+      receipt.appointmentIds.some(id => !text(id, 128) || !id.startsWith('simqa_appointment_')) ||
+      !text(receipt.coordinationGroupId, 128) || !receipt.coordinationGroupId.startsWith('simqa_group_'))) throw new Error('invalid sandbox receipt members')
 }
 export function presentSandboxProposal(context: DialogueContext, state: DialogueState, services: readonly DialogueService[], proposal: BookingProposal, previous?: SandboxReservation): string {
   if (Object.hasOwn(state, 'editRequest')) throw new Error('pending edit request cannot present consent')
@@ -130,13 +150,14 @@ export function renderSandboxTerms(terms: SandboxBookingTerms): string {
       : service.price === null ? 'precio a consultar' : (service.priceMode === 'STARTING_AT' ? 'Desde ' : '') + amount(service.price)
     return service.name + (estimate?.optionLabel ? ' — ' + estimate.optionLabel : '') + ': ' + price
   })
-  return [...lines, 'Cliente: ' + terms.customerName, 'Fecha: ' + day + ' ' + date + ' a las ' + terms.time, 'Profesional: ' + terms.professionalName,
+  if (terms.coordination) lines.push('Servicios y profesionales: ' + coordinationLabel({ professionalName: terms.professionalName, coordination: terms.coordination }, terms.timezone))
+  return [...lines, 'Cliente: ' + terms.customerName, 'Fecha: ' + day + ' ' + date + ' a las ' + terms.time, 'Profesional' + (terms.coordination ? 'es: ' + terms.coordination.segments.map(segment => segment.professionalName).join(' → ') : ': ' + terms.professionalName),
     'Duración: ' + terms.durationMinutes + ' min' + (terms.customerDurationMinutes !== terms.durationMinutes ? '; permanencia: ' + terms.customerDurationMinutes + ' min' : ''),
     'Total: ' + (terms.totalPrice === null ? 'a consultar; los precios estimados no son un precio final' : amount(terms.totalPrice))].join('\n')
 }
 export function sandboxReceiptReply(reservation: SandboxReservation): string {
   if (!reservation.receipt) throw new Error('sandbox receipt missing')
-  return 'La reserva fue confirmada.\n' + (reservation.receipt.businessAddress ? 'Te esperamos en ' + reservation.receipt.businessAddress + '.\n' : '') + renderSandboxTerms(reservation.presented.terms) + '\nCódigo: ' + reservation.receipt.appointmentId
+  return 'La reserva fue confirmada.\n' + (reservation.receipt.businessAddress ? 'Te esperamos en ' + reservation.receipt.businessAddress + '.\n' : '') + renderSandboxTerms(reservation.presented.terms) + '\nCódigo' + (reservation.receipt.appointmentIds ? 's: ' + reservation.receipt.appointmentIds.join(' · ') : ': ' + reservation.receipt.appointmentId)
 }
 /** Buffered result only: the transactional caller must commit the effect, receipt and chat before returning it. */
 export function finalizeSandboxBooking(response: DialogueResponse, result: SandboxBookingResult): DialogueResponse {
@@ -146,7 +167,8 @@ export function finalizeSandboxBooking(response: DialogueResponse, result: Sandb
   if (result.kind === 'COMMITTED') {
     if (Object.hasOwn(result, 'businessAddress') && !validReceiptAddress(result.businessAddress)) throw new Error('invalid sandbox receipt address')
     if (result.proposalNonce !== command.presented.nonce || result.fingerprint !== command.presented.fingerprint || !text(result.appointmentId, 128) || !result.appointmentId.startsWith('simqa_appointment_')) throw new Error('sandbox committed result mismatch')
-    state.sandboxReservation!.receipt = { appointmentId: result.appointmentId, proposalNonce: result.proposalNonce, fingerprint: result.fingerprint, ...(result.businessAddress ? { businessAddress: result.businessAddress } : {}) }
+    state.sandboxReservation!.receipt = { appointmentId: result.appointmentId, proposalNonce: result.proposalNonce, fingerprint: result.fingerprint, ...(result.businessAddress ? { businessAddress: result.businessAddress } : {}), ...(result.appointmentIds ? { appointmentIds: [...result.appointmentIds] } : {}), ...(result.coordinationGroupId ? { coordinationGroupId: result.coordinationGroupId } : {}) }
+    validateReceipt(state.sandboxReservation!.receipt, command.presented)
     delete state.questionContext
     if (state.dialogueContext) state.dialogueContext.lastQuestion = null
     return { state, proposal: null, reply: sandboxReceiptReply(state.sandboxReservation!) }

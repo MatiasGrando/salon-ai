@@ -154,3 +154,39 @@ for (const result of [{ kind: 'SLOT_CONFLICT' }, { kind: 'REQUOTE' }, { kind: 'B
   assert.doesNotMatch(finalizeSandboxBooking(confirm, result).reply, /La reserva fue confirmada|Te esperamos en/)
 }
 console.log('sandbox confirmed receipt address snapshot and legacy contract: OK')
+
+const { coordinationKey: coordinatedKey } = await import('../src/conversational-bot/coordinated-booking.js')
+const coordinatedServices = [service,{...service,id:'cream',name:'Baño de crema',price:25000}]
+const coordinatedSegments = [
+  {serviceId:'cut',serviceName:service.name,professionalId:'ramiro',professionalName:'Ramiro',startAt:slot.startAt,endAt:'2026-10-03T20:30:00.000Z',durationMinutes:30,customerDurationMinutes:30},
+  {serviceId:'cream',serviceName:'Baño de crema',professionalId:'cin',professionalName:'Cin',startAt:'2026-10-03T20:30:00.000Z',endAt:'2026-10-03T21:00:00.000Z',durationMinutes:30,customerDurationMinutes:30}
+]
+const coordinatedReady = {...ready,serviceId:null,basket:{version:1 as const,nextMemberId:3,members:[
+  {memberId:'m1',mode:'single' as const,serviceIds:['cut'],evidence:'corte'},
+  {memberId:'m2',mode:'single' as const,serviceIds:['cream'],evidence:'baño de crema'}]},professional:{kind:'any' as const},
+  slot:{...slot,professionalId:'ramiro',professionalName:'Ramiro',occupiedMinutes:60,coordination:{key:coordinatedKey('qa',coordinatedSegments),segments:coordinatedSegments}}}
+const coordinatedPort: DialoguePort = {catalog:async()=>coordinatedServices,availability:port.availability,
+  availabilityBasket:async()=>({ok:true,services:coordinatedServices,durationMinutes:60,customerDurationMinutes:60,totalPrice:52000,
+    professionals:[{id:'ramiro',name:'Ramiro',priority:0},{id:'cin',name:'Cin',priority:1}],slots:[coordinatedReady.slot]})}
+const coordinatedShown = await respond(context,coordinatedReady,'quiero reservar',coordinatedPort)
+assert.match(coordinatedShown.reply,/¿Confirmás este turno de prueba/,'coordinated proposal must visibly offer explicit confirmation')
+assert.match(coordinatedShown.reply,/Corte hombre.*Ramiro/)
+assert.match(coordinatedShown.reply,/Baño de crema.*Cin/)
+assert.equal(coordinatedShown.bookingCommand,undefined)
+const coordinatedConfirm = await respond(context,coordinatedShown.state,'sí',coordinatedPort)
+assert.equal(coordinatedConfirm.bookingCommand?.kind,'CONFIRM_SANDBOX_BOOKING')
+assert.deepEqual(coordinatedConfirm.bookingCommand!.presented.terms.coordination?.segments,coordinatedSegments)
+const coordinatedCommitted = finalizeSandboxBooking(coordinatedConfirm,{kind:'COMMITTED',appointmentId:'simqa_appointment_first',appointmentIds:['simqa_appointment_first','simqa_appointment_second'],coordinationGroupId:'simqa_group_test',proposalNonce:coordinatedConfirm.bookingCommand!.presented.nonce,fingerprint:coordinatedConfirm.bookingCommand!.presented.fingerprint})
+assert.deepEqual(coordinatedCommitted.state.sandboxReservation!.receipt!.appointmentIds,['simqa_appointment_first','simqa_appointment_second'])
+parseDialogueState(coordinatedCommitted.state,'qa',context.timezone)
+assert.match(coordinatedCommitted.reply,/La reserva fue confirmada/)
+assert.match(coordinatedCommitted.reply,/simqa_appointment_second/)
+assert.throws(()=>finalizeSandboxBooking(coordinatedConfirm,{kind:'COMMITTED',appointmentId:'simqa_appointment_first',appointmentIds:['simqa_appointment_first'],coordinationGroupId:'simqa_group_test',proposalNonce:coordinatedConfirm.bookingCommand!.presented.nonce,fingerprint:coordinatedConfirm.bookingCommand!.presented.fingerprint}),/receipt|member/i)
+const changedCoordination = structuredClone(coordinatedShown.state)
+changedCoordination.slot!.coordination!.segments[1]!.professionalName = 'Otra Cin'
+changedCoordination.slot!.coordination!.key = coordinatedKey('qa', changedCoordination.slot!.coordination!.segments)
+assert.throws(() => parseDialogueState(changedCoordination, 'qa', context.timezone), /stale sandbox/, 'changing even the second assignment invalidates shown consent')
+for (const phrase of ['¿sí?', 'sí, pero mejor mañana']) {
+  assert.equal((await respond(context, coordinatedShown.state, phrase, coordinatedPort)).bookingCommand, undefined, 'qualified or uncertain confirmation never books the group')
+}
+console.log('B QA complete coordinated proposal, consent and receipt: PASS')

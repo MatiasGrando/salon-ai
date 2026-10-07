@@ -3,6 +3,7 @@ import { issueChoiceQuestion, publicChoiceQuestion, parseConversationChoiceOpera
 import { readPreviewChoiceState, storePreviewChoiceState, nextPreviewRevision, resolvePreviewChoice, PreviewChoiceError } from './preview-choice.js'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
+import { bookingProfessionalIds } from './coordinated-booking.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
 import { executePrismaSandboxBooking, verifySimulatorBookingScope } from './prisma-sandbox-booking.js'
 import { finalizeSandboxBooking, sandboxReceiptReply } from './sandbox-booking.js'
@@ -111,7 +112,7 @@ async function processPreviewTurn(
       const lockStarted = performance.now()
       const receipt = prepared.state.sandboxReservation?.receipt
       const command = prepared.bookingCommand ?? (sandboxBooking && receipt ? { kind: 'CONFIRM_SANDBOX_BOOKING' as const, presented: prepared.state.sandboxReservation!.presented } : undefined)
-      if (command) await acquireAgendaHierarchy(tx, { businessId, professionalIds: [command.presented.terms.professionalId] })
+      if (command) await acquireAgendaHierarchy(tx, { businessId, professionalIds: bookingProfessionalIds(command.presented.terms) })
       if (sandboxBooking && !await verifySimulatorBookingScope(tx, businessId, userId, true)) throw new SimulatorBookingScopeError()
       const conversation = await tx.conversation.upsert({
         where: key, update: {}, create: { businessId, phone }

@@ -184,12 +184,11 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
       offer.businessId !== businessId || offer.serviceId !== s.serviceId || (basketServiceIds(s).length > 1 && !offer.serviceIds) || !validCalendarDate(offer.date) || offer.date !== s.date ||
       !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
-  if (s.slot?.coordination && s.sandboxReservation !== undefined) throw new Error('coordinated confirmation not enabled')
+  if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
   if (s.informationFocus !== undefined) parseInformationFocus(s.informationFocus, businessId)
-  if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.slot && timezone) {
     const instant = new Date(s.slot.startAt)
     const time = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(instant)
@@ -1392,10 +1391,7 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
     if (response.state.dialogueContext) response.state.dialogueContext.lastQuestion = null
     return response
   }
-  if (response.proposal?.segments) {
-    delete response.state.sandboxReservation
-    response.reply += '\nLa confirmación coordinada todavía no está habilitada; no reservé ninguno de los servicios.'
-  } else if (response.proposal) {
+  if (response.proposal) {
     response.reply = presentSandboxProposal(context, response.state, catalog, response.proposal, reservation)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
@@ -1595,10 +1591,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
     operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
-  if (response.proposal?.segments) {
-    delete response.state.sandboxReservation
-    response.reply += '\nLa confirmación coordinada todavía no está habilitada; no reservé ninguno de los servicios.'
-  } else if (response.proposal && context.sandboxBooking === true) {
+  if (response.proposal && context.sandboxBooking === true) {
     response.reply = presentSandboxProposal(context,response.state,services,response.proposal)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state,SANDBOX_CONFIRMATION_QUESTION)

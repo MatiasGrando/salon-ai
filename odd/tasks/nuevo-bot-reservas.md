@@ -2868,3 +2868,17 @@ Reutilizar buscador segmentado BookingAvailabilitySearchEngine, políticas/write
 
 
 - **P3-C2 behavior verified:** parentread2source/reran domain+PGlitePASS including F9 real cancellation/reschedule/history/replay and rollback secondchild. Workerstrict4roots367own0/same10legacyF9baseline, relatedpolicy+sandboxPASS. SHA4matched/EOFUTF8/cachedcheck. Conservative targets retainassignments/customer-duration and rejectcrossingoriginalothermembers; no shift/swapclaims. Confirmedmanagement remains NOT chat-connected untilC3. Commitexact4+docnext/nativepending; noAPI/DBreal/server.
+
+
+## Recuperación — 07/10/2026 00:13 Argentina
+### Objetivo y límites
+Continuar Booking V2 mínimo autorizado, SIN levantar servidor, túnel, WhatsApp ni producción. Cambio de fecha/límite del plan no renueva permisos temporales IA: grant del06/10 hasta23Z VENCIDO, V14sinHTTP; no solicitudes nuevas. Engrammem_* ausentes: resumen/espejo pendientes; recuperación local reconciliada con HEAD765895b ydirtyleases.
+### Avance probado
+P3-A 1baea73 búsqueda coordinada; D1 08faeda cola transaccional helper; C1 e512295 cancelación grupal; B-runtime8e251b0 confirmaciónF7atomichelper; C2 765895b reprogramación conservadora: commits locales, pruebas funcionales/PGlite PASS. Ninguna función helper se acredita comochatintegrado.
+### Siguiente
+BQA9 cierre tras corrección puntual membershipglobal detectada porpadre; D2enginelease siguiente (public/focalruntimeREDobservados), luego runtimebridgeB y C3gestiónvisible. Bpresentation3diálogoportproofserver en cierre. BaselineoriginalruntimeHEAD8e251b0 probado FAILbasketcartoriginal313(actual341) antesBQA/D; corpusmapper investiga causalmente sinrelajarassertions, no fullruntimePASS. Nativagates pendientes (modeON); ningunaaprobación heredada o ficticia. Mantener scopeacotado sinramasgenerales nuevas.
+
+
+### BQA9 cerrado funcionalmente
+- [x] BQA9 términos/consentimiento explícitos yreceiptALLids/atomicidad/replay: worker13suitesPASS; padreleyóengine/terms/writer y repitió3suites actualPASS. Hallazgo preciso delpadre: cardinalidad filtrabatennant yocultabaforeignsamegroup → REDreprodujo COMMITTED indebido, querysinbusinessfilter→GREENforeign/rogue/partial/replay/rollbackALL. MantenerchecksownershipdecadaIDexpected. SHA9final coinciden, UTF8/cachedwhitelist/diffPASS. QAvisitIdnullcompatlegacy, no falsefakephones/runtimetoggle.
+- Strictown9=0; transitive10legacydeposit yparserconcurrente ajeno ya corregido, no strictglobalPASS. Originalruntimebasket313baseline/341current FAILprevioBQAD segúnHEAD8e snapshot; investigacióncausalcorpus sinrelajarassertiones. D2pure212/newfocalRED sonesperadoshastaenginepatch. Commitexact9+docnext; gate nativo pendiente yengineleaseD2 sólotrascommit.

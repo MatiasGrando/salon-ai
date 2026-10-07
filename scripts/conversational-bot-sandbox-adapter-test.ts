@@ -43,6 +43,7 @@ INSERT INTO "BusinessHours" ("id","businessId","dayOfWeek","startTime","endTime"
 INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('prohours','cin',6,'11:00','20:00');
 `)
 const clock = new Date('2026-10-02T12:00:00Z'), queries: string[] = []
+let rejectCoordinatedSecond = false
 let scopeAddressOverride: { value: unknown } | null = null
 let messageSequence=0, rejectMessage=false, revokeInTransaction=false, casInjection=false, transactionCount=0
 function orm(sql: { query: PGlite['query'] }): any {
@@ -81,11 +82,11 @@ function orm(sql: { query: PGlite['query'] }): any {
     appointment: { findUnique: async ({where}: any) => {
       const row = (await select('Appointment',where))[0]; if (!row) return null
       row.startAt = new Date(row.startAt); row.customer = (await select('Customer',{id:row.customerId}))[0]; row.serviceItems = await query('SELECT * FROM "AppointmentServiceItem" WHERE "appointmentId"=$1 ORDER BY "sortOrder"',[row.id]); return row
-    }, create: async ({data}: any) => { const {serviceItems,...rest}=data; const row=await insert('Appointment',rest); for(const item of serviceItems.create) await insert('AppointmentServiceItem',{appointmentId:row.id,...item}); return row } },
+    }, create: async ({data}: any) => { if(rejectCoordinatedSecond && data.professionalId==='cin') throw new Error('injected second segment failure'); const {serviceItems,...rest}=data; const row=await insert('Appointment',rest); for(const item of serviceItems.create) await insert('AppointmentServiceItem',{appointmentId:row.id,...item}); return row } },
     $queryRaw: async (input: any) => {
       queries.push(input.text)
       // PGlite is one connection: inspect exact advisory hierarchy, not pretend to prove cross-process contention.
-      if(input.text.includes('pg_advisory_xact_lock')) { assert.match(String(input.values[0]),/^salon-ai:agenda:v1:(business:qa|professional:cin)$/); return [{locked:1}] }
+      if(input.text.includes('pg_advisory_xact_lock')) { assert.match(String(input.values[0]),/^salon-ai:agenda:v1:(business:qa|professional:(cin|ramiro))$/); return [{locked:1}] }
       const rows = await query(input.text,input.values)
       if(scopeAddressOverride && input.text.includes('"publicAddress"')) for(const row of rows) row.publicAddress=scopeAddressOverride.value
       for(const row of rows) { if(input.text.includes('CURRENT_TIMESTAMP AS now') || input.text.includes('clock_timestamp() AS now')) row.now=clock; for(const field of ['startAt','endAt']) if(row[field]!=null) row[field]=new Date(row[field]) }
@@ -328,5 +329,86 @@ try {
   assert.doesNotMatch(afterReceiptReplies[0].text, /La reserva fue confirmada/)
   assert.equal(await count('Appointment'), 1)
 
+
+  // Isolated coordinated chapter: all original singular checks above remain intact.
+  await db.exec('DELETE FROM "AppointmentServiceItem"; DELETE FROM "Appointment"; DELETE FROM "Customer"; DELETE FROM "Message"')
+  await db.exec(`UPDATE "User" SET "role"='SUPER_ADMIN',"isActive"=true WHERE "id"='admin';
+    INSERT INTO "Professional" ("id","businessId","name","isActive","acceptsBotBookings","botBookingPriority") VALUES ('ramiro','qa','Ramiro',true,true,1);
+    INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('ramiro-hours','ramiro',6,'11:00','20:00');
+    DELETE FROM "ProfessionalService" WHERE "serviceId"='cut';
+    INSERT INTO "ProfessionalService" ("id","serviceId","professionalId") VALUES ('cut-ramiro','cut','ramiro');`)
+  const {coordinationKey: groupKey} = await import('../src/conversational-bot/coordinated-booking.js')
+  const freshGroupServices = await Promise.all(['cut','cream'].map(async serviceId => projectDialogueService((await catalog.getService({businessId:'qa',serviceId}))!)))
+  const groupSegments = [
+    {serviceId:'cut',serviceName:'Corte',professionalId:'ramiro',professionalName:'Ramiro',startAt:'2026-10-03T20:00:00.000Z',endAt:'2026-10-03T20:30:00.000Z',durationMinutes:30,customerDurationMinutes:30},
+    {serviceId:'cream',serviceName:'Baño de crema',professionalId:'cin',professionalName:'Cin',startAt:'2026-10-03T20:30:00.000Z',endAt:'2026-10-03T21:30:00.000Z',durationMinutes:30,customerDurationMinutes:60}
+  ]
+  const groupState = structuredClone(state)
+  delete groupState.sandboxReservation
+  groupState.professional = {kind:'any'}
+  groupState.slot = {...state.slot!,professionalId:'ramiro',professionalName:'Ramiro',occupiedMinutes:90,coordination:{key:groupKey('qa',groupSegments),segments:groupSegments}}
+  groupState.serviceEstimates = {cream:{configurationKey:serviceConfigurationKey(freshGroupServices[1]!.bookingPolicy!),optionId:'karsell'}}
+  const groupProposal = {...proposal,professionalId:'ramiro',segments:groupSegments}
+  presentSandboxProposal({...context,sandboxBooking:true},groupState,freshGroupServices,groupProposal)
+  const groupResponse: DialogueResponse = {state:groupState,proposal:groupProposal,reply:'preparing',bookingCommand:{kind:'CONFIRM_SANDBOX_BOOKING',presented:groupState.sandboxReservation!.presented}}
+  await db.query('UPDATE "Conversation" SET "supportBotState"=$1,"supportBotKey"=$2 WHERE "id"=$3',[JSON.stringify(groupState),'conversational-preview','chat'])
+  rejectCoordinatedSecond = true
+  await assert.rejects(() => execute(groupResponse),/injected second segment failure/)
+  rejectCoordinatedSecond = false
+  assert.equal(await count('Appointment'),0,'second insert failure rolls back the first appointment')
+  assert.equal(await count('Customer'),0,'second insert failure rolls back the common customer')
+  await db.exec(`UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE "id"='cream'`)
+  assert.deepEqual(await execute(groupResponse),{kind:'BLOCKED',reason:'DEPOSIT_REQUIRED'})
+  assert.equal(await count('Appointment'),0,'any segment requiring deposit prevents every appointment')
+  await db.exec(`UPDATE "Service" SET "depositMode"='NONE' WHERE "id"='cream'`)
+  await db.exec(`UPDATE "Service" SET "price"=28000 WHERE "id"='cut'`)
+  assert.deepEqual(await execute(groupResponse), {kind:'REQUOTE'}, 'a changed first price cannot confirm the old complete group')
+  assert.equal(await count('Customer'), 0)
+  await db.exec(`UPDATE "Service" SET "price"=27000 WHERE "id"='cut'; INSERT INTO "ScheduleBlock" ("id","businessId","professionalId","startAt","endAt") VALUES ('second-block','qa','cin','2026-10-03T20:30:00Z','2026-10-03T21:00:00Z')`)
+  assert.deepEqual(await execute(groupResponse), {kind:'SLOT_CONFLICT'}, 'a blocked second professional prevents every member')
+  assert.equal(await count('Appointment'), 0)
+  await db.exec(`DELETE FROM "ScheduleBlock" WHERE "id"='second-block'`)
+  const groupFactory = async () => {
+    const base = await factory()
+    return { ...base, port: { ...base.port, catalog: async () => freshGroupServices } }
+  }
+  const beforeFailedStore = (await db.query<any>('SELECT "supportBotState" FROM "Conversation" WHERE "id"=$1', ['chat'])).rows[0]!.supportBotState
+  rejectMessage = true
+  await assert.rejects(() => runPrismaDemoPreview(client, 'qa', 'admin', 'test', 'confirmo', groupFactory, undefined, undefined, {sandboxBooking:true}), /test persistence failure/)
+  rejectMessage = false
+  assert.equal(await count('Appointment'), 0, 'a later chat persistence failure rolls back every group member')
+  assert.equal(await count('Customer'), 0, 'caller rollback also removes the shared QA customer')
+  assert.equal(await count('Message'), 0, 'no confirmation message escapes an uncommitted group')
+  assert.deepEqual((await db.query<any>('SELECT "supportBotState" FROM "Conversation" WHERE "id"=$1', ['chat'])).rows[0]!.supportBotState, beforeFailedStore)
+  const groupCommitted = await execute(groupResponse)
+  assert.equal(groupCommitted.kind,'COMMITTED','all segments confirm in one transaction')
+  if(groupCommitted.kind!=='COMMITTED') throw Error('group confirmation failed')
+  assert.equal(groupCommitted.appointmentIds!.length,2)
+  assert.equal(await count('Appointment'),2)
+  assert.equal(await count('Customer'),1)
+  const actualMembers = (await db.query<any>('SELECT "id","professionalId","serviceId","coordinationGroupId" FROM "Appointment" ORDER BY "startAt"')).rows
+  assert.deepEqual(actualMembers.map(member => [member.professionalId,member.serviceId]),[['ramiro','cut'],['cin','cream']])
+  assert.ok(actualMembers.every(member => member.coordinationGroupId===groupCommitted.coordinationGroupId))
+  assert.deepEqual(await execute(groupResponse),groupCommitted,'replay returns all original member IDs without creating another group')
+  assert.equal(await count('Appointment'),2)
+  await db.query('INSERT INTO "Appointment" ("id","businessId","coordinationGroupId") VALUES ($1,$2,$3)', ['rogue-member','qa',groupCommitted.coordinationGroupId])
+  assert.deepEqual(await execute(groupResponse), {kind:'BLOCKED',reason:'SCOPE_REJECTED'}, 'a foreign extra member cannot be hidden by deterministic expected IDs')
+  await db.query('DELETE FROM "Appointment" WHERE "id"=$1', ['rogue-member'])
+  await db.query('INSERT INTO "Appointment" ("id","businessId","coordinationGroupId") VALUES ($1,$2,$3)', ['foreign-member','foreign',groupCommitted.coordinationGroupId])
+  const beforeForeignReplay = await count('Appointment')
+  assert.deepEqual(await execute(groupResponse), {kind:'BLOCKED',reason:'SCOPE_REJECTED'}, 'the entire group rejects an extra member in another tenant')
+  assert.equal(await count('Appointment'), beforeForeignReplay, 'rejecting mixed-tenant membership has no booking effects')
+  await db.query('DELETE FROM "Appointment" WHERE "id"=$1', ['foreign-member'])
+  const groupFinal = finalizeSandboxBooking(groupResponse,groupCommitted)
+  parseDialogueState(groupFinal.state,'qa',context.timezone)
+  assert.match(groupFinal.reply,/La reserva fue confirmada/)
+  assert.match(groupFinal.reply,/Ramiro/)
+  assert.match(groupFinal.reply,/Cin/)
+  assert.ok(groupCommitted.appointmentIds!.every(id => groupFinal.reply.includes(id)))
+  await db.query('DELETE FROM "AppointmentServiceItem" WHERE "appointmentId"=$1',[groupCommitted.appointmentIds![1]])
+  await db.query('DELETE FROM "Appointment" WHERE "id"=$1',[groupCommitted.appointmentIds![1]])
+  assert.deepEqual(await execute(groupResponse),{kind:'BLOCKED',reason:'SCOPE_REJECTED'},'a partial historical group cannot replay or create its missing member')
+  assert.equal(await count('Appointment'),1)
+  console.log('B QA atomic coordinated persistence, complete replay and receipt: PASS')
   console.log('sandbox booking adapter PGlite: OK (offline; advisory hierarchy inspected, cross-process locks not simulated)')
 } finally { await db.close() }

@@ -1,3 +1,4 @@
+import { bookingProfessionalIds, sandboxCoordinationGroupId } from './coordinated-booking.js'
 import { readPreviewChoiceState } from './preview-choice.js'
 import { loadActiveServiceContent } from './prisma-service-content.js'
 import { isDeepStrictEqual } from 'node:util'
@@ -44,7 +45,7 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   catch { return blocked('SCOPE_REJECTED') }
   const presented = reservation.presented, terms = presented.terms
   if (terms.businessId !== input.businessId || !isDeepStrictEqual(response.bookingCommand.presented, presented)) return blocked('SCOPE_REJECTED')
-  await acquireAgendaHierarchy(tx, { businessId: input.businessId, professionalIds: [terms.professionalId] })
+  await acquireAgendaHierarchy(tx, { businessId: input.businessId, professionalIds: bookingProfessionalIds(terms) })
   const business = await loadSimulatorBookingScope(tx, input.businessId, input.userId, true)
   if (!business) return blocked('SCOPE_REJECTED')
   const conversation = await tx.conversation.findUnique({ where: { id: input.conversationId }, select: { businessId: true, phone: true, supportBotKey: true, supportBotState: true } })
@@ -53,19 +54,34 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   try { stored = parseDialogueState(readPreviewChoiceState(conversation.supportBotState).draft, input.businessId, terms.timezone) }
   catch { return blocked('SCOPE_REJECTED') }
   if (conversation.supportBotKey !== 'conversational-preview' || !isDeepStrictEqual(stored.sandboxReservation?.presented, presented)) return blocked('SCOPE_REJECTED')
-  const identity = createSimulatorBookingIdentity({ businessId: input.businessId, conversationId: input.conversationId, proposalRevision: presented.nonce, proposalFingerprint: presented.fingerprint })
+  const identityInput = { businessId: input.businessId, conversationId: input.conversationId, proposalRevision: presented.nonce, proposalFingerprint: presented.fingerprint }
+  const identity = createSimulatorBookingIdentity(identityInput)
+  const assignments = terms.coordination?.segments
+  const identities = assignments ? assignments.map((_, index) => createSimulatorBookingIdentity({ ...identityInput, proposalRevision: presented.nonce + ':' + index })) : [identity]
+  const coordinationGroupId = assignments ? sandboxCoordinationGroupId(input.businessId, input.conversationId, presented.nonce, presented.fingerprint) : undefined
   const businessAddress = stored.sandboxReservation?.receipt ? stored.sandboxReservation.receipt.businessAddress : physicalAddress(business)
-  const receipt = { ...(businessAddress ? { businessAddress } : {}), kind: 'COMMITTED' as const, appointmentId: identity.appointmentId, proposalNonce: presented.nonce, fingerprint: presented.fingerprint }
+  const receipt = { ...(businessAddress ? { businessAddress } : {}), kind: 'COMMITTED' as const, appointmentId: identities[0]!.appointmentId, proposalNonce: presented.nonce, fingerprint: presented.fingerprint,
+    ...(coordinationGroupId ? { coordinationGroupId, appointmentIds: identities.map(member => member.appointmentId) } : {}) }
   const notes = marker(input.conversationId, presented.nonce, presented.fingerprint, terms)
-  const serviceItems = terms.services.map((service, sortOrder) => ({ serviceId: service.id, sortOrder, durationMinutes: service.durationMinutes,
+  const itemsFor = (index: number) => (assignments ? [terms.services[index]!] : terms.services).map((service, sortOrder) => ({ serviceId: service.id, sortOrder, durationMinutes: service.durationMinutes,
     price: service.estimate || service.priceMode !== 'FIXED' ? null : service.price }))
-  const existing = await tx.appointment.findUnique({ where: { id: identity.appointmentId }, include: { customer: true, serviceItems: { orderBy: { sortOrder: 'asc' } } } })
-  // Before checking availability: this appointment necessarily overlaps its own slot.
-  if (existing) {
-    const items = existing.serviceItems.map(({ serviceId, sortOrder, durationMinutes, price }) => ({ serviceId, sortOrder, durationMinutes, price }))
-    if (existing.businessId !== input.businessId || existing.customerId !== identity.customerId || existing.professionalId !== terms.professionalId || existing.serviceId !== terms.services[0]!.id ||
-      existing.status !== 'CONFIRMED' || existing.startAt.toISOString() !== terms.startAt || existing.totalDurationMinutes !== terms.durationMinutes || existing.quotedPrice !== terms.totalPrice || existing.notes !== notes ||
-      existing.customer.businessId !== input.businessId || existing.customer.phone !== identity.customerPhone || existing.customer.normalizedPhone !== null || existing.customer.email !== null || !isDeepStrictEqual(items, serviceItems)) return blocked('SCOPE_REJECTED')
+  const existing = await Promise.all(identities.map(member => tx.appointment.findUnique({ where: { id: member.appointmentId }, include: { customer: true, serviceItems: { orderBy: { sortOrder: 'asc' } } } })))
+  let groupMembers: Array<{ id: string }> = []
+  if (coordinationGroupId) groupMembers = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "Appointment" WHERE "coordinationGroupId" = ${coordinationGroupId} FOR UPDATE`)
+  // Replay precedes agenda checks, but it must prove the entire original group.
+  if (existing.some(Boolean) || groupMembers.length) {
+    if (existing.some(member => !member) || coordinationGroupId && !isDeepStrictEqual(groupMembers.map(member => member.id).sort(), identities.map(member => member.appointmentId).sort())) return blocked('SCOPE_REJECTED')
+    for (const [index, member] of existing.entries()) {
+      if (!member) return blocked('SCOPE_REJECTED')
+      const assignment = assignments?.[index]
+      const items = member.serviceItems.map(({ serviceId, sortOrder, durationMinutes, price }) => ({ serviceId, sortOrder, durationMinutes, price }))
+      const price = assignments ? itemsFor(index)[0]!.price : terms.totalPrice
+      if (member.businessId !== input.businessId || member.customerId !== identity.customerId || member.professionalId !== (assignment?.professionalId ?? terms.professionalId) ||
+          member.serviceId !== (assignment?.serviceId ?? terms.services[0]!.id) || member.status !== 'CONFIRMED' || member.startAt.toISOString() !== (assignment?.startAt ?? terms.startAt) ||
+          member.totalDurationMinutes !== (assignment?.durationMinutes ?? terms.durationMinutes) || member.quotedPrice !== price || member.notes !== notes ||
+          member.coordinationGroupId !== (coordinationGroupId ?? null) || member.customer.businessId !== input.businessId || member.customer.phone !== identity.customerPhone ||
+          member.customer.normalizedPhone !== null || member.customer.email !== null || !isDeepStrictEqual(items, itemsFor(index))) return blocked('SCOPE_REJECTED')
+    }
     return receipt
   }
   if (reservation.receipt) return blocked('SCOPE_REJECTED')
@@ -78,26 +94,36 @@ export async function executePrismaSandboxBooking(tx: Prisma.TransactionClient, 
   if (settings.timezone !== terms.timezone) return { kind: 'REQUOTE' }
   const requested = terms.services.map(service => ({ id: service.id, name: service.name, durationMinutes: service.durationMinutes, requiresConsultation: false, price: service.price, priceMode: service.priceMode }))
   const serviceContent = await loadActiveServiceContent(tx, input.businessId, true, { qaPreview: true })
-  const fresh = await loadPrismaBasketAvailability(tx, { businessId: input.businessId, timezone: settings.timezone, dbNow }, settings, requested, terms.date, terms.professionalId, response.state.serviceEstimates, serviceContent)
+  const fresh = await loadPrismaBasketAvailability(tx, { businessId: input.businessId, timezone: settings.timezone, dbNow }, settings, requested, terms.date, assignments ? undefined : terms.professionalId, response.state.serviceEstimates, serviceContent)
   if (!fresh.ok) return fresh.reason === 'GUIDANCE_REQUIRED' ? { kind: 'REQUOTE' } : blocked(fresh.reason === 'SERVICE_UNAVAILABLE' ? 'SERVICE_UNAVAILABLE' : 'POLICY_BLOCKED')
-  const slot = fresh.slots.find(slot => slot.startAt === terms.startAt && slot.professionalId === terms.professionalId && slot.date === terms.date && slot.time === terms.time)
+  const slot = fresh.slots.find(slot => slot.startAt === terms.startAt && slot.professionalId === terms.professionalId && slot.date === terms.date && slot.time === terms.time && slot.coordination?.key === terms.coordination?.key)
   if (!slot) return { kind: 'SLOT_CONFLICT' }
   const freshState = { ...response.state, slot }
   let currentTerms
   try { currentTerms = buildSandboxBookingTerms({ businessId: input.businessId, timezone: settings.timezone, dbNow }, freshState, fresh.services,
-    { kind: 'BOOKING_PROPOSAL', businessId: input.businessId, serviceId: fresh.services[0]!.id, professionalId: slot.professionalId, startAt: slot.startAt, customerName: terms.customerName, serviceIds: fresh.services.map(service => service.id), durationMinutes: fresh.durationMinutes, customerDurationMinutes: fresh.customerDurationMinutes ?? fresh.durationMinutes, totalPrice: fresh.totalPrice }) }
+    { kind: 'BOOKING_PROPOSAL', businessId: input.businessId, serviceId: fresh.services[0]!.id, professionalId: slot.professionalId, startAt: slot.startAt, customerName: terms.customerName, serviceIds: fresh.services.map(service => service.id), durationMinutes: fresh.durationMinutes, customerDurationMinutes: fresh.customerDurationMinutes ?? fresh.durationMinutes, totalPrice: fresh.totalPrice, ...(slot.coordination ? { segments: slot.coordination.segments } : {}) }) }
   catch { return { kind: 'REQUOTE' } }
   if (sandboxProposalFingerprint(currentTerms) !== presented.fingerprint) return { kind: 'REQUOTE' }
-  const validation = await revalidateBookingWrite(tx, { businessId: input.businessId, professionalId: terms.professionalId, serviceIds: terms.services.map(service => service.id), startAt: new Date(terms.startAt), timezone: settings.timezone, dbNow })
-  if (validation.conflicts.length) return { kind: 'SLOT_CONFLICT' }
-  if (validation.orderedServices.some(service => service.depositMode !== 'NONE')) return blocked('DEPOSIT_REQUIRED')
-  if (validation.professionalDuration !== terms.durationMinutes || validation.customerDuration !== terms.customerDurationMinutes) return { kind: 'REQUOTE' }
+  const writes = assignments ?? [{ professionalId: terms.professionalId, startAt: terms.startAt, durationMinutes: terms.durationMinutes, customerDurationMinutes: terms.customerDurationMinutes }]
+  // Validate every child before the first customer or appointment mutation.
+  for (const [index, assignment] of writes.entries()) {
+    const validation = await revalidateBookingWrite(tx, { businessId: input.businessId, professionalId: assignment.professionalId,
+      professionalIdsToLock: bookingProfessionalIds(terms), serviceIds: assignments ? [terms.services[index]!.id] : terms.services.map(service => service.id),
+      startAt: new Date(assignment.startAt), timezone: settings.timezone, dbNow })
+    if (validation.conflicts.length) return { kind: 'SLOT_CONFLICT' }
+    if (validation.orderedServices.some(service => service.depositMode !== 'NONE')) return blocked('DEPOSIT_REQUIRED')
+    if (validation.professionalDuration !== assignment.durationMinutes || validation.customerDuration !== assignment.customerDurationMinutes) return { kind: 'REQUOTE' }
+  }
   const customer = await tx.customer.findUnique({ where: { id: identity.customerId } })
   if (customer && (customer.businessId !== input.businessId || customer.phone !== identity.customerPhone || customer.normalizedPhone !== null || customer.email !== null)) return blocked('SCOPE_REJECTED')
   if (customer) await tx.customer.update({ where: { id: identity.customerId }, data: { name: terms.customerName } })
   else await tx.customer.create({ data: { id: identity.customerId, businessId: input.businessId, phone: identity.customerPhone, normalizedPhone: null, email: null, name: terms.customerName } })
-  await createAppointmentRecord(tx, { data: { id: identity.appointmentId, businessId: input.businessId, customerId: identity.customerId, professionalId: terms.professionalId,
-    serviceId: terms.services[0]!.id, startAt: new Date(terms.startAt), totalDurationMinutes: terms.durationMinutes, quotedPrice: terms.totalPrice, status: 'CONFIRMED', origin: 'MANUAL', notes,
-    serviceItems: { create: serviceItems } } })
+  for (const [index, assignment] of writes.entries()) {
+    const serviceItems = itemsFor(index)
+    await createAppointmentRecord(tx, { data: { id: identities[index]!.appointmentId, businessId: input.businessId, customerId: identity.customerId,
+      professionalId: assignment.professionalId, serviceId: serviceItems[0]!.serviceId, startAt: new Date(assignment.startAt), totalDurationMinutes: assignment.durationMinutes,
+      quotedPrice: assignments ? serviceItems[0]!.price : terms.totalPrice, status: 'CONFIRMED', origin: 'MANUAL', notes,
+      ...(coordinationGroupId ? { coordinationGroupId } : {}), serviceItems: { create: serviceItems } } })
+  }
   return receipt
 }
