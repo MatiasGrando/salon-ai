@@ -1269,6 +1269,23 @@ try {
   assert.equal(closed.messages, 0); assert.equal(closed.retried, 0)
   console.log('conversational shared compute claim SQL/independent workers/deferred durable job/tenant/closed gate: PASS')
 } finally { await computeDb.close() }
+
+// P11: candidate choice uses the current prompt/outbox and keeps peers with no IA.
+const candidateRuntime=runtimeFixture({basketCatalog:true,guidedCatalog:true})
+candidateRuntime.next('Corte hombre')
+await candidateRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandidate(runtimeBasket('set',[runtimeMember('single',['cut'],'Corte hombre')],'Corte hombre')),intent:'booking',communicativeActs:{version:1,acts:[runtimeAct('request','service','Corte hombre',[0])]},firstReply:null}),timeoutMs:15000})
+candidateRuntime.next('Además quería un tratamiento')
+await candidateRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandidate({kind:'service_request',purpose:'booking',disposition:'unverified_variant',basis:'related_category',serviceIds:['smooth'],correction:false,continuation:false,sourceQuote:null,...runtimeEv('tratamiento')}),intent:'booking',communicativeActs:{version:1,acts:[runtimeAct('request','service','Además quería un tratamiento',[0])]},firstReply:null}),timeoutMs:15000})
+assert.equal(readConversationDraft(candidateRuntime.session.state,policy,'UTC').questionContext?.role,'service')
+assert.ok(candidateRuntime.statements.some(q=>q.sql.includes('conversation-choice-persist')&&q.values.some(v=>typeof v==='string'&&v.includes('"serviceId":"smooth"'))),'related option reaches prompt/outbox bridge')
+candidateRuntime.choice({kind:'service',serviceId:'smooth'})
+await candidateRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('candidate click must never call IA')},timeoutMs:15000})
+const chosenCandidate=readConversationDraft(candidateRuntime.session.state,policy,'UTC')
+assert.deepEqual(chosenCandidate.basket?.members.flatMap(m=>m.serviceIds),['cut','smooth'])
+assert.equal(chosenCandidate.pending,'estimate');assert.equal(chosenCandidate.serviceRequest,undefined)
+assert.equal(candidateRuntime.row.status,'PROCESSED');assert.match(candidateRuntime.replies.at(-1)!,/Qué largo tiene tu cabello/)
+console.log('P11 candidate → native prompt/outbox → click 0 IA → companions retained: PASS')
+
 // An admitted typed operation is not a provider label or a legacy Booking V2 command.
 const typedRuntime=runtimeFixture({basketCatalog:true,publicPorts:true})
 typedRuntime.next('Corte');await typedRuntime.run()

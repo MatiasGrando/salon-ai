@@ -5,7 +5,7 @@ import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBin
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
+import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -975,15 +975,25 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const suppressMatching = semanticPending || prospective.blockedFields.length > 0 || inquiryTurn
   let procedureQuestion = ''
   const serviceReferenceOp = raw.operations.find(operation => operation.kind === 'service_reference')
-  const referenceAnswer = serviceReferenceOp?.kind === 'service_reference' && serviceReferenceOp.confidence >= .85 &&
+  const referenceAdmitted = serviceReferenceOp?.kind === 'service_reference' && serviceReferenceOp.confidence >= .85 &&
     admittedServiceReferences.some(operation => operation.kind === 'service_reference' &&
       operation.action === serviceReferenceOp.action && operation.serviceId === serviceReferenceOp.serviceId &&
-      operation.evidence === serviceReferenceOp.evidence && operation.confidence === serviceReferenceOp.confidence) &&
-    validServiceReferenceContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
-  if (referenceAnswer && state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, referenceConfirmed: true }
-  // This operation updates referent context only, never the booking draft or consent.
-  raw = { ...raw, operations: raw.operations.filter(operation => operation.kind !== 'service_reference') }
+      operation.evidence === serviceReferenceOp.evidence && operation.confidence === serviceReferenceOp.confidence)
   const previousProcedureRequest = state.serviceRequest
+  const referenceAnswer = referenceAdmitted && serviceReferenceOp.action === 'confirm' &&
+    validServiceReferenceContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
+  const candidateSelection = referenceAdmitted && serviceReferenceOp.action === 'select' &&
+    state.serviceRequest?.serviceIds.length === 1 &&
+    validServiceCandidateContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
+  if (referenceAnswer && state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, referenceConfirmed: true }
+  // Selection has separate semantic authority; confirm alone never mutates the booking draft.
+  raw = { ...raw, operations: raw.operations.filter(operation => operation.kind !== 'service_reference') }
+  if (candidateSelection && previousProcedureRequest) {
+    mutateStateBasket(state, serviceCandidateMutation(state, previousProcedureRequest, serviceReferenceOp.serviceId,
+      serviceReferenceOp.evidence, serviceReferenceOp.confidence))
+    delete state.serviceRequest
+    reconcileConversationalReferral(state, services)
+  }
   const unverifiedReads = new Map<string, ServiceRequestContext>()
   if (state.serviceRequest) {
     const ids = state.serviceRequest.serviceIds.filter(id => services.some(service => service.id === id))
@@ -1052,7 +1062,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // A validated semantic no-op is not an answer to a pending entity. Explicit
   // operations and information routes retain authority over this social route.
   const route = routeActions(message)
-  if (!suppressMatching && !state.referral && !procedureQuestion && intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
+  if (!candidateSelection && !suppressMatching && !state.referral && !procedureQuestion && intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
     return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
   }
   // A validated booking no-op requests progression, not a search for the whole utterance.
@@ -1083,12 +1093,17 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
   const updates = plan.operations.filter(op => !['information', 'unsupported_action', 'request_change', 'referral'].includes(op.kind))
   const bookingUpdates = updates.filter(op => op.kind !== 'name')
+  if (candidateSelection) delete state.informationFocus
   if (bookingUpdates.length) delete state.informationFocus
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
   const serviceOp = plan.operations.find(op => op.kind === 'service')
   const basketOp = plan.operations.find(op => op.kind === 'basket')
   if (basketOp?.kind === 'basket') mutateStateBasket(state, basketOp)
-  else if (serviceOp?.kind === 'service' && (serviceOp.mode !== 'unresolved' || serviceOp.correction || !hasBasketSelection(state))) {
+  else if (serviceOp?.kind === 'service' && serviceOp.mode === 'single' && !serviceOp.correction &&
+      validServiceCandidateContext(previousProcedureRequest, serviceOp.serviceIds[0]!, context.businessId, services, state.questionContext)) {
+    mutateStateBasket(state, serviceCandidateMutation(state, previousProcedureRequest!, serviceOp.serviceIds[0]!,
+      serviceOp.evidence, serviceOp.confidence))
+  } else if (serviceOp?.kind === 'service' && (serviceOp.mode !== 'unresolved' || serviceOp.correction || !hasBasketSelection(state))) {
     const current = selectionBasket(state)
     const group = serviceOp.mode === 'single' && !serviceOp.correction ? current.members.find(member => (member.mode === 'alternatives' && member.serviceIds.includes(serviceOp.serviceIds[0]!) || member.mode === 'unresolved')) : null
     const members = serviceOp.mode === 'multiple'
@@ -1175,7 +1190,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     delete state.sandboxReservation
     if (requests.length) { delete state.questionContext; delete state.informationFocus }
   } else delete state.editRequest
-  if (bookingUpdates.length || nameOp && hasActiveBooking(state)) state.pending = resolveDialogueRoute(state, services).pending
+  if (candidateSelection || bookingUpdates.length || nameOp && hasActiveBooking(state)) state.pending = resolveDialogueRoute(state, services).pending
 
   // A material independent edit invalidates the old reference; stamp a new one only after those edits.
   if (state.professionalReference && state.professionalReference.scope !== professionalReferenceScope(state)) delete state.professionalReference
@@ -1257,8 +1272,18 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   if (procedureQuestion) {
     if (state.serviceRequest) {
-      rememberDialogueQuestion(state, serviceRequestQuestion(state.serviceRequest),
-        services.filter(service => state.serviceRequest!.serviceIds.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
+      const request = state.serviceRequest
+      if (request.purpose === 'booking' && request.serviceIds.length) state.pending = 'service'
+      const delivery = serviceRequestDelivery(request, services)
+      rememberDialogueQuestion(state, serviceRequestQuestion(request),
+        services.filter(service => request.serviceIds.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
+      const presentation = request.purpose === 'booking' ? choicePresentationForQuestion(state, services)
+        : request.serviceIds.length ? { kind: 'service' as const, title: 'Servicios relacionados',
+            choices: services.filter(service => request.serviceIds.includes(service.id)).map(service =>
+              ({ label: service.name, operation: { kind: 'service' as const, serviceId: service.id } })) } : undefined
+      return { ...finishWithoutAgenda(delivery.reply), replyPrepared: true, replyFacts: [
+        ...answers.map((text, index) => ({ id: 'answer' + index, text })), ...delivery.facts],
+        ...(presentation ? { choicePresentation: presentation } : {}) }
     }
     return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }
   }
@@ -1278,7 +1303,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return { ...next, reply: [...combinedAnswers(next), next.reply, clarificationReply].filter(Boolean).join('\n') }
   }
   if (informationReads.length && !bookingUpdates.length && (!nameOp || !hasActiveBooking(state))) return finishWithoutAgenda('')
-  if (!matched.matching && !plan.operations.length && hasActiveBooking(state)) {
+  if (!candidateSelection && !matched.matching && !plan.operations.length && hasActiveBooking(state)) {
     const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
     if (clarification) {
       rememberBasketClarification(state, services, clarification)
@@ -1286,7 +1311,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     }
     return { ...finishWithoutAgenda(socialQuestion(state)), ...(intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
-  if (!matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
+  if (!candidateSelection && !matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
   const clarification = basketQuestion(state, services)
   if (!matched.matching && (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved')) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
@@ -1298,7 +1323,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!basketIsResolved(state) ? '\n' + pendingQuestion(state) : ''))
   }
   if (!matched.matching && !bookingUpdates.length && nameOp && !hasActiveBooking(state) && standaloneIdentityMessage(message,nameOp.value)) return finishWithoutAgenda('¿En qué te puedo ayudar con el local?')
-  const selectedCandidateIds = serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
+  const selectedCandidateIds = candidateSelection ? [serviceReferenceOp.serviceId] : serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
     ? serviceOp.serviceIds : basketOp?.kind === 'basket'
       ? basketOp.members.filter(member => member.mode === 'single' && member.confidence >= .85).flatMap(member => member.serviceIds) : []
   const chosenRelated = previousProcedureRequest?.businessId === context.businessId &&
@@ -1649,7 +1674,7 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   const changedFields = fields.filter((_field, index) => JSON.stringify(oldValues[index]) !== JSON.stringify(newValues[index]))
   const explicitFields = new Set<DraftEditField | 'estimate'>()
   for (const operation of decision?.turnPlan?.operations ?? []) {
-    if (operation.kind === 'basket' || operation.kind === 'service') explicitFields.add('service')
+    if (operation.kind === 'basket' || operation.kind === 'service' || operation.kind === 'service_reference' && operation.action === 'select') explicitFields.add('service')
     else if (operation.kind === 'date_preferences') explicitFields.add('date')
     else if (operation.kind === 'time_preference') explicitFields.add('time')
     else if (operation.kind === 'estimate' || DRAFT_EDIT_FIELDS.includes(operation.kind as DraftEditField)) explicitFields.add(operation.kind as DraftEditField | 'estimate')
@@ -1712,6 +1737,17 @@ export async function respondConversationChoice(context: DialogueContext, previo
     if (read.focus) state.informationFocus = read.focus
     return finalizeDialogueIntroduction(context, { state, proposal: null, reply: renderInformationContinuation(read, state) }, port)
   }
+  const candidateRequest = state.serviceRequest
+  if (operation.kind === 'service' && candidateRequest?.purpose === 'inquiry') {
+    const services = await port.catalog()
+    if (!validServiceCandidateContext(candidateRequest, operation.serviceId, context.businessId, services, question ?? undefined, false) ||
+        operation.targetMemberId !== undefined) return reject()
+    const read = await readInformation(context, state, 'stored choice', port,
+      { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect: 'overview' }, services)
+    return finalizeDialogueIntroduction(context, { state, proposal: null,
+      reply: 'No tengo confirmado si incluye «' + candidateRequest.request + '».\n' +
+        renderInformationContinuation(read, state), replyPrepared: true }, port)
+  }
   if (operation.kind === 'confirm' && (state.referral || state.serviceRequest) ||
       state.referral?.status === 'pending' && operation.kind !== 'service') return reject()
   if (!question?.complete) return reject()
@@ -1750,11 +1786,17 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (operation.kind === 'service') {
     const service = services.find(service => service.id === operation.serviceId)
     if (!service) return reject()
-    const pendingMember = selectionBasket(state).members.find(member => member.mode !== 'single')
-    const targetMemberId = question.matchTargetMemberId ?? pendingMember?.memberId
-    if (operation.targetMemberId !== undefined && operation.targetMemberId !== targetMemberId) return reject()
-    mutateStateBasket(state, { kind: 'basket', mutation: targetMemberId ? 'replace' : 'set', scope: targetMemberId ? 'members' : 'all', targetMemberIds: targetMemberId ? [targetMemberId] : [],
-      members: [{ mode: 'single', serviceIds: [service.id], evidence: 'stored choice', confidence: 1 }], evidence: 'stored choice', confidence: 1 })
+    if (candidateRequest) {
+      if (!validServiceCandidateContext(candidateRequest, service.id, context.businessId, services, question) ||
+          operation.targetMemberId !== undefined) return reject()
+      mutateStateBasket(state, serviceCandidateMutation(state, candidateRequest, service.id, 'stored choice', 1))
+    } else {
+      const pendingMember = selectionBasket(state).members.find(member => member.mode !== 'single')
+      const targetMemberId = question.matchTargetMemberId ?? pendingMember?.memberId
+      if (operation.targetMemberId !== undefined && operation.targetMemberId !== targetMemberId) return reject()
+      mutateStateBasket(state, { kind: 'basket', mutation: targetMemberId ? 'replace' : 'set', scope: targetMemberId ? 'members' : 'all', targetMemberIds: targetMemberId ? [targetMemberId] : [],
+        members: [{ mode: 'single', serviceIds: [service.id], evidence: 'stored choice', confidence: 1 }], evidence: 'stored choice', confidence: 1 })
+    }
     delete state.informationFocus; delete state.sandboxReservation
     delete state.serviceRequest
     reconcileConversationalReferral(state, services)
@@ -1794,6 +1836,11 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
     operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
+  if (candidateRequest && operation.kind === 'service') {
+    response.reply = 'Perfecto, seguimos con ' + services.find(service => service.id === operation.serviceId)!.name + '.\n' +
+      'No tengo confirmado si incluye «' + candidateRequest.request + '».\n' + response.reply
+    response.replyPrepared = true
+  }
   if (response.proposal && context.sandboxBooking === true) {
     response.reply = presentSandboxProposal(context,response.state,services,response.proposal)
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }

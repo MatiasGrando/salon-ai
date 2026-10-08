@@ -16,7 +16,7 @@ export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
   | BasketMutation
   | ({ kind: 'service_request' } & ServiceRequest)
-  | { kind: 'service_reference'; action: 'confirm'; serviceId: string }
+  | { kind: 'service_reference'; action: 'confirm' | 'select'; serviceId: string }
   | { kind: 'referral'; action: 'consult' | 'resume' }
   | { kind: 'confirm_proposal' }
   | { kind: 'request_change'; field: DraftEditField }
@@ -65,7 +65,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
       targetMemberIds: { type: 'array', items: stringSchema(32), maxItems: BASKET_LIMITS.members },
       members: { type: 'array', maxItems: BASKET_LIMITS.members, items: objectSchema({ mode: { type: 'string', enum: ['single', 'alternatives', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), maxItems: BASKET_LIMITS.candidates }, ...evidenceSchema }) }
     }),
-    operationSchema('service_reference', { action: { type: 'string', enum: ['confirm'] }, serviceId: stringSchema(128) }),
+    operationSchema('service_reference', { action: { type: 'string', enum: ['confirm', 'select'] }, serviceId: stringSchema(128) }),
     operationSchema('referral', { action: { type: 'string', enum: ['consult', 'resume'] } }),
     operationSchema('confirm_proposal', {}),
     operationSchema('request_change', { field: { type: 'string', enum: DRAFT_EDIT_FIELDS } }),
@@ -152,7 +152,7 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
       identity = 'service'
     } else if (raw.kind === 'service_reference') {
       exactKeys(raw, [...common, 'action', 'serviceId'])
-      if (raw.action !== 'confirm' || !bounded(raw.serviceId, 128)) fail('service reference')
+      if (!['confirm', 'select'].includes(String(raw.action)) || !bounded(raw.serviceId, 128)) fail('service reference')
       if (catalogIds && !catalogIds.includes(raw.serviceId)) fail('catalog reference')
       identity = 'service'
     } else if (raw.kind === 'referral') {

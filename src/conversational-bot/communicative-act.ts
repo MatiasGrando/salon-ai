@@ -1,4 +1,4 @@
-import { validServiceReferenceContext } from './service-request.js'
+import { validServiceCandidateContext, validServiceReferenceContext } from './service-request.js'
 import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
@@ -341,7 +341,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
 
     if (operation.kind === 'service_reference' && (owners.length !== 1 || act?.kind !== 'answer' || act.field !== 'service' ||
         act.confidence < .85 || operation.confidence < .85 || !contains(act.evidence, operation.evidence) ||
-        !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext))) {
+        (operation.action === 'confirm' ? !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)
+          : state.serviceRequest?.serviceIds.length !== 1 || !validServiceCandidateContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)))) {
       blocked.add('service'); return false
     }
     if (!metadata) {

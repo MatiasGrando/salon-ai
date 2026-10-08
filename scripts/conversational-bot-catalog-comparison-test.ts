@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
-import { initialDialogueState, parseDialogueState, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, parseDialogueState, respondConversationChoice, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { expectedDialogueAnswer } from '../src/conversational-bot/dialogue-context.js'
 import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
 import { parseTurnPlan, TURN_PLAN_JSON_SCHEMA } from '../src/conversational-bot/turn-plan.js'
 import { admitCommunicativePlan, parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
+import { issueChoiceQuestion, publicChoiceQuestion, resolveChoice } from '../src/conversational-bot/choices.js'
+import { planConversationChoiceView } from '../src/conversational-bot/runtime-choice-persistence.js'
 import { resolveServiceRequest } from '../src/conversational-bot/service-request.js'
 globalThis.fetch = (() => { throw new Error('network forbidden') }) as typeof fetch
 const context = { businessId: 'catalog-test', timezone: 'UTC', dbNow: new Date('2026-10-07T12:00:00Z') }
@@ -134,6 +136,8 @@ await check('actual provider receives all current catalog descriptions and compa
   assert.equal(input.services[1].description, color.description)
   assert.match(payload!.instructions, /Comparación con el catálogo actual:/)
   assert.match(payload!.instructions, /sin coincidencias|sin candidatos/)
+  assert.deepEqual(payload!.text.format.schema.properties.turnPlan.anyOf[0], TURN_PLAN_JSON_SCHEMA);
+  assert.ok(JSON.stringify(payload!.text.format.schema).includes('select'));
   assert.equal(payload!.store, false); assert.equal(result.state.serviceId, null)
 })
 
@@ -277,6 +281,213 @@ await check('uncertain historical or foreign authority cannot choose the related
     assert.doesNotMatch(rejected.reply, /Perfecto, seguimos con Iluminación/)
   }
 })
+
+const selectOp = (evidence: string, serviceId = 'color') => ({ kind: 'service_reference', action: 'select', serviceId, evidence, confidence: 1 })
+await check('contextual public choice applies the actual anaphoric AI operation', async () => {
+  const initial=await say('quería mechas con gorra',[request('mechas con gorra',['color'])])
+  const message='Sí a ese servicio'
+  const selected=await say(message,[selectOp(message)],initial.state,catalog,referenceActs(message))
+  assert.equal(selected.interpretation.mode,'ai');assert.equal(selected.state.serviceId,'color')
+  assert.equal(selected.state.pending,'estimate');assert.equal(selected.state.serviceRequest,undefined)
+  assert.equal(selected.state.referral,undefined)
+  assert.match(selected.reply,/no tengo confirmado.*mechas con gorra/i)
+  assert.match(selected.reply,/¿Qué largo tiene tu cabello/)
+  assert.doesNotMatch(selected.reply,/¿Querés elegir el servicio publicado|consulto con el equipo/)
+})
+await check('contextual choice schema keeps consent and catalog strict',()=>{
+  const message='Sí, ese servicio'
+  assert.equal((parseTurnPlan({version:1,operations:[selectOp(message)]},message,['color']).operations[0] as any).action,'select')
+  for(const invalid of [{...selectOp(message),serviceId:'foreign'},{...selectOp(message),action:'reserve'},{...selectOp(message),evidence:'invented'}])
+    assert.throws(()=>parseTurnPlan({version:1,operations:[invalid]},message,['color']))
+  assert.throws(()=>parseTurnPlan({version:1,operations:[selectOp(message),{kind:'confirm_proposal',evidence:message,confidence:1}]},message,['color']))
+})
+await check('related candidates always include native options and a final question',async()=>{
+  for(const count of [1,2,3,4,10]){
+    const services=Array.from({length:count},(_,index)=>({...cut,id:'s'+index,name:'Servicio '+index}))
+    const result=await say('busco un tratamiento',[request('tratamiento',services.map(s=>s.id))],{...state,date:null,customerName:null},services)
+    assert.equal(result.choicePresentation?.choices.length,count)
+    const question=issueChoiceQuestion({businessId:context.businessId,conversationKey:'c',policyKey:'p',policyGeneration:1,revision:'1'},result.state,result.choicePresentation!)
+    assert.equal(publicChoiceQuestion(question).mode,count<=3?'buttons':'list')
+    const transport=planConversationChoiceView({question,reply:result.reply,transitionId:'t'})
+    assert.equal((transport.outboxRows.find(row=>row.item.type==='interactive')!.item as any).mode,count<=3?'buttons':'list')
+    assert.equal(transport.choiceRows.length,count)
+    assert.ok(result.reply.includes(result.state.questionContext!.question))
+    assert.equal((result.reply.match(/\?/g)??[]).length,1)
+  }
+  const services=[{...cut,name:'Un servicio publicado con nombre largo'}]
+  const result=await say('un tratamiento',[request('tratamiento',['cut'])],state,services)
+  const q=issueChoiceQuestion({businessId:context.businessId,conversationKey:'c',policyKey:'p',policyGeneration:1,revision:'1'},result.state,result.choicePresentation!)
+  assert.equal(publicChoiceQuestion(q).mode,'list')
+})
+await check('prepared framing retains material next for a procedure without booking fields',async()=>{
+  const result=await say('quería mechas con gorra',[request('mechas con gorra',['color'])],{...state,date:null,customerName:null})
+  assert.equal(result.interpretation.replyRoute,'first_call');assert.match(result.reply,/Claro, te ayudo/)
+  assert.ok(result.reply.includes(result.state.questionContext!.question))
+  assert.equal(result.replyFacts?.at(-1)?.id,'next');assert.equal(result.replyFacts?.at(-1)?.text,result.state.questionContext!.question)
+})
+await check('contextual and clicked candidates preserve selected companions',async()=>{
+  for(const representation of ['contextual','literal','request','clicked']){
+    const prior=await say('Corte hombre',[{kind:'service',mode:'single',serviceIds:['cut'],correction:false,evidence:'Corte hombre',confidence:1}],{...state,date:null})
+    const initial=await say('además quiero mechas con gorra',[request('mechas con gorra',['color'])],prior.state,catalog,referenceActs('además quiero mechas con gorra','request'))
+    assert.equal(initial.state.questionContext?.role,'service')
+    const message=representation==='contextual'?'Sí a ese servicio':'Iluminación'
+    const operation=representation==='contextual'?selectOp(message):representation==='literal'
+      ?{kind:'service',mode:'single',serviceIds:['color'],correction:false,evidence:message,confidence:1}
+      :request(message,['color'],'booking','clear','exact_public_name')
+    const chosen=representation==='clicked'?await respondConversationChoice(context,initial.state,initial.choicePresentation!.choices[0]!.operation,makePort())
+      :await say(message,[operation],initial.state,catalog,referenceActs(message))
+    assert.deepEqual(chosen.state.basket?.members.flatMap(m=>m.serviceIds),['cut','color'])
+    assert.equal(chosen.state.pending,'estimate');assert.equal(chosen.state.serviceRequest,undefined)
+    assert.match(chosen.reply,/no tengo confirmado.*mechas con gorra/i)
+  }
+})
+await check('candidate click rejects renamed removed stale or foreign options',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  const choice=initial.choicePresentation!.choices[0]!.operation
+  for(const services of [[cut,tint],[cut,{...color,name:'Nombre nuevo'},tint]])
+    await assert.rejects(()=>respondConversationChoice(context,initial.state,choice,makePort(services)),/unavailable|disponible/i)
+  const stale={...initial.state,questionContext:{...initial.state.questionContext!,question:'¿Qué día preferís?'}}
+  await assert.rejects(()=>respondConversationChoice(context,stale,choice,makePort()),/unavailable|disponible/i)
+  const scope={businessId:context.businessId,conversationKey:'c',policyKey:'p',policyGeneration:1,revision:'1'}
+  const q=issueChoiceQuestion(scope,initial.state,initial.choicePresentation!)
+  const action=publicChoiceQuestion(q).choices[0]!.id
+  for(const changed of [{...scope,businessId:'foreign'},{...scope,revision:'2'}])
+    assert.throws(()=>resolveChoice(q,changed,initial.state,action),/stale/)
+})
+await check('contextual select requires sole current answer ownership and a fresh booking question',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  for(const kind of ['uncertain','inquiry','reference','request']){
+    const message=kind==='uncertain'?'sí pero depende':'Sí a ese servicio'
+    assert.equal((await say(message,[selectOp(message)],initial.state,catalog,referenceActs(message,kind))).state.serviceId,null)
+  }
+  for(const broken of [
+    {...initial.state,questionContext:undefined},
+    {...initial.state,questionContext:{...initial.state.questionContext!,question:'¿Qué día preferís?'}},
+    {...initial.state,serviceRequest:{...initial.state.serviceRequest!,purpose:'inquiry' as const}},
+    {...initial.state,questionContext:{...initial.state.questionContext!,options:[{id:'color',label:'Nombre anterior'}]}}
+  ]){
+    const message='Sí a ese servicio'
+    assert.equal((await say(message,[selectOp(message)],broken,catalog,referenceActs(message))).state.serviceId,null)
+  }
+  const message='Sí a ese servicio'
+  const direct=await respond(context,initial.state,message,makePort(),{intent:'booking',serviceId:null,candidateIds:[],correction:false,turnPlan:{version:1,operations:[selectOp(message)]}} as any)
+  assert.equal(direct.state.serviceId,null)
+  assert.equal((await say(message,[selectOp(message)],initial.state,[cut,{...color,name:'Nombre nuevo'},tint],referenceActs(message))).state.serviceId,null)
+})
+await check('several-candidate anaphora cannot select by model confidence alone',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['cut','tint','color'])])
+  const message='Sí a ese servicio'
+  assert.equal((await say(message,[selectOp(message)],initial.state,catalog,referenceActs(message))).state.serviceId,null)
+})
+
+
+await check('already confirmed context still accepts a current published choice without reset',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  const confirmed=await reference('sí me refiero a ese',initial.state)
+  assert.equal(confirmed.state.serviceRequest?.referenceConfirmed,true)
+  const message='Sí a ese servicio'
+  const selected=await say(message,[selectOp(message)],confirmed.state,catalog,referenceActs(message))
+  assert.equal(selected.state.serviceId,'color');assert.equal(selected.state.pending,'estimate')
+  assert.equal(selected.state.serviceRequest,undefined)
+  assert.ok(selected.turnOutcome?.appliedFields.includes('service'))
+  assert.match(selected.reply,/no tengo confirmado.*mechas con gorra/i)
+  assert.match(selected.reply,/¿Qué largo tiene tu cabello/)
+})
+await check('contextual choice resolves its pending member and retains an independent selected service',async()=>{
+  const prior={...state,basket:{version:1 as const,nextMemberId:3,members:[
+    {memberId:'m1',mode:'single' as const,serviceIds:['cut'],evidence:'Corte hombre'},
+    {memberId:'m2',mode:'unresolved' as const,serviceIds:[],evidence:'mechas con gorra'}
+  ]}}
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])],prior,catalog,referenceActs('mechas con gorra','request'))
+  const previous=initial.state
+  for(const clicked of [false,true]){
+    const message='Sí a ese servicio'
+    const selected=clicked?await respondConversationChoice(context,previous,initial.choicePresentation!.choices[0]!.operation,makePort())
+      :await say(message,[selectOp(message)],previous,catalog,referenceActs(message))
+    assert.deepEqual(selected.state.basket?.members.map(m=>[m.memberId,m.mode,m.serviceIds]),[
+      ['m1','single',['cut']],['m3','single',['color']]
+    ])
+    assert.equal(selected.state.pending,'estimate');assert.equal(selected.state.referral,undefined)
+  }
+})
+await check('inquiry candidate clicks read published information without acquiring the service',async()=>{
+  const previous={...state,serviceId:'cut',basket:{version:1 as const,nextMemberId:2,members:[
+    {memberId:'m1',mode:'single' as const,serviceIds:['cut'],evidence:'Corte hombre'}
+  ]}}
+  const initial=await say('hacen mechas con gorra',[request('mechas con gorra',['color'],'inquiry')],previous)
+  assert.equal(initial.choicePresentation?.choices.length,1)
+  const selected=await respondConversationChoice(context,initial.state,initial.choicePresentation!.choices[0]!.operation,makePort())
+  assert.equal(selected.state.serviceId,'cut');assert.deepEqual(selected.state.basket,previous.basket)
+  assert.equal(selected.state.date,previous.date);assert.equal(selected.state.customerName,previous.customerName)
+  assert.equal(selected.bookingCommand,undefined);assert.equal(selected.handoffCommand,undefined)
+  assert.match(selected.reply,/No tengo confirmado.*mechas con gorra/)
+})
+await check('every candidate disposition delivers exactly its stored final question',async()=>{
+  for(const disposition of ['alternatives','needs_detail','unverified_variant']){
+    const initial=await say('tratamiento',[request('tratamiento',['color','tint'],'booking',disposition)],{...state,date:null})
+    assert.equal((initial.reply.match(/\?/g)??[]).length,1)
+    assert.ok(initial.reply.includes(initial.state.questionContext!.question))
+    assert.equal(initial.replyFacts?.at(-1)?.text,initial.state.questionContext!.question)
+  }
+})
+await check('negative conditional and low-confidence ownership cannot acquire a candidate',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  for(const message of ['no, ese servicio no','si hacen esa técnica, sí','quizás ese servicio']){
+    const selected=await say(message,[selectOp(message)],initial.state,catalog,referenceActs(message,'uncertain'))
+    assert.equal(selected.state.serviceId,null);assert.equal(selected.state.serviceRequest?.request,'mechas con gorra')
+  }
+  const message='Sí a ese servicio'
+  const selected=await say(message,[{...selectOp(message),confidence:.84}],initial.state,catalog,referenceActs(message))
+  assert.equal(selected.state.serviceId,null)
+  const noOwner=await say(message,[selectOp(message)],initial.state)
+  assert.equal(noOwner.state.serviceId,null)
+})
+
+
+
+await check('copied candidate question from another basket cannot select or click',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  const changed={...initial.state,basket:{version:1 as const,nextMemberId:3,members:[
+    {memberId:'m1',mode:'single' as const,serviceIds:['cut'],evidence:'Corte hombre'},
+    {memberId:'m2',mode:'single' as const,serviceIds:['tint'],evidence:'Coloración'}
+  ]}}
+  const message='Sí a ese servicio'
+  const selected=await say(message,[selectOp(message)],changed,catalog,referenceActs(message))
+  assert.deepEqual(selected.state.basket,changed.basket)
+  assert.equal(selected.state.serviceRequest?.referenceConfirmed,undefined)
+  await assert.rejects(()=>respondConversationChoice(context,changed,initial.choicePresentation!.choices[0]!.operation,makePort()),/no longer available/)
+})
+await check('new candidate clarification suspends an old proposal and remains a valid draft for a click',async()=>{
+  const sandbox={...context,sandboxBooking:true}
+  const port={...makePort(),availability:async()=>({
+    professionals:[{id:'ana',name:'Ana',priority:0}],
+    slots:[{date:'2026-10-08',time:'17:00',startAt:'2026-10-08T17:00:00.000Z',
+      professionalId:'ana',professionalName:'Ana',band:'AFTERNOON' as const,occupiedMinutes:0}]
+  })}
+  const shown=await respond(sandbox,state,'Corte hombre con cualquiera a las 17',port,{
+    serviceId:null,candidateIds:[],correction:false,turnPlan:{version:1,operations:[
+      {kind:'service',mode:'single',serviceIds:['cut'],correction:false,evidence:'Corte hombre',confidence:1},
+      {kind:'professional',mode:'any',evidence:'cualquiera',confidence:1},
+      {kind:'time',value:'17:00',evidence:'17',confidence:1}
+    ]}
+  })
+  assert.ok(shown.state.sandboxReservation);assert.equal(shown.state.pending,'proposal')
+  const evidence='además quiero mechas con gorra'
+  const provider=(async()=>({...base,communicativeActs:referenceActs(evidence,'request'),
+    turnPlan:{version:1,operations:[request('mechas con gorra',['color'])]}})) as AiInterpretationProvider
+  const clarified=await respondWithAiInterpreter(sandbox,shown.state,evidence,port,provider)
+  assert.equal(clarified.state.pending,'service')
+  assert.equal(clarified.state.sandboxReservation,undefined)
+  assert.deepEqual(parseDialogueState(clarified.state,context.businessId),clarified.state)
+  await assert.rejects(()=>respondConversationChoice(sandbox,clarified.state,{
+    kind:'confirm',nonce:shown.state.sandboxReservation!.presented.nonce
+  },port),/no longer available/)
+  const selected=await respondConversationChoice(sandbox,clarified.state,clarified.choicePresentation!.choices[0]!.operation,port)
+  assert.deepEqual(selected.state.basket?.members.flatMap(member=>member.serviceIds),['cut','color'])
+  assert.equal(selected.state.pending,'estimate');assert.equal(selected.state.sandboxReservation,undefined)
+  assert.deepEqual(parseDialogueState(selected.state,context.businessId),selected.state)
+})
+
 assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
 console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')
 if (failed) process.exitCode = 1

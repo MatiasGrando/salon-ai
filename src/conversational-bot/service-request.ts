@@ -1,6 +1,7 @@
 import { serviceEvidenceMeaning } from './service-evidence-grounding.js';
 import { affirmativeMatchAnswer } from './contextual-matching.js';
-import type { DialogueService } from './engine.js';
+import { selectionBasket, type BasketMutation } from './service-basket.js';
+import type { DialogueService, DialogueState } from './engine.js';
 import { isCustomerText } from './customer-text.js';
 export type ServiceRequest = {
     purpose: 'inquiry' | 'booking';
@@ -179,6 +180,39 @@ export function validServiceReferenceContext(request: ServiceRequestContext | un
         services.find(service => service.id === serviceId)?.name === request.candidateName;
 }
 
+
+/** Published choice proof is bounded to the actual displayed catalog question, not the technique. */
+export function validServiceCandidateContext(request: ServiceRequestContext | undefined, serviceId: string,
+    businessId: string, services: readonly DialogueService[],
+    question: { businessId?: string; role: string; question: string; options: readonly { id: string; label: string }[]; complete: boolean } | undefined,
+    bookingOnly = true): boolean {
+    return !!request && request.businessId === businessId && (!bookingOnly || request.purpose === 'booking') &&
+        request.disposition !== 'clear' && request.serviceIds.includes(serviceId) && !!question?.complete &&
+        question.businessId === businessId && (!bookingOnly || question.role === 'service') &&
+        question.question === serviceRequestQuestion(request) && question.options.length === request.serviceIds.length &&
+        request.serviceIds.every(id => question.options.some(option => option.id === id &&
+            services.some(service => service.id === id && service.name === option.label))) &&
+        (request.candidateName === undefined || request.serviceIds.length === 1 &&
+            services.find(service => service.id === request.serviceIds[0])?.name === request.candidateName);
+}
+/** Shared semantic/click selection retains unrelated peers and resolves only its own pending member. */
+export function serviceCandidateMutation(state: Pick<DialogueState, 'serviceId' | 'basket'>, request: ServiceRequestContext,
+    serviceId: string, evidence: string, confidence: number): BasketMutation {
+    const basket = selectionBasket(state);
+    const target = basket.members.find(member => member.mode === 'alternatives' && member.serviceIds.includes(serviceId) ||
+        member.mode === 'unresolved' && member.evidence === request.request);
+    return { kind: 'basket', mutation: target ? 'replace' : request.correction || !basket.members.length ? 'set' : 'add',
+        scope: target ? 'members' : 'all', targetMemberIds: target ? [target.memberId] : [],
+        members: [{ mode: 'single', serviceIds: [serviceId], evidence, confidence }], evidence, confidence };
+}
+/** Material and continuation are explicit, so frame projection cannot discard the active question. */
+export function serviceRequestDelivery(request: ServiceRequestContext, services: readonly DialogueService[]) {
+    const question = serviceRequestQuestion(request);
+    const reply = serviceRequestReply(request, services);
+    const body = reply.includes(question) ? reply.replace(question, '').trim() : reply;
+    return { reply: body + '\n' + question, facts: [{ id: 'procedure', text: body }, { id: 'next', text: question }] };
+}
+
 export function serviceRequestReply(request: ServiceRequestContext, services: readonly DialogueService[]): string {
     const candidates = services.filter(service => request.serviceIds.includes(service.id));
     const description = request.request + (request.detail ? ' — ' + request.detail : '');
@@ -187,8 +221,8 @@ export function serviceRequestReply(request: ServiceRequestContext, services: re
             'No tengo confirmado si incluye «' + request.request + '».\n' + serviceRequestQuestion(request);
     }
     if (request.disposition === 'alternatives') {
-        return 'Para «' + description + '», ¿cuál de estas opciones te interesa?\n' +
-            candidates.map(service => '• ' + service.name).join('\n');
+        return 'Para «' + description + '», estas son las opciones del catálogo:\n' +
+            candidates.map(service => '• ' + service.name).join('\n') + '\n' + serviceRequestQuestion(request);
     }
     if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && candidates.length === 1) {
         return 'No tengo información confirmada sobre «' + description + '». ' +
