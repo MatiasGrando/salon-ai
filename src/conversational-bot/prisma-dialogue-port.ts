@@ -126,7 +126,6 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         const ordered=ids.map(id=>rows.find(s=>s.id===id)!)
         if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
         const depositRequired=ordered.some(s=>s.depositMode!=='NONE')
-        if(depositRequired && ids.length!==1)return {unavailable:'DEPOSIT_MULTISERVICE'}
         if(depositRequired && !runtimeDepositsEnabled())return {unavailable:'DEPOSITS_DISABLED'}
         let slot=structuredClone(state.slot)
         const assigned=slot.coordination?.segments.map(s=>s.professionalId) ?? ids.map(()=>slot.professionalId)
@@ -164,7 +163,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         }
         const terms:RuntimeBookingTerms={version:1,businessId,timezone:context.timezone,date:state.date!,customerName:state.customerName,
           preference:state.professional,segments,totalPriceMinor:segments.every(s=>s.priceMode==='FIXED' && s.priceMinor!==null)?segments.reduce((sum,s)=>sum+s.priceMinor!,0):null}
-        if(depositRequired){const deposit=await prepareRuntimeDeposit(source,businessId,ordered[0]!,segments[0]!);if(!deposit)return {unavailable:'PAYMENT_UNAVAILABLE'};terms.deposit=deposit}
+        if(depositRequired){const deposit=await prepareRuntimeDeposit(source,businessId,ordered,segments);if(!deposit)return {unavailable:'PAYMENT_UNAVAILABLE'};terms.deposit=deposit}
         const presented=parseRuntimePresentedBooking({scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms})
         return presented ? {presented,slot} : null
       } catch(error) {

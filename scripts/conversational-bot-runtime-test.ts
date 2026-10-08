@@ -906,6 +906,56 @@ assert.ok(financialPersist.values.includes('COMPLETED'))
 console.log('P12 financial protected public reader/reset/session/history/CRM projection: PASS')
 
 
+// P14 projection/reset: appointment zero can be NONE while the financial anchor
+// belongs to another professional. A HELD receipt never projects as confirmed.
+const jointRuntime = runtimeFixture({ businessId: barberResetId, phone: '5491112345678' })
+await jointRuntime.run()
+const jointTerms: RuntimeBookingTerms = structuredClone(financialTerms)
+jointTerms.preference = { kind: 'any' }
+jointTerms.totalPriceMinor = 3000
+jointTerms.segments = [...jointTerms.segments, { ...jointTerms.segments[0]!, serviceId: 'cream', serviceName: 'Crema',
+  professionalId: 'p2', professionalName: 'Leo', startAt: '2026-10-02T10:30:00.000Z',
+  endAt: '2026-10-02T11:00:00.000Z', priceMinor: 2000 }]
+jointTerms.deposit!.financial.lines = [{ serviceId: 'cream', serviceName: 'Crema', sortOrder: 1,
+  mode: 'FIXED', configuredValue: 100, baseAmount: null, amount: 100 }]
+const jointPresented: RuntimePresentedBooking = { ...financialPresented, nonce: randomUUID(),
+  scope: { ...financialScope, sessionId: jointRuntime.session.sessionId, revision: String(jointRuntime.session.revision) },
+  terms: jointTerms, fingerprint: runtimeBookingFingerprint(jointTerms) }
+const jointReceipt: RuntimeHeldReceipt = { ...financialReceipt, coordinationGroupId: 'joint-group',
+  proposalNonce: jointPresented.nonce, fingerprint: jointPresented.fingerprint, depositId: 'deposit-second-segment',
+  coordinatedDepositGroup: { version: 1, groupId: 'joint-group', requestHash: 'a'.repeat(64) },
+  appointments: [{ segmentIndex: 0, appointmentId: 'none-appointment', visitId: 'none-visit' },
+    { segmentIndex: 1, appointmentId: 'financial-appointment', visitId: 'financial-visit' }] }
+const jointSegments = jointTerms.segments.map(({ priceMinor, priceMode, configurationHash, ...segment }) => segment)
+const jointDialogue = { ...initialDialogueState(barberResetId), customerName: 'Ana', date: jointTerms.date,
+  professional: jointTerms.preference, pending: 'proposal' as const,
+  basket: { version: 1 as const, nextMemberId: 3, members: jointTerms.segments.map((segment, index) => ({
+    memberId: 'm' + (index + 1), mode: 'single' as const, serviceIds: [segment.serviceId], evidence: segment.serviceName })) },
+  slot: { date: jointTerms.date, time: '10:00', startAt: jointTerms.segments[0]!.startAt,
+    professionalId: 'p1', professionalName: 'Ana', band: 'MORNING' as const, occupiedMinutes: 60,
+    coordination: { key: coordinationKey(barberResetId, jointSegments), segments: jointSegments } },
+  bookingReservation: { presented: jointPresented, receipt: jointReceipt } }
+assert.doesNotThrow(() => projectConversationDraft(jointDialogue, barberResetPolicy), 'P14 multi-professional financial receipt must remain a valid protected dialogue')
+const jointProjection = projectConversationDraft(jointDialogue, barberResetPolicy)
+assert.equal(jointProjection.booking, 'HELD', 'P14 projects ALL services pending payment, including NONE first member')
+assert.equal(jointProjection.deposit, 'PENDING_PROOF')
+assert.equal(jointProjection.flow, 'DEPOSIT_INSTRUCTIONS')
+assert.equal(jointProjection.selections.appointmentId, 'none-appointment', 'UI selection is not the financial proof anchor')
+assert.deepEqual(readConversationDraft(jointProjection, barberResetPolicy, 'UTC').bookingReservation, jointDialogue.bookingReservation)
+assert.throws(() => reconcileConversationDraft(jointProjection, { ...barberResetPolicy, generation: 2 }, 'UTC'),
+  /protected/, 'configuration replacement cannot discard an active group obligation')
+jointRuntime.session.state = jointProjection
+const jointProtected = structuredClone(jointRuntime.session)
+jointRuntime.next('/reset')
+await jointRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('group financial reset cannot call AI') }, timeoutMs: 10 })
+assert.deepEqual(jointRuntime.session, jointProtected, 'reset never abandons any financial group member')
+assert.match(jointRuntime.replies.at(-1)!, /No reinicié/)
+for (const status of ['PROOF_RECEIVED', 'APPROVED', 'EXPIRED', 'REJECTED'] as const) {
+  const state = projectConversationDraft({ ...jointDialogue,
+    bookingReservation: { presented: jointPresented, receipt: { ...jointReceipt, depositStatus: status } } }, barberResetPolicy)
+  assert.equal(state.booking === 'CONFIRMED', status === 'APPROVED', 'group projects real payment status, not client claim')
+}
+console.log('P14 group HELD projection/readback, NONE-first anchor and protected reset: PASS')
 for (const change of ['revision', 'config', 'human', 'disabled', 'fence', 'order'] as const) {
   const race = runtimeFixture()
   race.hook(() => {

@@ -51,7 +51,7 @@ assert.equal(parseRuntimePresentedBooking({...preparation.presented,unknown:true
 assert.equal(parseRuntimePresentedBooking({...preparation.presented,fingerprint:'a'.repeat(64)}),null)
 for(const mode of ['foreign','missing','deposit','photo','pro','scope','guided'] as const) {
   const f=fixture(mode),p=(await createPrismaDialoguePort(f.client,'b')).port
-  assert.deepEqual(await p.prepareRuntimeBooking(state,scope),mode==='deposit'?{unavailable:'DEPOSIT_MULTISERVICE'}:null,mode)
+  assert.deepEqual(await p.prepareRuntimeBooking(state,scope),mode==='deposit'?{unavailable:'DEPOSITS_DISABLED'}:null,mode)
   assert.ok(f.queries.every(q=>!q.text.includes('INSERT')&&!q.text.includes('UPDATE')),'read-only preparation')
 }
 
@@ -114,3 +114,79 @@ try {
 }
 assert.ok(await port.prepareRuntimeBooking(idleProfessional,scope),'daily occupied load is not the duration of this booking')
 console.log('runtime presentation: PASS (fresh server proof, common/coordinated, extended customer duration; no network or writes)')
+
+// P14: financial preparation is an aggregate for the ordered request, not a
+// singular hold repeated for each service. These complete fixtures are separate
+// from the existing incomplete-payment DEPOSIT_MULTISERVICE negative above.
+const groupCapability = process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED
+const groupAuthority = process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED
+process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED = 'true'
+process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED = 'true'
+try {
+  const incomplete = fixture('deposit')
+  const incompleteClient = { ...incomplete.client, $queryRaw: async (q: Prisma.Sql) => {
+    if (q.text.includes('runtime-booking-deposit-settings')) return [{ depositHoldMinutes: 60 }]
+    if (q.text.includes('runtime-booking-deposit-payment')) return [{ transferEnabled: true, alias: 'salon.test',
+      cbu: null, cvu: null, paymentLinkEnabled: false, paymentLink: null }]
+    return incomplete.client.$queryRaw(q)
+  } }
+  const incompletePort = (await createPrismaDialoguePort(incompleteClient as unknown as Parameters<typeof createPrismaDialoguePort>[0], 'b')).port
+  assert.deepEqual(await incompletePort.prepareRuntimeBooking(state, scope), { unavailable: 'PAYMENT_UNAVAILABLE' },
+    'enabled multi deposit with a missing configured amount is still rejected')
+  for (const depositModes of [['FIXED', 'NONE'], ['FIXED', 'PERCENTAGE'], ['NONE', 'FIXED']] as const) {
+    const group = fixture()
+    Object.assign(group.services[0]!, { duration: 45, customerDurationMin: 120, customerDurationMax: 120,
+      depositMode: depositModes[0], depositValue: depositModes[0] === 'FIXED' ? 100 : null })
+    Object.assign(group.services[1]!, { depositMode: depositModes[1],
+      depositValue: depositModes[1] === 'PERCENTAGE' ? 10 : depositModes[1] === 'FIXED' ? 150 : null })
+    if (depositModes[1] === 'PERCENTAGE') group.services[1]!.priceMode = 'STARTING_AT'
+    const segments = [
+      { serviceId: 's1', serviceName: 'Corte', professionalId: 'p1', professionalName: 'Elisa',
+        startAt: '2026-10-07T13:00:00.000Z', endAt: '2026-10-07T15:00:00.000Z',
+        durationMinutes: 45, customerDurationMinutes: 120 },
+      { serviceId: 's2', serviceName: 'Crema', professionalId: 'p2', professionalName: 'Leo',
+        startAt: '2026-10-07T15:00:00.000Z', endAt: '2026-10-07T15:45:00.000Z',
+        durationMinutes: 30, customerDurationMinutes: 45 }
+    ]
+    const draft = structuredClone(state)
+    draft.slot = { ...state.slot!, occupiedMinutes: 165,
+      coordination: { key: coordinationKey('b', segments), segments } }
+    const snapshot = structuredClone(draft)
+    const client = { ...group.client, $queryRaw: async (q: Prisma.Sql) => {
+      if (q.text.includes('runtime-booking-deposit-')) assert.doesNotMatch(q.text, /FOR SHARE/)
+      if (q.text.includes('runtime-booking-deposit-settings')) return [{ depositHoldMinutes: 60 }]
+      if (q.text.includes('runtime-booking-deposit-payment')) return [{ transferEnabled: true, alias: 'salon.test',
+        cbu: null, cvu: null, paymentLinkEnabled: false, paymentLink: null }]
+      if (q.text.includes('runtime-booking-presentation-professionals')) return segments.map(s => ({
+        serviceId: s.serviceId, professionalId: s.professionalId, professionalName: s.professionalName }))
+      return group.client.$queryRaw(q)
+    } }
+    const groupPort = (await createPrismaDialoguePort(client as unknown as Parameters<typeof createPrismaDialoguePort>[0], 'b')).port
+    const result = await groupPort.prepareRuntimeBooking(draft, scope)
+    assert.ok(result && 'presented' in result, 'P14 joint deposit must prepare ' + depositModes.join('+'))
+    assert.deepEqual(draft, snapshot, 'financial preparation retains the complete draft without effects')
+    assert.deepEqual(result.presented.terms.segments.map(s => s.professionalId), ['p1', 'p2'])
+    assert.equal(result.presented.terms.segments[0]!.durationMinutes, 45)
+    assert.equal(result.presented.terms.segments[0]!.customerDurationMinutes, 120)
+    const financial = result.presented.terms.deposit!.financial
+    const expected = depositModes[0] === 'NONE' ? 150 : depositModes[1] === 'PERCENTAGE' ? 300 : 100
+    assert.equal(financial.amount, expected, 'sum only configured deposit obligations')
+    assert.equal(result.presented.terms.totalPriceMinor, depositModes[1] === 'PERCENTAGE' ? null : 3000,
+      'starting-at price never becomes a final agreed total')
+    assert.equal(financial.ttlMinutes, 60, 'one current business deadline policy')
+    assert.deepEqual(financial.lines.map(line => line.serviceId),
+      depositModes[0] === 'NONE' ? ['s2'] : depositModes[1] === 'NONE' ? ['s1'] : ['s1', 's2'])
+    assert.deepEqual(parseRuntimePresentedBooking(result.presented), result.presented)
+    const second = await groupPort.prepareRuntimeBooking(draft, scope)
+    assert.ok(second && 'presented' in second)
+    assert.notEqual(second.presented.nonce, result.presented.nonce, 'fresh preparation needs its own consent')
+    assert.equal(second.presented.fingerprint, result.presented.fingerprint, 'unchanged canonical terms stay identical')
+    assert.ok(group.queries.every(q => !/INSERT|UPDATE|DELETE/.test(q.text)), 'group presentation is read-only')
+  }
+} finally {
+  if (groupCapability === undefined) delete process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED
+  else process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED = groupCapability
+  if (groupAuthority === undefined) delete process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED
+  else process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED = groupAuthority
+}
+console.log('P14 aggregate preparation, distinct professionals, NONE companion and current consent: PASS')

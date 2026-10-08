@@ -9,7 +9,7 @@ import { loadRuntimeDepositReceipt, runtimeBookingReceiptReply, executePrismaCon
 
 const db = new PGlite()
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
+const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositProof','BookingDepositReviewAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
 for (const name of ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance']) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
   const values = body.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
@@ -215,6 +215,103 @@ try {
       throw new Error('reset financial hold')
     }).catch(error=>assert.match(String(error),/reset financial hold/))
     assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0},'caller rollback includes financial holds')
+
+    // P14 conversational adapter: run aggregate holds against the same local SQL
+    // harness, never a network database. Each case rolls back every member.
+    for (const modes of [['FIXED', 'NONE'], ['FIXED', 'PERCENTAGE'], ['NONE', 'FIXED']] as const) {
+      const resetMarker = 'reset P14 coordinated hold ' + modes.join('+')
+      await db.transaction(async tx => {
+        await tx.query('UPDATE "Service" SET "depositMode"=$1,"depositValue"=$2,duration=45,"customerDurationMin"=120,"customerDurationMax"=120 WHERE id=$3',
+          [modes[0], modes[0] === 'NONE' ? null : 100, 's1'])
+        await tx.query('UPDATE "Service" SET "depositMode"=$1,"depositValue"=$2 WHERE id=$3',
+          [modes[1], modes[1] === 'NONE' ? null : modes[1] === 'PERCENTAGE' ? 10 : 150, 's2'])
+        await tx.exec(`UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=60 WHERE "businessId"='b';
+          INSERT INTO "BusinessPaymentSettings" (id,"businessId","transferEnabled",alias,"paymentLinkEnabled") VALUES ('pay','b',true,'salon.test',false)`)
+        if (modes[1] === 'PERCENTAGE') await tx.exec(`UPDATE "Service" SET "priceMode"='STARTING_AT' WHERE id='s2'`)
+        const groupTerms: RuntimeBookingTerms = structuredClone(terms)
+        if (modes[1] === 'PERCENTAGE') {
+          groupTerms.segments[1]!.priceMode = 'STARTING_AT'
+          groupTerms.totalPriceMinor = null
+        }
+        Object.assign(groupTerms.segments[0]!, { durationMinutes: 45, customerDurationMinutes: 120, endAt: '2030-09-02T15:00:00.000Z' })
+        Object.assign(groupTerms.segments[1]!, { startAt: '2030-09-02T15:00:00.000Z', endAt: '2030-09-02T15:30:00.000Z' })
+        const lines = []
+        for (const [index, segment] of groupTerms.segments.entries()) {
+          const service = (await tx.query<Record<string, unknown>>('SELECT * FROM "Service" WHERE id=$1', [segment.serviceId])).rows[0]!
+          segment.configurationHash = runtimeServiceConfigurationHash(service)
+          if (modes[index] === 'NONE') continue
+          lines.push({ serviceId: segment.serviceId, serviceName: segment.serviceName, sortOrder: index,
+            mode: modes[index] as 'FIXED' | 'PERCENTAGE', configuredValue: Number(service.depositValue),
+            baseAmount: modes[index] === 'PERCENTAGE' ? segment.priceMinor : null,
+            amount: modes[index] === 'PERCENTAGE' ? 200 : Number(service.depositValue) })
+        }
+        const amount = lines.reduce((sum, line) => sum + line.amount, 0)
+        groupTerms.deposit = { financial: { lines, amount, ttlMinutes: 60, ttlProvenance: 'BUSINESS_POLICY' },
+          payment: { transferEnabled: true, alias: 'salon.test', cbu: null, cvu: null, paymentLinkEnabled: false, paymentLink: null } }
+        const groupShown = { ...presented, terms: groupTerms, fingerprint: runtimeBookingFingerprint(groupTerms) }
+        const current = { ...draft, slot: { startAt: groupTerms.segments[0]!.startAt,
+          coordination: { segments: groupTerms.segments.map(({ priceMinor, priceMode, configurationHash, ...segment }) => segment) } },
+          bookingReservation: { presented: groupShown } }
+        await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2', [JSON.stringify({
+          booking: 'DRAFT', deposit: 'NONE', handoff: 'NONE', conversationDraft: { dialogue: current } }), 'session'])
+        const jointInput: RuntimeBookingInput = { ...input, presented: groupShown, currentDraft: current,
+          consent: { confirmed: true, nonce: groupShown.nonce, fingerprint: groupShown.fingerprint } }
+        assert.equal((await executePrismaConversationBooking(orm(tx), { ...jointInput,
+          consent: { ...jointInput.consent, nonce: 'old-nonce' } })).kind, 'BLOCKED', 'one current nonce owns ALL segments')
+        for (const [mutation, restore] of [
+          [`UPDATE "Service" SET "depositValue"="depositValue"+1 WHERE "depositMode"<>'NONE'`,
+            `UPDATE "Service" SET "depositValue"="depositValue"-1 WHERE "depositMode"<>'NONE'`],
+          [`UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=61`,
+            `UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=60`],
+          [`UPDATE "BusinessPaymentSettings" SET alias='changed.test'`,
+            `UPDATE "BusinessPaymentSettings" SET alias='salon.test'`]
+        ] as const) {
+          await tx.exec(mutation)
+          assert.notEqual((await executePrismaConversationBooking(orm(tx), jointInput)).kind, 'HELD',
+            'changed deposit terms anywhere in the group require fresh consent')
+          assert.equal((await tx.query<{ n: number }>('SELECT count(*)::int n FROM "BotOperation"')).rows[0]!.n, 0,
+            'rejected group terms cannot retain a subset')
+          await tx.exec(restore)
+        }
+        const result = await executePrismaConversationBooking(orm(tx), jointInput)
+        assert.equal(result.kind, 'HELD', 'P14 coordinated deposit must hold ALL: ' + modes.join('+'))
+        if (result.kind !== 'HELD') throw new Error('P14 expected held group')
+        assert.equal(result.amount, amount)
+        assert.ok(result.coordinatedDepositGroup, 'receipt references the durable group seal')
+        if (modes[1] === 'PERCENTAGE') {
+          const estimated = (await tx.query<{ quotedPrice: number | null; totalPrice: number | null }>(
+            `SELECT a."quotedPrice",v."totalPrice" FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId" WHERE a."serviceId"='s2'`)).rows[0]!
+          assert.deepEqual(estimated, { quotedPrice: null, totalPrice: null }, 'known deposit does not invent the final price')
+        }
+        assert.equal(result.appointments.length, 2)
+        const members = (await tx.query<{ serviceId: string; appointmentId: string; appointmentStatus: string; visitStatus: string; depositId: string | null; amount: number | null; expiresAt: string | null }>(
+          `SELECT a."serviceId",a.id AS "appointmentId",a.status AS "appointmentStatus",v.status AS "visitStatus",
+            d.id AS "depositId",d.amount,d."expiresAt" FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId"
+            LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id ORDER BY a."serviceId"`)).rows
+        assert.equal(members.length, 2)
+        assert.ok(members.every(member => member.appointmentStatus === 'PENDING' && member.visitStatus === 'HELD'), 'NONE companion is not prematurely confirmed')
+        assert.equal(members.filter(member => member.depositId !== null).length, lines.length, 'NONE has no fictitious obligation')
+        assert.equal(result.depositId, members.find(member => member.depositId !== null)!.depositId, 'financial anchor may be segment one')
+        assert.ok(members.filter(member => member.depositId !== null).every(member => new Date(member.expiresAt!).toISOString() === result.expiresAt), 'common deadline')
+        assert.deepEqual(await executePrismaConversationBooking(orm(tx), jointInput), result, 'group replay is idempotent')
+        const reservation = { presented: groupShown, receipt: result }
+        assert.doesNotMatch(runtimeBookingReceiptReply(reservation), /La reserva fue confirmada/)
+        assert.equal((runtimeBookingReceiptReply(reservation).match(/Enviá el comprobante/g) ?? []).length, 1)
+        const readScope = { businessId: 'b', sessionId: 'session', canonicalPhone: origin.canonicalPhone, expectedRevision: 4n }
+        assert.deepEqual(await loadRuntimeDepositReceipt(orm(tx), readScope, reservation), result, 'reader validates complete sealed group including NONE companion')
+        assert.equal(await loadRuntimeDepositReceipt(orm(tx), { ...readScope, canonicalPhone: '5491199999999' }, reservation), null)
+        assert.equal(await loadRuntimeDepositReceipt(orm(tx), { ...readScope, expectedRevision: 3n }, reservation), null)
+        assert.equal(await loadRuntimeDepositReceipt(orm(tx), readScope, { ...reservation,
+          receipt: { ...result, proposalNonce: 'old-nonce' } }), null, 'reader checks current sealed proposal nonce')
+        assert.equal(await loadRuntimeDepositReceipt(orm(tx), readScope, { ...reservation,
+          receipt: { ...result, coordinatedDepositGroup: { ...result.coordinatedDepositGroup!, requestHash: 'a'.repeat(64) } } }), null,
+          'well-shaped but wrong seal hash cannot grant group authority')
+        await tx.exec(`UPDATE "Appointment" SET "coordinationGroupId"='foreign-group' WHERE "serviceId"='s2'`)
+        assert.equal(await loadRuntimeDepositReceipt(orm(tx), readScope, reservation), null, 'one bad member invalidates group authority')
+        throw new Error(resetMarker)
+      }).catch(error => { if (!(error instanceof Error) || error.message !== resetMarker) throw error })
+      assert.deepEqual(await counts(), { appointments: 0, visits: 0, operations: 0 }, 'rollback clears every P14 child and parent')
+    }
   } finally {
     if(oldCapability===undefined)delete process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED;else process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED=oldCapability
     if(oldAuthority===undefined)delete process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED;else process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED=oldAuthority

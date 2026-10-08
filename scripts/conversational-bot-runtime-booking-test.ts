@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { Prisma } from '../src/generated/prisma/client.js'
+import { coordinationKey } from '../src/conversational-bot/coordinated-booking.js'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
 import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, parseDialogueState, finalizeRuntimeBooking, respond, respondConversationChoice, type DialogueContext, type DialogueDecision, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
-import { parseRuntimePresentedBooking, runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeBookingSummary, type RuntimePresentedBooking, type RuntimeShownScope } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { parseRuntimePresentedBooking, runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeBookingSummary, runtimeBookingReceiptReply, parseRuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { parseBotOptionsState } from '../src/bot-options/domain/state.js'
@@ -271,3 +272,97 @@ assert.equal(unavailable.bookingCommand,undefined);assert.equal(unavailable.hand
 assert.match(unavailable.reply,/seña para varios servicios/);assert.match(unavailable.reply,/Conservé todos tus servicios/)
 
 console.log('runtime presentation/consent/current scope/lateral/parser/ALL receipt/projection: OK')
+
+// P14: parse the aggregate financial contract before it can own confirmation.
+// Existing NONE and singular receipt assertions above remain unchanged.
+for (const required of [[0], [0, 1], [1]] as const) {
+  const terms = structuredClone(manyReservation.presented.terms)
+  terms.preference = { kind: 'any' }
+  terms.segments[1]!.professionalId = 'p2'
+  terms.segments[1]!.professionalName = 'Leo'
+  const lines = required.map(index => {
+    const segment = terms.segments[index]!
+    return { serviceId: segment.serviceId, serviceName: segment.serviceName, sortOrder: index,
+      mode: index === 1 && required.length === 2 ? 'PERCENTAGE' as const : 'FIXED' as const,
+      configuredValue: index === 1 && required.length === 2 ? 10 : 100,
+      baseAmount: index === 1 && required.length === 2 ? segment.priceMinor : null,
+      amount: index === 1 && required.length === 2 ? 200 : 100 }
+  })
+  terms.deposit = { financial: { lines, amount: lines.reduce((sum, line) => sum + line.amount, 0),
+    ttlMinutes: 60, ttlProvenance: 'BUSINESS_POLICY' },
+    payment: { transferEnabled: true, alias: 'salon.test', cbu: null, cvu: null,
+      paymentLinkEnabled: false, paymentLink: null } }
+  const presented = { ...manyReservation.presented, terms, fingerprint: runtimeBookingFingerprint(terms) }
+  assert.deepEqual(parseRuntimePresentedBooking(presented), presented,
+    'P14 complete multi-professional financial terms must parse: ' + required.join(','))
+  const summary = runtimeBookingSummary(presented)
+  assert.match(summary, /Corte con Elisa/)
+  assert.match(summary, /Crema con Leo/)
+  assert.match(summary, new RegExp('Seña requerida: \\$' + terms.deposit.financial.amount))
+  assert.match(summary, /60 minutos/)
+  assert.doesNotMatch(summary, /La reserva fue confirmada/)
+
+  const groupReceipt = { kind: 'HELD' as const, coordinationGroupId: 'financial-group',
+    proposalNonce: presented.nonce, fingerprint: presented.fingerprint,
+    appointments: manyReceipt.appointments, operationKey: 'joint-operation',
+    depositId: required[0] === 1 ? 'second-segment-deposit' : 'first-segment-deposit',
+    expiresAt: '2026-10-06T16:00:00.000Z', amount: terms.deposit.financial.amount,
+    depositStatus: 'PENDING_PROOF' as const,
+    coordinatedDepositGroup: { version: 1 as const, groupId: 'financial-group', requestHash: 'a'.repeat(64) } }
+  const reservation = { presented, receipt: groupReceipt }
+  const coordinatedSegments = terms.segments.map(({ priceMinor, priceMode, configurationHash, estimate, ...segment }) => segment)
+  const groupState: DialogueState = { ...structuredClone(manyReady), professional: { kind: 'any' },
+    slot: { ...manyReady.slot!, occupiedMinutes: 75, coordination: {
+      key: coordinationKey('b', coordinatedSegments), segments: coordinatedSegments } } }
+  const groupPort = { ...manyFx.port,
+    availabilityBasket: async () => ({ ok: true as const, services: await manyFx.port.catalog(), durationMinutes: 60,
+      customerDurationMinutes: 75, totalPrice: 3000, professionals: [{ id: 'p1', name: 'Elisa', priority: 0 }],
+      slots: [groupState.slot!] }),
+    prepareRuntimeBooking: async () => ({ presented, slot: groupState.slot! }) }
+  const groupShown = await respond(manyFx.context, groupState, 'Quiero reservar ambos servicios.', groupPort)
+  assert.match(groupShown.reply, /una seña conjunta/i)
+  assert.match(groupShown.reply, /un único comprobante/i)
+  assert.match(groupShown.reply, /Confirmás la reserva de todos estos servicios/)
+  assert.equal((groupShown.reply.match(/¿Confirmás/g) ?? []).length, 1)
+  const groupConfirmed = await respond({ ...manyFx.context, serverRuntimeBookingScope: { ...scope, revision: '6' } },
+    groupShown.state, 'Confirmo', groupPort)
+  assert.equal(groupConfirmed.bookingCommand?.kind, 'CONFIRM_BOOKING')
+  assert.deepEqual(groupConfirmed.bookingCommand?.presented, presented, 'one confirmation retains all current terms')
+  const finalized = finalizeRuntimeBooking(groupConfirmed, groupReceipt)
+  assert.equal(projectConversationDraft(finalized.state, policy).booking, 'HELD')
+  assert.doesNotMatch(finalized.reply, /La reserva fue confirmada/)
+  assert.deepEqual(parseRuntimeBookingReservation(reservation, 'b'), reservation,
+    'NONE-first receipt retains the financial anchor separately from appointment zero')
+  const heldReply = runtimeBookingReceiptReply(reservation)
+  assert.match(heldReply, /Corte con Elisa/)
+  assert.match(heldReply, /Crema con Leo/)
+  assert.equal((heldReply.match(/Enviá el comprobante/g) ?? []).length, 1, 'one proof requested for all services')
+  assert.doesNotMatch(heldReply, /La reserva fue confirmada/)
+  for (const depositStatus of ['PROOF_RECEIVED', 'APPROVED', 'REJECTED', 'EXPIRED'] as const) {
+    const reply = runtimeBookingReceiptReply({ ...reservation, receipt: { ...groupReceipt, depositStatus } })
+    assert.equal(/La reserva fue confirmada/.test(reply), depositStatus === 'APPROVED')
+  }
+  for (const mutate of [
+    (copy: typeof presented) => { copy.terms.deposit!.financial.amount++ },
+    (copy: typeof presented) => { copy.terms.deposit!.financial.lines[0]!.serviceId = 'foreign' },
+    (copy: typeof presented) => { copy.terms.deposit!.financial.lines[0]!.amount++ },
+    (copy: typeof presented) => { copy.terms.deposit!.financial.lines.push(copy.terms.deposit!.financial.lines[0]!) },
+    (copy: typeof presented) => { copy.terms.deposit!.financial.ttlMinutes = 0 }
+  ]) {
+    const bad = structuredClone(presented)
+    mutate(bad)
+    bad.fingerprint = runtimeBookingFingerprint(bad.terms)
+    assert.equal(parseRuntimePresentedBooking(bad), null, 'canonical sum, membership and deadline cannot be client overrides')
+  }
+  for (const receipt of [{ ...groupReceipt, coordinatedDepositGroup: undefined },
+    { ...groupReceipt, coordinatedDepositGroup: { ...groupReceipt.coordinatedDepositGroup, groupId: 'foreign' } },
+    { ...groupReceipt, coordinatedDepositGroup: { ...groupReceipt.coordinatedDepositGroup, requestHash: 'bad' } },
+    { ...groupReceipt, amount: groupReceipt.amount + 1 },
+    { ...groupReceipt, proposalNonce: 'old-nonce' },
+    { ...groupReceipt, appointments: groupReceipt.appointments.slice(0, 1) },
+    { ...groupReceipt, kind: 'COMMITTED' }]) {
+    assert.throws(() => parseRuntimeBookingReservation({ presented, receipt }, 'b'),
+      'no partial membership, stale consent or false committed financial receipt')
+  }
+}
+console.log('P14 aggregate parser, one receipt/proof and strict canonical financial guards: PASS')

@@ -1565,9 +1565,11 @@ async function respondRuntimeBookingEnvelope(context:DialogueContext,state:Dialo
       response.state.slot=prepared.slot
       response.state.bookingReservation={presented:prepared.presented}
       if(!runtimeProposalMatchesState(prepared.presented,response.state))throw new Error('runtime preparation mismatch')
-      response.reply=(response.proposal?'':response.reply+'\n')+runtimeBookingSummary(prepared.presented)+'\n'+RUNTIME_CONFIRMATION_QUESTION
-      response.state.dialogueContext={lastQuestion:RUNTIME_CONFIRMATION_QUESTION,presentedOffer:response.state.dialogueContext?.presentedOffer??null}
-      rememberDialogueQuestion(response.state,RUNTIME_CONFIRMATION_QUESTION)
+      const confirmationQuestion=prepared.presented.terms.deposit && prepared.presented.terms.segments.length>1
+        ? '¿Confirmás la reserva de todos estos servicios con la seña conjunta?' : RUNTIME_CONFIRMATION_QUESTION
+      response.reply=(response.proposal?'':response.reply+'\n')+runtimeBookingSummary(prepared.presented)+'\n'+confirmationQuestion
+      response.state.dialogueContext={lastQuestion:confirmationQuestion,presentedOffer:response.state.dialogueContext?.presentedOffer??null}
+      rememberDialogueQuestion(response.state,confirmationQuestion)
     }
   }
   return response

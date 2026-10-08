@@ -5,10 +5,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from '../services/agenda-locks.js'
-import { confirmBookingWithoutDeposit, holdBookingWithDeposit, revalidateBookingWrite, type ConfirmBookingWithoutDepositInput } from '../services/booking-operations.js'
+import { confirmBookingWithoutDeposit, holdBookingWithDeposit, holdCoordinatedBookingWithDeposit, revalidateBookingWrite, type ConfirmBookingWithoutDepositInput } from '../services/booking-operations.js'
 import { prismaHandoffEffectExecutor } from '../bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { parseEstimateOptions, resolveServiceEstimate, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
 import { validateCustomerName } from '../bot-options/domain/customer-name-validation.js'
+import { lockCoordinatedDepositGroupState, coordinatedDepositRequestHash, type CoordinatedDepositGroup } from '../services/coordinated-deposit-group.js'
 
 export type RuntimeBookingSegment = {
   serviceId: string; serviceName: string; professionalId: string; professionalName: string
@@ -36,7 +37,7 @@ export type RuntimeBookingInput = { origin: RuntimeBookingOrigin; presented: Run
   consent: { confirmed: boolean; nonce: string; fingerprint: string } }
 export type RuntimeBookingReceipt = { kind: 'COMMITTED'; coordinationGroupId: string; proposalNonce: string; fingerprint: string
   appointments: Array<{ segmentIndex: number; appointmentId: string; visitId: string }>; businessAddress?: string }
-export type RuntimeHeldReceipt = Omit<RuntimeBookingReceipt,'kind'> & {kind:'HELD';operationKey:string;depositId:string;expiresAt:string;amount:number;depositStatus:'PENDING_PROOF'|'PENDING_RESUBMISSION'|'PROOF_RECEIVED'|'APPROVED'|'REJECTED'|'EXPIRED'}
+export type RuntimeHeldReceipt = Omit<RuntimeBookingReceipt,'kind'> & {kind:'HELD';operationKey:string;depositId:string;expiresAt:string;amount:number;depositStatus:'PENDING_PROOF'|'PENDING_RESUBMISSION'|'PROOF_RECEIVED'|'APPROVED'|'REJECTED'|'EXPIRED';coordinatedDepositGroup?:{version:1;groupId:string;requestHash:string}}
 export type RuntimeBookingResult = RuntimeBookingReceipt | RuntimeHeldReceipt | { kind: 'BLOCKED'; reason: 'SCOPE_REJECTED' | 'FINANCIAL_OR_GUIDANCE' } | { kind: 'REQUOTE' }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
 export const runtimeBookingFingerprint = (terms: RuntimeBookingTerms): string => canonicalJsonHash(terms)
@@ -93,31 +94,47 @@ function validPresented(p: unknown): p is RuntimePresentedBooking {
   return t.totalPriceMinor===(fixed?total:null) && p.fingerprint===canonicalJsonHash(t)
 }
 function validDepositPresentation(value:unknown,segments:readonly RuntimeBookingSegment[]):value is RuntimeDepositPresentation {
-  if(!object(value)||!keys(value,['financial','payment'])||segments.length!==1||!object(value.financial)||!object(value.payment))return false
-  const f=value.financial,p=value.payment,s=segments[0]!
-  if(!keys(f,['lines','amount','ttlMinutes','ttlProvenance'])||!Array.isArray(f.lines)||f.lines.length!==1||!object(f.lines[0])||
-     !keys(f.lines[0],['serviceId','sortOrder','serviceName','mode','configuredValue','baseAmount','amount'])||
-     f.lines[0].serviceId!==s.serviceId||f.lines[0].serviceName!==s.serviceName||f.lines[0].sortOrder!==0||
-     !['FIXED','PERCENTAGE'].includes(String(f.lines[0].mode))||typeof f.lines[0].configuredValue!=='number'||!Number.isSafeInteger(f.lines[0].configuredValue)||
+  if(!object(value)||!keys(value,['financial','payment'])||!object(value.financial)||!object(value.payment))return false
+  const f=value.financial,p=value.payment
+  if(!keys(f,['lines','amount','ttlMinutes','ttlProvenance'])||!Array.isArray(f.lines)||!f.lines.length||f.lines.length>segments.length||
      typeof f.ttlMinutes!=='number'||!Number.isSafeInteger(f.ttlMinutes)||f.ttlMinutes<=0||f.ttlMinutes>43200||
      !['BUSINESS_POLICY','DEFAULT_120'].includes(String(f.ttlProvenance)))return false
+  let previous=-1
+  for(const line of f.lines) {
+    if(!object(line)||!keys(line,['serviceId','sortOrder','serviceName','mode','configuredValue','baseAmount','amount'])||
+       typeof line.sortOrder!=='number'||!Number.isSafeInteger(line.sortOrder)||line.sortOrder<=previous||
+       line.sortOrder>=segments.length||line.serviceId!==segments[line.sortOrder]?.serviceId||
+       line.serviceName!==segments[line.sortOrder]?.serviceName||!['FIXED','PERCENTAGE'].includes(String(line.mode))||
+       typeof line.configuredValue!=='number'||!Number.isSafeInteger(line.configuredValue))return false
+    previous=line.sortOrder
+  }
   if(!keys(p,['transferEnabled','alias','cbu','cvu','paymentLinkEnabled','paymentLink'])||typeof p.transferEnabled!=='boolean'||typeof p.paymentLinkEnabled!=='boolean'||
      ![p.alias,p.cbu,p.cvu,p.paymentLink].every(v=>v===null||text(v,1000)))return false
   if(p.paymentLink!==null){try{const url=new URL(String(p.paymentLink));if(url.protocol!=='https:'||url.username||url.password)return false}catch{return false}}
   try {
-    const canonical=calculateBookingDepositTerms({services:[{id:s.serviceId,name:s.serviceName,price:s.priceMinor,priceMode:s.priceMode,
-      depositMode:f.lines[0].mode as 'FIXED'|'PERCENTAGE',depositValue:f.lines[0].configuredValue}],businessDepositHoldMinutes:f.ttlProvenance==='DEFAULT_120'?null:f.ttlMinutes})
+    const canonical=calculateBookingDepositTerms({services:segments.map((segment,index)=>{
+      const line=(f.lines as BookingDepositTerms['lines']).find(line=>line.sortOrder===index)
+      return {id:segment.serviceId,name:segment.serviceName,price:segment.priceMinor,priceMode:segment.priceMode,
+        depositMode:line?.mode??'NONE',depositValue:line?.configuredValue??null}
+    }),businessDepositHoldMinutes:f.ttlProvenance==='DEFAULT_120'?null:f.ttlMinutes})
     return isDeepStrictEqual(f,canonical)&&hasCompleteDepositPaymentConfiguration(p as RuntimeDepositPayment)
   }catch{return false}
 }
-/** Current uncached canonical financial terms; no AI/client values are admitted here. */
-export async function prepareRuntimeDeposit(tx:Pick<Prisma.TransactionClient,'$queryRaw'>,businessId:string,service:Record<string,unknown>,segment:RuntimeBookingSegment,lock=false):Promise<RuntimeDepositPresentation|null> {
+/** Current uncached canonical financial terms; NONE companions are included only in service order. */
+export async function prepareRuntimeDeposit(tx:Pick<Prisma.TransactionClient,'$queryRaw'>,businessId:string,
+  service:Record<string,unknown>|readonly Record<string,unknown>[],segment:RuntimeBookingSegment|readonly RuntimeBookingSegment[],lock=false):Promise<RuntimeDepositPresentation|null> {
+  const services=Array.isArray(service)?service:[service],segments=Array.isArray(segment)?segment:[segment]
+  if(services.length!==segments.length||!services.length)return null
   const settings=await tx.$queryRaw<Array<{depositHoldMinutes:number|null}>>(Prisma.sql`/* runtime-booking-deposit-settings */ SELECT "depositHoldMinutes" FROM "BusinessBotOptionsSettings" WHERE "businessId"=${businessId} ${lock?Prisma.sql`FOR SHARE`:Prisma.empty}`)
   const payment=await tx.$queryRaw<RuntimeDepositPayment[]>(Prisma.sql`/* runtime-booking-deposit-payment */ SELECT "transferEnabled",alias,cbu,cvu,"paymentLinkEnabled","paymentLink" FROM "BusinessPaymentSettings" WHERE "businessId"=${businessId} ${lock?Prisma.sql`FOR SHARE`:Prisma.empty}`)
   if(settings.length!==1||payment.length!==1)return null
-  const deposit={financial:calculateBookingDepositTerms({services:[{id:segment.serviceId,name:segment.serviceName,price:segment.priceMinor,priceMode:segment.priceMode,
-    depositMode:service.depositMode as 'FIXED'|'PERCENTAGE',depositValue:service.depositValue as number|null}],businessDepositHoldMinutes:settings[0]!.depositHoldMinutes}),payment:payment[0]!}
-  return validDepositPresentation(deposit,[segment])?deposit:null
+  try {
+    const deposit={financial:calculateBookingDepositTerms({services:segments.map((s,index)=>({
+      id:s.serviceId,name:s.serviceName,price:s.priceMinor,priceMode:s.priceMode,
+      depositMode:services[index]!.depositMode as 'NONE'|'FIXED'|'PERCENTAGE',depositValue:services[index]!.depositValue as number|null
+    })),businessDepositHoldMinutes:settings[0]!.depositHoldMinutes}),payment:payment[0]!}
+    return validDepositPresentation(deposit,segments)?deposit:null
+  }catch{return null}
 }
 /** Bounded parsing only: this is not booking or consent authority. */
 export function parseRuntimePresentedBooking(value: unknown): RuntimePresentedBooking | null {
@@ -225,7 +242,9 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
   const key='conversation-booking:'+o.operationKey+':'+p.nonce
   const requestHash=runtimeBookingRequestHash(o,p)
   await acquireAgendaHierarchy(tx,{businessId:o.businessId,professionalIds:p.terms.segments.map(s=>s.professionalId)})
-  const prior=p.terms.deposit ? await replayRuntimeDeposit(tx,input,key,requestHash,scope.customerId) : await replay(tx,input,key,requestHash,scope.customerId)
+  const prior=p.terms.deposit && p.terms.segments.length>1
+    ? await replayCoordinatedRuntimeDeposit(tx,input,key,scope.customerId)
+    : p.terms.deposit ? await replayRuntimeDeposit(tx,input,key,requestHash,scope.customerId) : await replay(tx,input,key,requestHash,scope.customerId)
   if(prior) return {...prior,...(text(scope.businessAddress,1000)?{businessAddress:scope.businessAddress}:{})}
   if(!o.newBookingAllowed) return blocked()
   if(p.terms.deposit && !runtimeDepositsEnabled())return {kind:'BLOCKED',reason:'FINANCIAL_OR_GUIDANCE'}
@@ -235,11 +254,12 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
   const allIds=[...new Set(p.terms.segments.map(s=>s.serviceId))]
   const rules=await tx.$queryRaw<Array<{count:number}>>(Prisma.sql`SELECT count(*)::int AS count FROM "ServiceCombinationRule" WHERE "businessId"=${o.businessId} AND "serviceAId" IN (${Prisma.join(allIds)}) AND "serviceBId" IN (${Prisma.join(allIds)}) AND policy<>'ALLOWED'::"ServiceCombinationPolicy"`)
   if((rules[0]?.count??0)>0) return {kind:'BLOCKED',reason:'FINANCIAL_OR_GUIDANCE'}
+  const canonicalServices:Record<string,unknown>[]=[]
   for(const segment of p.terms.segments) {
     const validation=await revalidateBookingWrite(tx,{businessId:o.businessId,professionalId:segment.professionalId,professionalIdsToLock:p.terms.segments.map(s=>s.professionalId),
       serviceIds:[segment.serviceId],startAt:new Date(segment.startAt),timezone:settings.timezone,dbNow:new Date(settings.dbNow)})
     const s=validation.orderedServices[0]!
-    if((s.depositMode!=='NONE')!==Boolean(p.terms.deposit) || s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode) ||
+    if((s.depositMode!=='NONE')!==Boolean(p.terms.deposit?.financial.lines.some(line=>line.serviceId===segment.serviceId)) || s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode) ||
       s.attentionMode==='GUIDED_ESTIMATE' && !s.estimateAllowsBooking) return {kind:'BLOCKED',reason:'FINANCIAL_OR_GUIDANCE'}
     const estimate=s.attentionMode==='GUIDED_ESTIMATE' ? resolveServiceEstimate({...s,estimateOptions:parseEstimateOptions(s.estimateOptions)},segment.estimate?.optionId??null) : null
     if(validation.conflicts.length || validation.professional.name!==segment.professionalName || !validation.professional.acceptsBotBookings ||
@@ -248,14 +268,22 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
       (estimate?'STARTING_AT':s.priceMode)!==segment.priceMode || !isDeepStrictEqual(estimate??undefined,segment.estimate) ||
       s.attentionMode==='GUIDED_ESTIMATE' && !estimate ||
       segment.configurationHash!==runtimeServiceConfigurationHash(s)) return {kind:'REQUOTE'}
-    if(p.terms.deposit && !isDeepStrictEqual(await prepareRuntimeDeposit(tx,o.businessId,s,segment,true),p.terms.deposit))return {kind:'REQUOTE'}
+    canonicalServices.push(s)
     const catalogs=await tx.$queryRaw<Array<{count:number}>>(Prisma.sql`SELECT count(*)::int AS count FROM "Service" s JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true WHERE s.id=${segment.serviceId} AND s."businessId"=${o.businessId} AND s."isActive"=true AND s."isBookable"=true`)
     const windows=await tx.$queryRaw<Array<{valid:boolean}>>(Prisma.sql`SELECT (${new Date(segment.startAt)} >= clock_timestamp()+make_interval(hours=>${settings.bookingLeadTimeHours})
       AND (${new Date(segment.startAt)} AT TIME ZONE ${settings.timezone})::date < (clock_timestamp() AT TIME ZONE ${settings.timezone})::date+${settings.bookingHorizonDays}::int
       AND extract(minute FROM (${new Date(segment.startAt)} AT TIME ZONE ${settings.timezone}))::int % 30=0 AND extract(second FROM ${new Date(segment.startAt)}::timestamptz)=0) AS valid`)
     if(catalogs[0]?.count!==1 || windows[0]?.valid!==true) return {kind:'REQUOTE'}
   }
+  if(p.terms.deposit && !isDeepStrictEqual(await prepareRuntimeDeposit(tx,o.businessId,canonicalServices,p.terms.segments,true),p.terms.deposit))return {kind:'REQUOTE'}
   // From here onward, never turn a failed child into a normal return: the caller must roll back.
+  if(p.terms.deposit && p.terms.segments.length>1) {
+    if(scope.customerName!==p.terms.customerName || !scope.customerId) await prismaHandoffEffectExecutor(tx,{businessId:o.businessId,sessionId:o.sessionId,operationKey:key,
+      effects:[{kind:'PERSIST_CUSTOMER_NAME',name:p.terms.customerName}]})
+    // The shared core owns the only parent operation and every child hold.
+    const group=await holdCoordinatedBookingWithDeposit(tx,{origin:o,proposal:p,currentDraft:input.currentDraft,consent:input.consent})
+    return coordinatedRuntimeReceipt(group,'PENDING_PROOF',group.expiresAt,text(scope.businessAddress,1000)?scope.businessAddress:undefined)
+  }
   const groupId=randomUUID()
   const operationType=p.terms.deposit?'HOLD_VISIT_WITH_DEPOSIT':'CONFIRM_VISIT'
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${key},${operationType},${o.businessId},${o.sessionId},'STARTED',${requestHash},${groupId},clock_timestamp())`)
@@ -285,10 +313,16 @@ function validateRuntimeBookingReservation(value: unknown, businessId: string): 
     value.presented.scope.businessId!==businessId || value.presented.terms.businessId!==businessId) throw new Error('invalid runtime reservation')
   const p=value.presented, r=value.receipt
   if (r!==undefined) {
-    if (!object(r) || !keys(r,['kind','coordinationGroupId','proposalNonce','fingerprint','appointments'],r.kind==='HELD'?['businessAddress','operationKey','depositId','expiresAt','amount','depositStatus']:['businessAddress']) ||
+    if (!object(r) || !keys(r,['kind','coordinationGroupId','proposalNonce','fingerprint','appointments'],r.kind==='HELD'?['businessAddress','operationKey','depositId','expiresAt','amount','depositStatus','coordinatedDepositGroup']:['businessAddress']) ||
       !['COMMITTED','HELD'].includes(String(r.kind)) || !text(r.coordinationGroupId) || r.proposalNonce!==p.nonce || r.fingerprint!==p.fingerprint ||
       r.businessAddress!==undefined && !text(r.businessAddress,1000) || !Array.isArray(r.appointments) || r.appointments.length!==p.terms.segments.length) throw new Error('invalid runtime receipt')
     if(r.kind==='COMMITTED' && p.terms.deposit || r.kind==='HELD' && (!p.terms.deposit||!text(r.operationKey,256)||!text(r.depositId)||!instant(r.expiresAt)||r.amount!==p.terms.deposit.financial.amount||!['PENDING_PROOF','PENDING_RESUBMISSION','PROOF_RECEIVED','APPROVED','REJECTED','EXPIRED'].includes(String(r.depositStatus))))throw new Error('invalid runtime financial receipt')
+    if(r.kind==='HELD' && p.terms.segments.length>1) {
+      const seal=r.coordinatedDepositGroup
+      if(!object(seal)||!keys(seal,['version','groupId','requestHash'])||seal.version!==1||
+        seal.groupId!==r.coordinationGroupId||typeof seal.groupId!=='string'||!text(seal.groupId)||
+        typeof seal.requestHash!=='string'||!/^[a-f0-9]{64}$/.test(seal.requestHash))throw new Error('invalid coordinated financial receipt seal')
+    } else if(r.coordinatedDepositGroup!==undefined)throw new Error('unexpected coordinated financial receipt seal')
     const ids=new Set<string>(), visits=new Set<string>()
     for (const [index,member] of r.appointments.entries()) {
       if (!object(member) || !keys(member,['segmentIndex','appointmentId','visitId']) || member.segmentIndex!==index ||
@@ -315,7 +349,7 @@ function runtimeBookingDetail(p: RuntimePresentedBooking): string {
   return p.terms.customerName+':\n'+lines.join('\n')+'\n'+(p.terms.totalPriceMinor===null?'Total a consultar.':'Total: '+money(p.terms.totalPriceMinor))
 }
 export function runtimeBookingSummary(p: RuntimePresentedBooking): string {
-  return 'Propuesta para '+runtimeBookingDetail(p)+'\n'+(p.terms.deposit?'Seña requerida: $'+p.terms.deposit.financial.amount.toLocaleString('es-AR')+'. Al aceptar, el horario se mantiene por '+p.terms.deposit.financial.ttlMinutes+' minutos para enviar el comprobante. Todavía no está confirmado.':'Sin seña requerida.')+' La disponibilidad se verifica otra vez al confirmar.'
+  return 'Propuesta para '+runtimeBookingDetail(p)+'\n'+(p.terms.deposit?'Seña requerida: $'+p.terms.deposit.financial.amount.toLocaleString('es-AR')+'. Al aceptar, el horario se mantiene por '+p.terms.deposit.financial.ttlMinutes+' minutos para enviar el comprobante.'+(p.terms.segments.length>1?' Es una seña conjunta: enviá un único comprobante para todos los servicios.':'')+' Todavía no está confirmado.':'Sin seña requerida.')+' La disponibilidad se verifica otra vez al confirmar.'
 }
 export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservation): string {
   if(!reservation.receipt) throw new Error('runtime receipt required')
@@ -324,7 +358,7 @@ export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservatio
     if(r.depositStatus==='EXPIRED')return 'Venció el plazo de la seña. La reserva no está confirmada; no inicié otra reserva.'
     if(r.depositStatus==='REJECTED')return 'El equipo rechazó el pago. La reserva no está confirmada; consultá al equipo antes de continuar.'
     if(r.depositStatus==='PROOF_RECEIVED')return 'Recibimos tu comprobante. El equipo debe validarlo; la reserva todavía no está confirmada.'
-    if(r.depositStatus!=='APPROVED')return 'Mantuvimos provisionalmente el horario. La reserva todavía no está confirmada.\n'+runtimeBookingDetail(reservation.presented)+'\nSeña: $'+r.amount.toLocaleString('es-AR')+'\nEnviá el comprobante antes de '+new Intl.DateTimeFormat('es-AR',{timeZone:reservation.presented.terms.timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(r.expiresAt))+'.\n'+runtimeDepositPaymentReply(reservation.presented.terms.deposit!.payment)+(r.depositStatus==='PENDING_RESUBMISSION'?'\nEl equipo necesita un nuevo comprobante.':'')
+    if(r.depositStatus!=='APPROVED')return 'Mantuvimos provisionalmente el horario. La reserva todavía no está confirmada.\n'+runtimeBookingDetail(reservation.presented)+'\nSeña: $'+r.amount.toLocaleString('es-AR')+'\nEnviá el comprobante'+(reservation.presented.terms.segments.length>1?' único para todos los servicios':'')+' antes de '+new Intl.DateTimeFormat('es-AR',{timeZone:reservation.presented.terms.timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(r.expiresAt))+'.\n'+runtimeDepositPaymentReply(reservation.presented.terms.deposit!.payment)+(r.depositStatus==='PENDING_RESUBMISSION'?'\nEl equipo necesita un nuevo comprobante.':'')
   }
   return 'La reserva fue confirmada.\n'+runtimeBookingDetail(reservation.presented)+(reservation.receipt.businessAddress?'\nTe esperamos en '+reservation.receipt.businessAddress:'')
 }
@@ -337,6 +371,29 @@ function runtimeDepositPaymentReply(p:RuntimeDepositPayment):string {
 export async function loadRuntimeDepositReceipt(tx:Pick<Prisma.TransactionClient,'$queryRaw'>,scope:{businessId:string;sessionId:string;canonicalPhone:string;expectedRevision:bigint},reservation:RuntimeBookingReservation):Promise<RuntimeHeldReceipt|null> {
   const p=reservation.presented,r=reservation.receipt
   if(!r||r.kind!=='HELD'||!p.terms.deposit||p.scope.businessId!==scope.businessId||p.scope.sessionId!==scope.sessionId||!/^\d{10,15}$/.test(scope.canonicalPhone))return null
+  if(p.terms.segments.length>1) {
+    try {
+      parseRuntimeBookingReservation(reservation,scope.businessId)
+      // Keep the core's business -> professional -> session locking order.
+      const live=await lockCoordinatedDepositGroupState(tx as Prisma.TransactionClient,{businessId:scope.businessId,groupId:r.coordinationGroupId})
+      const owners=await tx.$queryRaw<Array<{businessAddress:string|null}>>(Prisma.sql`
+        /* runtime-booking-coordinated-deposit-scope */
+        SELECT b."publicAddress" AS "businessAddress" FROM "BotSession" s
+        JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+        JOIN "Business" b ON b.id=s."businessId"
+        WHERE s.id=${scope.sessionId} AND s."businessId"=${scope.businessId} AND s.revision=${scope.expectedRevision}
+          AND s.status='ACTIVE' AND regexp_replace(c.phone,'[^0-9]','','g')=${scope.canonicalPhone}
+        FOR SHARE OF s,c,b`)
+      if(owners.length!==1)return null
+      const g=live.group,seal=r.coordinatedDepositGroup
+      if(!seal||seal.version!==1||seal.groupId!==g.groupId||seal.requestHash!==g.requestHash||
+        g.operationKey!==r.operationKey||g.anchorDepositId!==r.depositId||g.canonicalPhone!==scope.canonicalPhone||
+        g.amount!==r.amount||!isDeepStrictEqual(g.proposal,p)||
+        !isDeepStrictEqual(g.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),r.appointments))return null
+      return coordinatedRuntimeReceipt(g,live.depositStatus as RuntimeHeldReceipt['depositStatus'],
+        live.currentExpiresAt.toISOString(),text(owners[0]!.businessAddress,1000)?owners[0]!.businessAddress:undefined)
+    }catch{return null}
+  }
   const rows=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
     /* runtime-booking-deposit-receipt */
     SELECT a.id AS "appointmentId",a."visitId",a."serviceId",a."professionalId",a."startAt",a."totalDurationMinutes" AS duration,a."quotedPrice",a.status AS "appointmentStatus",
@@ -381,5 +438,33 @@ async function replayRuntimeDeposit(tx:Prisma.TransactionClient,input:RuntimeBoo
   const receipt:RuntimeHeldReceipt={kind:'HELD',coordinationGroupId:parent.resultRef,operationKey:key,proposalNonce:p.nonce,fingerprint:p.fingerprint,appointments:[{segmentIndex:0,appointmentId:row.appointmentId,visitId:row.visitId}],depositId:row.depositId,expiresAt:new Date(row.expiresAt).toISOString(),amount:row.amount,depositStatus:'PENDING_PROOF'}
   const actual=await loadRuntimeDepositReceipt(tx,{businessId:input.origin.businessId,sessionId:input.origin.sessionId,canonicalPhone:input.origin.canonicalPhone,expectedRevision:input.origin.revision},{presented:p,receipt})
   if(!actual)throw new Error('runtime deposit replay receipt mismatch')
+  return actual
+}
+
+
+/** The durable seal is a pointer, not a second copy of financial authority. */
+function coordinatedRuntimeReceipt(group:CoordinatedDepositGroup,status:RuntimeHeldReceipt['depositStatus'],
+  expiresAt:string,businessAddress?:string):RuntimeHeldReceipt {
+  return {kind:'HELD',coordinationGroupId:group.groupId,operationKey:group.operationKey,
+    proposalNonce:group.proposal.nonce,fingerprint:group.proposal.fingerprint,
+    appointments:group.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),
+    depositId:group.anchorDepositId,amount:group.amount,expiresAt,depositStatus:status,
+    coordinatedDepositGroup:{version:1,groupId:group.groupId,requestHash:group.requestHash},
+    ...(businessAddress?{businessAddress}:{})}
+}
+async function replayCoordinatedRuntimeDeposit(tx:Prisma.TransactionClient,input:RuntimeBookingInput,key:string,customerId:string|null):Promise<RuntimeHeldReceipt|null> {
+  const ops=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`SELECT * FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE`)
+  if(!ops.length)return null
+  const parent=ops[0]!,o=input.origin
+  if(ops.length!==1||parent.businessId!==o.businessId||parent.sessionId!==o.sessionId||
+    parent.type!=='HOLD_COORDINATED_DEPOSIT_GROUP'||parent.status!=='COMPLETED'||
+    parent.requestHash!==coordinatedDepositRequestHash(o,input.presented)||!parent.resultRef||!customerId)throw new Error('runtime coordinated deposit replay scope mismatch')
+  let group:CoordinatedDepositGroup
+  try{group=JSON.parse(parent.resultRef) as CoordinatedDepositGroup}catch{throw new Error('runtime coordinated deposit replay manifest mismatch')}
+  if(group.customerId!==customerId)throw new Error('runtime coordinated deposit replay customer mismatch')
+  const receipt=coordinatedRuntimeReceipt(group,'PENDING_PROOF',group.expiresAt)
+  const actual=await loadRuntimeDepositReceipt(tx,{businessId:o.businessId,sessionId:o.sessionId,
+    canonicalPhone:o.canonicalPhone,expectedRevision:o.revision},{presented:input.presented,receipt})
+  if(!actual)throw new Error('runtime coordinated deposit replay membership mismatch')
   return actual
 }
