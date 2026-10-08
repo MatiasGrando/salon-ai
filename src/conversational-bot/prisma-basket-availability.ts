@@ -51,7 +51,7 @@ export async function loadPrismaVerifiedDateChoices(
 /** Read-only proposal adapter. Cached descriptors supply IDs, never permission, price or duration. */
 async function loadGuardedBasketAvailability(
   client: BasketClient, context: DialogueContext, settings: AvailabilitySettings,
-  requested: readonly DialogueService[], date: string | null, professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null
+  requested: readonly DialogueService[], date: string | null, professionalId?: string, serviceEstimates: ServiceEstimates = {}, temporal?: VerifiedDateTemporal, serviceContent: ServiceContentConfiguration | null = null, retainHorizonSlots = false
 ): Promise<ExplainedBasketAvailability> {
   if (requested.length < 1 || requested.length > 10 || requested.some(service => !boundedId(service.id)) || new Set(requested.map(service => service.id)).size !== requested.length) return { ok: false, reason: 'SERVICE_UNAVAILABLE' }
   if (professionalId !== undefined && !boundedId(professionalId)) return { ok: false, reason: 'NO_COMMON_PROFESSIONAL' }
@@ -112,7 +112,7 @@ async function loadGuardedBasketAvailability(
       missingServices: services.filter(service => failure.missingServiceIds.includes(service.id)).map(({ id, name }) => ({ id, name }))
     } } : {}) }
   }
-  if (!professionals.length) {
+  const coordinate = async (): Promise<ExplainedBasketAvailability> => {
     // Combination consent/policy is identical even when assignment needs several professionals.
     for (const policy of policies.values()) {
       if (policy === 'BLOCKED') return {ok:false,reason:'COMBINATION_BLOCKED'}
@@ -120,13 +120,21 @@ async function loadGuardedBasketAvailability(
     }
     if (services.length < 2 || professionalId) return {ok:false,reason:'NO_COMMON_PROFESSIONAL'}
     const perService = await Promise.all(services.map(service => loadGuardedBasketAvailability(client,context,settings,[service],date,undefined,
-      selections[service.id] ? {[service.id]:selections[service.id]!} : {},undefined,serviceContent)))
-    if (perService.some(result => !result.ok)) return {ok:false,reason:'NO_COMMON_PROFESSIONAL'}
+      selections[service.id] ? {[service.id]:selections[service.id]!} : {},undefined,serviceContent,true)))
+    const rejected = perService.find(result => !result.ok)
+    if (rejected && !rejected.ok) return rejected
     const reads = perService as Extract<DialogueBasketAvailability,{ok:true}>[]
     const allProfessionals = [...new Map(reads.flatMap(read => read.professionals).map(pro => [pro.id,pro])).values()]
     const loader = new BookingAvailabilitySearchEngine(async input => {
       const read = reads[services.findIndex(service => service.id === input.serviceIds[0])]!
-      return {ok:true,slots:read.slots.filter(slot => slot.date === input.date && slot.professionalId === input.professionalId).map(slot => slot.time)}
+      let anchors = read.slots.filter(slot => slot.date === input.date && slot.professionalId === input.professionalId)
+      // The time preference owns the first start, never the later service segments.
+      // Apply it before the coordinator's existing 25-result cap so late dates are not lost.
+      if (date === null && input.serviceIds[0] === services[0]!.id) {
+        if (temporal?.requestedTime) anchors = anchors.filter(slot => slot.time === temporal.requestedTime)
+        if (temporal?.preference && temporal.preference.kind !== 'earliest') anchors = filterTimePreference(anchors, temporal.preference)
+      }
+      return {ok:true,slots:anchors.map(slot => slot.time)}
     })
     const days = date ? [date] : [...new Set(reads.flatMap(read => read.slots.map(slot => slot.date)))].sort()
     const slots: DialogueAvailabilitySlot[] = []
@@ -159,6 +167,7 @@ async function loadGuardedBasketAvailability(
     return {ok:true,services,durationMinutes,customerDurationMinutes,totalPrice:totalPrice !== null && Number.isSafeInteger(totalPrice) ? totalPrice : null,
       professionals:allProfessionals,slots:offered}
   }
+  if (!professionals.length) return coordinate()
   const professionalIds = professionals.map(professional => professional.id)
   let cart = buildCartSnapshot([])
   for (const service of services) {
@@ -180,7 +189,7 @@ async function loadGuardedBasketAvailability(
     ...(date && (temporal?.requestedTime || temporal?.preference?.kind === 'around') ? {requestedStart:{date,time:temporal.requestedTime ?? (temporal.preference as {time:string}).time}} : {}) }, professionals)
   const slots: AvailabilitySlot[] = []
   let candidates = searched.slots.filter(slot => (date === null || slot.date === date) && (!professionalId || slot.professionalId === professionalId))
-  if (date === null) {
+  if (date === null && !retainHorizonSlots) {
     if (temporal?.requestedTime) candidates = candidates.filter(slot => slot.time === temporal.requestedTime)
     if (temporal?.preference && temporal.preference.kind !== 'earliest') candidates = filterTimePreference(candidates, temporal.preference)
     for (const candidate of candidates) {
@@ -189,7 +198,15 @@ async function loadGuardedBasketAvailability(
       else if (candidate.startAt < slots[index]!.startAt || candidate.startAt === slots[index]!.startAt && candidate.professionalId < slots[index]!.professionalId) slots[index] = candidate
     }
   } else slots.push(...candidates)
-  if (slots.length > 500) throw new Error('availability exceeds supported bound')
+  // Internal single-service horizon proofs are needed until coordination is complete.
+  // Reuse presentation's 10,000-slot bound and the fixed-date 500 bound per day;
+  // public quick dates still contain one proof per day, never the internal arrays.
+  if (retainHorizonSlots && date === null) {
+    const dailyCounts = new Map<string, number>()
+    for (const slot of slots) dailyCounts.set(slot.date, (dailyCounts.get(slot.date) ?? 0) + 1)
+    if (slots.length > 10000 || [...dailyCounts.values()].some(count => count > 500)) throw new Error('availability exceeds supported bound')
+  } else if (slots.length > 500) throw new Error('availability exceeds supported bound')
+  if (!slots.length && services.length > 1 && !professionalId) return coordinate()
   const explanation = date !== null && searched.evidence ? parseAvailabilityExplanation(explanationForDate(searched.evidence, date, professionalId, searched.slots),
     { date, professionals, dbNow: context.dbNow, timezone: context.timezone, ...(professionalId ? { professionalId } : {}) }) : undefined
   return { ok: true, services, durationMinutes, customerDurationMinutes, totalPrice, professionals, slots: slots.sort((left, right) => left.startAt.localeCompare(right.startAt) || left.professionalId.localeCompare(right.professionalId)), ...(explanation ? { explanation } : {}), ...(searched.evidence?.requestedStart ? {requestedStartEvidence:searched.evidence.requestedStart} : {}) }

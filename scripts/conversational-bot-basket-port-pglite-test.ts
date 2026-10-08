@@ -171,5 +171,34 @@ try {
   assert.equal(lead.ok, true)
   if (lead.ok) assert.deepEqual(lead.slots.map(slot => slot.time), ['11:00', '11:30', '12:00'], 'existing lead time remains applied to joint search')
   assert.deepEqual(await port.availabilityBasket!([selected('cut'), selected('other')], '2026-10-02'), { ok: false, reason: 'SERVICE_UNAVAILABLE' })
+  // The horizon must preserve every service start until the assignment is complete.
+  await db.exec(`UPDATE "BusinessBotOptionsSettings" SET "bookingLeadTimeHours"=0 WHERE "businessId"='tenant';
+    DELETE FROM "ProfessionalService" WHERE "id"='straightening-ramiro';
+    INSERT INTO "Professional" ("id","businessId","name","isActive","acceptsBotBookings","botBookingPriority") VALUES ('colour-only','tenant','Colour',true,true,2);
+    INSERT INTO "ProfessionalService" ("id","serviceId","professionalId") VALUES ('colour-only-link','straightening','colour-only');
+    INSERT INTO "ProfessionalHours" ("id","professionalId","dayOfWeek","startTime","endTime") VALUES ('colour-hours','colour-only',5,'10:00','14:00');
+    UPDATE "Service" SET "attentionMode"='GUIDED_ESTIMATE',"estimateAllowsBooking"=true,"priceMode"='STARTING_AT',"customerDurationMin"=90,"customerDurationMax"=120,
+      "estimateQuestion"='Length?',"estimateOptions"='[{"id":"short","label":"Short","priceMin":85000,"priceMax":95000,"note":null}]'::jsonb WHERE "id"='straightening'`)
+  const pairPort = await createPrismaDialoguePort(client,'tenant')
+  const unresolved = await pairPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')])
+  if (unresolved.ok || unresolved.reason !== 'GUIDANCE_REQUIRED') throw Error('guided pair must require its current selection')
+  const pairEstimate = {straightening:{configurationKey:serviceConfigurationKey(unresolved.services[1]!.bookingPolicy!),optionId:'short'}}
+  const coordinatedDates = await pairPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')],undefined,pairEstimate)
+  assert.ok(coordinatedDates.ok && coordinatedDates.slots.length === 1, 'real SQL horizon includes the complete two-professional guided basket')
+  if (!coordinatedDates.ok) throw Error('coordinated dates unavailable')
+  assert.equal(coordinatedDates.totalPrice,null,'estimated service does not become an invented fixed total')
+  const dateSlot = coordinatedDates.slots[0]!
+  const segments = dateSlot.coordination!.segments
+  assert.deepEqual(segments.map(segment => [segment.serviceId,segment.professionalId]), [['cut','ramiro'],['straightening','colour-only']])
+  assert.equal(segments[0]!.endAt,segments[1]!.startAt)
+  assert.equal(segments[1]!.customerDurationMinutes,120)
+  const coordinatedHours = await pairPort.port.availabilityBasket!([selected('cut'),selected('straightening')],dateSlot.date,undefined,pairEstimate)
+  assert.ok(coordinatedHours.ok && coordinatedHours.slots.some(slot => slot.coordination?.key === dateSlot.coordination?.key), 'selecting a verified day revalidates the same full assignment and estimate')
+  await db.exec(`INSERT INTO "ServiceCombinationRule" ("id","businessId","serviceAId","serviceBId","policy") VALUES ('pair-rule','tenant','cut','straightening','REVIEW_REQUIRED')`)
+  assert.deepEqual(await pairPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')],undefined,pairEstimate),{ok:false,reason:'COMBINATION_REVIEW'})
+  await db.exec(`UPDATE "ServiceCombinationRule" SET "policy"='BLOCKED' WHERE "id"='pair-rule'`)
+  assert.deepEqual(await pairPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')],undefined,pairEstimate),{ok:false,reason:'COMBINATION_BLOCKED'})
+  await db.exec(`DELETE FROM "ServiceCombinationRule" WHERE "id"='pair-rule'; UPDATE "Professional" SET "acceptsBotBookings"=false WHERE "id"='colour-only'`)
+  assert.deepEqual(await pairPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')],undefined,pairEstimate),{ok:false,reason:'SERVICE_UNAVAILABLE'},'current bookability revalidates every member before coordinating')
   console.log('basket port real PostgreSQL syntax in offline PGlite: PASS')
 } finally { await db.close() }

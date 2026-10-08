@@ -54,3 +54,51 @@ const input = { scope, read: { fresh: true, scope, slots: after.ok ? after.slots
 assert.deepEqual(presentVerifiedDates(input).choices.flatMap(choice => choice.kind === 'date' ? [choice.date] : []), input.orderedDates, 'fresh horizon proof follows customer priorities')
 assert.equal(agendaQueries, presentationQueries, 'ranking cannot issue another agenda read')
 console.log('conversational verified date choices: PASS')
+
+// Each service can start early, but only later slots can join the previous segment.
+const pairedRows = new Map(['cut', 'colour'].map(id => [id, { ...service, id, name: id, duration: id === 'cut' ? 30 : 60 }]))
+const paired: any = {
+  service: { findFirst: async (query: any) => {
+    assert.equal(query.where.businessId, 'a')
+    return structuredClone(pairedRows.get(query.where.id) ?? null)
+  } },
+  $queryRaw: async (query: any) => {
+    const sql = query.strings.join(' ')
+    if (sql.includes('FROM "ServiceCombinationRule"')) return []
+    if (sql.includes('FROM "Professional"')) return query.values.includes('cut') && query.values.includes('colour') ? []
+      : [{ id: query.values.includes('cut') ? 'cut-pro' : 'colour-pro', name: 'Staff', priority: 0 }]
+    if (sql.includes('FROM "BusinessHours"')) return Array.from({length:7}, (_, dayOfWeek) => ({ ownerId:'a', dayOfWeek, startTime:'09:00', endTime:'23:00' }))
+    if (sql.includes('FROM "ProfessionalHours"')) return ['cut-pro','colour-pro'].flatMap(ownerId => Array.from({length:7}, (_, dayOfWeek) => ({ownerId,dayOfWeek,startTime:'09:00',endTime:'23:00'})))
+    if (sql.includes('FROM "ScheduleBlock"') || sql.includes('FROM "Appointment"')) return []
+    throw Error('unexpected paired query')
+  }
+}
+const pair = ['cut','colour'].map(id => ({...selected,id}))
+const coordinatedDays = await loadPrismaVerifiedDateChoices(paired,context,settings,pair)
+assert.ok(coordinatedDays.ok && coordinatedDays.slots.length === 2, 'horizon retains later second-service starts before reducing to one proof per date')
+if (!coordinatedDays.ok) throw Error('coordinated days rejected')
+for (const slot of coordinatedDays.slots as any[]) {
+  assert.deepEqual(slot.coordination.segments.map((segment: any) => segment.serviceId), ['cut','colour'])
+  assert.equal(slot.coordination.segments[0].endAt, slot.coordination.segments[1].startAt)
+}
+const late = await loadPrismaVerifiedDateChoices(paired,context,settings,pair,undefined,{}, {requestedTime:'20:00'})
+assert.ok(late.ok && late.slots.length === 2 && late.slots.every(slot => slot.time === '20:00'), 'late exact request must be applied to anchors before the coordinator result bound')
+const lateBand = await loadPrismaVerifiedDateChoices(paired,context,settings,pair,undefined,{}, {requestedTime:null,preference:{kind:'band',band:'EVENING'}})
+assert.ok(lateBand.ok && lateBand.slots.length === 2 && lateBand.slots.every(slot => slot.band === 'EVENING'), 'a later segment is not restricted to the first-service time filter')
+const longPair = await loadPrismaVerifiedDateChoices(paired,context,{...settings,horizonDays:90},pair)
+assert.ok(longPair.ok && longPair.slots.length === 90, 'bounded full internal reads keep the verified horizon without leaking slot arrays publicly')
+console.log('coordinated horizon and temporal date proofs: PASS')
+for (const [staffCount,horizonDays] of [[25,2],[5,90]]) {
+  const original = paired.$queryRaw
+  const guarded: any = {...paired,$queryRaw:async (query: any) => {
+    const sql = query.strings.join(' ')
+    if (sql.includes('FROM "Professional"')) return query.values.includes('cut') && query.values.includes('colour') ? []
+      : Array.from({length:staffCount!}, (_, index) => ({id:`staff-${index}`,name:'Staff',priority:index}))
+    if (sql.includes('FROM "ProfessionalHours"')) return Array.from({length:staffCount!}, (_, index) =>
+      Array.from({length:7}, (_, dayOfWeek) => ({ownerId:`staff-${index}`,dayOfWeek,startTime:'09:00',endTime:'23:00'}))).flat()
+    return original(query)
+  }}
+  await assert.rejects(() => loadPrismaVerifiedDateChoices(guarded,context,{...settings,horizonDays:horizonDays!},pair), /supported bound/,
+    'excessive internal agenda evidence throws instead of masquerading as no available dates')
+}
+console.log('coordinated internal proof bounds fail explicitly: PASS')

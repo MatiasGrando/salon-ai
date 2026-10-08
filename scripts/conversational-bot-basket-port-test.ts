@@ -284,3 +284,51 @@ coordinatedFixture.rules.push({serviceAId:'cut',serviceBId:'straightening',polic
 const blockedCoordination = await coordinatedPort.port.availabilityBasket!([selected('cut'),selected('straightening')],'2026-10-02')
 assert.deepEqual(blockedCoordination,{ok:false,reason:'COMBINATION_BLOCKED'})
 console.log('P3-A no anchor-only authorization, silent preference override or policy bypass: PASS')
+
+// A compatible common professional is not a proof that a complete appointment fits.
+const occupiedCommon = fixture()
+const commonQuery = occupiedCommon.client.$queryRaw
+occupiedCommon.client.$queryRaw = async (query: any) => {
+  const sql = query.strings.join(' ')
+  if (sql.includes('FROM "Professional"')) {
+    const both = query.values.includes('cut') && query.values.includes('straightening')
+    const values = both ? [professional] : [professional, {id: query.values.includes('cut') ? 'cut-free' : 'colour-free', name:'Free',priority:1}]
+    return values.map(p => sql.includes('AS "serviceIds"') ? {...p,isActive:true,acceptsBotBookings:true,serviceIds:['cut','straightening']} : p)
+  }
+  if (sql.includes('FROM "ProfessionalHours"')) return ['ramiro','cut-free','colour-free'].flatMap(ownerId => [4,5].map(dayOfWeek => ({ownerId,dayOfWeek,startTime:'10:00',endTime:'14:00'})))
+  if (sql.includes('FROM "Appointment"')) return [1,2].map(day => ({professionalId:'ramiro',startAt:new Date(`2026-10-0${day}T13:00:00Z`),duration:240}))
+  return commonQuery(query)
+}
+const occupiedPort = await createPrismaDialoguePort(occupiedCommon.client,'tenant')
+const alternative = await occupiedPort.port.availabilityBasket!([selected('cut'),selected('straightening')],'2026-10-02')
+assert.ok(alternative.ok && alternative.slots.length > 0, 'common professional without room falls back to a complete multiple-professional appointment')
+if (alternative.ok) assert.deepEqual(alternative.slots[0]!.coordination!.segments.map(segment => segment.professionalId), ['cut-free','colour-free'])
+const strictCommon = await occupiedPort.port.availabilityBasket!([selected('cut'),selected('straightening')],'2026-10-02','ramiro')
+assert.ok(strictCommon.ok && strictCommon.slots.length === 0, 'an explicit professional remains strict even when other staff can coordinate')
+const alternativeDays = await occupiedPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')])
+assert.ok(alternativeDays.ok && alternativeDays.slots.length === 2, 'the horizon uses the same coordinated fallback')
+for (const policy of ['BLOCKED','REVIEW_REQUIRED']) {
+  occupiedCommon.rules.splice(0,occupiedCommon.rules.length,{serviceAId:'cut',serviceBId:'straightening',policy})
+  assert.deepEqual(await occupiedPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')]),{ok:false,reason:policy === 'BLOCKED' ? 'COMBINATION_BLOCKED' : 'COMBINATION_REVIEW'})
+}
+occupiedCommon.rules.length = 0
+const failureQuery = occupiedCommon.client.$queryRaw
+occupiedCommon.client.$queryRaw = async (query: any) => {
+  if (query.strings.join(' ').includes('FROM "ProfessionalHours"')) throw Error('agenda read failed')
+  return failureQuery(query)
+}
+await assert.rejects(() => occupiedPort.port.verifiedDateChoices!([selected('cut'),selected('straightening')]), /agenda read failed/, 'read failures cannot become a false absence of dates')
+console.log('coordinated fallback, strict preferences and honest failure: PASS')
+coordinatedFixture.rules.length = 0
+const horizonPort = {...coordinatedPort.port,catalog:async () => [...coordinatedResult.services]}
+const waitingDate = {...coordinatedState,date:null,pending:'date' as const}
+const offeredDates = await respond(coordinatedContext,waitingDate,'stored choice',horizonPort)
+assert.equal(offeredDates.state.slot,null,'a verified quick day never silently selects a coordinated slot')
+assert.deepEqual(offeredDates.state.basket?.members.flatMap(member => member.serviceIds),['cut','straightening'])
+const dayChoice = offeredDates.choicePresentation!.choices.find(choice => choice.operation.kind === 'date')!.operation
+const pickedDay = await chooseCoordinated(coordinatedContext,offeredDates.state,dayChoice,horizonPort)
+assert.deepEqual(pickedDay.state.basket,offeredDates.state.basket,'choosing a day preserves all requested services')
+assert.equal(pickedDay.state.slot,null,'choosing a day offers complete assignments without applying one')
+assert.ok(pickedDay.choicePresentation!.choices.some(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey),'day selection exposes current complete coordinated choices')
+assert.equal(pickedDay.bookingCommand,undefined,'availability alone cannot execute a reservation')
+console.log('verified horizon to coordinated day choice without partial effects: PASS')
