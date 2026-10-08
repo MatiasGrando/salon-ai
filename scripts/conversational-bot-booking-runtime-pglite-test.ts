@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
+import { initialDialogueState } from '../src/conversational-bot/engine.js'
+import { projectConversationDraft, reconcileConversationDraft } from '../src/conversational-bot/session-state.js'
+import { conversationStepForBotOptionsState } from '../src/bot-options/domain/conversation-status.js'
 import { Prisma } from '../src/generated/prisma/client.js'
-import { executePrismaConversationBooking, runtimeBookingFingerprint, runtimeServiceConfigurationHash, type RuntimeBookingInput, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { loadRuntimeDepositReceipt, runtimeBookingReceiptReply, executePrismaConversationBooking, runtimeBookingFingerprint, runtimeServiceConfigurationHash, type RuntimeBookingInput, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
 
 const db = new PGlite()
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','ServiceCombinationRule','BotOperation']
-for (const name of ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode']) {
+const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
+for (const name of ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance']) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
   const values = body.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
   await db.exec('CREATE TYPE "'+name+'" AS ENUM ('+values.map(v=>"'"+v+"'").join(',')+')')
@@ -18,7 +21,7 @@ for (const name of models) {
     const field = line.trim().match(/^(\w+)\s+(\w+)(\?)?(?:\s|$)/)
     if (!field || /\[\]/.test(line)) return []
     const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision'} as Record<string,string>)[field[2]!]
-    const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode'].includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
+    const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance'].includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
     const primary = field[1] === (name === 'BusinessBotOptionsSettings' ? 'businessId' : 'id')
     return type ? ['"'+field[1]+'" '+type+(primary?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')] : []
   })
@@ -144,6 +147,77 @@ try {
     if(mutation==='unknownfield') Object.assign(bad.presented.terms,{priceOverride:1})
     assert.equal((await execute(bad)).kind,'BLOCKED')
     assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
+  }
+  // Execute the existing financial primitive in this local DB only. Restore every
+  // side effect with caller rollback so all pre-existing NONE tests remain intact.
+  const oldCapability=process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED, oldAuthority=process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED
+  process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED='true';process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='true'
+  try {
+    await db.transaction(async tx=>{
+      await tx.exec(`UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100,duration=45,"customerDurationMin"=120,"customerDurationMax"=120 WHERE id='s1';
+        UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=60 WHERE "businessId"='b';
+        INSERT INTO "BusinessPaymentSettings" (id,"businessId","transferEnabled",alias,"paymentLinkEnabled") VALUES ('pay','b',true,'salon.test',false)`)
+      const s=(await tx.query<Record<string,unknown>>('SELECT * FROM "Service" WHERE id=$1',['s1'])).rows[0]!
+      const deposit={financial:{amount:100,ttlMinutes:60,ttlProvenance:'BUSINESS_POLICY' as const,lines:[{serviceId:'s1',sortOrder:0,serviceName:'Corte',mode:'FIXED' as const,configuredValue:100,baseAmount:null,amount:100}]},payment:{transferEnabled:true,alias:'salon.test',cbu:null,cvu:null,paymentLinkEnabled:false,paymentLink:null}}
+      const oneTerms={...terms,segments:[{...terms.segments[0]!,durationMinutes:45,customerDurationMinutes:120,endAt:'2030-09-02T15:00:00.000Z',configurationHash:runtimeServiceConfigurationHash(s)}],totalPriceMinor:1000,deposit}
+      const shown={...presented,terms:oneTerms,fingerprint:runtimeBookingFingerprint(oneTerms)}
+      const current={...draft,basket:{members:[draft.basket.members[0]!]},slot:{startAt:oneTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa'},bookingReservation:{presented:shown}}
+      await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:current}}),'session'])
+      const financialInput={...input,presented:shown,currentDraft:current,consent:{confirmed:true,nonce:shown.nonce,fingerprint:shown.fingerprint}} as RuntimeBookingInput
+      process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='false'
+      assert.equal((await executePrismaConversationBooking(orm(tx),financialInput)).kind,'BLOCKED','server capability cannot be forged by newBookingAllowed')
+      process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='true'
+      for(const mutation of [`UPDATE "Service" SET "depositValue"=101 WHERE id='s1'`,`UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=61`,`UPDATE "BusinessPaymentSettings" SET alias='changed.test'`]){
+        await tx.exec(mutation)
+        assert.notEqual((await executePrismaConversationBooking(orm(tx),financialInput)).kind,'HELD','financial values changed after display require new consent')
+        assert.equal((await tx.query<{n:number}>('SELECT count(*)::int n FROM "BotOperation"')).rows[0]!.n,0)
+        await tx.exec(`UPDATE "Service" SET "depositValue"=100 WHERE id='s1';UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=60;UPDATE "BusinessPaymentSettings" SET alias='salon.test'`)
+      }
+      const result=await executePrismaConversationBooking(orm(tx),financialInput)
+      assert.equal(result.kind,'HELD','a fixed deposit creates a real hold, never a false confirmed receipt')
+      assert.deepEqual(await executePrismaConversationBooking(orm(tx),financialInput),result,'financial replay does not create a second visit or deposit')
+      const rows=(await tx.query<{status:string;depositStatus:string;amount:number;ttl:number}>(`SELECT a.status,d.status AS "depositStatus",d.amount,d."holdTtlMinutes" AS ttl FROM "Appointment" a JOIN "BookingDeposit" d ON d."appointmentId"=a.id`)).rows
+      assert.deepEqual(rows,[{status:'PENDING',depositStatus:'PENDING_PROOF',amount:100,ttl:60}])
+      if(result.kind!=='HELD')throw new Error('expected actual held receipt')
+      const reservation={presented:shown,receipt:result}
+
+      const policy={businessId:'b',deploymentId:'dep',generation:2,configurationId:'cfg'}
+      const dialogue={...initialDialogueState('b'),serviceId:'s1',customerName:'Ana',date:oneTerms.date,professional:oneTerms.preference,pending:'proposal' as const,slot:{date:oneTerms.date,time:'10:00',startAt:oneTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa',band:'MORNING' as const,occupiedMinutes:0},bookingReservation:reservation}
+      const heldState=projectConversationDraft(dialogue,policy)
+      assert.equal(heldState.booking,'HELD');assert.equal(heldState.deposit,'PENDING_PROOF');assert.equal(heldState.flow,'DEPOSIT_INSTRUCTIONS')
+      assert.equal(heldState.selections.appointmentId,result.appointments[0]!.appointmentId)
+      assert.equal(conversationStepForBotOptionsState(heldState),'AWAITING_DEPOSIT')
+      assert.throws(()=>reconcileConversationDraft(heldState,{...policy,generation:3},oneTerms.timezone),/protected/,'configuration replacement cannot discard financial ownership')
+      const proofTarget=(await tx.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDeposit" d JOIN "BookingVisit" v ON v.id=d."visitId" AND v."businessId"=d."businessId" JOIN "Appointment" a ON a.id=d."appointmentId" AND a."visitId"=v.id WHERE d."conversationId"='c' AND v."sessionId"='session' AND d.source='WHATSAPP' AND d.status='PENDING_PROOF' AND d."snapshotSealedAt" IS NOT NULL AND v.status='HELD' AND a.status='PENDING'`)).rows[0]!.n
+      assert.equal(proofTarget,1,'existing proof ingress can identify the sealed pending WhatsApp visit')
+      assert.equal((await tx.query<{n:number}>(`SELECT count(*)::int n FROM "BotJob" WHERE kind='EXPIRE_DEPOSIT' AND "aggregateId"=$1 AND "businessId"='b' AND "deploymentId"='dep' AND "deploymentGeneration"=2`,[result.depositId])).rows[0]!.n,1,'existing expiry job is created atomically with the hold')
+
+      assert.doesNotMatch(runtimeBookingReceiptReply(reservation),/reserva fue confirmada/i)
+      assert.match(runtimeBookingReceiptReply(reservation),/salon.test/)
+      assert.match(runtimeBookingReceiptReply(reservation),/comprobante.*antes/i)
+      const readScope={businessId:'b',sessionId:'session',canonicalPhone:origin.canonicalPhone,expectedRevision:4n}
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),{...readScope,businessId:'foreign'},reservation),null)
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),{...readScope,canonicalPhone:'5491199999999'},reservation),null)
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),{...readScope,expectedRevision:3n},reservation),null)
+      for(const [depositStatus,visitStatus,appointmentStatus] of [['PROOF_RECEIVED','PENDING_PAYMENT_REVIEW','PENDING'],['APPROVED','CONFIRMED','CONFIRMED'],['EXPIRED','EXPIRED','CANCELLED'],['REJECTED','CANCELLED','CANCELLED']] as const){
+        await tx.query('UPDATE "BookingDeposit" SET status=$1',[depositStatus]);await tx.query('UPDATE "BookingVisit" SET status=$1',[visitStatus]);await tx.query('UPDATE "Appointment" SET status=$1',[appointmentStatus])
+        const actual=await loadRuntimeDepositReceipt(orm(tx),readScope,reservation)
+        assert.equal(actual?.depositStatus,depositStatus,'status comes from scoped financial rows, never client text or the original HELD receipt')
+
+        const projected=projectConversationDraft({...dialogue,bookingReservation:{presented:shown,receipt:actual!}},policy)
+        const expected={PROOF_RECEIVED:['PENDING_PAYMENT_REVIEW','PROOF_RECEIVED','DEPOSIT_REVIEW'],APPROVED:['CONFIRMED','APPROVED','BOOKING_CONFIRMED'],EXPIRED:['EXPIRED','EXPIRED','APPOINTMENT_DETAIL'],REJECTED:['CANCELLED','REJECTED_FINAL','APPOINTMENT_DETAIL']} as const
+        assert.deepEqual([projected.booking,projected.deposit,projected.flow],expected[depositStatus])
+
+        assert.equal(/La reserva fue confirmada/.test(runtimeBookingReceiptReply({...reservation,receipt:actual!})),depositStatus==='APPROVED')
+      }
+      await tx.exec(`UPDATE "BookingDepositLine" SET amount=999`)
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),readScope,reservation),null,'sealed financial line mismatch cannot claim approval')
+      throw new Error('reset financial hold')
+    }).catch(error=>assert.match(String(error),/reset financial hold/))
+    assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0},'caller rollback includes financial holds')
+  } finally {
+    if(oldCapability===undefined)delete process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED;else process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED=oldCapability
+    if(oldAuthority===undefined)delete process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED;else process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED=oldAuthority
   }
   const result=await execute()
   assert.equal(result.kind,'COMMITTED')

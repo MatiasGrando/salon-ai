@@ -488,6 +488,15 @@ await check('new candidate clarification suspends an old proposal and remains a 
   assert.deepEqual(parseDialogueState(selected.state,context.businessId),selected.state)
 })
 
+await check('current published selection has one acknowledgment, with technique caveat intact',async()=>{
+  const initial=await say('mechas con gorra',[request('mechas con gorra',['color'])])
+  const message='Sí a ese servicio'
+  const provider:AiInterpretationProvider=async()=>({...base,communicativeActs:referenceActs(message),turnPlan:{version:1,operations:[selectOp(message)]},firstReply:{salutation:null,opening:'Perfecto, te ayudo con eso.',factIds:null,closing:null}})
+  const selected=await respondWithAiInterpreter(context,initial.state,message,makePort(),provider)
+  assert.equal((selected.reply.match(/Perfecto/g)??[]).length,1,'one server-owned selection acknowledgment, not two conversational openings')
+  assert.match(selected.reply,/Iluminación/);assert.match(selected.reply,/No tengo confirmado.*mechas con gorra/)
+  assert.equal(selected.state.pending,'estimate');assert.equal(selected.bookingCommand,undefined)
+})
 assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
 console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')
 if (failed) process.exitCode = 1

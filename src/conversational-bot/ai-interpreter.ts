@@ -445,6 +445,11 @@ export async function respondWithAiInterpreter(
       Boolean(state.serviceId && (candidates.length && !candidates.some(service => service.id === state.serviceId) ||
         selected && selected.id !== state.serviceId))
   } : undefined
+  const confirmOperation = turnPlan?.operations.length === 1 && turnPlan.operations[0]?.kind === 'confirm_proposal' ? turnPlan.operations[0] : null
+  const confirmOwners = candidate?.communicativeActs?.acts.filter(act => act.operationIndexes.includes(0)) ?? []
+  if (decision && confirmOperation && confirmOwners.length === 1 && ['request','answer'].includes(confirmOwners[0]!.kind) &&
+      confirmOwners[0]!.field === 'general' && confirmOwners[0]!.confidence >= .85 && confirmOwners[0]!.evidence === message &&
+      confirmOperation.evidence === message && candidate?.communicative?.blockedFields.length === 0) decision.confirmationEvidence = message
   // A semantic inquiry may ask about a published category, but its clarification is not booking intent.
   if (uncertain && selected && candidate?.intent === 'information') decision = {
     intent: 'information', serviceId: null, candidateIds: [], correction: false,
@@ -583,7 +588,7 @@ export async function respondWithAiInterpreter(
     if (frame.validation.status === 'accepted') {
       const currentNext = finalFacts.find(fact => fact.id === 'next')
       const solePreparedFact = !currentNext && response.replyPrepared && finalFacts.length === 1 ? finalFacts[0] : undefined
-      const projected = projectValidatedReplyFrame(frame, currentNext ?? solePreparedFact, Boolean(solePreparedFact))
+      const projected = projectValidatedReplyFrame(frame, currentNext ?? solePreparedFact, Boolean(solePreparedFact), finalFacts[0]?.id === 'acknowledgment')
       if (!projected) replyValidation.firstCall = { ...frame.validation, status: 'rejected', reason: 'continuation_conflict' }
       else if (projected.openingText.trim()) {
         authored = [projected.openingText, ...finalFacts.map(fact => fact.text)].join('\n')

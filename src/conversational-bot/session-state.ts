@@ -24,10 +24,15 @@ export function readConversationDraft(value: unknown, policy: ConversationPolicy
 export function projectConversationDraft(draft: DialogueState, policy: ConversationPolicy): ConversationSessionState {
   const state = parseDialogueState(draft, policy.businessId)
   const base = createInitialBotOptionsState()
-  const projected: ConversationSessionState = { ...base, flow: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'APPOINTMENT_DETAIL' : state.bookingReservation?.receipt ? 'BOOKING_CONFIRMED' : flows[state.pending], booking: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'CANCELLED' : state.bookingReservation?.receipt ? 'CONFIRMED' : 'DRAFT',
+  const receipt=state.bookingReservation?.receipt
+  const financial=receipt?.kind==='HELD'?receipt.depositStatus:null
+  const booking=financial==='APPROVED'?'CONFIRMED':financial==='PROOF_RECEIVED'?'PENDING_PAYMENT_REVIEW':financial==='EXPIRED'?'EXPIRED':financial==='REJECTED'?'CANCELLED':financial?'HELD':receipt?'CONFIRMED':'DRAFT'
+  const deposit=financial==='PENDING_RESUBMISSION'?'REJECTED_RESUBMISSION_ALLOWED':financial==='REJECTED'?'REJECTED_FINAL':financial??'NONE'
+  const financialFlow=financial==='APPROVED'?'BOOKING_CONFIRMED':financial==='PROOF_RECEIVED'?'DEPOSIT_REVIEW':financial==='EXPIRED'||financial==='REJECTED'?'APPOINTMENT_DETAIL':financial?'DEPOSIT_INSTRUCTIONS':null
+  const projected: ConversationSessionState = { ...base, flow: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'APPOINTMENT_DETAIL' : financialFlow ?? (receipt ? 'BOOKING_CONFIRMED' : flows[state.pending]), booking: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'CANCELLED' : booking, deposit,
     cart: basketServiceIds(state).map(serviceId => ({ serviceId })), nameCandidate: state.customerName,
     selections: { ...base.selections, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null,
-      anyProfessional: state.professional?.kind === 'any', date: state.date, slotStartAt: state.slot?.startAt ?? null,
+      anyProfessional: state.professional?.kind === 'any', appointmentId:receipt?.appointments[0]?.appointmentId??null, date: state.date, slotStartAt: state.slot?.startAt ?? null,
       provisionalProfessionalId: state.professional?.kind === 'any' ? state.slot?.professionalId ?? null : null },
     conversationDraft: { policy: { ...policy }, dialogue: state } }
   const parsed = parseBotOptionsState(projected)
@@ -47,5 +52,6 @@ export function reconcileConversationDraft(value: unknown, policy: ConversationP
   if (!sidecar.policy || sidecar.policy.businessId !== policy.businessId) throw new Error('invalid conversation sidecar tenant')
   const previous = readConversationDraft(value, sidecar.policy, timezone)
   const changed = Object.keys(policy).some(key => !isDeepStrictEqual(sidecar.policy[key as keyof ConversationPolicy], policy[key as keyof ConversationPolicy])) || !isDeepStrictEqual(sidecar.policy.serviceContent, policy.serviceContent)
+  if(changed && previous.bookingReservation?.receipt)throw new Error('protected conversation requires financial reconciliation')
   return { draft: changed ? initialDialogueState(policy.businessId) : previous, reset: changed }
 }

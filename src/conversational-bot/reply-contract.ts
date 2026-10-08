@@ -171,11 +171,11 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
 /** Project already validated framing onto a new server continuation without validating
  * invented model fact IDs or transferring ownership of the new material body.
  */
-export function projectValidatedReplyFrame(frame: ReplyValidationResult, currentNext: ReplyFact | undefined, wholeOnly = false): { openingText: string; modelFraming: boolean } | null {
+export function projectValidatedReplyFrame(frame: ReplyValidationResult, currentNext: ReplyFact | undefined, wholeOnly = false, serverOwnsOpening = false): { openingText: string; modelFraming: boolean } | null {
   if (frame.validation.status !== 'accepted' || !frame.validatedFraming) return null
   const { salutation, opening } = frame.validatedFraming
-  const adjusted = typeof opening === 'string' && currentNext ? uniqueContinuationOpening(opening, currentNext.text, wholeOnly) : opening
-  if (adjusted === null && opening !== null || currentNext && typeof adjusted === 'string' && extraOperationalQuestion(adjusted)) return null
+  const adjusted = serverOwnsOpening ? null : typeof opening === 'string' && currentNext ? uniqueContinuationOpening(opening, currentNext.text, wholeOnly) : opening
+  if (!serverOwnsOpening && adjusted === null && opening !== null || currentNext && typeof adjusted === 'string' && extraOperationalQuestion(adjusted)) return null
   const openingText = [salutation, adjusted].filter(part => typeof part === 'string' && part.trim()).join('\n')
   return { openingText, modelFraming: Boolean(openingText) }
 }

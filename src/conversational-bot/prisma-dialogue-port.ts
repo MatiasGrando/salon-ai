@@ -22,9 +22,9 @@ import { basketServiceIds } from './service-basket.js'
 import { coordinationKey, type CoordinatedSegment, type DialogueAvailabilitySlot } from './coordinated-booking.js'
 import { reservationDurationLimits } from '../services/service-duration.js'
 import { parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey } from '../bot-options/domain/service-booking.js'
-import { parseRuntimePresentedBooking, runtimeServiceConfigurationHash, runtimeBookingFingerprint, type RuntimeBookingSegment, type RuntimeBookingTerms, type RuntimePresentedBooking, type RuntimeShownScope } from './prisma-conversational-booking.js'
+import { prepareRuntimeDeposit, runtimeDepositsEnabled, type RuntimeBookingPreparation, parseRuntimePresentedBooking, runtimeServiceConfigurationHash, runtimeBookingFingerprint, type RuntimeBookingSegment, type RuntimeBookingTerms, type RuntimePresentedBooking, type RuntimeShownScope } from './prisma-conversational-booking.js'
 
-export type RuntimeBookingReadPort = { prepareRuntimeBooking(state: DialogueState, scope: RuntimeShownScope): Promise<{presented:RuntimePresentedBooking;slot:DialogueAvailabilitySlot}|null> }
+export type RuntimeBookingReadPort = { prepareRuntimeBooking(state: DialogueState, scope: RuntimeShownScope): Promise<RuntimeBookingPreparation> }
 
 type DialogueClient = FactsClient & PublicProfessionalClient & DialogueIdentityClient & ConstructorParameters<typeof PrismaCatalogRepository>[0] & ConstructorParameters<typeof PrismaAvailabilityRepository>[0]
 /** All identity, settings and clock values come from the caller's trusted tenant/client. */
@@ -124,7 +124,10 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         `)
         if(rows.length!==ids.length || new Set(rows.map(s=>s.id)).size!==ids.length || rows.some(s=>s.businessId!==businessId || !ids.includes(s.id))) return null
         const ordered=ids.map(id=>rows.find(s=>s.id===id)!)
-        if(ordered.some(s=>s.depositMode!=='NONE' || s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
+        if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
+        const depositRequired=ordered.some(s=>s.depositMode!=='NONE')
+        if(depositRequired && ids.length!==1)return {unavailable:'DEPOSIT_MULTISERVICE'}
+        if(depositRequired && !runtimeDepositsEnabled())return {unavailable:'DEPOSITS_DISABLED'}
         let slot=structuredClone(state.slot)
         const assigned=slot.coordination?.segments.map(s=>s.professionalId) ?? ids.map(()=>slot.professionalId)
         const professionals=await source.$queryRaw<Array<{serviceId:string;professionalId:string;professionalName:string}>>(Prisma.sql`
@@ -147,7 +150,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           if(slot.coordination && !isDeepStrictEqual(segment,slot.coordination.segments[index])) return null
           canonical.push(segment);next=segment.endAt
         }
-        if(!slot.coordination && slot.occupiedMinutes!==ordered.reduce((sum,s)=>sum+s.duration,0)) return null
+        // occupiedMinutes is the professional's daily load, not this booking's duration.
         if(ids.length>1) slot={...slot,occupiedMinutes:(Date.parse(next)-Date.parse(slot.startAt))/60000,coordination:{key:coordinationKey(businessId,canonical),segments:canonical}}
         const segments:RuntimeBookingSegment[]=[]
         for(const [index,s] of ordered.entries()) {
@@ -161,6 +164,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         }
         const terms:RuntimeBookingTerms={version:1,businessId,timezone:context.timezone,date:state.date!,customerName:state.customerName,
           preference:state.professional,segments,totalPriceMinor:segments.every(s=>s.priceMode==='FIXED' && s.priceMinor!==null)?segments.reduce((sum,s)=>sum+s.priceMinor!,0):null}
+        if(depositRequired){const deposit=await prepareRuntimeDeposit(source,businessId,ordered[0]!,segments[0]!);if(!deposit)return {unavailable:'PAYMENT_UNAVAILABLE'};terms.deposit=deposit}
         const presented=parseRuntimePresentedBooking({scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms})
         return presented ? {presented,slot} : null
       } catch(error) {

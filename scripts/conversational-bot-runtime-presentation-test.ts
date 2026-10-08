@@ -37,7 +37,7 @@ const fx=fixture(), {port,context}=await createPrismaDialoguePort(fx.client,'b')
 assert.equal(context.sandboxBooking,undefined)
 const before=structuredClone(state)
 const preparation=await port.prepareRuntimeBooking(state,scope)
-assert.ok(preparation)
+assert.ok(preparation && 'presented' in preparation)
 assert.deepEqual(state,before,'preparation does not mutate draft')
 assert.equal(preparation.presented.scope.revision,'5')
 assert.equal(preparation.presented.terms.segments.length,2)
@@ -51,7 +51,7 @@ assert.equal(parseRuntimePresentedBooking({...preparation.presented,unknown:true
 assert.equal(parseRuntimePresentedBooking({...preparation.presented,fingerprint:'a'.repeat(64)}),null)
 for(const mode of ['foreign','missing','deposit','photo','pro','scope','guided'] as const) {
   const f=fixture(mode),p=(await createPrismaDialoguePort(f.client,'b')).port
-  assert.equal(await p.prepareRuntimeBooking(state,scope),null,mode)
+  assert.deepEqual(await p.prepareRuntimeBooking(state,scope),mode==='deposit'?{unavailable:'DEPOSIT_MULTISERVICE'}:null,mode)
   assert.ok(f.queries.every(q=>!q.text.includes('INSERT')&&!q.text.includes('UPDATE')),'read-only preparation')
 }
 
@@ -65,7 +65,7 @@ currentEstimate.serviceEstimates!.s2!.configurationKey=serviceConfigurationKey({
   estimateQuestion:null,estimateOptions:parseEstimateOptions([{id:'option',label:'Largo',priceMin:3000,priceMax:4000}]),estimateExplanation:null,estimateDisclaimer:null,
   requiresPhoto:false,validationEnabled:false,validationMessage:null,validationQuestion:null})
 const guidedPrepared=await guidedPort.prepareRuntimeBooking(currentEstimate,scope)
-assert.ok(guidedPrepared)
+assert.ok(guidedPrepared && 'presented' in guidedPrepared)
 assert.equal(guidedPrepared.presented.terms.totalPriceMinor,null)
 assert.deepEqual(guidedPrepared.presented.terms.segments[1]!.estimate,{optionId:'option',optionLabel:'Largo',priceMin:3000,priceMax:4000})
 const malformed=structuredClone(state)
@@ -74,13 +74,43 @@ assert.equal(await port.prepareRuntimeBooking(malformed,scope),null)
 assert.equal(await port.prepareRuntimeBooking(state,{...scope,businessId:'foreign'}),null)
 const coordinated=structuredClone(state)
 coordinated.slot=preparation.slot
-assert.deepEqual((await port.prepareRuntimeBooking(coordinated,scope))?.presented.terms,preparation.presented.terms,'actual coordinated assignment preserved')
+const coordinatedPreparation=await port.prepareRuntimeBooking(coordinated,scope)
+assert.ok(coordinatedPreparation && 'presented' in coordinatedPreparation)
+assert.deepEqual(coordinatedPreparation.presented.terms,preparation.presented.terms,'actual coordinated assignment preserved')
 const corrupted=structuredClone(coordinated)
 corrupted.slot!.coordination!.segments[1]!.professionalId='foreign'
 assert.equal(await port.prepareRuntimeBooking(corrupted,scope),null)
 const single=structuredClone(state)
 single.basket!.members=single.basket!.members.slice(0,1);single.serviceId='s1';single.slot!.occupiedMinutes=30
 const one=await port.prepareRuntimeBooking(single,scope)
-assert.ok(one);assert.equal(one.slot.coordination,undefined);assert.equal(one.presented.terms.segments.length,1)
+assert.ok(one && 'presented' in one);assert.equal(one.slot.coordination,undefined);assert.equal(one.presented.terms.segments.length,1)
 assert.notEqual(one.presented.nonce,preparation.presented.nonce)
+const idleProfessional=structuredClone(single)
+idleProfessional.slot!.occupiedMinutes=0
+
+const depFixture=fixture()
+Object.assign(depFixture.services[0]!,{depositMode:'FIXED',depositValue:100})
+const depClient={...depFixture.client,$queryRaw:async(q:Prisma.Sql)=>{
+  if(q.text.includes('runtime-booking-deposit-'))assert.doesNotMatch(q.text,/FOR SHARE/,'public presentation snapshot is read-only')
+  if(q.text.includes('runtime-booking-deposit-settings'))return [{depositHoldMinutes:60}]
+  if(q.text.includes('runtime-booking-deposit-payment'))return [{transferEnabled:true,alias:'salon.test',cbu:null,cvu:null,paymentLinkEnabled:false,paymentLink:null}]
+  return depFixture.client.$queryRaw(q)
+}}
+const previousCapability=process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED, previousAuthoritative=process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED
+process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED='true';process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='true'
+try {
+  const depPort=(await createPrismaDialoguePort(depClient as unknown as Parameters<typeof createPrismaDialoguePort>[0],'b')).port
+  const heldPreparation=await depPort.prepareRuntimeBooking(single,scope)
+  assert.ok(heldPreparation && 'presented' in heldPreparation,'singular fixed deposit is prepared from real financial terms')
+  assert.equal(heldPreparation.presented.terms.deposit?.financial.amount,100)
+  assert.equal(heldPreparation.presented.terms.deposit?.financial.ttlMinutes,60)
+  assert.equal(heldPreparation.presented.terms.deposit?.payment.alias,'salon.test')
+  assert.equal(heldPreparation.presented.terms.segments[0]!.durationMinutes,30)
+  process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='false'
+  assert.deepEqual(await depPort.prepareRuntimeBooking(idleProfessional,scope),{unavailable:'DEPOSITS_DISABLED'})
+} finally {
+  if(previousCapability===undefined)delete process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED;else process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED=previousCapability
+  if(previousAuthoritative===undefined)delete process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED;else process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED=previousAuthoritative
+}
+assert.ok(await port.prepareRuntimeBooking(idleProfessional,scope),'daily occupied load is not the duration of this booking')
 console.log('runtime presentation: PASS (fresh server proof, common/coordinated, extended customer duration; no network or writes)')

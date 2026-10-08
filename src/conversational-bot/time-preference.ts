@@ -148,7 +148,7 @@ export function classifyTemporalRequest(message: string, allowBare = false): Tem
 export function approximateTimeRequest(message: string): ApproximateTimeRequest | null {
   const text = message.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
   if (/\b(no|ni|nunca|sin)\b/.test(text)) return null
-  const prefix = /\b(?:tipo|aproximadamente|alrededor de|cerca de|mas o menos a)\s+(?:a\s+)?(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
+  const prefix = /\b(?:tipo|aproximadamente|alrededor de|cerca de|mas\s*o\s*menos a)\s+(?:a\s+)?(?:las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
   const suffix = /\b(?:a\s+las?\s*)?(\d{1,2})(?::([0-5]\d))?(?:\s*(am|pm|hs?|horas))?\s+(?:aprox\.?|aproximadamente)(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
   // Merge overlapping prefix/suffix forms of the same anchor, never two separate requests.
   const spans = [...text.matchAll(prefix), ...text.matchAll(suffix)].sort((a,b)=>a.index-b.index)

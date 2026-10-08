@@ -9,6 +9,7 @@ import { parseTurnPlan, TURN_PLAN_JSON_SCHEMA } from '../src/conversational-bot/
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 
 // Captured approximation is literal and semantically correct; no real transport is replayed.
+assert.deepEqual(approximateTimeRequest('Masomenos a las 5 tenés lugar?'), { evidence: 'Masomenos a las 5', candidateTimes: ['05:00', '17:00'] }, 'joined approximation preserves the requested anchor, not an exact selection')
 const capturedMixed='Buenas! Como va? Tendran turno para mañana viernes, a las 18 aprox?'
 assert.deepEqual(approximateTimeRequest(capturedMixed),{evidence:'a las 18 aprox',candidateTimes:['18:00']})
 for(const [input,evidence,candidates] of [

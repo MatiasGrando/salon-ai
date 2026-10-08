@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
+import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
+import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
+import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, parseDialogueState, finalizeRuntimeBooking, respond, respondConversationChoice, type DialogueContext, type DialogueDecision, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
 import { parseRuntimePresentedBooking, runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeBookingSummary, type RuntimePresentedBooking, type RuntimeShownScope } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { projectConversationDraft } from '../src/conversational-bot/session-state.js'
@@ -22,7 +25,7 @@ const slot = { date: '2026-10-07', time: '10:00', startAt: '2026-10-07T13:00:00.
 type ReservationState = DialogueState & { bookingReservation?: { presented: RuntimePresentedBooking; receipt?: unknown } }
 const ready: DialogueState = { ...initialDialogueState('b'), serviceId: 's1', date: slot.date,
   professional: { kind: 'specific', id: 'p1' }, slot, customerName: 'Ana', pending: 'proposal' }
-const semantic = (evidence: string, confidence = 1): DialogueDecision => ({ serviceId: null, candidateIds: [], correction: false,
+const semantic = (evidence: string, confidence = 1): DialogueDecision => ({ serviceId: null, candidateIds: [], correction: false, confirmationEvidence:evidence,
   turnPlan: { version: 1, operations: [{ kind: 'confirm_proposal', evidence, confidence }] } })
 
 async function fixture(multiple = false) {
@@ -45,7 +48,7 @@ async function fixture(multiple = false) {
     catalog: async () => services,
     availability: async () => { agenda++; return { professionals: [{ id: 'p1', name: 'Elisa', priority: 0 }], slots: [slot] } },
     availabilityBasket: async () => { agenda++; return { ok: true, services, durationMinutes: services.length * 30, totalPrice: services.reduce((sum, s) => sum + s.price, 0), customerDurationMinutes: multiple ? 75 : 30, professionals: [{ id: 'p1', name: 'Elisa', priority: 0 }], slots: [currentSlot] } },
-    prepareRuntimeBooking: async (state, shownScope) => { preparations++; const result=await prepared.port.prepareRuntimeBooking(state, shownScope); if(result)currentSlot=result.slot; return result },
+    prepareRuntimeBooking: async (state, shownScope) => { preparations++; const result=await prepared.port.prepareRuntimeBooking(state, shownScope); if(result && 'slot' in result)currentSlot=result.slot; return result },
     information: async () => ({ businessId: 'b', name: 'Salón ficticio', address: 'Calle ficticia 123', area: null,
       mapsUrl: null, hours: null, website: null, bookingUrl: null, whatsapp: null, email: null,
       instagram: null, facebook: null, tiktok: null, description: null })
@@ -56,7 +59,7 @@ async function fixture(multiple = false) {
 
 const fx = await fixture(), input = structuredClone(ready)
 const proof = await fx.port.prepareRuntimeBooking(input, scope)
-assert.ok(proof)
+assert.ok(proof && 'presented' in proof)
 function reordered(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(reordered)
   if (value && typeof value==='object') return Object.fromEntries(Object.entries(value).reverse().map(([k,v])=>[k,reordered(v)]))
@@ -105,7 +108,35 @@ assert.ok(fx.queries.every(q => !/INSERT|UPDATE|DELETE/.test(q.text)), 'presenta
 parseDialogueState(shown.state, 'b', fx.context.timezone)
 
 const nextContext = { ...fx.context, serverRuntimeBookingScope: { ...scope, revision: '6' } }
+
+const aiConsent=(message:string,kind='request',confidence=1)=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,
+  turnPlan:{version:1,operations:[{kind:'confirm_proposal',evidence:message,confidence:1}]},
+  communicativeActs:{version:1,acts:[{kind,field:'general',evidence:message,confidence,mention:null,operationIndexes:[0]}]}})
+for(const message of ['Confirma','Quiero reservar']){
+  const interpreted=await respondWithAiInterpreter(nextContext,shown.state,message,fx.port,async()=>aiConsent(message))
+  assert.equal(interpreted.interpretation.mode,'ai')
+  assert.equal(interpreted.bookingCommand?.kind,'CONFIRM_BOOKING','current owned AI consent reaches the original presented terms')
+}
+for(const [message,kind,confidence] of [['Confirmé la última vez','reference',1],['¿Lo confirmamos?','inquiry',1],['No confirmes','request',1],['Creo que sí','answer',.7]] as const){
+  const interpreted=await respondWithAiInterpreter(nextContext,shown.state,message,fx.port,async()=>aiConsent(message,kind,confidence))
+  assert.equal(interpreted.bookingCommand,undefined,'history, questions, contrary and uncertain speech acts cannot create consent')
+}
+
+
+assert.match(TURN_PLAN_INTERPRETATION_GUIDE,/confirm_proposal.*request.*answer.*general/,'guide must state current general consent ownership before implementation')
+let actualRequests=0
+const actualProvider=createOpenAiInterpretationProvider({apiKey:'fake-local-key',fetchImpl:async(_url,init)=>{
+  actualRequests++;const payload=JSON.parse(String(init?.body))
+  assert.match(payload.instructions,/confirm_proposal.*request.*answer.*general/)
+  assert.ok(JSON.stringify(payload.text?.format?.schema).includes('confirm_proposal'),'provider schema exposes the operation')
+  return new Response(JSON.stringify({status:'completed',output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:JSON.stringify(aiConsent('Confirma'))}]}]}),{status:200,headers:{'content-type':'application/json'}})
+}})
+const actualConsent=await respondWithAiInterpreter(nextContext,shown.state,'Confirma',fx.port,actualProvider)
+assert.equal(actualRequests,1);assert.equal(actualConsent.bookingCommand?.kind,'CONFIRM_BOOKING')
+
 const beforeConfirm = fx.counts()
+const imperative = await respond(nextContext, shown.state, 'Confirma', fx.port, semantic('Confirma'))
+assert.equal(imperative.bookingCommand?.kind, 'CONFIRM_BOOKING', 'current semantic consent must not depend on a literal phrase allowlist')
 const confirmed = await respond(nextContext, shown.state, 'Confirmo el turno.', fx.port, semantic('Confirmo el turno.'))
 assert.deepEqual(confirmed.bookingCommand, { kind: 'CONFIRM_BOOKING', presented: reservation.presented })
 assert.equal(fx.counts().preparations, beforeConfirm.preparations, 'consent uses the ORIGINAL shown envelope, not a new nonce')
@@ -113,6 +144,7 @@ assert.equal(fx.counts().agenda, beforeConfirm.agenda, 'the TX adapter, not dial
 assert.deepEqual((confirmed.state as ReservationState).bookingReservation, reservation)
 assert.doesNotMatch(confirmed.reply, /reserva fue confirmada|te esperamos|turno de prueba/i)
 
+assert.equal((await respond(nextContext, shown.state, 'Confirma', fx.port, {...semantic('Confirma'),confirmationEvidence:undefined})).bookingCommand,undefined,'a proposed confirm operation without current speech-act ownership has no effect')
 for (const phrase of ['No confirmes.', 'Sí, pero mejor mañana.', '¿Podés confirmar?', 'Confirmo si el precio no cambia.']) {
   const response = await respond(nextContext, shown.state, phrase, fx.port, semantic(phrase))
   assert.equal(response.bookingCommand, undefined, 'contrary, conditional and interrogative consent has no effects: ' + phrase)
@@ -206,7 +238,7 @@ const manyReady: DialogueState = { ...ready, serviceId: null, slot: { ...slot, o
     { memberId: 'm1', mode: 'single', serviceIds: ['s1'], evidence: 'Corte' },
     { memberId: 'm2', mode: 'single', serviceIds: ['s2'], evidence: 'Crema' }] } }
 const normalized = await manyFx.port.prepareRuntimeBooking(manyReady, scope)
-assert.ok(normalized, 'production builder normalizes a real common-professional multi-service assignment')
+assert.ok(normalized && 'presented' in normalized, 'production builder normalizes a real common-professional multi-service assignment')
 manyReady.slot = normalized.slot
 const manyShown = await respond(manyFx.context, manyReady, 'Quiero reservar ambos servicios.', manyFx.port)
 const manyReservation = (manyShown.state as ReservationState).bookingReservation
@@ -232,4 +264,10 @@ for (const appointments of [manyReceipt.appointments.slice(0, 1),
   assert.throws(() => parseDialogueState(malformed, 'b', manyFx.context.timezone), 'partial, reordered, duplicate or extra receipt rejected')
 }
 assert.equal(projectConversationDraft(manyComplete, policy).booking, 'CONFIRMED')
+
+const unavailable=await respond(manyFx.context,manyReady,'Quiero reservar ambos servicios.',{...manyFx.port,prepareRuntimeBooking:async()=>({unavailable:'DEPOSIT_MULTISERVICE' as const})})
+assert.deepEqual(unavailable.state.basket,manyReady.basket,'unsupported financial multi-services retain every requested member')
+assert.equal(unavailable.bookingCommand,undefined);assert.equal(unavailable.handoffCommand,undefined);assert.equal(unavailable.state.bookingReservation,undefined)
+assert.match(unavailable.reply,/seña para varios servicios/);assert.match(unavailable.reply,/Conservé todos tus servicios/)
+
 console.log('runtime presentation/consent/current scope/lateral/parser/ALL receipt/projection: OK')

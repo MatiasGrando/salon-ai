@@ -213,6 +213,12 @@ async function main() {
     }
     assert.equal(validateReplyDraft({ opening: '¿Querés consultar con el equipo?', factIds: null, closing: null }, [], replyContract('social', false, false, []), []).validation.status, 'accepted')
   })
+  copyCheck('a prepared acknowledgment has one framing owner', () => {
+    const facts = [{id:'next',text:'¿Qué largo tiene tu cabello?'}]
+    const frame = validateReplyDraft({salutation:'greeting',opening:'Perfecto, te ayudo con eso.',factIds:null,closing:null},facts,replyContract('continuation',false,false,facts),[])
+    assert.equal(frame.validation.status,'accepted')
+    assert.equal(projectValidatedReplyFrame(frame,facts[0],false,true)?.openingText,'¡Hola!','server acknowledgment replaces free opening without discarding salutation')
+  })
   assert.deepEqual(copyFailures, [], 'continuation ownership regressions')
   console.log('PASS contextual social contract, first-call viability, natural framing and honest canonical delivery')
 }

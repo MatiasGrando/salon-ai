@@ -5,7 +5,7 @@ import { prismaHandoffEffectExecutor } from '../src/bot-options/infrastructure/p
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { readFileSync } from 'node:fs'
-import { runtimeBookingFingerprint, runtimeServiceConfigurationHash, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeServiceConfigurationHash, type RuntimeHeldReceipt, type RuntimePresentedBooking, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { coordinationKey } from '../src/conversational-bot/coordinated-booking.js'
 import { createQueueMilestoneTracker, type QueueMilestoneTracker } from '../src/bot-options/observability/queue-milestones.js'
 import assert from 'node:assert/strict'
@@ -98,7 +98,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[] }; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -146,6 +146,9 @@ function runtimeFixture(options: { pendingEffect?: string; personality?: () => P
     },
     async $queryRaw(q: Query) {
       statements.push(q)
+      if(options.financialRead && q.sql.includes('runtime-booking-deposit-receipt'))return options.financialRead.rows
+      if(options.financialRead && q.sql.includes('FROM "BookingDepositLine"'))return options.financialRead.lines
+      if(options.financialRead && q.sql.includes('FROM "AppointmentServiceItem"'))return options.financialRead.items
       if(bookingSql && q.sql.includes('extract(minute FROM'))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows
       if(bookingSql && q.sql.includes('pg_advisory_xact_lock'))return [{locked:1}]
       if(bookingSql && q.sql.includes('conversation-inbox-lock'))return [structuredClone(row)]
@@ -176,7 +179,10 @@ function runtimeFixture(options: { pendingEffect?: string; personality?: () => P
       if (q.sql.includes('conversation-feature-lock')) return []
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: row.fenceEpoch, phone: row.payload.fromPhone }]
       if (q.sql.includes('conversation-compute-defer')) return (await computeSql!.query(q.text, q.values)).rows
-      if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) return computeSql ? (await computeSql.query(q.text, q.values)).rows : [{ claimToken: 'dispatch-token' }]
+      if (q.sql.includes('INSERT INTO "BotDispatchClaim"')) {
+        if(options.bookingDb)await (bookingSql ?? options.bookingDb).query(`UPDATE "BotDispatchClaim" SET status='CLAIMED' WHERE id=$1`,[row.id])
+        return computeSql ? (await computeSql.query(q.text, q.values)).rows : [{ claimToken: options.bookingDb ? 'dispatch-token-'+row.id : 'dispatch-token' }]
+      }
       if (q.sql.includes('conversation-choice-persist')) {
         const payloads=q.values.filter(v=>typeof v==='string' && v.startsWith('{')).map(v=>JSON.parse(v as string))
         const choiceCount=payloads.filter(value=>value.question).length
@@ -260,14 +266,14 @@ function runtimeFixture(options: { pendingEffect?: string; personality?: () => P
         return result.affectedRows ?? 0
       }
       if(bookingSql && options.bookingFault?.secondChild && q.sql.includes('INSERT INTO "Appointment"') && q.values.includes('s2'))throw new Error('controlled second booking child failure')
-      if(bookingSql && /"Appointment"|"BookingVisit"|"BotOperation"/.test(q.sql))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).affectedRows??0
+      if(bookingSql && /"Appointment"|"BookingVisit"|"BotOperation"|"BotDispatchClaim"/.test(q.sql))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).affectedRows??0
       if (options.computeDb && (q.sql.includes('pg_advisory') || q.sql.includes('UPDATE "BotDispatchClaim"'))) {
         const result = computeSql ? await computeSql.query(q.text, q.values) : await options.computeDb.query(q.text, q.values)
         return result.affectedRows ?? 1
       }
       assert.ok(!q.sql.includes('INSERT INTO "Appointment"') && !q.sql.includes('INSERT INTO "BookingVisit"'), 'proposal must never create bookings')
       if (q.sql.includes('conversation-generation-reset')) { assert.ok(session); session.deploymentGeneration = 1; session.state = createInitialBotOptionsState(); session.revision++ }
-      if (q.sql.includes('conversation-save') || (q.sql.includes('UPDATE "BotSession" SET "state"') && q.values.some(v => typeof v === 'string' && v.includes('schemaVersion')))) {
+      if (q.sql.includes('conversation-financial-projection') || q.sql.includes('conversation-save') || (q.sql.includes('UPDATE "BotSession" SET "state"') && q.values.some(v => typeof v === 'string' && v.includes('schemaVersion')))) {
         assert.ok(session)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
         session.revision = q.values.find(v => typeof v === 'bigint') as bigint
@@ -333,6 +339,7 @@ function runtimeFixture(options: { pendingEffect?: string; personality?: () => P
         professionals: [{ id: 'ana', name: 'Ana', priority: 0 }], slots: [{ date, time: '14:00', startAt: date + 'T14:00:00Z', professionalId: 'ana', professionalName: 'Ana', band: 'AFTERNOON', occupiedMinutes: 0 }] }
     }
     if(options.publicPorts) {
+      port.businessTimeContext=function(date,times){assert.equal(this,port,'business hours receiver preserved');outside();return {businessId,timezone:'UTC',date,candidateTimes:[...times],candidates:times.map(time=>({time,status:time>='11:00'&&time<'20:00'?'open' as const:'closed' as const}))}}
       port.identity=async function(){assert.equal(this,port);outside();return {businessId,businessName:'Nombre real',assistantName:'Asistente real',treatment:'vos'}}
       port.professionalInformation=async function(){assert.equal(this,port);outside();return {businessId,complete:true,professionals:[{id:'ana',name:'Ana',services:[{id:'cut',name:'Corte hombre'}],schedule:'Sábado: 10:00 a 14:00. Jornada habitual, no turnos libres.'}]}}
       port.verifiedDateChoices=async function(services){assert.equal(this,port);outside();return {ok:true,services,durationMinutes:services.reduce((total,service)=>total+service.durationMinutes!,0),totalPrice:1000,
@@ -400,6 +407,14 @@ assert.equal(JSON.stringify(personalityDraft).includes('PRIVATE_RUNTIME_STYLE'),
 assert.equal(JSON.stringify(personalityDiagnostics).includes('PRIVATE_RUNTIME_STYLE'), false)
 console.log('P4 public receiver: fresh scoped profile/receiver/AI input/once intro/no agenda/no private diagnostics PASS')
 
+const clockRuntime=runtimeFixture({publicPorts:true})
+clockRuntime.next('hola');await clockRuntime.run()
+clockRuntime.session.state=projectConversationDraft({...initialDialogueState('biz'),date:'2026-10-02'},policy)
+clockRuntime.next('Masomenos a las 5 tenés lugar?')
+let commercialInput:unknown
+await clockRuntime.run('PROCESS_INBOX',{provider:async input=>{commercialInput=input.businessTimeContext;return {intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[]}}},timeoutMs:15000})
+assert.deepEqual((commercialInput as {candidates:unknown})?.candidates,[{time:'05:00',status:'closed'},{time:'17:00',status:'open'}],'WhatsApp wrapper forwards commercial meaning without querying occupied slots')
+console.log('P12 WhatsApp commercial clock receiver/proof: PASS')
 // Focal mode does not change or waive the default suite's original assertions.
 if (!process.argv.includes('--handoff-only')) {
 // Full basket runs through the public worker, real interpreter/motor and production state projection.
@@ -861,6 +876,35 @@ assert.deepEqual(lateEffect.session, lateBefore, 'fresh commit guard preserves e
 assert.match(lateEffect.replies.at(-1)!, /No reinicié/)
 assert.equal(resetRuntime.statements.filter(q => q.sql.includes('test-reset-pending-effects')).length, 2, 'snapshot and commit both check effects')
 console.log('scoped Barber reset: zero AI, complete draft, CRM, pending effects and real human ownership guards PASS')
+
+// Actual worker -> scoped financial reader -> session/transition/CRM persistence.
+const financialRead={rows:[] as Record<string,unknown>[],lines:[] as unknown[],items:[] as unknown[]}
+const financialRuntime=runtimeFixture({businessId:barberResetId,phone:'5491112345678',financialRead});await financialRuntime.run()
+const financialScope={businessId:barberResetId,sessionId:financialRuntime.session.sessionId,deploymentId:'dep',generation:1,revision:String(financialRuntime.session.revision),configurationId:'cfg',dispatchFenceEpoch:1,handoffFenceEpoch:0}
+const financialTerms:RuntimeBookingTerms={version:1,businessId:barberResetId,timezone:'UTC',date:'2026-10-02',customerName:'Ana',preference:{kind:'specific',id:'p1'},totalPriceMinor:1000,
+  segments:[{serviceId:'cut',serviceName:'Corte',professionalId:'p1',professionalName:'Ana',startAt:'2026-10-02T10:00:00.000Z',endAt:'2026-10-02T10:30:00.000Z',durationMinutes:30,customerDurationMinutes:30,priceMinor:1000,priceMode:'FIXED',configurationHash:null}],
+  deposit:{financial:{amount:100,ttlMinutes:60,ttlProvenance:'BUSINESS_POLICY',lines:[{serviceId:'cut',sortOrder:0,serviceName:'Corte',mode:'FIXED',configuredValue:100,baseAmount:null,amount:100}]},payment:{transferEnabled:true,alias:'salon.test',cbu:null,cvu:null,paymentLinkEnabled:false,paymentLink:null}}}
+const financialPresented:RuntimePresentedBooking={version:1,scope:financialScope,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(financialTerms),conditionsPresented:true,terms:financialTerms}
+const financialReceipt:RuntimeHeldReceipt={kind:'HELD',coordinationGroupId:'group',proposalNonce:financialPresented.nonce,fingerprint:financialPresented.fingerprint,appointments:[{segmentIndex:0,appointmentId:'appointment',visitId:'visit'}],operationKey:'financial-operation',depositId:'deposit',amount:100,expiresAt:'2026-10-01T13:00:00.000Z',depositStatus:'PENDING_PROOF'}
+financialRuntime.session.state=projectConversationDraft({...initialDialogueState(barberResetId),serviceId:'cut',customerName:'Ana',date:financialTerms.date,professional:financialTerms.preference,pending:'proposal',slot:{date:financialTerms.date,time:'10:00',startAt:financialTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Ana',band:'MORNING',occupiedMinutes:0},bookingReservation:{presented:financialPresented,receipt:financialReceipt}},barberResetPolicy)
+financialRead.lines=financialTerms.deposit!.financial.lines
+financialRead.items=[{serviceId:'cut',sortOrder:0,durationMinutes:30,price:1000}]
+financialRead.rows=[{appointmentId:'appointment',visitId:'visit',serviceId:'cut',professionalId:'p1',startAt:financialTerms.segments[0]!.startAt,duration:30,quotedPrice:1000,appointmentStatus:'CONFIRMED',visitStatus:'CONFIRMED',scheduledStartAt:financialTerms.segments[0]!.startAt,visitDuration:30,visitPrice:1000,depositId:'deposit',amount:100,expiresAt:financialReceipt.expiresAt,depositStatus:'APPROVED',holdTtlMinutes:60,holdTtlProvenance:'BUSINESS_POLICY',snapshotSealedAt:new Date(),businessAddress:'Calle ficticia 123',parentHash:runtimeBookingRequestHash({kind:'RUNTIME',...financialScope,revision:financialRuntime.session.revision,canonicalPhone:'5491112345678',operationKey:'read',newBookingAllowed:false},financialPresented),childHash:runtimeBookingChildRequestHash(runtimeBookingChildInput(financialPresented,financialReceipt.operationKey,0,false),true)}]
+const protectedBefore=structuredClone(financialRuntime.session)
+financialRuntime.next('/reset');await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('financial reset cannot call AI')},timeoutMs:10})
+assert.deepEqual(financialRuntime.session,protectedBefore,'financial obligation cannot be reset even with empty outbox/complete operation')
+assert.match(financialRuntime.replies.at(-1)!,/No reinicié/)
+const persistedBefore=financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).length
+financialRuntime.next('Ya pagué');await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('protected financial status uses real rows, not AI')},timeoutMs:10})
+assert.equal((financialRuntime.session.state as {booking:string}).booking,'CONFIRMED')
+assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'APPROVED')
+assert.match(financialRuntime.replies.at(-1)!,/La reserva fue confirmada/)
+assert.equal(financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).length,persistedBefore+1,'financial status needs normal revision/transition and CRM projection')
+const financialPersist=financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).at(-1)!
+assert.ok(financialPersist.values.includes('conversation.financial.reconcile'))
+assert.ok(financialPersist.values.includes('COMPLETED'))
+console.log('P12 financial protected public reader/reset/session/history/CRM projection: PASS')
+
 
 for (const change of ['revision', 'config', 'human', 'disabled', 'fence', 'order'] as const) {
   const race = runtimeFixture()
@@ -1721,7 +1765,7 @@ try {
     const id=live.row.id,event=live.row.providerEventId,job='job-'+id.replace('inbox-','').replace('inbox','0')
     await bookingDb.query(`INSERT INTO "BotActionInbox" (id,"businessId","providerEventId",status) VALUES ($1,'cmpvr0oqo0000o0vcnhgyv054',$2,'ADMITTED')`,[id,event])
     await bookingDb.query(`INSERT INTO "BotProviderEvent" (id,"businessId",status) VALUES ($1,'cmpvr0oqo0000o0vcnhgyv054','ADMITTED')`,[event])
-    await bookingDb.query(`INSERT INTO "BotDispatchClaim" (id,"claimToken",status) VALUES ($1,'dispatch-token','CLAIMED')`,[id])
+    await bookingDb.query(`INSERT INTO "BotDispatchClaim" (id,"claimToken",status) VALUES ($1,$2,'CLAIMED')`,[id,'dispatch-token-'+id])
     await bookingDb.query(`INSERT INTO "BotJob" (id,status,"leaseToken") VALUES ($1,'LEASED','job-token')`,[job])
   }
   await seed();await live.run()

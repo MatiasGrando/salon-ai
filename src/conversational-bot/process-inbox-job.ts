@@ -7,7 +7,7 @@ import { canonicalJsonHash } from './canonical-json.js'
 import { explicitReferralAction } from './conversational-referral.js'
 import { isCustomerText } from './customer-text.js'
 import { prismaHandoffEffectExecutor } from '../bot-options/infrastructure/prisma-handoff-effect-executor.js'
-import { executePrismaConversationBooking, runtimeBookingReceiptReply } from './prisma-conversational-booking.js'
+import { executePrismaConversationBooking, loadRuntimeDepositReceipt, runtimeBookingReceiptReply } from './prisma-conversational-booking.js'
 import { finalizeRuntimeBooking, finalizeAppointmentManagement } from './engine.js'
 import { enqueueConversationalHandoffTx } from './prisma-conversational-handoff.js'
 import type { ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
@@ -423,17 +423,33 @@ export async function processConversationInbox(input: {
       }
       if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset) {
         let protectedReply = 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.'
+        let protectedRevision=activeSession.revision
         let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
         try { protectedDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) } catch { /* Preserve the protected session without trusting malformed sidecars. */ }
-        if (parsed.state.booking === 'CANCELLED' && protectedDraft?.appointmentManagement?.outcome?.kind === 'CANCELLED') {
+        if(protectedDraft?.bookingReservation?.receipt?.kind==='HELD' && parsed.state.handoff==='NONE'){
+          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:activeSession.sessionId,canonicalPhone:phone.replace(/[^0-9]/g,''),expectedRevision:activeSession.revision},protectedDraft.bookingReservation)
+          if(actual){
+            const updated={...protectedDraft,bookingReservation:{presented:protectedDraft.bookingReservation.presented,receipt:actual}}
+            protectedReply=runtimeBookingReceiptReply(updated.bookingReservation)
+            if(JSON.stringify(actual)!==JSON.stringify(protectedDraft.bookingReservation.receipt)){
+              const state=projectConversationDraft(updated,policy);protectedRevision++
+              const update=await persistConversationTurnTx(tx,{businessId:row.businessId,sessionId:activeSession.sessionId,
+                  expectedRevision:activeSession.revision,revision:protectedRevision,handoffFenceEpoch:activeSession.handoffFenceEpoch,
+                  state,transitionId:`transition:${activeSession.sessionId}:${protectedRevision}:financial:${row.id}`,
+                  deploymentId:policy.deploymentId,generation:policy.generation,providerEventId:row.providerEventId,
+                  actionType:'conversation.financial.reconcile',step:conversationStepForBotOptionsState(state)})
+                if(update)updates.push(update)
+            }
+          }
+        } else if (parsed.state.booking === 'CANCELLED' && protectedDraft?.appointmentManagement?.outcome?.kind === 'CANCELLED') {
           protectedReply = 'El grupo de turnos fue cancelado. No inicié otra reserva.'
         } else if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && protectedDraft?.bookingReservation?.receipt) {
           protectedReply = protectedDraft.appointmentManagement
             ? 'No pude verificar el estado actual de la gestión. El equipo debe revisarlo; no modifiqué tus turnos ni inicié otra reserva.'
             : runtimeBookingReceiptReply(protectedDraft.bookingReservation)
         }
-        await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
-          transitionId: `transition:${activeSession.sessionId}:${activeSession.revision}:protected:${row.id}`, toPhone: phone, dbNow: row.dbNow,
+        await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: protectedRevision,
+          transitionId: `transition:${activeSession.sessionId}:${protectedRevision}:protected:${row.id}`, toPhone: phone, dbNow: row.dbNow,
           view: textView(protectedReply) }))
         await finish(tx, row)
         return null
@@ -480,6 +496,7 @@ export async function processConversationInbox(input: {
       ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
+      ...(prepared.port.businessTimeContext ? {businessTimeContext:(...args:Parameters<NonNullable<DialoguePort['businessTimeContext']>>)=>prepared.port.businessTimeContext!(...args)} : {}),
       ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
       ...(prepared.port.prepareRuntimeBooking ? {prepareRuntimeBooking:(...args:Parameters<NonNullable<DialoguePort['prepareRuntimeBooking']>>)=>prepared.port.prepareRuntimeBooking!(...args)} : {}),
       ...(prepared.port.identity ? {identity:()=>prepared.port.identity!()} : {}),
