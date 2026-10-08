@@ -1227,6 +1227,66 @@ try {
     }
   })
 
+  await check('P13 social initiation and name retain a useful next in one call', async () => {
+    const identityPort: DialoguePort = { ...port, identity: async () => ({ businessId: context.businessId,
+      businessName: 'Barber Demo', assistantName: 'Cami', treatment: 'vos', greetingEmoji: '😊' }) }
+    for (const message of ['Hola que tal soy Matías', 'Hola\ncomo están muchachos\nsoy Matías']) {
+      const output = { ...acted([{ kind: 'name', value: 'Matías', ...ev('soy Matías') }],
+        [act('social', 'general', message), act('request', 'name', 'soy Matías', [0], 'Matías')], 'other'),
+        firstReply: { salutation: 'greeting', opening: '¡Todo bien, gracias! ¿Vos?', factIds: null, closing: null, variantChoices: null } }
+      const before = providerCalls
+      const result = await say({ ...initial, introduced: false }, message, output, identityPort)
+      assert.equal(result.interpretation.mode, 'ai', JSON.stringify(result.interpretation))
+      assert.equal(result.state.customerName, 'Matías', JSON.stringify({state:result.state,interpretation:result.interpretation}))
+      assert.equal(result.interpretation.aiCalls, 1)
+      assert.equal(providerCalls, before + 1)
+      assert.equal(result.interpretation.copyMode, 'ai', JSON.stringify({reply:result.reply,interpretation:result.interpretation}))
+      assert.match(result.reply, /Todo bien, gracias/)
+      assert.match(result.reply, /¿En qué te puedo ayudar/)
+      assert.equal((result.reply.match(/Soy Cami/g) ?? []).length, 1, result.reply)
+      assert.doesNotMatch(result.reply, /Gracias por avisar|Qué servicio necesitás/)
+    }
+  })
+  await check('P13 social fallback keeps next while rejecting model identity', async () => {
+    const output = { ...acted([], [act('social', 'general', 'Hola, cómo están')], 'other'),
+      firstReply: { salutation: 'greeting', opening: 'Soy otra asistente.', factIds: null, closing: null, variantChoices: null } }
+    const identityPort: DialoguePort = { ...port, identity: async () => ({ businessId: context.businessId,
+      businessName: 'Barber Demo', assistantName: 'Cami', treatment: 'vos' }) }
+    const result = await say({ ...initial, introduced: false }, 'Hola, cómo están', output, identityPort)
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'identity_in_frame')
+    assert.match(result.reply, /¿En qué te puedo ayudar/)
+    assert.doesNotMatch(result.reply, /otra asistente|Gracias por avisar/)
+    assert.equal(result.interpretation.aiCalls, 1)
+  })
+  await check('P13 social active draft resumes its question without agenda or effects', async () => {
+    const state: DialogueState = { ...initial, introduced: true, serviceId: 'cut-m', pending: 'date', customerName: 'Ana' }
+    rememberDialogueQuestion(state, '¿Para qué día querés Corte hombre?')
+    const result = await say(state, 'Cómo están', acted([], [act('social', 'general', 'Cómo están')], 'other'))
+    assert.equal(result.interpretation.mode, 'ai')
+    assert.match(result.reply, /¿Para qué día querés Corte hombre/, JSON.stringify({reply:result.reply,state:result.state,interpretation:result.interpretation}))
+    assert.deepEqual(result.state, state)
+    assert.equal(result.interpretation.aiCalls, 1)
+  })
+  await check('P13 social act cannot own a booking operation or suppress an independent request', () => {
+    const operation = { kind: 'name', value: 'Ana', ...ev('Ana') }
+    const plan = parseTurnPlan({ version: 1, operations: [operation] }, 'Hola Ana')
+    const wrong = parseCommunicativeActs({ version: 1, acts: [act('social', 'name', 'Hola Ana', [0], 'Ana')] }, 'Hola Ana', 1, plan)
+    const denied = admitCommunicativePlan(wrong, plan, plan, 'Hola Ana', initial, services)
+    assert.equal(denied.social, undefined)
+    assert.deepEqual(denied.plan.operations, [])
+    assert.deepEqual(denied.blockedFields, ['name'])
+    const social = parseCommunicativeActs({ version: 1, acts: [act('social', 'general', 'Hola'), act('request', 'name', 'Ana', [0], 'Ana')] }, 'Hola Ana', 1, plan)
+    const accepted = admitCommunicativePlan(social, plan, plan, 'Hola Ana', initial, services)
+    assert.equal(accepted.social, true)
+    assert.deepEqual(accepted.plan.operations, plan.operations)
+    for (const kind of ['notice', 'pause', 'repair']) {
+      const mixed = parseCommunicativeActs({ version: 1, acts: [act('social', 'general', 'Hola'), act(kind, 'general', 'Ana')] }, 'Hola Ana', 0)
+      const continuity = admitCommunicativePlan(mixed, { version: 1, operations: [] }, { version: 1, operations: [] }, 'Hola Ana', initial, services)
+      assert.equal(continuity.social, undefined)
+      assert.equal(continuity.continuity, kind, 'a polite greeting cannot erase a genuine notice or pause')
+    }
+  })
   await check('all checks use controlled provider and no real network or reservation adapter', () => {
     assert.ok(providerCalls > 0)
     assert.equal(networkCalls, 0)

@@ -12,7 +12,7 @@ import type { DialogueService, DialogueState } from './engine.js'
 
 export const COMMUNICATIVE_FIELDS = ['service', 'professional', 'date', 'time', 'name', 'estimate', 'general'] as const
 export type CommunicativeField = typeof COMMUNICATIVE_FIELDS[number]
-const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair'] as const
+const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair', 'social'] as const
 export type CommunicativeAct = {
   kind: typeof kinds[number]; field: CommunicativeField; evidence: string; confidence: number
   mention: string | null; operationIndexes: number[]
@@ -32,6 +32,8 @@ export type CommunicativeAdmission = {
   reference?: { mention: string; evidence: string }
   /** Ephemeral server admission, never a model flag or persisted booking action. */
   continuity?: 'notice' | 'pause' | 'repair'
+  /** A validated social act carries no booking authority. */
+  social?: true
 }
 const fieldsSchema = {
   kind: { type: 'string', enum: kinds }, field: { type: 'string', enum: COMMUNICATIVE_FIELDS },
@@ -320,7 +322,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     act.field === 'general' && Number.isFinite(act.confidence) && act.confidence >= .85 && act.confidence <= 1 &&
     act.operationIndexes.length === 0 && isCustomerText(act.evidence, 300) && message.includes(act.evidence)) ?? []
   const distinct = [...new Set(continuityActs.map(act => act.kind))]
-  const continuityCandidate = distinct.length === 1 && continuityActs.length === metadata?.acts.length
+  const continuityCandidate = distinct.length === 1 && continuityActs.length === metadata?.acts.filter(act => act.kind !== 'social').length
     ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
@@ -373,6 +375,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(continuity ? { continuity } : {}),
+    ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&
+      !metadata.acts.some(act => ['notice', 'pause', 'repair'].includes(act.kind)) ? { social: true as const } : {}),
     ...(reference?.mention ? { reference: { mention: reference.mention, evidence: reference.evidence } } : {}) }
 }
 /** Validate composition on a copy after each transformation; only a known overlap is a semantic conflict. */

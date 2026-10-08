@@ -42,6 +42,12 @@ export const REPLY_COMPOSITION_GUIDE = [
 ] as const
 export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ')
 
+/** A social turn always carries one server-owned help or recoverable next. */
+export function socialContinuationFacts(next: string): ReplyFact[] {
+  if (!next.trim() || next.length > 1000 || !next.endsWith('?')) throw new Error('invalid social continuation')
+  return [{ id: 'next', text: next }]
+}
+
 /** Interpretation shares the writing policy, but its facts precede semantic updates. */
 export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
   'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. La respuesta a cortesía explícita no se omite por una reserva, una consulta lateral o un cambio de datos; después va la pregunta pertinente del servidor. ' +

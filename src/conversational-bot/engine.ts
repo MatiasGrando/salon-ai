@@ -1,5 +1,6 @@
 import { parseAppointmentManagement, beginAppointmentManagement, attachManagementRescheduleOffers, selectManagementRescheduleOffer, confirmAppointmentManagement, cancellationFingerprint, type AppointmentManagementContext, type CancellationSnapshot, type GroupCancellationCommand, type GroupRescheduleCommand, type ManagementRescheduleOffer } from './appointment-management.js'
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
+import { socialContinuationFacts } from './reply-contract.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
@@ -932,6 +933,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     state.timeMeaningClarification = true
     state.pending = 'time'
   }
+  if (communicative?.social && raw.operations.length === 0 && !communicative.blockedFields.length && !communicative.reference) {
+    const next = hasActiveBooking(state) ? state.questionContext?.question ?? socialQuestion(state) : '¿En qué te puedo ayudar con el local?'
+    return { state, reply: next, replyFacts: socialContinuationFacts(next), proposal: null, replyPrepared: true }
+  }
   if (communicative?.continuity && raw.operations.length === 0 && communicative.plan.operations.length === 0 && !communicative.blockedFields.length && !communicative.reference) {
     // Notice, pause and repair retain the recoverable question/draft. Do not run
     // matching, implicit information, procedure progression or availability for them.
@@ -1167,6 +1172,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (preferenceOp?.kind === 'time_preference') { delete state.timeMeaningClarification; delete state.timeClarification; invalidate(true); state.timePreference = parseTimePreference(preferenceOp.preference) }
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
+  if (communicative?.social && !communicative.blockedFields.length && !communicative.reference && plan.operations.every(op => op.kind === 'name') && state.pending !== 'name' && !contextual.clarify) {
+    const next = hasActiveBooking(state) ? state.questionContext?.question ?? socialQuestion(state) : '¿En qué te puedo ayudar con el local?'
+    return { state, reply: next, replyFacts: socialContinuationFacts(next), proposal: null, replyPrepared: true }
+  }
 
   for (const op of plan.operations) {
     if (op.kind !== 'estimate') continue
@@ -1649,7 +1658,8 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   const before = parseDialogueState(previous, context.businessId, context.timezone)
   const management = await respondAppointmentManagement(context, before, message, port, decision)
   if (management) return management
-  if (decision?.communicative?.continuity && decision.turnPlan?.operations.length === 0 && decision.communicative.plan.operations.length === 0 &&
+  if (decision?.communicative && decision.turnPlan && (decision.communicative.continuity && decision.turnPlan.operations.length === 0 && decision.communicative.plan.operations.length === 0 ||
+      decision.communicative.social && decision.turnPlan.operations.length === 0 && decision.communicative.plan.operations.length === 0) &&
       !decision.communicative.blockedFields.length && !decision.communicative.reference) {
     // Nonoperative admission precedes the booking envelope, which otherwise
     // consumes consent scope and rebuilds procedure/referral choices as progression.

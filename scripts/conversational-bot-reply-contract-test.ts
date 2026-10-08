@@ -1,5 +1,5 @@
 import { runConversationalPreview } from '../src/conversational-bot/demo-preview.js'
-import { replyContract, validateReplyDraft, projectValidatedReplyFrame, REPLY_CONTRACT_INSTRUCTIONS } from '../src/conversational-bot/reply-contract.js'
+import { replyContract, socialContinuationFacts, validateReplyDraft, projectValidatedReplyFrame, REPLY_CONTRACT_INSTRUCTIONS } from '../src/conversational-bot/reply-contract.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import assert from 'node:assert/strict'
@@ -10,6 +10,13 @@ const port: DialoguePort = { catalog: async () => [], availability: async () => 
 const base = { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
 globalThis.fetch = (() => { throw new Error('network forbidden') }) as typeof fetch
 async function main() {
+  const socialFacts = socialContinuationFacts('¿En qué te puedo ayudar?')
+  const socialContract = replyContract('social', true, false, socialFacts)
+  assert.equal(socialContract.continuation, 'next')
+  assert.equal(validateReplyDraft({ salutation: 'greeting', opening: 'Bien, gracias.', factIds: null, closing: null }, socialFacts, socialContract, []).validation.status, 'accepted')
+  assert.equal(validateReplyDraft({ salutation: 'greeting', opening: 'Soy otra asistente.', factIds: null, closing: null }, socialFacts, socialContract, []).validation.reason, 'identity_in_frame')
+  assert.equal(validateReplyDraft({ salutation: null, opening: null, factIds: null, closing: '¿Qué servicio querés?' }, socialFacts, socialContract, []).validation.reason, 'continuation_conflict')
+  for (const invalid of ['', 'Gracias por avisar.', 'x'.repeat(1001) + '?']) assert.throws(() => socialContinuationFacts(invalid), /social continuation/)
   for (const draft of ['null', 'empty', 'valid', 'unsafe'] as const) {
     let calls = 0
     const provider: AiInterpretationProvider = Object.assign(async (input: AiInterpretationInput) => { calls++; return { ...base, firstReply: draft === 'null' ? null : { opening: draft === 'unsafe' ? 'Reservado por $123' : null, closing: null, factIds: draft === 'empty' ? [] : input.firstReplyFacts!.map(fact => fact.id) } } }, { respond: async () => { calls++; throw new Error('unnecessary second call') } })
