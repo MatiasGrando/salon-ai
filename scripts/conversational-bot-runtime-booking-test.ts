@@ -6,7 +6,7 @@ import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-p
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
 import { initialDialogueState, parseDialogueState, finalizeRuntimeBooking, respond, respondConversationChoice, type DialogueContext, type DialogueDecision, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
-import { parseRuntimePresentedBooking, runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeBookingSummary, runtimeBookingReceiptReply, parseRuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { parseRuntimePresentedBooking, runtimeBookingFingerprint, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash, runtimeBookingSummary, runtimeBookingReceiptReply, parseRuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingTerms, type RuntimeHeldReceipt, type RuntimeBookingReservation } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { projectConversationDraft } from '../src/conversational-bot/session-state.js'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { parseBotOptionsState } from '../src/bot-options/domain/state.js'
@@ -276,7 +276,7 @@ console.log('runtime presentation/consent/current scope/lateral/parser/ALL recei
 // P14: parse the aggregate financial contract before it can own confirmation.
 // Existing NONE and singular receipt assertions above remain unchanged.
 for (const required of [[0], [0, 1], [1]] as const) {
-  const terms = structuredClone(manyReservation.presented.terms)
+  const terms: RuntimeBookingTerms = structuredClone(manyReservation.presented.terms)
   terms.preference = { kind: 'any' }
   terms.segments[1]!.professionalId = 'p2'
   terms.segments[1]!.professionalName = 'Leo'
@@ -292,7 +292,7 @@ for (const required of [[0], [0, 1], [1]] as const) {
     ttlMinutes: 60, ttlProvenance: 'BUSINESS_POLICY' },
     payment: { transferEnabled: true, alias: 'salon.test', cbu: null, cvu: null,
       paymentLinkEnabled: false, paymentLink: null } }
-  const presented = { ...manyReservation.presented, terms, fingerprint: runtimeBookingFingerprint(terms) }
+  const presented: RuntimePresentedBooking = { ...manyReservation.presented, terms, fingerprint: runtimeBookingFingerprint(terms) }
   assert.deepEqual(parseRuntimePresentedBooking(presented), presented,
     'P14 complete multi-professional financial terms must parse: ' + required.join(','))
   const summary = runtimeBookingSummary(presented)
@@ -302,14 +302,14 @@ for (const required of [[0], [0, 1], [1]] as const) {
   assert.match(summary, /60 minutos/)
   assert.doesNotMatch(summary, /La reserva fue confirmada/)
 
-  const groupReceipt = { kind: 'HELD' as const, coordinationGroupId: 'financial-group',
+  const groupReceipt: RuntimeHeldReceipt = { kind: 'HELD' as const, coordinationGroupId: 'financial-group',
     proposalNonce: presented.nonce, fingerprint: presented.fingerprint,
     appointments: manyReceipt.appointments, operationKey: 'joint-operation',
     depositId: required[0] === 1 ? 'second-segment-deposit' : 'first-segment-deposit',
     expiresAt: '2026-10-06T16:00:00.000Z', amount: terms.deposit.financial.amount,
     depositStatus: 'PENDING_PROOF' as const,
     coordinatedDepositGroup: { version: 1 as const, groupId: 'financial-group', requestHash: 'a'.repeat(64) } }
-  const reservation = { presented, receipt: groupReceipt }
+  const reservation: RuntimeBookingReservation = { presented, receipt: groupReceipt }
   const coordinatedSegments = terms.segments.map(({ priceMinor, priceMode, configurationHash, estimate, ...segment }) => segment)
   const groupState: DialogueState = { ...structuredClone(manyReady), professional: { kind: 'any' },
     slot: { ...manyReady.slot!, occupiedMinutes: 75, coordination: {

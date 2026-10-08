@@ -121,7 +121,8 @@ async function authorizedChannelBusinessId(user: BusinessAuthorizationUser, reso
 const conversationDepositSelect = {
   id: true,
   status: true,
-  amount: true
+  amount: true,
+  visitId: true
 } satisfies Prisma.BookingDepositSelect
 
 const crmDepositAppointmentSelect = {
@@ -1960,6 +1961,22 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     if (!deposit.conversationId || !deposit.conversation) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
+    if (deposit.visitId) {
+      const operationKey = typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'].trim() : ''
+      if (!operationKey || operationKey.length > 512) return sendAuthorizationFailure(reply, 'malformed')
+      try {
+        await approveCurrentDepositProof(prisma, {
+          businessId: deposit.businessId, depositId: deposit.id, actorUserId: authUser.id, operationKey,
+          method: request.method, path: request.routeOptions.url || request.url,
+          projectCashPayment: options.cashRegisterEnabled !== false
+        })
+        return conversationWithLatestDeposit(deposit.conversationId, authUser)
+      } catch (error) {
+        if (error instanceof DepositReviewStateError) return sendAuthorizationFailure(reply, 'conflict')
+        if (error instanceof DepositReviewError) return sendAuthorizationFailure(reply, 'malformed')
+        throw error
+      }
+    }
     if (deposit.status !== 'PROOF_RECEIVED') {
       return reply.status(409).send({ message: 'Todavía no se recibió un comprobante para aprobar' })
     }
@@ -2140,7 +2157,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
   app.post('/crm/conversations/:id/deposit/reject', async (request, reply) => {
     const params = request.params as { id: string }
-    const body = request.body as { reason?: string }
+    const body = request.body as { reason?: string; mode?: unknown }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     const authorizedConversation = await loadAuthorizedConversation(prisma, authUser, params.id)
@@ -2148,6 +2165,22 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const deposit = await findActiveConversationDeposit(params.id, authorizedConversation.businessId)
     if (!deposit) {
       return sendAuthorizationFailure(reply, 'notFound')
+    }
+    if (deposit.visitId) {
+      if (!deposit.conversationId || !deposit.conversation) return sendAuthorizationFailure(reply, 'notFound')
+      const operationKey = typeof request.headers['idempotency-key'] === 'string' ? request.headers['idempotency-key'].trim() : ''
+      if (!operationKey || operationKey.length > 512) return sendAuthorizationFailure(reply, 'malformed')
+      try {
+        await rejectCurrentDepositProof(prisma, {
+          businessId: deposit.businessId, depositId: deposit.id, actorUserId: authUser.id, operationKey,
+          method: request.method, path: request.routeOptions.url || request.url, rejection: { reason: body.reason ?? '', mode: body.mode as never }
+        })
+        return conversationWithLatestDeposit(deposit.conversationId, authUser)
+      } catch (error) {
+        if (error instanceof DepositReviewStateError) return sendAuthorizationFailure(reply, 'conflict')
+        if (error instanceof DepositReviewError) return sendAuthorizationFailure(reply, 'malformed')
+        throw error
+      }
     }
     await bookingDepositService.expireOverdue()
     if (!deposit.conversationId || !deposit.conversation) {
@@ -2702,6 +2735,8 @@ async function findActiveConversationDeposit(conversationId: string, businessId:
       id: true,
       businessId: true,
       appointmentId: true,
+      visitId: true,
+      source: true,
       conversationId: true,
       status: true,
       conversation: true,

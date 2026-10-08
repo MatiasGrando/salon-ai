@@ -28069,9 +28069,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const selectedConversation = state.selected
       setDepositApprovalPending(deposit, true)
       try {
+        const operationKey = deposit.visitId
+          ? (state.depositReviewOperationKeys.get('approve:' + deposit.id) || (() => {
+              const key = crypto.randomUUID()
+              state.depositReviewOperationKeys.set('approve:' + deposit.id, key)
+              return key
+            })())
+          : null
         const approvedConversation = await getJson('/crm/conversations/' + selectedConversation.id + '/deposit/approve', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...(operationKey ? { 'Idempotency-Key': operationKey } : {}) },
           body: JSON.stringify({})
         })
         state.depositApprovalPendingIds.delete(deposit.id)
@@ -28097,6 +28104,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const deposit = state.selected.bookingDeposits?.[0]
       if (!deposit || !['PENDING_PROOF', 'PROOF_RECEIVED'].includes(deposit.status)) return
       if (state.depositApprovalPendingIds.has(deposit.id)) return
+      if (deposit.visitId) {
+        if (deposit.status !== 'PROOF_RECEIVED') return
+        openDepositRejectionDialog(deposit)
+        return
+      }
       if (!await requestCrmConfirmation(
         '¿Querés rechazar la seña? El horario temporal se liberará y el cliente recibirá un aviso.',
         { confirmLabel: 'Sí, rechazar seña' }
@@ -28152,8 +28164,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': operationKey },
           body: JSON.stringify({ reason, mode })
         })
+        state.depositReviewOperationKeys.delete('reject:' + deposit.id)
         closeDepositRejectionDialog(); state.selectedDeposit = null
         await loadDeposits(); await loadAgenda()
+        if (deposit.visitId && state.selected?.bookingDeposits?.some((item) => item.id === deposit.id)) await loadConversations()
         showCrmToast(mode === 'FINAL' ? 'Seña rechazada y horario liberado.' : 'Se solicitó un nuevo comprobante; el horario sigue retenido.', 'success')
       } catch (error) {
         els.depositRejectionFeedback.textContent = error.message
