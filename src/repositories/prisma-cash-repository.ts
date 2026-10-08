@@ -1,4 +1,5 @@
 import { Prisma } from '../generated/prisma/client.js'
+import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupForAppointment } from '../services/coordinated-deposit-group.js'
 import { ensureProfessionalEarningForCompletedAppointment } from '../services/professional-compensation.js'
 
 export type CashBusinessContext = {
@@ -58,6 +59,7 @@ export type CashEntryForSummary = {
 }
 
 export type AppointmentBackfillEvidence = {
+  sealedCoordinatedDepositGroup?: string
   businessId: string
   appointmentId: string
   origin: 'BOT' | 'WEB' | 'MANUAL' | 'UNKNOWN'
@@ -508,7 +510,8 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
   }
 
   async loadAppointmentBackfillGroup(businessId: string, appointmentId: string) {
-    return this.transaction.$queryRaw<AppointmentBackfillEvidence[]>(Prisma.sql`
+    const group=(await lockCoordinatedDepositGroupForAppointment(this.transaction,{businessId,appointmentId}))?.group??null
+    const evidence=await this.transaction.$queryRaw<AppointmentBackfillEvidence[]>(Prisma.sql`
       WITH anchor AS (
         SELECT "id", "visitId", "coordinationGroupId"
         FROM "Appointment"
@@ -526,7 +529,8 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         appointment."manualDepositPaid", appointment."manualDepositAmount"
       FROM anchor
       JOIN "Appointment" AS appointment ON appointment."businessId" = ${businessId} AND (
-        (anchor."visitId" IS NOT NULL AND appointment."visitId" = anchor."visitId")
+        (${group?.groupId??null}::text IS NOT NULL AND appointment."coordinationGroupId"=${group?.groupId??null})
+        OR (${group?.groupId??null}::text IS NULL AND anchor."visitId" IS NOT NULL AND appointment."visitId" = anchor."visitId")
         OR (anchor."visitId" IS NULL AND anchor."coordinationGroupId" IS NOT NULL AND appointment."coordinationGroupId" = anchor."coordinationGroupId")
         OR (anchor."visitId" IS NULL AND anchor."coordinationGroupId" IS NULL AND appointment."id" = anchor."id")
       )
@@ -546,6 +550,14 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
       ORDER BY appointment."id"
       FOR UPDATE OF appointment
     `)
+    if(!group) return evidence
+    if(evidence.length!==group.members.length) throw new Error('SEALED_CASH_GROUP_MEMBERSHIP_MISMATCH')
+    return evidence.map(row=>{
+      const member=group.members.find(m=>m.appointmentId===row.appointmentId)
+      if(!member) throw new Error('SEALED_CASH_GROUP_MEMBERSHIP_MISMATCH')
+      const segment=group.proposal.terms.segments[member.segmentIndex]!
+      return {...row,sealedCoordinatedDepositGroup:group.groupId,estimated:segment.priceMode!=='FIXED',minimumPrice:segment.priceMinor}
+    })
   }
 
   async ensureAppointmentAccount(input: {
@@ -832,18 +844,21 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     bookingDepositId: string
     origin: 'WEB_DEPOSIT' | 'BOT_DEPOSIT'
   }) {
+    const coordinated=await lockCoordinatedDepositGroupForDeposit(this.transaction,{businessId:input.businessId,depositId:input.bookingDepositId})
+    if(coordinated && (coordinated.depositStatus!=='APPROVED' || input.origin!=='BOT_DEPOSIT')) throw new Error('SEALED_DEPOSIT_NOT_APPROVED')
     if (!await this.lockBusiness(input.businessId)) throw new Error('BUSINESS_NOT_FOUND')
     const target = await this.transaction.$queryRaw<Array<{
       depositId: string
       amount: number
       accountId: string
-      agreedAmount: number
+      agreedAmount: number|null
+      pricingMode:string
       discountAmount: number
       registerDayId: string | null
       cashSessionId: string | null
     }>>(Prisma.sql`
       SELECT deposit."id" AS "depositId", deposit."amount", account."id" AS "accountId",
-        account."agreedAmount", account."discountAmount", day."id" AS "registerDayId", session."id" AS "cashSessionId"
+        account."agreedAmount", account."pricingMode", account."discountAmount", day."id" AS "registerDayId", session."id" AS "cashSessionId"
       FROM "BookingDeposit" AS deposit
       JOIN "AppointmentAccountLink" AS link
         ON link."businessId" = deposit."businessId" AND link."appointmentId" = deposit."appointmentId"
@@ -858,23 +873,49 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         WHERE "businessId" = deposit."businessId" AND "registerDayId" = day."id" AND "closedAt" IS NULL LIMIT 1
       ) AS session ON true
       WHERE deposit."businessId" = ${input.businessId} AND deposit."id" = ${input.bookingDepositId}
-        AND deposit."status" = 'APPROVED'::"BookingDepositStatus" AND account."agreedAmount" IS NOT NULL
+        AND deposit."status" = 'APPROVED'::"BookingDepositStatus"
       FOR UPDATE OF deposit, account
     `)
     if (!target[0]) throw new Error('APPROVED_DEPOSIT_NOT_PROJECTABLE')
-    const existingProjection = await this.transaction.$queryRaw<Array<{ cashSessionId: string | null }>>(Prisma.sql`
-      SELECT "cashSessionId" FROM "CashEntry"
+    if(coordinated) {
+      const group=coordinated.group,member=group.members.find(m=>m.depositId===input.bookingDepositId)
+      const links=await this.transaction.$queryRaw<Array<{appointmentId:string;businessId:string}>>(Prisma.sql`SELECT "appointmentId","businessId" FROM "AppointmentAccountLink" WHERE "accountId"=${target[0].accountId} ORDER BY "appointmentId" FOR SHARE`)
+      if(!member || member.amount!==target[0].amount || links.length!==group.members.length || links.some(l=>l.businessId!==input.businessId || !group.members.some(m=>m.appointmentId===l.appointmentId))) throw new Error('SEALED_CASH_GROUP_ACCOUNT_MISMATCH')
+    }
+    if(target[0].agreedAmount===null && (!coordinated || target[0].pricingMode!=='ESTIMATED' || target[0].discountAmount!==0)) throw new Error('APPROVED_DEPOSIT_NOT_PROJECTABLE')
+    if(coordinated && target[0].agreedAmount===null) {
+      const entries=await this.transaction.$queryRaw<Array<{id:string;bookingDepositId:string|null;amount:number;type:string;direction:string;origin:string;reversesEntryId:string|null}>>(Prisma.sql`
+        SELECT id,"bookingDepositId",amount,type,direction,origin,"reversesEntryId" FROM "CashEntry" WHERE "businessId"=${input.businessId} AND "accountId"=${target[0].accountId} ORDER BY id`)
+      let net=0
+      for(const entry of entries) {
+        if(entry.type==='PAYMENT') {
+          const member=coordinated.group.members.find(m=>m.depositId===entry.bookingDepositId)
+          if(!member || entry.amount!==member.amount || entry.direction!=='INFLOW' || entry.origin!=='BOT_DEPOSIT') throw new Error('SEALED_DEPOSIT_CREDIT_MISMATCH')
+          net+=entry.amount
+        } else if(entry.type==='LEGACY_PAYMENT') throw new Error('SEALED_DEPOSIT_CREDIT_MISMATCH')
+        else if(entry.type==='REVERSAL') {
+          const source=entries.find(e=>e.id===entry.reversesEntryId)
+          if(source?.type==='PAYMENT') net-=entry.amount
+        }
+      }
+      if(net<0 || net>coordinated.group.amount) throw new Error('APPROVED_DEPOSIT_OVERPAYMENT')
+    }
+    const existingProjection = await this.transaction.$queryRaw<Array<{ cashSessionId: string | null; amount:number; accountId:string; origin:string; type:string; direction:string }>>(Prisma.sql`
+      SELECT "cashSessionId",amount,"accountId",origin,type,direction FROM "CashEntry"
       WHERE "businessId" = ${input.businessId} AND "bookingDepositId" = ${input.bookingDepositId}
     `)
     if (existingProjection[0]) {
+      const entry=existingProjection[0]
+      if(entry.amount!==target[0].amount || entry.accountId!==target[0].accountId || entry.origin!==input.origin || entry.type!=='PAYMENT' || entry.direction!=='INFLOW') throw new Error('APPROVED_DEPOSIT_PROJECTION_MISMATCH')
       return { created: false, cashSessionId: existingProjection[0].cashSessionId }
     }
     const prior = await this.listAccountEntries(input.businessId, target[0].accountId)
     const paid = prior.reduce((total, entry) => {
-      if (!['PAYMENT', 'LEGACY_PAYMENT', 'REVERSAL'].includes(entry.type)) return total
+      if (!['PAYMENT', 'LEGACY_PAYMENT'].includes(entry.type) && !(entry.type==='REVERSAL' && ['PAYMENT','LEGACY_PAYMENT'].includes(entry.reversedEntryType??''))) return total
       return total + (entry.direction === 'INFLOW' ? entry.amount : -entry.amount)
     }, 0)
-    if (target[0].amount > target[0].agreedAmount - target[0].discountAmount - paid) {
+    const knownLimit=target[0].agreedAmount??coordinated!.group.amount
+    if (target[0].amount > knownLimit - target[0].discountAmount - paid) {
       throw new Error('APPROVED_DEPOSIT_OVERPAYMENT')
     }
     const inserted = await this.transaction.$queryRaw<Array<{ cashSessionId: string | null }>>(Prisma.sql`

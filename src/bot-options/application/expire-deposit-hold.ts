@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
+import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupState } from '../../services/coordinated-deposit-group.js'
 import { acquireAgendaHierarchy } from '../../services/agenda-locks.js'
 import { assertClaimedBotJobTx, completeClaimedBotJobTx, type ClaimedBotJob } from '../infrastructure/postgres-worker.js'
 import { enqueueDepositNotificationWithRecoveryTx } from '../../services/deposit-notification-outbox.js'
@@ -36,6 +37,36 @@ export async function expireDepositHold(client: ExpiryClient, job: ClaimedBotJob
     // An expiry is safe and required after a cutover: the lease token remains
     // the fence, while deployment-currentness must not strand an old hold.
     await assertClaimedBotJobTx(tx, job, { requireCurrentDeployment: false })
+
+    const coordinated=await lockCoordinatedDepositGroupForDeposit(tx,{businessId:job.businessId,depositId:job.aggregateId})
+    if(coordinated) {
+      const {group,currentExpiresAt,dbNow,depositStatus}=coordinated
+      if(!['PENDING_PROOF','PENDING_RESUBMISSION'].includes(depositStatus) || currentExpiresAt>dbNow) {
+        await completeClaimedBotJobTx(tx,job);return 'INELIGIBLE'
+      }
+      let anchorAuditId=''
+      for(const member of group.members) {
+        if(member.depositId) {
+          const count=await tx.$executeRaw(Prisma.sql`UPDATE "BookingDeposit" SET status='EXPIRED',"expiredAt"=${dbNow},"expirationReason"='HOLD_TTL_EXPIRED',"updatedAt"=${dbNow}
+            WHERE id=${member.depositId} AND "businessId"=${job.businessId} AND status IN ('PENDING_PROOF','PENDING_RESUBMISSION') AND "expiresAt"<=${dbNow}`)
+          if(count!==1) throw new Error('coordinated expiry deposit fence failed')
+          const auditId=randomUUID()
+          const countAudit=await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositExpiryAudit" (id,"businessId","depositId","visitId","appointmentId","jobId",reason,"dueAt","expiredAt")
+            VALUES (${auditId},${job.businessId},${member.depositId},${member.visitId},${member.appointmentId},${job.id},'HOLD_TTL_EXPIRED',${currentExpiresAt},${dbNow}) ON CONFLICT ("depositId") DO NOTHING`)
+          if(countAudit!==1) throw new Error('coordinated expiry audit fence failed')
+          if(member.depositId===group.anchorDepositId) anchorAuditId=auditId
+        }
+        const visits=await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET status='EXPIRED',version=version+1,"updatedAt"=${dbNow}
+          WHERE id=${member.visitId} AND "businessId"=${job.businessId} AND status='HELD' AND "holdExpiresAt"<=${dbNow}`)
+        const appointments=await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET status='CANCELLED',version=version+1
+          WHERE id=${member.appointmentId} AND "businessId"=${job.businessId} AND status='PENDING'`)
+        if(visits!==1 || appointments!==1) throw new Error('coordinated expiry companion fence failed')
+      }
+      await lockCoordinatedDepositGroupState(tx,{businessId:job.businessId,groupId:group.groupId})
+      await enqueueDepositNotificationWithRecoveryTx(tx,{businessId:job.businessId,depositId:group.anchorDepositId,sourceId:anchorAuditId,kind:'EXPIRED',dbNow})
+      await completeClaimedBotJobTx(tx,job)
+      return 'EXPIRED'
+    }
 
     const target = await tx.$queryRaw<Array<{ professionalId: string }>>(Prisma.sql`
       SELECT v."professionalId"

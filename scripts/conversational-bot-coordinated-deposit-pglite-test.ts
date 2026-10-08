@@ -1,4 +1,13 @@
 import assert from 'node:assert/strict'
+import { expireDepositHold } from '../src/bot-options/application/expire-deposit-hold.js'
+import { resolveProofTarget } from '../src/bot-options/application/process-deposit-proof-job.js'
+import { enqueueDepositNotificationTx, bridgeDirectDepositNotificationTx, encodeDirectNotificationRecovery } from '../src/services/deposit-notification-outbox.js'
+import { createCashTransactionRepository, projectApprovedDepositPaymentInTransaction } from '../src/repositories/prisma-cash-repository.js'
+import { CashService, ensureAppointmentAccountForPayment } from '../src/services/cash-service.js'
+import { calculateAccountTotals } from '../src/services/cash-domain.js'
+import { approveCurrentDepositProofInTransaction, rejectCurrentDepositProofInTransaction } from '../src/services/deposit-review-operation.js'
+import { createHash } from 'node:crypto'
+import { writeValidatedDepositProofInTransaction } from '../src/services/deposit-proof-writer.js'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
 import { Prisma } from '../src/generated/prisma/client.js'
@@ -9,13 +18,13 @@ import { parseEstimateOptions, resolveServiceEstimate } from '../src/bot-options
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
 
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
-const db = new PGlite()
+const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
-const enums = ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance']
+const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation','BusinessWhatsAppConfig','BotOutbox','StaffAuditLog','User','BotProviderEvent']
+const enums = [...schema.matchAll(/^enum (\w+) \{/gm)].map(m=>m[1]!)
 for (const name of enums) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
-  const values = body.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
+  const values = body.split('\n').flatMap(line => line.match(/@map\("([^"]+)"\)/)?.[1]??line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1]??[])
   await db.exec('CREATE TYPE "'+name+'" AS ENUM ('+values.map(v=>"'"+v+"'").join(',')+')')
 }
 for (const name of models) {
@@ -26,7 +35,9 @@ for (const name of models) {
     const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision',Bytes:'bytea'} as Record<string,string>)[field[2]!]
     const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? enums.includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
     const primary = field[1] === (name === 'BusinessBotOptionsSettings' || name === 'BusinessPaymentSettings' ? 'businessId' : 'id')
-    return type ? ['"'+field[1]+'" '+type+(primary?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')] : []
+    const literal=line.match(/@default\((true|false|[0-9]+|[A-Z_]+|"[^"]*")\)/)?.[1]
+    const defaultSql=literal?(/^(true|false|[0-9]+)$/.test(literal)?literal:"'"+literal.replace(/^"|"$/g,'').replace(/'/g,"''")+"'"):null
+    return type ? ['"'+(line.match(/@map\("([^"]+)"\)/)?.[1]??field[1])+'" '+type+(primary?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':defaultSql?' DEFAULT '+defaultSql:'')] : []
   })
   await db.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
 }
@@ -43,11 +54,22 @@ for (const statement of migration.match(/ALTER TABLE[\s\S]*?;/g)!) {
   if (statement.includes('ADD CONSTRAINT')) await db.exec(statement)
 }
 for (const statement of [...functions,...triggers]) await db.exec(statement)
+// Lifecycle constraints are the original migrations, not a permissive mock.
+for (const name of ['20260827130000_add_f8_append_only_deposit_proofs','20260827140000_add_f8_proof_writer_guards','20260827150000_add_f8_review_operations','20260827160000_add_f8_8_rejection_operations','20260827161000_fix_f8_resubmission_deadline_guard','20260827170000_add_f8_proof_byte_retention_purge']) {
+  const sql=readFileSync(new URL('../prisma/migrations/'+name+'/migration.sql',import.meta.url),'utf8')
+  // Enum types already come from the actual current schema. All other DDL runs verbatim.
+  await db.exec(sql.replace(/CREATE TYPE[\s\S]*?;/g,'').replace(/ALTER TYPE[\s\S]*?;/g,''))
+}
+await db.exec('CREATE UNIQUE INDEX job_kind_aggregate ON "BotJob" (kind,"aggregateId"); CREATE UNIQUE INDEX outbox_idempotency ON "BotOutbox" ("idempotencyKey")')
+const cashMigration=readFileSync(new URL('../prisma/migrations/20260906120000_add_cash_financial_ledger/migration.sql',import.meta.url),'utf8')
+await db.exec('BEGIN;'+cashMigration.slice(cashMigration.indexOf('ALTER TABLE "Appointment" ALTER COLUMN')))
+await db.exec(readFileSync(new URL('../prisma/migrations/20260919170000_add_appointment_total_adjustments/migration.sql',import.meta.url),'utf8'))
 await db.exec(`
-INSERT INTO "Business" (id,name,"botEnabled") VALUES ('b','Salon',true),('foreign','Other',true);
+INSERT INTO "Business" (id,name,"botEnabled",timezone) VALUES ('b','Salon',true,'America/Argentina/Buenos_Aires'),('foreign','Other',true,'America/Argentina/Buenos_Aires');
+INSERT INTO "BusinessWhatsAppConfig" (id,"businessId","phoneNumberId","accessToken","connectionStatus") VALUES ('offline-route','b','offline-number','offline-token','CONNECTED');
 INSERT INTO "Conversation" (id,"businessId",phone) VALUES ('c','b','5491112345678');
 INSERT INTO "Customer" (id,"businessId",phone,"normalizedPhone",name) VALUES ('customer','b','5491112345678','5491112345678','Ana');
-INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','b','WHATSAPP',2,3,'cfg',1);
+INSERT INTO "BotChannelDeployment" (id,"businessId",channel,"engineKey",generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('dep','b','WHATSAPP','deterministic-options',2,3,'cfg',1);
 INSERT INTO "BusinessBotConfiguration" (id,"businessId",status) VALUES ('cfg','b','ACTIVE');
 INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch") VALUES ('session','b','c','dep',2,'ACTIVE',4,5);
 INSERT INTO "BusinessBotOptionsSettings" ("businessId",timezone,"bookingHorizonDays","bookingLeadTimeHours","depositHoldMinutes") VALUES ('b','America/Argentina/Buenos_Aires',20000,0,60);
@@ -63,6 +85,8 @@ INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","en
 `)
 type QuerySource = Pick<PGlite,'query'>
 let failLast = false
+let failSql:((q:Prisma.Sql)=>boolean)|null=null
+let testClock:Date|null=null
 function orm(pg: QuerySource): Prisma.TransactionClient {
   let affectedRows=0
   const query = async (q: Prisma.Sql) => {
@@ -70,9 +94,11 @@ function orm(pg: QuerySource): Prisma.TransactionClient {
     // advisory lock is the sole no-op. This test does NOT prove cross-process contention.
     if (q.text.includes('pg_advisory_xact_lock')) return [{locked:1}]
     if (failLast && q.text.includes('INSERT INTO "Appointment"') && q.values.includes('p2')) throw Error('controlled last-member failure')
-    const result = await pg.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v!==null&&typeof v==='object'?JSON.stringify(v):v))
+    if(failSql?.(q)) throw Error('controlled lifecycle last-member failure')
+    const sql=testClock?q.text.replace(/clock_timestamp\(\)/g,"'"+testClock.toISOString()+"'::timestamptz"):q.text
+    const result = await pg.query(sql,q.values.map(v=>v instanceof Date?v.toISOString():Buffer.isBuffer(v)?v:v!==null&&typeof v==='object'?JSON.stringify(v):v))
     affectedRows=result.affectedRows??result.rows.length
-    for (const row of result.rows as Record<string,unknown>[]) for (const key of ['startAt','endAt','dbNow','scheduledStartAt','expiresAt','holdExpiresAt']) if(row[key]!=null)row[key]=new Date(String(row[key]))
+    for (const row of result.rows as Record<string,unknown>[]) for (const key of ['startAt','endAt','dbNow','scheduledStartAt','expiresAt','holdExpiresAt']) if(row[key]!=null && !(row[key] instanceof Date))row[key]=new Date(String(row[key]))
     return result.rows
   }
   const select = async (table:string,where:Record<string,unknown>) => {
@@ -187,6 +213,177 @@ try {
   assert.equal(noneFirst.amount,200)
   await cleanup()
   await db.exec(`UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE id='s1'; UPDATE "Service" SET "attentionMode"='GUIDED_ESTIMATE',"estimateAllowsBooking"=true,"estimateOptions"='[{"id":"length","label":"Medium","priceMin":1500,"priceMax":3000}]' WHERE id='s2'`)
+  // Isolated lifecycle scenarios roll back the entire aggregate, including append-only ledger rows.
+  await db.exec(`UPDATE "Service" SET "attentionMode"='DIRECT_BOOKING',"estimateAllowsBooking"=false,"estimateOptions"=null WHERE id='s2'`)
+  const fixtureBytes=Buffer.from('offline proof fixture')
+  const fixtureEvidence={sourceData:fixtureBytes,sourceMimeType:'image/png' as const,sourceFilename:'offline.png',sourceByteSize:fixtureBytes.length,sourceSha256:createHash('sha256').update(fixtureBytes).digest('hex'),derivedData:fixtureBytes,derivedMimeType:'image/webp' as const,derivedByteSize:fixtureBytes.length,derivedSha256:createHash('sha256').update(fixtureBytes).digest('hex'),validatorVersion:'f8-image-v1' as const}
+  const reviewer={businessId:'b',actorUserId:'offline-reviewer',method:'POST',path:'/offline'}
+  let scenario=0
+  async function isolated(run:(tx:Prisma.TransactionClient,r:typeof receipt)=>Promise<void>) {
+    console.log('lifecycle scenario '+(++scenario))
+    const v=await input()
+    await assert.rejects(db.transaction(async raw=>{
+      const tx=orm(raw),r=await hold(tx,v)
+      await run(tx,r)
+      throw Error('rollback lifecycle fixture')
+    }),/rollback lifecycle fixture/)
+    testClock=null;failSql=null
+    assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0})
+  }
+  const receive=(tx:Prisma.TransactionClient,r:typeof receipt,event='fixture-proof',evidence=fixtureEvidence)=>writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:r.anchorDepositId,operationKey:event,providerEventId:event,evidence})
+  const stateCount=async(tx:Prisma.TransactionClient,table:string,status:string)=>(await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM ${Prisma.raw('"'+table+'"')} WHERE status::text=${status}`))[0]!.n
+  await isolated(async(tx,r)=>{
+    const first=await receive(tx,r)
+    assert.equal((await receive(tx,r)).outcome,'REPLAYED')
+    assert.equal(await stateCount(tx,'BookingVisit','PENDING_PAYMENT_REVIEW'),2)
+    const found=await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`)
+    assert.equal(found[0]!.n,2)
+    // Recovery may be attempted repeatedly, including through any internal proof copy.
+    const child=(await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositProof" WHERE "depositId"=${r.members[1]!.depositId}`))[0]!
+    await enqueueDepositNotificationTx(tx,{businessId:'b',depositId:r.members[1]!.depositId!,sourceId:child.id,kind:'PROOF_RECEIVED'})
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,1)
+    const bodies=await tx.$queryRaw<Array<{payload:{item:{body:string}}}>>(Prisma.sql`SELECT payload FROM "BotOutbox"`)
+    assert.match(bodies[0]!.payload.item.body,/Color con Elisa.*Cut con Leo.*300/)
+    assert.ok(!JSON.stringify(bodies).includes('offline.png')&&!JSON.stringify(bodies).includes(fixtureEvidence.sourceSha256))
+    const approved=await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.members[1]!.depositId!,operationKey:'fixture-approve'})
+    assert.equal(approved.outcome,'APPLIED')
+    assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),2)
+    assert.equal((await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'fixture-approve'})).outcome,'REPLAYED')
+    const cash=await tx.$queryRaw<Array<{n:number;total:number;accounts:number}>>(Prisma.sql`SELECT count(*)::int n,sum(amount)::int total,count(DISTINCT "accountId")::int accounts FROM "CashEntry"`)
+    assert.deepEqual(cash[0],{n:2,total:300,accounts:1})
+    const repo=createCashTransactionRepository(tx)
+    for(const m of r.members) await projectApprovedDepositPaymentInTransaction(tx,{businessId:'b',bookingDepositId:m.depositId!,origin:'BOT_DEPOSIT'})
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "CashEntry"`))[0]!.n,2)
+    assert.equal((await repo.loadAppointmentBackfillGroup('b',r.members[1]!.appointmentId)).length,2)
+    await bridgeDirectDepositNotificationTx(tx,{businessId:'b',aggregateId:encodeDirectNotificationRecovery({depositId:r.anchorDepositId,sourceId:first.proofId,kind:'PROOF_RECEIVED'})})
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,2,'superseded proof recovery must not emit stale content')
+  })
+  await isolated(async(tx,r)=>{
+    await receive(tx,r)
+    const original=r.expiresAt
+    await rejectCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.members[1]!.depositId!,operationKey:'fixture-resubmit',rejection:{reason:'private reviewer text',mode:'RESUBMISSION_ALLOWED'}})
+    const renewed=await group.lockCoordinatedDepositGroupState(tx,{businessId:'b',groupId:r.groupId})
+    assert.equal(renewed.group.expiresAt,original)
+    assert.notEqual(renewed.currentExpiresAt.toISOString(),original)
+    assert.equal(await stateCount(tx,'BookingVisit','HELD'),2)
+    await receive(tx,r,'fixture-proof-2',{...fixtureEvidence,sourceSha256:'b'.repeat(64)})
+    assert.equal(await stateCount(tx,'BookingVisit','PENDING_PAYMENT_REVIEW'),2)
+    await rejectCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'fixture-resubmit-2',rejection:{reason:'private reviewer text',mode:'RESUBMISSION_ALLOWED'}})
+    await receive(tx,r,'fixture-proof-3',{...fixtureEvidence,sourceSha256:'c'.repeat(64)})
+    await rejectCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'fixture-final',rejection:{reason:'private reviewer text',mode:'FINAL'}})
+    assert.equal(await stateCount(tx,'BookingVisit','CANCELLED'),2)
+    assert.equal(await stateCount(tx,'Appointment','CANCELLED'),2)
+    await assert.rejects(approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'cannot-approve-final'}))
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,6,'three proof events and three distinct review events, never permanent group-kind dedupe')
+  })
+  await isolated(async(tx,r)=>{
+    await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET status='CONFIRMED' WHERE id=${r.members[1]!.visitId}`)
+    await assert.rejects(receive(tx,r),/membership|group/)
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`))[0]!.n,0)
+  })
+  for(const brokenTarget of ['null-group','manual-origin','missing-appointment'] as const) await isolated(async(tx,r)=>{
+    const target=r.members.find(m=>m.depositId===r.anchorDepositId)!
+    if(brokenTarget==='null-group') await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=null WHERE id=${target.appointmentId}`)
+    if(brokenTarget==='manual-origin') await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET origin='MANUAL' WHERE id=${target.appointmentId}`)
+    if(brokenTarget==='missing-appointment') await tx.$executeRaw(Prisma.sql`DELETE FROM "Appointment" WHERE id=${target.appointmentId}`)
+    await assert.rejects(receive(tx,r),/membership|group/,'durable financial member must never fall back to singular authority')
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`))[0]!.n,0)
+  })
+  for(const brokenTarget of ['null-group','manual-origin','missing-appointment'] as const) await isolated(async(tx,r)=>{
+    await receive(tx,r)
+    const target=r.members.find(m=>m.depositId===r.anchorDepositId)!
+    if(brokenTarget==='null-group') await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=null WHERE id=${target.appointmentId}`)
+    if(brokenTarget==='manual-origin') await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET origin='MANUAL' WHERE id=${target.appointmentId}`)
+    if(brokenTarget==='missing-appointment') await tx.$executeRaw(Prisma.sql`DELETE FROM "Appointment" WHERE id=${target.appointmentId}`)
+    await assert.rejects(approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'no-downgrade'}),/membership|group/)
+    await assert.rejects(createCashTransactionRepository(tx).loadAppointmentBackfillGroup('b',target.appointmentId),/membership|group/)
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDeposit" WHERE status='APPROVED'`))[0]!.n,0)
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "CashEntry"`))[0]!.n,0)
+  })
+  await isolated(async(tx,r)=>{
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "resultRef"=replace("resultRef",'"amount":300','"amount":999') WHERE "operationKey"=${r.operationKey}`)
+    await assert.rejects(receive(tx,r),/membership|group/)
+  })
+  await isolated(async(tx,r)=>{
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotChannelDeployment" SET "claimsPausedAt"=clock_timestamp() WHERE "businessId"='b'`)
+    const proof=await receive(tx,r)
+    const jobs=await tx.$queryRaw<Array<{aggregateId:string}>>(Prisma.sql`SELECT "aggregateId" FROM "BotJob" WHERE kind='BRIDGE_DEPOSIT_NOTIFICATION'`)
+    assert.equal(jobs.length,1,'one durable recovery identity for the entire proof event')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotChannelDeployment" SET "claimsPausedAt"=null WHERE "businessId"='b'`)
+    await bridgeDirectDepositNotificationTx(tx,{businessId:'b',aggregateId:jobs[0]!.aggregateId})
+    await bridgeDirectDepositNotificationTx(tx,{businessId:'b',aggregateId:jobs[0]!.aggregateId})
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,1)
+    assert.equal(proof.outcome,'APPLIED')
+  })
+  await db.exec(`UPDATE "Service" SET "depositMode"='NONE',"depositValue"=null WHERE id='s1'`)
+  await isolated(async(tx,r)=>{
+    assert.equal(r.members[0]!.depositId,null)
+    const event={id:'event',businessId:'b',providerMessageId:null,phoneNumberId:null,payload:{kind:'message',fromPhone:'5491112345678'}}
+    assert.deepEqual(await resolveProofTarget(tx,event,'dep'),{kind:'FOUND',depositId:r.anchorDepositId})
+    await receive(tx,r)
+    testClock=new Date(Date.parse(r.expiresAt)+60000)
+    assert.equal(await hasAppointmentOverlap(tx,{professionalId:'p1',startAt:new Date('2030-09-02T13:00:00Z'),endAt:new Date('2030-09-02T13:45:00Z')}),true,'NONE review must keep blocking after original hold deadline')
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'approve-none'})
+    assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),2)
+    testClock=null
+  })
+  await isolated(async(tx,r)=>{
+    testClock=new Date(Date.parse(r.expiresAt)+60000)
+    const jobRow=(await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotJob" WHERE kind='EXPIRE_DEPOSIT' AND "aggregateId"=${r.anchorDepositId}`))[0]!
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotJob" SET status='LEASED',"leaseToken"='offline-claim',"leasedUntil"=${new Date(testClock.getTime()+60000)} WHERE id=${jobRow.id}`)
+    const job={id:jobRow.id,kind:'EXPIRE_DEPOSIT',aggregateId:r.anchorDepositId,businessId:'b',deploymentId:'dep',deploymentGeneration:2,claimToken:'offline-claim',queueWaitMs:0,attempts:1,maxAttempts:5,expectedRevision:null,availableAt:new Date(r.expiresAt),claimedUntil:new Date(testClock.getTime()+60000)}
+    const client={$transaction:async<T>(fn:(transaction:Prisma.TransactionClient)=>Promise<T>)=>fn(tx)}
+    assert.equal(await expireDepositHold(client as never,job),'EXPIRED')
+    assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),2)
+    assert.equal(await stateCount(tx,'Appointment','CANCELLED'),2)
+    assert.equal((await receive(tx,r)).kind,'LATE')
+    assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),2,'late evidence never reopens any member')
+    await assert.rejects(approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'cannot-approve-expired'}))
+    testClock=null
+  })
+  // Real parent transaction rollback on late write failures; no partial proofs, statuses, ledger or notifications survive.
+  await db.exec(`UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE id='s1'`)
+  for(const phase of ['proof','approve','cash'] as const) {
+    const v=await input()
+    await assert.rejects(db.transaction(async raw=>{
+      const tx=orm(raw),r=await hold(tx,v),last=r.members[1]!.depositId!
+      if(phase==='proof')failSql=q=>q.text.includes('INSERT INTO "BookingDepositProof"')&&q.values.includes(last)
+      await receive(tx,r)
+      if(phase==='approve')failSql=q=>q.text.includes('INSERT INTO "BookingDepositReviewAudit"')&&q.values.includes(last)
+      if(phase==='cash')failSql=q=>q.text.includes('INSERT INTO "CashEntry"')&&q.values.includes(last)
+      await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'rollback-'+phase})
+    }),/controlled lifecycle/)
+    failSql=null
+    assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0})
+    for(const table of ['BookingDepositProof','BookingDepositReviewAudit','CashEntry','BotOutbox']) assert.equal((await db.query<{n:number}>('SELECT count(*)::int n FROM "'+table+'"')).rows[0]!.n,0)
+  }
+  console.log('P14.2 fixed/NONE lifecycle, notifications, late evidence and rollback PASS')
+  await db.exec(`UPDATE "Service" SET "attentionMode"='GUIDED_ESTIMATE',"estimateAllowsBooking"=true,"estimateOptions"='[{"id":"length","label":"Medium","priceMin":1500,"priceMax":3000}]' WHERE id='s2'`)
+  for(const invalidCredit of ['wrong-amount','unrelated-payment'] as const) await isolated(async(tx,r)=>{
+    await receive(tx,r)
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'unprojected-approve',projectCashPayment:false})
+    const repo=createCashTransactionRepository(tx)
+    const account=await ensureAppointmentAccountForPayment(repo,'b',r.members[0]!.appointmentId)
+    if(invalidCredit==='wrong-amount') await tx.$executeRaw(Prisma.sql`INSERT INTO "CashEntry" (id,"businessId","accountId",type,direction,amount,"paymentMethod",origin,"bookingDepositId","effectiveAt")
+      VALUES ('bad-credit','b',${account.id},'PAYMENT','INFLOW',${r.members[0]!.amount+1},'TRANSFER','BOT_DEPOSIT',${r.members[0]!.depositId},clock_timestamp())`)
+    else await tx.$executeRaw(Prisma.sql`INSERT INTO "CashEntry" (id,"businessId","accountId",type,direction,amount,"paymentMethod",origin,"effectiveAt")
+      VALUES ('unrelated-credit','b',${account.id},'LEGACY_PAYMENT','INFLOW',9999,'UNSPECIFIED','MIGRATION',NULL)`)
+    await assert.rejects(projectApprovedDepositPaymentInTransaction(tx,{businessId:'b',bookingDepositId:r.anchorDepositId,origin:'BOT_DEPOSIT'}),/CREDIT_MISMATCH|OVERPAYMENT/)
+  })
+  await db.exec(`UPDATE "Service" SET "depositValue"=3000 WHERE id='s1'`)
+  await isolated(async(tx,r)=>{
+    assert.equal(r.amount,3150)
+    await receive(tx,r)
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'known-credit-unknown-final'})
+    const service=new CashService({transaction:async fn=>fn(createCashTransactionRepository(tx))})
+    await assert.rejects(service.setEstimatedAppointmentTotal({businessId:'b',appointmentId:r.members[0]!.appointmentId,agreedAmount:2750}),/OVERPAYMENT/,'final above the minimum but below retained credit must still reject')
+    await service.setEstimatedAppointmentTotal({businessId:'b',appointmentId:r.members[0]!.appointmentId,agreedAmount:4000})
+    const repo=createCashTransactionRepository(tx)
+    const account=await repo.resolveAppointmentAccount('b',r.members[0]!.appointmentId)
+    assert.equal(account!.agreedAmount,4000)
+    assert.equal(calculateAccountTotals({agreedAmount:4000,discountAmount:0,entries:await repo.listAccountEntries('b',account!.id)}).paidAmount,3150)
+  })
+  await db.exec(`UPDATE "Service" SET "depositValue"=100 WHERE id='s1'`)
   const estimated=await input()
   assert.equal(estimated.proposal.terms.totalPriceMinor,null)
   const estimateReceipt=await execute(estimated)
@@ -194,4 +391,33 @@ try {
   assert.equal(estimateReceipt.members[1]!.amount,150)
   assert.deepEqual(await execute(estimated),estimateReceipt)
   console.log('P14.1 coordinated hold, real constraints, replay and rollback PASS')
+  // First lifecycle RED is an existing public writer invoked with a real held group.
+  const bytes=Buffer.from('offline proof fixture')
+  const evidence={sourceData:bytes,sourceMimeType:'image/png' as const,sourceFilename:'offline.png',sourceByteSize:bytes.length,sourceSha256:createHash('sha256').update(bytes).digest('hex'),derivedData:bytes,derivedMimeType:'image/webp' as const,derivedByteSize:bytes.length,derivedSha256:createHash('sha256').update(bytes).digest('hex'),validatorVersion:'f8-image-v1' as const}
+  await db.transaction(tx=>writeValidatedDepositProofInTransaction(orm(tx),{businessId:'b',depositId:estimateReceipt.anchorDepositId,operationKey:'proof-group',providerEventId:'offline-event',evidence}))
+  assert.equal((await db.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDeposit" WHERE status='PROOF_RECEIVED'`)).rows[0]!.n,2,'single proof must atomically reach ALL financial members')
+  assert.equal((await db.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDepositProof"`)).rows[0]!.n,2)
+  console.log('P14.2 proof fanout PASS')
+  await db.transaction(tx=>rejectCurrentDepositProofInTransaction(orm(tx),{businessId:'b',depositId:estimateReceipt.members[1]!.depositId!,actorUserId:'offline-reviewer',operationKey:'reject-group',method:'POST',path:'/offline',rejection:{reason:'offline reason',mode:'RESUBMISSION_ALLOWED'}}))
+  assert.equal((await db.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDeposit" WHERE status='PENDING_RESUBMISSION'`)).rows[0]!.n,2,'review of any obligation must renew ALL')
+  console.log('P14.2 resubmission ALL PASS')
+  const resubmitted={...evidence,sourceSha256:'a'.repeat(64)}
+  await db.transaction(tx=>writeValidatedDepositProofInTransaction(orm(tx),{businessId:'b',depositId:estimateReceipt.anchorDepositId,operationKey:'proof-resubmit',providerEventId:'offline-event-2',evidence:resubmitted}))
+  await db.transaction(tx=>approveCurrentDepositProofInTransaction(orm(tx),{businessId:'b',depositId:estimateReceipt.members[1]!.depositId!,actorUserId:'offline-reviewer',operationKey:'approve-estimate-group',method:'POST',path:'/offline'}))
+  const credit=(await db.query<{n:number;amount:number;accounts:number}>(`SELECT count(*)::int n,sum(amount)::int amount,count(DISTINCT "accountId")::int accounts FROM "CashEntry"`)).rows[0]!
+  assert.deepEqual(credit,{n:2,amount:250,accounts:1},'estimated group credits exactly its known deposit, never turns minimum into final price')
+  assert.deepEqual((await db.query(`SELECT "agreedAmount","originalAmount","pricingMode" FROM "AppointmentAccount"`)).rows,[{agreedAmount:null,originalAmount:null,pricingMode:'ESTIMATED'}])
+  assert.equal((await db.transaction(tx=>approveCurrentDepositProofInTransaction(orm(tx),{...reviewer,depositId:estimateReceipt.anchorDepositId,operationKey:'approve-estimate-group'}))).outcome,'REPLAYED')
+  const cashRepo=createCashTransactionRepository(orm(db))
+  const account=await cashRepo.resolveAppointmentAccount('b',estimateReceipt.members[0]!.appointmentId)
+  assert.ok(account)
+  const entries=await cashRepo.listAccountEntries('b',account.id)
+  assert.throws(()=>calculateAccountTotals({agreedAmount:249,discountAmount:0,entries}),/OVERPAYMENT/)
+  assert.equal(calculateAccountTotals({agreedAmount:3000,discountAmount:0,entries}).paidAmount,250)
+  const cashService=new CashService({transaction:fn=>db.transaction(raw=>fn(createCashTransactionRepository(orm(raw))))})
+  await assert.rejects(cashService.setAppointmentDiscount({businessId:'b',appointmentId:estimateReceipt.members[0]!.appointmentId,discountAmount:0}),/ESTIMATED_TOTAL_REQUIRED/)
+  await assert.rejects(cashService.setEstimatedAppointmentTotal({businessId:'b',appointmentId:estimateReceipt.members[0]!.appointmentId,agreedAmount:249}),/MINIMUM|OVERPAYMENT/)
+  await cashService.setEstimatedAppointmentTotal({businessId:'b',appointmentId:estimateReceipt.members[0]!.appointmentId,agreedAmount:3000})
+  assert.equal((await cashRepo.resolveAppointmentAccount('b',estimateReceipt.members[0]!.appointmentId))!.agreedAmount,3000)
+  console.log('P14.2 estimated payment ALL PASS')
 } finally {await db.close()}

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.js'
+import { lockCoordinatedDepositGroupForDeposit, type CoordinatedDepositGroupState } from './coordinated-deposit-group.js'
 import { renderDepositNotification, type DepositNotificationKind } from './deposit-notification-content.js'
 
 type NotificationTx = Prisma.TransactionClient
@@ -27,6 +28,12 @@ export async function enqueueDepositNotificationTx(
     expectedProviderPhoneNumberId?: string
   }
 ): Promise<'ENQUEUED' | 'REPLAYED' | 'ROUTE_UNAVAILABLE'> {
+  const groupState=await lockCoordinatedDepositGroupForDeposit(tx,input)
+  if(groupState) {
+    const canonical=await canonicalGroupNotification(tx,input,groupState)
+    if(!canonical) return 'REPLAYED' // A recovery event superseded by a later ALL transition must not send stale claims.
+    input={...input,depositId:groupState.group.anchorDepositId,sourceId:canonical}
+  }
   await tx.$executeRaw(Prisma.sql`
     SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))
   `)
@@ -65,9 +72,10 @@ export async function enqueueDepositNotificationTx(
   const route = routes[0]
   if (!route?.toPhone || !route.providerPhoneNumberId) return 'ROUTE_UNAVAILABLE'
 
-  const idempotencyKey = `deposit-notification:${input.kind}:${input.sourceId}`
+  const idempotencyKey = groupState?`deposit-notification:${input.depositId}:${input.kind}:${input.sourceId}`:`deposit-notification:${input.kind}:${input.sourceId}`
   const deliveryGroupId = `deposit-notification:${input.sourceId}`
-  const item = renderDepositNotification(input.kind)
+  const staticItem = renderDepositNotification(input.kind)
+  const item = groupState?{...staticItem,body:staticItem.body+'\n'+groupNotificationSummary(groupState)}:staticItem
   const inserted = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotOutbox" (
       "id", "businessId", "sessionId", "transitionId", "deliveryGroupId", "sequence", "kind", "payload",
@@ -100,6 +108,12 @@ export async function enqueueDepositNotificationWithRecoveryTx(
   assertIdentifier(input.businessId, 'businessId')
   assertIdentifier(input.depositId, 'depositId')
   assertIdentifier(input.sourceId, 'sourceId')
+  const groupState=await lockCoordinatedDepositGroupForDeposit(tx,input)
+  if(groupState) {
+    const sourceId=await canonicalGroupNotification(tx,input,groupState)
+    if(!sourceId) return 'REPLAYED'
+    input={...input,depositId:groupState.group.anchorDepositId,sourceId}
+  }
   const outcome = await enqueueDepositNotificationTx(tx, input)
   if (outcome !== 'ROUTE_UNAVAILABLE') return outcome
 
@@ -279,4 +293,39 @@ function reviewNotificationKind(kind: string): DepositNotificationKind | null {
   if (kind === 'DEPOSIT_RESUBMISSION_REQUESTED') return 'RESUBMISSION'
   if (kind === 'DEPOSIT_REJECTED_FINAL') return 'FINAL_REJECTION'
   return null
+}
+
+/** Only sealed server facts enter copy; proof bytes/names/hashes and staff reasons never do. */
+function groupNotificationSummary(state:CoordinatedDepositGroupState):string {
+  const {group}=state
+  const summary=group.proposal.terms.segments.map(s=>s.serviceName+' con '+s.professionalName+' ('+
+    new Intl.DateTimeFormat('es-AR',{timeZone:group.proposal.terms.timezone,day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(s.startAt))+')').join('; ')
+  return 'Pedido completo: '+summary+'. Seña conjunta: $'+group.amount.toLocaleString('es-AR')+'.'+(group.proposal.terms.totalPriceMinor===null?' Precio total a consultar.':'')
+}
+
+async function canonicalGroupNotification(tx:NotificationTx,input:{businessId:string;depositId:string;sourceId:string;kind:DepositNotificationKind},state:CoordinatedDepositGroupState):Promise<string|null> {
+  const {group,depositStatus}=state
+  const expected:Partial<Record<DepositNotificationKind,string[]>>={PROOF_RECEIVED:['PROOF_RECEIVED'],APPROVED:['APPROVED'],RESUBMISSION:['PENDING_RESUBMISSION'],FINAL_REJECTION:['REJECTED'],EXPIRED:['EXPIRED'],LATE_PROOF:['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED'],INVALID_PROOF:['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED'],PROOF_UNAVAILABLE:['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED']}
+  if(!expected[input.kind]?.includes(depositStatus)) return null
+  if(['PROOF_RECEIVED','LATE_PROOF'].includes(input.kind)) {
+    const sources=await tx.$queryRaw<Array<{depositId:string;sequence:number;kind:string}>>(Prisma.sql`SELECT "depositId",sequence,kind FROM "BookingDepositProof" WHERE id=${input.sourceId} AND "businessId"=${input.businessId}`)
+    const source=sources[0]
+    if(sources.length!==1 || !source || !group.members.some(m=>m.depositId===source.depositId) || (source.kind==='LATE')!==(input.kind==='LATE_PROOF')) throw new Error('coordinated notification proof source mismatch')
+    const anchors=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositProof" WHERE "businessId"=${input.businessId} AND "depositId"=${group.anchorDepositId} AND sequence=${source.sequence}`)
+    if(anchors.length!==1) throw new Error('coordinated notification anchor proof missing')
+    return anchors[0]!.id
+  }
+  if(['APPROVED','RESUBMISSION','FINAL_REJECTION'].includes(input.kind)) {
+    const sources=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositReviewOutbox" WHERE id=${input.sourceId} AND "businessId"=${input.businessId} AND "depositId"=${group.anchorDepositId}
+      AND kind=${input.kind==='APPROVED'?'DEPOSIT_APPROVED':input.kind==='RESUBMISSION'?'DEPOSIT_RESUBMISSION_REQUESTED':'DEPOSIT_REJECTED_FINAL'}`)
+    if(sources.length!==1) throw new Error('coordinated notification review source mismatch')
+  }
+  if(input.kind==='EXPIRED') {
+    const sources=await tx.$queryRaw<Array<{depositId:string}>>(Prisma.sql`SELECT "depositId" FROM "BookingDepositExpiryAudit" WHERE id=${input.sourceId} AND "businessId"=${input.businessId}`)
+    if(sources.length!==1 || !group.members.some(m=>m.depositId===sources[0]!.depositId)) throw new Error('coordinated notification expiry source mismatch')
+    const anchors=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositExpiryAudit" WHERE "businessId"=${input.businessId} AND "depositId"=${group.anchorDepositId}`)
+    if(anchors.length!==1) throw new Error('coordinated notification anchor expiry missing')
+    return anchors[0]!.id
+  }
+  return input.sourceId
 }

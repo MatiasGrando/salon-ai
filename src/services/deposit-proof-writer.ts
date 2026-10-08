@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
+import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupState } from './coordinated-deposit-group.js'
 import { acquireAgendaHierarchy } from './agenda-locks.js'
 import type { DepositProofImageValidationResult } from './deposit-proof-image-validation.js'
 import { enqueueDepositNotificationWithRecoveryTx } from './deposit-notification-outbox.js'
@@ -37,7 +38,31 @@ export async function writeValidatedDepositProof(
 }
 
 /** Exported for transaction/rollback contracts; callers normally use the wrapper above. */
-export async function writeValidatedDepositProofInTransaction(
+export async function writeValidatedDepositProofInTransaction(tx: ProofWriterTx, input: Parameters<typeof writeSingleValidatedDepositProofInTransaction>[1]): Promise<DepositProofWriteResult> {
+  const state=await lockCoordinatedDepositGroupForDeposit(tx,input)
+  if(!state) return writeSingleValidatedDepositProofInTransaction(tx,input)
+  const {group}=state
+  const results:Array<{depositId:string;result:DepositProofWriteResult}>=[]
+  for(const member of group.members.filter(m=>m.depositId)) {
+    const result=await writeSingleValidatedDepositProofInTransaction(tx,{...input,depositId:member.depositId!,operationKey:input.operationKey+':group:'+group.groupId+':'+member.depositId},{dbNow:state.dbNow})
+    results.push({depositId:member.depositId!,result})
+  }
+  const anchor=results.find(r=>r.depositId===group.anchorDepositId)!.result
+  if(results.some(r=>r.result.outcome!==anchor.outcome || r.result.kind!==anchor.kind)) throw new DepositProofWriteError('coordinated proof replay or classification mismatch')
+  if(anchor.outcome==='APPLIED' && anchor.kind!=='LATE') {
+    for(const m of group.members.filter(m=>!m.depositId)) {
+      const count=await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET status='PENDING_PAYMENT_REVIEW',version=version+1,"updatedAt"=${state.dbNow}
+        WHERE id=${m.visitId} AND "businessId"=${input.businessId} AND status='HELD' AND "holdExpiresAt">${state.dbNow}`)
+      if(count!==1) throw new DepositProofWriteError('coordinated companion proof fence failed')
+    }
+  }
+  await lockCoordinatedDepositGroupState(tx,{businessId:input.businessId,groupId:group.groupId})
+  await enqueueDepositNotificationWithRecoveryTx(tx,{businessId:input.businessId,depositId:group.anchorDepositId,sourceId:anchor.proofId,
+    kind:anchor.kind==='LATE'?'LATE_PROOF':'PROOF_RECEIVED',dbNow:state.dbNow,...(input.expectedProviderPhoneNumberId?{expectedProviderPhoneNumberId:input.expectedProviderPhoneNumberId}:{})})
+  return anchor
+}
+
+async function writeSingleValidatedDepositProofInTransaction(
   tx: ProofWriterTx,
   input: {
     businessId: string
@@ -48,7 +73,8 @@ export async function writeValidatedDepositProofInTransaction(
     providerMediaId?: string | null
     expectedProviderPhoneNumberId?: string
     evidence: DepositProofImageValidationResult
-  }
+  },
+  groupContext?: {dbNow:Date}
 ): Promise<DepositProofWriteResult> {
   assertRequired(input.businessId, 'businessId')
   assertRequired(input.depositId, 'depositId')
@@ -89,6 +115,7 @@ export async function writeValidatedDepositProofInTransaction(
     FOR UPDATE OF d, v, a
   `)
   const row = rows[0]
+  if (row && groupContext) row.dbNow=groupContext.dbNow
   if (!row || !row.snapshotSealedAt) throw new DepositProofWriteError('deposit is not an eligible sealed F8 aggregate')
 
   const duplicate = await findDuplicateProof(tx, input.businessId, input.depositId, {
@@ -169,7 +196,7 @@ export async function writeValidatedDepositProofInTransaction(
       ON CONFLICT ("proofId") DO NOTHING
     `)
   }
-  await enqueueDepositNotificationWithRecoveryTx(tx, {
+  if(!groupContext) await enqueueDepositNotificationWithRecoveryTx(tx, {
     businessId: input.businessId,
     depositId: input.depositId,
     sourceId: proofId,

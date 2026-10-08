@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
+import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupState, type CoordinatedDepositGroupState } from './coordinated-deposit-group.js'
 import { acquireAgendaHierarchy } from './agenda-locks.js'
 import { bridgeDepositReviewOutboxTx, enqueueDepositReviewBridgeJobTx } from './deposit-notification-outbox.js'
 import {
@@ -52,9 +53,55 @@ export async function rejectCurrentDepositProof(client: ReviewClient, input: {
  * hierarchy, and every state change is conditionally fenced. A leased expiry
  * can resume but only observes the new state and completes as ineligible.
  */
-export async function rejectCurrentDepositProofInTransaction(tx: ReviewTx, input: {
+export async function rejectCurrentDepositProofInTransaction(tx:ReviewTx,input:Parameters<typeof rejectSingleCurrentDepositProofInTransaction>[1]):Promise<{outcome:'APPLIED'|'REPLAYED';auditId:string}> {
+  const state=await lockCoordinatedDepositGroupForDeposit(tx,input)
+  if(!state) return rejectSingleCurrentDepositProofInTransaction(tx,input)
+  const rejection=normalizeDepositRejection(input.rejection)
+  return reviewCoordinatedGroup(tx,state,input,rejection.mode==='FINAL'?'FINAL':'RESUBMISSION',
+    (depositId,operationKey,context)=>rejectSingleCurrentDepositProofInTransaction(tx,{...input,depositId,operationKey},context))
+}
+
+export async function approveCurrentDepositProofInTransaction(tx:ReviewTx,input:Parameters<typeof approveSingleCurrentDepositProofInTransaction>[1]):Promise<{outcome:'APPLIED'|'REPLAYED';auditId:string}> {
+  const state=await lockCoordinatedDepositGroupForDeposit(tx,input)
+  if(!state) return approveSingleCurrentDepositProofInTransaction(tx,input)
+  const result=await reviewCoordinatedGroup(tx,state,input,'APPROVE',
+    (depositId,operationKey,context)=>approveSingleCurrentDepositProofInTransaction(tx,{...input,depositId,operationKey},context))
+  if(input.projectCashPayment!==false) {
+    const repo=createCashTransactionRepository(tx)
+    if(!await repo.lockBusiness(input.businessId)) throw new DepositReviewStateError('cash business is unavailable')
+    await ensureAppointmentAccountForPayment(repo,input.businessId,state.group.members[0]!.appointmentId)
+    for(const member of state.group.members.filter(m=>m.depositId)) await projectApprovedDepositPaymentInTransaction(tx,{businessId:input.businessId,bookingDepositId:member.depositId!,origin:'BOT_DEPOSIT'})
+  }
+  return result
+}
+
+/** All children use one DB clock. No child may publish or project cash before the group is coherent. */
+async function reviewCoordinatedGroup(tx:ReviewTx,state:CoordinatedDepositGroupState,input:{businessId:string;operationKey:string},action:'APPROVE'|'FINAL'|'RESUBMISSION',
+  write:(depositId:string,key:string,context:{dbNow:Date;anchor:boolean})=>Promise<{outcome:'APPLIED'|'REPLAYED';auditId:string}>) {
+  const {group}=state,results:Array<{depositId:string;outcome:'APPLIED'|'REPLAYED';auditId:string}>=[]
+  for(const m of group.members.filter(m=>m.depositId)) results.push({depositId:m.depositId!,...await write(m.depositId!,input.operationKey+':group:'+group.groupId+':'+m.depositId,{dbNow:state.dbNow,anchor:m.depositId===group.anchorDepositId})})
+  const anchor=results.find(r=>r.depositId===group.anchorDepositId)!
+  if(results.some(r=>r.outcome!==anchor.outcome)) throw new DepositReviewStateError('coordinated review replay mismatch')
+  if(anchor.outcome==='APPLIED') for(const m of group.members.filter(m=>!m.depositId)) {
+    const status=action==='APPROVE'?'CONFIRMED':action==='FINAL'?'CANCELLED':'HELD'
+    const expiry=action==='RESUBMISSION'?new Date(state.dbNow.getTime()+group.proposal.terms.deposit!.financial.ttlMinutes*60000):action==='FINAL'?state.dbNow:state.currentExpiresAt
+    const visits=await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET status=${status}::"BookingVisitStatus","holdExpiresAt"=${expiry},version=version+1,"updatedAt"=${state.dbNow}
+      WHERE id=${m.visitId} AND "businessId"=${input.businessId} AND status='PENDING_PAYMENT_REVIEW'`)
+    const appointments=await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET status=${action==='APPROVE'?'CONFIRMED':action==='FINAL'?'CANCELLED':'PENDING'}::"AppointmentStatus",version=version+1
+      WHERE id=${m.appointmentId} AND "businessId"=${input.businessId} AND status='PENDING'`)
+    if(visits!==1 || appointments!==1) throw new DepositReviewStateError('coordinated companion review fence failed')
+  }
+  await lockCoordinatedDepositGroupState(tx,{businessId:input.businessId,groupId:group.groupId})
+  const intents=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositReviewOutbox" WHERE "businessId"=${input.businessId} AND "auditId"=${anchor.auditId} AND "depositId"=${group.anchorDepositId}`)
+  if(intents.length!==1) throw new DepositReviewStateError('coordinated review notification intent missing')
+  if(anchor.outcome==='APPLIED') await enqueueDepositReviewBridgeJobTx(tx,{businessId:input.businessId,reviewOutboxId:intents[0]!.id,sessionId:group.proposal.scope.sessionId,dbNow:state.dbNow})
+  await bridgeDepositReviewOutboxTx(tx,{businessId:input.businessId,reviewOutboxId:intents[0]!.id})
+  return {outcome:anchor.outcome,auditId:anchor.auditId}
+}
+
+async function rejectSingleCurrentDepositProofInTransaction(tx: ReviewTx, input: {
   businessId: string; depositId: string; actorUserId: string; operationKey: string; method: string; path: string; rejection: { reason: string; mode: DepositRejectionMode }
-}): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
+}, groupContext?: {dbNow:Date;anchor:boolean}): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
   assertIdentifier(input.businessId, 'businessId'); assertIdentifier(input.depositId, 'depositId'); assertIdentifier(input.actorUserId, 'actorUserId'); assertIdentifier(input.operationKey, 'operationKey')
   const rejection = normalizeDepositRejection(input.rejection)
   const requestHash = depositReviewRequestHash({ action: 'REJECT', depositId: input.depositId, actorUserId: input.actorUserId, rejection })
@@ -71,6 +118,7 @@ export async function rejectCurrentDepositProofInTransaction(tx: ReviewTx, input
     FROM "BookingDeposit" d JOIN "BookingVisit" v ON v."id" = d."visitId" AND v."businessId" = d."businessId" JOIN "Appointment" a ON a."id" = d."appointmentId" AND a."visitId" = v."id"
     WHERE d."id" = ${input.depositId} AND d."businessId" = ${input.businessId} FOR UPDATE OF d, v, a`)
   const row = rows[0]
+  if(row && groupContext) row.dbNow=groupContext.dbNow
   if (!row) throw new DepositReviewStateError('deposit aggregate is unavailable')
   const prior = await tx.$queryRaw<Array<{ requestHash: string; status: string; resultRef: string | null }>>(Prisma.sql`SELECT "requestHash", "status", "resultRef" FROM "BotOperation" WHERE "operationKey" = ${input.operationKey} FOR UPDATE`)
   if (prior[0]) {
@@ -102,9 +150,9 @@ export async function rejectCurrentDepositProofInTransaction(tx: ReviewTx, input
   const auditId = randomUUID(); const action = resubmission ? 'RESUBMISSION_ALLOWED' : 'FINAL_REJECTED'
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositReviewAudit" ("id", "businessId", "depositId", "proofId", "actorUserId", "action", "operationKey", "createdAt") VALUES (${auditId}, ${input.businessId}, ${row.depositId}, ${row.proofId!}, ${input.actorUserId}, ${action}, ${input.operationKey}, ${row.dbNow})`)
   const reviewOutboxId = randomUUID()
-  await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositReviewOutbox" ("id", "businessId", "depositId", "auditId", "kind", "status", "createdAt") VALUES (${reviewOutboxId}, ${input.businessId}, ${row.depositId}, ${auditId}, ${resubmission ? 'DEPOSIT_RESUBMISSION_REQUESTED' : 'DEPOSIT_REJECTED_FINAL'}, 'PENDING_CONTENT', ${row.dbNow})`)
-  await enqueueDepositReviewBridgeJobTx(tx, { businessId: input.businessId, reviewOutboxId, sessionId: row.sessionId, dbNow: row.dbNow })
-  await bridgeDepositReviewOutboxTx(tx, { businessId: input.businessId, reviewOutboxId })
+  if(!groupContext || groupContext.anchor) await tx.$executeRaw(Prisma.sql`INSERT INTO "BookingDepositReviewOutbox" ("id", "businessId", "depositId", "auditId", "kind", "status", "createdAt") VALUES (${reviewOutboxId}, ${input.businessId}, ${row.depositId}, ${auditId}, ${resubmission ? 'DEPOSIT_RESUBMISSION_REQUESTED' : 'DEPOSIT_REJECTED_FINAL'}, 'PENDING_CONTENT', ${row.dbNow})`)
+  if(!groupContext) await enqueueDepositReviewBridgeJobTx(tx, { businessId: input.businessId, reviewOutboxId, sessionId: row.sessionId, dbNow: row.dbNow })
+  if(!groupContext) await bridgeDepositReviewOutboxTx(tx, { businessId: input.businessId, reviewOutboxId })
   await tx.$executeRaw(Prisma.sql`INSERT INTO "StaffAuditLog" ("id", "businessId", "userId", "action", "entityType", "entityId", "method", "path", "createdAt") VALUES (${randomUUID()}, ${input.businessId}, ${input.actorUserId}, ${action}, 'BookingDeposit', ${row.depositId}, ${input.method}, ${input.path}, ${row.dbNow})`)
   const completed = await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status" = 'COMPLETED', "resultRef" = ${auditId}, "updatedAt" = ${row.dbNow} WHERE "operationKey" = ${input.operationKey} AND "status" = 'STARTED' AND "requestHash" = ${requestHash}`)
   if (completed !== 1) throw new DepositReviewStateError('review operation completion fence failed')
@@ -128,7 +176,7 @@ export async function approveCurrentDepositProof(client: ReviewClient, input: {
 }
 
 /** Exported for PG rollback and approval-vs-expiry contracts. */
-export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, input: {
+async function approveSingleCurrentDepositProofInTransaction(tx: ReviewTx, input: {
   businessId: string
   depositId: string
   actorUserId: string
@@ -136,7 +184,7 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
   method: string
   path: string
   projectCashPayment?: boolean
-}): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
+}, groupContext?: {dbNow:Date;anchor:boolean}): Promise<{ outcome: 'APPLIED' | 'REPLAYED'; auditId: string }> {
   assertIdentifier(input.businessId, 'businessId')
   assertIdentifier(input.depositId, 'depositId')
   assertIdentifier(input.actorUserId, 'actorUserId')
@@ -173,6 +221,7 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
     FOR UPDATE OF d, v, a
   `)
   const row = rows[0]
+  if(row && groupContext) row.dbNow=groupContext.dbNow
   if (!row) throw new DepositReviewStateError('deposit aggregate is unavailable')
 
   const operation = await tx.$queryRaw<Array<{ requestHash: string; status: string; resultRef: string | null }>>(Prisma.sql`
@@ -207,7 +256,7 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
   `)
   if (depositCount !== 1 || visitCount !== 1 || appointmentCount !== 1) throw new DepositReviewStateError('review transition lost its state fence')
 
-  if (input.projectCashPayment !== false) {
+  if (!groupContext && input.projectCashPayment !== false) {
     const cashTransaction = createCashTransactionRepository(tx)
     if (!await cashTransaction.lockBusiness(input.businessId)) {
       throw new DepositReviewStateError('cash business is unavailable')
@@ -232,12 +281,12 @@ export async function approveCurrentDepositProofInTransaction(tx: ReviewTx, inpu
   // Persist the domain intent first, then bridge approved static content into
   // BotOutbox in the same transaction. No provider call occurs here.
   const reviewOutboxId = randomUUID()
-  await tx.$executeRaw(Prisma.sql`
+  if(!groupContext || groupContext.anchor) await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BookingDepositReviewOutbox" ("id", "businessId", "depositId", "auditId", "kind", "status", "createdAt")
     VALUES (${reviewOutboxId}, ${input.businessId}, ${row.depositId}, ${auditId}, 'DEPOSIT_APPROVED', 'PENDING_CONTENT', ${row.dbNow})
   `)
-  await enqueueDepositReviewBridgeJobTx(tx, { businessId: input.businessId, reviewOutboxId, sessionId: row.sessionId, dbNow: row.dbNow })
-  await bridgeDepositReviewOutboxTx(tx, { businessId: input.businessId, reviewOutboxId })
+  if(!groupContext) await enqueueDepositReviewBridgeJobTx(tx, { businessId: input.businessId, reviewOutboxId, sessionId: row.sessionId, dbNow: row.dbNow })
+  if(!groupContext) await bridgeDepositReviewOutboxTx(tx, { businessId: input.businessId, reviewOutboxId })
   await tx.$executeRaw(Prisma.sql`
     INSERT INTO "StaffAuditLog" ("id", "businessId", "userId", "action", "entityType", "entityId", "method", "path", "createdAt")
     VALUES (${randomUUID()}, ${input.businessId}, ${input.actorUserId}, 'APPROVE_DEPOSIT_PROOF', 'BookingDeposit', ${row.depositId}, ${input.method}, ${input.path}, ${row.dbNow})

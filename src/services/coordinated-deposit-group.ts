@@ -124,13 +124,51 @@ function expectedChildHash(group:CoordinatedDepositGroup,index:number,depositReq
 }
 
 /** Verify the sealed manifest and EVERY group member before lifecycle/replay can trust it. */
+export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; depositStatus: string; currentExpiresAt: Date; dbNow: Date }
+
+/** Durable manifest authority wins over mutable appointment routing fields, even after tampering/deletion. */
+export async function lockCoordinatedDepositGroupForDeposit(tx: Prisma.TransactionClient, target: {businessId:string;depositId:string}): Promise<CoordinatedDepositGroupState|null> {
+  return lockCoordinatedDepositGroupForMember(tx,target.businessId,'depositId',target.depositId)
+}
+export async function lockCoordinatedDepositGroupForAppointment(tx: Prisma.TransactionClient, target: {businessId:string;appointmentId:string}): Promise<CoordinatedDepositGroupState|null> {
+  return lockCoordinatedDepositGroupForMember(tx,target.businessId,'appointmentId',target.appointmentId)
+}
+async function lockCoordinatedDepositGroupForMember(tx:Prisma.TransactionClient,businessId:string,key:'depositId'|'appointmentId',id:string):Promise<CoordinatedDepositGroupState|null> {
+  if(!text(businessId) || !text(id)) fail()
+  // JSON membership is exact, parameterized and tenant scoped, not substring matching.
+  // CASE protects unrelated legacy resultRef strings from being interpreted as JSON.
+  const seals=await tx.$queryRaw<Array<{groupId:string}>>(Prisma.sql`
+    SELECT (CASE WHEN type='HOLD_COORDINATED_DEPOSIT_GROUP' THEN "resultRef"::jsonb ELSE NULL END)->>'groupId' AS "groupId"
+    FROM "BotOperation" WHERE "businessId"=${businessId} AND type='HOLD_COORDINATED_DEPOSIT_GROUP'
+      AND (CASE WHEN type='HOLD_COORDINATED_DEPOSIT_GROUP' THEN "resultRef"::jsonb ELSE NULL END)->'members'
+        @> jsonb_build_array(jsonb_build_object(${key}::text,${id}::text))`)
+  if(seals.length>1) fail()
+  if(seals[0]) {
+    const state=await lockCoordinatedDepositGroupState(tx,{businessId,groupId:seals[0].groupId})
+    if(!state.group.members.some(member=>member[key]===id)) fail()
+    return state
+  }
+  const rows=key==='depositId'
+    ? await tx.$queryRaw<Array<{groupId:string|null;origin:string}>>(Prisma.sql`SELECT a."coordinationGroupId" AS "groupId",a.origin FROM "BookingDeposit" d JOIN "Appointment" a ON a.id=d."appointmentId" AND a."businessId"=d."businessId" WHERE d.id=${id} AND d."businessId"=${businessId}`)
+    : await tx.$queryRaw<Array<{groupId:string|null;origin:string}>>(Prisma.sql`SELECT "coordinationGroupId" AS "groupId",origin FROM "Appointment" WHERE id=${id} AND "businessId"=${businessId}`)
+  if(rows.some(row=>row.origin==='BOT' && row.groupId)) fail()
+  return null // Only truly unrelated single/legacy aggregates retain singular behavior.
+}
+
 export async function lockCoordinatedDepositGroup(tx: Prisma.TransactionClient, target: { businessId: string; groupId: string }): Promise<CoordinatedDepositGroup> {
+  const state=await lockCoordinatedDepositGroupState(tx,target)
+  if(state.depositStatus!=='PENDING_PROOF') fail()
+  return state.group
+}
+
+/** Immutable manifest and live operational state are separate: renewing TTL never rewrites child hashes. */
+export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionClient, target: { businessId: string; groupId: string }): Promise<CoordinatedDepositGroupState> {
   if (!text(target.businessId) || !/^[a-f0-9-]{36}$/.test(target.groupId)) fail()
   await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:[]})
   const ops = await tx.$queryRaw<Array<{ operationKey: string; requestHash: string; resultRef: string; status: string }>>(Prisma.sql`
     SELECT "operationKey","requestHash","resultRef",status FROM "BotOperation"
     WHERE "businessId"=${target.businessId} AND type='HOLD_COORDINATED_DEPOSIT_GROUP'
-      AND "resultRef" LIKE ${'%"groupId":"'+target.groupId+'"%'} FOR UPDATE`)
+      AND (CASE WHEN type='HOLD_COORDINATED_DEPOSIT_GROUP' THEN "resultRef"::jsonb ELSE NULL END)->>'groupId'=${target.groupId} FOR UPDATE`)
   if (ops.length !== 1 || ops[0]!.status !== 'COMPLETED') fail()
   let group: CoordinatedDepositGroup
   try { group = JSON.parse(ops[0]!.resultRef) as CoordinatedDepositGroup } catch { return fail() }
@@ -142,7 +180,7 @@ export async function lockCoordinatedDepositGroup(tx: Prisma.TransactionClient, 
   await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:p.terms.segments.map(s=>s.professionalId)})
   // Intentionally do NOT filter tenant/customer within a group: injected members invalidate ALL.
   const rows = await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
-    SELECT a.id AS "appointmentId",a."businessId",a."customerId",a."professionalId",a."serviceId",a."startAt",a."totalDurationMinutes",a."quotedPrice",a.status AS "appointmentStatus",
+    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."serviceId",a."startAt",a."totalDurationMinutes",a."quotedPrice",a.status AS "appointmentStatus",
       a."visitId",v."businessId" AS "visitBusinessId",v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",v."scheduledStartAt",v."totalDurationMinutes" AS "visitDuration",v."totalPrice",v."holdExpiresAt",v.status AS "visitStatus",
       d.id AS "depositId",d."businessId" AS "depositBusinessId",d."visitId" AS "depositVisitId",d."conversationId",d.source,d.amount,d.status AS "depositStatus",d."expiresAt",d."holdTtlMinutes",d."holdTtlProvenance",d."snapshotSealedAt"
     FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId" LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
@@ -159,12 +197,11 @@ export async function lockCoordinatedDepositGroup(tx: Prisma.TransactionClient, 
   for (const [i, m] of group.members.entries()) {
     const segment: RuntimeBookingSegment = p.terms.segments[i]!, row = rows.find(r=>r.appointmentId===m.appointmentId)
     if (m.segmentIndex !== i || !text(m.appointmentId) || !text(m.visitId) || ids.has(m.appointmentId) || visits.has(m.visitId) ||
-        !row || row.businessId !== target.businessId || row.customerId !== group.customerId || row.visitBusinessId !== target.businessId || row.visitCustomerId !== group.customerId ||
+        !row || row.origin!=='BOT' || row.businessId !== target.businessId || row.customerId !== group.customerId || row.visitBusinessId !== target.businessId || row.visitCustomerId !== group.customerId ||
         row.sessionId !== p.scope.sessionId || row.visitId !== m.visitId || row.professionalId !== segment.professionalId || row.visitProfessionalId !== segment.professionalId ||
         row.serviceId !== segment.serviceId || iso(row.startAt) !== segment.startAt || iso(row.scheduledStartAt) !== segment.startAt ||
         row.totalDurationMinutes !== segment.durationMinutes || row.visitDuration !== segment.durationMinutes ||
-        row.quotedPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null) || row.totalPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null) ||
-        iso(row.holdExpiresAt) !== group.expiresAt || row.appointmentStatus !== 'PENDING' || row.visitStatus !== 'HELD') fail()
+        row.quotedPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null) || row.totalPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null)) fail()
     ids.add(m.appointmentId); visits.add(m.visitId)
     const hasDeposit=p.terms.deposit!.financial.lines.some(l=>l.serviceId===segment.serviceId)
     if (m.childRequestHash!==expectedChildHash(group,i,hasDeposit) || m.childOperationKey!==group.operationKey+':segment:'+i+':'+(hasDeposit?'HOLD_VISIT_WITH_DEPOSIT':'HOLD_GROUP_COMPANION')) fail()
@@ -177,13 +214,56 @@ export async function lockCoordinatedDepositGroup(tx: Prisma.TransactionClient, 
     if (financialLine) {
       if (!text(m.depositId) || deposits.has(m.depositId) || row.depositId!==m.depositId || row.depositBusinessId!==target.businessId || row.depositVisitId!==m.visitId ||
           row.conversationId!==customer[0]!.conversationId || row.source!=='WHATSAPP' || row.amount!==m.amount || m.amount!==financialLine.amount ||
-          iso(row.expiresAt)!==group.expiresAt || row.holdTtlMinutes!==p.terms.deposit!.financial.ttlMinutes || row.holdTtlProvenance!==p.terms.deposit!.financial.ttlProvenance ||
-          !row.snapshotSealedAt || row.depositStatus!=='PENDING_PROOF') fail()
+          row.holdTtlMinutes!==p.terms.deposit!.financial.ttlMinutes || row.holdTtlProvenance!==p.terms.deposit!.financial.ttlProvenance ||
+          !row.snapshotSealedAt) fail()
       deposits.add(m.depositId)
       const lines = await tx.$queryRaw<BookingDepositTerms['lines']>(Prisma.sql`SELECT "serviceId","sortOrder","serviceName",mode,"configuredValue","baseAmount",amount FROM "BookingDepositLine" WHERE "businessId"=${target.businessId} AND "depositId"=${m.depositId} ORDER BY "sortOrder"`)
       if (!isDeepStrictEqual(lines,[{...financialLine,sortOrder:0}])) fail()
     } else if (m.depositId!==null || row.depositId!==null || m.amount!==0) fail()
   }
   if (group.anchorDepositId!==group.members.find(m=>m.depositId!==null)?.depositId || group.members.reduce((sum,m)=>sum+m.amount,0)!==group.amount || deposits.size!==p.terms.deposit!.financial.lines.length) fail()
-  return group
+  const financialRows=rows.filter(r=>r.depositId!==null)
+  const status=String(financialRows[0]!.depositStatus), expiry=iso(financialRows[0]!.expiresAt)
+  const states:Record<string,[string,string]>={PENDING_PROOF:['HELD','PENDING'],PENDING_RESUBMISSION:['HELD','PENDING'],PROOF_RECEIVED:['PENDING_PAYMENT_REVIEW','PENDING'],APPROVED:['CONFIRMED','CONFIRMED'],REJECTED:['CANCELLED','CANCELLED'],EXPIRED:['EXPIRED','CANCELLED']}
+  if(!expiry || !states[status] || financialRows.some(r=>r.depositStatus!==status || iso(r.expiresAt)!==expiry) ||
+      rows.some(r=>r.visitStatus!==states[status]![0] || r.appointmentStatus!==states[status]![1]) ||
+      !['REJECTED'].includes(status) && rows.some(r=>iso(r.holdExpiresAt)!==expiry) || status==='PENDING_PROOF' && expiry!==group.expiresAt) fail()
+  // An operational renewal must be justified by each obligation's immutable review audit.
+  if(expiry!==group.expiresAt || status==='PENDING_RESUBMISSION') {
+    for(const m of group.members.filter(m=>m.depositId)) {
+      const audit=await tx.$queryRaw<Array<{createdAt:Date}>>(Prisma.sql`SELECT "createdAt" FROM "BookingDepositReviewAudit"
+        WHERE "businessId"=${target.businessId} AND "depositId"=${m.depositId} AND action='RESUBMISSION_ALLOWED' ORDER BY "createdAt" DESC,id DESC LIMIT 1`)
+      if(audit.length!==1 || new Date(audit[0]!.createdAt).getTime()+p.terms.deposit!.financial.ttlMinutes*60000!==Date.parse(expiry)) fail()
+    }
+  }
+  // Internal evidence copies represent ONE receipt event, never independent payments.
+  let proofIdentity:string|undefined
+  let reviewIdentity:string|undefined
+  for(const m of group.members.filter(m=>m.depositId)) {
+    const proofs=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`SELECT id,sequence,kind,"validationStatus","validatorVersion","validatedAt","receivedAt","sourceMimeType","sourceByteSize","derivedMimeType","derivedByteSize","sourceSha256","derivedSha256","providerEventId","providerMessageId","providerMediaId"
+      FROM "BookingDepositProof" WHERE "businessId"=${target.businessId} AND "depositId"=${m.depositId} ORDER BY sequence`)
+    if(['PROOF_RECEIVED','APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status) && !proofs.length || proofs.some(p=>p.validationStatus!=='VALID')) fail()
+    const identity=JSON.stringify(proofs.map(({id,...facts})=>facts))
+    if(status==='PENDING_PROOF' && proofs.some(p=>p.kind!=='LATE')) fail()
+    if(['APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status)) {
+      const expected=status==='APPROVED'?'APPROVED':status==='REJECTED'?'FINAL_REJECTED':'RESUBMISSION_ALLOWED'
+      const audits=await tx.$queryRaw<Array<{proofId:string;actorUserId:string;createdAt:Date;action:string;operationStatus:string;resultRef:string;auditId:string;type:string}>>(Prisma.sql`
+        SELECT a."proofId",a."actorUserId",a."createdAt",a.action,o.status AS "operationStatus",o."resultRef",a.id AS "auditId",o.type
+        FROM "BookingDepositReviewAudit" a JOIN "BotOperation" o ON o."operationKey"=a."operationKey" AND o."businessId"=a."businessId"
+        WHERE a."businessId"=${target.businessId} AND a."depositId"=${m.depositId} ORDER BY a."createdAt" DESC,a.id DESC LIMIT 1`)
+      const audit=audits[0]
+      if(audits.length!==1 || !audit || audit.action!==expected || audit.proofId!==proofs.at(-1)?.id || audit.operationStatus!=='COMPLETED' || audit.resultRef!==audit.auditId || audit.type!==(status==='APPROVED'?'APPROVE_DEPOSIT_PROOF':'REJECT_DEPOSIT_PROOF')) fail()
+      const review=JSON.stringify([audit.action,audit.actorUserId,iso(audit.createdAt)])
+      if(reviewIdentity!==undefined && reviewIdentity!==review) fail()
+      reviewIdentity=review
+    }
+    if(status==='EXPIRED') {
+      const audits=await tx.$queryRaw<Array<{dueAt:Date;reason:string;expiredAt:Date}>>(Prisma.sql`SELECT "dueAt",reason,"expiredAt" FROM "BookingDepositExpiryAudit" WHERE "businessId"=${target.businessId} AND "depositId"=${m.depositId}`)
+      if(audits.length!==1 || iso(audits[0]!.dueAt)!==expiry || audits[0]!.reason!=='HOLD_TTL_EXPIRED' || !iso(audits[0]!.expiredAt)) fail()
+    }
+    if(proofIdentity!==undefined && identity!==proofIdentity) fail()
+    proofIdentity=identity
+  }
+  const clock=await tx.$queryRaw<Array<{dbNow:Date}>>(Prisma.sql`SELECT clock_timestamp() AS "dbNow"`)
+  return {group,depositStatus:status,currentExpiresAt:new Date(expiry),dbNow:new Date(clock[0]!.dbNow)}
 }

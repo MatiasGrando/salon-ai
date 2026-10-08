@@ -1,3 +1,4 @@
+import { lockCoordinatedDepositGroupForDeposit } from '../../services/coordinated-deposit-group.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { resolveBusinessWhatsAppCredentials } from '../../services/business-whatsapp-settings.js'
@@ -68,7 +69,7 @@ export async function processDepositProofJob(input: {
   const event = await loadProofEvent(input.client, job)
   if (!event) return finishMissingEvent(input.client, job)
   if (await silenceProofForHumanTaken(input.client, job, event)) return 'HUMAN_TAKEN_SILENCED'
-  const target = await resolveProofTarget(input.client, event, job.deploymentId)
+  const target = await input.client.$transaction(tx=>resolveProofTarget(tx, event, job.deploymentId))
   if (target.kind !== 'FOUND') return fallbackToInitialInbox(input.client, job, event)
   const expectedDepositId = target.depositId
   const payload = messagePayload(event.payload)
@@ -200,8 +201,8 @@ async function loadProofEvent(client: DepositProofClient, job: ClaimedBotJob): P
   `))[0] ?? null
 }
 
-async function resolveProofTarget(
-  client: Pick<PrismaClient, '$queryRaw'> | Prisma.TransactionClient,
+export async function resolveProofTarget(
+  client: Prisma.TransactionClient,
   event: ProofEvent,
   deploymentId: string
 ): Promise<ProofTargetResolution> {
@@ -209,8 +210,8 @@ async function resolveProofTarget(
   if (!payload) return { kind: 'NONE' }
   const fromPhone = stringField(payload.fromPhone)
   if (!fromPhone) return { kind: 'NONE' }
-  const rows = await client.$queryRaw<Array<{ depositId: string }>>(Prisma.sql`
-    SELECT deposit."id" AS "depositId"
+  const rows = await client.$queryRaw<Array<{ depositId: string; groupId:string|null }>>(Prisma.sql`
+    SELECT deposit."id" AS "depositId",appointment."coordinationGroupId" AS "groupId"
     FROM "Conversation" c
     JOIN "BotSession" s
       ON s."conversationId" = c."id" AND s."businessId" = c."businessId"
@@ -241,9 +242,17 @@ async function resolveProofTarget(
           AND visit."status" = 'EXPIRED'::"BookingVisitStatus"
           AND appointment."status" = 'CANCELLED'::"AppointmentStatus")
       )
-    LIMIT 2
+    ORDER BY deposit.id
+    LIMIT 9
   `)
   if (rows.length === 0) return { kind: 'NONE' }
+  const state=await lockCoordinatedDepositGroupForDeposit(client,{businessId:event.businessId,depositId:rows[0]!.depositId})
+  if(state) {
+    if(rows.length>8 || rows.some(r=>r.groupId!==state.group.groupId)) return {kind:'AMBIGUOUS'}
+    const ids=state.group.members.flatMap(m=>m.depositId?[m.depositId]:[]).sort()
+    if(ids.length!==rows.length || ids.some((id,i)=>id!==rows[i]!.depositId)) return {kind:'AMBIGUOUS'}
+    return {kind:'FOUND',depositId:state.group.anchorDepositId}
+  }
   if (rows.length > 1) return { kind: 'AMBIGUOUS' }
   return { kind: 'FOUND', depositId: rows[0]!.depositId }
 }

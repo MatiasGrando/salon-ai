@@ -1000,8 +1000,12 @@ export function buildAppointmentAccountBackfillPlan(
 
   const visitId = rows[0].visitId
   const coordinationGroupId = rows[0].coordinationGroupId
+  const sealedBotGroup=coordinationGroupId!==null && rows.length>1 && rows.every(row=>row.sealedCoordinatedDepositGroup===coordinationGroupId && row.coordinationGroupId===coordinationGroupId && row.origin==='BOT' && row.visitId!==null && row.visitBusinessId===row.businessId)
   let sourceKey: string
-  if (visitId !== null) {
+  if(sealedBotGroup) {
+    if(new Set(rows.map(r=>r.visitId)).size!==rows.length || rows.some(r=>r.manualDepositPaid)) return {ok:false,code:'INCONSISTENT_COORDINATION_GROUP',appointmentIds}
+    sourceKey=`coordination:${coordinationGroupId}`
+  } else if (visitId !== null) {
     if (rows.some((row) => row.visitId !== visitId || row.visitBusinessId !== row.businessId)) {
       return { ok: false, code: 'INCONSISTENT_VISIT', appointmentIds }
     }
@@ -1026,7 +1030,7 @@ export function buildAppointmentAccountBackfillPlan(
   }
 
   const amounts = rows.map(resolveBackfillAmount)
-  const agreedAmount = visitId !== null
+  const agreedAmount = visitId !== null && !sealedBotGroup
     ? rows[0].visitTotalPrice
     : amounts.every((amount): amount is number => amount !== null)
       ? amounts.reduce((total, amount) => total + amount, 0)
