@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
+import { coordinatedDepositOperationKey, coordinatedDepositRequestHash, coordinatedServiceConfigurationHash, lockCoordinatedDepositOrigin, lockCoordinatedDepositGroup, revalidateCoordinatedDepositFinancial, type CoordinatedDepositInput, type CoordinatedDepositGroup } from './coordinated-deposit-group.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { reservationDurationLimits } from './service-duration.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
@@ -211,10 +213,83 @@ export async function holdBookingWithDeposit(
   return createBookingVisit(tx, { ...input, depositRequired: true }) as Promise<HoldBookingWithDepositResult>
 }
 
+/** Holds every coordinated segment in the caller transaction. The private companion
+ * mode is reachable only after the complete server scope and financial plan validate.
+ * No catches: a late child failure MUST escape and roll back every earlier write. */
+export async function holdCoordinatedBookingWithDeposit(tx: Prisma.TransactionClient, input: CoordinatedDepositInput): Promise<CoordinatedDepositGroup> {
+  const customerId = await lockCoordinatedDepositOrigin(tx, input)
+  const p = input.proposal, o = input.origin
+  const operationKey = coordinatedDepositOperationKey(o,p), requestHash = coordinatedDepositRequestHash(o,p)
+  const prior = await tx.$queryRaw<Array<{ requestHash:string; status:string; resultRef:string; businessId:string; sessionId:string; type:string }>>(Prisma.sql`
+    SELECT "requestHash",status,"resultRef","businessId","sessionId",type FROM "BotOperation" WHERE "operationKey"=${operationKey} FOR UPDATE`)
+  if (prior.length) {
+    const row = prior[0]!
+    if (prior.length!==1 || row.requestHash!==requestHash || row.status!=='COMPLETED' || row.businessId!==o.businessId || row.sessionId!==o.sessionId || row.type!=='HOLD_COORDINATED_DEPOSIT_GROUP') throw new Error('coordinated deposit replay conflict')
+    let groupId:string
+    try { groupId = JSON.parse(row.resultRef).groupId } catch { throw new Error('coordinated deposit replay manifest unavailable') }
+    return lockCoordinatedDepositGroup(tx,{businessId:o.businessId,groupId})
+  }
+  if (!o.newBookingAllowed) throw new Error('coordinated deposit booking capability disabled')
+  const ids = p.terms.segments.map(s=>s.serviceId)
+  const combination = await tx.$queryRaw<Array<{count:number}>>(Prisma.sql`
+    SELECT count(*)::int AS count FROM "ServiceCombinationRule" WHERE "businessId"=${o.businessId}
+      AND "serviceAId" IN (${Prisma.join(ids)}) AND "serviceBId" IN (${Prisma.join(ids)}) AND policy<>'ALLOWED'::"ServiceCombinationPolicy"`)
+  if ((combination[0]?.count??0)>0) throw new Error('coordinated deposit combination policy changed')
+  const canonical: Array<Record<string,unknown>> = []
+  for (const segment of p.terms.segments) {
+    const validation = await revalidateBookingWrite(tx,{businessId:o.businessId,professionalId:segment.professionalId,
+      professionalIdsToLock:p.terms.segments.map(s=>s.professionalId),serviceIds:[segment.serviceId],startAt:new Date(segment.startAt),timezone:p.terms.timezone})
+    const service = validation.orderedServices[0]!
+    const estimate = service.attentionMode==='GUIDED_ESTIMATE' ? resolveServiceEstimate({...service,estimateOptions:parseEstimateOptions(service.estimateOptions)},segment.estimate?.optionId??null) : null
+    if (validation.conflicts.length || !validation.professional.acceptsBotBookings || validation.professional.name!==segment.professionalName ||
+        !service.isActive || !service.isBookable || service.requiresPhoto || service.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(service.attentionMode) ||
+        service.attentionMode==='GUIDED_ESTIMATE' && (!service.estimateAllowsBooking || !estimate) ||
+        validation.professionalDuration!==segment.durationMinutes || validation.customerDuration!==segment.customerDurationMinutes ||
+        service.name!==segment.serviceName || service.duration!==segment.durationMinutes || (estimate?.priceMin??service.price)!==segment.priceMinor ||
+        (estimate?'STARTING_AT':service.priceMode)!==segment.priceMode || !isDeepStrictEqual(estimate??undefined,segment.estimate) ||
+        coordinatedServiceConfigurationHash(service)!==segment.configurationHash ||
+        p.terms.preference.kind==='specific' && p.terms.preference.id!==segment.professionalId) throw new Error('coordinated deposit current service or slot changed')
+    canonical.push(service)
+  }
+  const {financial,dbNow} = await revalidateCoordinatedDepositFinancial(tx,p,canonical)
+  const expiresAt = new Date(dbNow.getTime()+financial.ttlMinutes*60000)
+  const groupId = randomUUID()
+  await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","updatedAt")
+    VALUES (${randomUUID()},${operationKey},'HOLD_COORDINATED_DEPOSIT_GROUP',${o.businessId},${o.sessionId},'STARTED',${requestHash},${dbNow})`)
+  const members:CoordinatedDepositGroup['members'] = []
+  for (const [segmentIndex,s] of p.terms.segments.entries()) {
+    const child:ConfirmBookingWithoutDepositInput = {businessId:o.businessId,sessionId:o.sessionId,operationKey:operationKey+':segment:'+segmentIndex,newBookingAllowed:true,
+      services:[{serviceId:s.serviceId,name:s.serviceName,durationMinutes:s.durationMinutes,priceMinor:s.priceMinor,priceMode:s.priceMode,...(s.estimate?{estimate:s.estimate}:{})}],
+      professional:{professionalId:s.professionalId,name:s.professionalName,assignedByBalancer:false},date:p.terms.date,slotStartAt:s.startAt,totalDurationMinutes:s.durationMinutes,
+      totalPriceMinor:s.priceMode==='FIXED'?s.priceMinor:null}
+    const depositRequired = canonical[segmentIndex]!.depositMode!=='NONE'
+    const writeInput = {...child,depositRequired,groupHold:{groupId,expiresAt,proposalFingerprint:p.fingerprint}}
+    const result = await createBookingVisit(tx,writeInput)
+    if (result.kind==='SLOT_CONFLICT' || result.kind==='CONFIRMED') throw new Error('coordinated deposit child conflict; rollback required')
+    const changed = await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${groupId}
+      WHERE id=${result.appointmentId} AND "businessId"=${o.businessId} AND "visitId"=${result.visitId}`)
+    if (changed!==1) throw new Error('coordinated deposit child linkage failure; rollback required')
+    members.push({segmentIndex,appointmentId:result.appointmentId,visitId:result.visitId,depositId:result.kind==='HELD'?result.depositId:null,
+      amount:result.kind==='HELD'?result.amount:0,childOperationKey:bookingEffectOperationKey(child.operationKey,depositRequired,!depositRequired),childRequestHash:hashBookingConfirmation(writeInput)})
+  }
+  const anchorDepositId = members.find(m=>m.depositId!==null)?.depositId
+  if (!anchorDepositId) throw new Error('coordinated deposit financial anchor missing')
+  const group:CoordinatedDepositGroup = {version:1,groupId,operationKey,requestHash,customerId,canonicalPhone:o.canonicalPhone,proposal:structuredClone(p),
+    expiresAt:expiresAt.toISOString(),amount:financial.amount,anchorDepositId,members}
+  const completed = await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"resultRef"=${JSON.stringify(group)},"updatedAt"=clock_timestamp()
+    WHERE "operationKey"=${operationKey} AND "requestHash"=${requestHash} AND status='STARTED'`)
+  if (completed!==1) throw new Error('coordinated deposit completion failure; rollback required')
+  await lockCoordinatedDepositGroup(tx,{businessId:o.businessId,groupId})
+  return group
+}
+
+type GroupHeldCompanionResult = {kind:'HELD_COMPANION';visitId:string;appointmentId:string;professional:{professionalId:string;name:string;assignedByBalancer:boolean}}
+type BookingVisitWriteInput = ConfirmBookingWithoutDepositInput & {depositRequired:boolean;groupHold?:{groupId:string;expiresAt:Date;proposalFingerprint:string}}
+
 async function createBookingVisit(
   tx: Prisma.TransactionClient,
-  input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean }
-): Promise<ConfirmBookingWithoutDepositResult | HoldBookingWithDepositResult> {
+  input: BookingVisitWriteInput
+): Promise<ConfirmBookingWithoutDepositResult | HoldBookingWithDepositResult | GroupHeldCompanionResult> {
   const startAt = new Date(input.slotStartAt)
   if (!Number.isFinite(startAt.getTime()) || startAt.toISOString() !== input.slotStartAt) {
     throw new Error('booking confirmation slotStartAt must be a canonical ISO instant')
@@ -224,7 +299,7 @@ async function createBookingVisit(
     throw new Error('booking confirmation requires unique services')
   }
   const requestHash = hashBookingConfirmation(input)
-  const replay = await loadCompletedBookingReplay(tx, input, requestHash)
+  const replay = input.groupHold ? null : await loadCompletedBookingReplay(tx, input, requestHash)
   if (replay) return replay
   if (!input.newBookingAllowed) throw new Error('bot booking capability is disabled')
 
@@ -232,7 +307,7 @@ async function createBookingVisit(
   // writers de catálogo/capacidades/agenda usan la misma raíz de jerarquía.
   await acquireAgendaHierarchy(tx, { businessId: input.businessId, professionalIds: [] })
 
-  const secondReplay = await loadCompletedBookingReplay(tx, input, requestHash, true)
+  const secondReplay = input.groupHold ? null : await loadCompletedBookingReplay(tx, input, requestHash, true)
   if (secondReplay) return secondReplay
 
   const settings = await tx.$queryRaw<Array<{
@@ -362,7 +437,8 @@ async function createBookingVisit(
         a."status" = 'CONFIRMED'::"AppointmentStatus"
         OR (
           a."status" = 'PENDING'::"AppointmentStatus"
-          AND NOT (d."status" = 'PENDING_PROOF'::"BookingDepositStatus" AND d."expiresAt" <= ${setting.dbNow})
+          AND NOT COALESCE(d."status" = 'PENDING_PROOF'::"BookingDepositStatus" AND d."expiresAt" <= ${setting.dbNow}, false)
+          AND NOT EXISTS (SELECT 1 FROM "BookingVisit" held WHERE held.id=a."visitId" AND held."businessId"=a."businessId" AND held.status='HELD'::"BookingVisitStatus" AND held."holdExpiresAt"<=${setting.dbNow})
         )
       )
     GROUP BY a."professionalId"
@@ -396,12 +472,12 @@ async function createBookingVisit(
 
   const visitId = randomUUID()
   const appointmentId = randomUUID()
-  const effectOperationKey = bookingEffectOperationKey(input.operationKey, input.depositRequired)
+  const effectOperationKey = bookingEffectOperationKey(input.operationKey, input.depositRequired, Boolean(input.groupHold && !input.depositRequired))
   const insertedOperation = await tx.$queryRaw<Array<{ operationKey: string }>>(Prisma.sql`
     INSERT INTO "BotOperation" (
       "id", "operationKey", "type", "businessId", "sessionId", "status", "requestHash", "updatedAt"
     ) VALUES (
-      ${randomUUID()}, ${effectOperationKey}, ${input.depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : 'CONFIRM_VISIT'}, ${input.businessId}, ${input.sessionId}, 'STARTED', ${requestHash}, clock_timestamp()
+      ${randomUUID()}, ${effectOperationKey}, ${input.depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : input.groupHold ? 'HOLD_GROUP_COMPANION' : 'CONFIRM_VISIT'}, ${input.businessId}, ${input.sessionId}, 'STARTED', ${requestHash}, clock_timestamp()
     )
     ON CONFLICT ("operationKey") DO NOTHING
     RETURNING "operationKey"
@@ -413,7 +489,7 @@ async function createBookingVisit(
   }
 
   const depositId = depositTerms ? randomUUID() : null
-  const expiresAt = depositTerms ? new Date(setting.dbNow.getTime() + depositTerms.ttlMinutes * 60_000) : null
+  const expiresAt = input.groupHold?.expiresAt ?? (depositTerms ? new Date(setting.dbNow.getTime() + depositTerms.ttlMinutes * 60_000) : null)
   const estimateNotes = bookingServices.flatMap((service) => service.estimate
     ? [`${service.name}${service.estimate.optionLabel ? ` — ${service.estimate.optionLabel}` : ''}: estimación ${formatServiceEstimate(service.estimate)}. Precio final pendiente de confirmación.`]
     : []).join('\n') || null
@@ -423,7 +499,7 @@ async function createBookingVisit(
       "scheduledStartAt", "totalDurationMinutes", "totalPrice", "holdExpiresAt", "origin", "updatedAt"
     ) VALUES (
       ${visitId}, ${input.businessId}, ${customerId}, ${assigned.id}, ${input.sessionId},
-       ${input.depositRequired ? 'HELD' : 'CONFIRMED'}::"BookingVisitStatus", ${startAt}, ${input.totalDurationMinutes},
+       ${input.depositRequired || input.groupHold ? 'HELD' : 'CONFIRMED'}::"BookingVisitStatus", ${startAt}, ${input.totalDurationMinutes},
        ${input.totalPriceMinor}, ${expiresAt}, 'BOT'::"AppointmentOrigin", clock_timestamp()
     )
   `)
@@ -434,7 +510,7 @@ async function createBookingVisit(
     ) VALUES (
       ${appointmentId}, ${input.businessId}, ${customerId}, ${assigned.id}, ${serviceIds[0]!}, ${startAt},
        'BOT'::"AppointmentOrigin", ${input.totalPriceMinor}, ${input.totalDurationMinutes},
-       ${input.depositRequired ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}, ${estimateNotes}
+       ${input.depositRequired || input.groupHold ? 'PENDING' : 'CONFIRMED'}::"AppointmentStatus", ${visitId}, ${estimateNotes}
     )
   `)
   for (const [sortOrder, service] of bookingServices.entries()) {
@@ -494,7 +570,7 @@ async function createBookingVisit(
   return {
     ...(depositTerms && depositId && expiresAt
       ? { kind: 'HELD' as const, visitId, appointmentId, depositId, expiresAt, amount: depositTerms.amount }
-      : { kind: 'CONFIRMED' as const, visitId, appointmentId }),
+      : input.groupHold ? {kind:'HELD_COMPANION' as const,visitId,appointmentId} : { kind: 'CONFIRMED' as const, visitId, appointmentId }),
     professional: {
       professionalId: assigned.id,
       name: assigned.name,
@@ -503,13 +579,13 @@ async function createBookingVisit(
   }
 }
 
-function bookingEffectOperationKey(transitionOperationKey: string, depositRequired: boolean) {
+function bookingEffectOperationKey(transitionOperationKey: string, depositRequired: boolean, companion = false) {
   // CONFIRM_VISIT is already persisted by F7. Keep its namespace stable so a
   // post-deploy retry replays the original turn rather than creating another.
-  return `${transitionOperationKey}:${depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : 'CONFIRM_VISIT'}`
+  return `${transitionOperationKey}:${depositRequired ? 'HOLD_VISIT_WITH_DEPOSIT' : companion ? 'HOLD_GROUP_COMPANION' : 'CONFIRM_VISIT'}`
 }
 
-function hashBookingConfirmation(input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean }) {
+function hashBookingConfirmation(input: BookingVisitWriteInput) {
   const legacyF7Payload = {
     services: input.services,
     professional: input.professional,
@@ -523,12 +599,12 @@ function hashBookingConfirmation(input: ConfirmBookingWithoutDepositInput & { de
   const payload = input.depositRequired
     ? { ...legacyF7Payload, depositRequired: true }
     : legacyF7Payload
-  return createHash('sha256').update(JSON.stringify(payload), 'utf8').digest('hex')
+  return createHash('sha256').update(JSON.stringify(input.groupHold ? {...payload,groupHold:{groupId:input.groupHold.groupId,expiresAt:input.groupHold.expiresAt.toISOString(),proposalFingerprint:input.groupHold.proposalFingerprint}} : payload), 'utf8').digest('hex')
 }
 
 async function loadCompletedBookingReplay(
   tx: Prisma.TransactionClient,
-  input: ConfirmBookingWithoutDepositInput & { depositRequired: boolean },
+  input: BookingVisitWriteInput,
   requestHash: string,
   forUpdate = false
 ): Promise<ConfirmBookingWithoutDepositResult | HoldBookingWithDepositResult | null> {

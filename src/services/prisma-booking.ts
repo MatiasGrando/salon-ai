@@ -96,10 +96,11 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
           a."status" = 'CONFIRMED'::"AppointmentStatus"
           OR (
             a."status" = 'PENDING'::"AppointmentStatus"
-            AND NOT (
+            AND NOT COALESCE((
               d."status" = 'PENDING_PROOF'::"BookingDepositStatus"
               AND d."expiresAt" <= ${now}
-            )
+            ), false)
+            AND NOT EXISTS (SELECT 1 FROM "BookingVisit" held WHERE held.id=a."visitId" AND held."businessId"=a."businessId" AND held.status='HELD'::"BookingVisitStatus" AND held."holdExpiresAt"<=${now})
           )
         )
     ) AS "overlaps"
