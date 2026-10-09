@@ -1,3 +1,4 @@
+import type { AttachmentMetadata, AttachmentIntent } from './attachment-intent.js'
 import { validateDialoguePersonality, type DialoguePersonality, type DialoguePersonalityPort } from './dialogue-identity.js'
 import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
@@ -27,7 +28,7 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
+export type AiInterpretationInput = { attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
 export type AiResponseInput = { personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -69,7 +70,7 @@ export type InterpretationDiagnostics = {
   usage?: { interpretation: AiUsage | null; response: AiUsage | null }
 }
 export type InterpretedDialogueResponse = DialogueResponse & { interpretation: InterpretationDiagnostics }
-type Candidate = { intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission; temporalGrounding?: InterpretationDiagnostics['temporalGrounding'] }
+type Candidate = { attachmentIntent?: AttachmentIntent | null; intent: 'booking' | 'information' | 'other'; serviceId: string | null; serviceEvidence: string | null; professionalMention: string | null; serviceConfidence?: 'certain' | 'uncertain'; serviceCandidateIds?: string[]; serviceCorrection?: boolean; firstReply?: unknown; intakeReply?: unknown; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan | null; communicativeActs?: CommunicativeActs | null; communicative?: CommunicativeAdmission; temporalGrounding?: InterpretationDiagnostics['temporalGrounding'] }
 
 /** Rejected validated origins restrict fallback eligibility; they never supply a positive fact. */
 class CandidateValidationError extends TurnPlanValidationError {
@@ -84,7 +85,8 @@ const containsEvidence = (message: string, evidence: string) => evidenceWords(me
 function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState, context: DialogueContext, read?: BusinessTimeContextReader): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
-  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan','communicativeActs'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan','communicativeActs','attachmentIntent'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
+  if (item.attachmentIntent != null && !['deposit_proof','service_reference','other','unclear'].includes(String(item.attachmentIntent))) throw new Error('invalid attachment intent')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
   let temporalGrounding: InterpretationDiagnostics['temporalGrounding']
   let turnPlan: TurnPlan | null | undefined

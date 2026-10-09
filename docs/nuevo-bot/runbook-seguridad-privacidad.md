@@ -1,6 +1,6 @@
 # Runbook de seguridad y privacidad de señas (F8.1)
 
-**Estado: Aprobación operativa pendiente.** Actualizado el 08/10/2026 mediante
+**Estado: Aprobación operativa pendiente.** Actualizado el 09/10/2026 mediante
 inspección del repositorio. Describe controles implementados y verificaciones
 operativas pendientes; no certifica infraestructura, despliegues ni producción.
 Este documento no activa capacidades, workers, purgas ni cambia permisos.
@@ -41,7 +41,7 @@ Hay dos recorridos distintos, que no deben confundirse:
 - Configurar medios de pago sigue siendo una autoridad distinta. No cambiar
   sus permisos para solucionar una revisión de comprobantes.
 
-## 3. Ingreso y validación de imágenes
+## 3. Ingreso y validación técnica de comprobantes
 
 Fuentes: `src/bot-options/application/process-deposit-proof-job.ts`,
 `src/bot-options/infrastructure/meta-deposit-proof-media.ts` y
@@ -54,10 +54,31 @@ Fuentes: `src/bot-options/application/process-deposit-proof-job.ts`,
 - JPEG, PNG y WebP, máximo **3 MiB**; MIME declarado y firma deben concordar.
   Sharp decodifica, limita píxeles, rechaza múltiples páginas y genera WebP
   saneado sin metadatos; se conservan hashes del original y del derivado.
-- **PDF y documentos rechazados** en F8. El parser WEB legacy tampoco admite
-  nuevos PDF. Esto no certifica ni elimina archivos históricos almacenados.
-- No hay certificación de antivirus externo. Rechazar PDF no equivale a probar
-  seguridad absoluta; cualquier ampliación de formatos requiere revisión.
+- El wrapper `deposit-proof-validation.ts` conserva la validación de imágenes y
+  admite **PDF clásico** hasta 3 MiB y 10 páginas. PDF cifrado, contenido activo,
+  acciones, formularios y archivos incrustados se rechazan. Los nombres escapados
+  también se inspeccionan. No se hace OCR ni se determina si un pago es auténtico.
+- **Objetos e índices comprimidos PDF (ObjStm/XRef) no admitidos**: se rechazan
+  globalmente antes de invocar pdf-lib, incluso con nombres escapados o referencias
+  indirectas. Para ese PDF u otro formato no compatible, pedir JPEG/PNG o captura.
+  Es un subconjunto conservador, no una promesa de admitir cualquier PDF válido.
+- Los streams admitidos requieren longitud directa y filtro único Flate/DCT;
+  pipelines, longitudes indirectas y DecodeParms se rechazan. Antes del parser,
+  la descompresión tiene límites de 1 MiB por stream y 8 MiB acumulados. Hay
+  límites de 2000 objetos y de recorrido del árbol de páginas, con ciclos inválidos.
+- El PDF aprobado técnicamente se conserva sin renderizarlo ni ejecutar contenido.
+  Su copia validada no se presenta como archivo saneado o certificado. La descarga
+  CRM exige el permiso habitual, auditoría, attachment, nosniff, sandbox y no-store.
+- Imágenes enviadas como documento conservan los mismos controles de imagen.
+  Office, ZIP, ejecutables, HEIC y otros formatos no admitidos se rechazan con
+  explicación, sin alterar el borrador ni convertir un archivo espontáneo en seña.
+- **PDF rechazado en el parser WEB legacy**: la ampliación sólo corresponde al
+  circuito F8. No certifica ni elimina archivos históricos almacenados.
+- Sólo un pedido vigente que ya solicitó comprobante puede usar esta entrada como
+  seña. La IA interpreta tipo/caption/contexto, no recibe los bytes del archivo ni
+  aprueba pagos. El equipo revisa el comprobante; recepción no significa aprobación.
+- No hay certificación de antivirus externo ni seguridad absoluta. Estos controles
+  técnicos reducen riesgos y no sustituyen la revisión operativa pendiente.
 
 ## 4. Evidencia, vencimiento y trazabilidad
 
@@ -68,6 +89,9 @@ Fuentes: `src/bot-options/application/process-deposit-proof-job.ts`,
 - `expire-deposit-hold.ts` implementa trabajos reclamados `EXPIRE_DEPOSIT`, reloj
   de base y transiciones condicionales; no confundirlo con un cron de purga.
   Verificar workers activos en cada despliegue: tener código no garantiza ejecución.
+- Un comprobante válido recibido dentro del plazo pasa a PROOF_RECEIVED y
+  PENDING_PAYMENT_REVIEW. Ya no vence por el plazo de envío mientras el equipo
+  lo revisa; no se elimina ni modifica el expiresAt financiero original.
 - El comprobante tardío conserva evidencia y deriva a revisión del equipo;
   nunca reabre automáticamente una retención vencida ni recupera un horario.
 - Revisión, vencimiento, purga y acceso tienen trazas específicas. No poner el

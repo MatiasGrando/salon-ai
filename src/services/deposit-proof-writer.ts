@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
 import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupState } from './coordinated-deposit-group.js'
 import { acquireAgendaHierarchy } from './agenda-locks.js'
-import type { DepositProofImageValidationResult } from './deposit-proof-image-validation.js'
+import type { DepositProofValidationResult } from './deposit-proof-validation.js'
 import { enqueueDepositNotificationWithRecoveryTx } from './deposit-notification-outbox.js'
 
 type ProofWriterClient = Pick<PrismaClient, '$transaction'>
@@ -31,7 +31,7 @@ export async function writeValidatedDepositProof(
     providerMessageId?: string | null
     providerMediaId?: string | null
     expectedProviderPhoneNumberId?: string
-    evidence: DepositProofImageValidationResult
+    evidence: DepositProofValidationResult
   }
 ): Promise<DepositProofWriteResult> {
   return client.$transaction((tx) => writeValidatedDepositProofInTransaction(tx, input))
@@ -72,7 +72,7 @@ async function writeSingleValidatedDepositProofInTransaction(
     providerMessageId?: string | null
     providerMediaId?: string | null
     expectedProviderPhoneNumberId?: string
-    evidence: DepositProofImageValidationResult
+    evidence: DepositProofValidationResult
   },
   groupContext?: {dbNow:Date}
 ): Promise<DepositProofWriteResult> {
@@ -265,7 +265,7 @@ async function neutralizeUnclaimedExpiryJob(tx: ProofWriterTx, businessId: strin
   }
 }
 
-function proofRequestHash(input: { businessId: string; depositId: string; providerEventId: string | null; providerMessageId: string | null; providerMediaId: string | null; evidence: DepositProofImageValidationResult }) {
+function proofRequestHash(input: { businessId: string; depositId: string; providerEventId: string | null; providerMessageId: string | null; providerMediaId: string | null; evidence: DepositProofValidationResult }) {
   return createHash('sha256').update(JSON.stringify({
     businessId: input.businessId, depositId: input.depositId, providerEventId: input.providerEventId,
     providerMessageId: input.providerMessageId, providerMediaId: input.providerMediaId,

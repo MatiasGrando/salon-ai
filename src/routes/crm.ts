@@ -1273,7 +1273,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           AND "validationStatus" = 'VALID'::"BookingDepositProofValidationStatus"
         ORDER BY "sequence" DESC LIMIT 1
       `)
-      if (!proof[0] || !proof[0].mimeType.startsWith('image/')) return sendAuthorizationFailure(reply, 'notFound')
+      if (!proof[0] || !['image/webp', 'application/pdf'].includes(proof[0].mimeType)) return sendAuthorizationFailure(reply, 'notFound')
       // Record access metadata only. Neither source nor derivative bytes enter audit/log payloads.
       await prisma.staffAuditLog.create({ data: {
         id: randomUUID(), businessId: deposit.businessId, userId: authUser.id,
@@ -1282,6 +1282,8 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       } })
       return reply
         .header('Content-Type', proof[0].mimeType)
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Content-Security-Policy', "sandbox; default-src 'none'")
         .header('Content-Disposition', `attachment; filename="${safeMediaFilename(proof[0].filename, proof[0].mimeType, 'image')}"`)
         .header('Cache-Control', 'private, no-store')
         .send(Buffer.from(proof[0].data))

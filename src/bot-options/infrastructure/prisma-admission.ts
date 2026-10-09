@@ -376,6 +376,8 @@ export class PrismaAuthoritativeAdmissionRepository implements AuthoritativeAdmi
               (s."state"->>'flow' = 'HANDOFF_QUEUED' AND s."state"->'pendingEntityRef'->>'type' = 'SERVICE'))
           LIMIT 1
         `) : []
+    // Conversational media is interpreted with its current draft first. Its inbox
+    // creates a bound proof job only after proving an explicitly requested receipt.
     if (
       !conversational && this.#depositProofIngressEnabled && event.kind === 'message'
       && (event.messageType === 'image' || event.messageType === 'document')

@@ -1,11 +1,12 @@
+import { conversationProofBindingFromState, parseConversationProofBinding, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from '../../conversational-bot/attachment-intent.js'
 import { lockCoordinatedDepositGroupForDeposit } from '../../services/coordinated-deposit-group.js'
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { resolveBusinessWhatsAppCredentials } from '../../services/business-whatsapp-settings.js'
 import {
-  DepositProofImageValidationError,
-  validateDepositProofImage
-} from '../../services/deposit-proof-image-validation.js'
+  DepositProofValidationError,
+  validateDepositProof
+} from '../../services/deposit-proof-validation.js'
 import { writeValidatedDepositProofInTransaction } from '../../services/deposit-proof-writer.js'
 import { enqueueDepositNotificationWithRecoveryTx } from '../../services/deposit-notification-outbox.js'
 import {
@@ -74,7 +75,7 @@ export async function processDepositProofJob(input: {
   const expectedDepositId = target.depositId
   const payload = messagePayload(event.payload)
   const mediaId = stringField(payload?.mediaId)
-  if (!payload || payload.messageType === 'document' || !mediaId || isDeclaredUnsupported(payload.mediaMimeType)) {
+  if (!payload || !['image', 'document'].includes(String(payload.messageType)) || !mediaId || isDeclaredUnsupported(payload.mediaMimeType)) {
     return finishTerminal(input.client, job, event, expectedDepositId, 'INVALID_PROOF')
   }
 
@@ -95,15 +96,15 @@ export async function processDepositProofJob(input: {
     return finishTerminal(input.client, job, event, expectedDepositId, isRetryableTransport(error) ? 'PROOF_UNAVAILABLE' : 'INVALID_PROOF')
   }
 
-  let evidence: Awaited<ReturnType<typeof validateDepositProofImage>>
+  let evidence: Awaited<ReturnType<typeof validateDepositProof>>
   try {
-    evidence = await validateDepositProofImage({
+    evidence = await validateDepositProof({
       data: downloaded.data,
       declaredMimeType: downloaded.mimeType,
       filename: stringField(payload.filename)
     })
   } catch (error) {
-    if (!(error instanceof DepositProofImageValidationError)) throw new Error('deposit_image_validation_failed')
+    if (!(error instanceof DepositProofValidationError)) throw new Error('deposit_image_validation_failed')
     return finishTerminal(input.client, job, event, expectedDepositId, 'INVALID_PROOF')
   }
 
@@ -210,8 +211,11 @@ export async function resolveProofTarget(
   if (!payload) return { kind: 'NONE' }
   const fromPhone = stringField(payload.fromPhone)
   if (!fromPhone) return { kind: 'NONE' }
-  const rows = await client.$queryRaw<Array<{ depositId: string; groupId:string|null }>>(Prisma.sql`
-    SELECT deposit."id" AS "depositId",appointment."coordinationGroupId" AS "groupId"
+  const rows = await client.$queryRaw<Array<{ depositId: string; groupId:string|null; sessionId:string; sessionState:unknown; revision:bigint; generation:number; configurationId:string; conversational:boolean; eligible:boolean; sessionGeneration:number; businessTimezone:string }>>(Prisma.sql`
+    SELECT deposit."id" AS "depositId",appointment."coordinationGroupId" AS "groupId",
+      s."id" AS "sessionId",s."state" AS "sessionState",s."revision",s."businessTimezone",s."deploymentGeneration" AS "sessionGeneration",deployment."generation",deployment."activeConfigurationId" AS "configurationId",
+      (cfg."status"::text='ACTIVE' AND cfg."definition"->'conversation'='{"engine":"conversational-booking-v1","schemaVersion":1}'::jsonb) AS "eligible",
+      (cfg."definition"->'conversation' IS NOT NULL OR s."state"->'conversationDraft' IS NOT NULL) AS "conversational"
     FROM "Conversation" c
     JOIN "BotSession" s
       ON s."conversationId" = c."id" AND s."businessId" = c."businessId"
@@ -223,6 +227,7 @@ export async function resolveProofTarget(
      AND deployment."activeConfigurationId" IS NOT NULL
      AND deployment."legacyDispatchCoverageVersion" >= 1
      AND deployment."claimsPausedAt" IS NULL
+    JOIN "BusinessBotConfiguration" cfg ON cfg."id"=deployment."activeConfigurationId" AND cfg."businessId"=deployment."businessId"
     JOIN "BookingDeposit" deposit
       ON deposit."conversationId" = c."id" AND deposit."businessId" = c."businessId"
     JOIN "BookingVisit" visit
@@ -246,7 +251,44 @@ export async function resolveProofTarget(
     LIMIT 9
   `)
   if (rows.length === 0) return { kind: 'NONE' }
+  let validatedBinding: ReturnType<typeof parseConversationProofBinding> = null
+  if (rows.some(row => row.conversational)) {
+    const row = rows[0]!
+    if (!row.eligible || row.sessionGeneration !== row.generation) return { kind: 'NONE' }
+    if (!rows.every(candidate => candidate.conversational && candidate.sessionId === row.sessionId)) return { kind: 'AMBIGUOUS' }
+    const current = conversationProofBindingFromState(row.sessionState, { businessId: event.businessId,
+      sessionId: row.sessionId, deploymentId, generation: row.generation, configurationId: row.configurationId,
+      revision: String(row.revision), timezone: row.businessTimezone })
+    if (!current || !rows.every(candidate => candidate.groupId === current.coordinationGroupId)) return { kind: 'NONE' }
+    const bindings = await client.$queryRaw<Array<{ entityRef: unknown }>>(Prisma.sql`
+      /* conversation-proof-binding */ SELECT "entityRef" FROM "BotActionInbox"
+      WHERE "businessId"=${event.businessId} AND "providerEventId"=${event.id} AND "sessionId"=${row.sessionId}
+        AND "deploymentId"=${deploymentId} AND "deploymentGeneration"=${row.generation}
+        AND "actionType"=${CONVERSATION_PROOF_ACTION} AND "status"='PROCESSED'::"BotInboxStatus" LIMIT 2`)
+    const bound = bindings.length === 1 ? parseConversationProofBinding(bindings[0]!.entityRef) : null
+    if (!bound || !sameConversationProofBinding(current, bound) || !rows.some(candidate => candidate.depositId === bound.depositId)) return { kind: 'NONE' }
+    validatedBinding = bound
+  }
   const state=await lockCoordinatedDepositGroupForDeposit(client,{businessId:event.businessId,depositId:rows[0]!.depositId})
+  if (validatedBinding) {
+    // Financial helpers acquire business/professional agenda locks first. Only
+    // then lock and re-read the session, so a stale sidecar cannot authorize a
+    // proof after selection and lock acquisition. Keep this lock through write.
+    const fresh = await client.$queryRaw<Array<{state:unknown; revision:bigint; businessTimezone:string}>>(Prisma.sql`
+      /* conversation-proof-binding-lock */ SELECT s.state,s.revision,s."businessTimezone" FROM "BotSession" s
+      JOIN "BotChannelDeployment" d ON d.id=s."deploymentId" AND d."businessId"=s."businessId"
+      JOIN "BusinessBotConfiguration" cfg ON cfg.id=d."activeConfigurationId" AND cfg."businessId"=s."businessId"
+      WHERE s.id=${validatedBinding.sessionId} AND s."businessId"=${event.businessId}
+        AND s.status='ACTIVE'::"BotSessionStatus" AND s."deploymentId"=${deploymentId}
+        AND s."deploymentGeneration"=${validatedBinding.generation} AND d.generation=${validatedBinding.generation}
+        AND d."activeConfigurationId"=${validatedBinding.configurationId} AND d."claimsPausedAt" IS NULL
+        AND cfg.status::text='ACTIVE' AND cfg.definition->'conversation'='{"engine":"conversational-booking-v1","schemaVersion":1}'::jsonb
+      FOR SHARE OF s`)
+    const locked = fresh.length === 1 ? fresh[0]! : null
+    const current = locked && conversationProofBindingFromState(locked.state,{...validatedBinding,
+      revision:String(locked.revision),timezone:locked.businessTimezone})
+    if (!current || !sameConversationProofBinding(current,validatedBinding)) return {kind:'NONE'}
+  }
   if(state) {
     if(rows.length>8 || rows.some(r=>r.groupId!==state.group.groupId)) return {kind:'AMBIGUOUS'}
     const ids=state.group.members.flatMap(m=>m.depositId?[m.depositId]:[]).sort()
@@ -364,7 +406,7 @@ function stringField(value: unknown): string | null {
 
 function isDeclaredUnsupported(value: unknown): boolean {
   const mime = stringField(value)?.split(';')[0]?.trim().toLowerCase()
-  return mime !== undefined && mime !== null && !['image/jpeg', 'image/png', 'image/webp'].includes(mime)
+  return mime !== undefined && mime !== null && !['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mime)
 }
 
 function isRetryableTransport(error: unknown): boolean {

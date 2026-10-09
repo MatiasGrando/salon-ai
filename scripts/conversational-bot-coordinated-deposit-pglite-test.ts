@@ -16,6 +16,7 @@ import { hasAppointmentOverlap } from '../src/services/prisma-booking.js'
 import { calculateBookingDepositTerms } from '../src/services/deposit-operations.js'
 import { parseEstimateOptions, resolveServiceEstimate } from '../src/bot-options/domain/service-booking.js'
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
+import { runtimeBookingChildInput, runtimeBookingRequestHash, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
 
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
 const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
@@ -232,6 +233,101 @@ try {
   }
   const receive=(tx:Prisma.TransactionClient,r:typeof receipt,event='fixture-proof',evidence=fixtureEvidence)=>writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:r.anchorDepositId,operationKey:event,providerEventId:event,evidence})
   const stateCount=async(tx:Prisma.TransactionClient,table:string,status:string)=>(await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM ${Prisma.raw('"'+table+'"')} WHERE status::text=${status}`))[0]!.n
+  // A worker can claim expiry before the proof commits. Its later execution
+  // must still respect review state, even past the original immutable deadline.
+  async function claimExpiry(tx:Prisma.TransactionClient,depositId:string,expiresAt:string) {
+    const jobRow=(await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotJob" WHERE kind='EXPIRE_DEPOSIT' AND "aggregateId"=${depositId}`))[0]!
+    const claimedUntil=new Date(Date.parse(expiresAt)+120000)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotJob" SET status='LEASED',"leaseToken"='offline-review-claim',"leasedUntil"=${claimedUntil} WHERE id=${jobRow.id}`)
+    return {id:jobRow.id,kind:'EXPIRE_DEPOSIT' as const,aggregateId:depositId,businessId:'b',deploymentId:'dep',deploymentGeneration:2,claimToken:'offline-review-claim',queueWaitMs:0,attempts:1,maxAttempts:5,expectedRevision:null,availableAt:new Date(expiresAt),claimedUntil}
+  }
+  const expiryClient=(tx:Prisma.TransactionClient)=>({$transaction:async<T>(fn:(transaction:Prisma.TransactionClient)=>Promise<T>)=>fn(tx)})
+  async function retainGroupPastDeadline(tx:Prisma.TransactionClient,r:typeof receipt) {
+    const jobs=await Promise.all(r.members.filter(m=>m.depositId).map(m=>claimExpiry(tx,m.depositId!,r.expiresAt)))
+    await receive(tx,r)
+    testClock=new Date(Date.parse(r.expiresAt)+60000)
+    for(const job of jobs) assert.equal(await expireDepositHold(expiryClient(tx) as never,job),'INELIGIBLE','proof received before TTL must defeat an already claimed expiry')
+    assert.equal(await stateCount(tx,'BookingVisit','PENDING_PAYMENT_REVIEW'),2)
+    assert.equal(await stateCount(tx,'Appointment','PENDING'),2,'review is not premature confirmation')
+    assert.equal(await stateCount(tx,'BookingDeposit','PROOF_RECEIVED'),r.members.filter(m=>m.depositId).length)
+    assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),0)
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositExpiryAudit"`))[0]!.n,0)
+    const current=await group.lockCoordinatedDepositGroupState(tx,{businessId:'b',groupId:r.groupId})
+    assert.equal(current.currentExpiresAt.toISOString(),r.expiresAt,'receipt does not rewrite the deadline to preserve review')
+    for(const segment of segments) assert.equal(await hasAppointmentOverlap(tx,{professionalId:segment.professionalId,startAt:new Date(segment.startAt),endAt:new Date(segment.endAt)}),true,'every service remains occupied during human review')
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'approve-after-original-deadline'})
+    assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),2)
+    assert.equal(await stateCount(tx,'Appointment','CONFIRMED'),2)
+  }
+  await isolated(retainGroupPastDeadline)
+  // Runtime singular holds also have a BOT coordination UUID, but their sealed
+  // parent/child operations are HOLD_VISIT_WITH_DEPOSIT, never a multi manifest.
+  const singularBase=await input()
+  const singularTerms={...singularBase.proposal.terms,segments:[singularBase.proposal.terms.segments[0]!],totalPriceMinor:1000,
+    deposit:{...singularBase.proposal.terms.deposit,financial:calculateBookingDepositTerms({services:[{id:'s1',name:'Color',price:1000,priceMode:'FIXED',depositMode:'FIXED',depositValue:100}],businessDepositHoldMinutes:60})}}
+  const singularPresented={...singularBase.proposal,terms:singularTerms,fingerprint:canonicalJsonHash(singularTerms)}
+  const singularOrigin={...singularBase.origin,operationKey:'singular-runtime'}
+  const singularKey='conversation-booking:'+singularOrigin.operationKey+':'+singularPresented.nonce
+  const singularGroup='ffb01eab-a968-411a-80f9-32c9825e1377'
+  async function singularRuntimeFixture(tx:Prisma.TransactionClient) {
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
+      VALUES ('single-parent',${singularKey},'HOLD_VISIT_WITH_DEPOSIT','b','session','STARTED',${runtimeBookingRequestHash(singularOrigin,singularPresented)},${singularGroup},clock_timestamp())`)
+    const r=await booking.holdBookingWithDeposit(tx,runtimeBookingChildInput(singularPresented,singularKey,0,true))
+    assert.equal(r.kind,'HELD')
+    if(r.kind!=='HELD') throw Error('singular fixture must hold')
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${singularGroup} WHERE id=${r.appointmentId}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED' WHERE "operationKey"=${singularKey}`)
+    const receipt:RuntimeHeldReceipt={kind:'HELD',operationKey:singularKey,coordinationGroupId:singularGroup,proposalNonce:singularPresented.nonce,fingerprint:singularPresented.fingerprint,
+      appointments:[{segmentIndex:0,appointmentId:r.appointmentId,visitId:r.visitId}],depositId:r.depositId,amount:r.amount,expiresAt:r.expiresAt.toISOString(),depositStatus:'PENDING_PROOF'}
+    const draft={...singularBase.currentDraft,basket:{members:[singularBase.currentDraft.basket.members[0]!]},bookingReservation:{presented:singularPresented,receipt},slot:{startAt:singularTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa'}}
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({booking:'HELD',deposit:'PENDING_PROOF',handoff:'NONE',conversationDraft:{dialogue:draft}})}::jsonb WHERE id='session'`)
+    return r
+  }
+  for(const mutation of ['parent-missing','parent-type','parent-state','parent-hash','parent-session','child-hash','child-scope','child-result','second-member'] as const) {
+    await assert.rejects(db.transaction(async raw=>{
+      const tx=orm(raw),r=await singularRuntimeFixture(tx)
+      const childKey=singularKey+':segment:0:HOLD_VISIT_WITH_DEPOSIT'
+      if(mutation==='parent-missing') await tx.$executeRaw(Prisma.sql`DELETE FROM "BotOperation" WHERE "operationKey"=${singularKey}`)
+      if(mutation==='parent-type') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET type='CONFIRM_VISIT' WHERE "operationKey"=${singularKey}`)
+      if(mutation==='parent-state') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='STARTED' WHERE "operationKey"=${singularKey}`)
+      if(mutation==='parent-hash') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"='not-a-sha256' WHERE "operationKey"=${singularKey}`)
+      if(mutation==='parent-session') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "sessionId"='foreign-session' WHERE "operationKey"=${singularKey}`)
+      if(mutation==='child-hash') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"='not-a-sha256' WHERE "operationKey"=${childKey}`)
+      if(mutation==='child-scope') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "businessId"='foreign' WHERE "operationKey"=${childKey}`)
+      if(mutation==='child-result') await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "resultRef"='foreign-visit' WHERE "operationKey"=${childKey}`)
+      if(mutation==='second-member') {
+        const extra=await booking.holdBookingWithDeposit(tx,{businessId:'b',sessionId:'session',operationKey:'extra-runtime-member',newBookingAllowed:true,
+          services:[{serviceId:'s2',name:'Cut',durationMinutes:30,priceMinor:2000,priceMode:'FIXED'}],professional:{professionalId:'p2',name:'Leo',assignedByBalancer:false},
+          date:'2030-09-02',slotStartAt:'2030-09-02T15:00:00.000Z',totalDurationMinutes:30,totalPriceMinor:2000})
+        assert.equal(extra.kind,'HELD')
+        if(extra.kind!=='HELD') throw Error('extra financial fixture must hold')
+        await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${singularGroup} WHERE id=${extra.appointmentId}`)
+      }
+      await assert.rejects(writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:r.depositId,operationKey:'deny-'+mutation,providerEventId:'deny-'+mutation,evidence:fixtureEvidence}),/membership|group/)
+      assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`))[0]!.n,0,'invalid lineage must not accept evidence')
+      throw Error('rollback invalid singular fixture')
+    }),/rollback invalid singular fixture/)
+    assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0})
+  }
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw),r=await singularRuntimeFixture(tx)
+    const original=r.expiresAt.toISOString(),job=await claimExpiry(tx,r.depositId,original)
+    // Durable lineage must survive a later conversation replacing its sidecar.
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state='{}'::jsonb WHERE id='session'`)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:r.depositId,operationKey:'singular-proof',providerEventId:'singular-proof',evidence:fixtureEvidence})
+    testClock=new Date(Date.parse(original)+60000)
+    assert.equal(await expireDepositHold(expiryClient(tx) as never,job),'INELIGIBLE')
+    assert.equal(await stateCount(tx,'BookingVisit','PENDING_PAYMENT_REVIEW'),1)
+    assert.equal(await stateCount(tx,'Appointment','PENDING'),1)
+    const stored=(await tx.$queryRaw<Array<{expiresAt:Date}>>(Prisma.sql`SELECT "expiresAt" FROM "BookingDeposit" WHERE id=${r.depositId}`))[0]!
+    assert.equal(stored.expiresAt.toISOString(),original)
+    assert.equal(await hasAppointmentOverlap(tx,{professionalId:'p1',startAt:new Date(segments[0]!.startAt),endAt:new Date(segments[0]!.endAt)}),true)
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.depositId,operationKey:'singular-approve-after-ttl'})
+    assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),1)
+    throw Error('rollback singular review fixture')
+  }),/rollback singular review fixture/)
+  testClock=null
+  assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0})
   await isolated(async(tx,r)=>{
     const first=await receive(tx,r)
     assert.equal((await receive(tx,r)).outcome,'REPLAYED')
@@ -277,6 +373,18 @@ try {
     assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,6,'three proof events and three distinct review events, never permanent group-kind dedupe')
   })
   await isolated(async(tx,r)=>{
+    await receive(tx,r)
+    await rejectCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'resubmission-still-expires',rejection:{reason:'send a valid proof',mode:'RESUBMISSION_ALLOWED'}})
+    const renewed=await group.lockCoordinatedDepositGroupState(tx,{businessId:'b',groupId:r.groupId})
+    assert.equal(renewed.group.expiresAt,r.expiresAt,'original sealed deadline remains immutable')
+    assert.ok(renewed.currentExpiresAt>new Date(r.expiresAt),'only explicit rejection renews the operational submission deadline')
+    const job=await claimExpiry(tx,r.anchorDepositId,renewed.currentExpiresAt.toISOString())
+    testClock=new Date(renewed.currentExpiresAt.getTime()+60000)
+    assert.equal(await expireDepositHold(expiryClient(tx) as never,job),'EXPIRED','requesting a replacement proof must not retain indefinitely without resubmission')
+    assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),2)
+    assert.equal(await stateCount(tx,'Appointment','CANCELLED'),2)
+  })
+  await isolated(async(tx,r)=>{
     await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET status='CONFIRMED' WHERE id=${r.members[1]!.visitId}`)
     await assert.rejects(receive(tx,r),/membership|group/)
     assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`))[0]!.n,0)
@@ -301,6 +409,11 @@ try {
     assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "CashEntry"`))[0]!.n,0)
   })
   await isolated(async(tx,r)=>{
+    await tx.$executeRaw(Prisma.sql`DELETE FROM "BotOperation" WHERE "operationKey"=${r.operationKey}`)
+    await assert.rejects(receive(tx,r),/membership|group/,'a lost coordinated manifest cannot be downgraded into singular authority')
+    assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BookingDepositProof"`))[0]!.n,0)
+  })
+  await isolated(async(tx,r)=>{
     await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "resultRef"=replace("resultRef",'"amount":300','"amount":999') WHERE "operationKey"=${r.operationKey}`)
     await assert.rejects(receive(tx,r),/membership|group/)
   })
@@ -316,9 +429,14 @@ try {
     assert.equal(proof.outcome,'APPLIED')
   })
   await db.exec(`UPDATE "Service" SET "depositMode"='NONE',"depositValue"=null WHERE id='s1'`)
+  await isolated(retainGroupPastDeadline)
   await isolated(async(tx,r)=>{
     assert.equal(r.members[0]!.depositId,null)
     const event={id:'event',businessId:'b',providerMessageId:null,phoneNumberId:null,payload:{kind:'message',fromPhone:'5491112345678'}}
+    // This existing case checks legacy phone routing to a second-segment anchor.
+    // A conversational sidecar now correctly requires canonical inbox binding;
+    // that separate admission path has its own integration suite.
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state='{"booking":"HELD","deposit":"PENDING_PROOF","handoff":"NONE"}'::jsonb WHERE id='session'`)
     assert.deepEqual(await resolveProofTarget(tx,event,'dep'),{kind:'FOUND',depositId:r.anchorDepositId})
     await receive(tx,r)
     testClock=new Date(Date.parse(r.expiresAt)+60000)

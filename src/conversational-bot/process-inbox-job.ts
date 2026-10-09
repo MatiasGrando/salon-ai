@@ -1,3 +1,5 @@
+import { interpretConversationAttachment, conversationProofBindingFromState, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from './attachment-intent.js'
+import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
@@ -440,6 +442,20 @@ export async function processConversationInbox(input: {
                   actionType:'conversation.financial.reconcile',step:conversationStepForBotOptionsState(state)})
                 if(update)updates.push(update)
             }
+            if ((payload.messageType === 'image' || payload.messageType === 'document') && activeSession.deploymentGeneration === policy.generation) {
+              if (protectedRevision !== activeSession.revision) {
+                await tx.$executeRaw(Prisma.sql`UPDATE "BotActionInbox" SET "expectedRevision"=${protectedRevision}
+                  WHERE "id"=${row.id} AND "businessId"=${row.businessId} AND "sessionId"=${activeSession.sessionId}
+                    AND "status"='ADMITTED'::"BotInboxStatus"`)
+              }
+              const financialState = projectConversationDraft(updated, policy)
+              const financialSession = { ...activeSession, state: financialState, revision: protectedRevision }
+              const attachmentProofBinding = conversationProofBindingFromState(financialState, { businessId: row.businessId,
+                sessionId: activeSession.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
+                configurationId: policy.configurationId, revision: String(protectedRevision), timezone: row.businessTimezone })
+              return { row, session: financialSession, payload, phone, draft: updated, reset: false, testReset: false,
+                consolidation: null, policyReset: false, selectedChoice: null, serverManagementSnapshot, attachmentProofBinding }
+            }
           }
         } else if (parsed.state.booking === 'CANCELLED' && protectedDraft?.appointmentManagement?.outcome?.kind === 'CANCELLED') {
           protectedReply = 'El grupo de turnos fue cancelado. No inicié otra reserva.'
@@ -474,7 +490,7 @@ export async function processConversationInbox(input: {
       if (eligibleText && !runtimeManagementAllowed && !consolidation) { await retry(tx, row, true); return null }
       const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot }
+      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
@@ -506,6 +522,10 @@ export async function processConversationInbox(input: {
     }
     const computedStarted = performance.now()
     const useAi = input.conversationalAi && !snapshot.selectedChoice && !snapshot.reset && snapshot.payload.messageType === 'text'
+    const attachment = snapshot.payload.messageType === 'image' || snapshot.payload.messageType === 'document'
+      ? await interpretConversationAttachment({ state: snapshot.draft, payload: snapshot.payload,
+        proofExpected: Boolean(snapshot.attachmentProofBinding), port,
+        ...(input.conversationalAi ? { provider: input.conversationalAi.provider, timeoutMs: input.conversationalAi.timeoutMs } : {}) }) : null
     const computeChoice = async () => {
       try {return await respondConversationChoice(operationalContext,snapshot.draft,snapshot.selectedChoice!.operation,port)}
       catch(error) {
@@ -516,7 +536,7 @@ export async function processConversationInbox(input: {
     const operationalContext = { ...prepared.context, ...('serverManagementSnapshot' in snapshot && snapshot.serverManagementSnapshot ? {serverManagementSnapshot:snapshot.serverManagementSnapshot} : {}), humanHandoff: true as const, serverRuntimeBookingScope: {businessId:policy.businessId,sessionId:snapshot.session.sessionId,deploymentId:policy.deploymentId,generation:policy.generation,revision:String(snapshot.session.revision+1n),configurationId:policy.configurationId,dispatchFenceEpoch:snapshot.row.fenceEpoch,handoffFenceEpoch:snapshot.session.handoffFenceEpoch} }
     const response = await measureAttemptStage('conversation_compute', async () => snapshot.testReset ? resetTestDialogue(snapshot.draft) : snapshot.reset ? { state: snapshot.draft, reply: 'Empecemos de nuevo. ¿Qué servicio necesitás?', proposal: null }
       : snapshot.selectedChoice ? await computeChoice()
-      : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
+      : snapshot.payload.messageType !== 'text' ? { state: snapshot.draft, reply: attachment?.reply ?? 'Por ahora necesito que me escribas tu consulta en texto. Conservé lo que ya me contaste.', proposal: null }
       : useAi ? await respondWithAiInterpreter(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
       : await respond(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
     const computedAt = performance.now()
@@ -563,6 +583,35 @@ export async function processConversationInbox(input: {
             (fresh.previousTransitionId && !await supersedeConsolidationOutboxTx(tx, row.businessId, session.sessionId, fresh.previousTransitionId))) {
           await retry(tx, row, true); return 'STALE_REVISION' as const
         }
+      }
+      if (attachment?.intent === 'deposit_proof' && snapshot.attachmentProofBinding && snapshot.draft.bookingReservation) {
+        const actual = await loadRuntimeDepositReceipt(tx, { businessId: row.businessId, sessionId: session.sessionId,
+          canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }, snapshot.draft.bookingReservation)
+        const financialState = actual ? projectConversationDraft({ ...snapshot.draft,
+          bookingReservation: { ...snapshot.draft.bookingReservation, receipt: actual } }, policy) : null
+        const current = conversationProofBindingFromState(financialState, { businessId: row.businessId, sessionId: session.sessionId,
+          deploymentId: policy.deploymentId, generation: policy.generation, configurationId: policy.configurationId,
+          revision: String(session.revision), timezone: row.businessTimezone })
+        if (current && sameConversationProofBinding(current, snapshot.attachmentProofBinding)) {
+          // The provider event remains immutable. This durable inbox binding is
+          // committed with the worker job, before any media I/O or success reply.
+          const bound = await tx.$executeRaw(Prisma.sql`
+            /* conversation-proof-bind */ UPDATE "BotActionInbox" SET "actionType"=${CONVERSATION_PROOF_ACTION},
+              "entityRef"=${JSON.stringify(current)}::jsonb
+            WHERE "id"=${row.id} AND "businessId"=${row.businessId} AND "providerEventId"=${row.providerEventId}
+              AND "sessionId"=${session.sessionId} AND "expectedRevision"=${session.revision}
+              AND "status"='ADMITTED'::"BotInboxStatus"`)
+          if (bound !== 1) throw new Error('conversation proof binding lost its inbox fence')
+          await upsertJob(tx, 'RECEIVE_DEPOSIT_PROOF', row.providerEventId, row.businessId, row.deploymentId, row.generation, session.revision, 'immediate')
+          await finish(tx, row)
+          return 'PROCESSED' as const
+        }
+        // No receipt or changed obligation: do not download or acknowledge proof.
+        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+          transitionId: 'attachment-target-changed:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
+          view: textView('No pude vincular ese archivo a la seña vigente. No registré un pago; el equipo puede ayudarte a revisarlo.') })
+        await finish(tx, row)
+        return 'PROCESSED' as const
       }
       const proposedHandoff = 'handoffCommand' in response ? response.handoffCommand : undefined
       // A failed AI interpretation may reconstruct literal operations through fallback.

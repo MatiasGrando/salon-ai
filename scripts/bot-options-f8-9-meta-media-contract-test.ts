@@ -14,8 +14,15 @@ const accepted = await downloadMetaDepositProof({ mediaId: 'media-1', accessToke
 assert.deepEqual(accepted.data, jpeg)
 assert.equal(accepted.mimeType, 'image/jpeg')
 
+const pdf = Buffer.from('%PDF-1.7\n%%EOF\n')
+const pdfDownload = await downloadMetaDepositProof({ mediaId: 'pdf', accessToken: 'token', fetch: async (url) => url.startsWith('https://lookaside.fbsbx.com/')
+  ? { ok: true, headers: headers({ 'content-type': 'application/pdf', 'content-length': String(pdf.length) }), body: stream([pdf]) }
+  : { ok: true, headers: headers(), body: null, json: async () => ({ url: 'https://lookaside.fbsbx.com/pdf', mime_type: 'application/pdf', file_size: pdf.length }) }
+})
+assert.equal(pdfDownload.mimeType, 'application/pdf', 'PDF transport reaches separate structural validation')
+assert.deepEqual(pdfDownload.data, pdf)
 await assert.rejects(
-  () => downloadMetaDepositProof({ mediaId: 'pdf', accessToken: 'token', fetch: async () => ({ ok: true, headers: headers(), body: null, json: async () => ({ url: 'https://cdn.example/pdf', mime_type: 'application/pdf', file_size: 1 }) }) }),
+  () => downloadMetaDepositProof({ mediaId: 'office', accessToken: 'token', fetch: async () => ({ ok: true, headers: headers(), body: null, json: async () => ({ url: 'https://lookaside.fbsbx.com/document', mime_type: 'application/msword', file_size: 1 }) }) }),
   (error: unknown) => error instanceof MetaDepositMediaError && error.code === 'UNSUPPORTED_MEDIA_TYPE'
 )
 for (const maliciousUrl of ['https://attacker.example/collect', 'http://lookaside.fbsbx.com/whatsapp_business/attachments/insecure']) {
@@ -46,6 +53,10 @@ await assert.rejects(
   () => downloadMetaDepositProof({ mediaId: 'large', accessToken: 'token', fetch: async () => ({ ok: true, headers: headers(), body: null, json: async () => ({ url: 'https://cdn.example/large', mime_type: 'image/png', file_size: DEPOSIT_PROOF_MAX_BYTES + 1 }) }) }),
   (error: unknown) => error instanceof MetaDepositMediaError && error.code === 'TOO_LARGE'
 )
+const invalidProof = renderDepositNotification('INVALID_PROOF')
+assert.match(invalidProof.body, /JPEG, PNG o WebP, o PDF de hasta 3 MB/)
+assert.match(invalidProof.body, /Si el PDF no se puede procesar, enviá una captura/)
+assert.doesNotMatch(invalidProof.body, /ObjStm|XRef|antivirus|garantiz/i)
 const safe = renderDepositNotification('LATE_PROOF')
 assert.equal(safe.type, 'informative_text')
 assert.match(safe.body, /no se reabre automáticamente/)
@@ -75,4 +86,4 @@ assert.equal(parseDirectNotificationRecovery(extraField), null, 'recovery parser
 const noncanonical = `direct:v1:${Buffer.from(JSON.stringify({ kind: 'EXPIRED', v: 1, sourceId: 'source', depositId: 'deposit' })).toString('base64url')}`
 assert.equal(isDirectNotificationRecoveryAggregate(noncanonical), true)
 assert.equal(parseDirectNotificationRecovery(noncanonical), null, 'recovery parser rejects valid-shaped but noncanonical serialization')
-console.log('OK F8.9 pure: allowlisted HTTPS Meta download, URL/token exfiltration rejection, metadata/stream limits, PDF/timeout rejection, and redacted durable notification content.')
+console.log('OK F8.9 pure: allowlisted HTTPS Meta download, URL/token exfiltration rejection, metadata/stream limits, unsupported document/timeout rejection, and redacted durable notification content.')

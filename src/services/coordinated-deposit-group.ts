@@ -149,11 +149,59 @@ async function lockCoordinatedDepositGroupForMember(tx:Prisma.TransactionClient,
     return state
   }
   const rows=key==='depositId'
-    ? await tx.$queryRaw<Array<{groupId:string|null;origin:string}>>(Prisma.sql`SELECT a."coordinationGroupId" AS "groupId",a.origin FROM "BookingDeposit" d JOIN "Appointment" a ON a.id=d."appointmentId" AND a."businessId"=d."businessId" WHERE d.id=${id} AND d."businessId"=${businessId}`)
-    : await tx.$queryRaw<Array<{groupId:string|null;origin:string}>>(Prisma.sql`SELECT "coordinationGroupId" AS "groupId",origin FROM "Appointment" WHERE id=${id} AND "businessId"=${businessId}`)
-  if(rows.some(row=>row.origin==='BOT' && row.groupId)) fail()
-  return null // Only truly unrelated single/legacy aggregates retain singular behavior.
+    ? await tx.$queryRaw<Array<{groupId:string|null;origin:string;professionalId:string}>>(Prisma.sql`SELECT a."coordinationGroupId" AS "groupId",a.origin,a."professionalId" FROM "BookingDeposit" d JOIN "Appointment" a ON a.id=d."appointmentId" AND a."businessId"=d."businessId" WHERE d.id=${id} AND d."businessId"=${businessId}`)
+    : await tx.$queryRaw<Array<{groupId:string|null;origin:string;professionalId:string}>>(Prisma.sql`SELECT "coordinationGroupId" AS "groupId",origin,"professionalId" FROM "Appointment" WHERE id=${id} AND "businessId"=${businessId}`)
+  if(rows.some(row=>row.origin==='BOT' && row.groupId)) {
+    if(rows.length!==1) fail()
+    await assertRuntimeSingularDeposit(tx,{businessId,key,id,groupId:rows[0]!.groupId!,professionalId:rows[0]!.professionalId})
+  }
+  return null // Validated runtime singular and unrelated single/legacy aggregates use their own lifecycle.
 }
+
+/** Runtime singular holds use a coordination UUID too, but NOT a coordinated
+ * manifest. Verify their durable parent/child lineage without relying on a
+ * conversation sidecar that may disappear after payment or a later conversation.
+ * The parent stores no proposal: hashes are checked for format, not falsely
+ * described as recomputed here. The singular lifecycle retains snapshot/state guards.
+ */
+async function assertRuntimeSingularDeposit(tx:Prisma.TransactionClient,target:{businessId:string;key:'depositId'|'appointmentId';id:string;groupId:string;professionalId:string}) {
+  const {businessId,groupId}=target
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(groupId) || !text(target.professionalId)) fail()
+  await acquireAgendaHierarchy(tx,{businessId,professionalIds:[target.professionalId]})
+  // No tenant/member filters: a second or foreign member invalidates singular authority.
+  const members=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."visitId",
+      v."businessId" AS "visitBusinessId",v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",
+      d.id AS "depositId",d."businessId" AS "depositBusinessId",d."visitId" AS "depositVisitId",d."conversationId",d.source
+    FROM "Appointment" a LEFT JOIN "BookingVisit" v ON v.id=a."visitId" LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
+    WHERE a."coordinationGroupId"=${groupId} ORDER BY a.id`)
+  if(members.length!==1) fail()
+  const member=members[0]!
+  if(member.origin!=='BOT' || member.businessId!==businessId || member.visitBusinessId!==businessId || member.depositBusinessId!==businessId ||
+      ![member.appointmentId,member.visitId,member.depositId,member.customerId,member.sessionId,member.conversationId].every(v=>text(v)) ||
+      member.customerId!==member.visitCustomerId || member.professionalId!==target.professionalId || member.visitProfessionalId!==target.professionalId ||
+      member.depositVisitId!==member.visitId || member.source!=='WHATSAPP' || member[target.key]!==target.id) fail()
+  const owners=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT s.id FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+    JOIN "Customer" customer ON customer.id=${member.customerId} AND customer."businessId"=s."businessId"
+    JOIN "Professional" p ON p.id=${target.professionalId} AND p."businessId"=s."businessId"
+    WHERE s.id=${member.sessionId} AND s."businessId"=${businessId} AND c.id=${member.conversationId}
+      AND customer."normalizedPhone"=regexp_replace(c.phone,'[^0-9]','','g') FOR SHARE OF s,c,customer,p`)
+  if(owners.length!==1) fail()
+  const parents=await tx.$queryRaw<Array<{operationKey:string;sessionId:string;requestHash:string;status:string}>>(Prisma.sql`
+    SELECT "operationKey","sessionId","requestHash",status FROM "BotOperation"
+    WHERE "businessId"=${businessId} AND type='HOLD_VISIT_WITH_DEPOSIT' AND "resultRef"=${groupId} FOR UPDATE`)
+  const parent=parents[0]
+  if(parents.length!==1 || !parent || parent.status!=='COMPLETED' || parent.sessionId!==member.sessionId || !text(parent.operationKey,256) ||
+      !parent.operationKey.startsWith('conversation-booking:') || !/^[a-f0-9]{64}$/.test(parent.requestHash)) fail()
+  const children=await tx.$queryRaw<Array<{businessId:string;sessionId:string;requestHash:string;status:string;type:string;resultRef:string}>>(Prisma.sql`
+    SELECT "businessId","sessionId","requestHash",status,type,"resultRef" FROM "BotOperation"
+    WHERE "operationKey"=${parent.operationKey+':segment:0:HOLD_VISIT_WITH_DEPOSIT'} FOR UPDATE`)
+  const child=children[0]
+  if(children.length!==1 || !child || child.businessId!==businessId || child.sessionId!==member.sessionId || child.status!=='COMPLETED' ||
+      child.type!=='HOLD_VISIT_WITH_DEPOSIT' || child.resultRef!==member.visitId || !/^[a-f0-9]{64}$/.test(child.requestHash)) fail()
+}
+
 
 export async function lockCoordinatedDepositGroup(tx: Prisma.TransactionClient, target: { businessId: string; groupId: string }): Promise<CoordinatedDepositGroup> {
   const state=await lockCoordinatedDepositGroupState(tx,target)

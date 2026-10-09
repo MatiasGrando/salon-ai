@@ -1,7 +1,7 @@
 import { DEPOSIT_PROOF_MAX_BYTES } from '../../services/deposit-proof-image-validation.js'
 
 export const META_DEPOSIT_MEDIA_TIMEOUT_MS = 8_000
-export const META_DEPOSIT_MEDIA_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+export const META_DEPOSIT_MEDIA_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
 export const META_DEPOSIT_MEDIA_DOWNLOAD_HOSTS = new Set(['lookaside.fbsbx.com'])
 
 export type MetaDepositMediaErrorCode = 'METADATA_UNAVAILABLE' | 'UNSAFE_DOWNLOAD_URL' | 'UNSUPPORTED_MEDIA_TYPE' | 'TOO_LARGE' | 'DOWNLOAD_FAILED' | 'DOWNLOAD_TIMEOUT' | 'DECLARED_SIZE_MISMATCH'
@@ -25,7 +25,7 @@ export async function downloadMetaDepositProof(input: {
   fetch: MetaMediaHttp
   apiBaseUrl?: string
   timeoutMs?: number
-}): Promise<{ data: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' }> {
+}): Promise<{ data: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf' }> {
   if (!input.mediaId.trim() || !input.accessToken.trim()) throw new MetaDepositMediaError('METADATA_UNAVAILABLE')
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? META_DEPOSIT_MEDIA_TIMEOUT_MS)
@@ -59,7 +59,7 @@ export async function downloadMetaDepositProof(input: {
       chunks.push(Buffer.from(part))
     }
     if (declared !== null && declared !== total) throw new MetaDepositMediaError('DECLARED_SIZE_MISMATCH')
-    return { data: Buffer.concat(chunks, total), mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' }
+    return { data: Buffer.concat(chunks, total), mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf' }
   } catch (error) {
     if (error instanceof MetaDepositMediaError) throw error
     if (controller.signal.aborted) throw new MetaDepositMediaError('DOWNLOAD_TIMEOUT')

@@ -5,7 +5,7 @@ export const DEPOSIT_NOTIFICATION_TEXT = {
   RESUBMISSION: 'Revisamos el comprobante y necesitamos que envíes uno nuevo. El horario sigue reservado por un tiempo limitado.',
   FINAL_REJECTION: 'No pudimos validar el comprobante y el horario fue liberado. Si necesitás ayuda, escribinos por acá.',
   LATE_PROOF: 'Recibimos tu comprobante después del vencimiento. El horario no se reabre automáticamente; el equipo va a revisarlo y te responderá por acá.',
-  INVALID_PROOF: 'No pudimos aceptar ese archivo como comprobante. Enviá una imagen JPEG, PNG o WebP de hasta 3 MB.',
+  INVALID_PROOF: 'No pudimos aceptar ese archivo como comprobante. Enviá una imagen JPEG, PNG o WebP, o PDF de hasta 3 MB. Si el PDF no se puede procesar, enviá una captura.',
   PROOF_UNAVAILABLE: 'No pudimos procesar el comprobante en este momento. Por favor, volvé a enviarlo más tarde.'
 } as const
 

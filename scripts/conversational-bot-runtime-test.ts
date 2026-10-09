@@ -828,7 +828,32 @@ runtime.next('que servicios hay'); await runtime.run()
 assert.deepEqual((runtime.session.state as typeof projected).conversationDraft.dialogue, beforeInfo)
 runtime.next('', 'image'); await runtime.run()
 assert.deepEqual((runtime.session.state as typeof projected).conversationDraft.dialogue, beforeInfo)
-assert.match(runtime.replies.at(-1)!, /texto/)
+assert.match(runtime.replies.at(-1)!, /Recibí tu archivo, pero no analicé su contenido/, 'no-AI attachment fallback is honest and asks its purpose')
+
+// P16: an attachment is a conversational event, not evidence of payment.
+// Only bounded metadata and its caption may enter the existing interpreter.
+for (const [type, caption] of [['image', 'este es el color que quiero'], ['document', 'te paso una referencia'], ['image', '']] as const) {
+  const attachmentRuntime = runtimeFixture()
+  await attachmentRuntime.run()
+  const beforeAttachment = structuredClone(readConversationDraft(attachmentRuntime.session.state, policy, 'UTC'))
+  attachmentRuntime.next(caption, type)
+  Object.assign(attachmentRuntime.row.payload, { mediaId: 'PRIVATE_MEDIA_ID', mediaMimeType: type === 'image' ? 'image/jpeg' : 'application/pdf', filename: 'PRIVATE_CUSTOMER_FILE.pdf' })
+  const inputs: unknown[] = []
+  const provider: AiInterpretationProvider = async input => {
+    attachmentRuntime.assertOutside()
+    inputs.push(input)
+    return { ...runtimeCandidate(), attachmentIntent: caption ? 'service_reference' : 'unclear' }
+  }
+  await attachmentRuntime.run('PROCESS_INBOX', { provider, timeoutMs: 1000 })
+  assert.equal(inputs.length, 1, 'P16 non-financial media must use one contextual AI interpretation, not the text-only rejection')
+  const input = inputs[0] as { message: string; attachment?: { messageType: string; mimeType: string | null; proofExpected: boolean } }
+  assert.equal(input.attachment?.messageType, type)
+  assert.equal(input.attachment?.proofExpected, false, 'an arbitrary attachment cannot acquire a payment target')
+  assert.doesNotMatch(JSON.stringify(input), /PRIVATE_MEDIA_ID|PRIVATE_CUSTOMER_FILE|https:\/\//, 'no attachment identifier, filename or download URL is sent to AI')
+  assert.deepEqual(readConversationDraft(attachmentRuntime.session.state, policy, 'UTC'), beforeAttachment, 'non-financial attachment must retain the booking draft')
+  assert.doesNotMatch(attachmentRuntime.replies.at(-1)!, /necesito que me escribas.*texto|comprobante recibido|pago aprobado/i)
+  assert.ok(!attachmentRuntime.statements.some(q => q.values.includes('RECEIVE_DEPOSIT_PROOF')), 'service references cannot enqueue financial mutations')
+}
 runtime.next('/reiniciar'); await runtime.run()
 assert.deepEqual(runtime.session.state, createInitialBotOptionsState(), 'restart removes the sidecar')
 runtime.next('hola'); await runtime.run()
@@ -890,6 +915,45 @@ financialRuntime.session.state=projectConversationDraft({...initialDialogueState
 financialRead.lines=financialTerms.deposit!.financial.lines
 financialRead.items=[{serviceId:'cut',sortOrder:0,durationMinutes:30,price:1000}]
 financialRead.rows=[{appointmentId:'appointment',visitId:'visit',serviceId:'cut',professionalId:'p1',startAt:financialTerms.segments[0]!.startAt,duration:30,quotedPrice:1000,appointmentStatus:'CONFIRMED',visitStatus:'CONFIRMED',scheduledStartAt:financialTerms.segments[0]!.startAt,visitDuration:30,visitPrice:1000,depositId:'deposit',amount:100,expiresAt:financialReceipt.expiresAt,depositStatus:'APPROVED',holdTtlMinutes:60,holdTtlProvenance:'BUSINESS_POLICY',snapshotSealedAt:new Date(),businessAddress:'Calle ficticia 123',parentHash:runtimeBookingRequestHash({kind:'RUNTIME',...financialScope,revision:financialRuntime.session.revision,canonicalPhone:'5491112345678',operationKey:'read',newBookingAllowed:false},financialPresented),childHash:runtimeBookingChildRequestHash(runtimeBookingChildInput(financialPresented,financialReceipt.operationKey,0,false),true)}]
+// P16 public worker: the bound financial job is produced without falsely
+// acknowledging a received proof. The proof worker owns validation and the ack.
+const approvedFinancialRows = structuredClone(financialRead.rows)
+for (const [type,mime] of [['image','image/jpeg'],['document','application/pdf'],['document','image/png']] as const) {
+  financialRead.rows = approvedFinancialRows.map(row => ({...row,appointmentStatus:'PENDING',visitStatus:'HELD',depositStatus:'PENDING_PROOF'}))
+  financialRuntime.next('',type)
+  Object.assign(financialRuntime.row.payload,{mediaId:'PRIVATE_PROOF_ID',mediaMimeType:mime,filename:'PRIVATE_BANK_FILE'})
+  let calls=0
+  const replyCount=financialRuntime.replies.length
+  const jobsBefore=financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length
+  await financialRuntime.run('PROCESS_INBOX',{provider:async input=>{
+    calls++
+    assert.equal((input as {attachment?:{proofExpected:boolean}}).attachment?.proofExpected,true)
+    assert.doesNotMatch(JSON.stringify(input),/PRIVATE_PROOF_ID|PRIVATE_BANK_FILE/)
+    return {...runtimeCandidate(),attachmentIntent:'deposit_proof'}
+  },timeoutMs:1000})
+  assert.equal(calls,1)
+  assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,jobsBefore+1)
+  assert.equal(financialRuntime.replies.length,replyCount,'no proof success or payment confirmation precedes durable validation')
+  const bindingSql=financialRuntime.statements.filter(q=>q.sql.includes('conversation-proof-bind')).at(-1)!
+  const binding=JSON.parse(bindingSql.values.find(v=>typeof v==='string'&&v.startsWith('{')) as string)
+  assert.equal(binding.depositId,'deposit')
+  assert.equal(binding.sessionId,financialRuntime.session.sessionId)
+  assert.equal(binding.proposalNonce,financialPresented.nonce)
+  assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'PENDING_PROOF')
+}
+// Context beats an available financial target: a color reference remains non-financial.
+const proofJobCount=financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length
+financialRuntime.next('este es el color que quiero','image')
+await financialRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandidate(),attachmentIntent:'service_reference'}),timeoutMs:1000})
+assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,proofJobCount)
+assert.match(financialRuntime.replies.at(-1)!,/referencia/)
+assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'PENDING_PROOF')
+financialRuntime.next('','image')
+await financialRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandidate(),attachmentIntent:'unclear'}),timeoutMs:1000})
+assert.match(financialRuntime.replies.at(-1)!,/reenviá el comprobante/, 'ambiguous attachment has an actionable next step, not an unbound yes loop')
+assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,proofJobCount)
+financialRead.rows=approvedFinancialRows
+console.log('P16 contextual image/document proof binding, privacy, one AI call and no premature ack: PASS')
 const protectedBefore=structuredClone(financialRuntime.session)
 financialRuntime.next('/reset');await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('financial reset cannot call AI')},timeoutMs:10})
 assert.deepEqual(financialRuntime.session,protectedBefore,'financial obligation cannot be reset even with empty outbox/complete operation')
