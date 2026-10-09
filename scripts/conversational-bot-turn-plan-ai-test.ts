@@ -483,12 +483,16 @@ const pRejectedDuration = await say(pDurationBody, plan(operation('information',
   pFocused, 'information', { acts: [{ kind: 'inquiry', field: 'service', evidence: '¿qué duración tiene?',
     operationIndexes: [0], mention: 'Corte hombre' }] })
 assert.equal(pRejectedDuration.response.interpretation.reason, 'invalid_output')
-assert.match(pRejectedDuration.response.reply, /30 min(?:utos)?/); assert.doesNotMatch(pRejectedDuration.response.reply, /\$ ?100|precio[^\n]*100/)
-assert.equal(pRejectedDuration.response.state.informationFocus?.aspect, 'duration')
-assert.equal(pRejectedDuration.calls, 1); assert.equal(pRejectedDuration.availabilityCalls, 0)
+assert.match(pRejectedDuration.response.reply, /problema.*procesar/i)
+assert.doesNotMatch(pRejectedDuration.response.reply, /30 min|\$ ?100|precio[^\n]*100/)
+assert.deepEqual(pRejectedDuration.response.state, pFocused, 'a fully rejected semantic turn cannot independently reinterpret its information dimension')
+assert.equal(pRejectedDuration.calls, 2); assert.equal(pRejectedDuration.availabilityCalls, 0)
+assert.deepEqual(pRejectedDuration.response.interpretation.interpretationAttempts?.map(attempt => attempt.reason), ['invalid_output', 'invalid_output'])
 assert.equal(pRejectedDuration.response.bookingCommand, undefined)
+assert.equal(pRejectedDuration.response.handoffCommand, undefined)
+assert.equal(pRejectedDuration.response.managementCommand, undefined)
 assert.ok(!JSON.stringify(request!.text.format.schema).includes('rejectedInformation'), 'denial provenance never enters provider schema')
-console.log('P original rejection / independent actual dimension / same-call schema: PASS')
+console.log('P rejected interpretation / preserved informative focus / same schema: PASS')
 
 // V uses the real provider instruction seam, without executing a model or changing the schema.
 await http({ message: '17 en adelante', state: initialDialogueState('tenant'), services }, new AbortController().signal)

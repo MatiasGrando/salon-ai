@@ -1976,7 +1976,8 @@ try {
     assert.equal(after.date,draftBefore.date)
     assert.deepEqual(after.basket,draftBefore.basket)
     assert.doesNotMatch(denied.replies.at(-1)!,/quedó en cola|ya.*envi/i)
-    assert.match(denied.replies.at(-1)!,/consultar al equipo/i)
+    assert.deepEqual(after,draftBefore,'failed interpretation retains the full draft and referral without reconstructing consent')
+    assert.match(denied.replies.at(-1)!,/problema.*procesar/i)
     assert.equal(denied.singularAgendaCalls+denied.basketAgendaCalls,0)
   }
   const rollback = await freshConsent()
@@ -2266,3 +2267,37 @@ try {
 
   console.log('runtime actual F7 ALL visits + caller CAS/outbox + second-child/caller rollback + confirmed acknowledgement: PASS')
 }finally{await bookingDb.close()}
+
+// P21: a rejected interpretation can be repaired once without reinterpreting through the motor.
+for (const repaired of [false, true]) {
+  const recoveryRuntime = runtimeFixture()
+  await recoveryRuntime.run()
+  const settledBefore = recoveryRuntime.settled
+  recoveryRuntime.next('hola que tal soy Rafael\nqueria hacerme mechas')
+  const before = structuredClone(readConversationDraft(recoveryRuntime.session.state, policy, 'UTC'))
+  const traces: Record<string, unknown>[] = []
+  let count = 0
+  await recoveryRuntime.run('PROCESS_INBOX', {
+    provider: async input => {
+      recoveryRuntime.assertOutside(); count++
+      if (count === 1 || !repaired) return { intent: 'booking', serviceId: 'PRIVATE_UNKNOWN_ID',
+        serviceEvidence: 'mechas', professionalMention: null }
+      const { repairFeedback, ...retry } = input as typeof input & { repairFeedback?: unknown }
+      assert.deepEqual(repairFeedback, { reason: 'service_not_in_catalog' })
+      assert.equal(retry.message, 'hola que tal soy Rafael\nqueria hacerme mechas')
+      return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }
+    },
+    timeoutMs: 1000,
+    onDiagnostic: value => { assert.equal(recoveryRuntime.settled, settledBefore + 1); traces.push(value as unknown as Record<string, unknown>) }
+  })
+  assert.equal(count, 2); assert.equal(traces[0]!.aiCalls, 2)
+  const attempts = traces[0]!.interpretationAttempts as Array<{ reason: string | null; validation: { outcome: string } }>
+  assert.equal(attempts.length, 2)
+  assert.deepEqual(attempts.map(attempt => attempt.reason), ['invalid_output', repaired ? null : 'invalid_output'])
+  assert.doesNotMatch(JSON.stringify(attempts), /PRIVATE_|Rafael|mechas|serviceIds|confidence|phone|raw/)
+  if (!repaired) assert.deepEqual(readConversationDraft(recoveryRuntime.session.state, policy, 'UTC'), before,
+    'terminal rejection preserves full draft; no fallback acquisition or contaminated name')
+  assert.equal(recoveryRuntime.singularAgendaCalls + recoveryRuntime.basketAgendaCalls, 0)
+  assert.ok(!recoveryRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)))
+}
+console.log('P21 repaired/failed interpretation transport, privacy and no independent mutations: PASS')

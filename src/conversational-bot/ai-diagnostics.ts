@@ -120,6 +120,36 @@ export function summarizeValidation(proposal: ProposalSummary, accepted: boolean
     ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause } : {}) } } : {})
   }
 }
+export type InterpretationRepairFeedback = { reason: ValidationReason; cause?: TurnPlanValidationCause }
+export type InterpretationAttemptDiagnostic = {
+  reason: 'invalid_output' | 'timeout' | 'provider_error' | null
+  providerMs: number; validationMs: number; validation: ValidationSummary
+}
+/** Model repair receives validator codes only, never a rejected model body or arbitrary exception. */
+export function summarizeInterpretationRepairFeedback(value: unknown): InterpretationRepairFeedback | undefined {
+  const reason = dataField(value, 'reason'), cause = dataField(value, 'cause')
+  if (!Object.values(reasonByMessage).includes(reason as ValidationReason)) return undefined
+  if (cause !== undefined && (reason !== 'turn_plan' || !['evidence','shape','catalog','conflict','estimate'].includes(cause as string))) return undefined
+  return { reason: reason as ValidationReason, ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }) }
+}
+/** Bounded own-data projection for at most two actual interpretations. */
+export function summarizeInterpretationAttemptsDiagnostic(value: unknown): InterpretationAttemptDiagnostic[] | undefined {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 2) return undefined
+  const result: InterpretationAttemptDiagnostic[] = []
+  for (let index = 0; index < value.length; index++) {
+    const item = Object.getOwnPropertyDescriptor(value, String(index))?.value
+    const reason = dataField(item, 'reason'), providerMs = dataField(item, 'providerMs'), validationMs = dataField(item, 'validationMs')
+    const validation = summarizeValidationDiagnostic(dataField(item, 'validation'))
+    if (![null,'invalid_output','timeout','provider_error'].includes(reason as string | null) || !validation ||
+        typeof providerMs !== 'number' || !Number.isFinite(providerMs) || providerMs < 0 ||
+        typeof validationMs !== 'number' || !Number.isFinite(validationMs) || validationMs < 0 ||
+        validation.outcome !== (reason === null ? 'accepted' : reason === 'invalid_output' ? 'rejected' : 'not_run')) return undefined
+    result.push({ reason: reason as InterpretationAttemptDiagnostic['reason'], providerMs: Math.min(providerMs, 60000),
+      validationMs: Math.min(validationMs, 60000), validation })
+  }
+  return result
+}
+
 /** Public diagnostic boundary: copy only closed own data, never model text, IDs or accessors. */
 export function summarizeValidationDiagnostic(value: unknown): ValidationSummary | undefined {
   try {

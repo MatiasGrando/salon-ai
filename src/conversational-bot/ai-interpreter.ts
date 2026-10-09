@@ -17,7 +17,7 @@ import { localDateKey } from '../bot-options/application/availability-queries.js
 import { readAiUsage, type AiUsage } from './ai-usage.js'
 import { resolveConversationalAiTimeoutMs } from './ai-timeout.js'
 import { providerFailure, type ProviderFailure } from './provider-error.js'
-import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
+import { summarizeAvailability, summarizeProposal, summarizeValidation, summarizeState, type InterpretationAttemptDiagnostic, type InterpretationRepairFeedback, type ProposalSummary, type ValidationSummary, type StateSummary } from './ai-diagnostics.js'
 import { routeActions } from './actions.js'
 import { parseTurnPlan, parseTurnPlanStructure, TurnPlanValidationError, type TurnPlan, type TurnOperation } from './turn-plan.js'
 import { groundServicePlan, serviceEvidenceMeaning } from './service-evidence-grounding.js'
@@ -29,13 +29,13 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
+export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
 export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
   proposedIntent: Candidate['intent'] | 'unknown'
-  acceptedAction: 'select_service' | 'clarify_service' | 'no_service_change' | 'information_read' | 'pending_action_unavailable' | 'booking_proposal' | 'turn_plan_routed' | 'deterministic_fallback'
+  acceptedAction: 'select_service' | 'clarify_service' | 'no_service_change' | 'information_read' | 'pending_action_unavailable' | 'booking_proposal' | 'turn_plan_routed' | 'deterministic_fallback' | 'preserve_after_failure'
   candidateCount: number
   pendingBefore: DialogueState['pending']
   pendingAfter: DialogueState['pending']
@@ -56,6 +56,7 @@ export type InterpretationDiagnostics = {
   deliveryOrigin?: 'forced' | 'prepared' | 'validated_framing' | 'validated_canonical' | 'server_fallback'
   copyMode: 'ai' | 'prepared' | 'fallback'
   copyReason: 'missing_draft' | 'unsafe_draft' | 'canonical_only' | 'response_error' | 'response_timeout' | 'invalid_response' | null
+  interpretationAttempts?: readonly InterpretationAttemptDiagnostic[]
   proposal?: ProposalSummary
   validation?: ValidationSummary
   stateBefore?: StateSummary
@@ -394,35 +395,72 @@ export async function respondWithAiInterpreter(
   const temporalDate = prospectiveMessageDate(message,state.date,businessDate)
   const commercialProof = temporalDate && candidateTimes?.length === 2 ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
-  const controller = new AbortController()
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let raw: unknown
+  const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
+    ...(personality ? { personality } : {}), ...(commercialProof ? { businessTimeContext: commercialProof } : {}),
+    expectedAnswer: expectedDialogueAnswer(state), businessDate, timezone: context.timezone,
+    replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
+    intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }
+  let raw: unknown, validationError: unknown, candidate: Candidate | null = null
   let reason: InterpretationDiagnostics['reason'] = null
   let interpretationProviderError: ProviderFailure | null = null
-  const providerStarted = performance.now()
-  try {
-    raw = await Promise.race([
-      provider({ message, state, services, ...(personality ? { personality } : {}), ...(commercialProof?{businessTimeContext:commercialProof}:{}), expectedAnswer: expectedDialogueAnswer(state), businessDate: localDateKey(context.dbNow, context.timezone), timezone: context.timezone, replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []), intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }, controller.signal),
-      new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
-    ])
-  } catch (error) {
-    reason = controller.signal.aborted ? 'timeout' : 'provider_error'
-    interpretationProviderError = controller.signal.aborted
-      ? { code: 'timeout', httpStatus: null, requestId: null } : providerFailure(error)
-  } finally { clearTimeout(timer) }
-  const providerAt = performance.now()
-  let candidate: Candidate | null = null
-  let validationError: unknown
-  if (!reason) {
-    try { candidate = validateCandidate(raw, message, services, temporalState, context, commercialRead) }
-    catch (error) { validationError = error; reason = 'invalid_output' }
+  const interpretationAttempts: InterpretationAttemptDiagnostic[] = []
+  let repairFeedback: InterpretationRepairFeedback | undefined
+  const interpretationUsage: AiUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, reasoningTokens: 0 }
+  let hasInterpretationUsage = false
+  for (let index = 0; index < 2; index++) {
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    raw = undefined; candidate = null; validationError = undefined; interpretationProviderError = null; reason = null
+    const providerStarted = performance.now()
+    try {
+      raw = await Promise.race([
+        provider({ ...structuredClone(interpretationInput), ...(repairFeedback ? { repairFeedback } : {}) }, controller.signal),
+        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('interpreter timeout')) }, timeoutMs) })
+      ])
+    } catch (error) {
+      reason = controller.signal.aborted ? 'timeout' : 'provider_error'
+      interpretationProviderError = controller.signal.aborted
+        ? { code: 'timeout', httpStatus: null, requestId: null } : providerFailure(error)
+    } finally { if (timer) clearTimeout(timer) }
+    const providerMs = ms(performance.now() - providerStarted), validationStarted = performance.now()
+    if (!reason) {
+      try { candidate = validateCandidate(raw, message, services, temporalState, context, commercialRead) }
+      catch (error) { validationError = error; reason = 'invalid_output' }
+    }
+    const attemptUsage = readAiUsage(raw)
+    if (attemptUsage) {
+      hasInterpretationUsage = true
+      interpretationUsage.inputTokens += attemptUsage.inputTokens
+      interpretationUsage.outputTokens += attemptUsage.outputTokens
+      interpretationUsage.cachedInputTokens += attemptUsage.cachedInputTokens
+      interpretationUsage.reasoningTokens += attemptUsage.reasoningTokens
+    }
+    const attemptValidation = summarizeValidation(summarizeProposal(raw), candidate !== null, validationError, interpretationProviderError === null)
+    interpretationAttempts.push({ reason, providerMs, validationMs: ms(performance.now() - validationStarted), validation: attemptValidation })
+    if (reason !== 'invalid_output' || index === 1) break
+    // The rejected output carries no authority and is never passed back as conversation context.
+    repairFeedback = { reason: attemptValidation.reason!,
+      ...(attemptValidation.turnPlan?.cause ? { cause: attemptValidation.turnPlan.cause } : {}) }
   }
   const proposal = summarizeProposal(raw)
-  const validation = summarizeValidation(proposal, candidate !== null, validationError, interpretationProviderError === null)
+  const validation = interpretationAttempts.at(-1)!.validation
   if (candidate?.temporalGrounding && validation.turnPlan) {
     validation.turnPlan.validationAcceptedKinds = [...new Set(candidate.turnPlan?.operations.map(operation => operation.kind) ?? [])]
   }
-  const validationAt = performance.now()
+  const interpretationMs = ms(interpretationAttempts.reduce((sum, attempt) => sum + attempt.providerMs, 0))
+  const interpretationValidationMs = ms(interpretationAttempts.reduce((sum, attempt) => sum + attempt.validationMs, 0))
+  if (reason) {
+    // No deterministic reinterpretation, partial acquisition, introduction mutation or financial command after a failed semantic turn.
+    return { state: structuredClone(state), proposal: null,
+      reply: 'Tuve un problema al procesar tu mensaje. Conservé los datos que ya teníamos; podés intentar nuevamente.',
+      interpretation: { decision: { proposedIntent: 'unknown', acceptedAction: 'preserve_after_failure', candidateCount: 0,
+        pendingBefore: state.pending, pendingAfter: state.pending, outcome: 'unchanged', reason },
+        mode: 'fallback', reason, providerMs: interpretationMs, validationMs: interpretationValidationMs,
+        totalMs: ms(performance.now() - started), deliveryOrigin: 'server_fallback', copyMode: 'fallback', copyReason: 'canonical_only',
+        interpretationAttempts, proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(state),
+        interpretationProviderError, responseProviderError: null, aiCalls: interpretationAttempts.length, replyRoute: 'motor',
+        engineMs: 0, responseMs: 0, usage: { interpretation: hasInterpretationUsage ? interpretationUsage : null, response: null } } }
+  }
   const turnPlan = candidate?.turnPlan
   const serviceOperation = turnPlan?.operations.find(operation => operation.kind === 'service')
   const selectedId = turnPlan ? serviceOperation?.mode === 'single' ? serviceOperation.serviceIds[0] : null : candidate?.serviceId
@@ -538,7 +576,7 @@ export async function respondWithAiInterpreter(
   let authored: string | null = null
   let modelFraming = false
   let intakeValidation: ReplyValidationResult['validation'] | undefined
-  let aiCalls = 1
+  let aiCalls = interpretationAttempts.length
   let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
   const finalFacts = !planHasUpdates && !planHasInformation && replyIntent === 'other' && incidentalFacts ? incidentalFacts :
     response.replyFacts ?? responseFacts(safeReply, response.state, replyIntent, message)
@@ -667,11 +705,12 @@ export async function respondWithAiInterpreter(
     decision: decisionTrace, replyValidation,
     ...(candidate?.temporalGrounding ? { temporalGrounding: candidate.temporalGrounding } : {}),
     mode: reason ? 'fallback' : 'ai', reason,
-    providerMs: ms(providerAt - providerStarted), validationMs: ms(validationAt - providerAt),
+    providerMs: interpretationMs, validationMs: interpretationValidationMs,
+    interpretationAttempts,
     aiCalls, replyRoute,
     deliveryOrigin: authored ? modelFraming ? 'validated_framing' : 'validated_canonical' : response.replyPrepared ? 'prepared' : canonicalOnly ? 'forced' : 'server_fallback',
     engineMs: ms(engineAt - engineStarted), responseMs, totalMs: ms(performance.now() - started),
-    usage: { interpretation: readAiUsage(raw), response: responseUsage },
+    usage: { interpretation: hasInterpretationUsage ? interpretationUsage : null, response: responseUsage },
     proposal, validation, stateBefore: summarizeState(state), stateAfter: summarizeState(response.state),
     interpretationProviderError, responseProviderError,
     ...(availability ? { availability } : {}),

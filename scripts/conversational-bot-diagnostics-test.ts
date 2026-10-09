@@ -9,7 +9,8 @@ const services = [
   { id: 'cut', name: 'Corte hombre', durationMinutes: 30, requiresConsultation: false, price: 100 },
   { id: 'other', name: 'Corte y barba', durationMinutes: 45, requiresConsultation: false, price: 200 }
 ]
-const port: DialoguePort = { catalog: async () => services, availability: async () => ({ professionals: [], slots: [] }) }
+let agendaCalls = 0
+const port: DialoguePort = { catalog: async () => services, availability: async () => { agendaCalls++; return { professionals: [], slots: [] } } }
 const state = initialDialogueState('tenant')
 const candidate = { intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre',
   professionalMention: null, serviceConfidence: 'certain', serviceCandidateIds: [], serviceCorrection: false,
@@ -30,13 +31,22 @@ assert.equal(selected.interpretation.stateAfter.service, true)
 assert.equal(selected.interpretation.decision.acceptedAction, 'select_service')
 assert.doesNotMatch(JSON.stringify(selected.interpretation), /corte hombre|tenant|fake-key/i)
 
+const beforeRejectedAgenda = agendaCalls
 const rejected = await say('quiero corte hombre', async () => ({ ...candidate, serviceId: 'foreign' }))
 assert.ok(rejected.interpretation.proposal && rejected.interpretation.validation && rejected.interpretation.stateAfter)
 assert.equal(rejected.interpretation.proposal.service, true)
 assert.equal(rejected.interpretation.validation.service, 'rejected')
 assert.equal(rejected.interpretation.validation.reason, 'service_not_in_catalog')
 assert.equal(rejected.interpretation.reason, 'invalid_output')
-assert.equal(rejected.interpretation.stateAfter.service, true)
+assert.equal(rejected.interpretation.stateAfter.service, false)
+assert.deepEqual(rejected.state, state, 'rejected output cannot acquire a service or rewrite any draft field')
+assert.equal(rejected.interpretation.decision.acceptedAction, 'preserve_after_failure')
+assert.equal(rejected.interpretation.decision.outcome, 'unchanged')
+assert.equal(rejected.interpretation.aiCalls, 2)
+assert.equal(rejected.interpretation.interpretationAttempts?.length, 2)
+assert.equal(rejected.proposal, null)
+assert.equal(rejected.bookingCommand, undefined); assert.equal(rejected.handoffCommand, undefined); assert.equal(rejected.managementCommand, undefined)
+assert.equal(agendaCalls, beforeRejectedAgenda, 'failed repair never queries agenda')
 assert.doesNotMatch(JSON.stringify(rejected.interpretation), /foreign|corte hombre|tenant/i)
 
 const http = await say('hola', provider(request({ error: { message: 'PRIVATE NAME' } }, 429) as typeof fetch))
