@@ -211,6 +211,34 @@ export async function resolveProofTarget(
   if (!payload) return { kind: 'NONE' }
   const fromPhone = stringField(payload.fromPhone)
   if (!fromPhone) return { kind: 'NONE' }
+  // Resolve the event's canonical obligation before collecting financial rows.
+  // A terminal group in the same chat must neither compete with that group nor
+  // consume the bounded member query. Legacy events retain their original path.
+  const bindings = await client.$queryRaw<Array<{ entityRef: unknown; sessionId: string; sessionState: unknown; revision: bigint; generation: number; configurationId: string; businessTimezone: string }>>(Prisma.sql`
+    /* conversation-proof-binding */ SELECT inbox."entityRef",s.id AS "sessionId",s.state AS "sessionState",s.revision,s."businessTimezone",d.generation,d."activeConfigurationId" AS "configurationId"
+    FROM "BotActionInbox" inbox
+    JOIN "BotSession" s ON s.id=inbox."sessionId" AND s."businessId"=inbox."businessId"
+    JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+    JOIN "BotChannelDeployment" d ON d.id=s."deploymentId" AND d."businessId"=s."businessId"
+    JOIN "BusinessBotConfiguration" cfg ON cfg.id=d."activeConfigurationId" AND cfg."businessId"=s."businessId"
+    WHERE inbox."businessId"=${event.businessId} AND inbox."providerEventId"=${event.id}
+      AND inbox."deploymentId"=${deploymentId} AND inbox."deploymentGeneration"=d.generation
+      AND inbox."actionType"=${CONVERSATION_PROOF_ACTION} AND inbox.status='PROCESSED'::"BotInboxStatus"
+      AND s.status='ACTIVE'::"BotSessionStatus" AND s."deploymentId"=${deploymentId} AND s."deploymentGeneration"=d.generation
+      AND c.phone=${fromPhone} AND d.channel='WHATSAPP'::"BotChannel" AND d."engineKey"='deterministic-options'
+      AND d."legacyDispatchCoverageVersion">=1 AND d."claimsPausedAt" IS NULL
+      AND cfg.status::text='ACTIVE' AND cfg.definition->'conversation'='{"engine":"conversational-booking-v1","schemaVersion":1}'::jsonb
+    LIMIT 2`)
+  let validatedBinding: ReturnType<typeof parseConversationProofBinding> = null
+  if (bindings.length > 0) {
+    if (bindings.length !== 1) return { kind: 'NONE' }
+    const row = bindings[0]!, bound = parseConversationProofBinding(row.entityRef)
+    const current = conversationProofBindingFromState(row.sessionState, { businessId: event.businessId,
+      sessionId: row.sessionId, deploymentId, generation: row.generation, configurationId: row.configurationId,
+      revision: String(row.revision), timezone: row.businessTimezone })
+    if (!bound || !current || !sameConversationProofBinding(current, bound)) return { kind: 'NONE' }
+    validatedBinding = bound
+  }
   const rows = await client.$queryRaw<Array<{ depositId: string; groupId:string|null; sessionId:string; sessionState:unknown; revision:bigint; generation:number; configurationId:string; conversational:boolean; eligible:boolean; sessionGeneration:number; businessTimezone:string }>>(Prisma.sql`
     SELECT deposit."id" AS "depositId",appointment."coordinationGroupId" AS "groupId",
       s."id" AS "sessionId",s."state" AS "sessionState",s."revision",s."businessTimezone",s."deploymentGeneration" AS "sessionGeneration",deployment."generation",deployment."activeConfigurationId" AS "configurationId",
@@ -237,6 +265,7 @@ export async function resolveProofTarget(
       ON appointment."id" = deposit."appointmentId" AND appointment."visitId" = visit."id"
     WHERE c."businessId" = ${event.businessId} AND c."phone" = ${fromPhone}
       AND s."deploymentId" = ${deploymentId}
+      ${validatedBinding ? Prisma.sql`AND s.id=${validatedBinding.sessionId} AND appointment."coordinationGroupId"=${validatedBinding.coordinationGroupId}` : Prisma.empty}
       AND deposit."snapshotSealedAt" IS NOT NULL
      AND deposit."source" = 'WHATSAPP'::"BookingDepositSource"
       AND (
@@ -251,7 +280,6 @@ export async function resolveProofTarget(
     LIMIT 9
   `)
   if (rows.length === 0) return { kind: 'NONE' }
-  let validatedBinding: ReturnType<typeof parseConversationProofBinding> = null
   if (rows.some(row => row.conversational)) {
     const row = rows[0]!
     if (!row.eligible || row.sessionGeneration !== row.generation) return { kind: 'NONE' }
@@ -260,14 +288,8 @@ export async function resolveProofTarget(
       sessionId: row.sessionId, deploymentId, generation: row.generation, configurationId: row.configurationId,
       revision: String(row.revision), timezone: row.businessTimezone })
     if (!current || !rows.every(candidate => candidate.groupId === current.coordinationGroupId)) return { kind: 'NONE' }
-    const bindings = await client.$queryRaw<Array<{ entityRef: unknown }>>(Prisma.sql`
-      /* conversation-proof-binding */ SELECT "entityRef" FROM "BotActionInbox"
-      WHERE "businessId"=${event.businessId} AND "providerEventId"=${event.id} AND "sessionId"=${row.sessionId}
-        AND "deploymentId"=${deploymentId} AND "deploymentGeneration"=${row.generation}
-        AND "actionType"=${CONVERSATION_PROOF_ACTION} AND "status"='PROCESSED'::"BotInboxStatus" LIMIT 2`)
-    const bound = bindings.length === 1 ? parseConversationProofBinding(bindings[0]!.entityRef) : null
-    if (!bound || !sameConversationProofBinding(current, bound) || !rows.some(candidate => candidate.depositId === bound.depositId)) return { kind: 'NONE' }
-    validatedBinding = bound
+    if (!validatedBinding || !sameConversationProofBinding(current, validatedBinding) ||
+        !rows.some(candidate => candidate.depositId === validatedBinding.depositId)) return { kind: 'NONE' }
   }
   const state=await lockCoordinatedDepositGroupForDeposit(client,{businessId:event.businessId,depositId:rows[0]!.depositId})
   if (validatedBinding) {

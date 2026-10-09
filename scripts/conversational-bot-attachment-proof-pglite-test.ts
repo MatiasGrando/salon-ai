@@ -81,6 +81,35 @@ try {
   await writeBinding(binding)
   assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'),{kind:'FOUND',depositId:'deposit'},'P16 exact asked receipt in local timezone binds the real runtime singular lineage')
   assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'),{kind:'FOUND',depositId:'deposit'},'P16 duplicate target lookup is stable; writer owns event idempotence')
+  // Historical financial records remain immutable, but do not compete with
+  // this event's exact, current, explicitly requested receipt.
+  const historicalFailures: unknown[] = []
+  for (let index = 0; index < 10; index += 1) {
+    const suffix = String(index).padStart(2, '0')
+    await db.query(`INSERT INTO "BookingVisit" VALUES ($1,'b','session','EXPIRED','customer','p1')`, ['old-visit-' + suffix])
+    await db.query(`INSERT INTO "Appointment" VALUES ($1,'b',$2,'CANCELLED',$3,'BOT','customer','p1')`, ['old-appointment-' + suffix, 'old-visit-' + suffix, randomUUID()])
+    await db.query(`INSERT INTO "BookingDeposit" VALUES ($1,'b','c',$2,$3,clock_timestamp(),'WHATSAPP','EXPIRED')`, ['aaa-old-deposit-' + suffix, 'old-visit-' + suffix, 'old-appointment-' + suffix])
+    if (index === 0 || index === 9) {
+      try {
+        assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'), {kind:'FOUND',depositId:'deposit'},
+          `P21.4 ${index + 1} expired historical groups cannot hide the current bound obligation`)
+      } catch (error) { historicalFailures.push(error) }
+    }
+  }
+  assert.equal((await db.query<{count:number}>(`SELECT count(*)::int AS count FROM "BookingDeposit" d
+    JOIN "BookingVisit" v ON v.id=d."visitId" JOIN "Appointment" a ON a.id=d."appointmentId"
+    WHERE d.id LIKE 'aaa-old-deposit-%' AND d.status='EXPIRED' AND v.status='EXPIRED' AND a.status='CANCELLED'`)).rows[0]!.count, 10,
+    'P21.4 target lookup never renews or mutates old financial records')
+  for (const error of historicalFailures) console.error(error)
+  assert.equal(historicalFailures.length, 0, 'P21.4 historical group selection regressions')
+  await db.exec('DELETE FROM "BotActionInbox"')
+  assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'), {kind:'NONE'},
+    'P21.4 historical records never substitute for a missing canonical event binding')
+  await writeBinding({ version: 1, depositId: 'deposit' })
+  assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'), {kind:'NONE'},
+    'P21.4 an incomplete binding cannot acquire the current group through a phone match')
+  await writeBinding(binding)
+
   for(const change of [{depositId:'other'},{sessionId:'other'},{generation:3},{configurationId:'other'},{revision:'5'},{proposalNonce:randomUUID()},{fingerprint:'b'.repeat(64)},{coordinationGroupId:randomUUID()},{operationKey:'other'}]) {
     await writeBinding({...binding,...change})
     assert.deepEqual(await resolveProofTarget(client,event() as never,'dep'),{kind:'NONE'},'P16 stale or foreign bound obligation cannot be retargeted')

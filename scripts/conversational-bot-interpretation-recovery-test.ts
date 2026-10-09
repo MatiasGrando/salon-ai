@@ -157,4 +157,3 @@ await check('official provider sends only closed repair feedback with existing s
 })
 console.log('Interpretation recovery: ' + passed + ' passed; ' + failures.length + ' failed')
 assert.equal(failures.length, 0, failures.join('; '))
-
