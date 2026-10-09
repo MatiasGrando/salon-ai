@@ -3810,9 +3810,10 @@ P19.1 reservas b342cd7, P19.2 presencia6747f6d, P19.3 catálogo5cbe352: fuentes 
 
 ### P19.4 activación verificada — 2026-10-09 16:30 Argentina
 Pausa humana específica observada. Dos verificaciones idle tenant fresco a19:29:23/25Z y19:30:03/04Z: jobs/dispatch/outbox/inbox/poison0, watermark18:18:07.560Z estable, generación2 y credenciales/política listas. Inmediatamente antes de stop CIM confirmó launcher7764 ychild13764 creados17:54:22Z, origenBarber yparentcorrectos, puertos3311/3312 loopbackchild13764; túnel13672 identificado con URL3312. No se detuvo proceso ajeno.
-Reiniciados únicamente server13764/launcher7764. Nuevo launcher13744/child15732, creados19:30:07/08Z, cargan fuentes5cbe352 y sus dos commits previos. Start-Process Hidden y flags proceso restaurados finally; no .env/settings globales. Ready observado, listeners127.0.0.1:3311/3312 child15732, stderr0. Logs C:UserscpuAppDataLocalTemparber-pilot-20261009-163007.stdout.log/stderr.log.
+Reiniciados únicamente server13764/launcher7764. Nuevo launcher13744/child15732, creados19:30:07/08Z, cargan fuentes5cbe352 y sus dos commits previos. Start-Process Hidden y flags proceso restaurados finally; no .env/settings globales. Ready observado, listeners127.0.0.1:3311/3312 child15732, stderr0. Logs C:/Users/cpu/AppData/Local/Temp/barber-pilot-20261009-163007.stdout.log/stderr.log.
 Túnel13672 conservado, https://specifically-compensation-ever-fat.trycloudflare.com: webhookchallenge local y público200exact, /crm404 en ambos. Token existente no impreso; ninguna operaciónMeta/callbackupdate ni WhatsApp sintético/reserva/IAreal. No Railway/weex/CRM3000/otro negocio. Usuario avisado que puede reanudar.
-P19.1–P19.4 implementados/verificados/cargados; validación humana de IA/WhatsApp real pendiente explícita, no afirmar todas92conversacionesresueltas ni que Meta muestre siempretyping. RDD omisiones por candidato acknowledged independientes, último límitefuente5cbe352; siguiente unidad sólo documentación/evidencia y evaluación propia. Documento ajeno glow-export y todos temporales preservados.
+P19.1–P19.4 implementados/verificados/cargados; validación humana de IA/WhatsApp real pendiente explícita, no afirmar todas92conversacionesresueltas ni que Meta muestre siempretyping. RDD omisiones por candidato acknowledged independientes, último límitefuente5cbe352. Documento ajeno glow-export y todos temporales preservados.
+Unidad documental a8a8275f717d4e31dd808febb4a93f4116e26f49 observada, encoding/diff PASS. Nativeassess base5cbe352 committedonly/excludeinventarioexacto EXIT0 passive/review_duefalse/reasonpassive, frontera avanzó a8a8275. Readback detectó escapes incorrectos de rutas en este último resumen; esta corrección es documental mecánica, no cambio de fuente ni comportamiento. Engram APIs ausentes: espejo pendiente.
 
 ## Resumen de sesión — P19 entregado en Barber
 ### Goal
@@ -3826,10 +3827,9 @@ Tres commits fuente b342cd7/6747f6d/5cbe352, pruebas locales RED→GREEN y contr
 ### Next Steps
 Prueba humana WhatsApp: comparar Tratamiento/Keratina, añadir alisado a propuesta de corte y confirmar nueva propuesta, revisar visto/escribiendo en textos/opciones/adjuntos. Persisten fallo social previo al cambiar nombre y diagnósticos de tipos previos, cero nuevos focales; sin globalbuildPASS ni evaluaciónIAreal. Engram no expuesto: espejo y resumen remoto pendientes, respaldo local completo leído.
 ### Relevant Files
-C:Userscpusalon-aisrcconversational-botcatalog-information-answer.ts — fuentes y copia descriptiva general validadas.
-C:Userscpusalon-aisrcconversational-botengine.ts — lectura/composición y preparador común para elecciones nativas y texto.
-C:Userscpusalon-aisrcarber-local	yping-indicator.ts — cobertura de presencia, consumo y diagnósticos limitados.
-C:Userscpusalon-aisrcconversational-botprocess-inbox-job.ts — callback post consumo committed.
-C:Userscpusalon-aiscriptsconversational-bot-catalog-answer-test.ts — catorce regresiones descriptivas/procedencia.
-C:Userscpusalon-aiodd	asks
-uevo-bot-reservas.md — estado recuperable, verificaciones y autorización.
+C:/Users/cpu/salon-ai/src/conversational-bot/catalog-information-answer.ts — fuentes y copia descriptiva general validadas.
+C:/Users/cpu/salon-ai/src/conversational-bot/engine.ts — lectura/composición y preparador común para elecciones nativas y texto.
+C:/Users/cpu/salon-ai/src/barber-local/typing-indicator.ts — cobertura de presencia, consumo y diagnósticos limitados.
+C:/Users/cpu/salon-ai/src/conversational-bot/process-inbox-job.ts — callback post consumo committed.
+C:/Users/cpu/salon-ai/scripts/conversational-bot-catalog-answer-test.ts — catorce regresiones descriptivas/procedencia.
+C:/Users/cpu/salon-ai/odd/tasks/nuevo-bot-reservas.md — estado recuperable, verificaciones y autorización.
