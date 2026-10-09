@@ -405,6 +405,18 @@ export class WhatsAppCloudApi {
     await response.arrayBuffer()
     return response.ok
   }
+  /** Independent acknowledgement for a committed, bot-consumed inbound message. */
+  async sendReadReceipt(input: { credentials: WhatsAppCloudCredentials; providerMessageId: string; signal: AbortSignal }): Promise<boolean> {
+    const config = input.credentials
+    if (input.signal.aborted || !config.accessToken || !config.phoneNumberId || !input.providerMessageId.trim()) return false
+    const response = await fetch(`https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
+      method: 'POST', signal: input.signal,
+      headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: input.providerMessageId })
+    })
+    await response.arrayBuffer()
+    return response.ok
+  }
   async sendTextMessage(input: SendTextMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
     if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
     const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)

@@ -44,8 +44,9 @@ for (const failureAt of [null, 'internal', 'loops', 'gateway'] as const) {
     createQueueMilestoneTracker: () => ({}), PrismaAuthoritativeAdmissionRepository: class {},
     createWorkerWakeSignal: () => ({}), notifyWorkerWake() {},
     createBarberWebhookApps: async () => ({ internal: app('internal'), gateway: app('gateway') }),
-    createBarberTypingIndicator: () => { creates++; return { notify, stop() { stops++; closed = true; events.push('typing:stop') } } },
+    createBarberTypingIndicator: () => { creates++; return { notify, consume() {}, stop() { stops++; closed = true; events.push('typing:stop') } } },
     processSessionJob: async (input: { onPreparingReply?: (context: typeof preparing) => void; onAttemptDiagnostic?: (event: unknown) => void }) => {
+      assert.equal(typeof (input as { onInboundConsumed?: unknown }).onInboundConsumed, 'function', 'Barber must wire read receipts independently of typing')
       assert.equal(typeof input.onAttemptDiagnostic, 'function', 'conversation metrics must receive bounded output callback')
       input.onAttemptDiagnostic?.({ event: 'offline_stage' })
       sessionHook = input.onPreparingReply

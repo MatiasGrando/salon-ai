@@ -779,6 +779,7 @@ export async function processSessionJob(input: {
   queueMilestones?: QueueMilestoneTracker | undefined
   onAttemptDiagnostic?: ((event: AttemptMetricEvent) => void) | undefined
   onPreparingReply?: import('../../conversational-bot/process-inbox-job.js').ReplyPreparationHook | undefined
+  onInboundConsumed?: import('../../conversational-bot/process-inbox-job.js').InboundConsumedHook | undefined
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {
@@ -800,6 +801,7 @@ async function processSessionJobInternal(input: {
   conversationalAi?: WhatsAppConversationAi
   queueMilestones?: QueueMilestoneTracker | undefined
   onPreparingReply?: import('../../conversational-bot/process-inbox-job.js').ReplyPreparationHook | undefined
+  onInboundConsumed?: import('../../conversational-bot/process-inbox-job.js').InboundConsumedHook | undefined
   contextProvider?: TransitionContextProvider
   effectExecutor?: TransitionEffectExecutor
 }): Promise<'PROCESSED' | 'STALE_CUTOVER' | 'STALE_REVISION'> {

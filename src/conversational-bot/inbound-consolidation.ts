@@ -8,7 +8,7 @@ export type ConsolidationEnvelope = {
   version: 1; businessId: string; sessionId: string; deploymentId: string; generation: number
   handoffFenceEpoch: number; baseState: unknown; eventIds: string[]; sealed: boolean; revision?: string
 }
-type Candidate = { id: string; admittedAt: Date; payload: Prisma.JsonValue; actionType: string | null; scopeMatches: boolean }
+type Candidate = { providerPhoneNumberId?: string; providerMessageId?: string; id: string; admittedAt: Date; payload: Prisma.JsonValue; actionType: string | null; scopeMatches: boolean }
 type GroupInput = { businessId: string; sessionId: string; deploymentId: string; generation: number
   handoffFenceEpoch: number; revision: bigint; state: unknown; phone: string; currentEventId: string
   isRestart: (text: unknown) => boolean }
@@ -48,7 +48,7 @@ function textOf(row: Candidate, isRestart: (text: unknown) => boolean): string |
 async function candidates(tx: Prisma.TransactionClient, input: { businessId: string; phone: string; previousIds: string[]; deploymentId: string; generation: number }): Promise<Candidate[]> {
   return tx.$queryRaw<Candidate[]>(Prisma.sql`
     /* consolidation-candidates */
-    SELECT e."id", e."admittedAt", e."payload", i."actionType", (i."id" IS NULL OR (i."deploymentId" = ${input.deploymentId} AND i."deploymentGeneration" = ${input.generation})) AS "scopeMatches"
+    SELECT e."id", e."admittedAt", e."payload", e."phoneNumberId" AS "providerPhoneNumberId", e."providerMessageId", i."actionType", (i."id" IS NULL OR (i."deploymentId" = ${input.deploymentId} AND i."deploymentGeneration" = ${input.generation})) AS "scopeMatches"
     FROM "BotProviderEvent" e
     LEFT JOIN "BotActionInbox" i ON i."providerEventId" = e."id" AND i."businessId" = e."businessId"
     WHERE e."businessId" = ${input.businessId} AND e."eventType" = 'MESSAGE'
@@ -90,7 +90,10 @@ export async function selectConsolidationGroupTx(tx: Prisma.TransactionClient, i
   const next: ConsolidationEnvelope = { version: 1, businessId: input.businessId, sessionId: input.sessionId,
     deploymentId: input.deploymentId, generation: input.generation, handoffFenceEpoch: input.handoffFenceEpoch,
     baseState: reusable?.baseState ?? input.state, eventIds: ids, sealed, revision: String(input.revision + 1n) }
-  return { envelope: next, text: texts.join(' '), signature: JSON.stringify([ids, sealed]), previousTransitionId: reusable ? previous[0]!.id : null,
+  const receipts = rows.filter(row => ids.includes(row.id) && row.providerPhoneNumberId && row.providerMessageId).map(row => ({
+    businessId: input.businessId, providerPhoneNumberId: row.providerPhoneNumberId!, providerMessageId: row.providerMessageId!
+  }))
+  return { receipts, envelope: next, text: texts.join(' '), signature: JSON.stringify([ids, sealed]), previousTransitionId: reusable ? previous[0]!.id : null,
     admittedAt: rows.filter(row => ids.includes(row.id)).reduce((latest, row) => row.admittedAt > latest ? row.admittedAt : latest, rows[0]!.admittedAt) }
 }
 /** Never wait behind claimOutbox's reversed row/cutover order. Exact coverage is required before writing. */

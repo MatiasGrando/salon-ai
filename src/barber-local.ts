@@ -64,7 +64,7 @@ export async function startBarberLocal() {
   const { internal, gateway } = await createBarberWebhookApps({
     repository, verifyToken, onAdmissionCommitted: () => notifyWorkerWake(wakeSignals.jobs)
   })
-  const typingIndicator = createBarberTypingIndicator()
+  const typingIndicator = createBarberTypingIndicator({ onDiagnostic: event => { diagnosticSink.emit('barber-local-presence', event) } })
   const handler = async (job: ClaimedBotJob) => {
     if (job.businessId !== BARBER_DEMO_BUSINESS_ID) throw new Error('non-Barber local job denied')
     if (job.kind === 'PROCESS_PROVIDER_EVENT') {
@@ -78,7 +78,7 @@ export async function startBarberLocal() {
       return
     }
     if (job.kind === 'BRIDGE_DEPOSIT_NOTIFICATION') { await bridgeDepositNotificationJob(prisma, job); return }
-    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones, onPreparingReply: typingIndicator.notify,
+    await processSessionJob({ client: prisma, job, conversationalAi, queueMilestones, onPreparingReply: typingIndicator.notify, onInboundConsumed: typingIndicator.consume,
       onAttemptDiagnostic: event => { diagnosticSink.emit('bot-options-attempt-stage', event) } })
   }
 

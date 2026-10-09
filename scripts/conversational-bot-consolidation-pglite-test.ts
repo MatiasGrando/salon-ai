@@ -15,7 +15,7 @@ const transaction = <T>(run: (tx: Prisma.TransactionClient) => Promise<T>) => db
 } as never))
 async function add(id: string, text: string, extra: { status?: string; type?: string; admittedAt?: string; business?: string; inbox?: boolean; reply?: string } = {}) {
   const business = extra.business ?? 'biz'
-  await db.query(`INSERT INTO "BotProviderEvent" VALUES ($1,$2,'MESSAGE',$3::jsonb,$4::timestamptz,$5)`,
+  await db.query(`INSERT INTO "BotProviderEvent" ("id","businessId","eventType","payload","admittedAt","status") VALUES ($1,$2,'MESSAGE',$3::jsonb,$4::timestamptz,$5)`,
     [id,business,JSON.stringify({fromPhone:'5491100000000',textBody:text,messageType:extra.type??'text',interactiveReplyId:extra.reply??null}),
       extra.admittedAt??'2026-09-30T10:00:00Z', extra.status??'ADMITTED'])
   if (extra.inbox !== false) await db.query(`INSERT INTO "BotActionInbox" VALUES ($1,$2,$3,$4,'dep',2,'input.initial','ADMITTED')`, ['inbox-'+id,business,id,'session'])
@@ -34,7 +34,7 @@ try {
     CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','CLAIMED','SELECTED','CONFLICT','PROCESSED','STALE');
     CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED');
     CREATE TYPE "BotOutboxStatus" AS ENUM ('PENDING','CLAIMED','RETRY','SKIPPED','SENDING','UNKNOWN','ACCEPTED','DELIVERED','READ');
-    CREATE TABLE "BotProviderEvent" ("id" text PRIMARY KEY,"businessId" text,"eventType" text,"payload" jsonb,"admittedAt" timestamptz,"status" "BotProviderEventStatus");
+    CREATE TABLE "BotProviderEvent" ("id" text PRIMARY KEY,"businessId" text,"eventType" text,"payload" jsonb,"admittedAt" timestamptz,"status" "BotProviderEventStatus", "phoneNumberId" text DEFAULT 'channel', "providerMessageId" text);
     CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"providerEventId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" int,"actionType" text,"status" "BotInboxStatus");
     CREATE TABLE "BotTransitionLog" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" int,"revisionTo" bigint,"actionType" text,"detail" jsonb);
     CREATE TABLE "BotOutbox" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"transitionId" text,"status" "BotOutboxStatus","payload" jsonb,"errorCode" text,"leaseToken" text,"leasedUntil" timestamptz);
@@ -46,10 +46,12 @@ try {
   assert.ok(!String(queries.at(-1)!.values[0]).includes('549110'))
   for (const [id,text] of [['a','quiero'],['b','corte'],['c','hoy'],['d','no, mañana'],['e','con Ana']]) await add(id!,text!)
   await add('foreign','private tenant', {business:'foreign'})
+  await db.exec(`UPDATE "BotProviderEvent" SET "providerMessageId"='msg-' || "id";`)
   const first = await group()
   assert.ok(first)
   assert.equal(first!.text, 'quiero corte hoy no, mañana con Ana')
   assert.deepEqual(first!.envelope.eventIds, ['a','b','c','d','e'])
+  assert.deepEqual((first as unknown as { receipts: unknown[] }).receipts, ['a','b','c','d','e'].map(id => ({ businessId: 'biz', providerPhoneNumberId: 'channel', providerMessageId: 'msg-' + id })), 'all grouped provider identities must remain tenant scoped and ephemeral')
   assert.deepEqual(first!.envelope.baseState, base)
 
   // Before/during compute: membership changes invalidate the old computation.

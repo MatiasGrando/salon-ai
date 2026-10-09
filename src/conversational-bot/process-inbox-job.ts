@@ -39,7 +39,9 @@ import { flushInboundConversationMessages, publishConversationUpdated, type Inbo
 import { persistView, type projectInboundMessage, type lockExistingInitialSession, type isConversationRestartCommand } from '../bot-options/application/process-session-job.js'
 
 type Client = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>
-export type ReplyPreparationHook = (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>
+type InboundIdentity = { businessId: string; providerPhoneNumberId: string; providerMessageId: string }
+export type InboundConsumedHook = (contexts: readonly InboundIdentity[]) => void | Promise<void>
+export type ReplyPreparationHook = (context: InboundIdentity & { signal: AbortSignal }) => void | Promise<void>
 export type DialogueFactory = (client: Client, businessId: string, serviceContent?: ServiceContentConfiguration) => Promise<{ context: DialogueContext; port: DialoguePort & DialoguePersonalityPort }>
 const defaultFactory: DialogueFactory = (client, businessId, serviceContent) => {
   // Runtime receives the existing full Prisma client. No singleton or second connection.
@@ -100,7 +102,7 @@ async function assertConversationClaimsTx(tx: Prisma.TransactionClient, job: Cla
 /** Uses the existing inbox/job/outbox. Catalog queries and optional AI preparation run outside locks. */
 export async function processConversationInbox(input: {
   client: Client; job: ClaimedBotJob; dialogueFactory?: DialogueFactory; conversationalAi?: WhatsAppConversationAi;
-  queueMilestones?: QueueMilestoneTracker | undefined; onPreparingReply?: ReplyPreparationHook | undefined;
+  queueMilestones?: QueueMilestoneTracker | undefined; onPreparingReply?: ReplyPreparationHook | undefined; onInboundConsumed?: InboundConsumedHook | undefined;
   writeView: typeof persistView; projectInbound: typeof projectInboundMessage;
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
@@ -163,6 +165,17 @@ export async function processConversationInbox(input: {
     $executeRaw: (...args: Parameters<Client['$executeRaw']>) => measureAttemptStage('conversation_dispatch_release', () => input.client.$executeRaw(...args))
   } as Client
   return withDispatchClaimCleanup(cleanupClient, token, async markSettled => {
+    const consumed: InboundIdentity[] = []
+    const recordConsumed = (row: Row, group?: { receipts: InboundIdentity[] } | null) => {
+      const identities = group?.receipts ?? (row.providerPhoneNumberId && row.providerMessageId ? [{
+        businessId: row.businessId, providerPhoneNumberId: row.providerPhoneNumberId, providerMessageId: row.providerMessageId
+      }] : [])
+      consumed.push(...identities)
+    }
+    const notifyConsumed = () => {
+      if (!consumed.length || !input.onInboundConsumed) return
+      try { void Promise.resolve(input.onInboundConsumed(consumed)).catch(() => {}) } catch { /* UX cannot fail consumption. */ }
+    }
     const events: InboundConversationMessageProjection[] = []
     const updates: Array<Omit<ConversationUpdatedEvent, 'type'>> = []
     const readRow = async (tx: Prisma.TransactionClient): Promise<Row> => {
@@ -367,6 +380,7 @@ export async function processConversationInbox(input: {
             dbNow:row.dbNow,view:textView(reply)})
           await finish(tx,row)
         }
+        recordConsumed(row)
         return null
       }
 
@@ -413,7 +427,7 @@ export async function processConversationInbox(input: {
         await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
           transitionId: 'test-reset-blocked:' + row.id, toPhone: phone, dbNow: row.dbNow,
           view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
-        await finish(tx, row); return null
+        await finish(tx, row); recordConsumed(row); return null
       }
       const expiredRecovery = eligibleText && await expiredRecoveryAllowedTx(tx, activeSession, phone, row.businessTimezone)
       let serverManagementSnapshot: CancellationSnapshot | undefined
@@ -473,6 +487,7 @@ export async function processConversationInbox(input: {
           transitionId: `transition:${activeSession.sessionId}:${protectedRevision}:protected:${row.id}`, toPhone: phone, dbNow: row.dbNow,
           view: textView(protectedReply) }))
         await finish(tx, row)
+        recordConsumed(row)
         return null
       }
       if (activeSession.deploymentGeneration < policy.generation) {
@@ -500,13 +515,15 @@ export async function processConversationInbox(input: {
       return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, expiredRecovery, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
     })
     flushInboundConversationMessages(events)
-    if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
+    if (!snapshot) { notifyConsumed(); for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
     // This is a best-effort notification, not part of the durable computation or its latency.
-    if (input.onPreparingReply && snapshot.payload.messageType === 'text' && !snapshot.reset &&
+    const preparation = new AbortController()
+    try {
+    if (input.onPreparingReply &&
         snapshot.row.providerPhoneNumberId && snapshot.row.providerMessageId) {
       try {
         void Promise.resolve(input.onPreparingReply({ businessId: snapshot.row.businessId,
-          providerPhoneNumberId: snapshot.row.providerPhoneNumberId, providerMessageId: snapshot.row.providerMessageId })).catch(() => {})
+          providerPhoneNumberId: snapshot.row.providerPhoneNumberId, providerMessageId: snapshot.row.providerMessageId, signal: preparation.signal })).catch(() => {})
       } catch { /* Optional provider feedback cannot prevent a reply. */ }
     }
     // No transaction/client lock is retained while repositories compute the reply.
@@ -547,6 +564,8 @@ export async function processConversationInbox(input: {
       : useAi ? await respondWithAiInterpreter(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port, input.conversationalAi!.provider, { timeoutMs: input.conversationalAi!.timeoutMs })
       : await respond(operationalContext, snapshot.draft, snapshot.consolidation?.text ?? String(snapshot.payload.textBody ?? ''), port))
     const computedAt = performance.now()
+    // Prevent credential/HTTP work from starting after response preparation, before any outbox commit.
+    preparation.abort()
     let committedTransitionId: string | null = null
     const result = await measureAttemptTransaction('conversation_final', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, txOptions), body), async (tx: Prisma.TransactionClient) => {
       // Take the conversation mutex before any job/deployment/event/session row lock.
@@ -617,6 +636,7 @@ export async function processConversationInbox(input: {
           if (bound !== 1) throw new Error('conversation proof binding lost its inbox fence')
           await upsertJob(tx, 'RECEIVE_DEPOSIT_PROOF', row.providerEventId, row.businessId, row.deploymentId, row.generation, session.revision, 'immediate')
           await finish(tx, row)
+          recordConsumed(row)
           return 'PROCESSED' as const
         }
         // No receipt or changed obligation: do not download or acknowledge proof.
@@ -624,6 +644,7 @@ export async function processConversationInbox(input: {
           transitionId: 'attachment-target-changed:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
           view: textView('No pude vincular ese archivo a la seña vigente. No registré un pago; el equipo puede ayudarte a revisarlo.') })
         await finish(tx, row)
+        recordConsumed(row)
         return 'PROCESSED' as const
       }
       const proposedHandoff = 'handoffCommand' in response ? response.handoffCommand : undefined
@@ -706,9 +727,11 @@ export async function processConversationInbox(input: {
           toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply), dbNow: row.dbNow }))
         await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
       }
+      recordConsumed(row, snapshot.consolidation)
       committedTransitionId = transitionId
       return 'PROCESSED' as const
     })
+    notifyConsumed()
     markSettled()
     if (useAi && input.conversationalAi?.onDiagnostic) {
       const diagnostic = (response as InterpretedDialogueResponse).interpretation
@@ -730,5 +753,6 @@ export async function processConversationInbox(input: {
     }
     for (const update of updates) publishConversationUpdated(update)
     return result
+    } finally { preparation.abort() }
   })
 }

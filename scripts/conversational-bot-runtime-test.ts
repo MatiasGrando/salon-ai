@@ -98,7 +98,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[] }; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[] }; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onInboundConsumed?: (contexts: ReadonlyArray<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }>) => void; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string; signal?: AbortSignal }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -166,7 +166,7 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
       if (q.sql.includes('consolidation-previous')) return []
       if (q.sql.includes('consolidation-candidates') && blocked) return [{ id: 'barrier', admittedAt: now, payload: { messageType: 'image' }, actionType: 'input.initial' }]
       if (q.sql.includes('consolidation-candidates')) return (inputs ?? [{ id: row.providerEventId, text: row.payload.textBody }]).map(part => ({ id: part.id, admittedAt: now,
-        payload: { ...row.payload, textBody: part.text }, actionType: 'input.initial' }))
+        payload: { ...row.payload, textBody: part.text }, providerPhoneNumberId: row.providerPhoneNumberId, providerMessageId: part.id === row.providerEventId ? row.providerMessageId : 'msg-' + part.id, actionType: 'input.initial' }))
       if (q.sql.includes('conversation-choice-policy-guard')) return [{actionType:row.actionType}]
       if (q.sql.includes('conversation-policy')) return [row]
       if (q.sql.includes('FROM "BotProviderEvent" e') && q.sql.includes('d."id" AS "deploymentId"')) return [row]
@@ -348,7 +348,7 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
     return { context: { businessId, timezone: 'UTC', dbNow: now }, port:options.bookingPort??port }
   }
   let number = 0
-  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
+  const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), ...(options.onInboundConsumed?{onInboundConsumed:options.onInboundConsumed}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
   return { run, get basketAgendaCalls() { return basketAgendaCalls }, get singularAgendaCalls() { return singularAgendaCalls }, get session() { return session! }, get row() { return row }, get replies() { return replies }, get settled() { return settled }, get retried() { return retried }, get messages() { return messages }, statements,
     pendingEffect(status?: string) { pendingEffect = status },
     inputs(parts: Array<{ id: string; text: string }>) { inputs = parts },
@@ -536,11 +536,68 @@ assert.equal(guidedCopies, copiesBeforeGuidedProposal)
 assert.ok(!guidedRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)))
 console.log('conversational public runtime guided choice/dual duration120-180/fourth argument/sidecar/proposal-only: PASS')
 // Typing starts only after a durable active text snapshot; it never delays computation.
+// P19 receipts cover committed bot consumption, not only AI text computation.
+const consumedReceipts: Array<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }> = []
+let preparationSignal: AbortSignal | undefined
+const receiptRuntime = runtimeFixture({
+  onInboundConsumed(contexts) {
+    receiptRuntime.assertOutside()
+    assert.equal(receiptRuntime.row.status, 'PROCESSED', 'receipts follow a committed consumption')
+    consumedReceipts.push(...contexts)
+  },
+  onPreparingReply(context) {
+    preparationSignal = context.signal
+  }
+})
+await receiptRuntime.run()
+assert.deepEqual(consumedReceipts.map(value => value.providerMessageId), ['msg'], 'ordinary text receives a read receipt')
+assert.equal(preparationSignal?.aborted, true, 'typing lifecycle ends before publishing the reply outbox')
+for (const type of ['image', 'document']) {
+  receiptRuntime.next('', type)
+  await receiptRuntime.run()
+  assert.equal(consumedReceipts.at(-1)?.providerMessageId, receiptRuntime.row.providerMessageId, `${type} consumption receives read acknowledgement`)
+}
+receiptRuntime.choice({ kind: 'service', serviceId: 'cut' })
+await receiptRuntime.run()
+assert.equal(consumedReceipts.at(-1)?.providerMessageId, receiptRuntime.row.providerMessageId, 'button/list choice consumption receives read acknowledgement')
+const groupedReceipts: string[] = []
+const groupedRead = runtimeFixture({ onInboundConsumed(contexts) { groupedReceipts.push(...contexts.map(value => value.providerMessageId)) } })
+groupedRead.inputs([{ id: 'event', text: 'hola' }, ...Array.from({ length: 5 }, (_, index) => ({ id: 'part-' + index, text: 'quiero' }))])
+await groupedRead.run()
+assert.deepEqual(groupedReceipts, ['msg', 'msg-part-0', 'msg-part-1', 'msg-part-2', 'msg-part-3', 'msg-part-4'], 'consolidation acknowledges every consumed fragment, including groups larger than four')
+for (const guard of ['disabled', 'human', 'rollback', 'processed'] as const) {
+  let receiptCalls = 0
+  const guardedRead = runtimeFixture({ failSnapshotCommit: guard === 'rollback', onInboundConsumed() { receiptCalls++ } })
+  if (guard === 'disabled') guardedRead.row.botEnabled = false
+  if (guard === 'processed') guardedRead.row.status = 'PROCESSED'
+  if (guard === 'human') {
+    await guardedRead.run()
+    receiptCalls = 0
+    guardedRead.next('hola')
+    guardedRead.session.status = 'HUMAN_TAKEN'
+  }
+  if (guard === 'rollback') await assert.rejects(guardedRead.run(), /SNAPSHOT COMMIT failed/)
+  else await guardedRead.run()
+  assert.equal(receiptCalls, 0, `read acknowledgement must skip ${guard}`)
+}
+let rollbackReadCount = 0
+const rollbackRead = runtimeFixture({ onInboundConsumed() { rollbackReadCount++ } })
+await rollbackRead.run()
+rollbackReadCount = 0
+rollbackRead.next('gracias')
+rollbackRead.failCommit()
+await assert.rejects(rollbackRead.run(), /COMMIT failed/)
+assert.equal(rollbackReadCount, 0, 'a final response rollback never acknowledges consumption')
+let supersededReadCount = 0
+const supersededRead = runtimeFixture({ onInboundConsumed() { supersededReadCount++ } })
+supersededRead.hook(() => supersededRead.inputs([{ id: 'event', text: 'hola' }, { id: 'late', text: 'mañana' }]))
+assert.equal(await supersededRead.run(), 'STALE_REVISION')
+assert.equal(supersededReadCount, 0, 'a superseded computation never acknowledges an uncommitted group')
 let typingCalls = 0
 const typing = runtimeFixture({ onPreparingReply(context) {
   typing.assertOutside(); typingCalls++
   assert.equal(typing.messages, 1, 'snapshot projection committed before hook')
-  assert.deepEqual(context, { businessId: 'biz', providerPhoneNumberId: 'channel', providerMessageId: 'msg' })
+  assert.deepEqual({ businessId: context.businessId, providerPhoneNumberId: context.providerPhoneNumberId, providerMessageId: context.providerMessageId }, { businessId: 'biz', providerPhoneNumberId: 'channel', providerMessageId: 'msg' })
   return new Promise<void>(() => {})
 } })
 await typing.run()
@@ -554,10 +611,9 @@ for (const fail of ['throw', 'reject'] as const) {
   await broken.run(); await Promise.resolve()
   assert.equal(broken.replies.length, 1, 'typing errors are fail-open')
 }
-for (const guard of ['image', 'processed', 'handoff', 'disabled', 'rollback'] as const) {
+for (const guard of ['processed', 'handoff', 'disabled', 'rollback'] as const) {
   let calls = 0
   const guarded = runtimeFixture({ failSnapshotCommit: guard === 'rollback', onPreparingReply() { calls++ } })
-  if (guard === 'image') guarded.next('', 'image')
   if (guard === 'processed') guarded.row.status = 'PROCESSED'
   if (guard === 'disabled') guarded.row.botEnabled = false
   if (guard === 'handoff') {
@@ -862,7 +918,8 @@ assert.equal((runtime.session.state as typeof projected).conversationDraft.dialo
 
 const barberResetId = 'cmpvr0oqo0000o0vcnhgyv054'
 const barberResetPolicy = { businessId: barberResetId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }
-const resetRuntime = runtimeFixture({ businessId: barberResetId })
+const resetReadIds: string[] = []
+const resetRuntime = runtimeFixture({ businessId: barberResetId, onInboundConsumed(contexts) { resetReadIds.push(...contexts.map(value => value.providerMessageId)) } })
 await resetRuntime.run()
 const resetBeforeRevision = resetRuntime.session.revision
 const resetBeforeMessages = resetRuntime.messages
@@ -871,6 +928,7 @@ resetRuntime.session.state = projectConversationDraft({ ...initialDialogueState(
   referral: { businessId: barberResetId, status: 'pending', reason: 'UNVERIFIED_SERVICE', request: 'otro', serviceId: null } }, barberResetPolicy)
 resetRuntime.next('/reset')
 await resetRuntime.run('PROCESS_INBOX', { provider: async () => { throw new Error('scoped reset must not call AI') }, timeoutMs: 10 })
+assert.equal(resetReadIds.at(-1), resetRuntime.row.providerMessageId, '/reset is acknowledged only after its committed consumption')
 assert.deepEqual(resetRuntime.session.state, createInitialBotOptionsState(), '/reset Barber clears the complete sidecar')
 assert.equal(resetRuntime.session.revision, resetBeforeRevision + 1n)
 assert.equal(resetRuntime.messages, resetBeforeMessages + 1, 'reset appends the inbound without removing CRM history')
@@ -887,7 +945,8 @@ foreignReset.next('/reset')
 await foreignReset.run('PROCESS_INBOX', { provider: async () => ({ intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null }), timeoutMs: 100 })
 assert.deepEqual(foreignReset.session.state, foreignBefore, 'other businesses do not gain /reset')
 for (const status of ['PENDING', 'CLAIMED', 'RETRY', 'SENDING', 'UNKNOWN', 'STARTED']) {
-  const pending = runtimeFixture({ businessId: barberResetId, pendingEffect: status }); await pending.run()
+  const pendingReadIds: string[] = []
+  const pending = runtimeFixture({ businessId: barberResetId, pendingEffect: status, onInboundConsumed(contexts) { pendingReadIds.push(...contexts.map(value => value.providerMessageId)) } }); await pending.run()
   const before = structuredClone(pending.session)
   pending.next('/reset'); await pending.run('PROCESS_INBOX', { provider: async () => { throw new Error('reset cannot call AI') }, timeoutMs: 10 })
   assert.deepEqual(pending.session, before, 'pending effect is not erased: ' + status)
@@ -904,7 +963,9 @@ console.log('scoped Barber reset: zero AI, complete draft, CRM, pending effects 
 
 // Actual worker -> scoped financial reader -> session/transition/CRM persistence.
 const financialRead={rows:[] as Record<string,unknown>[],lines:[] as unknown[],items:[] as unknown[]}
-const financialRuntime=runtimeFixture({businessId:barberResetId,phone:'5491112345678',financialRead});await financialRuntime.run()
+const financialReadIds: string[] = []
+const financialRuntime=runtimeFixture({businessId:barberResetId,phone:'5491112345678',financialRead,onInboundConsumed(contexts){ financialReadIds.push(...contexts.map(value=>value.providerMessageId)) }});await financialRuntime.run()
+assert.equal(financialReadIds.at(-1), financialRuntime.row.providerMessageId, 'bot-owned financial fixture initial consumption is acknowledged')
 const financialScope={businessId:barberResetId,sessionId:financialRuntime.session.sessionId,deploymentId:'dep',generation:1,revision:String(financialRuntime.session.revision),configurationId:'cfg',dispatchFenceEpoch:1,handoffFenceEpoch:0}
 const financialTerms:RuntimeBookingTerms={version:1,businessId:barberResetId,timezone:'UTC',date:'2026-10-02',customerName:'Ana',preference:{kind:'specific',id:'p1'},totalPriceMinor:1000,
   segments:[{serviceId:'cut',serviceName:'Corte',professionalId:'p1',professionalName:'Ana',startAt:'2026-10-02T10:00:00.000Z',endAt:'2026-10-02T10:30:00.000Z',durationMinutes:30,customerDurationMinutes:30,priceMinor:1000,priceMode:'FIXED',configurationHash:null}],
@@ -967,6 +1028,7 @@ assert.equal(financialRuntime.statements.filter(q=>q.sql.includes('conversation-
 const financialPersist=financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).at(-1)!
 assert.ok(financialPersist.values.includes('conversation.financial.reconcile'))
 assert.ok(financialPersist.values.includes('COMPLETED'))
+assert.equal(financialReadIds.at(-1), financialRuntime.row.providerMessageId, 'financial protected early reply/reset is acknowledged after commitment')
 console.log('P12 financial protected public reader/reset/session/history/CRM projection: PASS')
 
 // P17: durable expired holds are history, not permission to replay their proposals.

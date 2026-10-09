@@ -3,6 +3,7 @@ import { WhatsAppCloudApi } from '../src/integrations/whatsapp-cloud-api.js'
 
 const api = new WhatsAppCloudApi()
 assert.equal(typeof api.sendTypingIndicator, 'function', 'Cloud API must support the actual typing/read endpoint')
+assert.equal(typeof api.sendReadReceipt, 'function', 'read coverage must not depend on preparing a text reply')
 const { createBarberTypingIndicator } = await import('../src/barber-local/typing-indicator.js')
 const businessId = 'cmpvr0oqo0000o0vcnhgyv054'
 const context = { businessId, providerPhoneNumberId: 'barber-phone', providerMessageId: 'wamid.fake' }
@@ -22,12 +23,16 @@ try {
   })
   assert.equal(new Headers(requests[0]?.init?.headers).get('Authorization'), 'Bearer fake-token')
   assert.equal(requests[0]?.init?.method, 'POST')
+  await api.sendReadReceipt({ credentials, providerMessageId: context.providerMessageId, signal: new AbortController().signal })
+  assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+    messaging_product: 'whatsapp', status: 'read', message_id: 'wamid.fake'
+  }, 'independent read receipt does not show typing after an already prepared reply')
   assert.ok(requests[0]?.init?.signal)
   const aborted = new AbortController(); aborted.abort()
   assert.equal(await api.sendTypingIndicator({ credentials, providerMessageId: 'wamid.fake', signal: aborted.signal }), false)
   assert.equal(await api.sendTypingIndicator({ credentials, providerMessageId: ' ', signal: new AbortController().signal }), false)
   assert.equal(await api.sendTypingIndicator({ credentials: { ...credentials, accessToken: '' }, providerMessageId: 'wamid.fake', signal: new AbortController().signal }), false)
-  assert.equal(requests.length, 1, 'invalid inputs never make a request')
+  assert.equal(requests.length, 2, 'invalid inputs never make a request')
   globalThis.fetch = async () => new Response('private provider error', { status: 429 })
   assert.equal(await api.sendTypingIndicator({ credentials, providerMessageId: 'wamid.fake', signal: new AbortController().signal }), false)
 } finally { globalThis.fetch = originalFetch }
@@ -61,7 +66,7 @@ for (const failure of ['credentials', 'api'] as const) {
   let attempts = 0
   const failing = createBarberTypingIndicator({ resolveCredentials: async () => { attempts++; if (failure === 'credentials') throw new Error('private credential failure'); return credentials }, api: { async sendTypingIndicator() { throw new Error('private provider failure') } } })
   assert.doesNotThrow(() => failing.notify(context)); await flush(); failing.notify(context); await flush()
-  assert.equal(attempts, 1, 'errors are swallowed without retry'); failing.stop()
+  assert.equal(attempts, 2, 'a new explicit preparation can try again; failures are not cached as successful hints'); failing.stop()
 }
 
 let releaseCredentials!: (value: typeof credentials) => void
@@ -94,3 +99,88 @@ let stopRelease!: (value: typeof credentials) => void
 const stopped = createBarberTypingIndicator({ resolveCredentials: () => new Promise(resolve => { stopRelease = resolve }), api: { async sendTypingIndicator() { assert.fail('shutdown forbids late request') } } })
 stopped.notify(context); await flush(); stopped.stop(); stopRelease(credentials); await flush()
 console.log('Barber typing indicator contracts: PASS')
+
+// P19 grouped acknowledgements remain bounded but cannot discard the fifth fragment.
+const readIds: string[] = []
+const readDiagnostics: unknown[] = []
+let simultaneousReads = 0
+let maximumReads = 0
+const reception = createBarberTypingIndicator({
+  resolveCredentials: async () => credentials,
+  onDiagnostic: (event: unknown) => { readDiagnostics.push(event) },
+  api: {
+    async sendTypingIndicator() { return true },
+    async sendReadReceipt(input: { providerMessageId: string }) {
+      simultaneousReads++
+      maximumReads = Math.max(maximumReads, simultaneousReads)
+      await Promise.resolve()
+      readIds.push(input.providerMessageId)
+      simultaneousReads--
+      return true
+    }
+  }
+} as never)
+const fragments = Array.from({ length: 6 }, (_, index) => ({ ...context, providerMessageId: 'read-' + index }))
+reception.consume(fragments)
+for (let index = 0; index < 60; index++) await Promise.resolve()
+assert.deepEqual([...readIds].sort(), fragments.map(value => value.providerMessageId), 'every grouped fragment is attempted')
+assert.ok(maximumReads <= 4, 'read and typing keep the existing global concurrency bound')
+reception.stop()
+
+const failedDiagnostics: unknown[] = []
+const rejectedRead = createBarberTypingIndicator({
+  resolveCredentials: async () => credentials,
+  onDiagnostic: (event: unknown) => { failedDiagnostics.push(event) },
+  api: {
+    async sendTypingIndicator() { throw new Error('PRIVATE_PROVIDER_TOKEN') },
+    async sendReadReceipt() { return false }
+  }
+} as never)
+rejectedRead.consume([context])
+for (let index = 0; index < 30; index++) await Promise.resolve()
+assert.match(JSON.stringify(failedDiagnostics), /rejected/, 'HTTP false must produce a sanitized outcome')
+assert.doesNotMatch(JSON.stringify(failedDiagnostics), /fake-token|wamid|PRIVATE_PROVIDER_TOKEN|barber-phone/, 'diagnostics must not expose credentials or provider identities')
+rejectedRead.stop()
+
+let releaseDelayedCredentials!: (value: typeof credentials) => void
+let delayedTypingCalls = 0
+const preparation = new AbortController()
+const cancellableTyping = createBarberTypingIndicator({
+  resolveCredentials: () => new Promise(resolve => { releaseDelayedCredentials = resolve }),
+  api: {
+    async sendTypingIndicator() { delayedTypingCalls++; return true },
+    async sendReadReceipt() { return true }
+  }
+} as never)
+cancellableTyping.notify({ ...context, signal: preparation.signal })
+await flush()
+preparation.abort()
+releaseDelayedCredentials(credentials)
+await flush()
+assert.equal(delayedTypingCalls, 0, 'late credential lookup cannot start typing after reply preparation ends')
+cancellableTyping.stop()
+// Credential lookup and HTTP each receive their own bounded deadline.
+const phaseOutcomes: unknown[] = []
+let independentPhaseAccepted = 0
+const independentPhases = createBarberTypingIndicator({
+  timeoutMs: 200,
+  resolveCredentials: async () => {
+    await new Promise(resolve => setTimeout(resolve, 130))
+    return credentials
+  },
+  onDiagnostic: event => { phaseOutcomes.push(event) },
+  api: {
+    async sendTypingIndicator({ signal }) {
+      await new Promise(resolve => setTimeout(resolve, 130))
+      if (signal.aborted) return false
+      independentPhaseAccepted++
+      return true
+    },
+    async sendReadReceipt() { return true }
+  }
+})
+independentPhases.notify({ ...context, signal: new AbortController().signal })
+await new Promise(resolve => setTimeout(resolve, 320))
+assert.equal(independentPhaseAccepted, 1, 'a valid lookup must not eat the HTTP deadline')
+assert.match(JSON.stringify(phaseOutcomes), /accepted/)
+independentPhases.stop()
