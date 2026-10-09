@@ -1,3 +1,5 @@
+import { CATALOG_ANSWER_SCHEMA, CATALOG_ANSWER_INSTRUCTIONS, validateCatalogAnswer, type CatalogInformationContext } from './catalog-information-answer.js'
+
 /** Shared server-owned reply policy. Diagnostics contain no chat text, catalog IDs or names. */
 export type ReplyFact = { id: string; text: string; variants?: readonly { id: string; text: string }[] }
 export type ReplyRole = 'social' | 'information' | 'clarification' | 'continuation' | 'confirmation'
@@ -23,8 +25,9 @@ export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: Rep
 export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
-  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices'],
+  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer'],
   properties: {
+    catalogAnswer: CATALOG_ANSWER_SCHEMA,
     salutation: { type: ['string', 'null'], enum: ['greeting', null] },
     opening: { type: ['string', 'null'] },
     factIds: { type: 'null' },
@@ -37,10 +40,10 @@ export const REPLY_COMPOSITION_GUIDE = [
   'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
   'Reconocimiento cualitativo: en opening respondé la cortesía y reconocé que vas a ayudar con el pedido sin repetir sus valores concretos. Fecha, hora, cifras, nombres de prestaciones y otros datos solicitados pertenecen a las operaciones y al cuerpo verificado por el servidor, no al encuadre libre, aunque provengan del cliente. No anticipes disponibilidad ni resumas esos valores en opening/closing; una transición breve basta antes de la pregunta pertinente.',
-  'Cuerpo material: devolvé factIds:null para indicar cuerpo completo del servidor. No enumeres, selecciones ni copies los IDs obligatorios: el servidor inserta siempre TODOS los hechos recibidos exactamente una vez, en su orden, incluidos precios, condiciones y next, con sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
+  'Cuerpo material: devolvé factIds:null para indicar cuerpo completo del servidor. No enumeres, selecciones ni copies los IDs obligatorios: el servidor inserta siempre TODOS los hechos recibidos exactamente una vez, en su orden, incluidos precios, condiciones y next, con sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables, excepto el cuerpo descriptivo catalog que puede recibir catalogAnswer con procedencia vigente validada; los demás hechos, condiciones y next no se reemplazan. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
   'Continuación pertinente: si hay next debe ir al final y closing es null. No agregues otra pregunta operativa en opening; next ya es la única continuación. Podés preguntar ¿Vos? como cortesía, sin sumar otra adquisición, consulta o confirmación. No afirmes ni prometas consultar, contactar, enviar o derivar al equipo desde el encuadre. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. Si no necesitás encuadre, salutation/opening/closing son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
 ] as const
-export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ')
+export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ') + ' ' + CATALOG_ANSWER_INSTRUCTIONS
 
 /** A social turn always carries one server-owned help or recoverable next. */
 export function socialContinuationFacts(next: string): ReplyFact[] {
@@ -51,7 +54,7 @@ export function socialContinuationFacts(next: string): ReplyFact[] {
 /** Interpretation shares the writing policy, but its facts precede semantic updates. */
 export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
   'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. La respuesta a cortesía explícita no se omite por una reserva, una consulta lateral o un cambio de datos; después va la pregunta pertinente del servidor. ' +
-  'Usá factIds:null y closing null cuando hay next; el servidor conserva todos los hechos originales en orden. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null. ' +
+  'Usá factIds:null y closing null cuando hay next; el servidor conserva todos los hechos originales en orden. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null salvo una explicación descriptiva catalogAnswer sustentada en el catálogo actual; el servidor valida el objeto y añade su next vigente sin otra llamada. ' +
   'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante charla conservá la pregunta pendiente; pedidos ajenos se encauzan brevemente a ayuda del local. '
 
 export function replyContract(role: ReplyRole, identityAvailable: boolean, introduced: boolean,
@@ -111,9 +114,15 @@ function claimsTeamAction(text: string): boolean {
     /\b(?:voy|vamos)\s+a\s+(?:consultar|contactar|derivar|enviar|avisar)\b[^.!?]*\b(?:equipo|persona|profesional|asesor|operador)\b/.test(assertions)
 }
 
+// These are outbound protected-claim fences, not semantic interpretation of customer requests.
+function protectedReplyClaim(text: string): boolean {
+  return /[\d$€]|https?:|www\./i.test(text) ||
+    /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis|garantiza|garantizado|garantizar|cura|curar|precio|precios|cuesta|costo|coste|gratis|hoy|manana|agenda|cupo|cupos|propuesta|reserva|reservas|pendiente|sena)\b/.test(normalized(text)) || claimsTeamAction(text)
+}
+
 /** Model frames are optional. Fact membership, order and material fragments always belong to the server. */
 export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], contract: ReplyContract,
-  catalogNames: readonly string[]): ReplyValidationResult {
+  catalogNames: readonly string[], catalog?: CatalogInformationContext): ReplyValidationResult {
   const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null
   const providedCount = Array.isArray(value?.factIds) ? Math.min(value.factIds.length, 101) : 0
   const selectedVariants = new Map<string, string>()
@@ -129,7 +138,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
   })
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return result('invalid_shape')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return result('invalid_shape')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return result('invalid_shape')
   // Explicit null assigns the complete material body to the server. Legacy lists
   // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
@@ -169,7 +178,16 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     opening = adjusted
     if (typeof opening === 'string' && extraOperationalQuestion(opening)) return result('continuation_conflict')
   }
-  const text = [salutation, opening, ...facts.map(fact => selectedVariants.get(fact.id) ?? fact.text), value.closing]
+  // Free framing must not promise missing content or duplicate server-owned workflow status.
+  if (typeof opening === 'string' && (facts.some(fact => normalized(fact.text).includes('no hay una descripcion') || normalized(fact.text).includes('no tengo una descripcion')) && /\b(?:diferencia|comparacion|comparar)\b/.test(normalized(opening)) ||
+      /\b(?:propuesta|reserva|turno)\b/.test(normalized(opening)) && /\b(?:pendiente|confirmacion|falta)\b/.test(normalized(opening)))) return result('unverified_action')
+  let catalogText: string | null = null
+  if (value.catalogAnswer != null) {
+    if (!catalog || !facts.some(fact => fact.id === 'catalog')) return result('invalid_shape')
+    catalogText = validateCatalogAnswer(value.catalogAnswer, catalog, text => protectedReplyClaim(text))
+    if (!catalogText) return result('unverified_value')
+  }
+  const text = [salutation, opening, ...facts.map(fact => fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text), value.closing]
     .filter(part => typeof part === 'string' && part.trim()).join('\n')
   return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
 }

@@ -1,3 +1,4 @@
+import { literalCatalogName, catalogInformation, catalogInformationBody, validCatalogInquiry, type CatalogInformationContext, type CatalogInquiryScope } from './catalog-information-answer.js'
 import { neutralCatalogServiceInquiry, neutralOwnedServiceInquiry, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { assessServiceIdentity, type ServiceRequestContext } from './service-request.js'
 import { stageContent } from '../bot-options/domain/service-content.js'
@@ -13,8 +14,8 @@ import { renderInformation, renderServices, validateFacts, pendingQuestion, type
 import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ServiceInformationAspect, type BusinessInformationSubject, type ProfessionalInformationFacts } from './information-contract.js'
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
-export type InformationReadContext = { unverifiedProcedure?: ServiceRequestContext; currentServiceInquiry?: CurrentServiceInquiry; currentServiceRead?: CurrentServiceReadEvidence }
-export type InformationRead = { reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
+export type InformationReadContext = { catalogInquiry?: CatalogInquiryScope; unverifiedProcedure?: ServiceRequestContext; currentServiceInquiry?: CurrentServiceInquiry; currentServiceRead?: CurrentServiceReadEvidence }
+export type InformationRead = { catalogInformation?: CatalogInformationContext; reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
 /** An informational focus is evidence for a read, never an implicit basket selection. */
 export function focusedInformationService(state: DialogueState, services: readonly DialogueService[]): DialogueService | null {
   const focus = state.informationFocus
@@ -84,11 +85,13 @@ function namedInformationServices(message: string, services: readonly DialogueSe
 }
 /** Infer only bounded read targets; the provider remains the semantic path for richer language. */
 export function inferInformationTarget(state: DialogueState, message: string, services: readonly DialogueService[], actions: readonly InformationAction[] = routeActions(message).information): InformationTarget | null {
-  if (explicitBooking(message) || state.serviceRequest?.purpose === 'inquiry') return null
+  if (explicitBooking(message)) return null
   if (actions.includes('SERVICES')) return { kind: 'business', actions }
   const focus = state.informationFocus
   const aspect = informationAspect(message)
   const named = namedInformationServices(message, services)
+  if (state.serviceRequest?.purpose === 'inquiry' && !(named.length && ['description', 'comparison', 'recommendation', 'price'].includes(aspect ?? ''))) return null
+  if (named.length && ['description', 'comparison', 'recommendation'].includes(aspect ?? '')) return { kind: 'service', actions: [], serviceIds: named.map(service => service.id), aspect: aspect! }
   // An unresolved new catalog mention cannot borrow an older service's facts.
   // Elliptical followups have no such mention and may retain their current focus.
   const choiceAnswer = focus?.awaitingChoice && !actions.length && !aspect
@@ -117,8 +120,18 @@ function clarifyService(state: DialogueState, services: readonly DialogueService
   return { reply: candidateId || !services.length ? question : renderServices(services, aspect === 'price' ? 'price' : 'details'), outcome: 'clarifying',
     focus: focusFor(state, services, aspect, null, candidateId) }
 }
-function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[], currentInquiry?: CurrentServiceInquiry, currentRead?: CurrentServiceReadEvidence): InformationRead {
+function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[], currentInquiry?: CurrentServiceInquiry, currentRead?: CurrentServiceReadEvidence, catalogInquiry?: CatalogInquiryScope): InformationRead {
   const old = state.informationFocus
+  const described = services.filter(service => target.serviceIds.includes(service.id))
+  const publishedComparison = ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1 &&
+    described.length === target.serviceIds.length && described.every(service => literalCatalogName(message, service.name))
+  const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) && described.length > 0 &&
+    !(described.length === 1 && target.aspect !== 'description' && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
+  if (publishedComparison || sourcedExplanation) {
+    const context = catalogInformation(target, described)
+    return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) ? 'found' : 'missing',
+      catalogInformation: context }
+  }
   if (old?.serviceId && !services.some(service => service.id === old.serviceId) && !target.serviceIds.length) return missing('la información vigente de ese servicio')
   if ((currentInquiry || currentRead) && old && (old.businessId !== state.businessId || old.options.some(option =>
       !services.some(service => service.id === option.id && normalizeAnswer(option.label) === normalizeAnswer(service.name)))))
@@ -250,7 +263,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
     const procedure = readContext?.unverifiedProcedure
     if (procedure?.businessId === context.businessId && procedure.purpose === 'inquiry' && procedure.disposition !== 'clear' &&
         !target.serviceIds.length && target.estimateOptionId === undefined) return { reply: '', outcome: 'missing' }
-    return serviceRead(state, message, target, services, readContext?.currentServiceInquiry, readContext?.currentServiceRead)
+    return serviceRead(state, message, target, services, readContext?.currentServiceInquiry, readContext?.currentServiceRead, readContext?.catalogInquiry)
   }
   if (target.actions.includes('PRICES') || target.actions.includes('SERVICE_DETAILS')) {
     if (target.actions.includes('SERVICES') && !namedInformationServices(message, services).length) return { reply: renderServices(services), outcome: 'found' }
@@ -272,6 +285,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 /** One contextual next step: inquiry is not permission to mutate a booking draft. */
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
+  if (read.catalogInformation) return read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'
   if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)

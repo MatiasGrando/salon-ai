@@ -21,6 +21,7 @@ import { presentAvailability, presentProfessionals, presentVerifiedDates, presen
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
 import { parseTimePreference, approximateTimeRequest, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
 import { parseInformationFocus, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
+import { validCatalogInquiry, type CatalogInquiryScope, type CatalogInformationContext } from './catalog-information-answer.js'
 import { normalizeInformativeEstimates, readInformation, inferInformationTarget, informationAspect, informationNext, type InformationRead } from './information-read.js'
 export type { InformationTarget } from './information-contract.js'
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
@@ -99,13 +100,13 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
 }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
-export type DialogueDecision = { serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; confirmationEvidence?: string; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan; informationOnly?: true; communicative?: CommunicativeAdmission }
+export type DialogueDecision = { catalogInquiries?: readonly CatalogInquiryScope[]; serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; confirmationEvidence?: string; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan; informationOnly?: true; communicative?: CommunicativeAdmission }
 export function hasActiveBooking(state: DialogueState): boolean {
   return Boolean(hasBasketSelection(state) || state.date || state.datePreferences || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
@@ -115,6 +116,7 @@ export function socialQuestion(state: DialogueState): string {
 }
 /** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
+  if (read.catalogInformation) { rememberDialogueQuestion(state, next, [], null); return }
   const retained = hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service && next === '¿Querés agendar ' + service.label + '?' && (!retained || read.focus?.aspect === 'price')) {
@@ -936,7 +938,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
 }
 
 /** Apply independent semantic updates in dependency order, then reuse the existing booking progression. */
-async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent'], informationOnly = false, communicative?: CommunicativeAdmission): Promise<DialogueResponse> {
+async function respondTurnPlan(context: DialogueContext, state: DialogueState, message: string, port: DialoguePort, rawPlan: unknown, intent?: DialogueDecision['intent'], informationOnly = false, communicative?: CommunicativeAdmission, catalogInquiries: readonly CatalogInquiryScope[] = []): Promise<DialogueResponse> {
   // Validated AI admission already grounded and filtered these operations. Repeating
   // inference here would recreate a field that was rejected as historical/uncertain.
   // Direct and deterministic callers have no admission and retain their grounding.
@@ -1249,8 +1251,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const procedure = unverifiedReads.get(JSON.stringify(op))
     const currentServiceInquiry = currentServiceInquiries.find(scope => scope.operationIndex === plan.operations.indexOf(op))
     const currentServiceRead = currentServiceReads.find(scope => scope.operationIndex === plan.operations.indexOf(op))
+    const catalogInquiry = catalogInquiries.find(scope => scope.operation === JSON.stringify(op) && validCatalogInquiry(scope, context.businessId, message, op.target, services))
     const read = await readInformation(context, state, op.evidence, port, op.target, services,
-      procedure || currentServiceInquiry || currentServiceRead ? { ...(procedure ? { unverifiedProcedure: procedure } : {}),
+      procedure || currentServiceInquiry || currentServiceRead || catalogInquiry ? { ...(catalogInquiry ? { catalogInquiry } : {}), ...(procedure ? { unverifiedProcedure: procedure } : {}),
         ...(currentServiceInquiry ? { currentServiceInquiry } : {}), ...(currentServiceRead ? { currentServiceRead } : {}) } : undefined)
     informationReads.push(read)
     if (read.focus) state.informationFocus = read.focus
@@ -1270,6 +1273,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const next = reply || (lastRead ? informationNext(lastRead, state, hasActiveBooking(state)) : '')
     if (!reply && lastRead) rememberInformationContinuation(state, lastRead, next)
     return { state, reply: [...answers, next, clarificationReply].filter(Boolean).join('\n'), proposal: null,
+      ...(lastRead?.catalogInformation && answers.length === 1 && !reply && !clarificationReply ? { catalogInformation: lastRead.catalogInformation,
+        replyFacts: [{ id: 'catalog', text: lastRead.reply }, ...(next ? [{ id: 'next', text: next }] : [])] } : {}),
       ...(lastRead?.focus && !reply ? informationChoiceFields(state) : {}) }
   }
   if (state.timeMeaningClarification) {
@@ -1307,6 +1312,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (state.referral?.status === 'pending') {
     return { ...finishWithoutAgenda(referralPendingReply(state.referral)), replyPrepared: true }
   }
+  if (informationReads.some(read => read.catalogInformation) && !bookingUpdates.length && !nameOp && !clarificationReply) return { ...finishWithoutAgenda(''), replyPrepared: true }
   if (procedureQuestion) {
     if (state.serviceRequest) {
       const request = state.serviceRequest
@@ -1399,7 +1405,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
     const operations: TurnOperation[] = actions.length ? [{ kind: 'information', target: { kind: 'business', actions }, evidence: message, confidence: 1 }] : []
     return respondTurnPlan(context, state, message, port, { version: 1, operations }, 'other')
   }
-  if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan, decision.intent, decision.informationOnly === true, decision.communicative)
+  if (decision && Object.hasOwn(decision, 'turnPlan')) return respondTurnPlan(context, state, message, port, decision.turnPlan, decision.intent, decision.informationOnly === true, decision.communicative, decision.catalogInquiries)
   if (state.referral?.status === 'pending' && !decision?.serviceId && !decision?.candidateIds.length &&
       !decision?.informationTarget && !routeActions(message).information.length) {
     const services = await port.catalog()

@@ -1760,6 +1760,64 @@ try {
   console.log('P18 price choices: ' + p18Passed + ' passed, ' + p18Failures.length + ' failed')
   assert.deepEqual(p18Failures, [], 'P18 price choice regressions')
 
+  // P19 adds general, source-backed catalog explanations; these assertions never run inside the provider.
+  const p19Catalog: DialogueService[] = [...services,
+    { id: 'care', name: 'Tratamiento', description: 'Aporta hidratación y suavidad; no cambia la forma del cabello.', price: 18000, durationMinutes: 40, requiresConsultation: false },
+    { id: 'keratin', name: 'Keratina', description: 'Reduce el frizz y facilita el peinado; el resultado varía según el cabello.', price: 32000, durationMinutes: 60, requiresConsultation: false } ]
+  const p19Port: DialoguePort = { ...port, catalog: async () => p19Catalog }
+  const p19Blocks = [
+    { text: 'Tratamiento aporta hidratación y suavidad, sin modificar la forma del cabello.', sources: [{ serviceId: 'care', field: 'description', quote: p19Catalog.find(item => item.id === 'care')!.description }] },
+    { text: 'Keratina apunta a reducir el frizz y facilitar el peinado; el resultado no es igual para todos los cabellos.', sources: [{ serviceId: 'keratin', field: 'description', quote: p19Catalog.find(item => item.id === 'keratin')!.description }] } ]
+  const p19Frame = { salutation: null, opening: 'Claro, te explico.', factIds: null, closing: null, variantChoices: null, catalogAnswer: { blocks: p19Blocks } }
+  let p19Passed = 0; const p19Failures: string[] = []
+  const p19Check = async (name: string, run: () => Promise<void>) => {
+    try { await run(); p19Passed++; console.log('PASS P19 ' + name) }
+    catch (error) { p19Failures.push(name); console.error('RED P19 ' + name + ': ' + String(error)) }
+  }
+  for (const purpose of ['booking', 'inquiry']) await p19Check('a new comparison is not captured by the prior procedure question: ' + purpose, async () => {
+    const requestBody = 'Quiero que el pelo me quede más lacio'
+    const prior = await respondWithAiInterpreter(context, initial, requestBody, p19Port, async () => ({ ...legacy, intent: purpose === 'booking' ? 'booking' : 'information',
+      turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose, disposition: 'alternatives', serviceIds: ['care', 'keratin'],
+        correction: false, continuation: false, basis: 'related_category', sourceQuote: null, subject: 'el pelo me quede más lacio', aspect: null,
+        ...ev('el pelo me quede más lacio') }] }, communicativeActs: { version: 1, acts: [{ kind: purpose === 'booking' ? 'request' : 'inquiry',
+          field: 'service', evidence: requestBody, mention: null, confidence: 1, operationIndexes: [0] }] } }))
+    assert.ok(prior.state.serviceRequest); assert.ok(prior.state.questionContext)
+    const before = structuredClone(prior.state), beforeAgenda = agendaCalls
+    const body = '¿Cuál es la diferencia entre Tratamiento y Keratina?'; let calls = 0
+    const result = await respondWithAiInterpreter(context, prior.state, body, p19Port, async () => { calls++; return { ...legacy,
+      turnPlan: { version: 1, operations: [info(body, service(['care', 'keratin'], 'comparison'))] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, mention: null, confidence: 1, operationIndexes: [0] }] },
+      firstReply: p19Frame } })
+    assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1)
+    for (const block of p19Blocks) assert.ok(result.reply.includes(block.text), 'the actual body compares the two published descriptions')
+    assert.doesNotMatch(result.reply, /sobre «Tratamiento y Keratina»|De cuál de estos servicios|Cuál de estas opciones te interesa|más lacio/i)
+    assert.equal((result.reply.match(/\?/g) ?? []).length, 1, 'one current informative next, not a comparison plus the old procedure question')
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(before)); assert.deepEqual(result.state.serviceRequest, before.serviceRequest)
+    assert.equal(result.state.pending, before.pending); assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    assert.equal(result.handoffCommand, undefined); assert.equal(agendaCalls, beforeAgenda)
+    assert.equal(result.choicePresentation?.choices.some(choice => choice.label.toLowerCase() === 'reservar') ?? false, false)
+  })
+  await p19Check('comparison remains a lateral read with peers and its following price has only the correct focal Reservar action', async () => {
+    const prior: DialogueState = { ...initial, serviceId: 'cut', pending: 'date', customerName: 'Ana' }
+    const body = 'Compará Tratamiento y Keratina'; const beforeAgenda = agendaCalls
+    const compared = await respondWithAiInterpreter(context, prior, body, p19Port, async () => ({ ...legacy,
+      turnPlan: { version: 1, operations: [info(body, service(['care', 'keratin'], 'comparison'))] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, mention: null, confidence: 1, operationIndexes: [0] }] }, firstReply: p19Frame }))
+    for (const block of p19Blocks) assert.ok(compared.reply.includes(block.text))
+    assert.deepEqual(selectionBasket(compared.state), selectionBasket(prior)); assert.equal(compared.state.pending, prior.pending)
+    assert.equal(compared.proposal, null); assert.equal(compared.bookingCommand, undefined)
+    const priceBody = 'Precio de Keratina'
+    const focused = await respondWithAiInterpreter(context, compared.state, priceBody, p19Port, async () => ({ ...legacy,
+      turnPlan: { version: 1, operations: [info(priceBody, service(['keratin'], 'price'))] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: priceBody, mention: 'Keratina', confidence: 1, operationIndexes: [0] }] } }))
+    assert.match(focused.reply, /32[.,]?000/); assert.match(focused.reply, /¿Querés (?:agendar|reservar)/)
+    assert.deepEqual(focused.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: 'keratin' } }])
+    assert.deepEqual(selectionBasket(focused.state), selectionBasket(prior)); assert.equal(focused.proposal, null); assert.equal(focused.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda)
+  })
+  console.log('P19 catalog continuity: ' + p19Passed + ' passed, ' + p19Failures.length + ' failed')
+  assert.deepEqual(p19Failures, [], 'P19 catalog comparison continuity regressions')
+
   console.log('current service inquiry: ' + currentPassed + ' passed, ' + currentFailures.length + ' failed')
   assert.deepEqual(currentFailures, [], 'current service inquiry regressions')
 

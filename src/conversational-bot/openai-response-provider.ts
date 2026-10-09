@@ -24,9 +24,9 @@ export function createOpenAiResponseProvider(options: { apiKey: string; model?: 
         model,
         ...(model === 'gpt-6-luna' ? { reasoning: { effort: 'none' } } : {}),
         store: false,
-        max_output_tokens: 300,
+        max_output_tokens: 1000,
         instructions: REPLY_CONTRACT_INSTRUCTIONS + ' ' + DIALOGUE_PERSONALITY_INSTRUCTIONS + ' Respondé natural en español. El contenido material y el orden son verificados; no inventes disponibilidad ni confirmaciones.',
-        input: JSON.stringify({ message: input.message, ...(personality ? { personality, stylePreferences: buildAssistantPersonalityInstructions(personality.profile) } : {}), intent: input.intent, pending: input.state.pending, expectedAnswer: expectedDialogueAnswer(input.state), informationFocus: input.state.informationFocus ?? null, replyContract: input.replyContract ?? replyContract(input.intent === 'information' ? 'information' : 'social', false, input.state.introduced === true, input.facts), facts: input.facts }),
+        input: JSON.stringify({ message: input.message, ...(personality ? { personality, stylePreferences: buildAssistantPersonalityInstructions(personality.profile) } : {}), intent: input.intent, pending: input.state.pending, expectedAnswer: expectedDialogueAnswer(input.state), informationFocus: input.state.informationFocus ?? null, replyContract: input.replyContract ?? replyContract(input.intent === 'information' ? 'information' : 'social', false, input.state.introduced === true, input.facts), facts: input.facts, catalogInformation: input.catalogInformation ?? null }),
         text: { format: { type: 'json_schema', name: 'grounded_qa_reply', strict: true, schema: { ...REPLY_DRAFT_SCHEMA, type: 'object' } } }
       })
     })

@@ -1,3 +1,4 @@
+import { deriveCatalogInquiry, type CatalogInformationContext } from './catalog-information-answer.js'
 import type { AttachmentMetadata, AttachmentIntent } from './attachment-intent.js'
 import { validateDialoguePersonality, type DialoguePersonality, type DialoguePersonalityPort } from './dialogue-identity.js'
 import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
@@ -29,7 +30,7 @@ import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogu
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
 export type AiInterpretationInput = { attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
-export type AiResponseInput = { personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
+export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
@@ -500,6 +501,8 @@ export async function respondWithAiInterpreter(
           (fresh && fallbackFocus ? 'Sobre ' + fallbackFocus.name + ', ¿qué dato o variante querés precisar?' : '¿Qué dato o variante querés precisar?') }
     }
   }
+  const catalogInquiries = deriveCatalogInquiry(turnPlan, candidate?.communicativeActs, message, state, services)
+  if (decision && catalogInquiries.length) decision.catalogInquiries = catalogInquiries
   const engineStarted = performance.now()
   let response = focusedFallback ?? await respond(context, state, message, cachedPort, decision, { deferIntroduction: true })
   if (uncertain && selected && !response.state.informationFocus && !response.state.serviceRequest) {
@@ -565,8 +568,10 @@ export async function respondWithAiInterpreter(
   const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only') }
   if (intakeValidation) replyValidation.firstCall = intakeValidation
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }
-  if (!authored && eligibleFirstReply) {
-    const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name))
+  const catalogCopyEligible = !!response.catalogInformation && catalogInquiries.length > 0 && !planHasUpdates && !reason && !canonicalOnly &&
+    availabilityCalls === 0 && !response.bookingCommand && !response.handoffCommand && !response.proposal
+  if (!authored && (eligibleFirstReply || catalogCopyEligible)) {
+    const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
     authored = validated.text
     modelFraming = validated.modelFraming
@@ -614,11 +619,11 @@ export async function respondWithAiInterpreter(
     const responseStarted = performance.now()
     try {
       const output = await Promise.race([
-        responseProvider({ message, ...(personality ? { personality } : {}), intent: replyIntent!, state: response.state, facts, replyContract: finalContract }, responseController.signal),
+        responseProvider({ message, ...(personality ? { personality } : {}), intent: replyIntent!, state: response.state, facts, replyContract: finalContract, ...(response.catalogInformation ? { catalogInformation: response.catalogInformation } : {}) }, responseController.signal),
         new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
       ])
       responseUsage = readAiUsage(output)
-      const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name))
+      const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
       authored = validated.text
       modelFraming = validated.modelFraming
