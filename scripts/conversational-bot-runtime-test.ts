@@ -16,6 +16,7 @@ import { PGlite, type Transaction } from '@electric-sql/pglite'
 import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
 import { readConversationDraft, projectConversationDraft, reconcileConversationDraft } from '../src/conversational-bot/session-state.js'
 import type { AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import * as aiDiagnostics from '../src/conversational-bot/ai-diagnostics.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { resolveGuidance } from '../src/conversational-bot/service-guidance.js'
@@ -1336,6 +1337,86 @@ for (const key of ['contextMs', 'computeMs', 'interpretationMs', 'validationMs',
 assert.ok(!JSON.stringify(measured).includes('Corte') && !JSON.stringify(measured).includes('phone'), 'diagnostics exclude content and recipient')
 assert.equal(measured.aiCalls, 1, 'WhatsApp diagnostics must expose actual AI calls')
 assert.equal(measured.replyRoute, 'first_call')
+
+// P20: expose a closed rejection reason through the real worker callback, not raw model output.
+// This controlled rejection recreates the combined input, not the lost historical provider output.
+const diagnosticMessage = ['hola que tal soy Rafael', 'queria hacerme mechas'].join(' ')
+for (const cause of ['catalog', 'evidence'] as const) {
+  const rejected = runtimeFixture()
+  rejected.next(diagnosticMessage)
+  const traces: Array<Record<string, unknown>> = []
+  await rejected.run('PROCESS_INBOX', {
+    provider: async input => {
+      rejected.assertOutside()
+      assert.equal(input.message, diagnosticMessage)
+      return runtimeCandidate(
+        { kind: 'name', value: 'Rafael', ...runtimeEv('Rafael') },
+        { kind: 'service', mode: 'single', serviceIds: [cause === 'catalog' ? 'PRIVATE_UNKNOWN_ID' : 'cut'], correction: false,
+          ...runtimeEv(cause === 'evidence' ? 'PRIVATE_UNGROUNDED_EVIDENCE' : 'mechas') })
+    },
+    timeoutMs: 4500,
+    onDiagnostic: value => {
+      assert.equal(rejected.settled, 1, 'validation diagnostic is emitted only after committed consumption')
+      traces.push(value as unknown as Record<string, unknown>)
+    }
+  })
+  assert.equal(traces.length, 1)
+  assert.equal(traces[0]!.reason, 'invalid_output')
+  assert.equal(traces[0]!.mode, 'fallback')
+  const validation = traces[0]!.validation as { outcome: string; reason: string; turnPlan: { cause: string } } | undefined
+  assert.equal(validation?.outcome, 'rejected', 'WhatsApp must expose the closed validation summary')
+  assert.equal(validation?.reason, 'turn_plan')
+  assert.equal(validation?.turnPlan.cause, cause)
+  assert.doesNotMatch(JSON.stringify(traces), /Rafael|mechas|PRIVATE_|serviceIds|confidence|phone|raw/)
+  assert.equal(rejected.singularAgendaCalls + rejected.basketAgendaCalls, 0)
+  assert.equal(readConversationDraft(rejected.session.state, policy, 'UTC').serviceId, null)
+  assert.ok(!rejected.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)))
+  assert.doesNotMatch(JSON.stringify(rejected.session.state), /validationAcceptedKinds|"cause":"(?:catalog|evidence)"/,
+    'observability details are not persisted as booking or durable conversation state')
+}
+
+assert.equal((measured.validation as { outcome?: string } | undefined)?.outcome, 'accepted')
+assert.equal((measured.validation as { reason?: unknown } | undefined)?.reason, null)
+for (const cause of ['timeout', 'provider_error'] as const) {
+  const unavailable = runtimeFixture()
+  unavailable.next(diagnosticMessage)
+  const traces: Array<Record<string, unknown>> = []
+  await unavailable.run('PROCESS_INBOX', {
+    provider: cause === 'timeout' ? async () => new Promise(() => {}) : async () => { throw new Error('PRIVATE_PROVIDER_MESSAGE') },
+    timeoutMs: cause === 'timeout' ? 1 : 4500,
+    onDiagnostic: value => traces.push(value as unknown as Record<string, unknown>)
+  })
+  assert.equal(traces[0]!.reason, cause)
+  assert.equal((traces[0]!.validation as { outcome: string; reason: string }).outcome, 'not_run')
+  assert.equal((traces[0]!.validation as { reason: string }).reason, 'not_run')
+  assert.doesNotMatch(JSON.stringify(traces), /Rafael|mechas|PRIVATE_PROVIDER_MESSAGE|"cause"/)
+}
+
+const projectValidation = (aiDiagnostics as unknown as { summarizeValidationDiagnostic?: (value: unknown) => unknown }).summarizeValidationDiagnostic
+assert.equal(typeof projectValidation, 'function', 'diagnostic boundary needs a closed own-data-only projection')
+const safeValidation = { outcome: 'rejected', reason: 'turn_plan', service: 'rejected', professional: 'absent', candidates: 'rejected', correction: 'absent',
+  turnPlan: { outcome: 'rejected', validationAcceptedKinds: [], reason: 'turn_plan', cause: 'catalog' } }
+assert.deepEqual(projectValidation!(safeValidation), safeValidation)
+assert.deepEqual(projectValidation!({ ...safeValidation, raw: 'PRIVATE_RAW', customer: 'PRIVATE_CUSTOMER' }), safeValidation)
+assert.equal(projectValidation!({ ...safeValidation, reason: 'PRIVATE_REASON' }), undefined)
+assert.equal(projectValidation!({ ...safeValidation, turnPlan: { ...safeValidation.turnPlan, cause: 'PRIVATE_CAUSE' } }), undefined)
+assert.equal(projectValidation!({ ...safeValidation, turnPlan: { ...safeValidation.turnPlan, validationAcceptedKinds: ['PRIVATE_KIND'] } }), undefined)
+let diagnosticGetterCalls = 0
+const accessorValidation = { ...safeValidation }
+Object.defineProperty(accessorValidation, 'reason', { enumerable: true, get() { diagnosticGetterCalls++; throw new Error('PRIVATE_GETTER') } })
+assert.equal(projectValidation!(accessorValidation), undefined)
+assert.equal(diagnosticGetterCalls, 0, 'diagnostic projection never evaluates an accessor')
+
+const failOpenValidation = runtimeFixture()
+failOpenValidation.next(diagnosticMessage)
+await failOpenValidation.run('PROCESS_INBOX', { provider: async () => runtimeCandidate(
+  { kind: 'service', mode: 'single', serviceIds: ['PRIVATE_UNKNOWN_ID'], correction: false, ...runtimeEv('mechas') }), timeoutMs: 4500,
+  onDiagnostic: () => { throw new Error('PRIVATE_DIAGNOSTIC_SINK_FAILURE') } })
+assert.equal(failOpenValidation.settled, 1)
+assert.equal(failOpenValidation.replies.length, 1, 'post-commit diagnostic sink failure does not lose or repeat the reply')
+assert.equal(failOpenValidation.retried, 0)
+console.log('P20 controlled combined-input rejection: closed validation reasons, privacy and post-commit fail-open PASS')
+
 const preparedRuntime = runtimeFixture()
 const preparedDiagnostics: unknown[] = []
 await preparedRuntime.run('PROCESS_INBOX', { provider: async () => ({ intent: 'booking', serviceId: 'cut', serviceEvidence: 'Corte', professionalMention: null, firstReply: null }), timeoutMs: 4500, onDiagnostic: value => preparedDiagnostics.push(value) })

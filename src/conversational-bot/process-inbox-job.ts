@@ -1,3 +1,4 @@
+import { summarizeValidationDiagnostic } from './ai-diagnostics.js'
 import { interpretConversationAttachment, conversationProofBindingFromState, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from './attachment-intent.js'
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
@@ -735,6 +736,7 @@ export async function processConversationInbox(input: {
     markSettled()
     if (useAi && input.conversationalAi?.onDiagnostic) {
       const diagnostic = (response as InterpretedDialogueResponse).interpretation
+      const validation = summarizeValidationDiagnostic(diagnostic.validation)
       const ms = (value: number) => Math.round(value * 10) / 10
       try {
         await input.conversationalAi.onDiagnostic({
@@ -742,6 +744,7 @@ export async function processConversationInbox(input: {
           transitionId: committedTransitionId, result, contextMs: ms(computedStarted - contextStarted), computeMs: ms(computedAt - computedStarted),
           mode: diagnostic.mode, reason: diagnostic.reason, copyMode: diagnostic.copyMode, copyReason: diagnostic.copyReason,
           ...(diagnostic.replyValidation ? { replyValidation: diagnostic.replyValidation } : {}),
+          ...(validation ? { validation } : {}),
           aiCalls: diagnostic.aiCalls, replyRoute: diagnostic.replyRoute,
           ...(diagnostic.interpretationProviderError ? { interpretationProviderError: diagnostic.interpretationProviderError } : {}),
           ...(diagnostic.responseProviderError ? { responseProviderError: diagnostic.responseProviderError } : {}),

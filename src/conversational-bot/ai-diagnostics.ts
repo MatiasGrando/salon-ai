@@ -4,6 +4,7 @@ import { TURN_PLAN_LIMITS, TurnPlanValidationError, type TurnPlanValidationCause
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
 
 type RequestKind = TurnOperation['kind']
+const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'time_preference', 'time_clarification', 'name', 'information', 'unsupported_action']
 type BasketSummary = { mutation: 'set' | 'add' | 'remove' | 'replace' | 'unknown'; memberCount: number; targetCount: number; singleCount: number; alternativeCount: number; unresolvedCount: number }
 export type TurnPlanSummary = { operationCount: number; kinds: RequestKind[]; basket?: BasketSummary; estimateCount?: number }
 
@@ -56,7 +57,6 @@ export function summarizeProposal(raw: unknown): ProposalSummary {
   const rawPlan = dataField(raw, 'turnPlan')
   const operations = dataField(rawPlan, 'operations')
   const planOperations = Array.isArray(operations) ? operations.slice(0, TURN_PLAN_LIMITS.operations + 1) : []
-  const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'time_preference', 'time_clarification', 'name', 'information', 'unsupported_action']
   const kinds = [...new Set(planOperations.map(operation => dataField(operation, 'kind')).filter((kind): kind is RequestKind => requestKinds.includes(kind as RequestKind)))]
   const serviceOperation = planOperations.find(operation => dataField(operation, 'kind') === 'service')
   const planCandidates = dataField(serviceOperation, 'serviceIds')
@@ -119,6 +119,40 @@ export function summarizeValidation(proposal: ProposalSummary, accepted: boolean
     candidates: field(proposal.candidateCount > 0), correction: field(proposal.correction),
     ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause } : {}) } } : {})
   }
+}
+/** Public diagnostic boundary: copy only closed own data, never model text, IDs or accessors. */
+export function summarizeValidationDiagnostic(value: unknown): ValidationSummary | undefined {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+    const outcome = dataField(value, 'outcome')
+    const reason = dataField(value, 'reason')
+    if (!['accepted', 'rejected', 'not_run'].includes(outcome as string) ||
+        (outcome === 'accepted' ? reason !== null : outcome === 'not_run' ? reason !== 'not_run'
+          : !Object.values(reasonByMessage).includes(reason as ValidationReason))) return undefined
+    const fields = Object.fromEntries(['service', 'professional', 'candidates', 'correction'].map(key => [key, dataField(value, key)]))
+    if (Object.values(fields).some(field => !['accepted', 'rejected', 'absent'].includes(field as string))) return undefined
+    const result = { outcome, reason, ...fields } as ValidationSummary
+    if (Object.hasOwn(value, 'turnPlan')) {
+      const rawPlan = dataField(value, 'turnPlan')
+      const planOutcome = dataField(rawPlan, 'outcome'), planReason = dataField(rawPlan, 'reason')
+      const rawKinds = dataField(rawPlan, 'validationAcceptedKinds')
+      if (planOutcome !== outcome || planReason !== (outcome === 'accepted' ? null : outcome === 'not_run' ? 'not_run' : 'turn_plan') ||
+          !Array.isArray(rawKinds) || rawKinds.length > TURN_PLAN_LIMITS.operations) return undefined
+      const kinds: RequestKind[] = []
+      for (let index = 0; index < rawKinds.length; index++) {
+        const kind = Object.getOwnPropertyDescriptor(rawKinds, String(index))?.value
+        if (!requestKinds.includes(kind as RequestKind)) return undefined
+        kinds.push(kind as RequestKind)
+      }
+      const cause = dataField(rawPlan, 'cause')
+      if (rawPlan && Object.hasOwn(rawPlan as object, 'cause') &&
+          !['evidence', 'shape', 'catalog', 'conflict', 'estimate'].includes(cause as string)) return undefined
+      result.turnPlan = { outcome: planOutcome as ValidationSummary['outcome'], validationAcceptedKinds: kinds,
+        reason: planReason as NonNullable<ValidationSummary['turnPlan']>['reason'],
+        ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }) }
+    }
+    return result
+  } catch { return undefined }
 }
 export function summarizeState(state: DialogueState): StateSummary {
   return {

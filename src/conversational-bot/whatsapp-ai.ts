@@ -1,6 +1,7 @@
 import { createOpenAiInterpretationProvider } from './openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from './openai-response-provider.js'
 import type { AiInterpretationProvider, InterpretationDiagnostics } from './ai-interpreter.js'
+import type { ValidationSummary } from './ai-diagnostics.js'
 import { resolveConversationalAiEnvTimeoutMs } from './ai-timeout.js'
 
 /** Correlation IDs only, never recipient, prompts, replies or raw provider errors. */
@@ -10,6 +11,7 @@ export type ConversationAiDiagnostic = {
   mode: InterpretationDiagnostics['mode']; reason: InterpretationDiagnostics['reason']
   copyMode: InterpretationDiagnostics['copyMode']; copyReason: InterpretationDiagnostics['copyReason']
   replyValidation?: InterpretationDiagnostics['replyValidation']
+  validation?: ValidationSummary
   interpretationMs: number; validationMs: number; engineMs: number; responseMs: number
   aiCalls?: InterpretationDiagnostics['aiCalls']; replyRoute?: InterpretationDiagnostics['replyRoute']
   interpretationProviderError?: InterpretationDiagnostics['interpretationProviderError']
