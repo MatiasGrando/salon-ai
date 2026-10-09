@@ -1,6 +1,6 @@
 import { commercialTimeCandidate, temporalPlanDate, type BusinessTimeContextReader } from './business-time-context.js'
 import { TurnPlanValidationError } from './turn-plan.js'
-import { approximateTimeRequest, fallbackTemporalRequest, parseTimePreference, timeOperationMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
+import { approximateTimeRequest, classifyTemporalRequest, parseTimePreference, timeOperationMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
 import { parseMinutes } from '../bot-options/application/availability-queries.js'
 /** A proved semantic mismatch, not authority to relax structural or evidence validation. */
@@ -79,7 +79,8 @@ export function groundTemporalPlan(value: unknown, message: string, state: Conte
   let constraint = periodAnswer
   constraint ??= approximateTimeRequest(message)
   if (!constraint) {
-    const explicitRequest = fallbackTemporalRequest(message,true)
+    // Classification validates a proposed refinement; it does not grant fallback authority.
+    const explicitRequest = classifyTemporalRequest(message,true)
     if (state.timeClarification && (!explicitRequest || explicitRequest.kind === 'ambiguous') &&
         value.operations.some(op => record(op) && ['time','time_preference','time_clarification'].includes(String(op.kind)))) throw new TurnPlanValidationError('evidence')
     if (value.operations.some(op => record(op) && op.kind === 'time_clarification')) throw new TurnPlanValidationError('evidence')

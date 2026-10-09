@@ -76,6 +76,8 @@ export type DialogueState = {
   professionalReference?: ProfessionalReference
   /** Server-owned unresolved temporal meaning; never a requested time or availability. */
   timeMeaningClarification?: true
+  /** Server-derived search target: persists across answers, but cannot auto-select a slot. */
+  requestedTimeMode?: 'inquiry'
   timePreference?: TimePreference; timeClarification?: { candidateTimes: string[] }; requestedTime: string | null; slot: AvailabilitySlot | null; customerName: string | null
   /** Evidence of the offer actually presented, not a cache of live availability or chat history. */
   dialogueContext?: { lastQuestion: string | null; presentedOffer: PresentedOffer | null }
@@ -160,6 +162,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     if (s.date !== null || s.slot !== null) throw new Error('date priorities cannot select a date or slot')
   }
   if (s.requestedTime !== null && parseMinutes(s.requestedTime) === null) throw new Error('invalid requested time')
+  if (s.requestedTimeMode !== undefined && (s.requestedTimeMode !== 'inquiry' || s.requestedTime === null || s.slot !== null)) throw new Error('invalid requested time mode')
   if (s.timeMeaningClarification !== undefined && (s.timeMeaningClarification !== true || s.requestedTime !== null ||
       s.slot !== null || s.timePreference !== undefined || s.timeClarification !== undefined ||
       s.sandboxReservation !== undefined && !s.sandboxReservation.receipt)) throw new Error('invalid temporal meaning clarification')
@@ -344,7 +347,7 @@ export function fallbackIndependentTurnPlan(context: DialogueContext, state: Dia
     : { kind: 'time_preference', preference: temporal.preference, evidence: message, confidence: 1 })
   return parseTurnPlan(groundTemporalPlan({ version: 1, operations }, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port?.businessTimeContext ? {read:port.businessTimeContext} : {})}), message, services.map(service => service.id))
 }
-function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
+function clearSlot(state: DialogueState) { state.slot = null; state.requestedTime = null; delete state.requestedTimeMode; delete state.dialogueContext; delete state.questionContext }
 function dateLabel(date: string, timezone: string): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number]
   const instant = new Date(Date.UTC(year, month - 1, day, 12))
@@ -379,7 +382,7 @@ function mutateStateBasket(state: DialogueState, op: BasketMutation): void {
   }
   if (result.changed) {
     state.slot = null
-    if (previouslyResolved) state.requestedTime = null
+    if (previouslyResolved) { state.requestedTime = null; delete state.requestedTimeMode }
     delete state.dialogueContext; delete state.questionContext
   }
 }
@@ -571,7 +574,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const temporal = fallbackTemporalRequest(message, state.pending === 'time')
     const preserveTemporal = () => {
       if (!temporal || temporal.kind === 'ambiguous') return
-      delete state.timeMeaningClarification
+      delete state.timeMeaningClarification; delete state.requestedTimeMode
       state.slot = null; delete state.dialogueContext; delete state.questionContext
       if (temporal.kind === 'preference') { state.timePreference = temporal.preference; state.requestedTime = null }
       else { delete state.timePreference; state.requestedTime = temporal.time }
@@ -889,7 +892,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       return finish('No hay horarios para ' + service.name + ' el ' + dateLabel(state.date, context.timezone) + ' que cumplan esa preferencia. Mantengo el día y el pedido.\nEstas opciones sí están disponibles en otro horario:\n' + rendered.text)
     }
   }
-  if (state.requestedTime && !state.slot) {
+  if (state.requestedTime && state.requestedTimeMode !== 'inquiry' && !state.slot) {
     const selected = slots.filter(s => s.time === state.requestedTime)
     if (!selected.some(slot => slot.coordination) && (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any' && new Set(selected.map(slot => Date.parse(slot.startAt))).size === 1)) state.slot = selected[0]!
 
@@ -926,7 +929,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // Direct and deterministic callers have no admission and retain their grounding.
   let raw = parseTurnPlan(communicative ? rawPlan : groundTemporalPlan(rawPlan, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port.businessTimeContext ? {read:port.businessTimeContext} : {})}), message)
   if (communicative?.timeMeaningRejected) {
-    state.requestedTime = null; state.slot = null
+    state.requestedTime = null; state.slot = null; delete state.requestedTimeMode
     delete state.timePreference; delete state.timeClarification
     delete state.dialogueContext; delete state.questionContext
     if (state.sandboxReservation && !state.sandboxReservation.receipt) delete state.sandboxReservation
@@ -1100,7 +1103,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const bookingUpdates = updates.filter(op => op.kind !== 'name')
   if (candidateSelection) delete state.informationFocus
   if (bookingUpdates.length) delete state.informationFocus
-  const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) state.requestedTime = null; delete state.dialogueContext; delete state.questionContext }
+  const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) { state.requestedTime = null; delete state.requestedTimeMode } delete state.dialogueContext; delete state.questionContext }
   const serviceOp = plan.operations.find(op => op.kind === 'service')
   const basketOp = plan.operations.find(op => op.kind === 'basket')
   if (basketOp?.kind === 'basket') mutateStateBasket(state, basketOp)
@@ -1137,7 +1140,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       : resolution.kind === 'unsupported' ? dateOp.value ?? null : null
     const date = resolved && resolved >= today && localDateTimeToInstants(resolved, 720, context.timezone).length ? resolved : null
     uncertainDate = !date
-    if (date !== state.date || !date) { invalidate(Boolean(state.date) || !date); state.date = date }
+    if (date !== state.date || !date) { invalidate(Boolean(state.date) && state.requestedTimeMode !== 'inquiry' || !date); state.date = date }
     if (date) delete state.datePreferences
   }
   const professionalOp = plan.operations.find(op => op.kind === 'professional')
@@ -1147,7 +1150,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const sameSpecific = professionalOp.mode === 'specific' && mention && state.professional?.kind === 'specific' &&
       state.slot?.professionalId === state.professional.id && normalize(state.slot.professionalName) === mention
     const sameAny = professionalOp.mode === 'any' && state.professional?.kind === 'any'
-    if (!sameSpecific && !sameAny) invalidate(Boolean(state.professional))
+    if (!sameSpecific && !sameAny) invalidate(Boolean(state.professional) && state.requestedTimeMode !== 'inquiry')
     if (!sameSpecific) state.professional = professionalOp.mode === 'any' ? { kind: 'any' } : null
     state.professionalNameHint = mention
   }
@@ -1158,18 +1161,19 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     // Only the previously scoped server reference supplies the name. No model ID or new name is accepted.
     const reference = parseProfessionalReference(state.professionalReference, state)
     if (referenceOp.action === 'prefer') {
-      invalidate(Boolean(state.professional))
+      invalidate(Boolean(state.professional) && state.requestedTimeMode !== 'inquiry')
       state.professional = null
       state.professionalNameHint = normalize(reference.mention) || null
     }
     delete state.professionalReference
   }
   const timeOp = plan.operations.find(op => op.kind === 'time')
-  if (timeOp?.kind === 'time') { delete state.timeMeaningClarification; delete state.timeClarification; delete state.timePreference; invalidate(false); state.requestedTime = timeOp.value }
+  if (timeOp?.kind === 'time') { delete state.timeMeaningClarification; delete state.timeClarification; delete state.timePreference; delete state.requestedTimeMode; invalidate(false); state.requestedTime = timeOp.value }
   const clarificationOp = plan.operations.find(op => op.kind === 'time_clarification')
   if (clarificationOp?.kind === 'time_clarification') { delete state.timeMeaningClarification; invalidate(true); delete state.timePreference; state.timeClarification = parseTimeClarification({candidateTimes:clarificationOp.candidateTimes}) }
   const preferenceOp = plan.operations.find(op => op.kind === 'time_preference')
   if (preferenceOp?.kind === 'time_preference') { delete state.timeMeaningClarification; delete state.timeClarification; invalidate(true); state.timePreference = parseTimePreference(preferenceOp.preference) }
+  if (communicative?.temporalInquiry && state.requestedTime) { state.requestedTimeMode = 'inquiry'; state.slot = null }
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
   if (communicative?.social && !communicative.blockedFields.length && !communicative.reference && plan.operations.every(op => op.kind === 'name') && state.pending !== 'name' && !contextual.clarify) {
@@ -1786,7 +1790,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const selected = basketServiceIds(state).map(id => services.find(service => service.id === id))
   if (state.editRequest && operation.kind !== 'service') return reject()
   if (operation.kind !== 'service' && (!selected.length || selected.some(service => !service || !validBookableService(service,true)))) return reject()
-  const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) state.requestedTime = null; delete state.sandboxReservation; delete state.dialogueContext; delete state.questionContext }
+  const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) { state.requestedTime = null; delete state.requestedTimeMode } delete state.sandboxReservation; delete state.dialogueContext; delete state.questionContext }
   const freshAvailability = async () => {
     if (!state.date || !state.professional) return reject()
     const guidance = resolveGuidance(selected as DialogueService[], state.serviceEstimates)
@@ -1829,9 +1833,9 @@ export async function respondConversationChoice(context: DialogueContext, previo
       { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
     if (!result.ok || !result.slots.some(slot => slot.date === operation.date && Date.parse(slot.startAt) > context.dbNow.getTime())) return reject()
     validateBasketAvailability(result,basketServiceIds(state),state.serviceEstimates)
-    clearDependent(Boolean(state.date)); state.date = operation.date; delete state.datePreferences
+    clearDependent(Boolean(state.date) && state.requestedTimeMode !== 'inquiry'); state.date = operation.date; delete state.datePreferences
   } else if (operation.kind === 'professional' || operation.kind === 'any_professional') {
-    clearDependent(Boolean(state.slot) || Boolean(state.professional))
+    clearDependent(Boolean(state.slot) || Boolean(state.professional) && state.requestedTimeMode !== 'inquiry')
     state.professionalNameHint = null
     if (operation.kind === 'professional') {
       state.professional = null // The explicit alternative replaces the rejected preference only after fresh validation.
@@ -1847,8 +1851,8 @@ export async function respondConversationChoice(context: DialogueContext, previo
     const available = await freshAvailability()
     const slot = available.slots.find(slot => slot.date === operation.date && slot.time === operation.time && slot.professionalId === operation.professionalId && slot.coordination?.key === operation.coordinationKey && Date.parse(slot.startAt) === Date.parse(operation.startAt) && Date.parse(slot.startAt) > context.dbNow.getTime())
     if (!slot || !available.professionals.some(professional => professional.id === slot.professionalId)) return reject()
-    const scoped = parseDialogueState({ ...state, requestedTime: operation.time, slot, timePreference: undefined },context.businessId,context.timezone)
-    delete state.timeClarification; clearDependent(false); delete state.timePreference; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
+    const scoped = parseDialogueState({ ...state, requestedTime: operation.time, requestedTimeMode: undefined, slot, timePreference: undefined },context.businessId,context.timezone)
+    delete state.timeClarification; clearDependent(false); delete state.timePreference; delete state.requestedTimeMode; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
   }
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,

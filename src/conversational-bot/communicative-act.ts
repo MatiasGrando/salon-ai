@@ -29,6 +29,8 @@ export type CommunicativeAdmission = {
   currentServiceReads?: readonly CurrentServiceReadEvidence[]
   /** Server-only current temporal authority; never a model or persisted claim. */
   timeMeaningRejected?: true
+  /** Current admitted temporal inquiry scopes a search, never a slot selection. */
+  temporalInquiry?: true
   reference?: { mention: string; evidence: string }
   /** Ephemeral server admission, never a model flag or persisted booking action. */
   continuity?: 'notice' | 'pause' | 'repair'
@@ -316,6 +318,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string, serverBlockedFields: readonly CommunicativeField[] = []): CommunicativeAdmission {
   const blocked = new Set<CommunicativeField>()
   let timeMeaningRejected = false
+  let temporalInquiry = false
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
   // Establish sole current nonoperative ownership before inspecting unowned proposals.
   const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
@@ -359,7 +362,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
       original?.kind === 'service_request' && original.purpose === 'inquiry'
     const sameField = act?.field === field
     const current = act && ['request', 'change', 'answer'].includes(act.kind)
-    const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current
+    const temporalRead = act?.kind === 'inquiry' && ['date', 'time', 'time_preference', 'time_clarification'].includes(operation.kind)
+    const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current || temporalRead
     if (!act || !sameField || !appropriate || act.confidence < .85 || !contains(act.evidence, operation.evidence)) {
       blocked.add(field); return false
     }
@@ -369,11 +373,13 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     if (operation.kind === 'professional_reference' && (act.kind !== 'answer' || !state.professionalReference ||
         act.evidence !== message || operation.evidence !== message)) { blocked.add(field); return false }
     if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) { blocked.add(field); return false }
+    if (temporalRead && field === 'time' && operation.confidence >= .85) temporalInquiry = true
     return true
   })
   const continuity = admitted.length === 0 && blocked.size === 0 ? continuityCandidate : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
+    ...(temporalInquiry ? { temporalInquiry: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&
       !metadata.acts.some(act => ['notice', 'pause', 'repair'].includes(act.kind)) ? { social: true as const } : {}),
