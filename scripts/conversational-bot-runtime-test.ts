@@ -982,13 +982,14 @@ financialRead.rows=[{appointmentId:'appointment',visitId:'visit',serviceId:'cut'
 const approvedFinancialRows = structuredClone(financialRead.rows)
 for (const [type,mime] of [['image','image/jpeg'],['document','application/pdf'],['document','image/png']] as const) {
   financialRead.rows = approvedFinancialRows.map(row => ({...row,appointmentStatus:'PENDING',visitStatus:'HELD',depositStatus:'PENDING_PROOF'}))
-  financialRuntime.next('',type)
+  financialRuntime.next('comprobante de la seña',type)
   Object.assign(financialRuntime.row.payload,{mediaId:'PRIVATE_PROOF_ID',mediaMimeType:mime,filename:'PRIVATE_BANK_FILE'})
   let calls=0
   const replyCount=financialRuntime.replies.length
   const jobsBefore=financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length
   await financialRuntime.run('PROCESS_INBOX',{provider:async input=>{
     calls++
+    assert.equal(input.message,'comprobante de la seña','proof caption survives runtime payload transport')
     assert.equal((input as {attachment?:{proofExpected:boolean}}).attachment?.proofExpected,true)
     assert.doesNotMatch(JSON.stringify(input),/PRIVATE_PROOF_ID|PRIVATE_BANK_FILE/)
     return {...runtimeCandidate(),attachmentIntent:'deposit_proof'}
@@ -1003,6 +1004,28 @@ for (const [type,mime] of [['image','image/jpeg'],['document','application/pdf']
   assert.equal(binding.proposalNonce,financialPresented.nonce)
   assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'PENDING_PROOF')
 }
+// P21: a supported captionless file answers the exact live proof request.
+// No model call or payment acknowledgement is needed before the existing worker.
+for (const [type,mime] of [['image','image/jpeg'],['document','image/jpeg'],['document','application/pdf'],['document','image/png']] as const) {
+  financialRead.rows = approvedFinancialRows.map(row => ({...row,appointmentStatus:'PENDING',visitStatus:'HELD',depositStatus:'PENDING_PROOF'}))
+  financialRuntime.next('',type)
+  Object.assign(financialRuntime.row.payload,{mediaId:'PRIVATE_CAPTIONLESS_PROOF',mediaMimeType:mime,filename:'PRIVATE_CAPTIONLESS_FILE'})
+  const replyCount=financialRuntime.replies.length
+  const jobsBefore=financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length
+  let calls=0
+  await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{
+    calls++; throw new Error('a currently requested captionless proof must not require AI')
+  },timeoutMs:1000})
+  assert.equal(calls,0,'captionless supported proof uses its current server obligation')
+  assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,jobsBefore+1)
+  assert.equal(financialRuntime.replies.length,replyCount,'captionless proof still cannot be acknowledged before durable validation')
+  const bindingSql=financialRuntime.statements.filter(q=>q.sql.includes('conversation-proof-bind')).at(-1)!
+  const binding=JSON.parse(bindingSql.values.find(v=>typeof v==='string'&&v.startsWith('{')) as string)
+  assert.equal(binding.depositId,'deposit')
+  assert.equal(binding.sessionId,financialRuntime.session.sessionId)
+  assert.equal(binding.proposalNonce,financialPresented.nonce)
+  assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'PENDING_PROOF','classification alone never approves payment')
+}
 // Context beats an available financial target: a color reference remains non-financial.
 const proofJobCount=financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length
 financialRuntime.next('este es el color que quiero','image')
@@ -1010,7 +1033,7 @@ await financialRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandid
 assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,proofJobCount)
 assert.match(financialRuntime.replies.at(-1)!,/referencia/)
 assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'PENDING_PROOF')
-financialRuntime.next('','image')
+financialRuntime.next('te envío esto','image')
 await financialRuntime.run('PROCESS_INBOX',{provider:async()=>({...runtimeCandidate(),attachmentIntent:'unclear'}),timeoutMs:1000})
 assert.match(financialRuntime.replies.at(-1)!,/reenviá el comprobante/, 'ambiguous attachment has an actionable next step, not an unbound yes loop')
 assert.equal(financialRuntime.statements.filter(q=>q.values.includes('RECEIVE_DEPOSIT_PROOF')).length,proofJobCount)

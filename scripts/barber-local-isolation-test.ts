@@ -115,4 +115,15 @@ for (const forbidden of ['startServer(', 'buildApp(', 'startMarketingScheduler('
 }
 assert.match(entrypoint, /processProviderEventJob/)
 assert.match(entrypoint, /MetaOutboxProvider/)
+// P21: a settled proof job is not necessarily a proof accepted for review.
+// Log only the existing closed result, never the job, media or customer data.
+const proofHandler = entrypoint.match(/if \(job\.kind === 'RECEIVE_DEPOSIT_PROOF'\) \{([\s\S]*?)\n    \}/)?.[1]
+assert.ok(proofHandler, 'Barber must retain its proof-worker route')
+assert.match(proofHandler, /const outcome = await processDepositProofJob\(/,
+  'the existing worker result must be captured after its durable transaction')
+const proofEmission = proofHandler.match(/diagnosticSink\.emit\('barber-local-deposit-proof',\s*(\{[^}]*\})\)/)?.[1]
+assert.equal(proofEmission?.replace(/\s/g, ''), '{outcome}',
+  'proof diagnostics expose only the closed result enum, not identifiers, contents or errors')
+assert.match(proofHandler, /await processDepositProofJob[\s\S]*diagnosticSink\.emit[\s\S]*return/,
+  'result diagnostics follow the completed worker and cannot precede submission validation')
 console.log('barber local ingress and runtime isolation passed')

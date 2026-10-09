@@ -64,8 +64,13 @@ export async function interpretConversationAttachment(input: {
   const mime = typeof input.payload.mediaMimeType === 'string' && input.payload.mediaMimeType.length <= 80
     ? input.payload.mediaMimeType.split(';')[0]!.trim().toLowerCase() : null
   const caption = typeof input.payload.textBody === 'string' ? input.payload.textBody.trim().slice(0, 2000) : ''
-  let intent: AttachmentIntent = 'unclear', aiCalls = 0
-  if (input.provider) {
+  // A captionless supported file is the response to the currently asked proof,
+  // not a request to infer its financial contents. The caller must still bind
+  // the exact live obligation and the proof worker must validate its bytes.
+  const expectedFile = input.proofExpected && !caption &&
+    ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(mime ?? '')
+  let intent: AttachmentIntent = expectedFile ? 'deposit_proof' : 'unclear', aiCalls = 0
+  if (!expectedFile && input.provider) {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
