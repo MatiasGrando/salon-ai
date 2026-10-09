@@ -20,6 +20,7 @@ import { respondWithAiInterpreter, type InterpretedDialogueResponse } from './ai
 import type { WhatsAppConversationAi } from './whatsapp-ai.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
+import { canResumeExpiredConversationTx, expiredConversationDraft, hasPendingConversationEffectsTx } from './conversation-expired-recovery.js'
 import { initialDialogueState, respond, respondConversationChoice, ConversationChoiceUnavailableError, type DialogueContext, type DialoguePort } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from './runtime-policy.js'
@@ -253,7 +254,20 @@ export async function processConversationInbox(input: {
       if (rows[0]?.jobCount !== 1n) throw new Error('cannot complete stale bot job claim')
     })
     // Under the existing phone mutex and session/CAS guards; never cancel or retry uncertain effects.
-    const resetAllowedTx = async (tx: Prisma.TransactionClient, session: Session, timezone: string): Promise<boolean> => {
+    const expiredRecoveryAllowedTx = async (tx: Prisma.TransactionClient, session: Session, phone: string, timezone: string): Promise<boolean> => {
+      const parsed = parseBotOptionsState(session.state)
+      if (!parsed.ok || parsed.state.handoff !== 'NONE' || !['HELD','EXPIRED'].includes(parsed.state.booking) ||
+          !['PENDING_PROOF','REJECTED_RESUBMISSION_ALLOWED','EXPIRED'].includes(parsed.state.deposit) ||
+          session.deploymentGeneration !== policy.generation) return false
+      let draft: ReturnType<typeof readConversationDraft>
+      try { draft = readConversationDraft(session.state, policy, timezone) } catch { return false }
+      return canResumeExpiredConversationTx(tx, { businessId: policy.businessId, sessionId: session.sessionId,
+        deploymentId: policy.deploymentId, generation: policy.generation, configurationId: policy.configurationId,
+        revision: String(session.revision), dispatchFenceEpoch: target.fenceEpoch, handoffFenceEpoch: session.handoffFenceEpoch,
+        canonicalPhone: phone.replace(/[^0-9]/g, '') }, draft)
+    }
+    const resetAllowedTx = async (tx: Prisma.TransactionClient, session: Session, timezone: string, phone: string): Promise<boolean> => {
+      if (await expiredRecoveryAllowedTx(tx, session, phone, timezone)) return true
       const parsed = parseBotOptionsState(session.state)
       if (!parsed.ok || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE' ||
           !['NONE', 'DRAFT', 'CONFIRMED'].includes(parsed.state.booking)) return false
@@ -262,17 +276,7 @@ export async function processConversationInbox(input: {
         resetTestDialogue(draft)
         if (parsed.state.booking === 'CONFIRMED' && !draft.bookingReservation?.receipt) return false
       } catch { return false }
-      const rows = await tx.$queryRaw<Array<{ blocked: boolean }>>(Prisma.sql`
-        /* test-reset-pending-effects */
-        SELECT EXISTS (SELECT 1 FROM "BotOutbox"
-          WHERE "businessId" = ${policy.businessId} AND "sessionId" = ${session.sessionId}
-            AND "status"::text IN ('PENDING','CLAIMED','RETRY','SENDING','UNKNOWN'))
-          OR EXISTS (SELECT 1 FROM "BotOperation"
-            WHERE "businessId" = ${policy.businessId} AND "sessionId" = ${session.sessionId}
-              AND "status" IS DISTINCT FROM 'COMPLETED') AS "blocked"
-      `)
-      if (rows.length !== 1 || typeof rows[0]?.blocked !== 'boolean') throw new Error('test reset effect guard unavailable')
-      return !rows[0].blocked
+      return !await hasPendingConversationEffectsTx(tx, { businessId: policy.businessId, sessionId: session.sessionId })
     }
     const retry = async (tx: Prisma.TransactionClient, row: Row, immediate = false) => {
       await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
@@ -405,12 +409,13 @@ export async function processConversationInbox(input: {
       const parsed = parseBotOptionsState(activeSession.state)
       if (!parsed.ok) throw new Error('invalid conversation session state')
       const testReset = !isChoice && payload.messageType === 'text' && isBarberTestReset(payload.textBody, row.businessId)
-      if (testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone)) {
+      if (testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone, phone)) {
         await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
           transitionId: 'test-reset-blocked:' + row.id, toPhone: phone, dbNow: row.dbNow,
           view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
         await finish(tx, row); return null
       }
+      const expiredRecovery = eligibleText && await expiredRecoveryAllowedTx(tx, activeSession, phone, row.businessTimezone)
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
       if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
@@ -423,7 +428,7 @@ export async function processConversationInbox(input: {
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
-      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset) {
+      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset && !expiredRecovery) {
         let protectedReply = 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.'
         let protectedRevision=activeSession.revision
         let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
@@ -483,14 +488,16 @@ export async function processConversationInbox(input: {
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
       const reset = !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
-      const consolidation = eligibleText && !runtimeManagementAllowed ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
+      if (expiredRecovery && !await ordered(tx, row, phone)) { await retry(tx, row, true); return null }
+      const consolidation = eligibleText && !runtimeManagementAllowed && !expiredRecovery ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
         phone, currentEventId: row.providerEventId, isRestart })) : null
-      if (eligibleText && !runtimeManagementAllowed && !consolidation) { await retry(tx, row, true); return null }
-      const reconciled = reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
+      if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
+      const recoveredDraft = expiredRecovery ? expiredConversationDraft(readConversationDraft(session.state, policy, row.businessTimezone)) : null
+      const reconciled = recoveredDraft ? { draft: recoveredDraft, reset: false } : reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
+      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, expiredRecovery, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
@@ -560,7 +567,13 @@ export async function processConversationInbox(input: {
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
           (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
-      if (snapshot.testReset && !await resetAllowedTx(tx, session, row.businessTimezone)) {
+      if ('expiredRecovery' in snapshot && snapshot.expiredRecovery && !await expiredRecoveryAllowedTx(tx, session, snapshot.phone, row.businessTimezone)) {
+        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+          transitionId: 'expired-recovery-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
+          view: textView('No pude verificar que la reserva anterior siga vencida y sin operaciones pendientes. Conservé la conversación; no inicié otra reserva.') })
+        await finish(tx, row); return 'PROCESSED' as const
+      }
+      if (snapshot.testReset && !await resetAllowedTx(tx, session, row.businessTimezone, snapshot.phone)) {
         await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
           transitionId: 'test-reset-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
           view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })

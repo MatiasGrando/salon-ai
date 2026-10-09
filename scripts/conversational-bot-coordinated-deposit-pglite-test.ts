@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { canResumeExpiredConversationTx } from '../src/conversational-bot/conversation-expired-recovery.js'
+import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import { expireDepositHold } from '../src/bot-options/application/expire-deposit-hold.js'
 import { resolveProofTarget } from '../src/bot-options/application/process-deposit-proof-job.js'
 import { enqueueDepositNotificationTx, bridgeDirectDepositNotificationTx, encodeDirectNotificationRecovery } from '../src/services/deposit-notification-outbox.js'
@@ -231,6 +233,58 @@ try {
     testClock=null;failSql=null
     assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0})
   }
+
+  // P17 executes the same recovery helper against actual production SQL, not mocked terminal labels.
+  async function recoveryChecks(tx: Prisma.TransactionClient, reservation: import('../src/conversational-bot/prisma-conversational-booking.js').RuntimeBookingReservation) {
+    const draft = { ...initialDialogueState('b'), bookingReservation: reservation }
+    const recoveryScope = { ...scope, canonicalPhone: '5491112345678' }
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOutbox" SET status='ACCEPTED' WHERE "businessId"='b' AND "sessionId"='session'`)
+    const snapshot = async () => {
+      const result: Record<string, unknown> = {}
+      for (const table of ['Appointment','BookingVisit','BookingDeposit','BookingDepositExpiryAudit','BotOperation']) {
+        result[table] = await tx.$queryRaw(Prisma.sql`SELECT * FROM ${Prisma.raw('"'+table+'"')} ORDER BY id`)
+      }
+      return result
+    }
+    const before = await snapshot()
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), true, 'durable singular/group expiry authorizes conversation only')
+    assert.deepEqual(await snapshot(), before, 'recovery itself must be financially read-only')
+    for (const patch of [{ businessId: 'foreign' }, { sessionId: 'foreign' }, { canonicalPhone: '5491199999999' },
+      { revision: '5' }, { generation: 3 }, { configurationId: 'foreign' }, { dispatchFenceEpoch: 4 }, { handoffFenceEpoch: 6 }]) {
+      assert.equal(await canResumeExpiredConversationTx(tx, { ...recoveryScope, ...patch }, draft), false, 'foreign or stale recovery scope')
+    }
+    const malformed = structuredClone(draft)
+    malformed.bookingReservation.receipt!.fingerprint = 'invalid'
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, malformed), false)
+    for (const status of ['PENDING','CLAIMED','RETRY','SENDING','UNKNOWN']) {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOutbox" (id,"businessId","sessionId",status) VALUES ('recovery-pending','b','session',${status}::"BotOutboxStatus")`)
+      assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), false, status + ' delivery blocks recovery')
+      await tx.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE id='recovery-pending'`)
+    }
+    for (const status of ['STARTED','FAILED','UNKNOWN',null]) {
+      await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"businessId","sessionId",status) VALUES ('recovery-operation','b','session',${status})`)
+      assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), false, 'uncertain historical operation blocks recovery')
+      await tx.$executeRaw(Prisma.sql`DELETE FROM "BotOperation" WHERE id='recovery-operation'`)
+    }
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOutbox" (id,"businessId","sessionId",status) VALUES ('foreign-delivery','foreign','session','UNKNOWN'),('other-session','b','other','UNKNOWN')`)
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), true, 'unrelated pending effects do not block this scope')
+    await tx.$executeRaw(Prisma.sql`DELETE FROM "BotOutbox" WHERE id IN ('foreign-delivery','other-session')`)
+    const key = reservation.receipt!.kind === 'HELD' ? reservation.receipt!.operationKey : ''
+    const hash = (await tx.$queryRaw<Array<{ requestHash: string }>>(Prisma.sql`SELECT "requestHash" FROM "BotOperation" WHERE "operationKey"=${key}`))[0]!.requestHash
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"='broken' WHERE "operationKey"=${key}`)
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), false, 'corrupted durable parent lineage is never recovery authority')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"=${hash} WHERE "operationKey"=${key}`)
+
+    const child = (await tx.$queryRaw<Array<{ operationKey: string; requestHash: string }>>(Prisma.sql`SELECT "operationKey","requestHash" FROM "BotOperation"
+      WHERE "businessId"='b' AND "sessionId"='session' AND "operationKey"<>${key} AND type IN ('HOLD_VISIT_WITH_DEPOSIT','HOLD_GROUP_COMPANION') LIMIT 1`))[0]!
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"='broken-child' WHERE "operationKey"=${child.operationKey}`)
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), false, 'corrupted durable child lineage is never recovery authority')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"=${child.requestHash} WHERE "operationKey"=${child.operationKey}`)
+    assert.equal(await canResumeExpiredConversationTx(tx, recoveryScope, draft), true)
+    assert.deepEqual(await snapshot(), before)
+    console.log('P17 real SQL expired recovery: singular/group lineage, scope, pending/unknown, historical data unchanged PASS')
+  }
+
   const receive=(tx:Prisma.TransactionClient,r:typeof receipt,event='fixture-proof',evidence=fixtureEvidence)=>writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:r.anchorDepositId,operationKey:event,providerEventId:event,evidence})
   const stateCount=async(tx:Prisma.TransactionClient,table:string,status:string)=>(await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM ${Prisma.raw('"'+table+'"')} WHERE status::text=${status}`))[0]!.n
   // A worker can claim expiry before the proof commits. Its later execution
@@ -283,6 +337,24 @@ try {
     await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({booking:'HELD',deposit:'PENDING_PROOF',handoff:'NONE',conversationDraft:{dialogue:draft}})}::jsonb WHERE id='session'`)
     return r
   }
+
+  await assert.rejects(db.transaction(async raw => {
+    const tx = orm(raw), held = await singularRuntimeFixture(tx)
+    const receipt: RuntimeHeldReceipt = { kind: 'HELD', operationKey: singularKey, coordinationGroupId: singularGroup,
+      proposalNonce: singularPresented.nonce, fingerprint: singularPresented.fingerprint, depositId: held.depositId,
+      appointments: [{ segmentIndex: 0, appointmentId: held.appointmentId, visitId: held.visitId }],
+      expiresAt: held.expiresAt.toISOString(), amount: held.amount, depositStatus: 'PENDING_PROOF' }
+    const draft = { ...initialDialogueState('b'), bookingReservation: { presented: singularPresented, receipt } }
+    assert.equal(await canResumeExpiredConversationTx(tx, { ...scope, canonicalPhone: '5491112345678' }, draft), false)
+    const job = await claimExpiry(tx, held.depositId, receipt.expiresAt)
+    testClock = new Date(Date.parse(receipt.expiresAt) + 60000)
+    assert.equal(await expireDepositHold(expiryClient(tx) as never, job), 'EXPIRED')
+    await recoveryChecks(tx, draft.bookingReservation)
+    throw Error('rollback singular expired recovery')
+  }), /rollback singular expired recovery/)
+  testClock = null
+  assert.deepEqual(await counts(), { appointments: 0, visits: 0, deposits: 0, operations: 0 })
+
   for(const mutation of ['parent-missing','parent-type','parent-state','parent-hash','parent-session','child-hash','child-scope','child-result','second-member'] as const) {
     await assert.rejects(db.transaction(async raw=>{
       const tx=orm(raw),r=await singularRuntimeFixture(tx)
@@ -454,6 +526,13 @@ try {
     assert.equal(await expireDepositHold(client as never,job),'EXPIRED')
     assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),2)
     assert.equal(await stateCount(tx,'Appointment','CANCELLED'),2)
+
+    const expiredReceipt: RuntimeHeldReceipt = { kind: 'HELD', operationKey: r.operationKey, coordinationGroupId: r.groupId,
+      proposalNonce: r.proposal.nonce, fingerprint: r.proposal.fingerprint, depositId: r.anchorDepositId,
+      amount: r.amount, expiresAt: r.expiresAt, depositStatus: 'PENDING_PROOF',
+      appointments: r.members.map(({ segmentIndex, appointmentId, visitId }) => ({ segmentIndex, appointmentId, visitId })),
+      coordinatedDepositGroup: { version: 1, groupId: r.groupId, requestHash: r.requestHash } }
+    await recoveryChecks(tx, { presented: r.proposal, receipt: expiredReceipt })
     assert.equal((await receive(tx,r)).kind,'LATE')
     assert.equal(await stateCount(tx,'BookingVisit','EXPIRED'),2,'late evidence never reopens any member')
     await assert.rejects(approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'cannot-approve-expired'}))

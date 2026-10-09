@@ -969,6 +969,136 @@ assert.ok(financialPersist.values.includes('conversation.financial.reconcile'))
 assert.ok(financialPersist.values.includes('COMPLETED'))
 console.log('P12 financial protected public reader/reset/session/history/CRM projection: PASS')
 
+// P17: durable expired holds are history, not permission to replay their proposals.
+async function expiredRuntime(status = 'EXPIRED', pendingEffect?: string) {
+  const reads = structuredClone(financialRead)
+  const runtime = runtimeFixture({ businessId: barberResetId, phone: '5491112345678', financialRead: reads, ...(pendingEffect ? { pendingEffect } : {}) })
+  await runtime.run()
+  const presented = structuredClone(financialPresented)
+  presented.scope = { ...presented.scope, sessionId: runtime.session.sessionId, revision: String(runtime.session.revision) }
+  const receipt = { ...financialReceipt, depositStatus: 'EXPIRED' as const, businessAddress: 'Calle ficticia 123' }
+  const draft = { ...initialDialogueState(barberResetId), customerName: 'Ana', introduced: true,
+    serviceId: 'cut', date: financialTerms.date, professional: financialTerms.preference, pending: 'proposal' as const,
+    slot: { date: financialTerms.date, time: '10:00', startAt: financialTerms.segments[0]!.startAt,
+      professionalId: 'p1', professionalName: 'Ana', band: 'MORNING' as const, occupiedMinutes: 0 },
+    bookingReservation: { presented, receipt } }
+  runtime.session.state = projectConversationDraft(draft, barberResetPolicy)
+  reads.rows = approvedFinancialRows.map(row => ({ ...row, depositStatus: status,
+    appointmentStatus: status === 'EXPIRED' ? 'CANCELLED' : 'PENDING',
+    visitStatus: status === 'EXPIRED' ? 'EXPIRED' : status === 'PROOF_RECEIVED' ? 'PENDING_PAYMENT_REVIEW' : 'HELD',
+    parentHash: runtimeBookingRequestHash({ kind: 'RUNTIME', ...presented.scope, revision: runtime.session.revision,
+      canonicalPhone: '5491112345678', operationKey: 'read', newBookingAllowed: false }, presented) }))
+  return { runtime, reads }
+}
+const expiredFailures: string[] = []
+async function expiredCheck(label: string, work: () => Promise<void>) {
+  try { await work(); console.log('PASS P17 ' + label) }
+  catch (error) { expiredFailures.push(label + ': ' + String(error)); console.error('FAIL P17 ' + label + ': ' + String(error)) }
+}
+await expiredCheck('greeting and new booking intent reach AI without the expired proposal', async () => {
+  for (const text of ['hola soy Matías', 'quiero reservar corte']) {
+    const { runtime, reads } = await expiredRuntime(), before = structuredClone(reads)
+    let calls = 0
+    let sentState: ReturnType<typeof initialDialogueState> | undefined
+    runtime.next(text)
+    await runtime.run('PROCESS_INBOX', { provider: async input => {
+      calls++
+      sentState = structuredClone(input.state)
+      return runtimeCandidate()
+    }, timeoutMs: 1000 })
+    assert.equal(calls, 1, 'a fresh intention after durable expiry must reach the existing AI path')
+    assert.ok(sentState, 'the input must be observed independently of provider fallback')
+    assert.equal(sentState.bookingReservation, undefined)
+    assert.equal(sentState.slot, null)
+    assert.notEqual(sentState.pending, 'proposal')
+    assert.doesNotMatch(runtime.replies.at(-1)!, /Venció el plazo|no inicié otra reserva/)
+    assert.deepEqual(reads, before, 'conversation recovery never changes financial records')
+    assert.ok(!runtime.statements.some(q => /INSERT INTO "Appointment"|UPDATE "BookingDeposit"|DELETE FROM/.test(q.sql)))
+  }
+})
+await expiredCheck('Barber reset clears only conversation memory after durable expiry', async () => {
+  const { runtime, reads } = await expiredRuntime(), before = structuredClone(reads), messages = runtime.messages
+  runtime.next('/reset')
+  await runtime.run('PROCESS_INBOX', { provider: async () => { throw new Error('reset AI forbidden') }, timeoutMs: 10 })
+  assert.deepEqual(runtime.session.state, createInitialBotOptionsState())
+  assert.deepEqual(reads, before)
+  assert.equal(runtime.messages, messages + 1, 'CRM history remains and reset is appended')
+  assert.match(runtime.replies.at(-1)!, /reinicié/)
+})
+await expiredCheck('pending and unknown effects still block both recovery paths', async () => {
+  for (const effect of ['PENDING', 'CLAIMED', 'RETRY', 'SENDING', 'UNKNOWN', 'STARTED']) {
+    for (const text of ['hola', '/reset']) {
+      const { runtime } = await expiredRuntime('EXPIRED', effect), before = structuredClone(runtime.session)
+      runtime.next(text)
+      await runtime.run('PROCESS_INBOX', { provider: async () => { throw new Error('pending recovery AI forbidden') }, timeoutMs: 10 })
+      assert.deepEqual(runtime.session, before, effect + ' preserves the expired session')
+    }
+  }
+})
+await expiredCheck('sidecar expiry cannot override a live hold, review or corrupt lineage', async () => {
+  for (const status of ['PENDING_PROOF', 'PROOF_RECEIVED', 'CORRUPT_HASH']) {
+    const { runtime, reads } = await expiredRuntime(status === 'CORRUPT_HASH' ? 'EXPIRED' : status)
+    if (status === 'CORRUPT_HASH') reads.rows[0]!.parentHash = '0'.repeat(64)
+    runtime.next('hola')
+    let calls = 0
+    await runtime.run('PROCESS_INBOX', { provider: async () => { calls++; return runtimeCandidate() }, timeoutMs: 1000 })
+    assert.equal(calls, 0, status + ' cannot authorize fresh conversation')
+    assert.ok(readConversationDraft(runtime.session.state, barberResetPolicy, 'UTC').bookingReservation)
+  }
+})
+await expiredCheck('late attachment cannot erase context or enqueue expired proof', async () => {
+  const { runtime } = await expiredRuntime()
+  runtime.next('comprobante', 'image')
+  Object.assign(runtime.row.payload, { mediaId: 'LATE_PROOF', mediaMimeType: 'image/jpeg' })
+  await runtime.run('PROCESS_INBOX', { provider: async () => ({ ...runtimeCandidate(), attachmentIntent: 'deposit_proof' }), timeoutMs: 1000 })
+  assert.equal(runtime.statements.some(q => q.values.includes('RECEIVE_DEPOSIT_PROOF')), false)
+  assert.equal((runtime.session.state as { deposit: string }).deposit, 'EXPIRED')
+})
+await expiredCheck('effect appearing during computation prevents recovered state commit', async () => {
+  const { runtime } = await expiredRuntime(), before = structuredClone(runtime.session)
+  runtime.next('hola')
+  let calls = 0
+  await runtime.run('PROCESS_INBOX', { provider: async () => { calls++; runtime.pendingEffect('UNKNOWN'); return runtimeCandidate() }, timeoutMs: 1000 })
+  assert.equal(calls, 1)
+  assert.deepEqual(runtime.session, before, 'final transaction must recheck pending effects')
+})
+
+await expiredCheck('handoff, stale generation and rejected receipts remain protected', async () => {
+  for (const change of ['handoff','generation','rejected'] as const) {
+    for (const text of ['hola','/reset']) {
+      const { runtime, reads } = await expiredRuntime()
+      if (change === 'handoff') {
+        const state = runtime.session.state as { handoff: string; flow: string }
+        state.handoff = 'QUEUED'; state.flow = 'HANDOFF_QUEUED'
+      }
+      if (change === 'generation') runtime.session.deploymentGeneration = 0
+      if (change === 'rejected') {
+        const draft = readConversationDraft(runtime.session.state, barberResetPolicy, 'UTC')
+        const receipt = draft.bookingReservation!.receipt!
+        assert.equal(receipt.kind, 'HELD')
+        if (receipt.kind === 'HELD') receipt.depositStatus = 'REJECTED'
+        reads.rows = reads.rows.map(row => ({ ...row, depositStatus: 'REJECTED', visitStatus: 'CANCELLED', appointmentStatus: 'CANCELLED' }))
+        runtime.session.state = projectConversationDraft(draft, barberResetPolicy)
+      }
+      const before = structuredClone(runtime.session)
+      runtime.next(text)
+      await runtime.run('PROCESS_INBOX', { provider: async () => { throw new Error('protected terminal recovery cannot call AI') }, timeoutMs: 10 })
+      assert.deepEqual(runtime.session, before, change + ' cannot be discarded')
+    }
+  }
+})
+await expiredCheck('financial change during computation prevents recovered state commit', async () => {
+  const { runtime, reads } = await expiredRuntime(), before = structuredClone(runtime.session)
+  runtime.next('hola')
+  await runtime.run('PROCESS_INBOX', { provider: async () => {
+    reads.rows = reads.rows.map(row => ({ ...row, depositStatus: 'PROOF_RECEIVED', visitStatus: 'PENDING_PAYMENT_REVIEW', appointmentStatus: 'PENDING' }))
+    return runtimeCandidate()
+  }, timeoutMs: 1000 })
+  assert.deepEqual(runtime.session, before, 'financial authority is re-read before committing fresh context')
+})
+assert.deepEqual(expiredFailures, [], 'P17 durable-expiry worker regressions')
+
+
 
 // P14 projection/reset: appointment zero can be NONE while the financial anchor
 // belongs to another professional. A HELD receipt never projects as confirmed.
