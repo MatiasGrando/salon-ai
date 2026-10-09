@@ -366,3 +366,98 @@ for (const required of [[0], [0, 1], [1]] as const) {
   }
 }
 console.log('P14 aggregate parser, one receipt/proof and strict canonical financial guards: PASS')
+// P19 local doubles: published native choices reuse the existing runtime preparer.
+const p19Failures: string[] = []
+async function p19Case(name: string, check: () => Promise<void>) {
+  try { await check(); console.log('P19 PASS: ' + name) }
+  catch (error) { p19Failures.push(name); console.error('P19 FAIL: ' + name, error) }
+}
+async function nativeOffer(multiple = false) {
+  const local = await fixture(multiple)
+  const original = await respond(local.context, structuredClone(ready), 'Quiero reservar este turno.', local.port)
+  const next = { ...local.context, serverRuntimeBookingScope: { ...scope, revision: '6' } }
+  const message = 'Agreguemos Crema'
+  const decision: DialogueDecision = { serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1,
+    operations: [{ kind: 'basket', mutation: 'add', scope: 'all', targetMemberIds: [],
+      members: [{ mode: 'single', serviceIds: ['s2'], evidence: 'Crema', confidence: 1 }], evidence: message, confidence: 1 }] } }
+  const offered = multiple ? await respond(next, original.state, message, local.port, decision)
+    : await respond(next, { ...ready, slot: null, pending: 'time', requestedTime: null }, 'Quiero reservar', local.port)
+  const operation = offered.choicePresentation?.choices.find(choice => choice.operation.kind === 'slot')?.operation
+  assert.ok(operation && operation.kind === 'slot', 'must select a published native slot')
+  return { local, original, next, offered, operation }
+}
+for (const multiple of [false, true]) await p19Case(multiple ? 'add service then native common-professional slot republishes all terms' : 'native single slot prepares runtime confirmation', async () => {
+  const { local, original, next, offered, operation } = await nativeOffer(multiple)
+  const before = structuredClone(offered.state)
+  const result = await respondConversationChoice(next, offered.state, operation, local.port)
+  assert.deepEqual(offered.state, before)
+  assert.ok(result.state.bookingReservation, 'native slot must prepare current server-owned terms')
+  assert.equal(result.state.bookingReservation.presented.terms.segments.length, multiple ? 2 : 1)
+  assert.equal(result.state.bookingReservation.presented.scope.revision, '6')
+  assert.notEqual(result.state.bookingReservation.presented.nonce, original.state.bookingReservation!.presented.nonce)
+  assert.equal(result.state.questionContext?.role, 'confirmation')
+  assert.equal((result.reply.match(/¿Confirmás/g) ?? []).length, 1)
+  assert.equal(result.bookingCommand, undefined)
+  const confirm = result.choicePresentation?.choices.find(choice => choice.operation.kind === 'confirm')?.operation
+  assert.ok(confirm && confirm.kind === 'confirm')
+  const confirmContext = { ...next, serverRuntimeBookingScope: { ...scope, revision: '7' } }
+  const counts = local.counts()
+  const native = await respondConversationChoice(confirmContext, result.state, confirm, local.port)
+  assert.equal(native.bookingCommand?.kind, 'CONFIRM_BOOKING')
+  assert.deepEqual(native.bookingCommand?.presented, result.state.bookingReservation.presented)
+  const message = 'Bueno te lo confirmo'
+  const interpreted = await respondWithAiInterpreter(confirmContext, result.state, message, local.port, async () => aiConsent(message))
+  assert.equal(interpreted.bookingCommand?.kind, 'CONFIRM_BOOKING')
+  assert.deepEqual(local.counts(), counts, 'consent must not reprepare financial terms')
+  await assert.rejects(() => respondConversationChoice(confirmContext, result.state,
+    { kind: 'confirm', nonce: original.state.bookingReservation!.presented.nonce }, local.port))
+  const foreign = { ...confirmContext, serverRuntimeBookingScope: { ...confirmContext.serverRuntimeBookingScope, sessionId: 'foreign' } }
+  await assert.rejects(() => respondConversationChoice(foreign, result.state, confirm, local.port))
+})
+for (const native of [false,true]) await p19Case((native?'native':'text')+' null preparation is fail-closed with a next action', async () => {
+  const { local, next, offered, operation } = await nativeOffer(true)
+  const port = { ...local.port, prepareRuntimeBooking: async () => null }
+  const result = native ? await respondConversationChoice(next, offered.state, operation, port)
+    : await respond(local.context, ready, 'Quiero reservar', port)
+  assert.equal(result.state.bookingReservation, undefined)
+  assert.equal(result.bookingCommand, undefined)
+  assert.equal(result.proposal, null, 'unprepared proposal cannot masquerade as confirmable')
+  assert.notEqual(result.state.questionContext?.role, 'confirmation')
+  assert.ok(!result.choicePresentation?.choices.some(choice => choice.operation.kind === 'confirm'))
+  if(native)assert.deepEqual(result.state.basket, offered.state.basket)
+  assert.match(result.reply, /no.*reservad|no.*confirmad/i)
+  assert.match(result.reply, /\?$/, 'must supply an honest next action')
+})
+for (const reason of ['DEPOSITS_DISABLED', 'DEPOSIT_MULTISERVICE', 'PAYMENT_UNAVAILABLE'] as const) await p19Case('native unavailable '+reason, async () => {
+  const { local, next, offered, operation } = await nativeOffer(true)
+  const result = await respondConversationChoice(next, offered.state, operation,{ ...local.port, prepareRuntimeBooking: async () => ({ unavailable: reason }) })
+  assert.equal(result.proposal, null); assert.equal(result.state.bookingReservation, undefined); assert.equal(result.bookingCommand, undefined)
+  assert.deepEqual(result.state.basket, offered.state.basket)
+  assert.match(result.reply, /equipo\?$/)
+})
+await p19Case('native coordinated multiservice retains joint deposit and one confirmation', async () => {
+  const terms = structuredClone(manyReservation.presented.terms)
+  terms.preference = { kind: 'any' }; terms.segments[1]!.professionalId = 'p2'; terms.segments[1]!.professionalName = 'Leo'
+  terms.deposit = { financial: { lines: [{ serviceId: 's2', serviceName: 'Crema', sortOrder: 1, mode: 'FIXED', configuredValue: 100, baseAmount: null, amount: 100 }], amount: 100, ttlMinutes: 60, ttlProvenance: 'BUSINESS_POLICY' },
+    payment: { transferEnabled: true, alias: 'salon.test', cbu: null, cvu: null, paymentLinkEnabled: false, paymentLink: null } }
+  const presented: RuntimePresentedBooking = { ...manyReservation.presented, nonce: '11111111-1111-4111-8111-111111111119', scope: { ...scope, revision: '6' }, terms, fingerprint: runtimeBookingFingerprint(terms) }
+  assert.ok(parseRuntimePresentedBooking(presented))
+  const segments = terms.segments.map(({ priceMinor, priceMode, configurationHash, estimate, ...segment }) => segment)
+  const coordinatedSlot = { ...manyReady.slot!, occupiedMinutes: 75, coordination: { key: coordinationKey('b', segments), segments } }
+  let preparations = 0
+  const port: DialoguePort = { ...manyFx.port,
+    availabilityBasket: async () => ({ ok: true, services: await manyFx.port.catalog(), durationMinutes: 60, customerDurationMinutes: 75, totalPrice: 3000, professionals: [{ id: 'p1', name: 'Elisa', priority: 0 }], slots: [coordinatedSlot] }),
+    prepareRuntimeBooking: async () => { preparations++; return { presented, slot: coordinatedSlot } } }
+  const context = { ...manyFx.context, serverRuntimeBookingScope: { ...scope, revision: '6' } }
+  const offered = await respond(context, { ...manyReady, professional: { kind: 'any' }, slot: null, pending: 'time', requestedTime: null }, 'Quiero reservar', port)
+  const operation = offered.choicePresentation?.choices.find(choice => choice.operation.kind === 'slot')?.operation
+  assert.ok(operation && operation.kind === 'slot')
+  const result = await respondConversationChoice(context, offered.state, operation, port)
+  assert.equal(preparations, 1); assert.deepEqual(result.state.bookingReservation?.presented, presented)
+  assert.match(result.reply, /una seña conjunta/i); assert.equal((result.reply.match(/¿Confirmás/g) ?? []).length, 1)
+  const confirm = result.choicePresentation?.choices.find(choice => choice.operation.kind === 'confirm')?.operation
+  assert.ok(confirm)
+  const consent = await respondConversationChoice({ ...context, serverRuntimeBookingScope: { ...scope, revision: '7' } }, result.state, confirm, port)
+  assert.deepEqual(consent.bookingCommand?.presented, presented); assert.equal(preparations, 1)
+})
+assert.equal(p19Failures.length, 0, 'P19 regressions failed: '+p19Failures.join('; '))

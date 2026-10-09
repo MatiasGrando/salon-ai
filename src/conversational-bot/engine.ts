@@ -1593,13 +1593,21 @@ async function respondRuntimeBookingEnvelope(context:DialogueContext,state:Dialo
     rememberDialogueQuestion(response.state, '¿Querés agendar ' + invitation.label + '?', [invitation])
     return response
   }
-  if(context.serverRuntimeBookingScope && port.prepareRuntimeBooking && !response.handoffCommand && !response.state.referral && !response.state.serviceRequest && !response.state.editRequest && response.state.pending==='proposal' && (response.proposal || prior)) {
+  return prepareRuntimeBookingResponse(context,response,port,prior)
+}
+/** Native and textual progression share the same current server-owned financial presentation. */
+async function prepareRuntimeBookingResponse(context:DialogueContext,response:DialogueResponse,port:DialoguePort,prior?:RuntimeBookingReservation):Promise<DialogueResponse> {
+  if(context.sandboxBooking!==true && context.serverRuntimeBookingScope && port.prepareRuntimeBooking && !response.handoffCommand && !response.state.referral && !response.state.serviceRequest && !response.state.editRequest && response.state.pending==='proposal' && (response.proposal || prior)) {
     const prepared=await port.prepareRuntimeBooking(response.state,context.serverRuntimeBookingScope)
-    if(prepared && 'unavailable' in prepared){
-      const reason=prepared.unavailable==='DEPOSIT_MULTISERVICE'?'Todavía no puedo coordinar de forma segura una seña para varios servicios.':prepared.unavailable==='DEPOSITS_DISABLED'?'La reserva de servicios con seña todavía no está habilitada en este canal.':'Faltan los medios de pago necesarios para mantener este horario con seña.'
+    if(!prepared || 'unavailable' in prepared){
+      const reason=!prepared ? 'Todavía no está reservado: no pude preparar una confirmación segura de este turno.' : prepared.unavailable==='DEPOSIT_MULTISERVICE'?'Todavía no puedo coordinar de forma segura una seña para varios servicios.':prepared.unavailable==='DEPOSITS_DISABLED'?'La reserva de servicios con seña todavía no está habilitada en este canal.':'Faltan los medios de pago necesarios para mantener este horario con seña.'
       response.reply=reason+' Conservé todos tus servicios y datos. ¿Querés consultar la reserva con el equipo?'
       response.proposal=null;response.replyPrepared=true
-    } else if(prepared) {
+      delete response.state.bookingReservation
+      delete response.state.questionContext
+      delete response.choicePresentation
+      response.state.dialogueContext={lastQuestion:null,presentedOffer:response.state.dialogueContext?.presentedOffer??null}
+    } else {
       response.state.slot=prepared.slot
       response.state.bookingReservation={presented:prepared.presented}
       if(!runtimeProposalMatchesState(prepared.presented,response.state))throw new Error('runtime preparation mismatch')
@@ -1785,6 +1793,12 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
   const reject = (): never => { throw new ConversationChoiceUnavailableError() }
+  const finish = async (response:DialogueResponse) => {
+    const prepared=await prepareRuntimeBookingResponse(context,response,port)
+    if (!priceBookingChoice(prepared.state) && !prepared.state.professionalReference && prepared.state.bookingReservation && !prepared.state.bookingReservation.receipt && prepared.state.questionContext?.role === 'confirmation')
+      prepared.choicePresentation={kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:prepared.state.bookingReservation.presented.nonce}}]}
+    return finalizeDialogueIntroduction(context,prepared,port)
+  }
   if (!Number.isFinite(context.dbNow.getTime()) || state.professionalReference || state.timeMeaningClarification) return reject()
   const invitation = priceBookingChoice(state)
   if (invitation && operation.kind !== 'service') return reject()
@@ -1808,7 +1822,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
     const response = state.serviceRequest || state.referral
       ? await respondTurnPlan(context, state, 'stored choice', { ...port, catalog: async () => services }, { version: 1, operations: [] }, 'booking')
       : state.editRequest ? draftEditResponse(state, services) : await respondBooking(context, state, 'stored choice', port, undefined, services)
-    return finalizeDialogueIntroduction(context, response, port)
+    return finish(response)
   }
   if (operation.kind === 'service' && state.informationFocus?.awaitingChoice) {
     const focus = state.informationFocus
@@ -1851,7 +1865,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const selected = basketServiceIds(state).map(id => services.find(service => service.id === id))
   if (state.editRequest && operation.kind !== 'service') return reject()
   if (operation.kind !== 'service' && (!selected.length || selected.some(service => !service || !validBookableService(service,true)))) return reject()
-  const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) { state.requestedTime = null; delete state.requestedTimeMode } delete state.sandboxReservation; delete state.dialogueContext; delete state.questionContext }
+  const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) { state.requestedTime = null; delete state.requestedTimeMode } delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext; delete state.questionContext }
   const freshAvailability = async () => {
     if (!state.date || !state.professional) return reject()
     const guidance = resolveGuidance(selected as DialogueService[], state.serviceEstimates)
@@ -1902,7 +1916,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
       state.professional = null // The explicit alternative replaces the rejected preference only after fresh validation.
       const result = await respondBooking(context,state,'stored choice',port,undefined,services,{ category: 'professional', confirmationId: operation.professionalId })
       if (result.state.professional?.kind !== 'specific' || result.state.professional.id !== operation.professionalId) return reject()
-      return finalizeDialogueIntroduction(context,result,port)
+      return finish(result)
     }
     state.professional = { kind: 'any' }
   } else if (operation.kind === 'preference') {
@@ -1927,11 +1941,10 @@ export async function respondConversationChoice(context: DialogueContext, previo
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state,SANDBOX_CONFIRMATION_QUESTION)
   }
-  if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.bookingReservation && !response.state.bookingReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = {kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:response.state.bookingReservation.presented.nonce}}]}
   if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') {
     response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   }
-  return finalizeDialogueIntroduction(context,response,port)
+  return finish(response)
 }
 
 export class ConversationChoiceUnavailableError extends Error {
