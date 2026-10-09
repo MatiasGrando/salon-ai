@@ -497,6 +497,77 @@ await check('current published selection has one acknowledgment, with technique 
   assert.match(selected.reply,/Iluminación/);assert.match(selected.reply,/No tengo confirmado.*mechas con gorra/)
   assert.equal(selected.state.pending,'estimate');assert.equal(selected.bookingCommand,undefined)
 })
+// P18: controlled semantic proposals test the motor, not live model understanding.
+for (const representation of ['literal', 'clicked']) await check('P18 category choice resolves without an undocumented-technique warning: ' + representation, async () => {
+  const woman = { ...cut, id: 'woman', name: 'Corte mujer' }
+  const services = [cut, woman]
+  const initial = await say('quiero corte', [request('corte', ['cut', 'woman'], 'booking', 'alternatives')],
+    initialDialogueState(context.businessId), services)
+  const selected = representation === 'clicked'
+    ? await respondConversationChoice(context, initial.state, initial.choicePresentation!.choices[0]!.operation, makePort(services))
+    : await say('Corte hombre', [{ kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false,
+      evidence: 'Corte hombre', confidence: 1 }], initial.state, services, referenceActs('Corte hombre'))
+  assert.equal(selected.state.serviceId, 'cut')
+  assert.equal(selected.state.serviceRequest, undefined)
+  assert.doesNotMatch(selected.reply, /No tengo confirmado|incluye.*corte|En qué.*ayudar/i)
+  assert.equal(selected.proposal, null)
+  assert.equal(selected.bookingCommand, undefined)
+  assert.equal((selected.reply.match(/Perfecto/g) ?? []).length, 1, 'one owner acknowledges the applied choice')
+  assert.ok(selected.replyFacts?.every(fact => fact.text.trim().length > 0) ?? true, 'prepared category facts cannot contain an empty acknowledgment')
+})
+await check('P18 extracted subject cannot silently discard a requested technique qualifier', async () => {
+  const evidence = 'mechas con gorra'
+  const result = await say('quiero ' + evidence, [{ ...request(evidence, ['color'], 'booking', 'clear'),
+    subject: 'mechas', aspect: null }], initialDialogueState(context.businessId))
+  assert.equal(result.state.serviceId, null)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+  assert.doesNotMatch(result.reply, /hacemos.*mechas|incluye.*mechas|seguimos con Iluminación/i)
+  if (result.state.serviceRequest) assert.match(result.state.serviceRequest.request, /con gorra/)
+})
+await check('P18 a shortened category subject cannot erase the requested French-cut qualifier', async () => {
+  const result = await say('quiero corte francés', [{ ...request('corte francés', ['cut'], 'booking', 'clear', 'semantic_equivalent'),
+    subject: 'corte', aspect: null }], initialDialogueState(context.businessId))
+  assert.equal(result.state.serviceId, null)
+  assert.equal(result.state.basket, undefined)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+  assert.doesNotMatch(result.reply, /hacemos.*corte francés|seguimos con Corte hombre/i)
+  if (result.state.serviceRequest) assert.match(result.state.serviceRequest.request, /corte francés/)
+})
+await check('P18 request schema admits a grounded object and aspect but rejects fabricated objects', () => {
+  const message = 'Quería saber cuánto salía hacerme un balayage'
+  const operation = { ...request('cuánto salía hacerme un balayage', ['color'], 'inquiry'), subject: 'balayage', aspect: 'price' }
+  const parsed = parseTurnPlan({ version: 1, operations: [operation] }, message, catalog.map(service => service.id))
+  assert.equal((parsed.operations[0] as any).subject, 'balayage')
+  assert.equal((parsed.operations[0] as any).aspect, 'price')
+  for (const invalid of [{ ...operation, subject: 'balayage inventado' }, { ...operation, aspect: 'invented' }])
+    assert.throws(() => parseTurnPlan({ version: 1, operations: [invalid] }, message, catalog.map(service => service.id)))
+})
+await check('P18 courtesy and concrete inquiry replace generic help with the grounded question', async () => {
+  const message = 'Cómo va? Quería averiguar para hacerme un balayage'
+  const operation = request('balayage', ['color'], 'inquiry')
+  let providerCalls = 0
+  const result = await respondWithAiInterpreter(context, initialDialogueState(context.businessId), message, makePort(), async () => {
+    providerCalls++
+    return { ...base, intent: 'information', turnPlan: { version: 1, operations: [operation] },
+      communicativeActs: { version: 1, acts: [
+        { kind: 'social', field: 'general', evidence: 'Cómo va', confidence: 1, mention: null, operationIndexes: [] },
+        { kind: 'inquiry', field: 'service', evidence: 'Quería averiguar para hacerme un balayage', confidence: 1,
+          mention: 'balayage', operationIndexes: [0] }
+      ] }, firstReply: { salutation: null, opening: 'Bien, gracias. Te ayudo con esa consulta.', factIds: null, closing: null } }
+  })
+  assert.equal(providerCalls, 1)
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.match(result.reply, /Bien, gracias/)
+  assert.match(result.reply, /balayage/)
+  assert.match(result.reply, /Iluminación/)
+  assert.doesNotMatch(result.reply, /En qué.*ayudar|Qué servicio necesitás/i)
+  assert.equal((result.reply.match(/Te ayudo/g) ?? []).length, 1)
+  assert.equal(result.state.serviceId, null)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+})
 assert.equal(agenda, 0, 'clarification and budget steps never query agenda or reserve')
 console.log('catalog comparison: ' + passed + ' PASS / ' + failed + ' FAIL (simulated semantics, 0 HTTP)')
 if (failed) process.exitCode = 1

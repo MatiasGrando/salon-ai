@@ -1,3 +1,4 @@
+import { parseDialogueQuestion } from '../src/conversational-bot/dialogue-context.js'
 import { pendingQuestion } from '../src/conversational-bot/information.js'
 import assert from 'node:assert/strict'
 import http from 'node:http'
@@ -398,8 +399,10 @@ try {
   const genericCTA = await say(initial, '¿Qué información tienen del local?', [info('información tienen del local', business(['BUSINESS_INFO']))])
   assert.match(genericCTA.reply, /¿En qué más te puedo ayudar\?/)
   const activeCTA = await say(active, '¿Precio de baño de crema?', [info('Precio de baño de crema', service(['cream'], 'price'))])
-  assert.equal(activeCTA.reply.endsWith(pendingQuestion(active)), true, 'retained draft owns the pending clarification')
-  assert.doesNotMatch(activeCTA.reply, /¿Querés agendar Baño de crema/)
+  assert.match(activeCTA.reply, /¿Querés agendar Baño de crema\?/, 'price read invites the focal published service without acquiring it')
+  assert.deepEqual(activeCTA.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: 'cream' } }])
+  assert.equal(activeCTA.state.pending, active.pending, 'the price invitation does not advance the retained draft')
+  assert.equal(activeCTA.proposal, null); assert.equal(activeCTA.bookingCommand, undefined)
   assert.deepEqual(selectionBasket(activeCTA.state), selectionBasket(active))
   assert.doesNotMatch(price.reply, /¿Querés agendar/, 'ambiguous services clarify before inviting one arbitrarily')
   let firstCallNextFacts: readonly { id: string; text: string }[] = []
@@ -1392,7 +1395,17 @@ try {
       assert.deepEqual(result.state[field], before[field], 'U must preserve draft/consent scope: ' + field)
     const newInformationObject = result.state.informationFocus?.serviceId === targetId &&
       !result.state.informationFocus.awaitingChoice
-    if (hasActiveBooking(before) || !newInformationObject) {
+    if (newInformationObject && aspect === 'price') {
+      const focal = result.state.informationFocus!.options.find(option => option.id === targetId)!
+      assert.ok(focal)
+      assert.match(result.reply, /¿Querés (?:reservar|agendar)/)
+      assert.equal(result.state.questionContext?.question, '¿Querés agendar ' + focal.label + '?')
+      assert.deepEqual(result.state.questionContext?.options, [{ id: targetId, label: focal.label }])
+      assert.ok(parseDialogueQuestion(result.state.questionContext, result.state), 'current invitation is scoped to the unchanged draft')
+      assert.notEqual(result.state.questionContext?.role, 'confirmation')
+      assert.deepEqual(result.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: targetId } }])
+      assert.deepEqual(result.state.dialogueContext, before.dialogueContext)
+    } else if (hasActiveBooking(before) || !newInformationObject) {
       assert.deepEqual(result.state.questionContext, before.questionContext)
       assert.deepEqual(result.state.dialogueContext, before.dialogueContext)
     } else {
@@ -1513,6 +1526,239 @@ try {
       assert.doesNotMatch(result.reply, /19[.,]?000/)
     }
   })
+
+  // P18: actual server replies and native choices, with all transports still blocked.
+  const { respondConversationChoice } = await import('../src/conversational-bot/engine.js')
+  const { issueChoiceQuestion, publicChoiceQuestion, resolveChoice } = await import('../src/conversational-bot/choices.js')
+  const { rememberDialogueQuestion } = await import('../src/conversational-bot/dialogue-context.js')
+  const p18Failures: string[] = []
+  let p18Passed = 0
+  const p18Check = async (name: string, assertion: () => Promise<void>) => {
+    try { await assertion(); p18Passed++; console.log('PASS P18 ' + name) }
+    catch (error) { p18Failures.push(name); console.error('RED P18 ' + name + ': ' + (error instanceof Error ? error.stack : String(error))) }
+  }
+  await p18Check('a named price read publishes a focal Reservar button without acquiring a service', async () => {
+    const beforeAgenda = agendaCalls
+    const read = await say(initial, '¿Precio de Corte hombre?', [info('Precio de Corte hombre', service(['cut'], 'price'))])
+    assert.match(read.reply, /27[.,]?000/)
+    assert.match(read.reply, /¿Querés (?:reservar|agendar)/)
+    assert.equal(read.state.informationFocus?.serviceId, 'cut')
+    assert.equal(read.state.informationFocus?.aspect, 'price')
+    assert.deepEqual(selectionBasket(read.state), selectionBasket(initial))
+    assert.equal(read.proposal, null); assert.equal(read.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda)
+    assert.equal(read.choicePresentation?.choices.length, 1)
+    assert.equal(read.choicePresentation?.choices[0]?.label.toLowerCase(), 'reservar')
+    assert.deepEqual(read.choicePresentation?.choices[0]?.operation, { kind: 'service', serviceId: 'cut' })
+    const scope = { businessId: context.businessId, conversationKey: 'price-chat', policyKey: 'policy', policyGeneration: 1, revision: '1' }
+    const question = issueChoiceQuestion(scope, read.state, read.choicePresentation!)
+    const visible = publicChoiceQuestion(question)
+    assert.equal(visible.mode, 'buttons')
+    assert.equal(visible.choices[0]?.title.toLowerCase(), 'reservar')
+    const chosen = resolveChoice(question, scope, read.state, visible.choices[0]!.id)
+    for (const unpublished of [{ kind: 'service', serviceId: 'woman' }, { kind: 'service', serviceId: 'cut', targetMemberId: 'm1' }])
+      await assert.rejects(() => respondConversationChoice(context, read.state, unpublished, port), /no longer available/)
+    const selected = await respondConversationChoice(context, read.state, chosen.operation, port)
+    assert.deepEqual(basketServiceIds(selected.state), ['cut'])
+    assert.equal(selected.proposal, null); assert.equal(selected.bookingCommand, undefined)
+    assert.equal(selected.state.slot, null)
+    for (const stale of [{ ...scope, businessId: 'foreign' }, { ...scope, revision: '2' }, { ...scope, policyGeneration: 2 }])
+      assert.throws(() => resolveChoice(question, stale, read.state, visible.choices[0]!.id), /stale/)
+    assert.throws(() => resolveChoice(question, scope, { ...read.state, customerName: 'changed' }, visible.choices[0]!.id), /stale/)
+    for (const changed of [services.filter(item => item.id !== 'cut'), services.map(item => item.id === 'cut' ? { ...item, name: 'Renombrado' } : item)])
+      await assert.rejects(() => respondConversationChoice(context, read.state, chosen.operation, { ...port, catalog: async () => changed }), /unavailable|disponible/i)
+  })
+  await p18Check('a price invitation cannot reuse an old proposal confirmation or be replaced by Confirmar', async () => {
+    const proposalPort: DialoguePort = { ...port, availability: async () => ({ professionals: [{ id: 'leo', name: 'Leo', priority: 0 }],
+      slots: [{ date: '2026-10-03', time: '13:00', startAt: '2026-10-03T16:00:00.000Z',
+        professionalId: 'leo', professionalName: 'Leo', band: 'AFTERNOON', occupiedMinutes: 0 }] }) }
+    const body = 'Corte hombre mañana con cualquiera a las 13, soy Ana'
+    const shown = await respond(context, initial, body, proposalPort, { serviceId: null, candidateIds: [], correction: false,
+      turnPlan: { version: 1, operations: [
+        { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('Corte hombre') },
+        { kind: 'date', expression: 'mañana', value: '2026-10-03', ...ev('mañana') },
+        { kind: 'professional', mode: 'any', ...ev('cualquiera') },
+        { kind: 'time', value: '13:00', ...ev('13') }, { kind: 'name', value: 'Ana', ...ev('Ana') }
+      ] } })
+    assert.ok(shown.state.sandboxReservation); assert.equal(shown.state.pending, 'proposal')
+    const beforeAgenda = agendaCalls
+    const read = await say(shown.state, '¿Precio de Corte hombre?', [info('Precio de Corte hombre', service(['cut'], 'price'))])
+    assert.deepEqual(selectionBasket(read.state), selectionBasket(shown.state))
+    assert.equal(read.state.pending, shown.state.pending)
+    assert.deepEqual(read.state.sandboxReservation, shown.state.sandboxReservation)
+    assert.deepEqual(read.state.dialogueContext, shown.state.dialogueContext)
+    assert.equal(read.proposal, null); assert.equal(read.bookingCommand, undefined); assert.equal(agendaCalls, beforeAgenda)
+    assert.match(read.reply, /¿Querés (?:reservar|agendar)/)
+    assert.deepEqual(read.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: 'cut' } }])
+    await assert.rejects(() => respondConversationChoice(context, read.state,
+      { kind: 'confirm', nonce: shown.state.sandboxReservation!.presented.nonce }, proposalPort), /no longer available/)
+    const answer = await respond(context, read.state, 'confirmo', proposalPort, { serviceId: null, candidateIds: [], correction: false,
+      turnPlan: { version: 1, operations: [{ kind: 'confirm_proposal', ...ev('confirmo') }] } })
+    assert.equal(answer.bookingCommand, undefined); assert.equal(answer.proposal, null)
+    assert.deepEqual(answer.state.sandboxReservation, read.state.sandboxReservation)
+    assert.equal(answer.choicePresentation?.choices[0]?.label, 'Reservar')
+    const added = await respondConversationChoice(context, read.state, { kind: 'service', serviceId: 'cut' }, proposalPort)
+    assert.equal(added.proposal, null); assert.equal(added.bookingCommand, undefined)
+    assert.equal(added.state.slot, null); assert.equal(added.state.sandboxReservation, undefined)
+    assert.equal(added.state.pending, 'time', 'adding the focal service is not renewed slot or booking consent')
+  })
+  await p18Check('runtime price reads retain the old presentation without preparing or confirming another proposal', async () => {
+    const { runtimeBookingFingerprint, parseRuntimePresentedBooking } = await import('../src/conversational-bot/prisma-conversational-booking.js')
+    const runtimeScope = { businessId: context.businessId, sessionId: 'price-runtime', deploymentId: 'demo', generation: 1,
+      revision: '1', configurationId: 'cfg', dispatchFenceEpoch: 0, handoffFenceEpoch: 0 }
+    const runtimeContext = { ...context, sandboxBooking: false, serverRuntimeBookingScope: runtimeScope }
+    const slot = { date: '2026-10-03', time: '13:00', startAt: '2026-10-03T16:00:00.000Z',
+      professionalId: 'leo', professionalName: 'Leo', band: 'AFTERNOON' as const, occupiedMinutes: 30 }
+    let preparations = 0
+    const runtimePort: DialoguePort = { ...port, availability: async () => ({ professionals: [{ id: 'leo', name: 'Leo', priority: 0 }], slots: [slot] }),
+      prepareRuntimeBooking: async (draft, scope) => {
+        preparations++
+        assert.ok(draft.slot); assert.ok(draft.customerName); assert.ok(draft.professional)
+        const terms = { version: 1 as const, businessId: context.businessId, timezone: context.timezone, date: slot.date,
+          customerName: draft.customerName, preference: draft.professional, totalPriceMinor: 27000, segments: [{
+            serviceId: 'cut', serviceName: 'Corte hombre', professionalId: 'leo', professionalName: 'Leo',
+            startAt: slot.startAt, endAt: '2026-10-03T16:30:00.000Z', durationMinutes: 30, customerDurationMinutes: 30,
+            priceMinor: 27000, priceMode: 'FIXED' as const, configurationHash: null }] }
+        const presented = { version: 1 as const, scope, nonce: '12345678-1234-4567-8123-123456789012',
+          fingerprint: runtimeBookingFingerprint(terms), conditionsPresented: true as const, terms }
+        assert.ok(parseRuntimePresentedBooking(presented)); return { slot, presented }
+      } }
+    const ready: DialogueState = { ...initial, serviceId: 'cut', date: slot.date, professional: { kind: 'any' },
+      slot, customerName: 'Ana', pending: 'proposal' }
+    const shown = await respond(runtimeContext, ready, 'Quiero reservar este turno', runtimePort)
+    assert.ok(shown.state.bookingReservation); assert.equal(preparations, 1)
+    const read = await respondWithAiInterpreter({ ...runtimeContext, serverRuntimeBookingScope: { ...runtimeScope, revision: '2' } },
+      shown.state, '¿Precio de Corte hombre?', runtimePort, async () => ({ ...legacy,
+        turnPlan: { version: 1, operations: [info('Precio de Corte hombre', service(['cut'], 'price'))] } }))
+    assert.equal(preparations, 1, 'reading price must not renew runtime proposal or scope: ' + JSON.stringify({ state: read.state, reply: read.reply }))
+    assert.equal(read.proposal, null); assert.equal(read.bookingCommand, undefined)
+    assert.deepEqual(read.state.bookingReservation, shown.state.bookingReservation)
+    assert.deepEqual(read.state.dialogueContext, shown.state.dialogueContext)
+    assert.deepEqual(read.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: 'cut' } }])
+    await assert.rejects(() => respondConversationChoice(runtimeContext, read.state,
+      { kind: 'confirm', nonce: shown.state.bookingReservation!.presented.nonce }, runtimePort), /no longer available/)
+    const answer = await respond({ ...runtimeContext, serverRuntimeBookingScope: { ...runtimeScope, revision: '2' } }, read.state,
+      'confirmo', runtimePort, { serviceId: null, candidateIds: [], correction: false, confirmationEvidence: 'confirmo',
+        turnPlan: { version: 1, operations: [{ kind: 'confirm_proposal', ...ev('confirmo') }] } })
+    assert.equal(preparations, 1); assert.equal(answer.bookingCommand, undefined); assert.equal(answer.proposal, null)
+    assert.deepEqual(answer.state.bookingReservation, read.state.bookingReservation)
+    const added = await respondConversationChoice(runtimeContext, read.state, { kind: 'service', serviceId: 'cut' }, runtimePort)
+    assert.equal(added.bookingCommand, undefined); assert.equal(added.proposal, null)
+    assert.equal(added.state.bookingReservation, undefined); assert.equal(added.state.slot, null); assert.equal(added.state.pending, 'time')
+  })
+  await p18Check('an actual price read with a prior basket publishes an additive and deduplicated Reservar action', async () => {
+    const beforeAgenda = agendaCalls
+    const prior = await respondWithAiInterpreter(context, initial, 'Corte hombre', port, async () => ({
+      ...legacy, intent: 'booking', turnPlan: { version: 1, operations: [
+        { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, ...ev('Corte hombre') }
+      ] }, communicativeActs: { version: 1, acts: [
+        { kind: 'request', field: 'service', evidence: 'Corte hombre', mention: 'Corte hombre', confidence: 1, operationIndexes: [0] }
+      ] }
+    }))
+    assert.deepEqual(basketServiceIds(prior.state), ['cut'])
+    const read = await say(prior.state, '¿Precio de Baño de crema?', [info('Precio de Baño de crema', service(['cream'], 'price'))])
+    assert.deepEqual(selectionBasket(read.state), selectionBasket(prior.state), 'the actual read does not acquire or replace peers')
+    assert.equal(read.state.informationFocus?.serviceId, 'cream')
+    assert.equal(read.state.informationFocus?.aspect, 'price')
+    assert.match(read.reply, /25[.,]?000/)
+    assert.match(read.reply, /¿Querés (?:reservar|agendar)/)
+    assert.equal(read.choicePresentation?.choices[0]?.label.toLowerCase(), 'reservar')
+    assert.deepEqual(read.choicePresentation?.choices[0]?.operation, { kind: 'service', serviceId: 'cream' })
+    const selected = await respondConversationChoice(context, read.state, read.choicePresentation!.choices[0]!.operation, port)
+    assert.deepEqual(basketServiceIds(selected.state).sort(), ['cream', 'cut'])
+    assert.deepEqual(selected.state.basket?.members.find(member => member.serviceIds.includes('cut')),
+      prior.state.basket?.members.find(member => member.serviceIds.includes('cut')))
+    assert.equal(selected.proposal, null); assert.equal(selected.bookingCommand, undefined)
+    assert.equal(selected.state.pending, 'estimate'); assert.equal(agendaCalls, beforeAgenda)
+    const repeatedPrice = await say(selected.state, '¿Precio de Baño de crema?', [info('Precio de Baño de crema', service(['cream'], 'price'))])
+    assert.deepEqual(selectionBasket(repeatedPrice.state), selectionBasket(selected.state))
+    assert.equal(repeatedPrice.choicePresentation?.choices[0]?.label.toLowerCase(), 'reservar')
+    const repeated = await respondConversationChoice(context, repeatedPrice.state, repeatedPrice.choicePresentation!.choices[0]!.operation, port)
+    assert.deepEqual(selectionBasket(repeated.state), selectionBasket(selected.state), 'reusing the existing add/dedup function keeps the same members')
+    assert.equal(repeated.proposal, null); assert.equal(repeated.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda)
+  })
+  for (const pendingPeer of [false, true]) await p18Check('native Reservar reuses additive cart semantics and preserves peers: ' + pendingPeer, async () => {
+    const beforeAgenda = agendaCalls
+    const read = await say(initial, '¿Precio de Baño de crema?', [info('Precio de Baño de crema', service(['cream'], 'price'))])
+    // Fixture represents the same published invitation scoped to a draft with existing peers.
+    const prior: DialogueState = { ...read.state, serviceId: pendingPeer ? null : 'cut', basket: { version: 1, nextMemberId: pendingPeer ? 3 : 2,
+      members: [{ memberId: 'm1', mode: 'single', serviceIds: ['cut'], evidence: 'Corte hombre' },
+        ...(pendingPeer ? [{ memberId: 'm2', mode: 'unresolved' as const, serviceIds: [], evidence: 'otro servicio pendiente' }] : [])] } }
+    rememberDialogueQuestion(prior, read.state.questionContext!.question, [{ id: 'cream', label: 'Baño de crema' }], null, { candidateIds: ['cream'] })
+    const before = structuredClone(selectionBasket(prior))
+    assert.deepEqual(parseDialogueState(prior, context.businessId), prior, 'fixture follows actual cart projection and question scope')
+    const selected = await respondConversationChoice(context, prior, { kind: 'service', serviceId: 'cream' }, port)
+    assert.deepEqual(selected.state.basket?.members.find(member => member.memberId === 'm1'), before.members[0])
+    if (pendingPeer) assert.deepEqual(selected.state.basket?.members.find(member => member.memberId === 'm2'), before.members[1])
+    assert.deepEqual(selected.state.basket?.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds).sort(), ['cream', 'cut'])
+    assert.equal(selected.proposal, null); assert.equal(selected.bookingCommand, undefined)
+    assert.equal(selected.state.slot, null); assert.equal(agendaCalls, beforeAgenda)
+  })
+  await p18Check('native Reservar does not duplicate an already selected cart service', async () => {
+    const read = await say(initial, '¿Precio de Baño de crema?', [info('Precio de Baño de crema', service(['cream'], 'price'))])
+    const prior: DialogueState = { ...read.state, serviceId: 'cream', basket: { version: 1, nextMemberId: 2,
+      members: [{ memberId: 'm1', mode: 'single', serviceIds: ['cream'], evidence: 'Baño de crema' }] } }
+    rememberDialogueQuestion(prior, read.state.questionContext!.question, [{ id: 'cream', label: 'Baño de crema' }], null, { candidateIds: ['cream'] })
+    assert.deepEqual(parseDialogueState(prior, context.businessId), prior)
+    const selected = await respondConversationChoice(context, prior, { kind: 'service', serviceId: 'cream' }, port)
+    assert.equal(selected.state.basket?.members.filter(member => member.serviceIds.includes('cream')).length, 1)
+    assert.equal(selected.proposal, null); assert.equal(selected.bookingCommand, undefined)
+  })
+  for (const representation of ['clicked', 'literal', 'reference']) await p18Check('price inquiry selection preserves its object and aspect: ' + representation, async () => {
+    const beforeAgenda = agendaCalls
+    const message = 'Quería saber cuánto salía hacerme un balayage'
+    const start = await inquirySay(initial, message, { ...procedure('cuánto salía hacerme un balayage'), subject: 'balayage', aspect: 'price' })
+    assert.equal(start.interpretation.mode, 'ai')
+    assert.equal((start.state.serviceRequest as any)?.subject, 'balayage')
+    assert.equal((start.state.serviceRequest as any)?.aspect, 'price')
+    assert.match(start.reply, /«balayage»/)
+    assert.doesNotMatch(start.reply, /«cuánto salía hacerme un balayage»/)
+    let selected
+    if (representation === 'clicked') selected = await respondConversationChoice(context, start.state, start.choicePresentation!.choices[0]!.operation, inquiryPort)
+    else {
+      const answer = representation === 'literal' ? 'Iluminación' : 'Sí, ese servicio'
+      const operation = representation === 'literal'
+        ? { ...procedure(answer, ['light'], 'clear', true), basis: 'exact_public_name', subject: answer, aspect: 'price' }
+        : { kind: 'service_reference', action: 'confirm', serviceId: 'light', ...ev(answer) }
+      let calls = 0
+      selected = await respondWithAiInterpreter(context, start.state, answer, inquiryPort, async () => {
+        calls++
+        return { ...legacy, turnPlan: { version: 1, operations: [operation] }, communicativeActs: { version: 1,
+          acts: [{ kind: 'answer', field: 'service', evidence: answer, confidence: 1, mention: null, operationIndexes: [0] }] } }
+      })
+      assert.equal(calls, 1); assert.equal(selected.interpretation.mode, 'ai')
+    }
+    assert.equal(selected.state.informationFocus?.serviceId, 'light')
+    assert.equal(selected.state.informationFocus?.aspect, 'price')
+    assert.equal(selected.state.serviceRequest, undefined)
+    assert.deepEqual(selectionBasket(selected.state), selectionBasket(initial))
+    assert.equal(selected.proposal, null); assert.equal(selected.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda)
+    assert.match(selected.reply, /Iluminación/); assert.match(selected.reply, /12[.,]?000/)
+    assert.doesNotMatch(selected.reply, /Qué servicio necesitás|En qué.*ayudar|incluye «cuánto/i)
+    assert.equal(selected.choicePresentation?.choices[0]?.label.toLowerCase(), 'reservar')
+    assert.deepEqual(selected.choicePresentation?.choices[0]?.operation, { kind: 'service', serviceId: 'light' })
+    const added = await respondConversationChoice(context, selected.state, selected.choicePresentation!.choices[0]!.operation, inquiryPort)
+    assert.deepEqual(basketServiceIds(added.state), ['light'])
+    assert.equal(added.proposal, null); assert.equal(added.bookingCommand, undefined)
+    assert.equal(agendaCalls, beforeAgenda)
+  })
+  await p18Check('ambiguous prices choose the published destination before showing its Reservar action', async () => {
+    const read = await say(initial, '¿Precio de corte?', [info('Precio de corte', business(['PRICES']))])
+    assert.equal(read.state.informationFocus?.awaitingChoice, true)
+    assert.ok(read.choicePresentation && read.choicePresentation.choices.length > 1)
+    assert.ok(read.choicePresentation!.choices.every(choice => choice.label.toLowerCase() !== 'reservar'))
+    const chosen = read.choicePresentation!.choices.find(choice => choice.operation.kind === 'service' && choice.operation.serviceId === 'woman')!
+    const focused = await respondConversationChoice(context, read.state, chosen.operation, port)
+    assert.equal(focused.state.informationFocus?.serviceId, 'woman')
+    assert.deepEqual(selectionBasket(focused.state), selectionBasket(initial))
+    assert.equal(focused.choicePresentation?.choices[0]?.label.toLowerCase(), 'reservar')
+    assert.deepEqual(focused.choicePresentation?.choices[0]?.operation, { kind: 'service', serviceId: 'woman' })
+    assert.equal(focused.proposal, null); assert.equal(focused.bookingCommand, undefined)
+  })
+  console.log('P18 price choices: ' + p18Passed + ' passed, ' + p18Failures.length + ' failed')
+  assert.deepEqual(p18Failures, [], 'P18 price choice regressions')
 
   console.log('current service inquiry: ' + currentPassed + ' passed, ' + currentFailures.length + ' failed')
   assert.deepEqual(currentFailures, [], 'current service inquiry regressions')

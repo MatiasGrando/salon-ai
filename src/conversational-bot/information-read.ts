@@ -272,8 +272,9 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 /** One contextual next step: inquiry is not permission to mutate a booking draft. */
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
-  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
+  if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'
+  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)
   if (service) return '¿Querés agendar ' + service.label + '?'
   return activeBooking ? pendingQuestion(state) : '¿En qué más te puedo ayudar?'
 }

@@ -1,7 +1,7 @@
 import { DATE_PREFERENCES_JSON_SCHEMA, parseDatePreferenceCandidates, type DatePreferenceCandidate } from './date-preference.js'
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { isCustomerText } from './customer-text.js'
-import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget } from './information-contract.js'
+import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget, SERVICE_INFORMATION_ASPECTS } from './information-contract.js'
 import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, literalClockMeaning, timePreferenceMatchesEvidence, timeOperationMatchesEvidence, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
@@ -57,6 +57,8 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
       correction: { type: 'boolean' },
       basis: { type: 'string', enum: ['exact_public_name', 'documented_variant', 'semantic_equivalent', 'related_category'] },
       sourceQuote: { type: ['string', 'null'], minLength: 1, maxLength: 500 },
+      subject: { type: ['string', 'null'], minLength: 1, maxLength: 300 },
+      aspect: { type: ['string', 'null'], enum: [...SERVICE_INFORMATION_ASPECTS, null] },
       continuation: { type: 'boolean' }
     })),
     operationSchema('service', { mode: { type: 'string', enum: ['single', 'alternatives', 'multiple', 'unresolved'] }, serviceIds: { type: 'array', items: stringSchema(128), minItems: 0, maxItems: TURN_PLAN_LIMITS.candidates }, correction: { type: 'boolean' } }),
@@ -160,7 +162,8 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
       if (!['consult', 'resume'].includes(String(raw.action))) fail('referral')
       identity = 'referral'
     } else if (raw.kind === 'service_request') {
-      exactKeys(raw, [...common, 'purpose', 'disposition', 'serviceIds', 'correction', 'basis', 'sourceQuote', 'continuation'])
+      exactKeys(raw, [...common, 'purpose', 'disposition', 'serviceIds', 'correction', 'basis', 'sourceQuote', 'continuation'], ['subject', 'aspect'])
+      if (raw.subject != null && (typeof raw.subject !== 'string' || !raw.evidence.includes(raw.subject))) fail('subject evidence')
       try { parseServiceRequest(raw, catalogIds) } catch {
         return fail(catalogIds && Array.isArray(raw.serviceIds) && raw.serviceIds.some(id => !catalogIds.includes(String(id)))
           ? 'catalog request' : 'service request')

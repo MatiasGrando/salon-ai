@@ -1,6 +1,7 @@
 import { parseTimePreference } from './time-preference.js'
 import { serviceConfigurationKey } from '../bot-options/domain/service-booking.js'
 import { serviceGuidance } from './service-guidance.js'
+import { parseDialogueQuestion } from './dialogue-context.js'
 import type { DialogueService, DialogueState } from './engine.js'
 import type { ChoicePresentation } from './availability-presentation.js'
 import type { ConversationChoiceOperation, ConversationChoicePresentation } from './choices.js'
@@ -47,9 +48,21 @@ export function choicePresentationForQuestion(state: DialogueState, services: re
   return { kind: question.role === 'estimate' ? 'estimate' : question.role === 'service' ? 'service' : 'professional', title: question.role === 'estimate' ? 'Opciones para ' + target?.name : question.role === 'service' ? 'Servicios disponibles' : 'Profesionales disponibles', choices: choices.filter(choice => choice !== null) }
 }
 
-/** An informational question has its own scope and never selects a booking service. */
+/** Exact server invitation over one focal published price, not a client-proposed cart command. */
+export function priceBookingChoice(state: DialogueState): { id: string; label: string } | null {
+  const focus = state.informationFocus;
+  if (!focus || focus.businessId !== state.businessId || focus.aspect !== 'price' || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1) return null;
+  const service = focus.options[0]!;
+  const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null;
+  return service.id === focus.serviceId && question?.complete && question.options.length === 1 &&
+    question.options[0]!.id === service.id && question.options[0]!.label === service.label &&
+    question.question === '¿Querés agendar ' + service.label + '?' ? service : null;
+}
+/** Informational choices read facts; only a separately published Reservar invitation acquires a service. */
 export function choicePresentationForInformation(state: DialogueState): ConversationChoicePresentation | undefined {
   const focus = state.informationFocus
+  const invitation = priceBookingChoice(state)
+  if (invitation) return { kind: 'service', title: 'Reservar ' + invitation.label, choices: [{ label: 'Reservar', operation: { kind: 'service', serviceId: invitation.id } }] }
   if (!focus?.awaitingChoice || !focus.options.length || focus.options.length > 10) return undefined
   return { kind: 'service', title: focus.aspect === 'price' ? 'Precios por servicio' : 'Información del servicio', choices: focus.options.map(option => ({ label: option.label, operation: { kind: 'service', serviceId: option.id } })) }
 }

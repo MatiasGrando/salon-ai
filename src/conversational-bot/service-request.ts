@@ -3,6 +3,8 @@ import { affirmativeMatchAnswer } from './contextual-matching.js';
 import { selectionBasket, type BasketMutation } from './service-basket.js';
 import type { DialogueService, DialogueState } from './engine.js';
 import { isCustomerText } from './customer-text.js';
+import { SERVICE_INFORMATION_ASPECTS, type ServiceInformationAspect } from './information-contract.js';
+import { neutralOwnedServiceInquiry } from './service-information-scope.js';
 export type ServiceRequest = {
     purpose: 'inquiry' | 'booking';
     disposition: 'clear' | 'alternatives' | 'needs_detail' | 'unverified_variant';
@@ -11,6 +13,9 @@ export type ServiceRequest = {
     continuation: boolean;
     basis: 'exact_public_name' | 'documented_variant' | 'semantic_equivalent' | 'related_category';
     sourceQuote: string | null;
+    /** Literal display object and read facet, never catalog or booking authority. */
+    subject?: string | null;
+    aspect?: ServiceInformationAspect | null;
 };
 export type ServiceRequestContext = ServiceRequest & {
     businessId: string;
@@ -33,6 +38,8 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
         typeof item.correction !== 'boolean' || typeof item.continuation !== 'boolean' ||
         !['exact_public_name', 'documented_variant', 'semantic_equivalent', 'related_category'].includes(String(item.basis)) ||
         !(item.sourceQuote === null || bounded(item.sourceQuote, 500)) ||
+        item.subject != null && !isCustomerText(item.subject, 300) ||
+        item.aspect != null && !SERVICE_INFORMATION_ASPECTS.includes(item.aspect as ServiceInformationAspect) ||
         !Array.isArray(item.serviceIds) || item.serviceIds.length > 10 ||
         new Set(item.serviceIds).size !== item.serviceIds.length ||
         item.serviceIds.some(id => !bounded(id, 128) || catalogIds && !catalogIds.includes(id))) {
@@ -49,19 +56,22 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
         correction: item.correction,
         continuation: item.continuation,
         basis: item.basis as ServiceRequest['basis'],
-        sourceQuote: item.sourceQuote as string | null
+        sourceQuote: item.sourceQuote as string | null,
+        ...(item.subject !== undefined ? { subject: item.subject as string | null } : {}),
+        ...(item.aspect !== undefined ? { aspect: item.aspect as ServiceInformationAspect | null } : {})
     };
 }
 export function parseServiceRequestContext(value: unknown, businessId: string): ServiceRequestContext {
     const item = value as Record<string, unknown>;
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
-    if (!item || Object.keys(item).filter(key => key !== 'candidateName' && key !== 'detail' && key !== 'referenceConfirmed').sort().join(',') !== keys ||
+    if (!item || Object.keys(item).filter(key => !['candidateName', 'detail', 'referenceConfirmed', 'subject', 'aspect'].includes(key)).sort().join(',') !== keys ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
         item.detail !== undefined && !isCustomerText(item.detail, 300) ||
         item.referenceConfirmed !== undefined && (item.referenceConfirmed !== true || !bounded(item.candidateName, 200) ||
             !Array.isArray(item.serviceIds) || item.serviceIds.length !== 1 || item.basis !== 'related_category' ||
             !['needs_detail', 'unverified_variant'].includes(String(item.disposition))) ||
-        item.businessId !== businessId || !isCustomerText(item.request, 300)) {
+        item.businessId !== businessId || !isCustomerText(item.request, 300) ||
+        typeof item.subject === 'string' && !item.request.includes(item.subject)) {
         throw new Error('invalid service request scope');
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,
@@ -156,6 +166,26 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
     };
 }
 
+/** Display never truncates a suffix qualifier; proof always retains the full original request. */
+export function serviceRequestSubject(request: ServiceRequestContext): string {
+    return request.subject && normalized(request.request).endsWith(normalized(request.subject)) ? request.subject : request.request;
+}
+/** Only a complete current catalog-category phrase resolves on published selection.
+ * A proposed subject can narrow that phrase only when the existing neutral reader consumes every other word. */
+export function serviceRequestCaveat(request: ServiceRequestContext, services: readonly DialogueService[]): string {
+    const meaning = request.subject && request.aspect && neutralOwnedServiceInquiry(request.request, request.subject, request.aspect)
+        ? request.subject : request.request;
+    const terms = identityWords(serviceEvidenceMeaning(meaning, services));
+    const candidates = services.filter(service => request.serviceIds.includes(service.id));
+    const category = !request.detail && terms.length > 0 && candidates.length === request.serviceIds.length && candidates.length > 0 &&
+        candidates.every(service => [service.name, ...service.aliases ?? []].some(label => terms.every(term => identityWords(label).includes(term))));
+    return category ? '' : 'No tengo confirmado si incluye «' + serviceRequestSubject(request) + '».';
+}
+/** One server acknowledgment owns selection; the downstream standard question may already own its greeting. */
+export function serviceSelectionNote(request: ServiceRequestContext, names: readonly string[], next: string, services: readonly DialogueService[]): string {
+    return [next.startsWith('Perfecto') ? '' : 'Perfecto, seguimos con ' + names.join(' + ') + '.', serviceRequestCaveat(request, services)].filter(Boolean).join('\n');
+}
+
 /** Short actual question; catalog options remain context, not matching or selection authority. */
 export function serviceRequestQuestion(request: ServiceRequestContext): string {
     if (request.referenceConfirmed) return '¿Querés elegir el servicio publicado o consultar esa técnica con el equipo?';
@@ -215,10 +245,10 @@ export function serviceRequestDelivery(request: ServiceRequestContext, services:
 
 export function serviceRequestReply(request: ServiceRequestContext, services: readonly DialogueService[]): string {
     const candidates = services.filter(service => request.serviceIds.includes(service.id));
-    const description = request.request + (request.detail ? ' — ' + request.detail : '');
+    const description = serviceRequestSubject(request) + (request.detail ? ' — ' + request.detail : '');
     if (request.referenceConfirmed && candidates.length === 1 && candidates[0]!.name === request.candidateName) {
         return 'Perfecto, te referís al servicio publicado ' + candidates[0]!.name + '.\n' +
-            'No tengo confirmado si incluye «' + request.request + '».\n' + serviceRequestQuestion(request);
+            serviceRequestCaveat(request, services) + '\n' + serviceRequestQuestion(request);
     }
     if (request.disposition === 'alternatives') {
         return 'Para «' + description + '», estas son las opciones del catálogo:\n' +

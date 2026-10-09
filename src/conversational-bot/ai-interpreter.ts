@@ -524,8 +524,8 @@ export async function respondWithAiInterpreter(
     !/\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message) &&
     /^(?:Hola\. Te ayudo con tu turno\.\n)?¿Qué servicio necesitás\?\n/.test(response.reply)
   const planHasUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information'))
-  const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information'))
-  const planHasBookingUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && operation.kind !== 'name'))
+  const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
+  const planHasBookingUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && operation.kind !== 'name' && !(operation.kind === 'service_request' && operation.purpose === 'inquiry') && !(operation.kind === 'service_reference' && operation.action === 'confirm' && state.serviceRequest?.purpose === 'inquiry')))
   const replyIntent = planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'

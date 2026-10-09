@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { initialDialogueState, respond, type DialoguePort } from '../src/conversational-bot/engine.js'
+import { parseDialogueQuestion } from '../src/conversational-bot/dialogue-context.js'
+import { initialDialogueState, respond, type DialoguePort, type DialogueState } from '../src/conversational-bot/engine.js'
 import { ACTION_REGISTRY, routeActions } from '../src/conversational-bot/actions.js'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
 const context = { businessId: 'tenant-a', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-09-28T15:00:00Z') }
@@ -14,6 +15,21 @@ const port: DialoguePort = {
   catalog: async () => services,
   information: async () => facts,
   availability: async () => { availabilityReads++; return { professionals: [{ id: 'rama', name: 'Rama', priority: 0 }], slots: [slot] } }
+}
+// A focal price read publishes a new scoped question, without changing any draft or consent field.
+function assertFocalPriceRead(result: Awaited<ReturnType<typeof respond>>, previous: DialogueState): void {
+  const draft = ({ informationFocus: _focus, questionContext: _question, ...fields }: DialogueState) => fields
+  assert.deepEqual(draft(result.state), draft(previous))
+  assert.equal(result.state.pending, previous.pending)
+  assert.equal(result.state.informationFocus?.serviceId, 'beard')
+  assert.equal(result.state.informationFocus?.aspect, 'price')
+  assert.match(result.reply, /¿Querés agendar Barba\?/)
+  assert.equal(result.state.questionContext?.question, '¿Querés agendar Barba?')
+  assert.deepEqual(result.state.questionContext?.options, [{ id: 'beard', label: 'Barba' }])
+  assert.ok(parseDialogueQuestion(result.state.questionContext, result.state), 'the invitation matches the unchanged draft scope')
+  assert.notEqual(result.state.questionContext?.role, 'confirmation')
+  assert.deepEqual(result.choicePresentation?.choices, [{ label: 'Reservar', operation: { kind: 'service', serviceId: 'beard' } }])
+  assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.handoffCommand, undefined)
 }
 const pending = { ...initialDialogueState(context.businessId), serviceId: 'cut', pending: 'date' as const }
 const snapshot = structuredClone(pending)
@@ -56,7 +72,7 @@ assert.equal(mixed.state.pending, 'professional')
 const multi = await respond(context, pending, 'precio de barba y direccion?', port)
 assert.match(multi.reply, /3.?000/)
 assert.match(multi.reply, /Calle 123/)
-assert.deepEqual({ ...multi.state, informationFocus: undefined }, { ...pending, informationFocus: undefined })
+assertFocalPriceRead(multi, pending)
 assert.equal(multi.state.informationFocus?.serviceId, 'beard')
 const availability = await respond(context, pending, 'tenes turno hoy a la tarde?', port)
 assert.doesNotMatch(availability.reply, /09:00 a 18:00/)
@@ -144,7 +160,7 @@ assert.equal(catalogMixed.state.serviceId, 'cut')
 assert.equal(catalogMixed.state.date, '2026-09-29')
 assert.equal(catalogMixed.state.pending, 'professional')
 const pureInfoProposal = await respond(context, proposalState, 'quiero ver precios de barba', port)
-assert.deepEqual({ ...pureInfoProposal.state, informationFocus: undefined }, { ...proposalState, informationFocus: undefined })
+assertFocalPriceRead(pureInfoProposal, proposalState)
 assert.equal(pureInfoProposal.state.informationFocus?.serviceId, 'beard')
 assert.equal(pureInfoProposal.proposal, null)
 
@@ -157,7 +173,7 @@ for (const [label, message, expectedDate, expectedService] of [
   try {
     const result = await respond(context, pending, message, port)
     if (expectedDate === null) {
-      assert.deepEqual({ ...result.state, informationFocus: undefined }, { ...pending, informationFocus: undefined })
+      assertFocalPriceRead(result, pending)
       assert.equal(result.state.informationFocus?.serviceId, 'beard')
     }
     else { assert.equal(result.state.date, expectedDate); assert.equal(result.state.serviceId, expectedService) }

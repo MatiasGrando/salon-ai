@@ -6,7 +6,7 @@ import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBin
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
+import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceRequestCaveat, serviceSelectionNote, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -15,7 +15,7 @@ import { parseAvailabilityExplanation, parseRequestedStartExplanation, type Requ
 import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
-import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation } from './dialogue-choice-presentation.js'
+import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation, priceBookingChoice } from './dialogue-choice-presentation.js'
 import { introduceDialogue, type DialogueIdentity } from './dialogue-identity.js'
 import { presentAvailability, presentProfessionals, presentVerifiedDates, presentDateTimeQuestion, type ChoicePresentation, type PresentationChoice } from './availability-presentation.js'
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
@@ -113,19 +113,32 @@ export function hasActiveBooking(state: DialogueState): boolean {
 export function socialQuestion(state: DialogueState): string {
   return state.pending === 'time' ? '¿Querés que consultemos los horarios para tu turno?' : pendingQuestion(state)
 }
-/** Bind only the currently delivered public-identity invitation, never a price option. */
+/** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
-  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return
+  const retained = hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
-  if (service && next === '¿Querés agendar ' + service.label + '?') {
-    state.pending = 'service'
-    rememberDialogueQuestion(state, next, [{ id: service.id, label: service.label }], null, { candidateIds: [service.id] })
-  } else delete state.questionContext
+  if (service && next === '¿Querés agendar ' + service.label + '?' && (!retained || read.focus?.aspect === 'price')) {
+    if (!retained) state.pending = 'service'
+    rememberDialogueQuestion(state, next, [{ id: service.id, label: service.label }], null,
+      state.pending === 'service' ? { candidateIds: [service.id] } : null)
+  } else if (!retained) delete state.questionContext
 }
 function renderInformationContinuation(read: InformationRead, state: DialogueState): string {
   const next = informationNext(read, state, hasActiveBooking(state))
   rememberInformationContinuation(state, read, next)
   return read.reply + (next ? '\n' + next : '')
+}
+/** An accepted informational candidate resolves the reference, not the booking draft or technique. */
+async function readServiceCandidate(context: DialogueContext, state: DialogueState, request: ServiceRequestContext,
+  serviceId: string, port: DialoguePort, services: readonly DialogueService[]): Promise<DialogueResponse> {
+  delete state.serviceRequest
+  delete state.informationFocus
+  reconcileConversationalReferral(state, services)
+  const read = await readInformation(context, state, 'stored choice', port,
+    { kind: 'service', actions: [], serviceIds: [serviceId], aspect: request.aspect ?? 'overview' }, services)
+  if (read.focus) state.informationFocus = read.focus
+  return { state, proposal: null, reply: [serviceRequestCaveat(request, services), renderInformationContinuation(read, state)].filter(Boolean).join('\n'),
+    replyPrepared: true, ...(read.focus ? informationChoiceFields(state) : {}) }
 }
 function timeMeaningQuestion(state: DialogueState): string {
   state.pending = 'time'
@@ -982,6 +995,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     !raw.operations.some(operation => ['service', 'basket'].includes(operation.kind) || operation.kind === 'service_request' && operation.purpose === 'booking')
   const suppressMatching = semanticPending || prospective.blockedFields.length > 0 || inquiryTurn
   let procedureQuestion = ''
+  let localProcedureRequest: ServiceRequestContext | undefined
   const serviceReferenceOp = raw.operations.find(operation => operation.kind === 'service_reference')
   const referenceAdmitted = serviceReferenceOp?.kind === 'service_reference' && serviceReferenceOp.confidence >= .85 &&
     admittedServiceReferences.some(operation => operation.kind === 'service_reference' &&
@@ -993,6 +1007,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const candidateSelection = referenceAdmitted && serviceReferenceOp.action === 'select' &&
     state.serviceRequest?.serviceIds.length === 1 &&
     validServiceCandidateContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
+  if (referenceAnswer && previousProcedureRequest?.purpose === 'inquiry' && raw.operations.length === 1) {
+    return readServiceCandidate(context, state, previousProcedureRequest, serviceReferenceOp.serviceId, port, services)
+  }
   if (referenceAnswer && state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, referenceConfirmed: true }
   // Selection has separate semantic authority; confirm alone never mutates the booking draft.
   raw = { ...raw, operations: raw.operations.filter(operation => operation.kind !== 'service_reference') }
@@ -1023,6 +1040,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       ...(request.disposition !== 'clear' && request.serviceIds.length === 1
         ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
       request: requestBase,
+      ...(previousProcedureRequest && requestBase === previousProcedureRequest.request && requestBase !== procedureOp.evidence
+        ? { subject: previousProcedureRequest.subject ?? null, aspect: request.aspect ?? previousProcedureRequest.aspect ?? null } : {}),
       ...(previousProcedureRequest?.referenceConfirmed && requestBase === previousProcedureRequest.request &&
         request.basis === 'related_category' && request.serviceIds.length === 1 &&
         previousProcedureRequest.serviceIds[0] === request.serviceIds[0] &&
@@ -1036,15 +1055,20 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (!retainBooking) delete state.serviceRequest
     procedureQuestion = ''
     const others = raw.operations.filter(operation => operation !== procedureOp)
+    if (request.purpose === 'inquiry' && request.disposition === 'clear' && previousRequest?.purpose === 'inquiry' &&
+        !others.length && validServiceCandidateContext(previousRequest, request.serviceIds[0]!, context.businessId, services, state.questionContext, false)) {
+      return readServiceCandidate(context, state, { ...previousRequest, aspect: request.aspect ?? previousRequest.aspect ?? null }, request.serviceIds[0]!, port, services)
+    }
     if (request.disposition === 'clear') {
       const resolvedOperation: TurnPlan['operations'][number] = request.purpose === 'inquiry'
         ? { kind: 'information', evidence: procedureOp.evidence, confidence: procedureOp.confidence,
-            target: { kind: 'service', actions: [], serviceIds: [...request.serviceIds], aspect: informationAspect(message) ?? 'overview' } }
+            target: { kind: 'service', actions: [], serviceIds: [...request.serviceIds], aspect: request.aspect ?? informationAspect(message) ?? 'overview' } }
         : { kind: 'service', mode: 'single', serviceIds: request.serviceIds, correction: request.correction,
             evidence: procedureOp.evidence, confidence: procedureOp.confidence }
       raw = { ...raw, operations: [...others, resolvedOperation] }
     } else {
       if (!retainBooking) state.serviceRequest = requestContext
+      else localProcedureRequest = requestContext
       procedureQuestion = serviceRequestReply(requestContext, services)
       for (const binding of prospective.inquiryBindings ?? []) {
         if (raw.operations[binding.requestOperationIndex] !== procedureOp) continue
@@ -1176,7 +1200,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (communicative?.temporalInquiry && state.requestedTime) { state.requestedTimeMode = 'inquiry'; state.slot = null }
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
-  if (communicative?.social && !communicative.blockedFields.length && !communicative.reference && plan.operations.every(op => op.kind === 'name') && state.pending !== 'name' && !contextual.clarify) {
+  if (!procedureQuestion && communicative?.social && !communicative.blockedFields.length && !communicative.reference && plan.operations.every(op => op.kind === 'name') && state.pending !== 'name' && !contextual.clarify) {
     const next = hasActiveBooking(state) ? state.questionContext?.question ?? socialQuestion(state) : '¿En qué te puedo ayudar con el local?'
     return { state, reply: next, replyFacts: socialContinuationFacts(next), proposal: null, replyPrepared: true }
   }
@@ -1246,7 +1270,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const next = reply || (lastRead ? informationNext(lastRead, state, hasActiveBooking(state)) : '')
     if (!reply && lastRead) rememberInformationContinuation(state, lastRead, next)
     return { state, reply: [...answers, next, clarificationReply].filter(Boolean).join('\n'), proposal: null,
-      ...(informationReads.some(read => read.outcome === 'clarifying' && read.focus) ? informationChoiceFields(state) : {}) }
+      ...(lastRead?.focus && !reply ? informationChoiceFields(state) : {}) }
   }
   if (state.timeMeaningClarification) {
     return { state, reply: [...answers, timeMeaningQuestion(state)].filter(Boolean).join('\n'), proposal: null, replyPrepared: true }
@@ -1287,7 +1311,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (state.serviceRequest) {
       const request = state.serviceRequest
       if (request.purpose === 'booking' && request.serviceIds.length) state.pending = 'service'
-      const delivery = serviceRequestDelivery(request, services)
+      const retainedDelivery = serviceRequestDelivery(request, services)
+      const localBody = localProcedureRequest ? serviceRequestDelivery(localProcedureRequest, services).facts[0]!.text : null
+      const delivery = localBody ? { reply: localBody + '\n' + serviceRequestQuestion(request),
+        facts: [{ id: 'procedure', text: localBody }, { id: 'next', text: serviceRequestQuestion(request) }] } : retainedDelivery
       rememberDialogueQuestion(state, serviceRequestQuestion(request),
         services.filter(service => request.serviceIds.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
       const presentation = request.purpose === 'booking' ? choicePresentationForQuestion(state, services)
@@ -1346,13 +1373,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         selectedCandidateIds.includes(service.id) && basketServiceIds(state).includes(service.id)) : []
   // Selecting the public service resolves the choice, not an undocumented technique.
   // Keep that distinction as brief information instead of another blocking procedure.
-  const selectionNote = chosenRelated.length
-    ? 'Perfecto, seguimos con ' + chosenRelated.map(service => service.name).join(' + ') + '.\n' +
-      'No tengo confirmado si incluye «' + previousProcedureRequest!.request + '».'
-    : ''
   const next = await respondBooking(context, state, message, port, undefined, services, matched.matching)
+  const selectionNote = chosenRelated.length
+    ? serviceSelectionNote(previousProcedureRequest!, chosenRelated.map(service => service.name), next.reply, services) : ''
   return { ...next, reply: [...combinedAnswers(next), selectionNote, next.reply, clarificationReply].filter(Boolean).join('\n'),
-    ...(selectionNote ? { replyPrepared: true as const, replyFacts: [{id:'acknowledgment',text:selectionNote}, {id:'next',text:[...combinedAnswers(next),next.reply,clarificationReply].filter(Boolean).join('\n')}] } : {}) }
+    ...(chosenRelated.length ? { replyPrepared: true as const, replyFacts: [...(selectionNote ? [{id:'acknowledgment',text:selectionNote}] : []), {id:'next',text:[...combinedAnswers(next),next.reply,clarificationReply].filter(Boolean).join('\n')}] } : {}) }
 }
 
 /** Route current-message reads before booking extraction; reads never publish a proposal. */
@@ -1423,7 +1448,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
       }
     }
     if (read.focus) state.informationFocus = read.focus
-    return { state, reply: renderInformationContinuation(read, state), proposal: null, ...(read.outcome === 'clarifying' && read.focus ? informationChoiceFields(state) : {}) }
+    return { state, reply: renderInformationContinuation(read, state), proposal: null, ...(read.focus ? informationChoiceFields(state) : {}) }
   }
   if (!target && state.dialogueContext?.presentedOffer && lexicalRoute.information.includes('HOURS')) {
     return { state, proposal: null, reply: '¿Consultás por el horario de atención del local o por los horarios que te mostré para tu turno?' }
@@ -1455,7 +1480,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
     const bookingFields = ({ dialogueContext: _context, ...fields }: DialogueState) => fields
     return { ...next, proposal: JSON.stringify(bookingFields(next.state)) === JSON.stringify(bookingFields(state)) ? null : next.proposal, reply: answer + '\n' + next.reply }
   }
-  return { ...delivered(renderInformationContinuation(read, state)), ...(read.outcome === 'clarifying' && read.focus ? informationChoiceFields(state) : {}) }
+  return { ...delivered(renderInformationContinuation(read, state)), ...(read.focus ? informationChoiceFields(state) : {}) }
 }
 
 const canonicalManagementIds = (ids: readonly string[]) => [...ids].sort().join('\u0000')
@@ -1553,12 +1578,21 @@ async function respondRuntimeBookingEnvelope(context:DialogueContext,state:Dialo
   // This marker is projected by current speech-act admission, not model text or a phrase allowlist.
   const semantic=decision?.confirmationEvidence===message && !veto && plan?.operations.length===1 && plan.operations[0]?.kind==='confirm_proposal' && plan.operations[0].confidence>=0.85 && normalize(plan.operations[0].evidence)===normalized
   const literal=!veto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention && /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalized)
+  if (priceBookingChoice(state) && (semantic || literal)) return { state, proposal: null, replyPrepared: true,
+    reply: 'Para agregar ese servicio al pedido, elegí Reservar.\n' + state.questionContext!.question, ...informationChoiceFields(state) }
   if(prior && port.prepareRuntimeBooking && runtimeCurrentScope(context,prior.presented) && state.questionContext?.role==='confirmation' && !state.questionContext.matchCandidateIds && runtimeProposalMatchesState(prior.presented,state) && (semantic||literal))
     return {state,proposal:null,reply:'Voy a verificar y confirmar el turno.',bookingCommand:{kind:'CONFIRM_BOOKING',presented:structuredClone(prior.presented)}}
   delete state.bookingReservation
   if(state.questionContext?.role==='confirmation')delete state.questionContext
   const nextDecision=plan?.operations.some(op=>op.kind==='confirm_proposal')?{...decision!,turnPlan:{...plan,operations:plan.operations.filter(op=>op.kind!=='confirm_proposal')}}:decision
   const response=await respondCore(context,state,message,port,nextDecision)
+  const invitation = priceBookingChoice(response.state)
+  if (invitation && prior && runtimeProposalMatchesState(prior.presented, { ...response.state, bookingReservation: prior })) {
+    // A lateral price read retains the financial presentation; it cannot renew its scope or consent.
+    response.state.bookingReservation = structuredClone(prior)
+    rememberDialogueQuestion(response.state, '¿Querés agendar ' + invitation.label + '?', [invitation])
+    return response
+  }
   if(context.serverRuntimeBookingScope && port.prepareRuntimeBooking && !response.handoffCommand && !response.state.referral && !response.state.serviceRequest && !response.state.editRequest && response.state.pending==='proposal' && (response.proposal || prior)) {
     const prepared=await port.prepareRuntimeBooking(response.state,context.serverRuntimeBookingScope)
     if(prepared && 'unavailable' in prepared){
@@ -1616,6 +1650,8 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
   const semanticConfirmation = !consentVeto && plan?.operations.length === 1 && plan.operations[0]?.kind === 'confirm_proposal' && plan.operations[0].confidence >= 0.85 && normalize(plan.operations[0].evidence) === normalize(message)
   const fallbackConfirmation = !consentVeto && !plan && !lexical.information.length && !lexical.pendingAction && !decision?.serviceId && !decision?.candidateIds.length && !decision?.professionalMention &&
     /^(si|confirmo|confirmar|confirmo el turno|quiero reservar|reservar|dale|si confirmo)$/.test(normalize(message))
+  if (priceBookingChoice(state) && (semanticConfirmation || fallbackConfirmation)) return { state, proposal: null, replyPrepared: true,
+    reply: 'Para agregar ese servicio al pedido, elegí Reservar.\n' + state.questionContext!.question, ...informationChoiceFields(state) }
   if (!state.professionalReference && !state.referral && !state.serviceRequest && !state.editRequest && reservation && !reservation.receipt && reservation.presented.conditionsPresented === true && sandboxProposalMatchesState(reservation.presented, state) && !state.questionContext?.matchCandidateIds && (semanticConfirmation || fallbackConfirmation)) {
     return { state, proposal: null, reply: 'Voy a verificar y confirmar el turno de prueba.', bookingCommand: { kind: 'CONFIRM_SANDBOX_BOOKING', presented: structuredClone(reservation.presented) } }
   }
@@ -1639,9 +1675,13 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
   } else if (!response.state.referral && !response.state.serviceRequest && !response.state.editRequest && reservation && reservation.presented.conditionsPresented === true && sandboxProposalMatchesState(reservation.presented, response.state)) {
+    const invitation = priceBookingChoice(response.state)
     response.state.sandboxReservation = structuredClone(reservation)
-    response.reply = response.reply.replace('La propuesta sigue pendiente; todavía no está reservado.', SANDBOX_CONFIRMATION_QUESTION)
-    rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
+    if (invitation) rememberDialogueQuestion(response.state, '¿Querés agendar ' + invitation.label + '?', [invitation])
+    else {
+      response.reply = response.reply.replace('La propuesta sigue pendiente; todavía no está reservado.', SANDBOX_CONFIRMATION_QUESTION)
+      rememberDialogueQuestion(response.state, SANDBOX_CONFIRMATION_QUESTION)
+    }
   }
   return response
 }
@@ -1735,8 +1775,8 @@ export async function respond(context: DialogueContext, previous: unknown, messa
     response.replyPrepared = true
   }
   attachReferralOffer(response, deliveryServices, resumedReferral)
-  if (!response.state.professionalReference && response.state.bookingReservation && !response.state.bookingReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = {kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:response.state.bookingReservation.presented.nonce}}]}
-  if (!response.state.professionalReference && response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
+  if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.bookingReservation && !response.state.bookingReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = {kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:response.state.bookingReservation.presented.nonce}}]}
+  if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   return options.deferIntroduction ? response : finalizeDialogueIntroduction(context, response, port)
 }
 /** Typed choices are internal stored operations, never interpreted labels or direct client commands. */
@@ -1746,6 +1786,30 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
   const reject = (): never => { throw new ConversationChoiceUnavailableError() }
   if (!Number.isFinite(context.dbNow.getTime()) || state.professionalReference || state.timeMeaningClarification) return reject()
+  const invitation = priceBookingChoice(state)
+  if (invitation && operation.kind !== 'service') return reject()
+  if (operation.kind === 'service' && invitation) {
+    if (operation.targetMemberId !== undefined || operation.serviceId !== invitation.id) return reject()
+    const services = await port.catalog()
+    const service = services.find(service => service.id === invitation.id && service.name === invitation.label)
+    if (!service || services.filter(item => item.id === invitation.id).length !== 1 || !validBookableService(service, true)) return reject()
+    // Adding a service is not renewed consent to the previously proposed slot, even when deduplicated.
+    if (state.pending === 'proposal' && (state.sandboxReservation || state.bookingReservation)) {
+      state.slot = null; state.requestedTime = null; delete state.requestedTimeMode
+      delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext
+    }
+    // The published click alone authorizes add; use the same cart reducer and its stable deduplication.
+    mutateStateBasket(state, { kind: 'basket', mutation: 'add', scope: 'all', targetMemberIds: [],
+      members: [{ mode: 'single', serviceIds: [service.id], evidence: 'stored choice', confidence: 1 }], evidence: 'stored choice', confidence: 1 })
+    delete state.informationFocus
+    delete state.questionContext
+    delete state.sandboxReservation
+    state.pending = state.editRequest?.fields[0] ?? resolveDialogueRoute(state, services).pending
+    const response = state.serviceRequest || state.referral
+      ? await respondTurnPlan(context, state, 'stored choice', { ...port, catalog: async () => services }, { version: 1, operations: [] }, 'booking')
+      : state.editRequest ? draftEditResponse(state, services) : await respondBooking(context, state, 'stored choice', port, undefined, services)
+    return finalizeDialogueIntroduction(context, response, port)
+  }
   if (operation.kind === 'service' && state.informationFocus?.awaitingChoice) {
     const focus = state.informationFocus
     if (operation.targetMemberId || !focus.options.some(option => option.id === operation.serviceId)) return reject()
@@ -1756,18 +1820,15 @@ export async function respondConversationChoice(context: DialogueContext, previo
     delete state.informationFocus
     const read = await readInformation(context, state, 'stored choice', port, { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect: focus.aspect }, services)
     if (read.focus) state.informationFocus = read.focus
-    return finalizeDialogueIntroduction(context, { state, proposal: null, reply: renderInformationContinuation(read, state) }, port)
+    return finalizeDialogueIntroduction(context, { state, proposal: null, reply: renderInformationContinuation(read, state),
+      ...(read.focus ? informationChoiceFields(state) : {}) }, port)
   }
   const candidateRequest = state.serviceRequest
   if (operation.kind === 'service' && candidateRequest?.purpose === 'inquiry') {
     const services = await port.catalog()
     if (!validServiceCandidateContext(candidateRequest, operation.serviceId, context.businessId, services, question ?? undefined, false) ||
         operation.targetMemberId !== undefined) return reject()
-    const read = await readInformation(context, state, 'stored choice', port,
-      { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect: 'overview' }, services)
-    return finalizeDialogueIntroduction(context, { state, proposal: null,
-      reply: 'No tengo confirmado si incluye «' + candidateRequest.request + '».\n' +
-        renderInformationContinuation(read, state), replyPrepared: true }, port)
+    return finalizeDialogueIntroduction(context, await readServiceCandidate(context, state, candidateRequest, operation.serviceId, port, services), port)
   }
   if (operation.kind === 'confirm' && (state.referral || state.serviceRequest) ||
       state.referral?.status === 'pending' && operation.kind !== 'service') return reject()
@@ -1858,8 +1919,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
     operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
   if (candidateRequest && operation.kind === 'service') {
-    response.reply = 'Perfecto, seguimos con ' + services.find(service => service.id === operation.serviceId)!.name + '.\n' +
-      'No tengo confirmado si incluye «' + candidateRequest.request + '».\n' + response.reply
+    response.reply = [serviceSelectionNote(candidateRequest, [services.find(service => service.id === operation.serviceId)!.name], response.reply, services), response.reply].filter(Boolean).join('\n')
     response.replyPrepared = true
   }
   if (response.proposal && context.sandboxBooking === true) {
@@ -1867,8 +1927,8 @@ export async function respondConversationChoice(context: DialogueContext, previo
     response.state.dialogueContext = { lastQuestion: SANDBOX_CONFIRMATION_QUESTION, presentedOffer: response.state.dialogueContext?.presentedOffer ?? null }
     rememberDialogueQuestion(response.state,SANDBOX_CONFIRMATION_QUESTION)
   }
-  if (!response.state.professionalReference && response.state.bookingReservation && !response.state.bookingReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = {kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:response.state.bookingReservation.presented.nonce}}]}
-  if (!response.state.professionalReference && response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') {
+  if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.bookingReservation && !response.state.bookingReservation.receipt && response.state.questionContext?.role === 'confirmation') response.choicePresentation = {kind:'proposal',title:'Confirmar turno',choices:[{label:'Confirmar',operation:{kind:'confirm',nonce:response.state.bookingReservation.presented.nonce}}]}
+  if (!priceBookingChoice(response.state) && !response.state.professionalReference && response.state.sandboxReservation && !response.state.sandboxReservation.receipt && response.state.sandboxReservation.presented.conditionsPresented === true && response.state.questionContext?.role === 'confirmation') {
     response.choicePresentation = { kind: 'proposal', title: 'Confirmar turno', choices: [{ label: 'Confirmar', operation: { kind: 'confirm', nonce: response.state.sandboxReservation.presented.nonce } }] }
   }
   return finalizeDialogueIntroduction(context,response,port)
