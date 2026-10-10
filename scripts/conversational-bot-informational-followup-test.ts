@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import https from 'node:https'
-import { initialDialogueState, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, respond, respondConversationChoice, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider, type AiResponseInput } from '../src/conversational-bot/ai-interpreter.js'
 import { deriveCatalogInquiry } from '../src/conversational-bot/catalog-information-answer.js'
 import { parseTurnPlan } from '../src/conversational-bot/turn-plan.js'
@@ -90,8 +90,8 @@ const comparison = (firstReply: unknown = comparisonDraft()) => ({
   communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: comparisonBody, confidence: .98,
     mention: null, operationIndexes: [0] }] }, firstReply
 })
-const compose = async (state: DialogueState, message: string, value: unknown, secondDraft: unknown) => {
-  const { port, counts } = makePort()
+const compose = async (state: DialogueState, message: string, value: unknown, secondDraft: unknown, services = catalog) => {
+  const { port, counts } = makePort(services)
   let interpretations = 0, compositions = 0
   const compositionInputs: AiResponseInput[] = []
   const provider: AiInterpretationProvider = Object.assign(async () => { interpretations++; return structuredClone(value) },
@@ -333,6 +333,113 @@ try {
     ]) assert.throws(() => parseInformationFocus(invalid, context.businessId), /invalid information focus/)
     const single = { ...value, aspect: 'description', serviceId: 'straight', options: [value.options[0]] }
     assert.equal(parseInformationFocus(single, context.businessId).serviceId, 'straight')
+  })
+  await check('model-owned comparison explains three related referents without literal names for all', async () => {
+    const message = 'queria saber la diferencia entre shock de keratina y alisado porque no se cual hacerme'
+    const ids = catalog.map(service => service.id)
+    const reply = comparisonDraft()
+    reply.catalogAnswer.blocks[1]!.text = catalog.map(service => service.description!).join(' ')
+    reply.catalogAnswer.blocks[1]!.sources = catalog.map(service => ({ serviceId: service.id, field: 'description', quote: service.description! }))
+    const value = comparison(reply)
+    value.turnPlan.operations[0]!.evidence = message
+    value.turnPlan.operations[0]!.target.serviceIds = ids
+    value.communicativeActs.acts[0]!.evidence = message
+    const first = await compose(initial, message, value, null)
+    assert.equal(first.result.interpretation.replyRoute, 'first_call')
+    assert.equal(first.compositions, 0)
+    assert.ok(first.result.reply.includes(generalExplanation))
+    for (const service of catalog) assert.ok(first.result.reply.includes(service.description!))
+    assert.doesNotMatch(first.result.reply, /De cuál de estos|Cuál de estas|Qué servicio querés elegir/)
+    assert.equal(first.result.choicePresentation, undefined)
+    assert.deepEqual(first.result.state.informationFocus?.options.map(option => option.id), ids)
+    const repeatMessage = 'quiero saber la diferencia entre shock de keratina y alisado'
+    value.turnPlan.operations[0]!.evidence = repeatMessage
+    value.communicativeActs.acts[0]!.evidence = repeatMessage
+    const repeated = await compose(first.result.state, repeatMessage, value, null)
+    assert.ok(repeated.result.reply.includes(generalExplanation))
+    assert.equal(repeated.result.interpretation.replyRoute, 'first_call')
+    assert.equal(repeated.result.choicePresentation, undefined)
+  })
+  await check('semantic comparative scope preserves current evidence, confidence, identity and ownership boundaries', () => {
+    const message = 'quiero saber la diferencia entre shock de keratina y alisado'
+    const scope = (state: DialogueState, evidence = message, confidence = .98, ids = catalog.map(item => item.id), kind = 'inquiry') => {
+      const plan = parseTurnPlan({ version: 1, operations: [{ kind: 'information', evidence, confidence,
+        target: { kind: 'service', actions: [], serviceIds: ids, aspect: 'comparison' } }] }, message, catalog.map(item => item.id))
+      const acts = parseCommunicativeActs({ version: 1, acts: [{ kind, field: 'service', evidence: message,
+        confidence, mention: null, operationIndexes: [0] }] }, message, plan.operations.length, plan)
+      return deriveCatalogInquiry(plan, acts, message, state, catalog)
+    }
+    assert.equal(scope(initial, message, .5).length, 0)
+    assert.equal(scope(initial, message, .98, catalog.map(item => item.id), 'answer').length, 0)
+    assert.throws(() => scope(initial, 'otra consulta'), /evidence/)
+    assert.throws(() => scope(initial, message, .98, ['foreign']), /invalid turn plan: information target/)
+    const stale = focusState()
+    stale.informationFocus!.options[1]!.label = 'Nombre histórico'
+    assert.equal(scope(stale).length, 0)
+  })
+  await check('three current comparison candidates support an actual combined mention without equating the technique', async () => {
+    const message = 'quiero saber la diferencia entre shock de keratina y alisado'
+    const reply = comparisonDraft()
+    reply.catalogAnswer.blocks[1]!.text = catalog.map(service => service.description!).join(' ')
+    reply.catalogAnswer.blocks[1]!.sources = catalog.map(service => ({ serviceId: service.id, field: 'description', quote: service.description! }))
+    const value = comparison(reply)
+    value.turnPlan.operations[0]!.evidence = message
+    value.turnPlan.operations[0]!.target.serviceIds = catalog.map(service => service.id)
+    value.communicativeActs.acts[0]!.evidence = message
+    value.communicativeActs.acts[0]!.mention = 'shock de keratina y alisado' as any
+    const positive = await compose(initial, message, value, null)
+    assert.equal(positive.result.interpretation.replyRoute, 'first_call')
+    assert.ok(positive.result.reply.includes(generalExplanation))
+    assert.doesNotMatch(positive.result.reply, /(?:local|negocio).*ofrece.*shock/i)
+    for (const mention of ['otro tratamiento', 'shock de keratina']) {
+      value.communicativeActs.acts[0]!.mention = mention as any
+      const rejected = await compose(initial, message, value, null)
+      assert.ok(!rejected.result.reply.includes(generalExplanation), 'foreign or partial mention does not own the combined comparison')
+    }
+  })
+  const withKeratinVariants = (): DialogueService[] => catalog.map(service => service.id !== 'keratin' ? service : ({
+    ...service, bookingPolicy: {
+      id: service.id, name: service.name, attentionMode: 'GUIDED_ESTIMATE', price: service.price,
+      priceMode: 'STARTING_AT', estimateAllowsBooking: true, estimateQuestion: '¿Qué largo tiene tu cabello?',
+      estimateExplanation: null, estimateDisclaimer: null, requiresPhoto: false,
+      estimateOptions: [
+        { id: 'shoulders', label: 'Hasta los hombros', priceMin: 30000, priceMax: 40000, note: null },
+        { id: 'below', label: 'Debajo de los hombros', priceMin: 40000, priceMax: 60000, note: null }
+      ],
+      validationEnabled: false, validationMessage: null, validationQuestion: null
+    }
+  }))
+  await check('Keratina button after comparison menu returns description and configured variants', async () => {
+    const before = focusState()
+    before.informationFocus!.aspect = 'comparison'
+    const { port, counts } = makePort(withKeratinVariants())
+    const result = await respondConversationChoice(context, before, { kind: 'service', serviceId: 'keratin' }, port)
+    assert.ok(result.reply.includes(catalog[2]!.description!), 'service comparison must not become a length comparison')
+    assert.match(result.reply, /Hasta los hombros/)
+    assert.match(result.reply, /Debajo de los hombros/)
+    assert.equal(result.state.informationFocus?.aspect, 'overview')
+    assert.equal(result.state.informationFocus?.serviceId, 'keratin')
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(before))
+    assert.equal(counts().agendaCalls, 0)
+    assert.equal(result.bookingCommand, undefined)
+    assert.equal(result.proposal, null)
+  })
+  await check('single model-owned comparison followup remains explanatory with configured variants', async () => {
+    const before = focusState()
+    before.informationFocus!.aspect = 'comparison'
+    const message = 'Keratina'
+    const value = comparison({ salutation: null, opening: null, factIds: null, closing: null, variantChoices: null,
+      catalogAnswer: { blocks: [{ kind: 'published', text: catalog[2]!.description!, sources: [
+        { serviceId: 'keratin', field: 'description', quote: catalog[2]!.description! }
+      ] }] } })
+    value.turnPlan.operations[0]!.evidence = message
+    value.turnPlan.operations[0]!.target.serviceIds = ['keratin']
+    value.communicativeActs.acts[0] = { kind: 'answer', field: 'service', evidence: message, confidence: .98, mention: null, operationIndexes: [0] }
+    const next = await compose(before, message, value, null, withKeratinVariants())
+    assert.ok(next.result.reply.includes(catalog[2]!.description!))
+    assert.equal(next.result.interpretation.replyRoute, 'first_call')
+    assert.equal(next.compositions, 0)
+    assert.equal(next.result.choicePresentation, undefined)
   })
   await check('interpretation guidance separates explanatory comparison from candidate search and readonly followup', () => {
     assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /seguimiento informativo[\s\S]*answer\/service/)

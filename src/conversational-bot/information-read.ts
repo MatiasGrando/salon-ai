@@ -125,8 +125,11 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   const described = services.filter(service => target.serviceIds.includes(service.id))
   const publishedComparison = ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1 &&
     described.length === target.serviceIds.length && described.every(service => literalCatalogName(message, service.name))
+  const comparisonFollowup = target.aspect === 'comparison' && described.length === 1 && old?.aspect === 'comparison' &&
+    old.options.length > 1 && old.options.every(option => services.some(service => service.id === option.id && service.name === option.label)) &&
+    old.options.some(option => option.id === described[0]!.id)
   const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) &&
-    !(described.length === 1 && target.aspect !== 'description' && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
+    !(described.length === 1 && target.aspect !== 'description' && !comparisonFollowup && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
   if (publishedComparison || sourcedExplanation) {
     const context = catalogInformation(target, described, sourcedExplanation)
     // Retain what was explained, without manufacturing a choice or basket selection.

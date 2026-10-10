@@ -98,8 +98,19 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
   // An informational answer can narrow only a current presented pool using a model-owned identity.
   // It grants no booking reference or authority to pick a service from an ambiguous alias.
   if (owner[0]!.kind === 'answer' && (!answerReference || !literal && !supportedMention)) return []
-  if (!literal && !reference && !procedureReference || mention !== null &&
-      (selected.length ? !supportedMention : !uniqueLiteralSpan(owner[0]!.evidence, mention))) return []
+  // Read-only semantic comparison is not proof that a requested technique is offered.
+  // Current model ownership can explain related published candidates; stale presented
+  // identities or an incomplete explicitly ambiguous alias still cannot supply authority.
+  const incompleteAlias = selected.some(service => [service.name, ...service.aliases ?? []].some(label =>
+    literalCatalogName(operation.evidence, label) &&
+    assessServiceIdentity(label, service.id, 1, services).serviceIds.some(id => operation.target.kind !== 'service' || !operation.target.serviceIds.includes(id))))
+  const semanticComparison = operation.target.aspect === 'comparison' && selected.length > 1 &&
+    owner[0]!.kind === 'inquiry' && !incompleteAlias && (!focus || currentFocus) &&
+    (!question || procedureReference || literal || currentFocus)
+  const comparativeMention = semanticComparison && mention !== null && !!uniqueLiteralSpan(owner[0]!.evidence, mention) &&
+    selected.filter(service => currentCatalogMention(mention, service, services)).length >= 2
+  if (!literal && !reference && !procedureReference && !semanticComparison || mention !== null &&
+      (selected.length ? !supportedMention && !comparativeMention : !uniqueLiteralSpan(owner[0]!.evidence, mention))) return []
   return [{ businessId: state.businessId, currentBody: message, operation: JSON.stringify(operation), identities: selected.map(service => ({ id: service.id, name: service.name })) }]
 }
 export function validCatalogInquiry(scope: CatalogInquiryScope | undefined, businessId: string, message: string,

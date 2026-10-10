@@ -1845,7 +1845,10 @@ export async function respondConversationChoice(context: DialogueContext, previo
     if (eligible.length !== focus.options.length || !eligible.some(service => service.id === operation.serviceId)) return reject()
     // The stored ID is already an explicit selection. Do not compile its label into natural language.
     delete state.informationFocus
-    const read = await readInformation(context, state, 'stored choice', port, { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect: focus.aspect }, services)
+    // Selecting one service from a comparative pool asks about that service,
+    // not automatically about its configured product/length variants.
+    const aspect = focus.aspect === 'comparison' && focus.options.length > 1 ? 'overview' : focus.aspect
+    const read = await readInformation(context, state, 'stored choice', port, { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect }, services)
     if (read.focus) state.informationFocus = read.focus
     return finalizeDialogueIntroduction(context, { state, proposal: null, reply: renderInformationContinuation(read, state),
       ...(read.focus ? informationChoiceFields(state) : {}) }, port)
