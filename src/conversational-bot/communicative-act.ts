@@ -1,5 +1,5 @@
 import { validServiceCandidateContext, validServiceReferenceContext } from './service-request.js'
-import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
+import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, uniqueLiteralSpan, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
 import { preferenceOptionId } from './dialogue-choice-presentation.js'
@@ -82,7 +82,21 @@ export function parseCommunicativeActs(value: unknown, message: string, operatio
         !(raw.mention === null || plain(raw.mention, 100))) fail('shape')
     if (!isCustomerText(raw.evidence, 300) || !message.includes(raw.evidence)) fail('evidence')
     const mention = raw.mention === null ? null : anchoredMention(raw.evidence, raw.mention as string)
-    if (raw.mention !== null && mention === null) fail('evidence')
+    if (raw.mention !== null && mention === null) {
+      // A zero-ID explanation has no identity to prove. A synthetic descriptive
+      // mention is discarded, never normalized or used as selection authority.
+      // The original proposal remains untouched for diagnostics.
+      const operation = source?.operations[0]
+      const descriptiveOwner = source?.operations.length === 1 && value.acts.length === 1 &&
+        raw.kind === 'inquiry' && raw.field === 'service' && raw.confidence >= .85 &&
+        raw.operationIndexes.length === 1 && raw.operationIndexes[0] === 0 &&
+        operation?.kind === 'information' && operation.target.kind === 'service' &&
+        operation.target.serviceIds.length === 0 && operation.target.actions.length === 0 &&
+        ['description', 'comparison', 'recommendation'].includes(operation.target.aspect) &&
+        operation.target.estimateOptionId === undefined && Number.isFinite(operation.confidence) && operation.confidence >= .85 &&
+        !!uniqueLiteralSpan(message, operation.evidence) && !!uniqueLiteralSpan(raw.evidence, operation.evidence)
+      if (!descriptiveOwner) fail('evidence')
+    }
     anchored.push(mention)
     const local = new Set<number>()
     for (const index of raw.operationIndexes) {

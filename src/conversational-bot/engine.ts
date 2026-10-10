@@ -1312,7 +1312,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (state.referral?.status === 'pending') {
     return { ...finishWithoutAgenda(referralPendingReply(state.referral)), replyPrepared: true }
   }
-  if (informationReads.some(read => read.catalogInformation) && !bookingUpdates.length && !nameOp && !clarificationReply) return { ...finishWithoutAgenda(''), replyPrepared: true }
+  if (informationReads.some(read => read.catalogInformation) && !bookingUpdates.length && !nameOp && !clarificationReply && !(procedureQuestion && procedureOp?.purpose === 'inquiry')) return { ...finishWithoutAgenda(''), replyPrepared: true }
   if (procedureQuestion) {
     if (state.serviceRequest) {
       const request = state.serviceRequest
@@ -1327,8 +1327,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         : request.serviceIds.length ? { kind: 'service' as const, title: 'Servicios relacionados',
             choices: services.filter(service => request.serviceIds.includes(service.id)).map(service =>
               ({ label: service.name, operation: { kind: 'service' as const, serviceId: service.id } })) } : undefined
-      return { ...finishWithoutAgenda(delivery.reply), replyPrepared: true, replyFacts: [
-        ...answers.map((text, index) => ({ id: 'answer' + index, text })), ...delivery.facts],
+      const catalogRead = answers.length === 1 ? informationReads[0]?.catalogInformation : undefined
+      return { ...finishWithoutAgenda(delivery.reply), replyPrepared: true,
+        ...(catalogRead ? { catalogInformation: catalogRead } : {}), replyFacts: [
+        ...answers.map((text, index) => ({ id: catalogRead ? 'catalog' : 'answer' + index, text })), ...delivery.facts],
         ...(presentation ? { choicePresentation: presentation } : {}) }
     }
     return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }

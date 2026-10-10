@@ -571,7 +571,11 @@ export async function respondWithAiInterpreter(
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? '¿Qué servicio necesitás?' : response.reply
-  const canonicalOnly = Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
+  // Scope derivation has validated every independent informative owner. Technical
+  // inquiry metadata changes are not booking effects, and their facts stay server-owned.
+  const explanatoryReadOnly = catalogInquiries.length > 0 && Boolean(turnPlan?.operations.every(operation =>
+    operation.kind === 'information' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
+  const canonicalOnly = Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !explanatoryReadOnly && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let modelFraming = false
@@ -606,7 +610,7 @@ export async function respondWithAiInterpreter(
   const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only') }
   if (intakeValidation) replyValidation.firstCall = intakeValidation
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }
-  const catalogCopyEligible = !!response.catalogInformation && catalogInquiries.length > 0 && !planHasUpdates && !reason && !canonicalOnly &&
+  const catalogCopyEligible = !!response.catalogInformation && explanatoryReadOnly && !reason && !canonicalOnly &&
     availabilityCalls === 0 && !response.bookingCommand && !response.handoffCommand && !response.proposal
   if (!authored && (eligibleFirstReply || catalogCopyEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
@@ -625,7 +629,7 @@ export async function respondWithAiInterpreter(
   // Prepared body ownership never transfers to the model. Validate the whole draft
   // against its original facts, then reuse only a factual-free opening.
   // Final neutral facts remain immutable; they are not the model's frame contract.
-  if (!authored && !intakeValidation && !reason && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
+  if (!authored && !intakeValidation && !reason && !catalogCopyEligible && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
       !response.proposal && !response.bookingCommand && !response.state.sandboxReservation && !uncertain && !typoService && !response.state.questionContext?.matchCandidateIds) {
     const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
@@ -647,7 +651,8 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
-  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts && !response.replyPrepared && !partialAcquisition) {
+  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts &&
+      (!response.replyPrepared || catalogCopyEligible && candidate?.firstReply != null && replyValidation.firstCall.status === 'rejected') && !partialAcquisition) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++
