@@ -286,3 +286,47 @@ Cerrar control nativo de la unidad; elegir política terminal si vuelve a fallar
 - scripts/conversational-bot-informational-followup-test.ts — secuencias y negativos offline.
 - scripts/conversational-bot-catalog-answer-test.ts — migración explícita de composición acotada.
 Engram mem_save/mem_session_summary/context/search/get no expuestos: resumen local preservado, espejo pendiente, no se afirma guardado remoto.
+
+C11/C12 guardados41f6d67afe222c49be04638ca140df41634d2858:7files243+/13− incl documento. Padre stagedscope/UTF8/diff PASS, archivo financiero/foreignglowexport preservados. ÚltimoRED21/1→GREEN22/0 y padre22rerunPASS. C10+C11assessment exact basee463 bound/exclude inventariod7c3d20d EXIT0 medium9files462líneas, review_duetrue/slice_budget_reached. PreflightSTATUS exact observado; exclusión nativa temporales declarada, STARTrelay exact EXIT0consent_required. Target708aace166a3fcfd6b786d00546ba4be1e81accafccaa3d6dfbae2390282cb07; lineage review-718c8951e5b9dbed; base_treebceb57f6e18926c3ba5a20d6538e57d8a7617203; candidate_tree3bd4249ac43cb0d961a6037fe56113dd27fd9f17; paths_digest8a2e5888110ae2a9febd3065193f7d8b96ecca7b03a1849629a7a441e41ad74e. Decisión humana propia pendiente, ninguna omisión previa heredada. RDDONglobal sin toggle; no reviewer/diff remoto ni reinicio. Fronteraacke463 permanece. Este apunte postcommit no staged para evitar recursión documental; Engrammirror/session_summary pendientes porAPIausente. Next: resolver sólo esta revisión; luego pruebaIAreal/activación y política terminal pendientes separados.
+
+
+## C13 activación autorizada — sólo Barber local
+Humano confirmó explícitamente omitir sólo revisión y actualizar Barber ahora; pidió chat libre. STARTdecline exact observado EXIT0medium9files462líneas/declined_this_candidate, target708aace ylineagereview-718c8951e5b9dbed. Fronteraacknowledged41f6d67afe222c49be04638ca140df41634d2858, RDDsigueON. No reviewer/diffremoto.
+- [x] C13 — Actualizar sólo Barber local al commit41f6d67, preservando túnel/callback y credenciales del piloto existentes. Ruta delegated direct por preparación4+ y operación multipaso; reutilizar arranque verificado, comprobar idle fresco e identidad antes de parar sólo procesos propios, snapshot de fuentes committed sin .env/node_modules, startup sin npm start/migraciones, ready/version/listeners/stderr/challenge. Sin nuevas solicitudesIA de evaluación, cambioMeta/Railway/otrosnegocios ni operaciones financieras directas. Si túnel ya no funciona, reportar y pedir autorización separada en vez de cambiarcallback. Documento de evidencia y commit local al cierre. TDDno nuevo comportamiento de producto, mantener STRICT y checks offlineanteriores; verificación operacional aplicable, no REDinventado. Forecast documentación20–60authored orientativo, feature-branch-chaincacheada. EspejoEngram pendiente.
+
+
+C13 preflightdelegado observado: DBidle2026-10-10T20:03:26.460Z/20:03:28.874Z contadores0, watermark18:10:23.393Z/gen2estable. CIMmetadatapids1220/15148/14904 noactivos, boundedmatchingOwnProcesses0, listeners3311/3312ninguno; Node/cloudflarebinsdisponibles. No stop/start ni cambioMeta/env/Railway ejecutados. Túnel actual muerto: no asumir callbackvigente funciona. Humanopregunta autorizaciónseparada nuevo túnelCloudflare+callbackBarberMeta concredencialexistente enviada; mientras norespuesta no remoto ni activaciónafirmada. C13 permanecependiente, HEAD41f6d67 yautoridadomisióncerrada. Resumen recuperación: GoalactualizarBarberpara prueba; AccomplishedrevisiónespecíficaomitidaexactEXIT0ypreflight; NextStepautorizaciónconexiónnueva/localstart segúnrespuesta; RelevantFileseste documento ytmp/barber-start-current.json metadatosviejos noequivalenaalive. Engrammem_save/session_summaryy espejo pendientes porAPIausente; estadolocalpreservado.
+
+
+C13 autorización ampliada explícita: humano respondió «si te autorizo» a abrir túnel temporal nuevo Cloudflare y actualizar ÚNICAMENTE callback de Barber Demo en Meta usando credencial existente, con arranque41f6d67. Esta autorización reemplaza sólo conservación imposible del túnel muerto; no cubre Railway, otrosnegocios, migraciones, envío de mensajes sintéticos, IA de evaluación ni cambios financieros. Credenciales de piloto existentes sólo para runtime/configuraciónWABA específica; no mostrar valores ni mensajes. Ruta delegated writer/preparación barro startup+gateway/tunnel/callback, GO operativo después preflight/plan. TareaC13sigueabierta hasta ready/challenge/versión/propietarios/callbackreadback verificados; Engram APIs ausentes, espejo/session_summarypending.
+
+
+## C13 activación final verificada — 2026-10-10
+Se sustituye únicamente el estado operativo anterior de servidor/túnel apagados y callback pendiente. La aceptación real de las conversaciones sigue abierta hasta pruebas del usuario.
+- Código activo:41f6d67afe222c49be04638ca140df41634d2858; snapshot tmp/barber-verified-41f6d67-20261010-170746, archivo ZIP SHA256E4269BC3D9CEDECCFE11CEC362EBDFE8CA23B39778FF08BD4E1473392C3BEAB0. Seis blobs tracked igual Git y129generadosPrisma igual SHA; sin .env/node_modules copiados.
+- Idle fresco20:10:10.796Z/20:10:12.263Z, todos0 ywatermark18:10:23.393Z estable. No hubo procesos anteriores para detener; ninguno ajeno fue terminado.
+- Arranque Hidden17:10:13Argentina: launcher13004 →worker7828. Puertos3311/3312 sólo127.0.0.1, propietario7828; readytrue ystderr0.
+- Túnel nuevoCloudflare5588 registrado. Callback https://opponents-procurement-upgrades-christ.trycloudflare.com/webhooks/whatsapp actualizado únicamente para WABA deBarber, con credencial existente. Helper verificó negocio/código/WABA/phone/app antesPOST, success yexactreadback; backupTemp/barber-e1-callback-1791663045725.json.
+- Helper conservado tmp/barber-c13-activate.ps1, preparación tmp/barber-c13-prepared.json y metadata tmp/barber-start-current.json, actualización17:10:48. Artefactos operativos privados excluidos del commit/review.
+- Padre leyó helpercompleto yguardas e1, URLselftestPASS; confirmó independientemente CIMlauncher/child/túnel, versión41f, doslisteners, ready ystderr0. Challenge200exact local yHTTPS; /crm404 local yHTTPS. Token de verificación no impreso.
+- No Railway, otros negocios, migraciones, .env modificado, operaciones financieras manuales, mensajes sintéticos ni IA de evaluación. Runtime del piloto conserva credenciales/flags previamente autorizados.
+- Usuario informado que puede retomar el chat. Reinicio no es prueba de calidad del modelo: C3/C4/C8/R3 y política terminal permanecen abiertos. Segundo fallo todavía usa política anterior, no eliminación global del motor.
+C13 operativo cerrado con documento y commit local; sólo evaluación nativa pasiva documental pendiente al crear ese commit. Frontera acknowledged41f6d67, omisión específica recibida/terminal; no reviewer ni toggles.
+
+## Resumen de sesión — Barber disponible
+### Goal
+Actualizar Barber para probar las consultas corregidas por WhatsApp real.
+### Instructions
+Sólo Barber, túnel temporal nuevo ycallbackMeta autorizado con credencial existente. No Railway ni otros negocios; chat libre durante activación.
+### Discoveries
+Los PIDs/callback previos no estaban activos. Se comprobó ausencia antes de iniciar; metadatos viejos no acreditaban servicio vivo.
+### Accomplished
+Omision propia cerrada; snapshot41f6d67 activo, nuevo túnel ycallback únicoBarber con identidad/readback; comprobación independiente local/pública PASS. Código22/38/19/8 yregresiones anteriores verificados, no nuevoevalexterno.
+### Next Steps
+Usuario prueba comparación, seguimiento «del alisado» yprecio→Reservar. Registrar cualquier fallo con diagnóstico real. Política terminal, salvedad negativa yR3 siguen pendientes; no declarar aceptación real completada por pruebas offline.
+### Relevant Files
+- odd/tasks/catalog-comparison-context.md — tarea/evidencia/pending real.
+- tmp/barber-start-current.json — versión activa, procesos ycallback actualizado.
+- tmp/barber-c13-activate.ps1 — arranque operativo verificado yguardas.
+- tmp/barber-verified-41f6d67-20261010-170746 — snapshot de código servido.
+Engram mem_save/config/preference/mem_session_summary y espejo completo pendientes por APIs ausentes; resumen local leído y preservado, sin afirmar guardado remoto.
