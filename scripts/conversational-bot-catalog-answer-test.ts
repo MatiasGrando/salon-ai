@@ -286,15 +286,18 @@ try {
     assert.equal(result.choicePresentation?.choices.some(choice => choice.label.toLowerCase() === 'reservar') ?? false, false, 'comparison does not choose a booking target')
     checkRead(result, initial, beforeAgenda)
   })
-  await check('a correctly owned lowercase comparison still reads current facts without optional model copy', async () => {
+  await check('a correctly owned comparison without an explanation allows one bounded composition', async () => {
     const body = 'cual es la diferencia entre tratamiento y keratina'; const beforeAgenda = agenda
     for (const firstReply of [null, frame(null)]) {
       let calls = 0, compositions = 0
       const provider = Object.assign(async () => {
         calls++; return { ...owned(body, ['care', 'keratin'], 'comparison', null), firstReply }
-      }, { respond: async () => { compositions++; throw new Error('unchanged catalog cannot require a second model call') } })
+      }, { respond: async () => { compositions++; throw new Error('synthetic composition provider failure') } })
       const result = await respondWithAiInterpreter(context, initial, body, port, provider)
-      assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1); assert.equal(compositions, 0)
+      assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 2); assert.equal(compositions, 1)
+      assert.equal(result.interpretation.replyValidation?.secondCall.status, 'rejected')
+      assert.equal(result.interpretation.replyValidation?.secondCall.reason, 'provider_error')
+      assert.equal(result.interpretation.copyReason, 'response_error')
       for (const service of catalog.slice(0, 2)) assert.ok(result.reply.includes(service.description!), 'valid read cannot depend on optional copy')
       assert.doesNotMatch(result.reply, /De cuál de estos servicios|Qué servicio necesitás/i)
       checkRead(result, initial, beforeAgenda)

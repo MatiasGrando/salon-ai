@@ -129,8 +129,12 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     !(described.length === 1 && target.aspect !== 'description' && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
   if (publishedComparison || sourcedExplanation) {
     const context = catalogInformation(target, described, sourcedExplanation)
+    // Retain what was explained, without manufacturing a choice or basket selection.
+    const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id)
+      : target.aspect === 'comparison' && described.length > 1
+        ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null), awaitingChoice: false }, state.businessId) : undefined
     return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) ? 'found' : 'missing',
-      catalogInformation: context }
+      catalogInformation: context, ...(focus ? { focus } : {}) }
   }
   if (old?.serviceId && !services.some(service => service.id === old.serviceId) && !target.serviceIds.length) return missing('la información vigente de ese servicio')
   if ((currentInquiry || currentRead) && old && (old.businessId !== state.businessId || old.options.some(option =>

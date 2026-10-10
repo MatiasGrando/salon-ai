@@ -612,10 +612,15 @@ export async function respondWithAiInterpreter(
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }
   const catalogCopyEligible = !!response.catalogInformation && explanatoryReadOnly && !reason && !canonicalOnly &&
     availabilityCalls === 0 && !response.bookingCommand && !response.handoffCommand && !response.proposal
+  const hasExplanatoryBody = (raw: unknown, validated: ReplyValidationResult) =>
+    validated.validation.status === 'accepted' && raw !== null && typeof raw === 'object' &&
+    !Array.isArray(raw) && (raw as Record<string, unknown>).catalogAnswer != null
   if (!authored && (eligibleFirstReply || catalogCopyEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
-    authored = validated.text
+    // Accepted framing alone is not an explanatory body. Keep its original trace,
+    // but compose the missing explanation from the proved scope rather than a menu.
+    authored = !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
     modelFraming = validated.modelFraming
     if (authored) replyRoute = 'first_call'
   }
@@ -651,8 +656,10 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
-  if (!authored && !reason && !canonicalOnly && responseProvider && newVerifiedFacts &&
-      (!response.replyPrepared || catalogCopyEligible && candidate?.firstReply != null && replyValidation.firstCall.status === 'rejected') && !partialAcquisition) {
+  // A proved explanatory read also needs composition when the interpretation did not
+  // include a body. Its current catalog scope is authority for prose, never acquisition.
+  if (!authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible) &&
+      (!response.replyPrepared || catalogCopyEligible) && !partialAcquisition) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++
@@ -668,7 +675,7 @@ export async function respondWithAiInterpreter(
       responseUsage = readAiUsage(output)
       const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
-      authored = validated.text
+      authored = !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
       modelFraming = validated.modelFraming
       copyReason = authored ? modelFraming ? null : 'canonical_only' : 'invalid_response'
     } catch (error) {

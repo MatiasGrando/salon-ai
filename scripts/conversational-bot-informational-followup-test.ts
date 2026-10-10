@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import https from 'node:https'
 import { initialDialogueState, respond, type DialoguePort, type DialogueService, type DialogueState } from '../src/conversational-bot/engine.js'
-import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { respondWithAiInterpreter, type AiInterpretationProvider, type AiResponseInput } from '../src/conversational-bot/ai-interpreter.js'
 import { deriveCatalogInquiry } from '../src/conversational-bot/catalog-information-answer.js'
 import { parseTurnPlan } from '../src/conversational-bot/turn-plan.js'
 import { parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
+import { parseInformationFocus } from '../src/conversational-bot/information-contract.js'
+import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
 import { selectionBasket } from '../src/conversational-bot/service-basket.js'
 
 // Synthetic fixtures only. No model, database, live conversation or external transport.
@@ -70,6 +72,43 @@ const read = async (state: DialogueState, value: unknown, services = catalog) =>
   assert.equal(result.bookingCommand, undefined)
   assert.equal(result.handoffCommand, undefined)
   return { result, calls }
+}
+const comparisonBody = 'Quería saber la diferencia entre alisado y Keratina'
+const generalExplanation = 'En general, un alisado busca reducir ondas; un tratamiento de keratina suele orientarse al acondicionamiento. Los nombres y efectos dependen de cada producto.'
+const comparisonDraft = () => ({
+  salutation: null, opening: null, factIds: null, closing: null, variantChoices: null,
+  catalogAnswer: { blocks: [
+    { kind: 'general', text: generalExplanation, sources: [] },
+    { kind: 'published', text: catalog[0]!.description! + ' ' + catalog[2]!.description!, sources: [catalog[0]!, catalog[2]!].map(service =>
+      ({ serviceId: service.id, field: 'description', quote: service.description! })) }
+  ] }
+})
+const comparison = (firstReply: unknown = comparisonDraft()) => ({
+  intent: 'information', serviceId: null, serviceEvidence: null, professionalMention: null,
+  turnPlan: { version: 1, operations: [{ kind: 'information', evidence: comparisonBody, confidence: .98,
+    target: { kind: 'service', actions: [], serviceIds: ['straight', 'keratin'], aspect: 'comparison' } }] },
+  communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: comparisonBody, confidence: .98,
+    mention: null, operationIndexes: [0] }] }, firstReply
+})
+const compose = async (state: DialogueState, message: string, value: unknown, secondDraft: unknown) => {
+  const { port, counts } = makePort()
+  let interpretations = 0, compositions = 0
+  const compositionInputs: AiResponseInput[] = []
+  const provider: AiInterpretationProvider = Object.assign(async () => { interpretations++; return structuredClone(value) },
+    { respond: async (input: AiResponseInput) => {
+      compositions++; compositionInputs.push(structuredClone(input))
+      assert.equal(compositions, 1, 'only one composition after the accepted interpretation')
+      return structuredClone(secondDraft)
+    } })
+  const result = await respondWithAiInterpreter(context, state, message, port, provider)
+  assert.equal(counts().agendaCalls, 0)
+  assert.deepEqual(selectionBasket(result.state), selectionBasket(state))
+  for (const key of ['serviceId', 'date', 'professional', 'slot', 'customerName', 'bookingReservation', 'sandboxReservation'] as const)
+    assert.deepEqual(result.state[key], state[key], 'composition preserves ' + key)
+  assert.equal(result.proposal, null)
+  assert.equal(result.bookingCommand, undefined)
+  assert.equal(result.handoffCommand, undefined)
+  return { result, interpretations, compositions, compositionInputs }
 }
 const failures: string[] = []
 let passed = 0
@@ -170,6 +209,134 @@ try {
     const { result } = await read(focusState(), value)
     assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'unverified_value')
     assert.notEqual(result.interpretation.replyRoute, 'first_call')
+  })
+  await check('genuine comparison then a specific current answer explains without a booking menu', async () => {
+    const first = await compose(initial, comparisonBody, comparison(), null)
+    assert.ok(first.result.reply.includes(generalExplanation))
+    assert.ok(first.result.reply.includes(catalog[0]!.description!))
+    assert.ok(first.result.reply.includes(catalog[2]!.description!))
+    assert.doesNotMatch(first.result.reply, /De cuál de estos|Qué servicio querés elegir/)
+    assert.equal(first.result.interpretation.replyRoute, 'first_call')
+    assert.equal(first.result.interpretation.aiCalls, 1)
+    assert.equal(first.compositions, 0)
+    assert.equal(first.result.choicePresentation, undefined)
+    assert.deepEqual(first.result.state.informationFocus?.options.map(option => option.id), ['straight', 'keratin'])
+    assert.equal(first.result.state.informationFocus?.awaitingChoice, false, 'explaining does not impose a choice')
+    const next = ownedAnswer()
+    const followup = await compose(first.result.state, body, next, null)
+    assert.ok(followup.result.reply.includes(catalog[0]!.description!))
+    assert.doesNotMatch(followup.result.reply, /información vigente|Qué servicio querés elegir/)
+    assert.equal(followup.result.interpretation.replyRoute, 'first_call')
+    assert.equal(followup.result.interpretation.aiCalls, 1)
+    assert.equal(followup.compositions, 0)
+    assert.equal(followup.result.choicePresentation, undefined)
+    assert.equal(followup.result.state.informationFocus?.serviceId, 'straight')
+    assert.equal(followup.result.state.informationFocus?.awaitingChoice, false)
+  })
+  await check('missing comparison draft composes once from verified explanatory scope', async () => {
+    const { result, interpretations, compositions, compositionInputs } = await compose(initial, comparisonBody, comparison(null), comparisonDraft())
+    assert.equal(compositions, 1)
+    assert.equal(interpretations, 1)
+    assert.equal(result.interpretation.aiCalls, 2)
+    assert.equal(result.interpretation.replyRoute, 'second_call')
+    assert.ok(result.reply.includes(generalExplanation))
+    assert.doesNotMatch(result.reply, /De cuál de estos servicios/)
+    assert.deepEqual(compositionInputs[0]!.catalogInformation?.services.map(service => service.id), ['straight', 'keratin'])
+    assert.equal(compositionInputs[0]!.catalogInformation?.generalKnowledgeAllowed, true)
+  })
+  await check('missing focused description draft composes once without acquiring its service', async () => {
+    const value = { ...ownedAnswer(), firstReply: null }
+    const { result, compositions, compositionInputs } = await compose(focusState(), body, value, draft())
+    assert.equal(compositions, 1)
+    assert.equal(result.interpretation.aiCalls, 2)
+    assert.equal(result.interpretation.replyRoute, 'second_call')
+    assert.ok(result.reply.includes(catalog[0]!.description!))
+    assert.doesNotMatch(result.reply, /información vigente|Qué servicio querés elegir/)
+    assert.equal(compositionInputs[0]!.catalogInformation?.aspect, 'description')
+    assert.deepEqual(compositionInputs[0]!.catalogInformation?.services.map(service => service.id), ['straight'])
+  })
+  await check('invalid comparison body repairs once without weakening current source validation', async () => {
+    const unsafe = comparisonDraft()
+    unsafe.catalogAnswer.blocks[1]!.sources[0]!.quote = 'Una descripción inexistente'
+    const { result, compositions } = await compose(initial, comparisonBody, comparison(unsafe), comparisonDraft())
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'unverified_value')
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'accepted')
+    assert.equal(compositions, 1)
+    assert.ok(result.reply.includes(generalExplanation))
+  })
+  await check('accepted framing without an explanatory body composes the missing explanation once', async () => {
+    const onlyFrame = { salutation: null, opening: 'Claro, te explico.', factIds: null, closing: null,
+      variantChoices: null, catalogAnswer: null }
+    const { result, compositions, interpretations } = await compose(initial, comparisonBody, comparison(onlyFrame), comparisonDraft())
+    assert.equal(result.interpretation.replyValidation?.firstCall.status, 'accepted', 'retain original frame validation')
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, null)
+    assert.equal(compositions, 1)
+    assert.equal(interpretations, 1)
+    assert.equal(result.interpretation.aiCalls, 2)
+    assert.equal(result.interpretation.replyRoute, 'second_call')
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'accepted')
+    assert.ok(result.reply.includes(generalExplanation))
+    assert.ok(result.reply.includes(catalog[0]!.description!))
+    assert.ok(result.reply.includes(catalog[2]!.description!))
+  })
+  await check('an accepted second frame without an explanation is not delivered as completed AI copy', async () => {
+    const onlyFrame = { salutation: null, opening: 'Claro, te explico.', factIds: null, closing: null,
+      variantChoices: null, catalogAnswer: null }
+    const { result, compositions, interpretations } = await compose(initial, comparisonBody, comparison(null), onlyFrame)
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'accepted', 'retain original frame validation')
+    assert.equal(result.interpretation.replyValidation?.secondCall.reason, null)
+    assert.equal(compositions, 1)
+    assert.equal(interpretations, 1)
+    assert.equal(result.interpretation.aiCalls, 2)
+    assert.equal(result.interpretation.copyReason, 'invalid_response')
+    assert.notEqual(result.interpretation.copyMode, 'ai')
+    assert.ok(!result.reply.includes(onlyFrame.opening), 'the frame cannot masquerade as an explanatory body')
+    assert.ok(!result.reply.includes(generalExplanation))
+  })
+  await check('an invalid second body receives no partial rescue and no third call', async () => {
+    const unsafe = comparisonDraft()
+    unsafe.catalogAnswer.blocks[1]!.sources[0]!.quote = 'Una descripción inexistente'
+    const { result, compositions, interpretations } = await compose(initial, comparisonBody, comparison(null), unsafe)
+    assert.equal(compositions, 1)
+    assert.equal(interpretations, 1)
+    assert.equal(result.interpretation.aiCalls, 2)
+    assert.equal(result.interpretation.replyValidation?.secondCall.reason, 'unverified_value')
+    assert.ok(!result.reply.includes(generalExplanation), 'an invalid composite body is discarded entirely')
+    assert.ok(!result.reply.includes('Una descripción inexistente'))
+  })
+  await check('unknown catalog identities cannot enable second explanatory composition', async () => {
+    const value = comparison(null)
+    value.turnPlan.operations[0]!.target.serviceIds = ['foreign-service']
+    const { result, compositions } = await compose(initial, comparisonBody, value, comparisonDraft())
+    assert.equal(result.interpretation.reason, 'invalid_output')
+    assert.equal(compositions, 0)
+    assert.ok(!result.reply.includes(generalExplanation))
+  })
+  await check('completed comparison focus preserves multiple referents without asking for a choice', () => {
+    const value = { ...focusState().informationFocus!, aspect: 'comparison', awaitingChoice: false,
+      options: [catalog[0]!, catalog[2]!].map(service => ({ id: service.id, label: service.name })) }
+    const parsed = parseInformationFocus(value, context.businessId)
+    assert.equal(parsed.serviceId, null)
+    assert.equal(parsed.awaitingChoice, false)
+    assert.deepEqual(parsed.options, value.options)
+  })
+  await check('non-choice comparison focus retains singleton, aspect, candidate, business and shape protections', () => {
+    const value = { ...focusState().informationFocus!, aspect: 'comparison', awaitingChoice: false,
+      options: [catalog[0]!, catalog[2]!].map(service => ({ id: service.id, label: service.name })) }
+    for (const invalid of [
+      { ...value, options: [] }, { ...value, options: value.options.slice(0, 1) },
+      ...['overview', 'description', 'price'].map(aspect => ({ ...value, aspect })),
+      { ...value, candidateId: 'straight' }, { ...value, businessId: 'foreign-business' },
+      { ...value, options: [value.options[0], value.options[0]] },
+      { ...value, options: Array.from({ length: 11 }, (_, i) => ({ id: 'service-' + i, label: 'Service ' + i })) },
+      { ...value, serviceId: 'foreign-service' }, { ...value, unexpected: true }
+    ]) assert.throws(() => parseInformationFocus(invalid, context.businessId), /invalid information focus/)
+    const single = { ...value, aspect: 'description', serviceId: 'straight', options: [value.options[0]] }
+    assert.equal(parseInformationFocus(single, context.businessId).serviceId, 'straight')
+  })
+  await check('interpretation guidance separates explanatory comparison from candidate search and readonly followup', () => {
+    assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /seguimiento informativo[\s\S]*answer\/service/)
+    assert.match(TURN_PLAN_INTERPRETATION_GUIDE, /Una consulta comparativa o explicativa[\s\S]*búsqueda de candidatos/)
   })
   console.log(JSON.stringify({ passed, failed: failures.length, failures }))
   if (failures.length) process.exitCode = 1
