@@ -5,6 +5,11 @@ import {
   reopenConversationOpportunityForInvalidatedAppointment
 } from './conversation-opportunity-service.js'
 import { bookingDepositService } from './booking-deposit-service.js'
+import {
+  loadPendingDepositCancellationTx,
+  cancelPendingDepositInTransaction,
+  PendingDepositCancellationError
+} from './pending-deposit-cancellation.js'
 import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
 import {
   reservationDurationLimits
@@ -26,7 +31,7 @@ import {
   staffCanUseProfessional,
   type StaffAuthorizationUser
 } from './staff-permission-service.js'
-import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
+import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
 import { revalidateBookingWrite } from './booking-operations.js'
 import { createAppointmentRecord, updateAppointmentRecord } from './prisma-booking.js'
 import { ensureProfessionalEarningForCompletedAppointment } from './professional-compensation.js'
@@ -1125,45 +1130,96 @@ export class AppointmentService {
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
       return appointmentForbidden()
     }
-    const cancelledAppointment = await prisma.$transaction(async (transaction) => {
-      await acquireAgendaHierarchy(transaction, {
-        businessId: appointment.professional.businessId,
-        professionalIds: [appointment.professionalId]
-      })
-      await lockAppointmentRows(transaction, {
-        businessId: appointment.professional.businessId,
-        appointmentIds: [appointmentId]
-      })
-      if (authorizationUser) {
-        const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
-        if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
-          return null
-        }
-      }
-      const cancelled = await transaction.appointment.update({
-        where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
-        data: {
-          status: 'CANCELLED'
-        }
-      })
-      await transaction.bookingDeposit.updateMany({
-        where: {
-          appointmentId,
-          status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
-        },
-        data: {
-          status: 'REJECTED',
-          reviewedAt: new Date(),
-          rejectionReason: 'Turno cancelado'
-        }
-      })
-      return cancelled
-    })
-    if (!cancelledAppointment) return appointmentConflict()
+    let cancelledAppointment: Awaited<ReturnType<typeof prisma.appointment.update>> | null
+    let cancelledAppointmentIds = [appointmentId]
     try {
-      await reopenConversationOpportunityForInvalidatedAppointment(appointmentId)
+      cancelledAppointment = await prisma.$transaction(async (transaction) => {
+        await acquireBusinessAgendaLock(transaction, appointment.professional.businessId)
+        const currentAppointment = await transaction.appointment.findFirst({
+          where: { id: appointmentId, professional: { businessId: appointment.professional.businessId } },
+          select: { id: true, professionalId: true, coordinationGroupId: true }
+        })
+        if (!currentAppointment || currentAppointment.professionalId !== appointment.professionalId) return null
+        // Probe the whole order before taking a single-professional write path.
+        // The selected companion may itself have no seña; its group still does.
+        const sealedDeposit = await transaction.bookingDeposit.findFirst({
+          where: {
+            businessId: appointment.professional.businessId,
+            snapshotSealedAt: { not: null },
+            OR: [
+              { appointmentId },
+              ...(currentAppointment.coordinationGroupId
+                ? [{ appointment: { coordinationGroupId: currentAppointment.coordinationGroupId } }]
+                : [])
+            ]
+          },
+          select: { id: true }
+        })
+        if (sealedDeposit) {
+          if (!authorizationUser) return null
+          const actor = { kind: 'STAFF' as const, user: authorizationUser }
+          const snapshot = await loadPendingDepositCancellationTx(transaction, {
+            businessId: appointment.professional.businessId, appointmentId, actor
+          })
+          const cancelled = await cancelPendingDepositInTransaction(transaction, {
+            snapshot, actor, confirmed: true,
+            operationKey: `pending-deposit-cancel:staff:${authorizationUser.id}:${snapshot.fingerprint}`
+          })
+          cancelledAppointmentIds = [...cancelled.appointmentIds]
+          const current = await transaction.appointment.findFirst({
+            where: authorizedAppointmentWhere(authorizationUser, appointmentId)
+          })
+          if (!current) throw new PendingDepositCancellationError('STALE')
+          return current
+        }
+        await acquireAgendaHierarchy(transaction, {
+          businessId: appointment.professional.businessId,
+          professionalIds: [appointment.professionalId]
+        })
+        await lockAppointmentRows(transaction, {
+          businessId: appointment.professional.businessId,
+          appointmentIds: [appointmentId]
+        })
+        if (authorizationUser) {
+          const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
+          if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
+            return null
+          }
+        }
+        const cancelled = await transaction.appointment.update({
+          where: scopedAppointmentMutationWhere(authorizationUser, appointmentId),
+          data: { status: 'CANCELLED' }
+        })
+        await transaction.bookingDeposit.updateMany({
+          where: {
+            appointmentId,
+            status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] }
+          },
+          data: {
+            status: 'REJECTED',
+            reviewedAt: new Date(),
+            rejectionReason: 'Turno cancelado'
+          }
+        })
+        return cancelled
+      })
     } catch (error) {
-      console.error('No pude reabrir la oportunidad del turno cancelado', error)
+      if (!(error instanceof PendingDepositCancellationError)) throw error
+      if (error.code === 'OWNERSHIP') return appointmentForbidden()
+      return {
+        ok: false as const, statusCode: 409,
+        message: error.code === 'NOT_ELIGIBLE'
+          ? 'La seña requiere gestión desde el panel de señas. No cancelé el turno ni modifiqué el pago.'
+          : 'El pedido cambió o tiene una operación pendiente. No lo cancelé; volvé a consultar su estado.'
+      }
+    }
+    if (!cancelledAppointment) return appointmentConflict()
+    for (const cancelledId of cancelledAppointmentIds) {
+      try {
+        await reopenConversationOpportunityForInvalidatedAppointment(cancelledId)
+      } catch (error) {
+        console.error('No pude reabrir la oportunidad del turno cancelado', error)
+      }
     }
     return {
       ok: true as const,
