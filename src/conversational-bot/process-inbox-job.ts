@@ -1,3 +1,4 @@
+import { PendingDepositCancellationError, loadPendingDepositCancellationTx, cancelPendingDepositInTransaction, type PendingDepositCancellationActor } from '../services/pending-deposit-cancellation.js'
 import { summarizeInterpretationAttemptsDiagnostic, summarizeValidationDiagnostic } from './ai-diagnostics.js'
 import { interpretConversationAttachment, conversationProofBindingFromState, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from './attachment-intent.js'
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
@@ -270,8 +271,8 @@ export async function processConversationInbox(input: {
     // Under the existing phone mutex and session/CAS guards; never cancel or retry uncertain effects.
     const expiredRecoveryAllowedTx = async (tx: Prisma.TransactionClient, session: Session, phone: string, timezone: string): Promise<boolean> => {
       const parsed = parseBotOptionsState(session.state)
-      if (!parsed.ok || parsed.state.handoff !== 'NONE' || !['HELD','EXPIRED'].includes(parsed.state.booking) ||
-          !['PENDING_PROOF','REJECTED_RESUBMISSION_ALLOWED','EXPIRED'].includes(parsed.state.deposit) ||
+      if (!parsed.ok || parsed.state.handoff !== 'NONE' || !['HELD','EXPIRED','CANCELLED'].includes(parsed.state.booking) ||
+          !['PENDING_PROOF','REJECTED_RESUBMISSION_ALLOWED','EXPIRED','REJECTED_FINAL'].includes(parsed.state.deposit) ||
           session.deploymentGeneration !== policy.generation) return false
       let draft: ReturnType<typeof readConversationDraft>
       try { draft = readConversationDraft(session.state, policy, timezone) } catch { return false }
@@ -424,10 +425,77 @@ export async function processConversationInbox(input: {
       const parsed = parseBotOptionsState(activeSession.state)
       if (!parsed.ok) throw new Error('invalid conversation session state')
       const testReset = !isChoice && payload.messageType === 'text' && isBarberTestReset(payload.textBody, row.businessId)
-      if (testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone, phone)) {
-        await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
-          transitionId: 'test-reset-blocked:' + row.id, toPhone: phone, dbNow: row.dbNow,
-          view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
+      const pendingResetChoice = selectedChoice?.operation.kind === 'pending_deposit_reset' ? selectedChoice.operation : null
+      if (pendingResetChoice || testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone, phone)) {
+        const notice = async (reply: string) => {
+          await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
+            transitionId: 'test-reset-protected:' + row.id, toPhone: phone, dbNow: row.dbNow, view: textView(reply) })
+          await finish(tx, row); recordConsumed(row); return null
+        }
+        if (!isBarberTestReset('/reset', row.businessId) || activeSession.deploymentGeneration !== policy.generation || parsed.state.handoff !== 'NONE') {
+          return notice('No reinicié la conversación. El equipo debe resolver la atención o configuración pendiente; no modifiqué turnos ni pagos.')
+        }
+        // This effect runs in the snapshot transaction, so retain the ordering guard normally checked at final commit.
+        if (!await ordered(tx, row, phone)) { await retry(tx, row); return null }
+        if (await hasPendingConversationEffectsTx(tx, { businessId: row.businessId, sessionId: activeSession.sessionId })) {
+          return notice('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.')
+        }
+        let resetDraft: ReturnType<typeof readConversationDraft>
+        try { resetDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) }
+        catch { return notice('No pude verificar la reserva actual. No reinicié la conversación ni modifiqué turnos o pagos.') }
+        const reservation = resetDraft.bookingReservation
+        const actual = reservation?.receipt?.kind === 'HELD' ? await loadRuntimeDepositReceipt(tx,
+          { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision }, reservation) : null
+        const status = actual?.depositStatus
+        if (status === 'PROOF_RECEIVED' || parsed.state.deposit === 'PROOF_RECEIVED') {
+          return notice('Tu comprobante está en revisión. No reinicié ni cancelé la reserva; el equipo debe resolver la revisión primero.')
+        }
+        if (status === 'APPROVED' || parsed.state.deposit === 'APPROVED') {
+          return notice('Tu reserva tiene un pago aprobado. No reinicié ni cancelé esos turnos, ni modifiqué el pago o el historial.')
+        }
+        if (!reservation || !actual || status !== 'PENDING_PROOF' || parsed.state.booking !== 'HELD' || parsed.state.deposit !== 'PENDING_PROOF' ||
+            reservation.presented.scope.deploymentId !== policy.deploymentId || reservation.presented.scope.generation !== policy.generation ||
+            reservation.presented.scope.configurationId !== policy.configurationId || reservation.presented.scope.dispatchFenceEpoch !== row.fenceEpoch ||
+            reservation.presented.scope.handoffFenceEpoch !== activeSession.handoffFenceEpoch) {
+          return notice('No pude verificar que el pedido siga pendiente de seña y sea cancelable. No reinicié la conversación ni modifiqué turnos o pagos.')
+        }
+        const receiptFingerprint = canonicalJsonHash(actual), proposalNonce = reservation.presented.nonce
+        if (pendingResetChoice && (pendingResetChoice.proposalNonce !== proposalNonce || pendingResetChoice.receiptFingerprint !== receiptFingerprint)) {
+          return notice('Esa confirmación ya no corresponde al pedido actual. No cancelé ni reinicié nada; volvé a enviar /reset para revisar las opciones vigentes.')
+        }
+        if (pendingResetChoice?.confirm === false) return notice('Dale, mantenemos el pedido pendiente de seña. No cancelé la reserva ni reinicié la conversación.')
+        const actor: PendingDepositCancellationActor = { kind: 'CUSTOMER', sessionId: activeSession.sessionId,
+          canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision,
+          expectedReceipt: { groupId: actual.coordinationGroupId, operationKey: actual.operationKey,
+            proposalNonce: actual.proposalNonce, fingerprint: actual.fingerprint } }
+        let cancellation
+        try { cancellation = await loadPendingDepositCancellationTx(tx, { businessId: row.businessId, appointmentId: actual.appointments[0]!.appointmentId, actor }) }
+        catch (error) {
+          if (!(error instanceof PendingDepositCancellationError)) throw error
+          return notice(error.code === 'UNCERTAIN'
+            ? 'Todavía se está procesando o verificando una operación de esta reserva. No reinicié ni cancelé nada; esperá a que termine.'
+            : 'No pude verificar que el pedido siga pendiente de seña y sea cancelable. No reinicié la conversación ni modifiqué turnos o pagos.')
+        }
+        if (!pendingResetChoice) {
+          const question = issueChoiceQuestion(choiceScope, resetDraft, { kind: 'proposal', title: 'Pedido pendiente', choices: [
+            { label: 'Cancelar y reiniciar', operation: { kind: 'pending_deposit_reset', confirm: true, proposalNonce, receiptFingerprint } },
+            { label: 'Mantener pedido', operation: { kind: 'pending_deposit_reset', confirm: false, proposalNonce, receiptFingerprint } }
+          ] })
+          await persistConversationChoiceViewTx(tx, { scope: choiceScope, draft: resetDraft, question,
+            reply: 'Tenés una reserva pendiente de seña. Para empezar de cero debemos cancelar todo ese pedido y liberar sus horarios. No reinicié ni cancelé nada todavía. ¿Querés hacerlo?',
+            transitionId: 'pending-reset-offer:' + row.id, toPhone: phone, dbNow: row.dbNow })
+          await finish(tx, row); recordConsumed(row); return null
+        }
+        // No catch after financial writes: cancellation, draft CAS and reply must commit together or all roll back.
+        await cancelPendingDepositInTransaction(tx, { snapshot: cancellation, actor, confirmed: true, operationKey: 'pending-reset:' + row.id })
+        const state = createInitialBotOptionsState(), revision = activeSession.revision + 1n, transitionId = 'pending-reset:' + row.id
+        const update = await persistConversationTurnTx(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
+          expectedRevision: activeSession.revision, revision, handoffFenceEpoch: activeSession.handoffFenceEpoch, state, transitionId,
+          deploymentId: policy.deploymentId, generation: policy.generation, providerEventId: row.providerEventId,
+          actionType: 'conversation.pending_deposit_reset', step: conversationStepForBotOptionsState(state) })
+        if (update) updates.push(update)
+        await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision, transitionId, toPhone: phone, dbNow: row.dbNow,
+          view: textView('Cancelé el pedido pendiente y liberé sus horarios. Reinicié esta conversación de prueba. No cancelé otros turnos confirmados ni borré el historial. ¿En qué te puedo ayudar?') })
         await finish(tx, row); recordConsumed(row); return null
       }
       const expiredRecovery = eligibleText && await expiredRecoveryAllowedTx(tx, activeSession, phone, row.businessTimezone)

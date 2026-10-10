@@ -20,21 +20,23 @@ export async function hasPendingConversationEffectsTx(tx: Reader, scope: Pick<Re
   return rows[0].blocked
 }
 
-/** A sidecar's EXPIRED label alone never grants permission to discard financial context. */
+/** Sidecar terminal labels never grant permission to discard financial context without durable authority. */
 export async function canResumeExpiredConversationTx(tx: Reader, scope: RecoveryScope, draft: DialogueState): Promise<boolean> {
   if (draft.businessId !== scope.businessId || draft.appointmentManagement && !draft.appointmentManagement.outcome ||
       !draft.bookingReservation) return false
   let reservation
   try { reservation = parseRuntimeBookingReservation(draft.bookingReservation, scope.businessId) } catch { return false }
   const presented = reservation.presented, receipt = reservation.receipt
-  if (!receipt || receipt.kind !== 'HELD' || !['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED'].includes(receipt.depositStatus) ||
+  if (!receipt || receipt.kind !== 'HELD' || !['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED','REJECTED'].includes(receipt.depositStatus) ||
       presented.scope.sessionId !== scope.sessionId || presented.scope.deploymentId !== scope.deploymentId ||
       presented.scope.generation !== scope.generation || presented.scope.configurationId !== scope.configurationId ||
       presented.scope.dispatchFenceEpoch !== scope.dispatchFenceEpoch || presented.scope.handoffFenceEpoch !== scope.handoffFenceEpoch ||
       !/^\d+$/.test(scope.revision) || BigInt(presented.scope.revision) > BigInt(scope.revision)) return false
   const actual = await loadRuntimeDepositReceipt(tx, { businessId: scope.businessId, sessionId: scope.sessionId,
     canonicalPhone: scope.canonicalPhone, expectedRevision: BigInt(scope.revision) }, reservation)
-  return actual?.depositStatus === 'EXPIRED' && !await hasPendingConversationEffectsTx(tx, scope)
+  const terminal = actual?.depositStatus === 'EXPIRED' || actual?.depositStatus === 'REJECTED' &&
+    (actual.cancellationReason === 'CUSTOMER' || actual.cancellationReason === 'STAFF')
+  return terminal && !await hasPendingConversationEffectsTx(tx, scope)
 }
 
 /** Keep safe identity context, but never a slot, basket, financial receipt or consent. */

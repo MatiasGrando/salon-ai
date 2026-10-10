@@ -342,6 +342,29 @@ for (const required of [[0], [0, 1], [1]] as const) {
     const reply = runtimeBookingReceiptReply({ ...reservation, receipt: { ...groupReceipt, depositStatus } })
     assert.equal(/La reserva fue confirmada/.test(reply), depositStatus === 'APPROVED')
   }
+  for (const cancellationReason of ['CUSTOMER','STAFF'] as const) {
+    const cancelled = { ...reservation, receipt: { ...groupReceipt, depositStatus: 'REJECTED', cancellationReason } } as RuntimeBookingReservation
+    assert.deepEqual(parseRuntimeBookingReservation(cancelled, 'b'), cancelled, 'verified pending cancellation reason is retained')
+    const reply = runtimeBookingReceiptReply(cancelled)
+    assert.match(reply, /cancel/i)
+    assert.doesNotMatch(reply, /rechazó el pago|confirmada|Enviá el comprobante/)
+  }
+  assert.match(runtimeBookingReceiptReply({ ...reservation, receipt: { ...groupReceipt, depositStatus: 'REJECTED' } }), /rechazó el pago/,
+    'plain payment rejection is not cancellation authority')
+  for (const receipt of [{ ...groupReceipt, cancellationReason: 'STAFF' },
+    { ...groupReceipt, depositStatus: 'REJECTED', cancellationReason: 'UNKNOWN' }]) {
+    assert.throws(() => parseRuntimeBookingReservation({ presented, receipt }, 'b'), 'cancellation reason is closed and terminal-only')
+  }
+  for (const cancellationReason of [['STAFF'], ['CUSTOMER'], { toString: () => 'STAFF' }, null, 1]) {
+    assert.throws(() => parseRuntimeBookingReservation({ presented, receipt: { ...groupReceipt, depositStatus: 'REJECTED', cancellationReason } }, 'b'),
+      'cancellation reason must be a primitive closed string')
+  }
+  for (const depositStatus of ['PENDING_PROOF', 'PENDING_RESUBMISSION', 'PROOF_RECEIVED', 'APPROVED', 'EXPIRED']) {
+    assert.throws(() => parseRuntimeBookingReservation({ presented, receipt: { ...groupReceipt, depositStatus, cancellationReason: 'CUSTOMER' } }, 'b'),
+      'cancellation reason cannot appear on a non-rejected financial state')
+  }
+  assert.throws(() => parseRuntimeBookingReservation({ presented, receipt: { ...groupReceipt, kind: 'COMMITTED', cancellationReason: 'STAFF' } }, 'b'),
+    'committed receipt cannot carry pending cancellation authority')
   for (const mutate of [
     (copy: typeof presented) => { copy.terms.deposit!.financial.amount++ },
     (copy: typeof presented) => { copy.terms.deposit!.financial.lines[0]!.serviceId = 'foreign' },

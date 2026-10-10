@@ -9,7 +9,7 @@ import { confirmBookingWithoutDeposit, holdBookingWithDeposit, holdCoordinatedBo
 import { prismaHandoffEffectExecutor } from '../bot-options/infrastructure/prisma-handoff-effect-executor.js'
 import { parseEstimateOptions, resolveServiceEstimate, type ServiceEstimate } from '../bot-options/domain/service-booking.js'
 import { validateCustomerName } from '../bot-options/domain/customer-name-validation.js'
-import { lockCoordinatedDepositGroupState, coordinatedDepositRequestHash, type CoordinatedDepositGroup } from '../services/coordinated-deposit-group.js'
+import { lockCoordinatedDepositGroupState, coordinatedDepositRequestHash, verifyPendingCancellation, type CoordinatedDepositGroup } from '../services/coordinated-deposit-group.js'
 
 export type RuntimeBookingSegment = {
   serviceId: string; serviceName: string; professionalId: string; professionalName: string
@@ -37,7 +37,7 @@ export type RuntimeBookingInput = { origin: RuntimeBookingOrigin; presented: Run
   consent: { confirmed: boolean; nonce: string; fingerprint: string } }
 export type RuntimeBookingReceipt = { kind: 'COMMITTED'; coordinationGroupId: string; proposalNonce: string; fingerprint: string
   appointments: Array<{ segmentIndex: number; appointmentId: string; visitId: string }>; businessAddress?: string }
-export type RuntimeHeldReceipt = Omit<RuntimeBookingReceipt,'kind'> & {kind:'HELD';operationKey:string;depositId:string;expiresAt:string;amount:number;depositStatus:'PENDING_PROOF'|'PENDING_RESUBMISSION'|'PROOF_RECEIVED'|'APPROVED'|'REJECTED'|'EXPIRED';coordinatedDepositGroup?:{version:1;groupId:string;requestHash:string}}
+export type RuntimeHeldReceipt = Omit<RuntimeBookingReceipt,'kind'> & {kind:'HELD';operationKey:string;depositId:string;expiresAt:string;amount:number;depositStatus:'PENDING_PROOF'|'PENDING_RESUBMISSION'|'PROOF_RECEIVED'|'APPROVED'|'REJECTED'|'EXPIRED';cancellationReason?:'CUSTOMER'|'STAFF';coordinatedDepositGroup?:{version:1;groupId:string;requestHash:string}}
 export type RuntimeBookingResult = RuntimeBookingReceipt | RuntimeHeldReceipt | { kind: 'BLOCKED'; reason: 'SCOPE_REJECTED' | 'FINANCIAL_OR_GUIDANCE' } | { kind: 'REQUOTE' }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
 export const runtimeBookingFingerprint = (terms: RuntimeBookingTerms): string => canonicalJsonHash(terms)
@@ -313,10 +313,11 @@ function validateRuntimeBookingReservation(value: unknown, businessId: string): 
     value.presented.scope.businessId!==businessId || value.presented.terms.businessId!==businessId) throw new Error('invalid runtime reservation')
   const p=value.presented, r=value.receipt
   if (r!==undefined) {
-    if (!object(r) || !keys(r,['kind','coordinationGroupId','proposalNonce','fingerprint','appointments'],r.kind==='HELD'?['businessAddress','operationKey','depositId','expiresAt','amount','depositStatus','coordinatedDepositGroup']:['businessAddress']) ||
+    if (!object(r) || !keys(r,['kind','coordinationGroupId','proposalNonce','fingerprint','appointments'],r.kind==='HELD'?['businessAddress','operationKey','depositId','expiresAt','amount','depositStatus','coordinatedDepositGroup','cancellationReason']:['businessAddress']) ||
       !['COMMITTED','HELD'].includes(String(r.kind)) || !text(r.coordinationGroupId) || r.proposalNonce!==p.nonce || r.fingerprint!==p.fingerprint ||
       r.businessAddress!==undefined && !text(r.businessAddress,1000) || !Array.isArray(r.appointments) || r.appointments.length!==p.terms.segments.length) throw new Error('invalid runtime receipt')
     if(r.kind==='COMMITTED' && p.terms.deposit || r.kind==='HELD' && (!p.terms.deposit||!text(r.operationKey,256)||!text(r.depositId)||!instant(r.expiresAt)||r.amount!==p.terms.deposit.financial.amount||!['PENDING_PROOF','PENDING_RESUBMISSION','PROOF_RECEIVED','APPROVED','REJECTED','EXPIRED'].includes(String(r.depositStatus))))throw new Error('invalid runtime financial receipt')
+    if(r.cancellationReason!==undefined && (r.kind!=='HELD' || r.depositStatus!=='REJECTED' || typeof r.cancellationReason!=='string' || !['CUSTOMER','STAFF'].includes(r.cancellationReason)))throw new Error('invalid runtime cancellation reason')
     if(r.kind==='HELD' && p.terms.segments.length>1) {
       const seal=r.coordinatedDepositGroup
       if(!object(seal)||!keys(seal,['version','groupId','requestHash'])||seal.version!==1||
@@ -356,6 +357,7 @@ export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservatio
   if(reservation.receipt.kind==='HELD') {
     const r=reservation.receipt
     if(r.depositStatus==='EXPIRED')return 'Venció el plazo de la seña. La reserva no está confirmada; no inicié otra reserva.'
+    if(r.depositStatus==='REJECTED' && r.cancellationReason)return 'El pedido fue cancelado'+(r.cancellationReason==='STAFF'?' por el equipo':'')+'. El horario fue liberado; podemos comenzar un pedido nuevo.'
     if(r.depositStatus==='REJECTED')return 'El equipo rechazó el pago. La reserva no está confirmada; consultá al equipo antes de continuar.'
     if(r.depositStatus==='PROOF_RECEIVED')return 'Recibimos tu comprobante. El equipo debe validarlo; la reserva todavía no está confirmada.'
     if(r.depositStatus!=='APPROVED')return 'Mantuvimos provisionalmente el horario. La reserva todavía no está confirmada.\n'+runtimeBookingDetail(reservation.presented)+'\nSeña: $'+r.amount.toLocaleString('es-AR')+'\nEnviá el comprobante'+(reservation.presented.terms.segments.length>1?' único para todos los servicios':'')+' antes de '+new Intl.DateTimeFormat('es-AR',{timeZone:reservation.presented.terms.timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(r.expiresAt))+'.\n'+runtimeDepositPaymentReply(reservation.presented.terms.deposit!.payment)+(r.depositStatus==='PENDING_RESUBMISSION'?'\nEl equipo necesita un nuevo comprobante.':'')
@@ -391,13 +393,13 @@ export async function loadRuntimeDepositReceipt(tx:Pick<Prisma.TransactionClient
         g.amount!==r.amount||!isDeepStrictEqual(g.proposal,p)||
         !isDeepStrictEqual(g.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),r.appointments))return null
       return coordinatedRuntimeReceipt(g,live.depositStatus as RuntimeHeldReceipt['depositStatus'],
-        live.currentExpiresAt.toISOString(),text(owners[0]!.businessAddress,1000)?owners[0]!.businessAddress:undefined)
+        live.currentExpiresAt.toISOString(),text(owners[0]!.businessAddress,1000)?owners[0]!.businessAddress:undefined,live.cancellationReason)
     }catch{return null}
   }
   const rows=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
     /* runtime-booking-deposit-receipt */
-    SELECT a.id AS "appointmentId",a."visitId",a."serviceId",a."professionalId",a."startAt",a."totalDurationMinutes" AS duration,a."quotedPrice",a.status AS "appointmentStatus",
-      v.status AS "visitStatus",v."scheduledStartAt",v."totalDurationMinutes" AS "visitDuration",v."totalPrice" AS "visitPrice",d.id AS "depositId",d.amount,d."expiresAt",d.status AS "depositStatus",d."holdTtlMinutes",d."holdTtlProvenance",d."snapshotSealedAt",
+    SELECT a.id AS "appointmentId",a.version AS "appointmentVersion",a."visitId",a."serviceId",a."professionalId",a."startAt",a."totalDurationMinutes" AS duration,a."quotedPrice",a.status AS "appointmentStatus",
+      v.status AS "visitStatus",v.version AS "visitVersion",v."holdExpiresAt",v."scheduledStartAt",v."totalDurationMinutes" AS "visitDuration",v."totalPrice" AS "visitPrice",d.id AS "depositId",d.amount,d."expiresAt",d."rejectionReason",d.status AS "depositStatus",d."holdTtlMinutes",d."holdTtlProvenance",d."snapshotSealedAt",
       parent."requestHash" AS "parentHash",child."requestHash" AS "childHash",b."publicAddress" AS "businessAddress"
     FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "Customer" customer ON customer."businessId"=s."businessId" AND customer."normalizedPhone"=${scope.canonicalPhone}
@@ -425,7 +427,14 @@ export async function loadRuntimeDepositReceipt(tx:Pick<Prisma.TransactionClient
   const lines=await tx.$queryRaw<BookingDepositTerms['lines']>(Prisma.sql`SELECT "serviceId","sortOrder","serviceName",mode,"configuredValue","baseAmount",amount FROM "BookingDepositLine" WHERE "businessId"=${scope.businessId} AND "depositId"=${r.depositId} ORDER BY "sortOrder"`)
   const items=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`SELECT "serviceId","sortOrder","durationMinutes",price FROM "AppointmentServiceItem" WHERE "appointmentId"=${r.appointments[0]!.appointmentId} ORDER BY "sortOrder"`)
   if(!isDeepStrictEqual(lines,financial.lines)||!isDeepStrictEqual(items,[{serviceId:segment.serviceId,sortOrder:0,durationMinutes:segment.durationMinutes,price:segment.priceMinor}]))return null
-  return {...r,depositStatus:status as RuntimeHeldReceipt['depositStatus'],...(text(row.businessAddress,1000)?{businessAddress:row.businessAddress}:{})}
+  let cancellationReason:RuntimeHeldReceipt['cancellationReason']
+  if(status==='REJECTED' && ['CANCELLED_BY_CUSTOMER','CANCELLED_BY_STAFF'].includes(String(row.rejectionReason))) {
+    try { cancellationReason=await verifyPendingCancellation(tx,scope.businessId,
+      {groupId:r.coordinationGroupId,operationKey:r.operationKey,proposal:p},rows) } catch { return null }
+  }
+  // Persisted hints never survive a durable refresh without cancellation authority.
+  const {cancellationReason:discardedReason,...receipt}=r
+  return {...receipt,depositStatus:status as RuntimeHeldReceipt['depositStatus'],...(cancellationReason?{cancellationReason}:{}),...(text(row.businessAddress,1000)?{businessAddress:row.businessAddress}:{})}
 }
 async function replayRuntimeDeposit(tx:Prisma.TransactionClient,input:RuntimeBookingInput,key:string,requestHash:string,customerId:string|null):Promise<RuntimeHeldReceipt|null> {
   const ops=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`SELECT * FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE`)
@@ -444,11 +453,12 @@ async function replayRuntimeDeposit(tx:Prisma.TransactionClient,input:RuntimeBoo
 
 /** The durable seal is a pointer, not a second copy of financial authority. */
 function coordinatedRuntimeReceipt(group:CoordinatedDepositGroup,status:RuntimeHeldReceipt['depositStatus'],
-  expiresAt:string,businessAddress?:string):RuntimeHeldReceipt {
+  expiresAt:string,businessAddress?:string,cancellationReason?:RuntimeHeldReceipt['cancellationReason']):RuntimeHeldReceipt {
   return {kind:'HELD',coordinationGroupId:group.groupId,operationKey:group.operationKey,
     proposalNonce:group.proposal.nonce,fingerprint:group.proposal.fingerprint,
     appointments:group.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),
     depositId:group.anchorDepositId,amount:group.amount,expiresAt,depositStatus:status,
+    ...(cancellationReason?{cancellationReason}:{}),
     coordinatedDepositGroup:{version:1,groupId:group.groupId,requestHash:group.requestHash},
     ...(businessAddress?{businessAddress}:{})}
 }

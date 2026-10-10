@@ -11,6 +11,7 @@ export type ConversationChoiceOperation =
   | { kind: 'preference'; preference: TimePreference }
   | { kind: 'estimate'; serviceId: string; optionId: string; configurationKey: string }
   | { kind: 'confirm'; nonce: string }
+  | { kind: 'pending_deposit_reset'; confirm: boolean; proposalNonce: string; receiptFingerprint: string }
   | { kind: 'page'; questionKind: 'slots' | 'professionals' | 'dates'; cursor: number }
 export type ConversationChoiceKind = 'service' | 'date' | 'professional' | 'slot' | 'preference' | 'estimate' | 'proposal'
 export type ConversationChoicePresentation = {
@@ -82,6 +83,12 @@ export function parseConversationChoiceOperation(value: unknown): ConversationCh
     case 'confirm':
       keys(value, ['kind', 'nonce'])
       if (!text(value.nonce, 128)) fail('confirmation')
+      break
+    case 'pending_deposit_reset':
+      keys(value, ['kind', 'confirm', 'proposalNonce', 'receiptFingerprint'])
+      if (typeof value.confirm !== 'boolean' || typeof value.proposalNonce !== 'string' ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.proposalNonce) ||
+          typeof value.receiptFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.receiptFingerprint)) fail('pending deposit reset')
       break
     case 'page':
       keys(value, ['kind', 'questionKind', 'cursor'])

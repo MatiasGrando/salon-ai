@@ -99,7 +99,11 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[] }; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onInboundConsumed?: (contexts: ReadonlyArray<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }>) => void; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string; signal?: AbortSignal }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+type ResetFinancialTransport = { members: Record<string, unknown>[]; operations: Record<string, unknown>[];
+  proofJobs: Array<{ id: string; status: string; depositId: string; groupId: string }>; proofs: Array<{ id: string }>;
+  failResetCas?: boolean }
+type FinancialReadFixture = { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[]; cancellation?: ResetFinancialTransport }
+function runtimeFixture(options: { financialRead?: FinancialReadFixture; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onInboundConsumed?: (contexts: ReadonlyArray<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }>) => void; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string; signal?: AbortSignal }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
@@ -125,6 +129,7 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
     async $transaction<T>(operation: (tx: unknown) => Promise<T>): Promise<T> {
       assert.equal(inTransaction, false)
       const backup = structuredClone({ row, session, replies, settled, retried, messages })
+      const financialBackup = options.financialRead?.cancellation ? structuredClone(options.financialRead) : undefined
       inTransaction = true
       try {
         const execute = async () => {
@@ -142,11 +147,38 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
         }) : await execute()
       } catch (error) {
         ;({ row, session, replies, settled, retried, messages } = backup)
+        if (financialBackup) Object.assign(options.financialRead!, financialBackup)
         throw error
       } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined;bookingSql=undefined }
     },
     async $queryRaw(q: Query) {
       statements.push(q)
+      if (options.financialRead && q.sql.includes('runtime-booking-deposit-receipt')) return options.financialRead.rows
+      const financial = options.financialRead?.cancellation
+      if (financial) {
+        // Transport only: execute the REAL common module. Its SQL/seals/rollback
+        // run independently in pending-deposit-cancellation-pglite-test.
+        if (q.sql.includes('pg_advisory_xact_lock')) return [{ locked: 1 }]
+        if (q.sql.includes('pending-cancel-anchor')) return [{ groupId: readConversationDraft(session!.state, { businessId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }, 'UTC').bookingReservation!.receipt!.coordinationGroupId }]
+        if (q.sql.includes('pending-cancel-member-ids')) return financial.members.map(member => ({ id: member.appointmentId, professionalId: member.professionalId, businessId: member.businessId }))
+        if (q.sql.includes('pending-cancel-members')) return structuredClone(financial.members)
+        if (q.sql.includes('pending-cancel-session')) {
+          assert.ok(q.values.includes(session!.revision), 'financial authority uses the CURRENT session CAS revision')
+          assert.ok(q.values.includes(businessId) && q.values.includes(session!.sessionId) && q.values.includes(options.phone))
+          return [{ state: structuredClone(session!.state), generation: 1, configurationId: 'cfg', deploymentId: 'dep', dispatchFenceEpoch: 1, handoffFenceEpoch: 0 }]
+        }
+        if (q.sql.includes('pending-cancel-proofs')) return financial.proofs
+        if (q.sql.includes('pending-cancel-proof-jobs')) return financial.proofJobs.filter(job => ['READY', 'RETRY', 'LEASED'].includes(job.status) &&
+          (financial.members.some(member => member.depositId === job.depositId) || q.values.includes(job.groupId)))
+        if (q.sql.includes('pending-cancel-operation')) return financial.operations.filter(operation => q.values.includes(operation.operationKey))
+        if (q.sql.includes("type='HOLD_COORDINATED_DEPOSIT_GROUP'")) return []
+        if (q.sql.includes('AS "groupId",origin,"professionalId"')) return [{ groupId: readConversationDraft(session!.state, { businessId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }, 'UTC').bookingReservation!.receipt!.coordinationGroupId, origin: 'BOT', professionalId: 'p1' }]
+        if (q.sql.includes('WHERE a."coordinationGroupId"')) return structuredClone(financial.members)
+        if (q.sql.includes('JOIN "Professional" p')) return [{ id: session!.sessionId }]
+        if (q.sql.includes("type='HOLD_VISIT_WITH_DEPOSIT'")) return [{ operationKey: 'conversation-booking:offline-hold', sessionId: session!.sessionId, requestHash: 'a'.repeat(64), status: 'COMPLETED' }]
+        if (q.sql.includes('FROM "BotOperation"') && q.values.includes('conversation-booking:offline-hold:segment:0:HOLD_VISIT_WITH_DEPOSIT')) return [{ businessId, sessionId: session!.sessionId, requestHash: 'b'.repeat(64), status: 'COMPLETED', type: 'HOLD_VISIT_WITH_DEPOSIT', resultRef: 'visit' }]
+        if (q.sql.includes('FROM "BookingDeposit"') && q.sql.includes('FOR UPDATE')) return [{ id: 'deposit' }]
+      }
       if(options.financialRead && q.sql.includes('runtime-booking-deposit-receipt'))return options.financialRead.rows
       if(options.financialRead && q.sql.includes('FROM "BookingDepositLine"'))return options.financialRead.lines
       if(options.financialRead && q.sql.includes('FROM "AppointmentServiceItem"'))return options.financialRead.items
@@ -193,6 +225,7 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
       }
       if (q.sql.includes('conversation-turn-persist')) {
         assert.ok(session)
+        if (financial?.failResetCas && q.values.includes('conversation.pending_deposit_reset')) throw new Error('controlled reset CAS failure')
         const backupState = structuredClone(session.state)
         session.state = JSON.parse(q.values.find(v => typeof v === 'string' && v.includes('"schemaVersion"')) as string)
         const previous = session.revision
@@ -258,6 +291,25 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
     },
     async $executeRaw(q: Query) {
       statements.push(q)
+      const financial = options.financialRead?.cancellation
+      if (financial) {
+        if (q.sql.includes('INSERT INTO "BotOperation"')) {
+          financial.operations.push({ operationKey: q.values[1], type: 'CANCEL_PENDING_DEPOSIT_GROUP', businessId, sessionId: session!.sessionId, status: 'STARTED', requestHash: q.values.at(-1) }); return 1
+        }
+        if (q.sql.includes('UPDATE "BotOperation" SET status=\'COMPLETED\'')) {
+          const operation = financial.operations.find(item => q.values.includes(item.operationKey))!
+          operation.status = 'COMPLETED'; operation.resultRef = q.values.find(value => typeof value === 'string' && value.startsWith('{')); return 1
+        }
+        for (const [table, field] of [['BookingDeposit', 'depositStatus'], ['BookingVisit', 'visitStatus'], ['Appointment', 'appointmentStatus']] as const) {
+          if (q.sql.includes('UPDATE "' + table + '"')) {
+            financial.members[0]![field] = table === 'BookingDeposit' ? 'REJECTED' : 'CANCELLED'
+            if (table !== 'BookingDeposit') financial.members[0]![table === 'Appointment' ? 'appointmentVersion' : 'visitVersion'] = 1
+            options.financialRead!.rows[0]![field] = financial.members[0]![field]
+            return 1
+          }
+        }
+        if (q.sql.includes('UPDATE "BotJob" SET status=\'DONE\'')) return 1
+      }
       if (handoffSql && (q.sql.includes('"BotOperation"') || q.sql.includes('"BotHandoff"') ||
           q.sql.includes('conversational-handoff-') || q.sql.includes('UPDATE "BotSession" SET "status" =') || q.sql.includes('SET "status" = \'HUMAN_QUEUED\'') ||
           q.sql.includes('SET "currentStep" = \'HUMAN_HANDOFF\''))) {
@@ -288,6 +340,10 @@ function runtimeFixture(options: { financialRead?: { rows: Record<string,unknown
       return 1
     }
   }
+  if (options.financialRead) Object.assign(client, { professional: { findMany: async ({ where }: { where: { businessId: string; id?: { in: string[] } } }) => {
+    assert.equal(where.businessId, businessId)
+    return (where.id?.in ?? ['p1']).filter(id => id === 'p1').map(id => ({ id }))
+  } } })
   // Prisma delegates used by the existing F7 revalidation, bound to the caller transaction.
   if(options.bookingDb) {
     const select=async(table:string,where:Record<string,unknown>)=>{
@@ -963,7 +1019,7 @@ assert.equal(resetRuntime.statements.filter(q => q.sql.includes('test-reset-pend
 console.log('scoped Barber reset: zero AI, complete draft, CRM, pending effects and real human ownership guards PASS')
 
 // Actual worker -> scoped financial reader -> session/transition/CRM persistence.
-const financialRead={rows:[] as Record<string,unknown>[],lines:[] as unknown[],items:[] as unknown[]}
+const financialRead: FinancialReadFixture = { rows: [], lines: [], items: [] }
 const financialReadIds: string[] = []
 const financialRuntime=runtimeFixture({businessId:barberResetId,phone:'5491112345678',financialRead,onInboundConsumed(contexts){ financialReadIds.push(...contexts.map(value=>value.providerMessageId)) }});await financialRuntime.run()
 assert.equal(financialReadIds.at(-1), financialRuntime.row.providerMessageId, 'bot-owned financial fixture initial consumption is acknowledged')
@@ -1235,6 +1291,140 @@ for (const status of ['PROOF_RECEIVED', 'APPROVED', 'EXPIRED', 'REJECTED'] as co
     bookingReservation: { presented: jointPresented, receipt: { ...jointReceipt, depositStatus: status } } }, barberResetPolicy)
   assert.equal(state.booking === 'CONFIRMED', status === 'APPROVED', 'group projects real payment status, not client claim')
 }
+// P21.5 transport fixture executes the production loader and cancellation module.
+// The companion PGlite suite proves their actual SQL seals; this proves inbox integration.
+async function pendingResetRuntime(status = 'PENDING_PROOF') {
+  const result = await expiredRuntime(status)
+  const { runtime, reads } = result
+  const draft = readConversationDraft(runtime.session.state, barberResetPolicy, 'UTC')
+  const presented = draft.bookingReservation!.presented
+  const receipt = { ...financialReceipt, operationKey: 'conversation-booking:offline-hold', coordinationGroupId: 'e719f93a-2945-4b59-b37f-84a3b595231d',
+    proposalNonce: presented.nonce, depositStatus: status as RuntimeHeldReceipt['depositStatus'] }
+  draft.bookingReservation!.receipt = receipt
+  reads.rows = reads.rows.map(row => ({ ...row, childHash: runtimeBookingChildRequestHash(runtimeBookingChildInput(presented, receipt.operationKey, 0, false), true),
+    ...(status === 'APPROVED' ? { visitStatus: 'CONFIRMED', appointmentStatus: 'CONFIRMED' } : {}) }))
+  runtime.session.state = projectConversationDraft(draft, barberResetPolicy)
+  reads.cancellation = { operations: [], proofs: [], proofJobs: [], members: [{
+    appointmentId: 'appointment', visitId: 'visit', professionalId: 'p1', businessId: barberResetId,
+    customerId: 'customer', appointmentVersion: 0, visitVersion: 0, appointmentStatus: 'PENDING', visitStatus: 'HELD',
+    depositStatus: status, depositId: 'deposit', depositBusinessId: barberResetId, depositVisitId: 'visit',
+    visitBusinessId: barberResetId, visitCustomerId: 'customer', visitProfessionalId: 'p1', sessionId: runtime.session.sessionId,
+    amount: 100, expiresAt: new Date(receipt.expiresAt), holdExpiresAt: new Date(receipt.expiresAt),
+    snapshotSealedAt: new Date('2026-10-01T12:00:00Z'), dbNow: new Date('2026-10-01T12:00:00Z'),
+    origin: 'BOT', conversationId: 'conversation', source: 'WHATSAPP'
+  }] }
+  return result
+}
+function clickPendingReset(runtime: ReturnType<typeof runtimeFixture>, index: number) {
+  const prompt = runtime.statements.filter(query => query.sql.includes('conversation-choice-persist')).at(-1)!
+  const payloads = prompt.values.filter(value => typeof value === 'string' && value.startsWith('{'))
+    .map(value => JSON.parse(value as string)).filter(value => value.question)
+  assert.equal(payloads.length, 2, 'click uses the TWO actual persisted choice payloads')
+  runtime.next('UNTRUSTED BUTTON TEXT', 'interactive')
+  runtime.row.actionType = 'conversation.choice'
+  runtime.row.expectedRevision = runtime.session.revision
+  runtime.row.payload.conversationChoice = structuredClone(payloads[index])
+}
+// Requesting reset with a current hold offers cancellation; it never silently cancels.
+for (const status of ['PENDING_PROOF', 'PROOF_RECEIVED', 'APPROVED']) {
+  const { runtime, reads } = await pendingResetRuntime(status)
+  const before = structuredClone(runtime.session.state), financialBefore = structuredClone(reads)
+  runtime.next('/reset')
+  await runtime.run('PROCESS_INBOX', { provider: async () => { throw new Error('pending reset must not call AI') }, timeoutMs: 10 })
+  assert.deepEqual(runtime.session.state, before, 'a reset request alone never clears financial context')
+  assert.deepEqual(reads, financialBefore, 'offering cancellation never changes appointments or deposits')
+  assert.doesNotMatch(runtime.replies.at(-1)!, /operación o respuesta pendiente|Esperá a que termine/, 'a financial state is not a running operation')
+  if (status === 'PENDING_PROOF') {
+    assert.match(runtime.replies.at(-1)!, /cancelar.*pedido|cancelar.*reserva/i)
+    const prompts = runtime.statements.filter(query => query.sql.includes('conversation-choice-persist'))
+    assert.ok(prompts.length > 0, 'current pending hold must offer native confirmation, not a vague refusal')
+    const values = prompts.at(-1)!.values.filter(value => typeof value === 'string').join(' ')
+    assert.match(values, /pending_deposit_reset/)
+    assert.match(values, /Cancelar y reiniciar/); assert.match(values, /Mantener pedido/)
+  } else assert.match(runtime.replies.at(-1)!, /revisión|pago|confirmad/i, 'review and approved payments explain their real protected status')
+  assert.ok(!runtime.statements.some(query => /UPDATE "(?:BookingDeposit|Appointment|BookingVisit)"/.test(query.sql)), 'no reset request may mutate financial records')
+}
+console.log('P21.5 pending reset offer and truthful financial guards: PASS')
+
+const resetNoAi = { provider: async () => { throw new Error('native reset cannot call AI') }, timeoutMs: 10 }
+for (const confirm of [false, true]) {
+  const { runtime, reads } = await pendingResetRuntime()
+  runtime.next('/reset'); await runtime.run('PROCESS_INBOX', resetNoAi)
+  const financialBefore = structuredClone(reads), stateBefore = structuredClone(runtime.session.state)
+  const revisionBefore = runtime.session.revision, messagesBefore = runtime.messages
+  clickPendingReset(runtime, confirm ? 0 : 1)
+  await runtime.run('PROCESS_INBOX', resetNoAi)
+  assert.equal(runtime.messages, messagesBefore + 1, 'native cancellation appends history, never deletes it')
+  if (!confirm) {
+    assert.deepEqual(reads, financialBefore, 'Mantener pedido preserves every financial row and operation')
+    assert.deepEqual(runtime.session.state, stateBefore)
+    assert.equal(runtime.session.revision, revisionBefore)
+    assert.match(runtime.replies.at(-1)!, /mantenemos.*pedido/)
+  } else {
+    assert.deepEqual(runtime.session.state, createInitialBotOptionsState())
+    assert.equal(runtime.session.revision, revisionBefore + 1n)
+    assert.equal(reads.cancellation!.members[0]!.appointmentStatus, 'CANCELLED')
+    assert.equal(reads.cancellation!.members[0]!.visitStatus, 'CANCELLED')
+    assert.equal(reads.cancellation!.members[0]!.depositStatus, 'REJECTED')
+    assert.equal(reads.cancellation!.operations.length, 1)
+    assert.equal(reads.cancellation!.operations[0]!.status, 'COMPLETED')
+    assert.match(runtime.replies.at(-1)!, /Cancelé.*liberé.*Reinicié/s)
+    const updates = runtime.statements.filter(query => /UPDATE "(BookingDeposit|BookingVisit|Appointment)"/.test(query.sql))
+    assert.equal(updates.length, 3, 'only the exact live financial member is cancelled')
+    assert.ok(updates[0]!.values.includes('CANCELLED_BY_CUSTOMER'), 'customer consent is not impersonated as staff review')
+    assert.ok(runtime.statements.some(query => query.values.includes('conversation.pending_deposit_reset')))
+    assert.ok(!runtime.statements.some(query => /DELETE FROM|BookingDepositReviewAudit/.test(query.sql)))
+  }
+}
+console.log('P21.5 actual persisted cancel/keep clicks, real common module and complete reset: PASS')
+for (const failure of ['cas', 'outbox'] as const) {
+  const { runtime, reads } = await pendingResetRuntime()
+  runtime.next('/reset'); await runtime.run('PROCESS_INBOX', resetNoAi)
+  const stateBefore = structuredClone(runtime.session), financialBefore = structuredClone(reads)
+  const repliesBefore = structuredClone(runtime.replies)
+  if (failure === 'cas') reads.cancellation!.failResetCas = true
+  else runtime.failCommit()
+  clickPendingReset(runtime, 0)
+  await assert.rejects(runtime.run('PROCESS_INBOX', resetNoAi), failure === 'cas' ? /reset CAS failure/ : /COMMIT failed/)
+  const { failResetCas: _fault, ...restored } = reads.cancellation!
+  assert.deepEqual({ ...reads, cancellation: restored }, financialBefore, 'financial effects ALL roll back on ' + failure)
+  assert.deepEqual(runtime.session, stateBefore, 'reset CAS and previous financial conversation ALL roll back on ' + failure)
+  assert.deepEqual(runtime.replies, repliesBefore, 'no success acknowledgement on ' + failure)
+  assert.equal(runtime.row.status, 'ADMITTED', 'failed cancellation remains recoverable, not falsely consumed')
+}
+console.log('P21.5 cancellation + reset CAS + output rollback as one transaction: PASS')
+for (const status of ['READY', 'RETRY', 'LEASED', 'DONE', 'OLD_GROUP'] as const) {
+  const { runtime, reads } = await pendingResetRuntime()
+  reads.cancellation!.proofJobs.push({ id: 'proof-job', status: status === 'OLD_GROUP' ? 'READY' : status,
+    depositId: status === 'OLD_GROUP' ? 'old-deposit' : 'deposit', groupId: status === 'OLD_GROUP' ? 'old-group' : 'e719f93a-2945-4b59-b37f-84a3b595231d' })
+  const before = structuredClone(reads), stateBefore = structuredClone(runtime.session.state)
+  runtime.next('/reset'); await runtime.run('PROCESS_INBOX', resetNoAi)
+  assert.deepEqual(reads, before); assert.deepEqual(runtime.session.state, stateBefore)
+  const offered = runtime.statements.some(query => query.sql.includes('conversation-choice-persist'))
+  assert.equal(offered, status === 'DONE' || status === 'OLD_GROUP', 'only unfinished EXACT bound proof work blocks: ' + status)
+  if (!offered) assert.match(runtime.replies.at(-1)!, /procesando|verificando/)
+}
+console.log('P21.5 exact proof work blocks; completed and unrelated history do not: PASS')
+for (const change of ['earlier-image', 'stale-revision', 'changed-receipt', 'proof-after-offer'] as const) {
+  const { runtime, reads } = await pendingResetRuntime()
+  runtime.next('/reset'); await runtime.run('PROCESS_INBOX', resetNoAi)
+  clickPendingReset(runtime, 0)
+  if (change === 'earlier-image') runtime.block(true)
+  if (change === 'stale-revision') runtime.session.revision++
+  if (change === 'changed-receipt') {
+    const draft = readConversationDraft(runtime.session.state, barberResetPolicy, 'UTC')
+    draft.bookingReservation!.receipt!.businessAddress = 'Current changed receipt'
+    runtime.session.state = projectConversationDraft(draft, barberResetPolicy)
+  }
+  if (change === 'proof-after-offer') reads.cancellation!.proofJobs.push({ id: 'new-proof', status: 'READY', depositId: 'deposit', groupId: 'e719f93a-2945-4b59-b37f-84a3b595231d' })
+  const before = structuredClone(reads), stateBefore = structuredClone(runtime.session)
+  await runtime.run('PROCESS_INBOX', resetNoAi)
+  assert.deepEqual(reads, before, change + ' prevents ALL financial effects')
+  assert.deepEqual(runtime.session, stateBefore)
+  if (change === 'earlier-image') assert.equal(runtime.retried, 1, 'reset must not overtake an earlier unclassified image')
+}
+console.log('P21.5 order, exact receipt, current revision and fresh proof revalidation: PASS')
+
 console.log('P14 group HELD projection/readback, NONE-first anchor and protected reset: PASS')
 for (const change of ['revision', 'config', 'human', 'disabled', 'fence', 'order'] as const) {
   const race = runtimeFixture()

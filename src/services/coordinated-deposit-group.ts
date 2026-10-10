@@ -319,7 +319,8 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
 }
 
 /** Cancellation has its own durable authority, never a fabricated payment review. */
-async function verifyPendingCancellation(tx:Prisma.TransactionClient,businessId:string,group:CoordinatedDepositGroup,
+export async function verifyPendingCancellation(tx:Pick<Prisma.TransactionClient,'$queryRaw'>,businessId:string,
+  group:Pick<CoordinatedDepositGroup,'groupId'|'operationKey'> & {proposal:Pick<RuntimePresentedBooking,'scope'|'nonce'|'fingerprint'>},
   rows:Record<string,unknown>[]):Promise<'CUSTOMER'|'STAFF'> {
   const operations=await tx.$queryRaw<Array<{requestHash:string;resultRef:string;sessionId:string;status:string}>>(Prisma.sql`
     SELECT "requestHash","resultRef","sessionId",status FROM "BotOperation"
@@ -340,7 +341,7 @@ async function verifyPendingCancellation(tx:Prisma.TransactionClient,businessId:
   for(const row of rows) {
     const matches=members.filter(m=>object(m)&&m.appointmentId===row.appointmentId)
     const member=matches[0]
-    if(matches.length!==1 || !object(member) || member.visitId!==row.visitId || member.professionalId!==row.professionalId ||
+    if(matches.length!==1 || !object(member) || member.visitId!==row.visitId || member.professionalId!==row.professionalId || member.holdExpiresAt!==iso(row.holdExpiresAt) ||
       typeof member.appointmentVersion!=='number' || typeof member.visitVersion!=='number' ||
       row.appointmentVersion!==member.appointmentVersion+1 || row.visitVersion!==member.visitVersion+1 || member.depositId!==row.depositId ||
       (row.depositId && (member.amount!==row.amount || member.expiresAt!==iso(row.expiresAt) ||

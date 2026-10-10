@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { canResumeExpiredConversationTx } from '../src/conversational-bot/conversation-expired-recovery.js'
+import { loadPendingDepositCancellationTx, cancelPendingDepositInTransaction } from '../src/services/pending-deposit-cancellation.js'
 import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import { expireDepositHold } from '../src/bot-options/application/expire-deposit-hold.js'
 import { resolveProofTarget } from '../src/bot-options/application/process-deposit-proof-job.js'
@@ -18,7 +19,7 @@ import { hasAppointmentOverlap } from '../src/services/prisma-booking.js'
 import { calculateBookingDepositTerms } from '../src/services/deposit-operations.js'
 import { parseEstimateOptions, resolveServiceEstimate } from '../src/bot-options/domain/service-booking.js'
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
-import { runtimeBookingChildInput, runtimeBookingRequestHash, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { loadRuntimeDepositReceipt, runtimeBookingChildInput, runtimeBookingRequestHash, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
 
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
 const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
@@ -64,6 +65,7 @@ for (const name of ['20260827130000_add_f8_append_only_deposit_proofs','20260827
   await db.exec(sql.replace(/CREATE TYPE[\s\S]*?;/g,'').replace(/ALTER TYPE[\s\S]*?;/g,''))
 }
 await db.exec('CREATE UNIQUE INDEX job_kind_aggregate ON "BotJob" (kind,"aggregateId"); CREATE UNIQUE INDEX outbox_idempotency ON "BotOutbox" ("idempotencyKey")')
+await db.exec(readFileSync(new URL('../prisma/migrations/20261009210000_add_pending_deposit_staff_cancellation/migration.sql',import.meta.url),'utf8'))
 const cashMigration=readFileSync(new URL('../prisma/migrations/20260906120000_add_cash_financial_ledger/migration.sql',import.meta.url),'utf8')
 await db.exec('BEGIN;'+cashMigration.slice(cashMigration.indexOf('ALTER TABLE "Appointment" ALTER COLUMN')))
 await db.exec(readFileSync(new URL('../prisma/migrations/20260919170000_add_appointment_total_adjustments/migration.sql',import.meta.url),'utf8'))
@@ -81,6 +83,7 @@ INSERT INTO "ServiceCategory" (id,"businessId","isActive") VALUES ('category','b
 INSERT INTO "Service" (id,"businessId","catalogCategoryId",name,duration,"customerDurationMin","customerDurationMax",price,"priceMode","isBookable","isActive","attentionMode","requiresPhoto","validationEnabled","estimateAllowsBooking","depositMode","depositValue") VALUES
 ('s1','b','category','Color',45,120,120,1000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'FIXED',100),
 ('s2','b','category','Cut',30,30,30,2000,'FIXED',true,true,'DIRECT_BOOKING',false,false,false,'NONE',null);
+INSERT INTO "User" (id,"businessId",role) VALUES ('cancel-operator','b','STAFF');
 INSERT INTO "Professional" (id,"businessId",name,"isActive","acceptsBotBookings","botBookingPriority") VALUES ('p1','b','Elisa',true,true,0),('p2','b','Leo',true,true,0);
 INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps1','p1','s1'),('ps2','p2','s2');
 INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh','b',1,'09:00','20:00');
@@ -313,6 +316,41 @@ try {
     assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),2)
     assert.equal(await stateCount(tx,'Appointment','CONFIRMED'),2)
   }
+  async function cancellationRecovery(tx:Prisma.TransactionClient,reservation:import('../src/conversational-bot/prisma-conversational-booking.js').RuntimeBookingReservation,kind:'CUSTOMER'|'STAFF'='STAFF') {
+    const held=reservation.receipt as RuntimeHeldReceipt
+    const actor:import('../src/services/pending-deposit-cancellation.js').PendingDepositCancellationActor=kind==='STAFF'
+      ? {kind:'STAFF',user:{id:'cancel-operator',role:'STAFF',businessId:'b',canCreateBusinesses:false,agendaScope:'ALL',professionalId:null,canCancelAppointments:true}}
+      : {kind:'CUSTOMER',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:BigInt(scope.revision),
+          expectedReceipt:{groupId:held.coordinationGroupId,operationKey:held.operationKey,proposalNonce:held.proposalNonce,fingerprint:held.fingerprint}}
+    if(kind==='CUSTOMER') {
+      await tx.$executeRaw(Prisma.sql`UPDATE "BusinessBotConfiguration" SET definition=${JSON.stringify({conversation:{engine:'conversational-booking-v1',schemaVersion:1}})}::jsonb WHERE id='cfg'`)
+      await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({booking:'HELD',deposit:'PENDING_PROOF',handoff:'NONE',conversationDraft:{dialogue:{...initialDialogueState('b'),bookingReservation:reservation}}})}::jsonb WHERE id='session'`)
+    }
+    const snapshot=await loadPendingDepositCancellationTx(tx,{businessId:'b',appointmentId:reservation.receipt!.appointments[0]!.appointmentId,actor})
+    await cancelPendingDepositInTransaction(tx,{snapshot,actor,confirmed:true,operationKey:'terminal-staff-cancel'})
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOutbox" SET status='ACCEPTED' WHERE "businessId"='b' AND "sessionId"='session'`)
+    const draft={...initialDialogueState('b'),bookingReservation:reservation}
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},draft),true,'durable cancellation releases conversation, never the historical reservation')
+    const actual=await loadRuntimeDepositReceipt(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:BigInt(scope.revision)},reservation)
+    assert.equal(actual?.cancellationReason,kind,'cancelled is not payment rejected')
+    const terminalDraft={...draft,bookingReservation:{...reservation,receipt:{...held,depositStatus:'REJECTED' as const,cancellationReason:kind}}}
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},terminalDraft),true,'persisted terminal cancellation still requires durable authority')
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,revision:'5',canonicalPhone:'5491112345678'},terminalDraft),false,'terminal receipt never bypasses current revision')
+    const cancelHash=(await tx.$queryRaw<Array<{requestHash:string}>>(Prisma.sql`SELECT "requestHash" FROM "BotOperation" WHERE "operationKey"='terminal-staff-cancel'`))[0]!.requestHash
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"='broken' WHERE "operationKey"='terminal-staff-cancel'`)
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},terminalDraft),false,'a terminal hint cannot repair broken cancellation authority')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "requestHash"=${cancelHash} WHERE "operationKey"='terminal-staff-cancel'`)
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},terminalDraft),true,'restored exact durable authority remains readable')
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOutbox" (id,"businessId","sessionId",status) VALUES ('cancel-pending-output','b','session','UNKNOWN')`)
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},draft),false,'uncertain delivery still protects terminal recovery')
+  }
+  for(const kind of ['STAFF','CUSTOMER'] as const) await isolated(async(tx,r)=>{
+    const receipt:RuntimeHeldReceipt={kind:'HELD',operationKey:r.operationKey,coordinationGroupId:r.groupId,proposalNonce:r.proposal.nonce,fingerprint:r.proposal.fingerprint,
+      depositId:r.anchorDepositId,amount:r.amount,expiresAt:r.expiresAt,depositStatus:'PENDING_PROOF',
+      appointments:r.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),
+      coordinatedDepositGroup:{version:1,groupId:r.groupId,requestHash:r.requestHash}}
+    await cancellationRecovery(tx,{presented:r.proposal,receipt},kind)
+  })
   await isolated(retainGroupPastDeadline)
   // Runtime singular holds also have a BOT coordination UUID, but their sealed
   // parent/child operations are HOLD_VISIT_WITH_DEPOSIT, never a multi manifest.
@@ -338,6 +376,13 @@ try {
     return r
   }
 
+  for(const kind of ['STAFF','CUSTOMER'] as const) await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw),held=await singularRuntimeFixture(tx)
+    const receipt:RuntimeHeldReceipt={kind:'HELD',operationKey:singularKey,coordinationGroupId:singularGroup,proposalNonce:singularPresented.nonce,fingerprint:singularPresented.fingerprint,
+      appointments:[{segmentIndex:0,appointmentId:held.appointmentId,visitId:held.visitId}],depositId:held.depositId,amount:held.amount,expiresAt:held.expiresAt.toISOString(),depositStatus:'PENDING_PROOF'}
+    await cancellationRecovery(tx,{presented:singularPresented,receipt},kind)
+    throw Error('rollback singular cancelled recovery')
+  }),/rollback singular cancelled recovery/)
   await assert.rejects(db.transaction(async raw => {
     const tx = orm(raw), held = await singularRuntimeFixture(tx)
     const receipt: RuntimeHeldReceipt = { kind: 'HELD', operationKey: singularKey, coordinationGroupId: singularGroup,
@@ -442,6 +487,15 @@ try {
     assert.equal(await stateCount(tx,'BookingVisit','CANCELLED'),2)
     assert.equal(await stateCount(tx,'Appointment','CANCELLED'),2)
     await assert.rejects(approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'cannot-approve-final'}))
+    const rejectedReceipt:RuntimeHeldReceipt={kind:'HELD',operationKey:r.operationKey,coordinationGroupId:r.groupId,proposalNonce:r.proposal.nonce,fingerprint:r.proposal.fingerprint,
+      depositId:r.anchorDepositId,amount:r.amount,expiresAt:r.expiresAt,depositStatus:'REJECTED',cancellationReason:'STAFF',
+      appointments:r.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),coordinatedDepositGroup:{version:1,groupId:r.groupId,requestHash:r.requestHash}}
+    const rejectedReservation={presented:r.proposal,receipt:rejectedReceipt}
+    const rejectedActual=await loadRuntimeDepositReceipt(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:BigInt(scope.revision)},rejectedReservation)
+    assert.equal(rejectedActual?.depositStatus,'REJECTED')
+    assert.equal(rejectedActual?.cancellationReason,undefined,'forged sidecar cancellation cannot relabel a real payment rejection')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOutbox" SET status='ACCEPTED' WHERE "businessId"='b' AND "sessionId"='session'`)
+    assert.equal(await canResumeExpiredConversationTx(tx,{...scope,canonicalPhone:'5491112345678'},{...initialDialogueState('b'),bookingReservation:rejectedReservation}),false,'plain payment rejection never authorizes terminal cancellation recovery')
     assert.equal((await tx.$queryRaw<Array<{n:number}>>(Prisma.sql`SELECT count(*)::int n FROM "BotOutbox"`))[0]!.n,6,'three proof events and three distinct review events, never permanent group-kind dedupe')
   })
   await isolated(async(tx,r)=>{
