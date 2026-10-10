@@ -374,7 +374,21 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     }
     const read = original?.kind === 'information' || original?.kind === 'unsupported_action' ||
       original?.kind === 'service_request' && original.purpose === 'inquiry'
-    const sameField = act?.field === field
+    // SERVICES is a catalog read. A shared current comparison inquiry may own
+    // that read as service, without reclassifying unrelated business information.
+    const compared = source.operations.filter(item => item.kind === 'information' && item.target.kind === 'service' &&
+      ['description', 'comparison', 'recommendation'].includes(item.target.aspect))
+    const comparison = compared.length === 1 ? compared[0] : undefined
+    const sharedServicesRead = original?.kind === 'information' && original.target.kind === 'business' &&
+      original.target.actions.length === 1 && original.target.actions[0] === 'SERVICES' &&
+      act?.kind === 'inquiry' && act.field === 'service' && act.confidence >= .85 && original.confidence >= .85 &&
+      comparison?.kind === 'information' && comparison.confidence >= .85 &&
+      act.operationIndexes.includes(source.operations.indexOf(comparison)) &&
+      !!uniqueLiteralSpan(message, act.evidence) && !!uniqueLiteralSpan(act.evidence, original.evidence) &&
+      !!uniqueLiteralSpan(act.evidence, comparison.evidence) &&
+      source.operations.every(item => item.kind === 'information' && (item === comparison ||
+        item.target.kind === 'business' && item.target.actions.length === 1 && item.target.actions[0] === 'SERVICES'))
+    const sameField = act?.field === field || sharedServicesRead
     const current = act && ['request', 'change', 'answer'].includes(act.kind)
     const temporalRead = act?.kind === 'inquiry' && ['date', 'time', 'time_preference', 'time_clarification'].includes(operation.kind)
     const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current || temporalRead

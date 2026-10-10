@@ -46,8 +46,10 @@ const descriptive = (aspect: ServiceInformationAspect) => ['description', 'compa
 /** Exact current informative owner; zero identities grant general explanation, never local facts. */
 export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: CommunicativeActs | null | undefined,
   message: string, state: DialogueState, services: readonly DialogueService[]): CatalogInquiryScope[] {
-  if (!plan || plan.operations.filter(operation => operation.kind === 'information').length !== 1) return []
-  const operationIndex = plan.operations.findIndex(operation => operation.kind === 'information')
+  const explanations = plan?.operations.filter(operation => operation.kind === 'information' &&
+    operation.target.kind === 'service' && descriptive(operation.target.aspect))
+  if (!plan || explanations?.length !== 1) return []
+  const operationIndex = plan.operations.indexOf(explanations[0]!)
   const operation = plan.operations[operationIndex]!
   if (operation.kind !== 'information' || operation.target.kind !== 'service' || !descriptive(operation.target.aspect) ||
       operation.target.actions.length || operation.confidence < .85 || !uniqueLiteralSpan(message, operation.evidence) || operation.target.estimateOptionId !== undefined) return []
@@ -55,13 +57,20 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
   // No acquisition, consent or unrelated operation receives this copy scope.
   for (const [index, companion] of plan.operations.entries()) {
     if (index === operationIndex) continue
-    if (companion.kind !== 'service_request' || companion.purpose !== 'inquiry' || companion.confidence < .85 ||
-        !uniqueLiteralSpan(operation.evidence, companion.evidence) ||
-        companion.serviceIds.some(id => operation.target.kind !== 'service' || !operation.target.serviceIds.includes(id))) return []
+    if (companion.confidence < .85 || !uniqueLiteralSpan(message, companion.evidence)) return []
     const owners = acts?.acts.filter(act => act.operationIndexes.includes(index))
-    if (owners?.length !== 1 || owners[0]!.operationIndexes.length !== 1 || owners[0]!.kind !== 'inquiry' || owners[0]!.field !== 'service' || owners[0]!.confidence < .85 ||
+    if (owners?.length !== 1 || owners[0]!.kind !== 'inquiry' || owners[0]!.confidence < .85 ||
         !uniqueLiteralSpan(message, owners[0]!.evidence) || !uniqueLiteralSpan(owners[0]!.evidence, companion.evidence) ||
         owners[0]!.mention !== null && !uniqueLiteralSpan(owners[0]!.evidence, owners[0]!.mention)) return []
+    const owner = owners[0]!
+    if (companion.kind === 'information' && companion.target.kind === 'business') {
+      const sharedServices = companion.target.actions.length === 1 && companion.target.actions[0] === 'SERVICES' &&
+        owner.field === 'service' && owner.operationIndexes.includes(operationIndex) &&
+        !!uniqueLiteralSpan(owner.evidence, operation.evidence)
+      if (owner.field !== 'general' && !sharedServices) return []
+    } else if (companion.kind !== 'service_request' || companion.purpose !== 'inquiry' ||
+        owner.field !== 'service' || owner.operationIndexes.length !== 1 || !uniqueLiteralSpan(operation.evidence, companion.evidence) ||
+        companion.serviceIds.some(id => operation.target.kind !== 'service' || !operation.target.serviceIds.includes(id))) return []
   }
   const owner = acts?.acts.filter(act => act.operationIndexes.includes(operationIndex))
   if (owner?.length !== 1 || owner[0]!.kind !== 'inquiry' || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 ||

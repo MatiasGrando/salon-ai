@@ -1268,13 +1268,18 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
       return coverage && coverage.serviceId === coveredId ? coverage.remainder : answer
     })
   }
+  // Only one validated explanatory read owns replacement copy. Every other
+  // current answer remains a server fact in its original operation position.
+  const catalogAnswers = [...informationAnswers.entries()].filter(([, read]) => read.catalogInformation)
+  const catalogAnswer = catalogAnswers.length === 1 ? catalogAnswers[0] : undefined
+  const answerFacts = () => answers.map((text, index) => ({ id: catalogAnswer?.[0] === index ? 'catalog' : 'answer' + index, text }))
   const finishWithoutAgenda = (reply: string): DialogueResponse => {
     const lastRead = informationReads.at(-1)
     const next = reply || (lastRead ? informationNext(lastRead, state, hasActiveBooking(state)) : '')
     if (!reply && lastRead) rememberInformationContinuation(state, lastRead, next)
     return { state, reply: [...answers, next, clarificationReply].filter(Boolean).join('\n'), proposal: null,
-      ...(lastRead?.catalogInformation && answers.length === 1 && !reply && !clarificationReply ? { catalogInformation: lastRead.catalogInformation,
-        replyFacts: [{ id: 'catalog', text: lastRead.reply }, ...(next ? [{ id: 'next', text: next }] : [])] } : {}),
+      ...(catalogAnswer && !reply && !clarificationReply ? { catalogInformation: catalogAnswer[1].catalogInformation!,
+        replyFacts: [...answerFacts(), ...(next ? [{ id: 'next', text: next }] : [])] } : {}),
       ...(lastRead?.focus && !reply ? informationChoiceFields(state) : {}) }
   }
   if (state.timeMeaningClarification) {
@@ -1327,10 +1332,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         : request.serviceIds.length ? { kind: 'service' as const, title: 'Servicios relacionados',
             choices: services.filter(service => request.serviceIds.includes(service.id)).map(service =>
               ({ label: service.name, operation: { kind: 'service' as const, serviceId: service.id } })) } : undefined
-      const catalogRead = answers.length === 1 ? informationReads[0]?.catalogInformation : undefined
+      const catalogRead = catalogAnswer?.[1].catalogInformation
       return { ...finishWithoutAgenda(delivery.reply), replyPrepared: true,
         ...(catalogRead ? { catalogInformation: catalogRead } : {}), replyFacts: [
-        ...answers.map((text, index) => ({ id: catalogRead ? 'catalog' : 'answer' + index, text })), ...delivery.facts],
+        ...answerFacts(), ...delivery.facts],
         ...(presentation ? { choicePresentation: presentation } : {}) }
     }
     return { ...finishWithoutAgenda(procedureQuestion), replyPrepared: true }

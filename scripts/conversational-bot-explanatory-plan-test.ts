@@ -3,10 +3,11 @@ import http from 'node:http'
 import https from 'node:https'
 import { initialDialogueState, type DialoguePort, type DialogueService } from '../src/conversational-bot/engine.js'
 import { respondWithAiInterpreter, type AiInterpretationProvider, type AiResponseInput } from '../src/conversational-bot/ai-interpreter.js'
-import { parseTurnPlan } from '../src/conversational-bot/turn-plan.js'
-import { parseCommunicativeActs } from '../src/conversational-bot/communicative-act.js'
+import { parseTurnPlan, type TurnPlan } from '../src/conversational-bot/turn-plan.js'
+import { parseCommunicativeActs, admitCommunicativePlan, type CommunicativeActs } from '../src/conversational-bot/communicative-act.js'
 import { deriveCatalogInquiry, catalogInformation } from '../src/conversational-bot/catalog-information-answer.js'
 import { replyContract, validateReplyDraft } from '../src/conversational-bot/reply-contract.js'
+import { readInformation } from '../src/conversational-bot/information-read.js'
 import { selectionBasket } from '../src/conversational-bot/service-basket.js'
 
 // Literal synthetic outputs captured in C6. No model, database or external transport.
@@ -212,6 +213,120 @@ try {
     const result = validateReplyDraft(draft(mixedGeneral, originalPublished), facts, replyContract('information', false, false, facts), [], catalogInformation(target, services, true))
     assert.equal(result.validation.status, 'rejected'); assert.equal(result.validation.reason, 'unverified_value')
     assert.equal(result.text, null, 'original captured copy still does not pass this independent guard')
+  })
+  // C8 generated a distinct valid readonly combination: comparison plus SERVICES.
+  const c8General = 'En general, un alisado busca reducir ondas o alisar el cabello; un shock de keratina suele describirse como un tratamiento de cuidado o acondicionamiento con keratina, aunque el nombre y sus efectos pueden variar según la fórmula y el salón. No son necesariamente equivalentes.'
+  const c8Published = 'El local publica un alisado sin formol orientado a reducir ondas; requiere evaluación previa del cabello y no garantiza un resultado idéntico en todos los casos. También publica un servicio llamado Keratina, pero no hay descripción cargada para precisar si corresponde a un shock de keratina o qué incluye.'
+  const c8 = (): { intent: string; serviceId: null; serviceEvidence: null; professionalMention: null;
+    turnPlan: { version: 1; operations: TurnPlan['operations'][number][] }; communicativeActs: CommunicativeActs; firstReply: ReturnType<typeof draft> } => ({ ...base,
+    turnPlan: { version: 1, operations: [
+      { kind: 'information', evidence: mixedMessage, confidence: .96,
+        target: { kind: 'service', actions: [], serviceIds: ['synthetic-straight', 'synthetic-keratin'], aspect: 'comparison' } },
+      { kind: 'information', evidence: 'qué ofrecen ustedes', confidence: .94, target: { kind: 'business', actions: ['SERVICES'] } }
+    ] },
+    communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: mixedMessage, confidence: .97,
+      mention: 'alisado y el shock de keratina', operationIndexes: [0, 1] }] }, firstReply: draft(c8General, safePublished) })
+  const c8Admission = (value = c8()) => {
+    const plan = parseTurnPlan(value.turnPlan, mixedMessage, services.map(service => service.id))
+    const acts = parseCommunicativeActs(value.communicativeActs, mixedMessage, plan.operations.length, plan)
+    return { acts, admission: admitCommunicativePlan(acts, plan, plan, mixedMessage, initial, services, '2026-10-10') }
+  }
+  const c8Scope = (value = c8()) => {
+    const { acts, admission } = c8Admission(value)
+    return deriveCatalogInquiry(admission.plan, acts, mixedMessage, initial, services)
+  }
+  const listing = await readInformation(context, initial, 'qué ofrecen ustedes', { catalog: async () => services,
+    availability: async () => { throw new Error('business SERVICES must not query agenda') } },
+    { kind: 'business', actions: ['SERVICES'] }, services)
+  const checkC8Facts = (result: Awaited<ReturnType<typeof replay>>['result'], reversed = false) => {
+    assert.ok(result.reply.includes(listing.reply), 'the complete second business answer stays current and server-owned')
+    const facts = result.replyFacts!
+    assert.equal(facts.filter(fact => fact.id === 'catalog').length, 1)
+    const businessIndex = facts.findIndex(fact => fact.text === listing.reply)
+    const catalogIndex = facts.findIndex(fact => fact.id === 'catalog')
+    assert.ok(businessIndex >= 0); assert.ok(reversed ? businessIndex < catalogIndex : catalogIndex < businessIndex)
+    assert.equal(facts.at(-1)!.id, 'next')
+    for (const fact of facts.filter(fact => fact.id !== 'catalog'))
+      assert.equal(result.reply.split(fact.text).length - 1, 1, 'each current non-catalog fact is delivered once')
+    assert.equal(result.state.serviceRequest, undefined); assert.equal(result.state.referral, undefined)
+  }
+  await check('C9 captured shared comparison owner admits SERVICES without blocking general', () => {
+    const value = c8(); const before = structuredClone(value)
+    const { admission } = c8Admission(value)
+    assert.deepEqual(admission.blockedFields, []); assert.equal(admission.plan.operations.length, 2)
+    assert.equal(c8Scope(value).length, 1); assert.deepEqual(value, before)
+  })
+  await check('C9 safe first body delivers explanation and the current business list in original order', async () => {
+    const { result, calls, compositions } = await replay(mixedMessage, c8(), services)
+    assert.ok(result.reply.includes(c8General)); assert.ok(result.reply.includes(safePublished)); checkC8Facts(result)
+    assert.equal(result.interpretation.replyRoute, 'first_call'); assert.equal(result.interpretation.aiCalls, 1)
+    assert.equal(calls, 1); assert.equal(compositions, 0)
+  })
+  await check('C9 reversed information positions preserve both answers and original scope indexes', async () => {
+    const value = c8(); value.turnPlan.operations.reverse()
+    value.communicativeActs.acts[0]!.operationIndexes = [1, 0]
+    const { result, calls, compositions } = await replay(mixedMessage, value, services)
+    assert.ok(result.reply.includes(c8General)); checkC8Facts(result, true)
+    assert.equal(c8Scope(value)[0]!.operation, JSON.stringify(value.turnPlan.operations[1]))
+    assert.equal(calls, 1); assert.equal(compositions, 0)
+  })
+  await check('C9 an independently owned general business read retains its existing authority', async () => {
+    const value = c8(); value.communicativeActs.acts[0]!.operationIndexes = [0]
+    value.communicativeActs.acts.push({ kind: 'inquiry', field: 'general', evidence: 'qué ofrecen ustedes',
+      confidence: .94, mention: null, operationIndexes: [1] })
+    const { admission } = c8Admission(value)
+    assert.deepEqual(admission.blockedFields, []); assert.equal(admission.plan.operations.length, 2)
+    const { result, calls, compositions } = await replay(mixedMessage, value, services)
+    assert.ok(result.reply.includes(c8General)); checkC8Facts(result)
+    assert.equal(calls, 1); assert.equal(compositions, 0)
+  })
+  await check('C9 original negative first body uses one current-facts composition without discarding SERVICES', async () => {
+    const value = c8(); value.firstReply = draft(c8General, c8Published)
+    const { result, calls, compositions, compositionInputs } = await replay(mixedMessage, value, services, draft(c8General, safePublished))
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'unverified_value')
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'accepted')
+    assert.ok(result.reply.includes(c8General)); checkC8Facts(result)
+    assert.ok(compositionInputs[0]!.facts.some(fact => fact.text === listing.reply))
+    assert.equal(result.interpretation.aiCalls, 2); assert.equal(calls, 1); assert.equal(compositions, 1)
+  })
+  await check('C9 invalid second copy preserves every canonical read without partial-body rescue', async () => {
+    const value = c8(); value.firstReply = draft(c8General, c8Published)
+    const { result, calls, compositions } = await replay(mixedMessage, value, services, draft('El procedimiento cuesta $999.', safePublished))
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'unverified_value')
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'rejected')
+    assert.ok(result.reply.includes(description)); checkC8Facts(result)
+    assert.ok(!result.reply.includes(c8General)); assert.ok(!result.reply.includes(safePublished))
+    assert.doesNotMatch(result.reply, /999/); assert.equal(calls, 1); assert.equal(compositions, 1)
+  })
+  await check('C9 shared service owner cannot grant unrelated business or mutation authority', () => {
+    for (const actions of [['BUSINESS_INFO'], ['PRICES'], ['SERVICES', 'BUSINESS_INFO']] as const) {
+      const value = c8(); const operation = value.turnPlan.operations[1]!
+      if (operation.kind !== 'information') throw new Error('fixture information required')
+      operation.target = { kind: 'business', actions: [...actions] }
+      const { admission } = c8Admission(value)
+      assert.ok(admission.blockedFields.includes('general')); assert.equal(admission.plan.operations.length, 1)
+    }
+    const value = c8(); value.turnPlan.operations.push({ kind: 'request_change', field: 'service', evidence: 'qué ofrecen ustedes', confidence: .96 })
+    value.communicativeActs.acts.push({ kind: 'change', field: 'service', evidence: 'qué ofrecen ustedes', confidence: .96,
+      mention: 'qué ofrecen ustedes', operationIndexes: [2] })
+    assert.equal(c8Scope(value).length, 0, 'an effect companion cannot grant descriptive-only composition')
+  })
+  await check('C9 shared reads retain literal evidence ownership current identities and single explanatory scope', () => {
+    const absent = c8(); absent.communicativeActs.acts[0]!.evidence = 'Otra consulta inexistente'
+    assert.throws(() => c8Admission(absent))
+    const wrong = c8(); wrong.communicativeActs.acts[0]!.field = 'professional'
+    assert.equal(c8Scope(wrong).length, 0)
+    const weak = c8(); weak.communicativeActs.acts[0]!.confidence = .4
+    assert.equal(c8Scope(weak).length, 0)
+    const known = c8(); known.communicativeActs.acts[0]!.mention = 'alisado con shock no literal'
+    assert.throws(() => c8Admission(known))
+    const duplicate = c8(); const information = duplicate.turnPlan.operations[0]!
+    if (information.kind !== 'information') throw new Error('fixture information required')
+    duplicate.turnPlan.operations[1] = { ...structuredClone(information), evidence: 'shock de keratina' }
+    assert.throws(() => c8Admission(duplicate), 'two explanatory reads of the same target kind remain invalid')
+    const stale = c8(); const { admission, acts } = c8Admission(stale)
+    assert.equal(deriveCatalogInquiry(admission.plan, acts, mixedMessage, initial,
+      services.map(service => ({ ...service, id: 'retired-' + service.id }))).length, 0)
   })
   console.log('explanatory plan: ' + passed + ' PASS / ' + failures.length + ' FAIL (captured synthetic outputs; offline)')
   assert.deepEqual(failures, [], 'C7 explanatory plan integration regressions')
