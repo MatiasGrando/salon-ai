@@ -175,3 +175,53 @@ C9 GREEN19/19 delegado ypadre independiente; padre diff3fuentes leído ycatalog3
 Fuentesfreeze3 39+/11− y suite117+/2−; RED13/6→GREEN19/0, padre diffcompletoy19/38/8/turnplan PASS. Writerreplycontract/firstcall/serviceRequest/recovery14 PASS. Tipos PRE1abe65b/current336/34, nuevosfuentes0;3testNodeimports por types[] yreadonlyfixturespropioscorregidosantesfreeze, noerroresatribuidosfalsamentebaseline. Communicative112/3 baselineidéntico, assertionsintactas. UTF8/diff oficiales acierre.
 Pruebaautorizada tmp/c9-general-live.ts ejecutadauna vez4requestsHTTP200/6máx, ceroagenda/effects. Resultado SHA7999387B013E6CCEE418F902C572F7E78B63637C8C3D08F6764E98029BC90B51. Ambosplanesadmitidos ycontextopreservado; mixedcatalog+SERVICES produce correctosfactsactuales y2calls, peroamboscuerposrechazadosunverified_value por «no garantiza» delpublished actual, entrega canónicomanteniendotodoshechos. GeneralzeroID segundaaceptada2calls pero terminafrase «Los nombres y,» — calidadincompleta: NO se da aceptación final2/2ni se declaraéxito de texto por marcadorregexsolamente. C8zeroIDs anterior completofirstcall sí observado. Semántica/guarda negativaR3 permanece fuera deC9fixestructural ypendiente real, no añadirwhitelist ni desactivarassertions. No solicitudesadicionalessinconsentimiento, resultsanterioresintactos.
 C9 resultado estructural cumplealcance, C3/C4/C8aceptación realgeneral quedan abiertosporrechazodecaveat/calidadsemántica. Bloquecoherente C7+C9 se guardaycandidatopropio desdea5aa1bb; cadena feature-branch-chaincacheada, noPR/push. Humano autorizóBarberupdateychatlibre, idle0 doslecturas/identityexact/túnel14904preservado. Activaciónsólotrascommit/controlnativo cerrado, conrevalidaciónfreshidle. Engram noexpuesto, espejopendiente.
+## Cierre operativo verificado — 2026-10-10
+
+Esta evidencia sustituye únicamente los estados operativos anteriores de «carga pendiente»; no cierra por inferencia la aceptación general de C3/C4/C8 ni otras tareas.
+
+### Entrega y control nativo
+- HEAD activo: 1d28c1674e59655004d489b61495fdf78d2eb67a.
+- C7: 1abe65bae1db48f7f96846f27e1fc11e98cdcd0e; C9: 1d28c16.
+- El usuario omitió sólo la revisión acumulada C7+C9: medium, siete archivos, 493 líneas; target553fd09b, lineage review-0a0fe15b07db8e1f.
+- START exacto terminó EXIT0/declined_this_candidate; frontera acknowledged1d28c16. No reviewer ni transferencia de diff remoto; RDD sigue ON global.
+- Cadena feature-branch-chain ya elegida; sin push, PR ni merge.
+
+### Activación sólo Barber observada
+- Snapshot verificado: tmp/barber-verified-1d28c16-20261010-144904.
+- Launcher1220 → worker15148, inicio 14:51:23.532-03:00; readytrue, stderr0.
+- Puertos3311/3312 sólo loopback, propietario15148; túnel14904 y callback existente conservados.
+- Fresh idle: 17:51:19.210Z y17:51:20.753Z, todos los contadores operativos0; watermark16:14:24.228Z.
+- Se detuvieron únicamente los procesos anteriores11460/11672. El padre comprobó independientemente CIM, versión, ready, stderr y listeners: PASS.
+- Challenge del worker200 exacto; /crm404 local y HTTPS. GET local /crm404 y /webhooks/whatsapp sin credencial403 en ambos puertos.
+- No cambio Meta/Railway/otro negocio, envío real de WhatsApp, IA adicional ni modificación directa de filas financieras en esta activación.
+- La única migración financiera ya aplicada se registra en odd/tasks/nuevo-bot-reservas.md; no repetirla.
+
+### Controles y aceptación pendientes
+- Suites explicativas19/19, catálogo38/38, aislamiento8/8, turn-plan y recuperación14/14: PASS; controles de primera redacción, reply-contract y service-request también PASS.
+- UTF-8 oficial y diff propio: PASS observado por padre antes del cierre.
+- Tipos acotados:34 diagnósticos, cero nuevos en fuentes; tres importsNode del test por types[] existente. No build global limpio afirmado.
+- Siguen registrados los fallos baseline information-focus:74, catalog-comparison45PASS/1FAIL, public-catalog-bulk:112 y communicative112PASS/3FAIL, sin suavizar assertions.
+- Appointment-concurrency:1102!==1 sigue registrado fuera de esta unidad.
+- IA real C9: una ejecución de dos fixtures sintéticas, cuatro solicitudes HTTP200 de máximo seis; cero agenda/efectos. No se aprobaron ambos casos.
+- Mixto general/local: ambas redacciones rechazadas unverified_value por la salvedad publicada «no garantiza»; fallback canónico conserva todos los hechos.
+- General sin IDs: segunda redacción aceptada estructuralmente, pero termina «Los nombres y,»; calidad FAIL. Draft700 unidadesUTF-16/700 codepoints/713 bytes; entrega verbatimtrue, sin slice local.
+- maxLength700 del schema puede influir: es inferencia, no causa probada. Sin rawHTTP no se atribuye a max_output_tokens.
+- C3/C4/C8 permanecen abiertos por esos dos problemas reales; R3-local-attribution-gap sigue pendiente. No exención global de negación ni whitelist de frases añadidas.
+
+## Resumen de sesión y recuperación final
+### Goal
+Cerrar integración readonly de explicaciones y cargar las unidades verificadas en Barber, preservando las limitaciones reales.
+### Instructions
+IA interpreta/redacta; motor protege fuentes, valores y efectos. Sin más parches por frase, sin inventar propiedades del negocio ni adquirir carrito al consultar.
+### Discoveries
+- La integración debía conservar todas las lecturas informativas y sus hechos en orden, no sustituir la comparación por un menú.
+- Aceptación de estructura no acredita calidad: el modelo ya produjo el borrador incompleto de700 caracteres antes de entregarlo.
+### Accomplished
+C7/C9 guardados, recepción específica cerrada por omisión humana, regresiones locales PASS y Barber actualizado/verificado en1d28c16 con el mismo túnel.
+### Next Steps
+Probar desde WhatsApp por el usuario; mantener abiertas la salvedad negativa rechazada, la respuesta general incompleta y R3. Cualquier nueva IA externa requiere autorización nueva; no repetir migración ni declarar2/2PASS.
+### Relevant Files
+- C:/Users/cpu/salon-ai/odd/tasks/catalog-comparison-context.md — alcance, controles y aceptación pendiente.
+- C:/Users/cpu/salon-ai/odd/tasks/nuevo-bot-reservas.md — evidencia financiera P21 y activación conjunta.
+- C:/Users/cpu/salon-ai/tmp/c9-general-live-results.json — resultado sintético conservado.
+Engram mem_* sigue ausente tras rediscovery[]: espejo odd/catalog-comparison-context/tasks y mem_session_summary pendientes. Resumen local preservado; no se afirma guardado persistente.

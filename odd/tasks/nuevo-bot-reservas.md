@@ -3925,9 +3925,9 @@ Engram mem_session_summary/context/search/get/save no están expuestos (discover
 Agenda DELETE cancela lógicamente, no borra físicamente: appointment-service asigna REJECTED/rejectionReason='Turno cancelado' sin revisor, contradiciendo términos F8 sellados. No quitar trigger ni fingir revisión. Reset bloquea por obligación financiera pendiente aunque trabajos terminaron: ofrecer cancelar pendiente con consentimiento explícito y liberar el pedido completo atómicamente, conservando historial y confirmados.
 **Ruta:** delegado directo por mapping4+, preparación y writer2+; STRICT TDD heredado E2.25, runner node node_modules/tsx/dist/cli.mjs scripts/<suite-existente>-test.ts. Tests RED antes de fuente, GREEN y regresiones financieras/ownership/grupo. Forecast 300–700 líneas orientativo, no cap; feature-branch-chain ya elegida. Cada unidad a commit propio; RDD ON y consentimiento candidato anterior pendiente, sin omisión heredada ni publicación.
 - [x] P21.4 — Resolver comprobante contra grupo exacto vigente antes del límite SQL; historial vencido no interfiere, binding/locks/completitud/legacy siguen estrictos. Ruta delegated p21_expected_proof_writer, reutiliza mapping previo; pruebas PGlite locales primero.
-- [ ] P21.5 — Salida de seña pendiente mediante oferta y confirmación explícita, sin cancelar confirmados/revisiones/pagos ni borrar historial. Ruta delegated, mapping reset/cancel/choices antes de fuente; controles runtime/consentimiento/atomicidad.
-- [ ] P21.6 — Agenda usa transición legítima y actor real; pedido conjunto completo o rollback, prueba con F8 sellado; revisión de comprobante no se simula como cancelación. Ruta delegated, reutilizar operaciones financieras existentes y proteger estados no cancelables.
-- [ ] P21.7 — Integración local, commits/revisión propia y carga sólo Barber cuando autorizada pausa/idle/CIM. Sin IA real nueva, migraciones/base real writes ni recuperación financiera manual.
+- [x] P21.5 — Salida de seña pendiente mediante oferta y confirmación explícita, sin cancelar confirmados/revisiones/pagos ni borrar historial. Ruta delegated, mapping reset/cancel/choices antes de fuente; controles runtime/consentimiento/atomicidad.
+- [x] P21.6 — Agenda usa transición legítima y actor real; pedido conjunto completo o rollback, prueba con F8 sellado; revisión de comprobante no se simula como cancelación. Ruta delegated, reutilizar operaciones financieras existentes y proteger estados no cancelables.
+- [x] P21.7 — Integración local, commits/revisión propia y carga sólo Barber cuando autorizada pausa/idle/CIM. Sin IA real nueva, migraciones/base real writes ni recuperación financiera manual.
 P21.2 conserva su entrega042ef70 y pruebas18, pero no cubría el cruce con históricos: no se afirma solucionado el silencio por esa unidad. P21.1 congelada14casos/runtime PASS, commit propio aún pendiente; tres fallos baseline documentados no suavizados. Revisión69b84ccc pendiente de decisión humana. Barber sigue cb9ce00, túnel conservado; ninguna de estas fuentes declarada cargada.
 
 ### P21.2 revisión anterior resuelta y recuperación IA verificada
@@ -3990,7 +3990,7 @@ Goal: levantarBarber/túnel y callbackONLYBarber autorizado. Accomplished: listo
 ## Recuperación P21.5b — 2026-10-10
 Usuario pidió continuar/cerrar todo y pruebas. Padre leyó documento real y mapping read-only pending_financial_verification; Engram APIs ausentes, espejo y session_summary pendientes. Revisión1193ee7d omitida específica ya terminal; no bloquea corrección local. Migración real permanece no autorizada/noaplicada, sin reinicio automático.
 - [x] P21.5b — Propagar y revalidar cancelación durable STAFF/CUSTOMER singular/conjunta hasta runtime y recuperación; delegated writer4fuentescoordinated-deposit-group/prisma-conversational-booking/conversation-expired-recovery/process-inbox-job +dosREDexistentes. Reutilizar common authority, no motivos inventados ni cambio de reglas de pago. TDD STRICT E2.25; runner node node_modules/tsx/dist/cli.mjs scripts/<suite>-test.ts. ObservadoREDprevio se vuelve a comprobar antes de fuente. Preservar revisión/pago/recibo adulterado/efectospendientes.
-- [ ] P21.7b — Cerrar adapters/reset y verificación conjunta con SQL efímero/runtime, commits propios, nativeassessment desde frontera actuale77c7aa. Sin DBreal/Meta/WhatsApp/requeue/aprobación/migración. Forecast200–400authored adicional orientativo, cadena feature-branch-chain cacheada. No marcar integración completa hasta observarGREEN.
+- [x] P21.7b — Cerrar adapters/reset y verificación conjunta con SQL efímero/runtime, commits propios, nativeassessment desde frontera actuale77c7aa. Sin DBreal/Meta/WhatsApp/requeue/aprobación/migración. Forecast200–400authored adicional orientativo, cadena feature-branch-chain cacheada. No marcar integración completa hasta observarGREEN.
 
 ### P21.6 adaptador agenda verificado — unidad independiente
 Padre volvió a comprobar37/37 SQL efímero de operacióncomún y15/15 adaptadoragenda; actorSTAFF/BUSINESS_ADMIN reales, companion sinseña cancela grupo completo o rollback, relectura bajo businesslock, scopes403 y estado revisión/pago409 conservados. Sinreview ficticio ni violar términosF8. Fuenteappointment-service.ts delegada previamente con RED3PASS/9FAIL antes de implementación; lease y pruebas congeladas, ninguna fuenteajena incluida. Esta unidad guarda adaptador+su suite+documento; terminalP21.5b aún en curso y no se declara reset/activación completos.
@@ -4008,3 +4008,57 @@ Padre leyó sources5incluida choices y pruebareset completa; rerun independiente
 Unidad propia8trackedfuentes/tests+suitependingresetnuevo+doc; aprox500authored, forecast/cadena feature-branch-chain ya elegida, sinPR/push. Commit a continuación trasUTF8/diff/stagingexactos. Verificaciones previas37SQL/15agenda yF7/F9PASS delegadas. Appointment-concurrency:1102!==1 permanece fallo registrado no suavizado; tipos/buildglobal no afirmado. P21.7b activación ycontrolnativo propios pendientes, no marcarBarberactualizado; migraciónúnicaaplicada registradaarriba. Engram noexpuesto: mirrorpendiente.
 
 P21.5b/P21.7b commit a5aa1bb396e29fa11ed91b4125f9c72570dd5905:10archivos462+/23−, stagingexacto/UTF8oficial/diffstagedPASS. Assessmentinventariofailed tratadodue/high, STATUSv2/exclude/relay obtuvo candidatob39849f5/medium485lines. Auto-review frenórelay porpotencialegress, humano eligió OMITIRsóloeste bloque; STARTdecline exactoconinventarioactual terminalEXIT0/declined_this_candidate. Fronteraacka5aa1bb, ningúnreviewer/remotediff niRDDglobalOFF. Migraciónestrechaaplicada, fuentesguardadas aúnnoactivadas; pausafrescaBarber pendiente. Seguiente documentaractivación/comprobaciónWhatsApp, mantenerfallosbaseline.
+## Cierre verificado P21 y activación conjunta — 2026-10-10
+
+Esta actualización documental cierra sólo P21.5/P21.6/P21.7/P21.7b con la evidencia observada; los estados históricos anteriores no se reescriben y las otras tareas no se cierran por inferencia.
+
+### Resultado financiero observado
+- P21.5: /reset ofrece salir de la seña pendiente; sólo la confirmación explícita cancela todo el pedido y reinicia atómicamente. Mantener/sin consentimiento no cambia finanzas.
+- P21.6: agenda utiliza actorSTAFF/BUSINESS_ADMIN real, cancelación legítima auditada y todos los miembros o rollback; no simula revisión ni altera términos F8 sellados.
+- Revisión, comprobante recibido y pago conservan sus protecciones; busy exige efectos realmente pendientes. Motivos CUSTOMER/STAFF durables se revalidan para singular/grupo.
+- P21.7b: runtime completo, SQL coordinado22 escenarios, pending-reset13/13 y runtime-booking completo: PASS independiente.
+- SQL efímero de operación común37/37, adaptador agenda15/15 y F7–F9: PASS. PGlite valida SQL/trigger, no contención de procesos PostgreSQL externos.
+- Commits propios: agenda6767096 y terminal/reset a5aa1bb396e29fa11ed91b4125f9c72570dd5905; sus decisiones nativas específicas quedaron cerradas por omisión humana registrada arriba.
+- P21.7: integración guardada y cargada sólo en Barber tras autorización de pausa y comprobaciones frescas, según evidencia operativa inferior.
+
+### Autorizaciones separadas y control de entrega
+- La restricción original de no migrar/base real se amplió exclusivamente por autorización expresa de20261009210000_add_pending_deposit_staff_cancellation; aplicación única ya observada y registrada. No ejecutar de nuevo ni migrate deploy.
+- Esa autorización no habilitó cancelar turnos reales, aprobar pagos, modificar filas financieras manualmente ni ejecutar otras migraciones.
+- La actualización operativa posterior autorizó sólo Barber local, conservando túnel/callback; no amplió Meta/Railway/otros negocios ni envíos reales de prueba.
+- HEAD final: 1d28c1674e59655004d489b61495fdf78d2eb67a; unidades explicativas C7:1abe65b y C9:1d28c16.
+- Usuario OMITIR sólo C7+C9, candidato medium siete archivos/493 líneas, target553fd09b, lineage review-0a0fe15b07db8e1f.
+- START exacto EXIT0/declined_this_candidate observado; frontera acknowledged1d28c16. Ningún reviewer/diff remoto ni RDD OFF; modo ON global conservado.
+- feature-branch-chain cacheada; sin push, PR ni merge.
+
+### Barber actualizado y verificado
+- Snapshot tmp/barber-verified-1d28c16-20261010-144904; launcher1220 → worker15148, inicio14:51:23.532-03:00.
+- readytrue/stderr0; puertos3311/3312 loopback, propietario15148. Túnel14904 y callback anterior conservados.
+- Idle fresco:17:51:19.210Z y17:51:20.753Z, todos los contadores0; watermark16:14:24.228Z.
+- Sólo procesos anteriores11460/11672 detenidos; padre independiente CIM/versión/ready/stderr/listeners PASS.
+- Challenge200 exacto, CRM404 local y HTTPS; GETlocal /crm404 y /webhooks/whatsapp sin credencial403 en ambos puertos.
+- Ninguna nueva IA, modificación directa de filas financieras, operación Meta/Railway/otro tenant ni mensaje real WhatsApp enviado para esta activación.
+
+### Fallos y límites conservados
+- Explicativas19/19, catálogo38/38, aislamiento8/8, turn-plan y recuperación14/14 PASS; UTF-8 oficial y diff propio PASS.
+- Tipos acotados34 diagnósticos/cero nuevos de fuentes; tres importsNode por types[] existente. No build global limpio afirmado.
+- Baseline information-focus:74, comparación45PASS/1FAIL, bulk:112, communicative112PASS/3FAIL y concurrency:1102!==1 registrados; assertions intactas.
+- Aceptación general C3/C4/C8 de odd/tasks/catalog-comparison-context.md sigue abierta: IA C9 cuatro solicitudes HTTP200/6, mixto rechazado en ambas redacciones por caveat publicado y general aceptado pero incompleto.
+- Draft general ya700UTF-16/700 codepoints/713 bytes, termina «Los nombres y,» y se entrega verbatim sin slice local. Influencia de schema maxLength700 es inferencia; no rawHTTP para atribuir max_output_tokens.
+- R3-local-attribution-gap pendiente; sin exención global de negación ni nueva lista de frases. No declarar2/2PASS ni que la activación prueba todos los chats.
+
+## Resumen de sesión y recuperación final P21
+### Goal
+Habilitar salida segura de seña y cancelación legítima desde agenda; cargar Barber con las unidades verificadas.
+### Instructions
+Consentimiento explícito, actor real, historial intacto, todos los servicios o rollback; sin revisión/pago ficticios ni producción/otros negocios.
+### Discoveries
+Un estado financiero no equivale a un trabajo en curso. La cancelación durable debe sobrevivir hasta runtime y recuperación sin confundirse con pago rechazado.
+### Accomplished
+P21.5/P21.6/P21.7/P21.7b verificados, commits propios y recepción específica registrados; migración única aplicada con permiso separado; Barber1d28c16 activo con controles independientes PASS.
+### Next Steps
+Prueba humana por WhatsApp de adjuntos, salida de seña y agenda. Mantener pendientes los fallos registrados y la aceptación general de explicaciones; no repetir migración ni iniciar nueva evaluación IA sin autorización.
+### Relevant Files
+- C:/Users/cpu/salon-ai/odd/tasks/nuevo-bot-reservas.md — recuperación financiera y evidencia operativa.
+- C:/Users/cpu/salon-ai/odd/tasks/catalog-comparison-context.md — cierre estructural y limitaciones reales de redacción.
+- C:/Users/cpu/salon-ai/tmp/barber-verified-1d28c16-20261010-144904 — snapshot operativo observado.
+Engram APIs mem_* ausentes tras rediscovery[]: espejo odd/nuevo-bot-reservas/tasks y mem_session_summary pendientes; resumen local conservado, no guardado persistente afirmado.
