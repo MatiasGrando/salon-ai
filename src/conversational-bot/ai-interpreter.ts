@@ -9,7 +9,7 @@ import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageD
 import { approximateTimeRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { groundTemporalPlan, TemporalMeaningConflictError } from './temporal-grounding.js'
-import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace } from './reply-contract.js'
+import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace, type ReplyValidation, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
 import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
@@ -580,6 +580,14 @@ export async function respondWithAiInterpreter(
   let authored: string | null = null
   let modelFraming = false
   let intakeValidation: ReplyValidationResult['validation'] | undefined
+  const rejections: ReplyRejectionDiagnostic[] = []
+  const recordReplyValidation = (stage: ReplyRejectionDiagnostic['stage'], validation: ReplyValidation) => {
+    const rejected = validation.status === 'rejected' ? validation.reason : validation.discardedFramingReason
+    if (!rejected || rejected === 'canonical_only' || rejected === 'new_facts') return
+    // Four mutually bounded routing stages; no rejected model text is retained or overwritten.
+    rejections.push({ stage, reason: rejected, factCount: validation.factCount, providedCount: validation.providedCount,
+      ...(validation.detail ? { detail: validation.detail } : {}) })
+  }
   let aiCalls = interpretationAttempts.length
   let replyRoute: 'first_call' | 'second_call' | 'motor' = 'motor'
   const finalFacts = !planHasUpdates && !planHasInformation && replyIntent === 'other' && incidentalFacts ? incidentalFacts :
@@ -590,6 +598,7 @@ export async function respondWithAiInterpreter(
     if (candidate.intakeReply != null) {
       const intake = assembledIntakeReply(candidate.intakeReply, finalFacts, response.state, candidates, services, replyContract('clarification', Boolean(port.identity), response.state.introduced === true, finalFacts))
       intakeValidation = intake.validation
+      recordReplyValidation('intake', intake.validation)
       authored = intake.text
       modelFraming = intake.modelFraming
       if (authored) replyRoute = 'first_call'
@@ -607,7 +616,7 @@ export async function respondWithAiInterpreter(
       !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
       !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
   const finalContract = replyContract(replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
-  const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only') }
+  const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only'), rejections }
   if (intakeValidation) replyValidation.firstCall = intakeValidation
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }
   const catalogCopyEligible = !!response.catalogInformation && explanatoryReadOnly && !reason && !canonicalOnly &&
@@ -618,6 +627,7 @@ export async function respondWithAiInterpreter(
   if (!authored && (eligibleFirstReply || catalogCopyEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
+    recordReplyValidation('first_reply', validated.validation)
     // Accepted framing alone is not an explanatory body. Keep its original trace,
     // but compose the missing explanation from the proved scope rather than a menu.
     authored = !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
@@ -639,11 +649,15 @@ export async function respondWithAiInterpreter(
     const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
     replyValidation.firstCall = frame.validation
+    recordReplyValidation('prepared_frame', frame.validation)
     if (frame.validation.status === 'accepted') {
       const currentNext = finalFacts.find(fact => fact.id === 'next')
       const solePreparedFact = !currentNext && response.replyPrepared && finalFacts.length === 1 ? finalFacts[0] : undefined
       const projected = projectValidatedReplyFrame(frame, currentNext ?? solePreparedFact, Boolean(solePreparedFact), finalFacts[0]?.id === 'acknowledgment')
-      if (!projected) replyValidation.firstCall = { ...frame.validation, status: 'rejected', reason: 'continuation_conflict' }
+      if (!projected) {
+        replyValidation.firstCall = { ...frame.validation, status: 'rejected', reason: 'continuation_conflict' }
+        recordReplyValidation('prepared_frame', replyValidation.firstCall)
+      }
       else if (projected.openingText.trim()) {
         authored = [projected.openingText, ...finalFacts.map(fact => fact.text)].join('\n')
         modelFraming = projected.modelFraming
@@ -675,12 +689,14 @@ export async function respondWithAiInterpreter(
       responseUsage = readAiUsage(output)
       const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
+      recordReplyValidation('second_reply', validated.validation)
       authored = !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
       modelFraming = validated.modelFraming
       copyReason = authored ? modelFraming ? null : 'canonical_only' : 'invalid_response'
     } catch (error) {
       copyReason = responseController.signal.aborted ? 'response_timeout' : 'response_error'
       replyValidation.secondCall = { status: 'rejected', reason: responseController.signal.aborted ? 'timeout' : 'provider_error', factCount: Math.min(facts.length, 101), providedCount: 0 }
+      recordReplyValidation('second_reply', replyValidation.secondCall)
       responseProviderError = responseController.signal.aborted
         ? { code: 'timeout', httpStatus: null, requestId: null } : providerFailure(error)
     }

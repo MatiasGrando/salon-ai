@@ -2491,3 +2491,34 @@ for (const repaired of [false, true]) {
   assert.ok(!recoveryRuntime.statements.some(query => /INSERT INTO "(?:Appointment|BookingVisit)"/.test(query.sql)))
 }
 console.log('P21 repaired/failed interpretation transport, privacy and no independent mutations: PASS')
+
+// C16: actual post-commit WhatsApp diagnostic transport, with the existing fake SQL client only.
+const rejectedCopyRuntime = runtimeFixture()
+rejectedCopyRuntime.next('hola')
+const rejectedCopyBefore = rejectedCopyRuntime.settled
+const rejectedCopyTraces: Record<string, unknown>[] = []
+let rejectedCopyCalls = 0
+await rejectedCopyRuntime.run('PROCESS_INBOX', {
+  provider: async () => {
+    rejectedCopyRuntime.assertOutside(); rejectedCopyCalls++
+    return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+      firstReply: { salutation: 'PRIVATE_NAME', opening: null, closing: null, factIds: null, variantChoices: null, catalogAnswer: null } }
+  }, timeoutMs: 4500,
+  onDiagnostic: value => {
+    assert.equal(rejectedCopyRuntime.settled, rejectedCopyBefore + 1, 'sink runs only after actual durable transition')
+    rejectedCopyTraces.push(value as unknown as Record<string, unknown>)
+  }
+})
+assert.equal(rejectedCopyCalls, 1); assert.equal(rejectedCopyTraces.length, 1)
+const transportedRejection = rejectedCopyTraces[0]!.replyValidation as {
+  firstCall: { reason: string; detail: { cause: string; path: string }; factCount: number }
+  rejections: unknown[]
+}
+assert.equal(transportedRejection.firstCall.reason, 'invalid_shape')
+assert.deepEqual(transportedRejection.firstCall.detail, { cause: 'salutation_shape', path: 'draft.salutation' })
+assert.deepEqual(transportedRejection.rejections, [{ stage: 'first_reply', reason: 'invalid_shape',
+  factCount: transportedRejection.firstCall.factCount, providedCount: 0, detail: { cause: 'salutation_shape', path: 'draft.salutation' } }])
+assert.doesNotMatch(JSON.stringify(transportedRejection), /PRIVATE_|Corte|phone|prompt|message|catalogId/)
+assert.equal(rejectedCopyRuntime.singularAgendaCalls + rejectedCopyRuntime.basketAgendaCalls, 0)
+assert.equal(rejectedCopyRuntime.replies.length, 1)
+console.log('C16 actual post-commit diagnostic transport: closed shape detail and history PASS')

@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { types as nodeTypes } from 'node:util'
+import { REPLY_SHAPE_PATHS, type ReplyRejection, type ReplyShapeDetail, type ReplyValidation, type ReplyValidationTrace, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { AVAILABILITY_CAUSES } from '../bot-options/application/availability-evidence.js'
 import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
 import { TURN_PLAN_LIMITS, TurnPlanValidationError, type TurnPlanValidationCause, type TurnOperation } from './turn-plan.js'
@@ -184,6 +187,63 @@ export function summarizeValidationDiagnostic(value: unknown): ValidationSummary
     return result
   } catch { return undefined }
 }
+
+const replyReasons: readonly ReplyRejection[] = ['missing_draft', 'invalid_shape', 'fact_membership', 'fact_order',
+  'continuation_conflict', 'neutral_frame', 'frame_bounds', 'unverified_value', 'catalog_in_frame', 'unverified_action',
+  'identity_in_frame', 'empty_text', 'reply_bounds', 'intake_mismatch', 'provider_error', 'timeout', 'interpretation_invalid']
+const safeCount = (value: unknown): number | undefined => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? Math.min(value, 101) : undefined
+function summarizeReplyDetail(value: unknown): ReplyShapeDetail | undefined {
+  if (nodeTypes.isProxy(value)) return undefined
+  const cause = dataField(value, 'cause'), path = dataField(value, 'path')
+  if (typeof cause !== 'string' || !Object.hasOwn(REPLY_SHAPE_PATHS, cause) || path !== REPLY_SHAPE_PATHS[cause as keyof typeof REPLY_SHAPE_PATHS]) return undefined
+  return { cause, path } as ReplyShapeDetail
+}
+function summarizeReplyValidation(value: unknown): ReplyValidation | undefined {
+  if (nodeTypes.isProxy(value)) return undefined
+  const status = dataField(value, 'status'), reason = dataField(value, 'reason')
+  const factCount = safeCount(dataField(value, 'factCount')), providedCount = safeCount(dataField(value, 'providedCount'))
+  if (!['accepted','rejected','not_attempted'].includes(status as string) || factCount === undefined || providedCount === undefined ||
+      (status === 'accepted' ? reason !== null : status === 'rejected' ? !replyReasons.includes(reason as ReplyRejection) : !['new_facts','canonical_only'].includes(reason as string))) return undefined
+  const result = { status, reason, factCount, providedCount } as ReplyValidation
+  if (Object.hasOwn(value as object, 'detail')) {
+    const detail = summarizeReplyDetail(dataField(value, 'detail'))
+    if (reason !== 'invalid_shape' || !detail) return undefined
+    result.detail = detail
+  }
+  if (Object.hasOwn(value as object, 'discardedFramingReason')) {
+    const discarded = dataField(value, 'discardedFramingReason')
+    if (status !== 'accepted' || !replyReasons.includes(discarded as ReplyRejection)) return undefined
+    result.discardedFramingReason = discarded as ReplyRejection
+  }
+  return result
+}
+/** Existing WhatsApp sink receives closed codes and counts, never rejected bodies or accessor data. */
+export function summarizeReplyValidationDiagnostic(value: unknown): ReplyValidationTrace | undefined {
+  try {
+    if (nodeTypes.isProxy(value)) return undefined
+    const firstCall = summarizeReplyValidation(dataField(value, 'firstCall')), secondCall = summarizeReplyValidation(dataField(value, 'secondCall'))
+    if (!firstCall || !secondCall) return undefined
+    const result: ReplyValidationTrace = { firstCall, secondCall }
+    if (Object.hasOwn(value as object, 'rejections')) {
+      const history = dataField(value, 'rejections')
+      if (nodeTypes.isProxy(history) || !Array.isArray(history) || history.length > 4) return undefined
+      const rejections: ReplyRejectionDiagnostic[] = []
+      for (let index = 0; index < history.length; index++) {
+        const item = Object.getOwnPropertyDescriptor(history, String(index))?.value
+        if (nodeTypes.isProxy(item)) return undefined
+        const stage = dataField(item, 'stage'), reason = dataField(item, 'reason')
+        const safe = summarizeReplyValidation({ status: 'rejected', reason, factCount: dataField(item, 'factCount'), providedCount: dataField(item, 'providedCount'),
+          ...(item && Object.hasOwn(item, 'detail') ? { detail: dataField(item, 'detail') } : {}) })
+        if (!['first_reply','intake','prepared_frame','second_reply'].includes(stage as string) || !safe) return undefined
+        rejections.push({ stage: stage as ReplyRejectionDiagnostic['stage'], reason: reason as ReplyRejection,
+          factCount: safe.factCount, providedCount: safe.providedCount, ...(safe.detail ? { detail: safe.detail } : {}) })
+      }
+      result.rejections = rejections
+    }
+    return result
+  } catch { return undefined }
+}
+
 export function summarizeState(state: DialogueState): StateSummary {
   return {
     pending: state.pending,

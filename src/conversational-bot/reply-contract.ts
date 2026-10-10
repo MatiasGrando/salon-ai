@@ -15,15 +15,26 @@ export type ReplyRejection =
   | 'neutral_frame' | 'frame_bounds' | 'unverified_value' | 'catalog_in_frame' | 'unverified_action'
   | 'identity_in_frame' | 'empty_text' | 'reply_bounds' | 'intake_mismatch'
   | 'provider_error' | 'timeout' | 'interpretation_invalid'
+export const REPLY_SHAPE_PATHS = {
+  draft_structure: 'draft', salutation_shape: 'draft.salutation', variants_structure: 'draft.variantChoices',
+  variant_structure: 'draft.variantChoices[]', variant_fields: 'draft.variantChoices[]',
+  catalog_context_missing: 'context.catalogInformation', catalog_fact_missing: 'facts.catalog'
+} as const
+export type ReplyShapeDetail = { [K in keyof typeof REPLY_SHAPE_PATHS]: { cause: K; path: typeof REPLY_SHAPE_PATHS[K] } }[keyof typeof REPLY_SHAPE_PATHS]
+export type ReplyRejectionDiagnostic = {
+  stage: 'first_reply' | 'intake' | 'prepared_frame' | 'second_reply'; reason: ReplyRejection
+  factCount: number; providedCount: number; detail?: ReplyShapeDetail
+}
 export type ReplyValidation = {
   status: 'accepted' | 'rejected' | 'not_attempted'
   reason: ReplyRejection | 'new_facts' | 'canonical_only' | null
   factCount: number
   providedCount: number
+  detail?: ReplyShapeDetail
   /** The original optional frame was rejected; only the newly safe body assembly was accepted. */
   discardedFramingReason?: ReplyRejection
 }
-export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation }
+export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation; rejections?: ReplyRejectionDiagnostic[] }
 export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
@@ -132,6 +143,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   let closing = value?.closing
   let catalogText: string | null = null
   let discardedFramingReason: ReplyRejection | undefined
+  let detail: ReplyShapeDetail | undefined
   // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
   let salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
@@ -141,7 +153,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     modelFraming: Boolean(text && [opening, closing]
       .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText)),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount,
-      ...(!reason && discardedFramingReason ? { discardedFramingReason } : {}) }
+      ...(detail ? { detail } : {}), ...(!reason && discardedFramingReason ? { discardedFramingReason } : {}) }
   })
   const assembled = (): ReplyValidationResult => {
     const text = [salutation, opening, ...facts.map(fact => fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text), closing]
@@ -155,9 +167,13 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     discardedFramingReason = reason
     return assembled()
   }
+  const rejectShape = (cause: keyof typeof REPLY_SHAPE_PATHS): ReplyValidationResult => {
+    detail = { cause, path: REPLY_SHAPE_PATHS[cause] } as ReplyShapeDetail
+    return result('invalid_shape')
+  }
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return result('invalid_shape')
-  if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return result('invalid_shape')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
+  if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return rejectShape('salutation_shape')
   // Explicit null assigns the complete material body to the server. Legacy lists
   // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
   // providedCount above stays zero for null; these IDs were not supplied by the model.
@@ -166,11 +182,11 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
       factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
   if (JSON.stringify(factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
   if (value.variantChoices !== undefined && value.variantChoices !== null) {
-    if (!Array.isArray(value.variantChoices) || value.variantChoices.length > facts.length) return result('invalid_shape')
+    if (!Array.isArray(value.variantChoices) || value.variantChoices.length > facts.length) return rejectShape('variants_structure')
     for (const rawChoice of value.variantChoices) {
-      if (!rawChoice || typeof rawChoice !== 'object' || Array.isArray(rawChoice)) return result('invalid_shape')
+      if (!rawChoice || typeof rawChoice !== 'object' || Array.isArray(rawChoice)) return rejectShape('variant_structure')
       const choice = rawChoice as Record<string, unknown>
-      if (Object.keys(choice).sort().join(',') !== 'factId,variantId' || typeof choice.factId !== 'string' || typeof choice.variantId !== 'string' || selectedVariants.has(choice.factId)) return result('invalid_shape')
+      if (Object.keys(choice).sort().join(',') !== 'factId,variantId' || typeof choice.factId !== 'string' || typeof choice.variantId !== 'string' || selectedVariants.has(choice.factId)) return rejectShape('variant_fields')
       const fact = facts.find(item => item.id === choice.factId)
       const variant = fact?.variants?.find(item => item.id === choice.variantId)
       if (!variant || variant.text.length > 1000 || /[\u0000-\u001f]/.test(variant.text)) return result('fact_membership')
@@ -183,7 +199,8 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')
   // Validate the complete explanatory body independently before optional frame rejection.
   if (value.catalogAnswer != null) {
-    if (!catalog || !facts.some(fact => fact.id === 'catalog')) return result('invalid_shape')
+    if (!catalog) return rejectShape('catalog_context_missing')
+    if (!facts.some(fact => fact.id === 'catalog')) return rejectShape('catalog_fact_missing')
     catalogText = validateCatalogAnswer(value.catalogAnswer, catalog, text => protectedReplyClaim(text))
     if (!catalogText) return result('unverified_value')
   }

@@ -1,5 +1,5 @@
 import { PendingDepositCancellationError, loadPendingDepositCancellationTx, cancelPendingDepositInTransaction, type PendingDepositCancellationActor } from '../services/pending-deposit-cancellation.js'
-import { summarizeInterpretationAttemptsDiagnostic, summarizeValidationDiagnostic } from './ai-diagnostics.js'
+import { summarizeInterpretationAttemptsDiagnostic, summarizeReplyValidationDiagnostic, summarizeValidationDiagnostic } from './ai-diagnostics.js'
 import { interpretConversationAttachment, conversationProofBindingFromState, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from './attachment-intent.js'
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
@@ -806,13 +806,14 @@ export async function processConversationInbox(input: {
       const diagnostic = (response as InterpretedDialogueResponse).interpretation
       const validation = summarizeValidationDiagnostic(diagnostic.validation)
       const interpretationAttempts = summarizeInterpretationAttemptsDiagnostic(diagnostic.interpretationAttempts)
+      const replyValidation = summarizeReplyValidationDiagnostic(diagnostic.replyValidation)
       const ms = (value: number) => Math.round(value * 10) / 10
       try {
         await input.conversationalAi.onDiagnostic({
           jobId: input.job.id, businessId: policy.businessId, providerEventId: snapshot.row.providerEventId,
           transitionId: committedTransitionId, result, contextMs: ms(computedStarted - contextStarted), computeMs: ms(computedAt - computedStarted),
           mode: diagnostic.mode, reason: diagnostic.reason, copyMode: diagnostic.copyMode, copyReason: diagnostic.copyReason,
-          ...(diagnostic.replyValidation ? { replyValidation: diagnostic.replyValidation } : {}),
+          ...(replyValidation ? { replyValidation } : {}),
           ...(validation ? { validation } : {}),
           ...(interpretationAttempts ? { interpretationAttempts } : {}),
           aiCalls: diagnostic.aiCalls, replyRoute: diagnostic.replyRoute,
