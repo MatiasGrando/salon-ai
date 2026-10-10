@@ -95,6 +95,76 @@ try {
     for (const block of comparison) assert.ok(!stale.reply.includes(block.text))
     checkRead(stale, menu.state, beforeAgenda)
   })
+  const allDescriptions: Block[] = catalog.slice(0, 3).map(service => ({ text: service.description!, sources: [source(service.id)] }))
+  const procedureMenu = async () => {
+    const body = 'Quería consultar sobre el alisado'
+    return respondWithAiInterpreter(context, initial, body, port, async () => ({ ...base,
+      turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose: 'inquiry', disposition: 'alternatives',
+        serviceIds: ['straight', 'care', 'keratin'], correction: false, continuation: false, basis: 'related_category', sourceQuote: null,
+        evidence: 'el alisado', confidence: 1 }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, mention: 'el alisado', confidence: 1, operationIndexes: [0] }] }, firstReply: null }))
+  }
+  await check('C1 habitual shortened names explain the model-proposed current services without asking for a selection', async () => {
+    const body = '¿Qué diferencia hay entre el alisado y la keratina?'; const beforeAgenda = agenda
+    const blocks = [allDescriptions[2]!, allDescriptions[1]!]
+    const result = await respondWithAiInterpreter(context, initial, body, port, async () => owned(body, ['straight', 'keratin'], 'comparison', blocks))
+    for (const block of blocks) assert.ok(result.reply.includes(block.text), 'a habitual unambiguous label must not hide the current description')
+    assert.doesNotMatch(result.reply, /Cuál de estas opciones|estas son las opciones del catálogo|De cuál de estos servicios/i)
+    checkRead(result, initial, beforeAgenda)
+  })
+  await check('C1 full current unique aliases support explanation but never acquire a cart', async () => {
+    const services = catalog.map(service => ({ ...service, aliases: service.id === 'straight' ? ['Laceado'] : service.id === 'keratin' ? ['Baño keratínico'] : [] }))
+    const body = 'Comparame Laceado y Baño keratínico'; const beforeAgenda = agenda
+    const blocks = [allDescriptions[2]!, allDescriptions[1]!]
+    for (const mention of [null, 'Baño keratínico']) {
+      const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => services }, async () => owned(body, ['straight', 'keratin'], 'comparison', blocks, mention))
+      for (const block of blocks) assert.ok(result.reply.includes(block.text), 'aliases are current public identities, not invented technique equivalence')
+      checkRead(result, initial, beforeAgenda)
+    }
+    const qualifiedBody = body + ', el método inventado'
+    const denied = await respondWithAiInterpreter(context, initial, qualifiedBody, { ...port, catalog: async () => services }, async () => owned(qualifiedBody, ['straight', 'keratin'], 'comparison', blocks, 'método inventado'))
+    for (const block of blocks) assert.ok(!denied.reply.includes(block.text), 'an unrecognized act identity cannot authorize current catalog copy')
+    checkRead(denied, initial, beforeAgenda)
+  })
+  await check('C1 each of them compares all options from the actual current procedure menu', async () => {
+    const menu = await procedureMenu()
+    assert.equal(menu.state.serviceRequest?.disposition, 'alternatives'); assert.equal(menu.state.questionContext?.options.length, 3)
+    const body = 'Quiero saber la diferencia de cada una de ellas para saber cuál me convendría hacerme'; const beforeAgenda = agenda
+    const result = await respondWithAiInterpreter(context, menu.state, body, port, async () => owned(body, ['straight', 'care', 'keratin'], 'comparison', allDescriptions))
+    for (const block of allDescriptions) assert.ok(result.reply.includes(block.text), 'the current displayed pool must support the model-proposed informational comparison')
+    assert.doesNotMatch(result.reply, /estas son las opciones del catálogo|Cuál de estas opciones|— Quiero saber/)
+    checkRead(result, menu.state, beforeAgenda)
+  })
+  await check('C1 an undocumented shock qualifier does not become an asserted technique or result', async () => {
+    const body = 'que diferencia hay entre el alisado y el shock de keratina?'; const beforeAgenda = agenda
+    const blocks = [allDescriptions[2]!, allDescriptions[1]!]
+    const result = await respondWithAiInterpreter(context, initial, body, port, async () => owned(body, ['straight', 'keratin'], 'comparison', blocks))
+    for (const block of blocks) assert.ok(result.reply.includes(block.text), 'explain only the current published generic descriptions')
+    assert.doesNotMatch(result.reply, /shock.*(?:equivale|incluye|garantiza)|(?:equivale|incluye|garantiza).*shock|estas son las opciones del catálogo|Cuál de estas opciones/i)
+    checkRead(result, initial, beforeAgenda)
+  })
+  await check('C1 ambiguous aliases cannot hide an unmentioned alternative through a proposed read ID', async () => {
+    const services = catalog.map(service => ({ ...service, aliases: ['straight', 'care'].includes(service.id) ? ['Laceado'] : [] }))
+    const body = 'Comparame Laceado y Keratina'; const blocks = [allDescriptions[2]!, allDescriptions[1]!]; const beforeAgenda = agenda
+    const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => services }, async () => owned(body, ['straight', 'keratin'], 'comparison', blocks))
+    assert.ok(!result.reply.includes(blocks[0]!.text), 'an ambiguous alias cannot authorize the arbitrarily selected service description')
+    checkRead(result, initial, beforeAgenda)
+  })
+  await check('C1 old renamed procedure options cannot authorize a comparison by reference', async () => {
+    const menu = await procedureMenu(); const body = 'Explicame la diferencia entre cada una'; const beforeAgenda = agenda
+    const services = catalog.map(service => service.id === 'care' ? { ...service, name: 'Otro tratamiento vigente' } : service)
+    const result = await respondWithAiInterpreter(context, menu.state, body, { ...port, catalog: async () => services }, async () => owned(body, ['straight', 'care', 'keratin'], 'comparison', allDescriptions))
+    for (const block of allDescriptions) assert.ok(!result.reply.includes(block.text), 'a stale displayed identity cannot authorize source-backed copy')
+    checkRead(result, menu.state, beforeAgenda)
+  })
+  await check('C1 IDs in an unrelated question do not become an explanatory referent', async () => {
+    const menu = await procedureMenu(); const before = structuredClone(menu.state)
+    before.questionContext!.question = '¿Con qué profesional querés atenderte?'
+    const body = 'Explicame cada una'; const beforeAgenda = agenda
+    const result = await respondWithAiInterpreter(context, before, body, port, async () => owned(body, ['straight', 'care', 'keratin'], 'comparison', allDescriptions))
+    for (const block of allDescriptions) assert.ok(!result.reply.includes(block.text), 'only the actually matching current procedure question supplies identity context')
+    checkRead(result, before, beforeAgenda)
+  })
   await check('general explanation is not a special two-product phrase or a verbatim fact-membership requirement', async () => {
     const body = 'Explicame para qué sirve Keratina y qué límite tiene'
     const blocks = [comparison[1]!]; let calls = 0; const beforeAgenda = agenda

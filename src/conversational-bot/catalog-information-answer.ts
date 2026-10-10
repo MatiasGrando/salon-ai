@@ -1,4 +1,5 @@
-import { normalizeAnswer } from './dialogue-context.js'
+import { normalizeAnswer, parseDialogueQuestion } from './dialogue-context.js'
+import { assessServiceIdentity, validServiceCandidateContext } from './service-request.js'
 import { uniqueLiteralSpan } from './service-information-scope.js'
 import type { DialogueService, DialogueState } from './engine.js'
 import type { InformationTarget, ServiceInformationAspect } from './information-contract.js'
@@ -24,6 +25,13 @@ export function literalCatalogName(message: string, name: string): boolean {
   // Normalized matching supplies no offsets or inferred aliases; require full token boundaries.
   return !!uniqueLiteralSpan(' ' + normalizeAnswer(message) + ' ', ' ' + normalizeAnswer(name) + ' ')
 }
+/** Text proves only the identities in an already model-owned informative read, not technique equivalence. */
+function currentCatalogMention(message: string, service: DialogueService, services: readonly DialogueService[]): boolean {
+  const labels = [service.name, ...service.aliases ?? []]
+  const head = normalizeAnswer(service.name).split(' ')[0]!
+  return [...labels, head].some(label => literalCatalogName(message, label) &&
+    assessServiceIdentity(label, service.id, 1, services).kind === 'supported')
+}
 const descriptive = (aspect: ServiceInformationAspect) => ['description', 'comparison', 'recommendation'].includes(aspect)
 /** Exact current owner + catalog/reference alignment; no framing string supplies authority. */
 export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: CommunicativeActs | null | undefined,
@@ -36,11 +44,15 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
   if (owner?.length !== 1 || owner[0]!.kind !== 'inquiry' || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 || owner[0]!.evidence !== message) return []
   const selected = services.filter(service => operation.target.kind === 'service' && operation.target.serviceIds.includes(service.id))
   if (selected.length !== operation.target.serviceIds.length) return []
-  const literal = selected.every(service => literalCatalogName(message, service.name))
+  const literal = selected.every(service => currentCatalogMention(message, service, services))
   const focus = state.informationFocus
   const reference = !!focus && focus.businessId === state.businessId && !focus.candidateId &&
     focus.options.length === selected.length && focus.options.every(option => selected.some(service => service.id === option.id && service.name === option.label))
-  if (!literal && !reference || owner[0]!.mention !== null && !selected.some(service => service.name === owner[0]!.mention)) return []
+  const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
+  const procedureReference = !!question?.complete && question.role === 'service' && question.options.length === selected.length &&
+    selected.every(service => validServiceCandidateContext(state.serviceRequest, service.id, state.businessId, services, question, false))
+  if (!literal && !reference && !procedureReference || owner[0]!.mention !== null &&
+      !selected.some(service => assessServiceIdentity(owner[0]!.mention!, service.id, 1, services).kind === 'supported')) return []
   return [{ businessId: state.businessId, currentBody: message, operation: JSON.stringify(operation), identities: selected.map(service => ({ id: service.id, name: service.name })) }]
 }
 export function validCatalogInquiry(scope: CatalogInquiryScope | undefined, businessId: string, message: string,
