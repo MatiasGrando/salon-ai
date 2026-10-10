@@ -73,14 +73,19 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
         companion.serviceIds.some(id => operation.target.kind !== 'service' || !operation.target.serviceIds.includes(id))) return []
   }
   const owner = acts?.acts.filter(act => act.operationIndexes.includes(operationIndex))
-  if (owner?.length !== 1 || owner[0]!.kind !== 'inquiry' || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 ||
+  if (owner?.length !== 1 || !['inquiry', 'answer'].includes(owner[0]!.kind) || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 ||
       !uniqueLiteralSpan(message, owner[0]!.evidence) || !uniqueLiteralSpan(owner[0]!.evidence, operation.evidence)) return []
   const selected = services.filter(service => operation.target.kind === 'service' && operation.target.serviceIds.includes(service.id))
   if (selected.length !== operation.target.serviceIds.length) return []
   const literal = selected.every(service => currentCatalogMention(operation.evidence, service, services))
   const focus = state.informationFocus
-  const reference = !!focus && focus.businessId === state.businessId && !focus.candidateId &&
-    focus.options.length === selected.length && focus.options.every(option => selected.some(service => service.id === option.id && service.name === option.label))
+  const currentFocus = !!focus && focus.businessId === state.businessId && !focus.candidateId && focus.options.length > 0 &&
+    new Set(focus.options.map(option => option.id)).size === focus.options.length &&
+    focus.options.every(option => services.some(service => service.id === option.id && service.name === option.label))
+  const reference = currentFocus && focus.options.length === selected.length &&
+    focus.options.every(option => selected.some(service => service.id === option.id))
+  const answerReference = owner[0]!.kind === 'answer' && currentFocus && selected.length > 0 &&
+    selected.every(service => focus.options.some(option => option.id === service.id))
   const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
   const procedureReference = !!question?.complete && question.role === 'service' && question.options.length === selected.length &&
     selected.every(service => validServiceCandidateContext(state.serviceRequest, service.id, state.businessId, services, question, false))
@@ -90,6 +95,9 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
     assessServiceIdentity(mention, service.id, 1, services).kind === 'supported') ||
     selected.length > 1 && !!uniqueLiteralSpan(owner[0]!.evidence, mention) &&
       selected.every(service => currentCatalogMention(mention, service, services)))
+  // An informational answer can narrow only a current presented pool using a model-owned identity.
+  // It grants no booking reference or authority to pick a service from an ambiguous alias.
+  if (owner[0]!.kind === 'answer' && (!answerReference || !literal && !supportedMention)) return []
   if (!literal && !reference && !procedureReference || mention !== null &&
       (selected.length ? !supportedMention : !uniqueLiteralSpan(owner[0]!.evidence, mention))) return []
   return [{ businessId: state.businessId, currentBody: message, operation: JSON.stringify(operation), identities: selected.map(service => ({ id: service.id, name: service.name })) }]
