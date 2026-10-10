@@ -124,7 +124,7 @@ function expectedChildHash(group:CoordinatedDepositGroup,index:number,depositReq
 }
 
 /** Verify the sealed manifest and EVERY group member before lifecycle/replay can trust it. */
-export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; depositStatus: string; currentExpiresAt: Date; dbNow: Date }
+export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; depositStatus: string; currentExpiresAt: Date; dbNow: Date; cancellationReason?: 'CUSTOMER' | 'STAFF' }
 
 /** Durable manifest authority wins over mutable appointment routing fields, even after tampering/deletion. */
 export async function lockCoordinatedDepositGroupForDeposit(tx: Prisma.TransactionClient, target: {businessId:string;depositId:string}): Promise<CoordinatedDepositGroupState|null> {
@@ -228,9 +228,9 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
   await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:p.terms.segments.map(s=>s.professionalId)})
   // Intentionally do NOT filter tenant/customer within a group: injected members invalidate ALL.
   const rows = await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
-    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."serviceId",a."startAt",a."totalDurationMinutes",a."quotedPrice",a.status AS "appointmentStatus",
-      a."visitId",v."businessId" AS "visitBusinessId",v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",v."scheduledStartAt",v."totalDurationMinutes" AS "visitDuration",v."totalPrice",v."holdExpiresAt",v.status AS "visitStatus",
-      d.id AS "depositId",d."businessId" AS "depositBusinessId",d."visitId" AS "depositVisitId",d."conversationId",d.source,d.amount,d.status AS "depositStatus",d."expiresAt",d."holdTtlMinutes",d."holdTtlProvenance",d."snapshotSealedAt"
+    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."serviceId",a."startAt",a."totalDurationMinutes",a."quotedPrice",a.status AS "appointmentStatus",a.version AS "appointmentVersion",
+      a."visitId",v."businessId" AS "visitBusinessId",v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",v."scheduledStartAt",v."totalDurationMinutes" AS "visitDuration",v."totalPrice",v."holdExpiresAt",v.status AS "visitStatus",v.version AS "visitVersion",
+      d.id AS "depositId",d."businessId" AS "depositBusinessId",d."visitId" AS "depositVisitId",d."conversationId",d.source,d.amount,d.status AS "depositStatus",d."expiresAt",d."holdTtlMinutes",d."holdTtlProvenance",d."snapshotSealedAt",d."rejectionReason"
     FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId" LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
     WHERE a."coordinationGroupId"=${target.groupId} ORDER BY a.id FOR UPDATE OF a,v`)
   if (rows.length !== group.members.length) fail()
@@ -284,16 +284,18 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
       if(audit.length!==1 || new Date(audit[0]!.createdAt).getTime()+p.terms.deposit!.financial.ttlMinutes*60000!==Date.parse(expiry)) fail()
     }
   }
+  const cancellationReason = status==='REJECTED' && financialRows.every(r=>['CANCELLED_BY_CUSTOMER','CANCELLED_BY_STAFF'].includes(String(r.rejectionReason)))
+    ? await verifyPendingCancellation(tx,target.businessId,group,rows) : undefined
   // Internal evidence copies represent ONE receipt event, never independent payments.
   let proofIdentity:string|undefined
   let reviewIdentity:string|undefined
   for(const m of group.members.filter(m=>m.depositId)) {
     const proofs=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`SELECT id,sequence,kind,"validationStatus","validatorVersion","validatedAt","receivedAt","sourceMimeType","sourceByteSize","derivedMimeType","derivedByteSize","sourceSha256","derivedSha256","providerEventId","providerMessageId","providerMediaId"
       FROM "BookingDepositProof" WHERE "businessId"=${target.businessId} AND "depositId"=${m.depositId} ORDER BY sequence`)
-    if(['PROOF_RECEIVED','APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status) && !proofs.length || proofs.some(p=>p.validationStatus!=='VALID')) fail()
+    if(['PROOF_RECEIVED','APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status) && !cancellationReason && !proofs.length || proofs.some(p=>p.validationStatus!=='VALID')) fail()
     const identity=JSON.stringify(proofs.map(({id,...facts})=>facts))
-    if(status==='PENDING_PROOF' && proofs.some(p=>p.kind!=='LATE')) fail()
-    if(['APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status)) {
+    if((status==='PENDING_PROOF' || cancellationReason) && proofs.some(p=>p.kind!=='LATE')) fail()
+    if(['APPROVED','REJECTED','PENDING_RESUBMISSION'].includes(status) && !cancellationReason) {
       const expected=status==='APPROVED'?'APPROVED':status==='REJECTED'?'FINAL_REJECTED':'RESUBMISSION_ALLOWED'
       const audits=await tx.$queryRaw<Array<{proofId:string;actorUserId:string;createdAt:Date;action:string;operationStatus:string;resultRef:string;auditId:string;type:string}>>(Prisma.sql`
         SELECT a."proofId",a."actorUserId",a."createdAt",a.action,o.status AS "operationStatus",o."resultRef",a.id AS "auditId",o.type
@@ -313,5 +315,49 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     proofIdentity=identity
   }
   const clock=await tx.$queryRaw<Array<{dbNow:Date}>>(Prisma.sql`SELECT clock_timestamp() AS "dbNow"`)
-  return {group,depositStatus:status,currentExpiresAt:new Date(expiry),dbNow:new Date(clock[0]!.dbNow)}
+  return {group,depositStatus:status,currentExpiresAt:new Date(expiry),dbNow:new Date(clock[0]!.dbNow),...(cancellationReason?{cancellationReason}:{})}
+}
+
+/** Cancellation has its own durable authority, never a fabricated payment review. */
+async function verifyPendingCancellation(tx:Prisma.TransactionClient,businessId:string,group:CoordinatedDepositGroup,
+  rows:Record<string,unknown>[]):Promise<'CUSTOMER'|'STAFF'> {
+  const operations=await tx.$queryRaw<Array<{requestHash:string;resultRef:string;sessionId:string;status:string}>>(Prisma.sql`
+    SELECT "requestHash","resultRef","sessionId",status FROM "BotOperation"
+    WHERE "businessId"=${businessId} AND type='CANCEL_PENDING_DEPOSIT_GROUP'
+      AND (CASE WHEN type='CANCEL_PENDING_DEPOSIT_GROUP' THEN "resultRef"::jsonb ELSE NULL END)->'snapshot'->>'groupId'=${group.groupId} FOR UPDATE`)
+  if(operations.length!==1) fail()
+  const operation=operations[0]!
+  let result:unknown;try{result=JSON.parse(operation.resultRef)}catch{return fail()}
+  if(!object(result) || result.version!==1 || !object(result.snapshot) || !Array.isArray(result.auditIds)) fail()
+  const snapshot=result.snapshot, actor=snapshot.actor
+  if(!object(actor) || !['CUSTOMER','STAFF'].includes(String(actor.kind)) || !text(actor.id) || snapshot.version!==1 ||
+    snapshot.businessId!==businessId || snapshot.groupId!==group.groupId || snapshot.sessionId!==group.proposal.scope.sessionId ||
+    operation.sessionId!==snapshot.sessionId || operation.status!=='COMPLETED' || !Array.isArray(snapshot.members) || snapshot.members.length!==rows.length ||
+    !text(snapshot.fingerprint) || JSON.stringify(result).length>20000) fail()
+  const {fingerprint,...content}=snapshot
+  if(fingerprint!==canonicalJsonHash(content) || operation.requestHash!==canonicalJsonHash({action:'CANCEL_PENDING_DEPOSIT_GROUP',snapshot,confirmed:true})) fail()
+  const members=snapshot.members
+  for(const row of rows) {
+    const matches=members.filter(m=>object(m)&&m.appointmentId===row.appointmentId)
+    const member=matches[0]
+    if(matches.length!==1 || !object(member) || member.visitId!==row.visitId || member.professionalId!==row.professionalId ||
+      typeof member.appointmentVersion!=='number' || typeof member.visitVersion!=='number' ||
+      row.appointmentVersion!==member.appointmentVersion+1 || row.visitVersion!==member.visitVersion+1 || member.depositId!==row.depositId ||
+      (row.depositId && (member.amount!==row.amount || member.expiresAt!==iso(row.expiresAt) ||
+        row.rejectionReason!==(actor.kind==='STAFF'?'CANCELLED_BY_STAFF':'CANCELLED_BY_CUSTOMER')))) fail()
+  }
+  const depositIds=rows.flatMap(r=>r.depositId?[r.depositId]:[])
+  if(!isDeepStrictEqual(result.appointmentIds, members.map(m=>object(m)?m.appointmentId:null)) ||
+    !isDeepStrictEqual(result.depositIds,members.flatMap(m=>object(m)&&m.depositId?[m.depositId]:[]))) fail()
+  if(actor.kind==='STAFF') {
+    if(result.auditIds.length!==depositIds.length || !result.auditIds.every(v=>text(v))) fail()
+    const audits=await tx.$queryRaw<Array<{userId:string;entityId:string}>>(Prisma.sql`
+      SELECT "userId","entityId" FROM "StaffAuditLog" WHERE id IN (${Prisma.join(result.auditIds as string[])})
+        AND "businessId"=${businessId} AND action='CANCEL_PENDING_DEPOSIT_GROUP' AND "entityType"='BookingDeposit' AND method='DELETE' FOR SHARE`)
+    if(audits.length!==depositIds.length || audits.some(a=>a.userId!==actor.id) ||
+      !isDeepStrictEqual(audits.map(a=>a.entityId).sort(),depositIds.sort())) fail()
+  } else if(actor.id!==group.proposal.scope.sessionId || result.auditIds.length!==0 || !object(snapshot.receipt) ||
+    snapshot.receipt.groupId!==group.groupId || snapshot.receipt.operationKey!==group.operationKey ||
+    snapshot.receipt.proposalNonce!==group.proposal.nonce || snapshot.receipt.fingerprint!==group.proposal.fingerprint) fail()
+  return actor.kind as 'CUSTOMER'|'STAFF'
 }
