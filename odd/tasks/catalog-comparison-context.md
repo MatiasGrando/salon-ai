@@ -330,3 +330,28 @@ Usuario prueba comparación, seguimiento «del alisado» yprecio→Reservar. Reg
 - tmp/barber-c13-activate.ps1 — arranque operativo verificado yguardas.
 - tmp/barber-verified-41f6d67-20261010-170746 — snapshot de código servido.
 Engram mem_save/config/preference/mem_session_summary y espejo completo pendientes por APIs ausentes; resumen local leído y preservado, sin afirmar guardado remoto.
+C13 registro postcommit: documento guardado en 59a5d9b084f34ffbbc7b90dd4b39b3b857309faa (1 archivo, 46 líneas authored). Assessment nativo committed-only desde 41f6d67, inventario 65898ec1f6a95a12baca9b3e74a22f9ecbf7f843b7fd538d12de9d0a8371748e, EXIT0 passive/non_executable_only; review_due false/passive. Frontera acknowledged avanza a 59a5d9b, sin revisor ni consentimiento adicional. Runtime sigue 41f6d67: ningún reinicio por documentación. Apunte mecánico sin stage para evitar commit autorreferente. Recuperación reconciliada con documento real y HEAD; Engram mem_* continúa ausente, espejo y resumen remoto pendientes. Siguiente acción: pruebas del usuario por WhatsApp; aceptación real y pendientes indicados arriba no se declaran cerrados.
+## C14 recuperación operacional autorizada — 2026-10-10
+Humano cerró la app y autorizó levantar Barber y el túnel; confirmó aparte «Sí, actualizar sólo Barber» para un nuevo túnel temporal Cloudflare y callback únicamente de Barber Demo en Meta usando la credencial existente. Ruta delegated direct: preparación/operación multipaso en barber_restart_recovery; reutilizar snapshot41f6d67 y activador C13 sin cambios. No fuentes, migraciones, IA de evaluación, Railway, otros negocios ni cambios financieros manuales. TDD STRICT heredado no se cambia; tarea operacional sin comportamiento nuevo, comprobaciones de identidad/idle/hashes/ready/challenge/readback en lugar de RED inventado. Feature-branch-chain cacheada, forecast documental20–50 authored, commit de cierre a cargo del padre.
+- [x] C14 — Verificar procesos anteriores ausentes, idle fresco, snapshot/archivo íntegros; iniciar Barber y túnel ocultos con scope sólo Barber; actualizar callback exacto autorizado con guardas Meta/challenge/CRM404; verificar runtime y guardar evidencia. Cerrar sólo con pruebas observadas.
+Preflight CIM y listeners: ningún proceso propio ni escucha3311/3312 activos. Activador/helper originales leídos completos; se conserva su código y controles. Engram mem_* ausente tras rediscovery[]: espejo completo odd/catalog-comparison-context/tasks y mem_session_summary pendientes; recuperación preservada localmente sin afirmar guardado remoto. Frontera nativa acknowledged59a5d9b; revisión pasiva documental pendiente del commit final, ninguna omisión nueva asumida.
+C14 verificado17:26Argentina: mismo activador C13 y helper e1 intactos, sin nueva fuente ni script privado. Hash ZIP exacto y1.445 archivos extraídos idénticos al archivo;129generadosPrisma iguales al original. URL self-testPASS. Idle20:25:40.186Z/20:25:42.456Z todos0, watermark20:16:29.883Z estable/gen2. Ningún proceso viejo o ajeno detenido.
+Arranque Hidden17:25:43: launcher15496→worker12684, puertos3311/3312 sólo127.0.0.1 ypropietario12684; readytrue/stderr0. Túnel11924 registrado; callback https://quizzes-louis-someone-location.trycloudflare.com/webhooks/whatsapp. Helper verificó identidad exclusivaBarber/WABA/phone/app, challenge HTTPS200exact yCRM404 antes POST; success/readbackexact. Backup C:/Users/cpu/AppData/Local/Temp/barber-e1-callback-1791663972155.json. Metadata tmp/barber-start-current.json actualizada17:26:15. Padre puede comprobar independiente esa metadata, procesos ychallenge; worker ya verificó identidadesCIM/loopback/ready/stderr tras activación. No tokens, mensajes, datos bancarios, imágenes ni credenciales impresos; sin Railway/otrosnegocios/migraciones/IAevaluación/efectosfinancierosmanuales.
+C14 outcome operacional PASS; commit documental yassessment nativo a cargo del padre. Código runtime41f6d67sin cambios, aceptación realC3/C4/C8/R3ypolítica terminal pendientes no se cierran por disponibilidad de conexión. Engram APIs ausentes: espejo/session_summary pendientes.
+
+## Resumen de sesión — recuperación Barber
+### Goal
+Restablecer servidor y túnel de Barber tras cierre de la app.
+### Instructions
+Sólo Barber local ycallbackBarberMeta, credencial existente; no otros negocios ni Railway.
+### Discoveries
+No había procesos propios ni listeners activos; snapshot previo íntegro permitió reutilizar sin rebuild/migraciones.
+### Accomplished
+Servidor y túnel nuevos activos, mismo código verificado, callback únicamenteBarber con challenge/readback ypuertosloopbackPASS.
+### Next Steps
+Padre verifica yguarda unidad documental; usuario prueba WhatsApp real. Pendientes funcionales previos siguen registrados.
+### Relevant Files
+- odd/tasks/catalog-comparison-context.md — evidenciaC14 ypendientes.
+- tmp/barber-start-current.json — procesos nuevos ycallback actual.
+- tmp/barber-c13-activate.ps1 ytmp/e1-barber-pilot-control.ts — helpers originales reutilizados, intactos.
+Engram mem_save/mem_session_summary no disponibles; resumen local preservado sin afirmar espejo remoto.
