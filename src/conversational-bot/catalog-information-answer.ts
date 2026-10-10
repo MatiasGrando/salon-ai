@@ -49,12 +49,13 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
   if (!plan || plan.operations.length !== 1) return []
   const operation = plan.operations[0]!
   if (operation.kind !== 'information' || operation.target.kind !== 'service' || !descriptive(operation.target.aspect) ||
-      operation.confidence < .85 || operation.evidence !== message || operation.target.estimateOptionId !== undefined) return []
+      operation.confidence < .85 || !uniqueLiteralSpan(message, operation.evidence) || operation.target.estimateOptionId !== undefined) return []
   const owner = acts?.acts.filter(act => act.operationIndexes.includes(0))
-  if (owner?.length !== 1 || owner[0]!.kind !== 'inquiry' || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 || owner[0]!.evidence !== message) return []
+  if (owner?.length !== 1 || owner[0]!.kind !== 'inquiry' || owner[0]!.field !== 'service' || owner[0]!.confidence < .85 ||
+      !uniqueLiteralSpan(message, owner[0]!.evidence) || !uniqueLiteralSpan(owner[0]!.evidence, operation.evidence)) return []
   const selected = services.filter(service => operation.target.kind === 'service' && operation.target.serviceIds.includes(service.id))
   if (selected.length !== operation.target.serviceIds.length) return []
-  const literal = selected.every(service => currentCatalogMention(message, service, services))
+  const literal = selected.every(service => currentCatalogMention(operation.evidence, service, services))
   const focus = state.informationFocus
   const reference = !!focus && focus.businessId === state.businessId && !focus.candidateId &&
     focus.options.length === selected.length && focus.options.every(option => selected.some(service => service.id === option.id && service.name === option.label))
@@ -62,9 +63,13 @@ export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: Co
   const procedureReference = !!question?.complete && question.role === 'service' && question.options.length === selected.length &&
     selected.every(service => validServiceCandidateContext(state.serviceRequest, service.id, state.businessId, services, question, false))
   const mention = owner[0]!.mention
+  // A comparison may mention several current identities together; it never selects them.
+  const supportedMention = mention !== null && (selected.some(service =>
+    assessServiceIdentity(mention, service.id, 1, services).kind === 'supported') ||
+    selected.length > 1 && !!uniqueLiteralSpan(owner[0]!.evidence, mention) &&
+      selected.every(service => currentCatalogMention(mention, service, services)))
   if (!literal && !reference && !procedureReference || mention !== null &&
-      (selected.length ? !selected.some(service => assessServiceIdentity(mention, service.id, 1, services).kind === 'supported')
-        : !uniqueLiteralSpan(message, mention))) return []
+      (selected.length ? !supportedMention : !uniqueLiteralSpan(owner[0]!.evidence, mention))) return []
   return [{ businessId: state.businessId, currentBody: message, operation: JSON.stringify(operation), identities: selected.map(service => ({ id: service.id, name: service.name })) }]
 }
 export function validCatalogInquiry(scope: CatalogInquiryScope | undefined, businessId: string, message: string,
@@ -73,7 +78,7 @@ export function validCatalogInquiry(scope: CatalogInquiryScope | undefined, busi
   let operation: unknown
   try { operation = JSON.parse(scope.operation) } catch { return false }
   const item = operation as { kind?: unknown; target?: unknown; evidence?: unknown; confidence?: unknown }
-  return item?.kind === 'information' && item.evidence === message && typeof item.confidence === 'number' && Number.isFinite(item.confidence) && item.confidence >= .85 && item.confidence <= 1 &&
+  return item?.kind === 'information' && typeof item.evidence === 'string' && !!uniqueLiteralSpan(message, item.evidence) && typeof item.confidence === 'number' && Number.isFinite(item.confidence) && item.confidence >= .85 && item.confidence <= 1 &&
     JSON.stringify(item.target) === JSON.stringify(target) && scope.identities.length === target.serviceIds.length &&
     scope.identities.every(identity => target.serviceIds.includes(identity.id) && services.some(service => service.id === identity.id && service.name === identity.name))
 }
@@ -92,7 +97,8 @@ export function catalogInformationBody(context: CatalogInformationContext): stri
 function claimsLocalProperties(text: string): boolean {
   const plain = normalizeAnswer(text)
   return /\b(?:nuestro|nuestra|nuestros|nuestras|usamos|utilizamos|ofrecemos|hacemos|realizamos|incluimos|trabajamos)\b/.test(plain) ||
-    /\b(?:este|el|nuestro) (?:local|salon|negocio)\b/.test(plain) ||
+    /\b(?:este|nuestro) (?:local|salon|negocio)\b/.test(plain) ||
+    /\bel (?:local|salon|negocio) (?:usa|utiliza|ofrece|hace|realiza|incluye|trabaja|tiene|es|garantiza|aplica)\b/.test(plain) ||
     /\b(?:contiene|contienen|compuesto|compuesta|ingredientes exactos|formula exacta)\b/.test(plain)
 }
 /** Structure/provenance is deterministic; general accuracy and paraphrase entailment remain probabilistic. */

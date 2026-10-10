@@ -1252,7 +1252,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const currentServiceInquiry = currentServiceInquiries.find(scope => scope.operationIndex === plan.operations.indexOf(op))
     const currentServiceRead = currentServiceReads.find(scope => scope.operationIndex === plan.operations.indexOf(op))
     const catalogInquiry = catalogInquiries.find(scope => scope.operation === JSON.stringify(op) && validCatalogInquiry(scope, context.businessId, message, op.target, services))
-    const read = await readInformation(context, state, op.evidence, port, op.target, services,
+    const read = await readInformation(context, state, catalogInquiry ? message : op.evidence, port, op.target, services,
       procedure || currentServiceInquiry || currentServiceRead || catalogInquiry ? { ...(catalogInquiry ? { catalogInquiry } : {}), ...(procedure ? { unverifiedProcedure: procedure } : {}),
         ...(currentServiceInquiry ? { currentServiceInquiry } : {}), ...(currentServiceRead ? { currentServiceRead } : {}) } : undefined)
     informationReads.push(read)

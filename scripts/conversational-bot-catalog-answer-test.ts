@@ -109,6 +109,91 @@ try {
     assert.equal(calls, 1); assert.equal(responseCalls, 0); assert.equal(result.interpretation.aiCalls, 1)
     assert.equal(result.choicePresentation, undefined); checkRead(result, initial, beforeAgenda)
   })
+  await check('C4 current literal inquiry spans explain without requiring whole-message evidence', async () => {
+    const span = 'Qué diferencia hay entre el alisado y el shock de keratina'
+    const shortBody = 'Hola. ¿' + span + '? Explicame en general y qué ofrecen ustedes.'
+    const longBody = shortBody + ' Quiero comprender esta información antes de decidir.'.repeat(8)
+    assert.ok(longBody.length > 300, 'evidence limit must not become a whole-message limit')
+    const beforeAgenda = agenda
+    for (const [body, ownerEvidence] of [[shortBody, shortBody], [shortBody, span], [longBody, span]]) {
+      const proposal = explanatory(body, ['straight', 'keratin'], [general, published('straight'), published('keratin')])
+      proposal.turnPlan.operations[0]!.evidence = span
+      proposal.communicativeActs.acts[0]!.evidence = ownerEvidence
+      const result = await respondWithAiInterpreter(context, initial, body, port, async () => proposal)
+      assert.ok(result.reply.includes(general.text), 'accepted literal spans must preserve the explanatory read: ' + JSON.stringify({ bodyLength: body!.length, ownerLength: ownerEvidence!.length, reply: result.reply, trace: result.interpretation.replyValidation }))
+      assert.equal(result.interpretation.mode, 'ai'); assert.equal(result.interpretation.replyRoute, 'first_call')
+      assert.equal(result.choicePresentation, undefined)
+      assert.doesNotMatch(result.reply, /De cuál de estos servicios|Qué servicio necesitás|Cuál de estas opciones/i)
+      checkRead(result, initial, beforeAgenda)
+    }
+  })
+  await check('C4 a combined informative mention can cover both current service identities', async () => {
+    const body = 'Qué diferencia hay entre el alisado y el shock de keratina'
+    const beforeAgenda = agenda
+    const proposal = explanatory(body, ['straight', 'keratin'], [general, published('straight'), published('keratin')])
+    proposal.communicativeActs.acts[0]!.mention = 'el alisado y el shock de keratina' as any
+    const result = await respondWithAiInterpreter(context, initial, body, port, async () => proposal)
+    assert.ok(result.reply.includes(general.text), 'a comparison mention is not a singleton service selection')
+    assert.equal(result.choicePresentation, undefined); assert.equal(result.interpretation.replyRoute, 'first_call')
+    checkRead(result, initial, beforeAgenda)
+  })
+  await check('C4 current span evidence remains literal and unique, not a fuzzy quote', async () => {
+    const span = 'Qué diferencia hay entre el alisado y el shock de keratina'
+    const beforeAgenda = agenda
+    for (const [body, operationEvidence, ownerEvidence] of [
+      ['Hola. ' + span, span, span.toLowerCase()],
+      ['Hola. ' + span, 'Qué diferencia hay entre el alisado y Keratina', span],
+      [span + '. ' + span, span, span],
+      ['Hola. ' + span, span, 'el alisado']
+    ]) {
+      const proposal = explanatory(body!, ['straight', 'keratin'], [general, published('straight'), published('keratin')])
+      proposal.turnPlan.operations[0]!.evidence = operationEvidence!
+      proposal.communicativeActs.acts[0]!.evidence = ownerEvidence!
+      const result = await respondWithAiInterpreter(context, initial, body!, port, async () => proposal)
+      assert.ok(!result.reply.includes(general.text), 'altered or ambiguously repeated evidence grants no explanatory scope')
+      checkRead(result, initial, beforeAgenda)
+    }
+  })
+  await check('C4 combined comparison mentions cannot smuggle an unrelated or unsupported identity', async () => {
+    const beforeAgenda = agenda
+    for (const body of [
+      'Comparame el alisado y la cauterización',
+      'Qué diferencia hay entre el alisado y el shock de keratina'
+    ]) {
+      const proposal = explanatory(body, ['straight', 'keratin'], [general, published('straight'), published('keratin')])
+      proposal.communicativeActs.acts[0]!.mention = (body.includes('cauterización') ? 'el alisado y la cauterización' : 'el shock de keratina') as any
+      const result = await respondWithAiInterpreter(context, initial, body, port, async () => proposal)
+      assert.ok(!result.reply.includes(general.text), 'the mention must support every target identity, not an arbitrary candidate')
+      checkRead(result, initial, beforeAgenda)
+    }
+  })
+  await check('C4 general explanations may describe variation across salons without claiming local practice', async () => {
+    const body = 'Qué diferencia hay entre el alisado y el shock de keratina'
+    const beforeAgenda = agenda
+    const block: ExplanatoryBlock = { kind: 'general', text: 'En general, un alisado busca reducir ondas y modificar la forma del cabello; un shock de keratina suele describirse como un tratamiento de cuidado o acondicionamiento, aunque el nombre y sus efectos pueden variar según el producto y el salón. No se puede asumir que sea equivalente a un alisado.', sources: [] }
+    const result = await respondWithAiInterpreter(context, initial, body, port,
+      async () => explanatory(body, ['straight', 'keratin'], [block, published('straight'), published('keratin')]))
+    assert.ok(result.reply.includes(block.text), 'generic variation is not attribution to this business')
+    assert.match(result.reply, /Información general.*orientativa/i); checkRead(result, initial, beforeAgenda)
+    for (const text of ['En este salón ofrecemos un shock de keratina.', 'El salón ofrece un shock de keratina.', 'El salón usa keratina brasileña para este servicio.']) {
+      const denied = await respondWithAiInterpreter(context, initial, body, port,
+        async () => explanatory(body, ['straight', 'keratin'], [{ kind: 'general', text, sources: [] }, published('straight'), published('keratin')]))
+      assert.ok(!denied.reply.includes(text), 'actual local-attribution claims must remain rejected')
+      checkRead(denied, initial, beforeAgenda)
+    }
+  })
+  await check('C4 zero-ID explanatory evidence cannot be silently case-normalized or invented', async () => {
+    const body = 'Explicame en general qué es una cauterización capilar y en qué se diferencia de un shock de keratina'
+    const beforeAgenda = agenda
+    for (const evidence of [body.replace('Explicame', 'explicame'), 'Diferencias generales entre tratamientos']) {
+      const proposal = explanatory(body, [], [general])
+      proposal.communicativeActs.acts[0]!.evidence = evidence
+      const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => [] }, async () => proposal)
+      assert.equal(result.interpretation.reason, 'invalid_output')
+      assert.equal(result.interpretation.validation?.turnPlan?.cause, 'evidence')
+      assert.ok(!result.reply.includes(general.text)); checkRead(result, initial, beforeAgenda)
+    }
+  })
   await check('C3 displayed references explain without choosing or acquiring an option', async () => {
     const menuBody = 'Precio de Tratamiento y Keratina'
     const menu = await respondWithAiInterpreter(context, initial, menuBody, port, async () => owned(menuBody, ['care', 'keratin'], 'price', null))
