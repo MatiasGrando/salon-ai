@@ -7,6 +7,7 @@ import { createOpenAiInterpretationProvider } from '../src/conversational-bot/op
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { selectionBasket } from '../src/conversational-bot/service-basket.js'
 import { replyContract, validateReplyDraft } from '../src/conversational-bot/reply-contract.js'
+import { validateCatalogAnswer } from '../src/conversational-bot/catalog-information-answer.js'
 
 // Only local provider doubles. Citations prove source provenance, not universal semantic entailment.
 const original = { fetch: globalThis.fetch, request: http.request, httpsRequest: https.request, get: http.get, httpsGet: https.get }
@@ -55,6 +56,139 @@ const check = async (name: string, run: () => Promise<void>) => {
   catch (error) { failures.push(name); console.error('RED catalog answer ' + name + ': ' + String(error)) }
 }
 try {
+  type ExplanatoryBlock = { kind: 'general' | 'published'; text: string; sources: Source[] }
+  const general: ExplanatoryBlock = { kind: 'general', text: 'En general, un alisado busca modificar la forma del cabello; los tratamientos de keratina pueden orientarse al frizz y la suavidad. Los nombres comerciales no determinan una fórmula única.', sources: [] }
+  const published = (id: string): ExplanatoryBlock => ({ kind: 'published', text: catalog.find(item => item.id === id)!.description!, sources: [source(id)] })
+  const explanatory = (body: string, ids: string[], blocks: ExplanatoryBlock[], aspect = 'comparison') => ({
+    ...owned(body, ids, aspect, null), firstReply: { ...frame(null), catalogAnswer: { blocks } }
+  })
+  await check('C3 distinguishes general explanation from loaded local descriptions in one call', async () => {
+    const body = '¿Qué diferencia hay entre el alisado y el shock de keratina?'; const beforeAgenda = agenda
+    const blocks = [general, published('straight'), published('keratin')]
+    const result = await respondWithAiInterpreter(context, initial, body, port, async () => explanatory(body, ['straight', 'keratin'], blocks))
+    for (const block of blocks) assert.ok(result.reply.includes(block.text), 'both explanatory origins must reach the reply')
+    assert.match(result.reply, /Información general.*orientativa/i); assert.match(result.reply, /Información (?:publicada )?del local/i)
+    assert.match(result.reply, /(?:no confirma|no garantiza).*(?:local|negocio)/i)
+    assert.equal(result.interpretation.aiCalls, 1); assert.equal(result.interpretation.replyRoute, 'first_call')
+    assert.equal(result.choicePresentation, undefined); checkRead(result, initial, beforeAgenda)
+  })
+  await check('C3 missing description does not suppress general explanation or supported local data', async () => {
+    const body = 'Comparame el alisado y el shock de keratina'; const beforeAgenda = agenda
+    const missingCatalog = catalog.map(item => item.id === 'keratin' ? { ...item, description: null } : item)
+    const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => missingCatalog },
+      async () => explanatory(body, ['straight', 'keratin'], [general, published('straight')]))
+    assert.ok(result.reply.includes(general.text)); assert.ok(result.reply.includes(catalog[2]!.description!))
+    assert.match(result.reply, /Keratina[\s\S]*(?:no tengo|no hay|falta|sin).*(?:descripción|información)|(?:no tengo|no hay|falta).*Keratina/i)
+    assert.ok(!result.reply.includes(catalog[1]!.description!), 'missing local properties cannot come from model memory')
+    assert.equal(result.interpretation.aiCalls, 1); checkRead(result, initial, beforeAgenda)
+  })
+  await check('C3 valid mixed content can acknowledge comparison despite a missing local description', async () => {
+    const body = 'Comparame el alisado y el shock de keratina'; const beforeAgenda = agenda
+    const missingCatalog = catalog.map(item => item.id === 'keratin' ? { ...item, description: null } : item)
+    const proposal = explanatory(body, ['straight', 'keratin'], [general, published('straight')])
+    proposal.firstReply.opening = 'Te ayudo a comparar estas opciones.'
+    const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => missingCatalog }, async () => proposal)
+    assert.ok(result.reply.includes(proposal.firstReply.opening)); assert.ok(result.reply.includes(general.text))
+    checkRead(result, initial, beforeAgenda)
+    const invalid = { ...proposal, firstReply: { ...proposal.firstReply, catalogAnswer: { blocks: [
+      { kind: 'general', text: 'Nuestro alisado te deja el pelo lacio.', sources: [] }
+    ] } } }
+    const denied = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => missingCatalog }, async () => invalid)
+    assert.ok(!denied.reply.includes(proposal.firstReply.opening)); assert.ok(!denied.reply.includes(invalid.firstReply.catalogAnswer.blocks[0]!.text))
+    checkRead(denied, initial, beforeAgenda)
+  })
+  await check('C3 general-only procedures need no invented catalog ID or mandatory second call', async () => {
+    const body = 'Explicame en general qué diferencia hay entre un shock de keratina y una cauterización'; const beforeAgenda = agenda
+    const block: ExplanatoryBlock = { kind: 'general', text: 'Los nombres de estos tratamientos pueden variar entre salones y productos; conviene distinguir su objetivo y composición antes de compararlos.', sources: [] }
+    let calls = 0, responseCalls = 0
+    const provider = Object.assign(async () => { calls++; return { ...explanatory(body, [], [block]), communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, confidence: 1, mention: 'shock de keratina', operationIndexes: [0] }] } } },
+      { respond: async () => { responseCalls++; throw new Error('general explanation already accompanies interpretation') } })
+    const result = await respondWithAiInterpreter(context, initial, body, port, provider)
+    assert.ok(result.reply.includes(block.text)); assert.match(result.reply, /Información general.*orientativa/i)
+    assert.doesNotMatch(result.reply, /De cuál de estos servicios|Qué servicio necesitás|Cuál de estas opciones/i)
+    assert.equal(calls, 1); assert.equal(responseCalls, 0); assert.equal(result.interpretation.aiCalls, 1)
+    assert.equal(result.choicePresentation, undefined); checkRead(result, initial, beforeAgenda)
+  })
+  await check('C3 displayed references explain without choosing or acquiring an option', async () => {
+    const menuBody = 'Precio de Tratamiento y Keratina'
+    const menu = await respondWithAiInterpreter(context, initial, menuBody, port, async () => owned(menuBody, ['care', 'keratin'], 'price', null))
+    const body = 'Explicame en general la diferencia de esas opciones'; const beforeAgenda = agenda
+    const result = await respondWithAiInterpreter(context, menu.state, body, port,
+      async () => explanatory(body, ['care', 'keratin'], [general, published('care'), published('keratin')]))
+    assert.ok(result.reply.includes(general.text)); assert.equal(result.choicePresentation, undefined)
+    assert.doesNotMatch(result.reply, /Cuál de estas opciones|De cuál de estos servicios/i); checkRead(result, menu.state, beforeAgenda)
+  })
+  await check('C3 general blocks cannot impersonate local facts or source provenance', async () => {
+    const body = 'Descripción de Keratina'; const beforeAgenda = agenda
+    for (const block of [
+      { kind: 'general', text: 'En este local usamos keratina brasileña y te dejamos el pelo lacio.', sources: [] },
+      { kind: 'general', text: 'Nuestro tratamiento incluye lavado y usa productos certificados.', sources: [] },
+      { kind: 'general', text: 'Keratina cuesta $1.', sources: [] },
+      { kind: 'general', text: 'El procedimiento dura 45 minutos.', sources: [] },
+      { kind: 'general', text: 'Tenemos disponibilidad y ya te reservé.', sources: [] },
+      { kind: 'general', text: general.text, sources: [source('keratin')] },
+      { kind: 'published', text: 'Keratina cura la alopecia.', sources: [{ ...source('keratin'), quote: 'Cura la alopecia.' }] },
+      { kind: 'published', text: 'Keratina tiene una fórmula secreta.', sources: [] }
+    ]) {
+      const result = await respondWithAiInterpreter(context, initial, body, port,
+        async () => explanatory(body, ['keratin'], [block as ExplanatoryBlock]))
+      assert.ok(!result.reply.includes(block.text), 'invalid provenance or protected claim rejects free copy')
+      assert.ok(result.reply.includes(catalog[1]!.description!), 'honest local fallback remains available')
+      checkRead(result, initial, beforeAgenda)
+    }
+  })
+  await check('C3 general copy is opt-in explanatory information only, not a price or frame escape', async () => {
+    const raw = { blocks: [general] }
+    for (const aspect of ['price', 'duration', 'products', 'discount']) {
+      assert.equal(validateCatalogAnswer(raw, { aspect, services: [], generalKnowledgeAllowed: true } as any, () => false), null)
+    }
+    assert.equal(validateCatalogAnswer(raw, { aspect: 'comparison', services: [] }, () => false), null,
+      'unsourced copy requires a server-derived informative inquiry opt-in')
+    const facts = [{ id: 'next', text: '¿En qué te puedo ayudar?' }]
+    assert.notEqual(validateReplyDraft({ ...frame(null), catalogAnswer: raw }, facts,
+      replyContract('social', false, false, facts), []).validation.status, 'accepted')
+  })
+  await check('C3 zero-ID explanation still needs a current high-confidence informative owner', async () => {
+    const body = 'Explicame el shock de keratina'; const beforeAgenda = agenda
+    for (const proposal of [
+      { ...explanatory(body, [], [general]), communicativeActs: null },
+      { ...explanatory(body, [], [general]), communicativeActs: { version: 1, acts: [{ kind: 'request', field: 'service', evidence: body, confidence: 1, mention: null, operationIndexes: [0] }] } },
+      { ...explanatory(body, [], [general]), turnPlan: { version: 1, operations: [{ ...operation(body, [], 'description'), confidence: .5 }] } }
+    ]) {
+      const result = await respondWithAiInterpreter(context, initial, body, port, async () => proposal)
+      assert.ok(!result.reply.includes(general.text)); checkRead(result, initial, beforeAgenda)
+    }
+  })
+  await check('C3 block origin is a primitive explicit enum, never a coerced array or object', async () => {
+    const local = { aspect: 'description' as const, services: [{ id: 'keratin', name: 'Keratina', description: catalog[1]!.description! }] }
+    for (const kind of [['published'], { toString: 'published' }, 123, null]) {
+      assert.equal(validateCatalogAnswer({ blocks: [{ kind, text: catalog[1]!.description!, sources: [source('keratin')] }] }, local, () => false), null)
+    }
+  })
+  await check('C3 absent local descriptions stay explicit and available descriptions cannot be omitted', async () => {
+    const body = 'Comparame Tratamiento y Keratina'; const beforeAgenda = agenda
+    const missingCatalog = catalog.map(item => ['care', 'keratin'].includes(item.id) ? { ...item, description: null } : item)
+    const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => missingCatalog },
+      async () => explanatory(body, ['care', 'keratin'], [general]))
+    assert.ok(result.reply.includes(general.text))
+    for (const service of missingCatalog.slice(0, 2)) assert.ok(result.reply.includes(service.name + ':\nNo tengo una descripción publicada'))
+    checkRead(result, initial, beforeAgenda)
+    const omitted = await respondWithAiInterpreter(context, initial, body, port, async () => explanatory(body, ['care', 'keratin'], [general, published('care')]))
+    assert.ok(!omitted.reply.includes(general.text)); assert.ok(omitted.reply.includes(catalog[1]!.description!))
+    checkRead(omitted, initial, beforeAgenda)
+  })
+  await check('C3 mixed explanation does not weaken source freshness or current IDs', async () => {
+    const body = 'Compará Tratamiento y Keratina'; const beforeAgenda = agenda
+    const blocks = [general, published('care'), published('keratin')]
+    const changedCatalog = catalog.map(item => item.id === 'keratin' ? { ...item, description: 'Sólo realizamos una evaluación previa.' } : item)
+    const result = await respondWithAiInterpreter(context, initial, body, { ...port, catalog: async () => changedCatalog },
+      async () => explanatory(body, ['care', 'keratin'], blocks))
+    assert.ok(!result.reply.includes(blocks[2]!.text)); assert.ok(result.reply.includes(changedCatalog[1]!.description!)); checkRead(result, initial, beforeAgenda)
+    const foreign = await respondWithAiInterpreter(context, initial, body, port,
+      async () => explanatory(body, ['care', 'foreign'], blocks))
+    assert.ok(!foreign.reply.includes(general.text)); checkRead(foreign, initial, beforeAgenda)
+  })
+
   await check('two named services receive a useful paraphrased comparison in the first call', async () => {
     const body = '¿Cuál es la diferencia entre Tratamiento y Keratina?'
     let input: AiInterpretationInput | undefined, calls = 0; const beforeAgenda = agenda
@@ -292,6 +426,16 @@ try {
       facts: [{ id: 'service', text: catalog[1]!.description! }] }, new AbortController().signal)
     assert.ok(requests[0].text.format.schema.properties.firstReply.properties.catalogAnswer)
     assert.ok(requests[1].text.format.schema.properties.catalogAnswer)
+    for (const schema of [requests[0].text.format.schema.properties.firstReply.properties.catalogAnswer, requests[1].text.format.schema.properties.catalogAnswer]) {
+      const kinds = schema.properties.blocks.items.anyOf
+      assert.equal(kinds.length, 2)
+      assert.deepEqual(kinds.map((kind: any) => kind.properties.kind.enum[0]).sort(), ['general', 'published'])
+      for (const kind of kinds) assert.ok(kind.required.includes('kind'))
+    }
+    for (const request of requests) assert.match(request.instructions, /general.*orientativ/i)
+    assert.doesNotMatch(requests[0].instructions, /Para consultas sobre procedimientos o variantes usa kind service_request/)
+    assert.match(requests[0].instructions, /Para verificar si el negocio ofrece un procedimiento o variante/)
+    assert.match(requests[0].instructions, /Las explicaciones generales del rubro usan information/)
     for (const request of requests) { assert.equal(request.store, false); assert.match(request.instructions, /fuente|source/i) }
     assert.equal(JSON.parse(requests[0].input).services.find((item: any) => item.id === 'keratin').description, catalog[1]!.description)
   })

@@ -125,10 +125,10 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   const described = services.filter(service => target.serviceIds.includes(service.id))
   const publishedComparison = ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1 &&
     described.length === target.serviceIds.length && described.every(service => literalCatalogName(message, service.name))
-  const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) && described.length > 0 &&
+  const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) &&
     !(described.length === 1 && target.aspect !== 'description' && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
   if (publishedComparison || sourcedExplanation) {
-    const context = catalogInformation(target, described)
+    const context = catalogInformation(target, described, sourcedExplanation)
     return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) ? 'found' : 'missing',
       catalogInformation: context }
   }
@@ -285,7 +285,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 /** One contextual next step: inquiry is not permission to mutate a booking draft. */
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
-  if (read.catalogInformation) return read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
+  if (read.catalogInformation) return !read.catalogInformation.services.length ? '¿Qué más querés saber sobre este tema?' : read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'
   if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)

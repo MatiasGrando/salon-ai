@@ -86,6 +86,23 @@ const clear = await say('¿Hacen corte masculino?', req('corte masculino', 'inqu
 assert.equal(clear.state.serviceId, null, 'a clear inquiry still must not initiate a booking');
 assert.match(clear.reply, /Corte hombre/i);
 assert.equal(calls, 0);
+
+const straight: DialogueService = { id: 'straight', name: 'Alisado sin formol', description: 'Alisado para reducir ondas.', durationMinutes: 60, requiresConsultation: false, price: 250 };
+const uniqueStraight = resolveServiceRequest(req('alisado', 'booking', 'clear', ['straight']) as any, 'alisado', 1, [straight]);
+assert.equal(uniqueStraight.disposition, 'clear');
+assert.deepEqual(uniqueStraight.serviceIds, ['straight']);
+const anotherStraight: DialogueService = { ...straight, id: 'straight-other', name: 'Alisado progresivo' };
+const ambiguousStraight = resolveServiceRequest(req('alisado', 'booking', 'clear', ['straight']) as any, 'alisado', 1, [straight, anotherStraight]);
+assert.equal(ambiguousStraight.disposition, 'alternatives');
+assert.deepEqual(ambiguousStraight.serviceIds, ['straight', 'straight-other']);
+const straightPort: DialoguePort = { ...port, catalog: async () => [straight] };
+const straightBooking = await respondWithAiInterpreter(context, initialDialogueState('tenant'), 'Quiero un alisado', straightPort,
+    (async () => ({ ...base, turnPlan: { version: 1, operations: [req('alisado', 'booking', 'clear', ['straight'])] } })) as AiInterpretationProvider);
+assert.equal(straightBooking.state.serviceId, 'straight', 'a unique habitual requested identity need not be confirmed twice');
+const straightInquiry = await respondWithAiInterpreter(context, initialDialogueState('tenant'), 'Información del alisado', straightPort,
+    (async () => ({ ...base, intent: 'information', turnPlan: { version: 1, operations: [req('alisado', 'inquiry', 'clear', ['straight'])] } })) as AiInterpretationProvider);
+assert.equal(straightInquiry.state.serviceId, null, 'recognizing an information subject does not acquire a service');
+
 const independent = await say('Quiero teñirme arcoíris mañana', req('teñirme arcoíris', 'booking'), undefined, [{ kind: 'date', expression: 'mañana', value: '2026-10-05', evidence: 'mañana', confidence: 1 }]);
 assert.equal(independent.state.date, '2026-10-05');
 assert.equal(independent.state.serviceId, null);
