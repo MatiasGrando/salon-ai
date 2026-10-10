@@ -20,6 +20,8 @@ export type ReplyValidation = {
   reason: ReplyRejection | 'new_facts' | 'canonical_only' | null
   factCount: number
   providedCount: number
+  /** The original optional frame was rejected; only the newly safe body assembly was accepted. */
+  discardedFramingReason?: ReplyRejection
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation }
 export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
@@ -127,16 +129,32 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   const providedCount = Array.isArray(value?.factIds) ? Math.min(value.factIds.length, 101) : 0
   const selectedVariants = new Map<string, string>()
   let opening = value?.opening
+  let closing = value?.closing
+  let catalogText: string | null = null
+  let discardedFramingReason: ReplyRejection | undefined
   // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
-  const salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
+  let salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
-    ...(!reason ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
+    ...(!reason && !discardedFramingReason ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
       validatedFraming: { salutation, opening: typeof opening === 'string' ? opening : null } } : {}),
-    modelFraming: Boolean(text && [opening, value?.closing]
-      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation)),
-    validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount }
+    modelFraming: Boolean(text && [opening, closing]
+      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText)),
+    validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount,
+      ...(!reason && discardedFramingReason ? { discardedFramingReason } : {}) }
   })
+  const assembled = (): ReplyValidationResult => {
+    const text = [salutation, opening, ...facts.map(fact => fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text), closing]
+      .filter(part => typeof part === 'string' && part.trim()).join('\n')
+    return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
+  }
+  const rejectFrame = (reason: ReplyRejection): ReplyValidationResult => {
+    if (!catalogText) return result(reason)
+    // No fragment of the rejected original frame becomes accepted or projectable.
+    opening = null; closing = null; salutation = null
+    discardedFramingReason = reason
+    return assembled()
+  }
   if (raw == null) return result('missing_draft')
   if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return result('invalid_shape')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return result('invalid_shape')
@@ -163,33 +181,31 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (contract.neutral && value.opening !== null) return result('neutral_frame')
   const framing = [value.opening, value.closing]
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')
-  if (framing.some(part => typeof part === 'string' && /[\d$€]|https?:|www\./i.test(part))) return result('unverified_value')
-  if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return result('catalog_in_frame')
-  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return result('unverified_action')
-  if (framing.some(part => typeof part === 'string' && claimsTeamAction(part))) return result('unverified_action')
-  if ((contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return result('identity_in_frame')
-  if ((contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))) return result('identity_in_frame')
-  // Shape, membership, order and every original safety fence above remain decisive.
-  // A copied business value or action is never cleaned first to rescue unsafe framing.
-  const next = contract.continuation ? facts.find(fact => fact.id === contract.continuation) : undefined
-  if (next && typeof opening === 'string') {
-    const adjusted = uniqueContinuationOpening(opening, selectedVariants.get(next.id) ?? next.text)
-    if (adjusted === null) return result('continuation_conflict')
-    opening = adjusted
-    if (typeof opening === 'string' && extraOperationalQuestion(opening)) return result('continuation_conflict')
-  }
-  // Free framing must not promise missing content or duplicate server-owned workflow status.
-  if (typeof opening === 'string' && (!(value.catalogAnswer != null && catalog?.generalKnowledgeAllowed) && facts.some(fact => normalized(fact.text).includes('no hay una descripcion') || normalized(fact.text).includes('no tengo una descripcion')) && /\b(?:diferencia|comparacion|comparar)\b/.test(normalized(opening)) ||
-      /\b(?:propuesta|reserva|turno)\b/.test(normalized(opening)) && /\b(?:pendiente|confirmacion|falta)\b/.test(normalized(opening)))) return result('unverified_action')
-  let catalogText: string | null = null
+  // Validate the complete explanatory body independently before optional frame rejection.
   if (value.catalogAnswer != null) {
     if (!catalog || !facts.some(fact => fact.id === 'catalog')) return result('invalid_shape')
     catalogText = validateCatalogAnswer(value.catalogAnswer, catalog, text => protectedReplyClaim(text))
     if (!catalogText) return result('unverified_value')
   }
-  const text = [salutation, opening, ...facts.map(fact => fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text), value.closing]
-    .filter(part => typeof part === 'string' && part.trim()).join('\n')
-  return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
+  if (framing.some(part => typeof part === 'string' && /[\d$€]|https?:|www\./i.test(part))) return rejectFrame('unverified_value')
+  if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return rejectFrame('catalog_in_frame')
+  if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return rejectFrame('unverified_action')
+  if (framing.some(part => typeof part === 'string' && claimsTeamAction(part))) return rejectFrame('unverified_action')
+  if ((contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return rejectFrame('identity_in_frame')
+  if ((contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))) return rejectFrame('identity_in_frame')
+  // Shape, membership, order and every original safety fence above remain decisive.
+  // A copied business value or action is never cleaned first to rescue unsafe framing.
+  const next = contract.continuation ? facts.find(fact => fact.id === contract.continuation) : undefined
+  if (next && typeof opening === 'string') {
+    const adjusted = uniqueContinuationOpening(opening, selectedVariants.get(next.id) ?? next.text)
+    if (adjusted === null) return rejectFrame('continuation_conflict')
+    opening = adjusted
+    if (typeof opening === 'string' && extraOperationalQuestion(opening)) return rejectFrame('continuation_conflict')
+  }
+  // Free framing must not promise missing content or duplicate server-owned workflow status.
+  if (typeof opening === 'string' && (!(value.catalogAnswer != null && catalog?.generalKnowledgeAllowed) && facts.some(fact => normalized(fact.text).includes('no hay una descripcion') || normalized(fact.text).includes('no tengo una descripcion')) && /\b(?:diferencia|comparacion|comparar)\b/.test(normalized(opening)) ||
+      /\b(?:propuesta|reserva|turno)\b/.test(normalized(opening)) && /\b(?:pendiente|confirmacion|falta)\b/.test(normalized(opening)))) return rejectFrame('unverified_action')
+  return assembled()
 }
 
 /** Project already validated framing onto a new server continuation without validating
