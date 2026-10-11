@@ -18,14 +18,22 @@ export function resolveConversationChoicePayload(value: unknown, scope: ChoiceSc
 export function planConversationChoiceView(input: { question: ChoiceQuestion; reply: string; transitionId: string; promptToken?: string; idFactory?: () => string }) {
   const question = parseChoiceQuestion(input.question)
   const id = input.idFactory ?? randomUUID, promptToken = input.promptToken ?? generatePromptToken()
-  const body = question.choices.every(choice => input.reply.includes(choice.label)) ? input.reply : input.reply + '\n\n' + question.choices.map(choice => choice.label).join(' · ')
+  // Only surface separators are equivalent here. Missing service/professional/time text still requires the full fallback.
+  const coverageText = (value: string) => value.replace(/\ba las (?=\d{2}:\d{2})/g, 'a ').replace(/\s*→\s*|\s+/g, ' ').trim()
+  const covered = question.choices.every(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey
+    ? coverageText(input.reply).includes(coverageText(choice.label)) : input.reply.includes(choice.label))
+  const body = covered ? input.reply : input.reply + '\n\n' + question.choices.map(choice => choice.label).join(' · ')
   const rendered = renderWhatsAppScreen({ bodyKind: 'menu', informativeTexts: [], interactiveBody: body,
     choices: question.choices.map(choice => ({ label: choice.label, actionType: 'input.unsupported' })) }, { promptToken })
-  if (preferredChoiceMode(question.choices.map(choice => choice.label)) === 'list') {
-    rendered.items = rendered.items.map(item => item.type === 'interactive' && item.mode === 'buttons' ? {
+  const coordinated = question.kind === 'slot' && question.choices.some(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey)
+  if (coordinated || preferredChoiceMode(question.choices.map(choice => choice.label)) === 'list') {
+    rendered.items = rendered.items.map(item => item.type === 'interactive' ? {
       type: 'interactive' as const, mode: 'list' as const, body: item.body, actionIds: item.actionIds,
-      rows: question.choices.map((choice, index) => ({ id: item.actionIds[index]!, title: truncateLabelWordSafe(choice.label,24).label,
-        ...(choice.label.length > 24 ? {description:truncateLabelWordSafe(choice.label,72).label} : {}) })), buttonText:'Elegí una opción', sectionTitle:'Opciones'
+      rows: question.choices.map((choice, index) => ({ id: item.actionIds[index]!,
+        title: choice.operation.kind === 'slot' && choice.operation.coordinationKey
+          ? choice.operation.time + ' · Opción ' + (index + 1) : truncateLabelWordSafe(choice.label, 24).label,
+        ...(choice.label.length > 24 ? { description: truncateLabelWordSafe(choice.label, 72).label } : {}) })),
+      buttonText: 'Elegí una opción', sectionTitle: 'Opciones'
     } : item)
   }
   const promptId = id(), publicChoices = publicChoiceQuestion(question).choices

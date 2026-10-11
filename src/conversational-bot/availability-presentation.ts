@@ -56,7 +56,9 @@ function cursorStart(cursor: number | undefined, pageSize: number): number {
 function slotChoices(slots: readonly AvailabilitySlot[], all: readonly AvailabilitySlot[], timezone: string): PresentationChoice[] {
   return slots.map(slot => {
     const fold = all.some(other => other.date === slot.date && other.time === slot.time && other.startAt !== slot.startAt)
-    return { kind: 'slot', slot, label: `${formatDateChoice(slot.date, timezone)} a las ${slot.time}${fold ? ` (${formatSlotOffset(slot.startAt, timezone)})` : ''} ${slot.coordination ? '· ' + coordinationLabel(slot,timezone) : 'con ' + slot.professionalName}` }
+    // Keep the complete assignment in the canonical choice; the date is already in the offer heading.
+    return { kind: 'slot', slot, label: slot.coordination ? coordinationLabel(slot, timezone) + (fold ? ` (${formatSlotOffset(slot.startAt, timezone)})` : '')
+      : `${formatDateChoice(slot.date, timezone)} a las ${slot.time}${fold ? ` (${formatSlotOffset(slot.startAt, timezone)})` : ''} con ${slot.professionalName}` }
   })
 }
 /** Offers are never choices already applied: even one exact/preference match remains an explicit option. */
@@ -99,7 +101,7 @@ export function presentAvailability(input: AvailabilityPresentationInput): Choic
           (input.preference.toInclusive ? ' hasta las ' : ' y antes de las ') + input.preference.to
         : input.preference?.kind === 'band' ? concentration : null
   return { kind: 'slots', text: standardSlotOffer({ date: formatDeliveryDate(input.scope.date ?? filtered[0]!.date), professional, band: concentration,
-    labels: choices.map(choice => choice.label), nearest: nearest ? input.requestedTime ?? null : null, preference }), choices, hasMore: start + choices.length < filtered.length }
+    labels: choices.map(choice => choice.kind === 'slot' && choice.slot.coordination ? choice.label.replace(/ → /g, '\n') : choice.label), nearest: nearest ? input.requestedTime ?? null : null, preference }), choices, hasMore: start + choices.length < filtered.length }
 }
 export function presentProfessionals(professionals: readonly { id: string; name: string }[], cursor = 0): ChoicePresentation {
   if (professionals.some(pro => !bounded(pro.id, 128) || !bounded(pro.name, 200)) || new Set(professionals.map(pro => pro.id)).size !== professionals.length) throw new Error('invalid presentation professional')
