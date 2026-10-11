@@ -88,6 +88,8 @@ export type DialogueState = {
   /** Server-owned QA presentation/receipt; never a production booking capability. */
   appointmentManagement?: { context: AppointmentManagementContext; date?: string; selectedTime?: string; presentedScope?: RuntimeShownScope; outcome?: { kind: 'CANCELLED' | 'RESCHEDULED'; appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string }[] } }
   bookingReservation?: RuntimeBookingReservation
+  /** One sealed completed receipt, independent of the next active booking draft. */
+  completedBooking?: RuntimeBookingReservation
   sandboxReservation?: SandboxReservation
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; segments?: CoordinatedSegment[]; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
@@ -107,6 +109,16 @@ function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, '
 }
 /** Validated QA decision: IDs are rechecked against the current catalog; text still supplies dates and preferences. */
 export type DialogueDecision = { catalogInquiries?: readonly CatalogInquiryScope[]; serviceId: string | null; candidateIds: readonly string[]; correction: boolean; intent?: 'booking' | 'information' | 'other'; confirmationEvidence?: string; professionalMention?: string | null; informationTarget?: InformationTarget | null; turnPlan?: TurnPlan; informationOnly?: true; communicative?: CommunicativeAdmission }
+/** Completion preserves one receipt but never carries old draft authority into interpretation. */
+export function continueCompletedBooking(state: DialogueState): DialogueState {
+  const prior=state.bookingReservation, r=prior?.receipt
+  if (!prior || !r || !(r.kind==='COMMITTED' || r.kind==='HELD' && r.depositStatus==='APPROVED') || state.appointmentManagement) return state
+  const next=initialDialogueState(state.businessId)
+  next.introduced=state.introduced
+  next.customerName=state.customerName
+  next.completedBooking=structuredClone(prior)
+  return next
+}
 export function hasActiveBooking(state: DialogueState): boolean {
   return Boolean(hasBasketSelection(state) || state.date || state.datePreferences || state.professional || state.professionalNameHint || state.requestedTime || state.timePreference || state.slot || state.dialogueContext?.lastQuestion || state.pending !== 'service')
 }
@@ -214,8 +226,8 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.appointmentManagement !== undefined) {
     const m = s.appointmentManagement
-    if (!m || Object.keys(m).some(key => !['context', 'date', 'selectedTime', 'presentedScope', 'outcome'].includes(key)) || !s.bookingReservation?.receipt) throw new Error('invalid management sidecar')
-    const original = s.bookingReservation
+    if (!m || Object.keys(m).some(key => !['context', 'date', 'selectedTime', 'presentedScope', 'outcome'].includes(key)) || !(s.bookingReservation ?? s.completedBooking)?.receipt) throw new Error('invalid management sidecar')
+    const original = (s.bookingReservation ?? s.completedBooking)!
     parseAppointmentManagement(m.context, businessId, original.presented.scope.sessionId)
     if (m.context.snapshot.groupId !== original.receipt!.coordinationGroupId || m.context.snapshot.members.length !== original.receipt!.appointments.length ||
       m.context.snapshot.members.some(member => !original.receipt!.appointments.some(item => item.appointmentId === member.appointmentId && item.visitId === member.visitId))) throw new Error('management receipt membership mismatch')
@@ -229,6 +241,10 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (s.bookingReservation !== undefined) {
     parseRuntimeBookingReservation(s.bookingReservation,businessId)
     if (s.sandboxReservation || !runtimeProposalMatchesState(s.bookingReservation.presented,s) || timezone && s.bookingReservation.presented.terms.timezone!==timezone) throw new Error('invalid runtime proposal state')
+  }
+  if (s.completedBooking !== undefined) {
+    const completed = parseRuntimeBookingReservation(s.completedBooking, businessId)
+    if (!completed.receipt || completed.receipt.kind === 'HELD' && completed.receipt.depositStatus !== 'APPROVED' || timezone && completed.presented.terms.timezone !== timezone) throw new Error('invalid completed booking')
   }
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
@@ -1527,7 +1543,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
 const canonicalManagementIds = (ids: readonly string[]) => [...ids].sort().join('\u0000')
 const MANAGEMENT_QUESTION = '¿Confirmás esta gestión del turno?'
 function managementSummary(state: DialogueState): string {
-  const m = state.appointmentManagement!, terms = state.bookingReservation!.presented.terms
+  const m = state.appointmentManagement!, terms = (state.bookingReservation ?? state.completedBooking)!.presented.terms
   return m.context.snapshot.members.map(member => {
     const segment = terms.segments.find(item => item.professionalId === member.professionalId && member.serviceIds.includes(item.serviceId))!
     const move = m.context.proposal?.kind === 'GROUP_RESCHEDULE_PROPOSAL' ? m.context.proposal.moves.find(item => item.appointmentId === member.appointmentId) : undefined
@@ -1539,7 +1555,7 @@ function managementOutcomeReply(state: DialogueState): string {
   return state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'El grupo de turnos fue cancelado.' : 'El grupo de turnos fue reprogramado.\n' + managementSummary(state)
 }
 async function respondAppointmentManagement(context: DialogueContext, previous: DialogueState, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse | null> {
-  if (!previous.bookingReservation?.receipt) return null
+  if (!(previous.bookingReservation ?? previous.completedBooking)?.receipt) return null
   const state = structuredClone(previous), current = context.serverManagementSnapshot, scope = context.serverRuntimeBookingScope
   const reply = (text: string): DialogueResponse => ({ state, proposal: null, reply: text, replyPrepared: true })
   if (state.appointmentManagement?.outcome?.kind === 'CANCELLED') return reply(managementOutcomeReply(state))
@@ -1547,7 +1563,7 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   const requested = plan?.operations.find(op => op.kind === 'unsupported_action' && (op.action === 'CANCEL' || op.action === 'RESCHEDULE'))
   const lexical = routeActions(message).pendingAction
   const action = requested?.kind === 'unsupported_action' ? requested.action : !decision && (lexical === 'CANCEL' || lexical === 'RESCHEDULE') ? lexical : null
-  if (!current || !scope || current.scope.businessId !== state.businessId || current.scope.sessionId !== scope.sessionId || current.groupId !== state.bookingReservation!.receipt!.coordinationGroupId) return null
+  if (!current || !scope || current.scope.businessId !== state.businessId || current.scope.sessionId !== scope.sessionId || current.groupId !== (state.bookingReservation ?? state.completedBooking)!.receipt!.coordinationGroupId) return null
   if (current.members.some(member => member.depositId !== null || member.manualDepositPaid || member.manualDepositAmount !== null)) return reply('Este grupo requiere revisión financiera del equipo; no modifiqué los turnos ni los pagos.')
   const normalized = normalize(message)
   const fullConsent = /^(confirmo|si confirmo|confirmo la cancelacion|confirmo cancelar todos los turnos|confirmo la reprogramacion|confirmo reprogramar todos los turnos)$/.test(normalized) && !/[?¿]/.test(message)
@@ -1585,7 +1601,7 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   const offers = await port.managementRescheduleOffers(current, m.date)
   m.context = attachManagementRescheduleOffers(beginAppointmentManagement('RESCHEDULE', current), offers)
   if (!offers.length) return reply('No encontré horarios completos compatibles para todos los turnos en esa fecha. No modifiqué tu reserva.')
-  const timezone = state.bookingReservation!.presented.terms.timezone
+  const timezone = (state.bookingReservation ?? state.completedBooking)!.presented.terms.timezone
   const label = (offer: ManagementRescheduleOffer) => new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date([...offer.moves].sort((a,b) => Date.parse(a.newStartAt) - Date.parse(b.newStartAt))[0]!.newStartAt))
   const matching = time ? offers.filter(offer => label(offer) === time) : []
   if (matching.length === 1) {
@@ -1613,7 +1629,15 @@ function runtimeCurrentScope(context: DialogueContext,p:RuntimePresentedBooking)
 }
 async function respondRuntimeBookingEnvelope(context:DialogueContext,state:DialogueState,message:string,port:DialoguePort,decision?:DialogueDecision):Promise<DialogueResponse> {
   const prior=state.bookingReservation
-  if(prior?.receipt) return {state,proposal:null,reply:runtimeBookingReceiptReply(prior)}
+  if(prior?.receipt) {
+    if (prior.receipt.kind === 'COMMITTED' || prior.receipt.depositStatus === 'APPROVED') {
+      // Completion consumes old selection/slot/consent, not the confirmed receipt.
+      const next = continueCompletedBooking(state)
+      if (next === state) return {state,proposal:null,reply:'No pude verificar la gestión pendiente de tu turno. Conservé la reserva; el equipo debe revisarla.',replyPrepared:true}
+      return respondRuntimeBookingEnvelope(context, next, message, port, decision)
+    }
+    return {state,proposal:null,reply:runtimeBookingReceiptReply(prior)}
+  }
   const plan=decision?.turnPlan?parseTurnPlan(decision.turnPlan,message):null, lexical=routeActions(message), normalized=normalize(message)
   const veto=/[?¿]/.test(message) || /\b(no|pero|mejor|antes|depende|quizas|tal vez|cuando|sujeto)\b/.test(normalized) || /\bsi\b/.test(normalized) && !/^(si|si confirmo)$/.test(normalized)
   // This marker is projected by current speech-act admission, not model text or a phrase allowlist.

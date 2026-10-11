@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
 import { createInitialBotOptionsState, parseBotOptionsState, type BotOptionsState, type BotOptionsFlowStep } from '../bot-options/domain/state.js'
-import { initialDialogueState, parseDialogueState, type DialogueState } from './engine.js'
+import { initialDialogueState, parseDialogueState, hasActiveBooking, type DialogueState } from './engine.js'
 import type { ConversationPolicy } from './runtime-policy.js'
 import { basketServiceIds } from './service-basket.js'
 
@@ -24,16 +24,18 @@ export function readConversationDraft(value: unknown, policy: ConversationPolicy
 export function projectConversationDraft(draft: DialogueState, policy: ConversationPolicy): ConversationSessionState {
   const state = parseDialogueState(draft, policy.businessId)
   const base = createInitialBotOptionsState()
-  const receipt=state.bookingReservation?.receipt
+  const historical = !state.bookingReservation && !hasActiveBooking(state) ? state.completedBooking : undefined
+  const receipt=state.bookingReservation?.receipt ?? historical?.receipt
+  const terms=historical?.presented.terms, first=terms?.segments[0]
   const financial=receipt?.kind==='HELD'?receipt.depositStatus:null
   const booking=financial==='APPROVED'?'CONFIRMED':financial==='PROOF_RECEIVED'?'PENDING_PAYMENT_REVIEW':financial==='EXPIRED'?'EXPIRED':financial==='REJECTED'?'CANCELLED':financial?'HELD':receipt?'CONFIRMED':'DRAFT'
   const deposit=financial==='PENDING_RESUBMISSION'?'REJECTED_RESUBMISSION_ALLOWED':financial==='REJECTED'?'REJECTED_FINAL':financial??'NONE'
   const financialFlow=financial==='APPROVED'?'BOOKING_CONFIRMED':financial==='PROOF_RECEIVED'?'DEPOSIT_REVIEW':financial==='EXPIRED'||financial==='REJECTED'?'APPOINTMENT_DETAIL':financial?'DEPOSIT_INSTRUCTIONS':null
   const projected: ConversationSessionState = { ...base, flow: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'APPOINTMENT_DETAIL' : financialFlow ?? (receipt ? 'BOOKING_CONFIRMED' : flows[state.pending]), booking: state.appointmentManagement?.outcome?.kind === 'CANCELLED' ? 'CANCELLED' : booking, deposit,
-    cart: basketServiceIds(state).map(serviceId => ({ serviceId })), nameCandidate: state.customerName,
-    selections: { ...base.selections, professionalId: state.professional?.kind === 'specific' ? state.professional.id : null,
-      anyProfessional: state.professional?.kind === 'any', appointmentId:receipt?.appointments[0]?.appointmentId??null, date: state.date, slotStartAt: state.slot?.startAt ?? null,
-      provisionalProfessionalId: state.professional?.kind === 'any' ? state.slot?.professionalId ?? null : null },
+    cart: (terms ? terms.segments.map(s=>s.serviceId) : basketServiceIds(state)).map(serviceId => ({ serviceId })), nameCandidate: state.customerName,
+    selections: { ...base.selections, professionalId: terms?.preference.kind === 'specific' ? terms.preference.id : state.professional?.kind === 'specific' ? state.professional.id : null,
+      anyProfessional: terms ? terms.preference.kind === 'any' : state.professional?.kind === 'any', appointmentId:receipt?.appointments[0]?.appointmentId??null, date: terms?.date ?? state.date, slotStartAt: first?.startAt ?? state.slot?.startAt ?? null,
+      provisionalProfessionalId: terms?.preference.kind === 'any' ? first?.professionalId ?? null : state.professional?.kind === 'any' ? state.slot?.professionalId ?? null : null },
     conversationDraft: { policy: { ...policy }, dialogue: state } }
   const parsed = parseBotOptionsState(projected)
   if (!parsed.ok) throw new Error(`invalid conversation projection: ${parsed.invariant}`)

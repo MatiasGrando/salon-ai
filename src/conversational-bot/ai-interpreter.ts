@@ -26,7 +26,7 @@ import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-gu
 import { pendingQuestion, validateFacts } from './information.js'
 import { parseInformationTarget } from './information-contract.js'
 import { informationAspect, focusedInformationService, normalizeInformativeEstimates, validInformationEstimate, inferInformationTarget, readInformation, informationReply } from './information-read.js'
-import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
+import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
 export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
@@ -333,7 +333,8 @@ export async function respondWithAiInterpreter(
   provider: AiInterpretationProvider, options: { timeoutMs?: number; responseProvider?: AiResponseProvider } = {}
 ): Promise<InterpretedDialogueResponse> {
   const started = performance.now()
-  const state = parseDialogueState(previous, context.businessId, context.timezone)
+  const parsedState = parseDialogueState(previous, context.businessId, context.timezone)
+  const state = context.serverManagementSnapshot ? parsedState : continueCompletedBooking(parsedState)
   const temporalState: DialogueState = state.appointmentManagement ? { ...state, date: state.appointmentManagement.date ?? null, requestedTime: state.appointmentManagement.selectedTime ?? null, slot: null, pending: state.appointmentManagement.date ? 'time' : 'date' } : state
   if (state.appointmentManagement) delete temporalState.bookingReservation
   const services = await port.catalog()

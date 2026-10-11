@@ -356,6 +356,12 @@ function runtimeBookingDetail(p: RuntimePresentedBooking): string {
   return p.terms.customerName + ':' + (commonDate ? '\nFecha: ' + commonDate : '') + '\n\n' + lines.join('\n\n') + '\n\n' +
     (p.terms.totalPriceMinor === null ? 'Total a consultar.' : 'Total: ' + money(p.terms.totalPriceMinor))
 }
+/** Shared sealed-detail presentation for the canonical approval notification. */
+export function runtimeApprovedBookingReply(p: RuntimePresentedBooking, address?: string): string {
+  return 'Aprobamos el comprobante y tu reserva quedó confirmada.\n\n' + runtimeBookingDetail(p) +
+    (p.terms.deposit ? '\n\nSeña' + (p.terms.segments.length > 1 ? ' conjunta' : '') + ': $' + p.terms.deposit.financial.amount.toLocaleString('es-AR') : '') +
+    (address ? '\n\nTe esperamos en ' + address : '\n\nTe esperamos.')
+}
 export function runtimeBookingSummary(p: RuntimePresentedBooking): string {
   const deposit = p.terms.deposit
   const conditions = deposit ? [

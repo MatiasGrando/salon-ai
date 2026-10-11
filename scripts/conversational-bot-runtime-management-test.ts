@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { initialDialogueState, respond, finalizeRuntimeBooking, type DialogueContext, type DialoguePort, type DialogueState, type DialogueResponse } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, continueCompletedBooking, respond, finalizeRuntimeBooking, type DialogueContext, type DialoguePort, type DialogueState, type DialogueResponse } from '../src/conversational-bot/engine.js'
 import { runtimeBookingFingerprint, type RuntimeShownScope, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { managementRescheduleOfferKey } from '../src/conversational-bot/appointment-management.js'
 import type { AppointmentManagementContext, CancellationSnapshot, GroupCancellationCommand, GroupRescheduleCommand } from '../src/conversational-bot/appointment-management.js'
@@ -75,6 +75,11 @@ assert.equal(approximate.state.appointmentManagement?.selectedTime, undefined)
 
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { publicAppointmentManagement } from '../src/conversational-bot/dialogue-context.js'
+const archivedManagement=structuredClone(actual.state)
+archivedManagement.completedBooking=archivedManagement.bookingReservation
+delete archivedManagement.bookingReservation
+assert.deepEqual(publicAppointmentManagement(archivedManagement),publicAppointmentManagement(actual.state),'archived completed receipt preserves the public management context')
+
 let capturedPublicPayload: Record<string, unknown> | undefined
 const captureOnly = createOpenAiInterpretationProvider({ apiKey: 'synthetic-unused-key', fetchImpl: (async (_url, init) => {
   capturedPublicPayload = JSON.parse(JSON.parse(String(init?.body)).input)
@@ -99,7 +104,7 @@ import type { QueueMilestoneTracker } from '../src/bot-options/observability/que
 import { resolveGuidance } from '../src/conversational-bot/service-guidance.js'
 import { runtimeServiceConfigurationHash } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { coordinationKey } from '../src/conversational-bot/coordinated-booking.js'
-import { prepareGroupRescheduleOffers } from '../src/conversational-bot/prisma-appointment-management.js'
+import { prepareGroupRescheduleOffers, loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction } from '../src/conversational-bot/prisma-appointment-management.js'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
 const config = { businessId: 'biz', customerCode: 'WX-38N6UG', deploymentId: 'dep', generation: 1, configurationId: 'cfg', configurationBusinessId: 'biz', configurationStatus: 'ACTIVE', engineKey: 'deterministic-options', definition: { conversation: { schemaVersion: 1, engine: 'conversational-booking-v1' }, serviceContent: { version: 1, businessId: 'biz', services: [] } } }
 const policy = resolveConversationPolicy(config)!
@@ -433,6 +438,43 @@ try {
   const origin=structuredClone(readConversationDraft(live.session.state,policy,'UTC').bookingReservation!)
   assert.equal(origin.receipt!.appointments.length,2)
   assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "AppointmentServiceItem"')).rows[0]!.n,2, 'both F7 child service items must be physically persisted before F9')
+  // Ordinary verification of an already-supported archive path, not a new RED claim.
+  const durableBeforeArchive=(await bookingDb.query('SELECT state FROM "BotSession" WHERE id=$1',['session'])).rows[0]!.state
+  await assert.rejects(bookingDb.transaction(async raw=>{
+    const tx={
+      professional:{findMany:async({where}:{where:{businessId:string;id:{in:string[]}}})=>(await raw.query('SELECT id FROM "Professional" WHERE "businessId"=$1 AND id=ANY($2::text[])',[where.businessId,where.id.in])).rows},
+      $queryRaw:async(q:Query)=>(await raw.query(q.text,q.values.map(value=>value instanceof Date?value.toISOString():value))).rows,
+      $executeRaw:async(q:Query)=>(await raw.query(q.text,q.values.map(value=>value instanceof Date?value.toISOString():value))).affectedRows??0
+    }
+    const ownedScope={businessId:'biz',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:live.session.revision}
+    const currentSnapshot=await loadOwnConfirmedRuntimeGroupSnapshot(tx as never,ownedScope)
+    const archived=continueCompletedBooking(readConversationDraft(live.session.state,policy,'UTC'))
+    assert.equal(archived.bookingReservation,undefined)
+    assert.deepEqual(archived.completedBooking,origin,'archive keeps the original tenant, identifiers, fingerprint and nonce')
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify(projectConversationDraft(archived,policy)),'session'])
+    const archivedSnapshot=await loadOwnConfirmedRuntimeGroupSnapshot(tx as never,ownedScope)
+    assert.deepEqual(archivedSnapshot.scope,currentSnapshot.scope)
+    assert.deepEqual(archivedSnapshot.members,currentSnapshot.members)
+    assert.equal(archivedSnapshot.groupId,currentSnapshot.groupId)
+    await assert.rejects(()=>loadOwnConfirmedRuntimeGroupSnapshot(tx as never,{...ownedScope,businessId:'foreign'}),/ownership unavailable/)
+    const shownScope={...origin.presented.scope,revision:String(live.session.revision)}
+    const managedContext:DialogueContext={businessId:'biz',timezone:'UTC',dbNow:realNow,serverRuntimeBookingScope:shownScope,serverManagementSnapshot:archivedSnapshot}
+    const proposal=await respond(managedContext,archived,'Quiero cancelar mi turno confirmado.',bookingPort,{serviceId:null,candidateIds:[],correction:false,
+      turnPlan:{version:1,operations:[{kind:'unsupported_action',action:'CANCEL',evidence:'Quiero cancelar mi turno confirmado.',confidence:1}]}})
+    assert.equal(proposal.managementCommand,undefined,'archive still requires a separate cancellation consent')
+    const confirmation=await respond({...managedContext,serverRuntimeBookingScope:{...shownScope,revision:String(live.session.revision+1n)}},proposal.state,'Confirmo la cancelación.',bookingPort)
+    assert.equal(confirmation.managementCommand?.kind,'CANCEL_APPOINTMENT_GROUP')
+    if(confirmation.managementCommand?.kind!=='CANCEL_APPOINTMENT_GROUP')throw Error('archive cancellation command missing')
+    assert.notEqual(confirmation.managementCommand.nonce,origin.presented.nonce,'old booking nonce cannot authorize cancellation')
+    assert.deepEqual(confirmation.state.completedBooking,origin)
+    const cancelled=await cancelGroupInTransaction(tx as never,confirmation.managementCommand)
+    assert.equal(cancelled.appointmentIds.length,2)
+    assert.ok((await raw.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CANCELLED'))
+    throw Error('rollback archived management verification')
+  }),/rollback archived management verification/)
+  assert.deepEqual((await bookingDb.query('SELECT state FROM "BotSession" WHERE id=$1',['session'])).rows[0]!.state,durableBeforeArchive)
+  assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CONFIRMED'))
+  console.log('archived completed receipt real SQL loader, foreign denial and fresh-consent group cancellation rollback: PASS')
   managementSecondId=origin.receipt!.appointments[1]!.appointmentId
   // Existing Prisma port, actual catalog/availability SQL in the same in-memory database.
   // Only the Prisma delegate surface is adapted; no availability results or offers are fabricated.

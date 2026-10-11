@@ -4,6 +4,10 @@ import { processConversationInbox } from '../src/conversational-bot/process-inbo
 import { projectInboundMessage, isConversationRestartCommand } from '../src/bot-options/application/process-session-job.js'
 import { createInitialBotOptionsState } from '../src/bot-options/domain/state.js'
 import { subscribeToCrmRealtimeEvents } from '../src/services/crm-realtime-events.js'
+import { initialDialogueState } from '../src/conversational-bot/engine.js'
+import { projectConversationDraft } from '../src/conversational-bot/session-state.js'
+import { resolveConversationPolicy } from '../src/conversational-bot/runtime-policy.js'
+import { runtimeBookingFingerprint } from '../src/conversational-bot/prisma-conversational-booking.js'
 import type { Prisma } from '../src/generated/prisma/client.js'
 
 // Execute the production inbox SELECT in SQL, not a test copy of its identity predicate.
@@ -40,10 +44,11 @@ async function seed(change = '') {
     INSERT INTO "Message" VALUES ('event','conversation','phone','INBOUND','msg');
     ${change}`)
 }
-async function fixture(options: { existing?: boolean; status?: string; enabled?: boolean; failSnapshotCommit?: boolean; sessionConversation?: string } = {}) {
+async function fixture(options: { existing?: boolean; status?: string; enabled?: boolean; failSnapshotCommit?: boolean; sessionConversation?: string; state?: unknown } = {}) {
   let session = options.existing === false ? null : { sessionId: 'session', conversationId: options.sessionConversation ?? 'conversation',
-    revision: 0n, status: options.status ?? 'ACTIVE', state: createInitialBotOptionsState(), businessTimezone: 'UTC',
+    revision: 0n, status: options.status ?? 'ACTIVE', state: options.state ?? createInitialBotOptionsState(), businessTimezone: 'UTC',
     handoffFenceEpoch: 0, handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
+  let aiCalls = 0
   let upserts = 0, projections = 0, publications = 0, writes = 0, replies = 0, transactions = 0
   const statements: Query[] = []
   const unsubscribe = subscribeToCrmRealtimeEvents({ businessId: 'biz', send(event) {
@@ -79,7 +84,7 @@ async function fixture(options: { existing?: boolean; status?: string; enabled?:
       }
       if (q.sql.includes('conversation-create-session')) {
         session = { sessionId: 'session', conversationId: q.values[2] as string, revision: 0n, status: 'ACTIVE',
-          state: createInitialBotOptionsState(), businessTimezone: 'UTC', handoffFenceEpoch: 0,
+          state: options.state ?? createInitialBotOptionsState(), businessTimezone: 'UTC', handoffFenceEpoch: 0,
           handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
         return [{ id: 'session' }]
       }
@@ -100,10 +105,10 @@ async function fixture(options: { existing?: boolean; status?: string; enabled?:
       isRestart: isConversationRestartCommand, writeView: (async () => { replies++ }) as never,
       dialogueFactory: async () => ({ context: { businessId: 'biz', timezone: 'UTC', dbNow: now },
         port: { catalog: async () => [], availability: async () => { throw new Error('simple turn must not query availability') } } }),
-      conversationalAi: { provider: async () => ({ intent: 'other', serviceId: null, serviceEvidence: null,
-        professionalMention: null, firstReply: { opening: 'Hola', factIds: [], closing: null } }), timeoutMs: 4500 }
+      conversationalAi: { provider: async () => { aiCalls++; return ({ intent: 'other', serviceId: null, serviceEvidence: null,
+        professionalMention: null, firstReply: { opening: 'Hola', factIds: [], closing: null } }) }, timeoutMs: 4500 }
     })
-    return { result, upserts, projections, publications, writes, replies, statements }
+    return { aiCalls, result, upserts, projections, publications, writes, replies, statements }
   } finally { unsubscribe() }
 }
 try {
@@ -144,6 +149,17 @@ try {
   await seed(); const mismatch = await fixture({ sessionConversation: 'another-conversation' })
   assert.equal(mismatch.upserts + mismatch.projections, 2, 'session/projection disagreement cannot be reused')
   await seed(); await assert.rejects(fixture({ failSnapshotCommit: true }), /snapshot commit failed/)
+  const terms = { version: 1 as const, businessId: 'biz', timezone: 'UTC', date: '2026-10-02', customerName: 'Eva', preference: { kind: 'any' as const },
+    segments: [{serviceId: 'service', serviceName: 'Corte', professionalId: 'professional', professionalName: 'Ana', startAt: '2026-10-02T16:00:00.000Z', endAt: '2026-10-02T16:30:00.000Z', durationMinutes: 30, customerDurationMinutes: 30, priceMinor: 1000, priceMode: 'FIXED' as const, configurationHash: null}], totalPriceMinor: 1000 }
+  const nonce = '12345678-1234-4234-8234-123456789abc', fingerprint = runtimeBookingFingerprint(terms)
+  const completed = projectConversationDraft({ ...initialDialogueState('biz'), serviceId:'service', date: terms.date, customerName:'Eva', professional:{kind:'any'}, pending:'proposal',
+    slot:{date:terms.date,time:'16:00',startAt:terms.segments[0]!.startAt,professionalId:'professional',professionalName:'Ana',occupiedMinutes:30,band:'AFTERNOON'},
+    bookingReservation:{presented:{version:1,scope:{businessId:'biz',sessionId:'session',deploymentId:'dep',generation:1,revision:'0',configurationId:'cfg',dispatchFenceEpoch:1,handoffFenceEpoch:0},nonce,fingerprint,conditionsPresented:true,terms},
+      receipt:{kind:'COMMITTED',coordinationGroupId:'group',proposalNonce:nonce,fingerprint,appointments:[{segmentIndex:0,appointmentId:'appointment',visitId:'visit'}]}} }, resolveConversationPolicy(policy)!)
+  await seed()
+  const continued = await fixture({state:completed})
+  assert.equal(continued.aiCalls, 1, 'confirmed receipt must not intercept text before the interpreter')
+  assert.equal(continued.replies, 1)
   // SQL negatives above execute the actual joined production SELECT; no extra identity query is allowed.
   assert.ok(inboxQueries.length > 0)
   console.log('OK confirmed CRM projection reuse: two fewer SQL trips, exact SQL identity, fallback, first session, human/disabled, rollback and no duplicate publication.')

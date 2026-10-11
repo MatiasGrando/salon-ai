@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { parseRuntimeBookingReservation, runtimeApprovedBookingReply, type RuntimePresentedBooking } from '../conversational-bot/prisma-conversational-booking.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { lockCoordinatedDepositGroupForDeposit, type CoordinatedDepositGroupState } from './coordinated-deposit-group.js'
 import { renderDepositNotification, type DepositNotificationKind } from './deposit-notification-content.js'
@@ -34,16 +35,31 @@ export async function enqueueDepositNotificationTx(
     if(!canonical) return 'REPLAYED' // A recovery event superseded by a later ALL transition must not send stale claims.
     input={...input,depositId:groupState.group.anchorDepositId,sourceId:canonical}
   }
+  if (input.kind === 'APPROVED') {
+    // CRM completion is separate from BotSession ACTIVE. Do not touch a later draft.
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE "Conversation" c SET "currentStep"='COMPLETED'::"ConversationStep", "updatedAt"=clock_timestamp()
+      FROM "BookingDeposit" d JOIN "BookingVisit" v ON v.id=d."visitId" AND v."businessId"=d."businessId"
+      JOIN "BotSession" origin ON origin.id=v."sessionId" AND origin."businessId"=v."businessId"
+      WHERE d.id=${input.depositId} AND d."businessId"=${input.businessId} AND d.status='APPROVED'
+        AND c.id=d."conversationId" AND c."businessId"=d."businessId" AND origin.status='ACTIVE'
+        AND c."currentStep"='AWAITING_DEPOSIT'::"ConversationStep"
+        AND origin.state->'conversationDraft'->'dialogue'->'bookingReservation'->'receipt'->>'depositId' = d.id
+    `)
+  }
   await tx.$executeRaw(Prisma.sql`
     SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))
   `)
   const expectedProviderPhoneNumberId = optionalIdentifier(input.expectedProviderPhoneNumberId, 'expectedProviderPhoneNumberId')
-  const routes = await tx.$queryRaw<Array<{ sessionId: string; toPhone: string; providerPhoneNumberId: string; dbNow: Date }>>(Prisma.sql`
+  const routes = await tx.$queryRaw<Array<{ sessionId: string; toPhone: string; providerPhoneNumberId: string; dbNow: Date; originState?: unknown; originSessionId?: string; visitId?: string; appointmentId?: string; businessAddress?: string | null }>>(Prisma.sql`
     SELECT s."id" AS "sessionId", c."phone" AS "toPhone", credentials."phoneNumberId" AS "providerPhoneNumberId",
-      clock_timestamp() AS "dbNow"
+      clock_timestamp() AS "dbNow", origin.state AS "originState", origin.id AS "originSessionId", visit.id AS "visitId", a.id AS "appointmentId", b."publicAddress" AS "businessAddress"
     FROM "BookingDeposit" deposit
     JOIN "Conversation" c ON c."id" = deposit."conversationId" AND c."businessId" = deposit."businessId"
     JOIN "BookingVisit" visit ON visit."id" = deposit."visitId" AND visit."businessId" = deposit."businessId"
+    LEFT JOIN "BotSession" origin ON origin.id=visit."sessionId" AND origin."businessId"=visit."businessId"
+    LEFT JOIN "Business" b ON b.id=deposit."businessId"
+    LEFT JOIN "Appointment" a ON a."visitId"=visit.id AND a."businessId"=visit."businessId"
     JOIN "BotSession" s
       ON s."businessId" = deposit."businessId"
      AND s."conversationId" = c."id"
@@ -75,7 +91,9 @@ export async function enqueueDepositNotificationTx(
   const idempotencyKey = groupState?`deposit-notification:${input.depositId}:${input.kind}:${input.sourceId}`:`deposit-notification:${input.kind}:${input.sourceId}`
   const deliveryGroupId = `deposit-notification:${input.sourceId}`
   const staticItem = renderDepositNotification(input.kind)
-  const item = groupState?{...staticItem,body:staticItem.body+'\n'+groupNotificationSummary(groupState)}:staticItem
+  const approvedProposal = input.kind === 'APPROVED' ? groupState?.group.proposal ?? singleApprovalProposal(route, input) : null
+  const item = approvedProposal ? {...staticItem, body:runtimeApprovedBookingReply(approvedProposal, route.businessAddress ?? undefined)}
+    : groupState?{...staticItem,body:staticItem.body+'\n'+groupNotificationSummary(groupState)}:staticItem
   const inserted = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotOutbox" (
       "id", "businessId", "sessionId", "transitionId", "deliveryGroupId", "sequence", "kind", "payload",
@@ -293,6 +311,19 @@ function reviewNotificationKind(kind: string): DepositNotificationKind | null {
   if (kind === 'DEPOSIT_RESUBMISSION_REQUESTED') return 'RESUBMISSION'
   if (kind === 'DEPOSIT_REJECTED_FINAL') return 'FINAL_REJECTION'
   return null
+}
+
+/** No current catalogue or later routing session can replace the original snapshot. */
+function singleApprovalProposal(route: {originState?:unknown;originSessionId?:string;visitId?:string;appointmentId?:string}, input:{businessId:string;depositId:string}):RuntimePresentedBooking|null {
+  try {
+    const state=route.originState as {conversationDraft?:{dialogue?:{bookingReservation?:unknown;completedBooking?:unknown}}}|undefined
+    const draft=state?.conversationDraft?.dialogue
+    const reservation=parseRuntimeBookingReservation(draft?.bookingReservation ?? draft?.completedBooking,input.businessId)
+    const r=reservation.receipt,p=reservation.presented
+    if(r?.kind!=='HELD' || r.depositId!==input.depositId || p.scope.sessionId!==route.originSessionId ||
+      p.terms.segments.length!==1 || r.appointments.length!==1 || r.appointments[0]!.visitId!==route.visitId || r.appointments[0]!.appointmentId!==route.appointmentId) return null
+    return p
+  } catch { return null } // Legacy lineage has no trustworthy description snapshot.
 }
 
 /** Only sealed server facts enter copy; proof bytes/names/hashes and staff reasons never do. */

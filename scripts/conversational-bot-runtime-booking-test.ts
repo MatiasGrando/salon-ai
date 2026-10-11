@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { Prisma } from '../src/generated/prisma/client.js'
 import { coordinationKey } from '../src/conversational-bot/coordinated-booking.js'
 import { createPrismaDialoguePort } from '../src/conversational-bot/prisma-dialogue-port.js'
+import { calculateBookingDepositTerms } from '../src/services/deposit-operations.js'
+import { conversationStepForBotOptionsState } from '../src/bot-options/domain/conversation-status.js'
 import { TURN_PLAN_INTERPRETATION_GUIDE } from '../src/conversational-bot/turn-plan-interpretation-guide.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { respondWithAiInterpreter } from '../src/conversational-bot/ai-interpreter.js'
@@ -266,6 +268,92 @@ for (const appointments of [manyReceipt.appointments.slice(0, 1),
 }
 assert.equal(projectConversationDraft(manyComplete, policy).booking, 'CONFIRMED')
 
+// A completed booking is history, not a dialogue terminal. Local controlled AI only.
+for (const [completedState, fixturePort] of [[completed, fx], [manyComplete, manyFx]] as const) {
+  let aiCalls = 0
+  let providerState: DialogueState | undefined
+  const message = '¿Cuál es la dirección del local?'
+  const before = structuredClone(completedState.bookingReservation)
+  const continuation = await respondWithAiInterpreter(nextContext, completedState, message, fixturePort.port, async input => {
+    providerState = input.state
+    aiCalls++
+    return { intent: 'other', serviceId: null, serviceEvidence: null, professionalMention: null,
+      turnPlan: { version: 1, operations: [{ kind: 'information', target: { kind: 'business', actions: ['ADDRESS'] }, evidence: message, confidence: 1 }] } }
+  })
+  assert.equal(aiCalls, 1, 'completed booking must still invoke interpretation')
+  assert.equal(providerState?.bookingReservation, undefined, 'provider must not receive old confirmation authority as an active draft')
+  assert.equal(providerState?.serviceId, null, 'provider must not interpret against the completed selection')
+  assert.equal(providerState?.date, null)
+  assert.equal(providerState?.slot, null)
+  assert.match(continuation.reply, /Calle ficticia 123/, 'current ADDRESS intent must be answered')
+  assert.doesNotMatch(continuation.reply, /La reserva fue confirmada|Duración:|Te esperamos/, 'no repeated receipt for a lateral inquiry')
+  assert.deepEqual(continuation.state.completedBooking, before, 'address preserves sealed completed booking')
+  assert.equal(continuation.bookingCommand, undefined)
+}
+
+
+for (const completedState of [completed, manyComplete]) {
+  for (const message of ['Quiero otro turno', 'Quiero otro turno para Corte']) {
+    const next = await respondWithAiInterpreter(nextContext, completedState, message, fx.port, async () => ({
+      intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,
+      communicativeActs:{version:1,acts:[{kind:'request',field:message.endsWith('Corte')?'service':'general',evidence:message,confidence:1,mention:null,operationIndexes:message.endsWith('Corte')?[0]:[]}]},
+      turnPlan:{version:1,operations:message.endsWith('Corte')?[{kind:'service',mode:'single',serviceIds:['s1'],correction:false,evidence:'Corte',confidence:1}]:[]} }))
+    assert.equal(next.interpretation.mode, 'ai', JSON.stringify({message,diagnostic:next.interpretation}))
+    assert.equal(next.state.bookingReservation,undefined,'new draft does not reuse a completed financial presentation')
+    assert.deepEqual(next.state.completedBooking,completedState.bookingReservation)
+    assert.equal(next.state.date,null)
+    assert.equal(next.state.slot,null)
+    assert.equal(next.state.professional,null)
+    assert.equal(next.bookingCommand,undefined)
+    assert.equal(projectConversationDraft(next.state,policy).booking,'DRAFT','new booking intention starts a draft even without a service')
+  }
+}
+
+for (const [message, target] of [
+  ['¿En qué horarios abren?', {kind:'business',actions:['HOURS']}],
+  ['Dame información del Corte', {kind:'service',actions:[],serviceIds:['s1'],aspect:'overview'}],
+  ['¿Qué diferencia hay entre Corte y Crema?', {kind:'service',actions:[],serviceIds:['s1','s2'],aspect:'comparison'}]
+] as const) {
+  let calls=0
+  const lateral=await respondWithAiInterpreter(nextContext,manyComplete,message,manyFx.port,async()=>{
+    calls++
+    return {intent:'information',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[{kind:'information',target,evidence:message,confidence:1}]}}
+  })
+  assert.equal(calls,1,message)
+  assert.equal(lateral.interpretation.mode,'ai',message)
+  assert.doesNotMatch(lateral.reply,/La reserva fue confirmada|Te esperamos en/)
+  assert.deepEqual(lateral.state.completedBooking,manyComplete.bookingReservation)
+  assert.equal(lateral.bookingCommand,undefined)
+  assert.equal(lateral.state.serviceId,null,'information must not acquire an old or queried service')
+  assert.equal(conversationStepForBotOptionsState(projectConversationDraft(lateral.state,policy)),'COMPLETED','lateral information remains a completed conversation')
+  if(target.kind==='service') assert.ok(lateral.catalogInformation || /Corte/.test(lateral.reply),'known catalogue data reaches the answer')
+}
+
+const singularPaid=structuredClone(completed), paidPresented=singularPaid.bookingReservation!.presented
+paidPresented.terms.deposit={financial:calculateBookingDepositTerms({services:[{id:'s1',name:'Corte',price:1000,priceMode:'FIXED',depositMode:'FIXED',depositValue:100}],businessDepositHoldMinutes:120}),payment:{transferEnabled:true,alias:'fiction',cbu:null,cvu:null,paymentLinkEnabled:false,paymentLink:null}}
+paidPresented.fingerprint=runtimeBookingFingerprint(paidPresented.terms)
+singularPaid.bookingReservation!.receipt={kind:'HELD',operationKey:'paid-operation',coordinationGroupId:'paid-group',proposalNonce:paidPresented.nonce,fingerprint:paidPresented.fingerprint,
+  depositId:'paid-deposit',amount:100,expiresAt:'2026-10-06T17:00:00.000Z',depositStatus:'APPROVED',appointments:[{segmentIndex:0,appointmentId:'paid-appointment',visitId:'paid-visit'}]}
+const addressInquiry=(message:string)=>({intent:'information',serviceId:null,serviceEvidence:null,professionalMention:null,
+  turnPlan:{version:1,operations:[{kind:'information',target:{kind:'business',actions:['ADDRESS']},evidence:message,confidence:1}]}})
+const paidAddress=await respondWithAiInterpreter(nextContext,singularPaid,'¿Cuál es la dirección?',fx.port,async()=>addressInquiry('¿Cuál es la dirección?'))
+assert.equal(paidAddress.interpretation.mode,'ai')
+assert.match(paidAddress.reply,/Calle ficticia 123/)
+assert.doesNotMatch(paidAddress.reply,/La reserva fue confirmada|Duración:/)
+assert.deepEqual(paidAddress.state.completedBooking,singularPaid.bookingReservation)
+assert.equal(conversationStepForBotOptionsState(projectConversationDraft(paidAddress.state,policy)),'COMPLETED')
+for(const status of ['PENDING_PROOF','PROOF_RECEIVED'] as const){
+  const pending=structuredClone(singularPaid)
+  ;(pending.bookingReservation!.receipt as RuntimeHeldReceipt).depositStatus=status
+  const guarded=await respond(nextContext,pending,'Quiero otro turno',fx.port,{serviceId:null,candidateIds:[],correction:false,intent:'booking'})
+  assert.equal(guarded.state.completedBooking,undefined,'unreviewed payment cannot become completed history')
+  assert.deepEqual(guarded.state.bookingReservation,pending.bookingReservation)
+  assert.equal(guarded.bookingCommand,undefined)
+}
+const malformedArchive=structuredClone(paidAddress.state)
+malformedArchive.completedBooking!.presented.scope.businessId='foreign'
+assert.throws(()=>parseDialogueState(malformedArchive,'b',fx.context.timezone))
+
 const unavailable=await respond(manyFx.context,manyReady,'Quiero reservar ambos servicios.',{...manyFx.port,prepareRuntimeBooking:async()=>({unavailable:'DEPOSIT_MULTISERVICE' as const})})
 assert.deepEqual(unavailable.state.basket,manyReady.basket,'unsupported financial multi-services retain every requested member')
 assert.equal(unavailable.bookingCommand,undefined);assert.equal(unavailable.handoffCommand,undefined);assert.equal(unavailable.state.bookingReservation,undefined)
@@ -329,6 +417,13 @@ for (const required of [[0], [0, 1], [1]] as const) {
   assert.equal(groupConfirmed.bookingCommand?.kind, 'CONFIRM_BOOKING')
   assert.deepEqual(groupConfirmed.bookingCommand?.presented, presented, 'one confirmation retains all current terms')
   const finalized = finalizeRuntimeBooking(groupConfirmed, groupReceipt)
+  const approvedState={...structuredClone(finalized.state),bookingReservation:{presented,receipt:{...groupReceipt,depositStatus:'APPROVED' as const}}}
+  const approvedInquiry=await respondWithAiInterpreter(nextContext,approvedState,'¿Cuál es la dirección?',manyFx.port,async()=>addressInquiry('¿Cuál es la dirección?'))
+  assert.equal(approvedInquiry.interpretation.mode,'ai','approved coordinated booking still interprets the next message')
+  assert.match(approvedInquiry.reply,/Calle ficticia 123/)
+  assert.deepEqual(approvedInquiry.state.completedBooking,approvedState.bookingReservation)
+  assert.equal(conversationStepForBotOptionsState(projectConversationDraft(approvedInquiry.state,policy)),'COMPLETED')
+  assert.equal(approvedInquiry.bookingCommand,undefined)
   assert.equal(projectConversationDraft(finalized.state, policy).booking, 'HELD')
   assert.doesNotMatch(finalized.reply, /La reserva fue confirmada/)
   assert.deepEqual(parseRuntimeBookingReservation(reservation, 'b'), reservation,

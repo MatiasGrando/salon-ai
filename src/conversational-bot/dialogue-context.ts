@@ -184,11 +184,11 @@ export function fallbackIdentity(message: string, state: DialogueState, services
 export function publicAppointmentManagement(state: DialogueState) {
   const m = state.appointmentManagement
   if (!m) return null
-  const timezone = state.bookingReservation!.presented.terms.timezone
+  const timezone = (state.bookingReservation ?? state.completedBooking)!.presented.terms.timezone
   const time = (instant: string) => new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(instant))
   return { action: m.context.action, stage: m.outcome ? 'completed' : m.context.proposal ? 'confirmation' : m.date ? 'time' : 'date',
     date: m.date ?? null, requestedTime: m.selectedTime ?? null,
-    services: state.bookingReservation!.presented.terms.segments.map(segment => ({ name: segment.serviceName, professional: segment.professionalName })),
+    services: (state.bookingReservation ?? state.completedBooking)!.presented.terms.segments.map(segment => ({ name: segment.serviceName, professional: segment.professionalName })),
     offeredTimes: [...new Set(m.context.offers?.map(offer => time([...offer.moves].sort((a,b) => Date.parse(a.newStartAt) - Date.parse(b.newStartAt))[0]!.newStartAt)) ?? [])],
     question: m.outcome ? null : m.context.proposal ? '¿Confirmás esta gestión del turno?' : m.date ? '¿Qué horario preferís para reprogramar?' : '¿Para qué fecha querés reprogramar?' }
 }

@@ -376,6 +376,49 @@ try {
     return r
   }
 
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw),held=await singularRuntimeFixture(tx)
+    await tx.$executeRaw(Prisma.sql`UPDATE "Business" SET "publicAddress"='Calle ficticia 123' WHERE id='b'`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='AWAITING_DEPOSIT' WHERE id='c'`)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:held.depositId,operationKey:'single-summary-proof',providerEventId:'single-summary-proof',evidence:fixtureEvidence})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'single-summary-approve'})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'single-summary-approve'})
+    const bodies=await tx.$queryRaw<Array<{payload:{item:{body:string}}}>>(Prisma.sql`SELECT payload FROM "BotOutbox" WHERE "idempotencyKey" LIKE '%APPROVED%'`)
+    assert.equal(bodies.length,1)
+    assert.match(bodies[0]!.payload.item.body,/Ana:[\s\S]*Color con Elisa\n[\s\S]*Duración: 120 min[\s\S]*Precio:.*1[.]000[\s\S]*Seña:.*100[\s\S]*Calle ficticia 123/)
+    assert.equal((await tx.$queryRaw<Array<{currentStep:string}>>(Prisma.sql`SELECT "currentStep" FROM "Conversation" WHERE id='c'`))[0]!.currentStep,'COMPLETED')
+    throw Error('rollback singular approved detail')
+  }),/rollback singular approved detail/)
+  assert.deepEqual(await counts(),{appointments:0,visits:0,deposits:0,operations:0},'approved detail and CRM completion roll back with financial transition')
+
+  for(const invalidSnapshot of ['missing','foreign-scope','different-appointment'] as const) await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw),held=await singularRuntimeFixture(tx)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:held.depositId,operationKey:'snapshot-proof',providerEventId:'snapshot-proof',evidence:fixtureEvidence})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'snapshot-approve'})
+    const state=(await tx.$queryRaw<Array<{state:any}>>(Prisma.sql`SELECT state FROM "BotSession" WHERE id='session'`))[0]!.state
+    if(invalidSnapshot==='missing') state.conversationDraft={}
+    else if(invalidSnapshot==='foreign-scope') state.conversationDraft.dialogue.bookingReservation.presented.scope.sessionId='other-origin'
+    else state.conversationDraft.dialogue.bookingReservation.receipt.appointments[0].appointmentId='other-appointment'
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify(state)}::jsonb WHERE id='session'`)
+    const sourceId='snapshot-'+invalidSnapshot
+    assert.equal(await enqueueDepositNotificationTx(tx,{businessId:'b',depositId:held.depositId,sourceId,kind:'APPROVED'}),'ENQUEUED','missing trusted legacy detail cannot block approval delivery')
+    const body=(await tx.$queryRaw<Array<{payload:{item:{body:string}}}>>(Prisma.sql`SELECT payload FROM "BotOutbox" WHERE "idempotencyKey"=${'deposit-notification:APPROVED:'+sourceId}`))[0]!.payload.item.body
+    assert.match(body,/confirmad/)
+    assert.doesNotMatch(body,/Ana|Color con Elisa|Duración:/,'unbound individual snapshot is never used for copy')
+    throw Error('rollback snapshot fallback')
+  }),/rollback snapshot fallback/)
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    const held=await booking.holdBookingWithDeposit(tx,{businessId:'b',sessionId:'session',operationKey:'legacy-route',newBookingAllowed:true,
+      services:[{serviceId:'s1',name:'Color',durationMinutes:45,priceMinor:1000,priceMode:'FIXED'}],professional:{professionalId:'p1',name:'Elisa',assignedByBalancer:false},
+      date:'2030-09-02',slotStartAt:'2030-09-02T13:00:00.000Z',totalDurationMinutes:45,totalPriceMinor:1000})
+    assert.equal(held.kind,'HELD')
+    if(held.kind!=='HELD')throw Error('legacy fixture must hold')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BookingVisit" SET "sessionId"=NULL WHERE id=${held.visitId}`)
+    assert.equal(await enqueueDepositNotificationTx(tx,{businessId:'b',depositId:held.depositId,sourceId:'legacy-origin-missing',kind:'EXPIRED'}),'ENQUEUED','optional origin snapshot must not remove legacy routing eligibility')
+    throw Error('rollback missing origin route')
+  }),/rollback missing origin route/)
+
   for(const kind of ['STAFF','CUSTOMER'] as const) await assert.rejects(db.transaction(async raw=>{
     const tx=orm(raw),held=await singularRuntimeFixture(tx)
     const receipt:RuntimeHeldReceipt={kind:'HELD',operationKey:singularKey,coordinationGroupId:singularGroup,proposalNonce:singularPresented.nonce,fingerprint:singularPresented.fingerprint,
@@ -458,10 +501,36 @@ try {
     const bodies=await tx.$queryRaw<Array<{payload:{item:{body:string}}}>>(Prisma.sql`SELECT payload FROM "BotOutbox"`)
     assert.match(bodies[0]!.payload.item.body,/Color con Elisa.*Cut con Leo.*300/)
     assert.ok(!JSON.stringify(bodies).includes('offline.png')&&!JSON.stringify(bodies).includes(fixtureEvidence.sourceSha256))
+    const activeReceipt:RuntimeHeldReceipt={kind:'HELD',operationKey:r.operationKey,coordinationGroupId:r.groupId,proposalNonce:r.proposal.nonce,fingerprint:r.proposal.fingerprint,
+      depositId:r.anchorDepositId,amount:r.amount,expiresAt:r.expiresAt,depositStatus:'PROOF_RECEIVED',appointments:r.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),coordinatedDepositGroup:{version:1,groupId:r.groupId,requestHash:r.requestHash}}
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({conversationDraft:{dialogue:{bookingReservation:{presented:r.proposal,receipt:activeReceipt}}}})}::jsonb WHERE id='session'`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='AWAITING_DEPOSIT' WHERE id='c'`)
     const approved=await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.members[1]!.depositId!,operationKey:'fixture-approve'})
+    assert.equal((await tx.$queryRaw<Array<{currentStep:string}>>(Prisma.sql`SELECT "currentStep" FROM "Conversation" WHERE id='c'`))[0]!.currentStep,'COMPLETED','approval completes CRM conversation in its own transaction')
+    assert.equal((await tx.$queryRaw<Array<{status:string}>>(Prisma.sql`SELECT status FROM "BotSession" WHERE id='session'`))[0]!.status,'ACTIVE','completed conversation keeps AI session active')
     assert.equal(approved.outcome,'APPLIED')
     assert.equal(await stateCount(tx,'BookingVisit','CONFIRMED'),2)
     assert.equal((await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:r.anchorDepositId,operationKey:'fixture-approve'})).outcome,'REPLAYED')
+    const approvedBodies = await tx.$queryRaw<Array<{payload:{item:{body:string}}}>>(Prisma.sql`SELECT payload FROM "BotOutbox" WHERE "idempotencyKey" LIKE '%APPROVED%'`)
+    assert.equal(approvedBodies.length, 1, 'approval has one canonical notification after replay')
+    const approvalBody = approvedBodies[0]!.payload.item.body
+    assert.match(approvalBody, /Ana/, 'approval includes sealed customer name')
+    assert.match(approvalBody, /Color con Elisa\n[\s\S]*Duración: 120 min/, 'approval contains full first service detail')
+    assert.match(approvalBody, /Cut con Leo\n[\s\S]*Duración: 30 min/, 'approval contains full companion detail')
+    assert.match(approvalBody, /Precio:.*1[.]000/)
+    assert.match(approvalBody, /Total:.*3[.]000/)
+    assert.match(approvalBody, /Seña.*300/)
+    assert.doesNotMatch(approvalBody, /Enviá el comprobante|Todavía no|offline.png/)
+    const reviewId=(await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BookingDepositReviewOutbox" WHERE kind='DEPOSIT_APPROVED' AND "depositId"=${r.anchorDepositId}`))[0]!.id
+    await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='BOOKING_IN_PROGRESS' WHERE id='c'`)
+    assert.equal(await enqueueDepositNotificationTx(tx,{businessId:'b',depositId:r.anchorDepositId,sourceId:reviewId,kind:'APPROVED'}),'REPLAYED')
+    assert.equal((await tx.$queryRaw<Array<{currentStep:string}>>(Prisma.sql`SELECT "currentStep" FROM "Conversation" WHERE id='c'`))[0]!.currentStep,'BOOKING_IN_PROGRESS','old approval never completes a new active draft')
+    await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='AWAITING_DEPOSIT' WHERE id='c'`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state='{"conversationDraft":{"dialogue":{"bookingReservation":{"receipt":{"depositId":"other-pending-deposit"}}}}}'::jsonb WHERE id='session'`)
+    assert.equal(await enqueueDepositNotificationTx(tx,{businessId:'b',depositId:r.anchorDepositId,sourceId:reviewId,kind:'APPROVED'}),'REPLAYED')
+    assert.equal((await tx.$queryRaw<Array<{currentStep:string}>>(Prisma.sql`SELECT "currentStep" FROM "Conversation" WHERE id='c'`))[0]!.currentStep,'AWAITING_DEPOSIT','current step alone cannot authorize completion of another receipt')
+
+
     const cash=await tx.$queryRaw<Array<{n:number;total:number;accounts:number}>>(Prisma.sql`SELECT count(*)::int n,sum(amount)::int total,count(DISTINCT "accountId")::int accounts FROM "CashEntry"`)
     assert.deepEqual(cash[0],{n:2,total:300,accounts:1})
     const repo=createCashTransactionRepository(tx)

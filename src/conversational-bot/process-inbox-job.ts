@@ -499,19 +499,36 @@ export async function processConversationInbox(input: {
         await finish(tx, row); recordConsumed(row); return null
       }
       const expiredRecovery = eligibleText && await expiredRecoveryAllowedTx(tx, activeSession, phone, row.businessTimezone)
+      // Completed financial authority is still verified; only its dialogue
+      // interception ends. Pending proof/review, malformed receipts and handoff stay protected.
+      let confirmedDraft: ReturnType<typeof readConversationDraft> | null = null
+      if (eligibleText && parsed.state.handoff === 'NONE') {
+        try {
+          const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
+          const reservation = draft.bookingReservation ?? draft.completedBooking
+          const receipt = reservation?.receipt
+          if (receipt?.kind === 'COMMITTED' && parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE') confirmedDraft = draft
+          else if (receipt?.kind === 'HELD' && reservation) {
+            const actual = await loadRuntimeDepositReceipt(tx, {businessId:row.businessId,sessionId:activeSession.sessionId,canonicalPhone:phone.replace(/[^0-9]/g,''),expectedRevision:activeSession.revision}, reservation)
+            if (actual?.depositStatus === 'APPROVED') confirmedDraft = {...draft, ...(draft.bookingReservation
+              ? {bookingReservation:{presented:reservation.presented,receipt:actual}}
+              : {completedBooking:{presented:reservation.presented,receipt:actual}})}
+          }
+        } catch { /* A completed label alone does not grant financial authority. */ }
+      }
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
       if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
         const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
         const requested = routeActions(String(payload.textBody ?? '')).pendingAction
-        if (draft.bookingReservation?.receipt && (draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')) {
+        if ((draft.bookingReservation ?? draft.completedBooking)?.receipt && (draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')) {
           try {
             serverManagementSnapshot = await loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
             runtimeManagementAllowed = true
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
-      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset && !expiredRecovery) {
+      if ((!['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE') && !runtimeManagementAllowed && !testReset && !expiredRecovery && !confirmedDraft) {
         let protectedReply = 'Tenés una operación anterior pendiente. El equipo debe resolverla antes de iniciar otra reserva; no modifiqué tu reserva ni tu pago.'
         let protectedRevision=activeSession.revision
         let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
@@ -580,8 +597,8 @@ export async function processConversationInbox(input: {
       if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
       const recoveredDraft = expiredRecovery ? expiredConversationDraft(readConversationDraft(session.state, policy, row.businessTimezone)) : null
       const reconciled = recoveredDraft ? { draft: recoveredDraft, reset: false } : reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
-      const draft = reconciled.draft
-      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, expiredRecovery, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
+      const draft = confirmedDraft ?? reconciled.draft
+      return { row, session, payload, phone, draft, reset, testReset, consolidation, policyReset: reconciled.reset, expiredRecovery, confirmedDraft, selectedChoice, serverManagementSnapshot, attachmentProofBinding: null }
     })
     flushInboundConversationMessages(events)
     if (!snapshot) { notifyConsumed(); for(const update of updates)publishConversationUpdated(update); markSettled(); return 'PROCESSED' }
@@ -655,6 +672,17 @@ export async function processConversationInbox(input: {
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
           (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
+      if ('confirmedDraft' in snapshot && snapshot.confirmedDraft) {
+        const reservation=snapshot.confirmedDraft.bookingReservation ?? snapshot.confirmedDraft.completedBooking
+        if (reservation?.receipt?.kind==='HELD') {
+          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:session.sessionId,canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:session.revision},reservation)
+          if (actual?.depositStatus!=='APPROVED') {
+            await input.writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision:session.revision,transitionId:'confirmed-reconcile-blocked:'+row.id,toPhone:snapshot.phone,dbNow:row.dbNow,
+              view:textView('No pude verificar el estado actual de esa reserva. Conservé el pedido y el pago; el equipo debe revisarlo.')})
+            await finish(tx,row);return 'PROCESSED' as const
+          }
+        }
+      }
       if ('expiredRecovery' in snapshot && snapshot.expiredRecovery && !await expiredRecoveryAllowedTx(tx, session, snapshot.phone, row.businessTimezone)) {
         await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
           transitionId: 'expired-recovery-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,

@@ -187,7 +187,7 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
       !managementRecord(session.state) || session.state.booking!=='CONFIRMED' || session.state.deposit!=='NONE' || session.state.handoff!=='NONE' ||
       !managementRecord(session.state.conversationDraft) || !managementRecord(session.state.conversationDraft.dialogue) || session.state.conversationDraft.dialogue.businessId!==context.businessId) throw new GroupCancellationError('current management ownership unavailable')
   let reservation: ReturnType<typeof parseRuntimeBookingReservation>
-  try { reservation=parseRuntimeBookingReservation(session.state.conversationDraft.dialogue.bookingReservation,context.businessId) }
+  try { reservation=parseRuntimeBookingReservation(session.state.conversationDraft.dialogue.bookingReservation ?? session.state.conversationDraft.dialogue.completedBooking,context.businessId) }
   catch { throw new GroupCancellationError('invalid confirmed runtime receipt') }
   const presented=reservation.presented,receipt=reservation.receipt
   if (!receipt || presented.scope.sessionId!==context.sessionId) throw new GroupCancellationError('runtime receipt scope mismatch')
