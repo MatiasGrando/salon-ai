@@ -5,6 +5,7 @@ import type { DialogueService, DialogueState } from './engine.js';
 import { isCustomerText } from './customer-text.js';
 import { SERVICE_INFORMATION_ASPECTS, type ServiceInformationAspect } from './information-contract.js';
 import { neutralOwnedServiceInquiry } from './service-information-scope.js';
+import { parseEstimateOptions } from '../bot-options/domain/service-booking.js';
 export type ServiceRequest = {
     purpose: 'inquiry' | 'booking';
     disposition: 'clear' | 'alternatives' | 'needs_detail' | 'unverified_variant';
@@ -278,10 +279,15 @@ export function publicServiceRequestCatalog(services: readonly DialogueService[]
         name: service.name,
         aliases: (service.aliases ?? []).filter(alias => bounded(alias, 200)).slice(0, 20),
         description: typeof service.description === 'string' ? service.description.slice(0, 2000) : null,
+        price: service.price !== null && Number.isFinite(service.price) && service.price >= 0 ? service.price : null,
+        priceMode: service.priceMode === 'STARTING_AT' ? 'STARTING_AT' : 'FIXED',
+        durationMinutes: service.durationMinutes != null && Number.isFinite(service.durationMinutes) && service.durationMinutes > 0 ? service.durationMinutes : null,
+        durationMinMinutes: service.durationMinMinutes != null && Number.isFinite(service.durationMinMinutes) && service.durationMinMinutes > 0 ? service.durationMinMinutes : null,
+        durationMaxMinutes: service.durationMaxMinutes != null && Number.isFinite(service.durationMaxMinutes) && service.durationMaxMinutes > 0 ? service.durationMaxMinutes : null,
         guidance: service.bookingPolicy ? {
             attentionMode: service.bookingPolicy.attentionMode,
             question: service.bookingPolicy.estimateQuestion,
-            options: (service.bookingPolicy.estimateOptions ?? []).map(option => ({ id: option.id, label: option.label })),
+            options: (parseEstimateOptions(service.bookingPolicy.estimateOptions) ?? []).map(option => ({ id: option.id, label: option.label, priceMin: option.priceMin, priceMax: option.priceMax })),
             requiresConsultation: service.requiresConsultation
         } : null
     }));

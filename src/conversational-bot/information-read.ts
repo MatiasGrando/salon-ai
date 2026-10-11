@@ -129,14 +129,14 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     old.options.length > 1 && old.options.every(option => services.some(service => service.id === option.id && service.name === option.label)) &&
     old.options.some(option => option.id === described[0]!.id)
   const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) &&
-    !(described.length === 1 && target.aspect !== 'description' && !comparisonFollowup && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
+    !(described.length === 1 && !['description', 'overview'].includes(target.aspect) && !comparisonFollowup && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
   if (publishedComparison || sourcedExplanation) {
-    const context = catalogInformation(target, described, sourcedExplanation)
+    const context = catalogInformation(target, described, sourcedExplanation, state.businessId)
     // Retain what was explained, without manufacturing a choice or basket selection.
     const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id)
       : target.aspect === 'comparison' && described.length > 1
         ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null), awaitingChoice: false }, state.businessId) : undefined
-    return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) ? 'found' : 'missing',
+    return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) || context.services.some(service => service.publicDetails?.length) ? 'found' : 'missing',
       catalogInformation: context, ...(focus ? { focus } : {}) }
   }
   if (old?.serviceId && !services.some(service => service.id === old.serviceId) && !target.serviceIds.length) return missing('la información vigente de ese servicio')
@@ -292,6 +292,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 /** One contextual next step: inquiry is not permission to mutate a booking draft. */
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
+  if (read.catalogInformation?.aspect === 'overview' && read.catalogInformation.services.length === 1 && read.outcome === 'found') return '¿Querés agendar ' + read.catalogInformation.services[0]!.name + '?'
   if (read.catalogInformation) return !read.catalogInformation.services.length ? '¿Qué más querés saber sobre este tema?' : read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'

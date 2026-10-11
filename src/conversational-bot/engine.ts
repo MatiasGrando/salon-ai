@@ -116,13 +116,15 @@ export function socialQuestion(state: DialogueState): string {
 }
 /** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
-  if (read.catalogInformation) { rememberDialogueQuestion(state, next, [], null); return }
+  const localOverview = read.outcome === 'found' && read.focus?.aspect === 'overview' &&
+    read.focus.serviceId !== null && read.focus.options.length === 1 && read.focus.options[0]!.id === read.focus.serviceId
+  if (read.catalogInformation && !localOverview) { rememberDialogueQuestion(state, next, [], null); return }
   const retained = hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
-  if (service && next === '¿Querés agendar ' + service.label + '?' && (!retained || read.focus?.aspect === 'price')) {
+  if (service && next === '¿Querés agendar ' + service.label + '?' && (!retained || read.focus?.aspect === 'price' || localOverview)) {
     if (!retained) state.pending = 'service'
     rememberDialogueQuestion(state, next, [{ id: service.id, label: service.label }], null,
-      state.pending === 'service' ? { candidateIds: [service.id] } : null)
+      state.pending === 'service' && !localOverview ? { candidateIds: [service.id] } : null)
   } else if (!retained) delete state.questionContext
 }
 function renderInformationContinuation(read: InformationRead, state: DialogueState): string {

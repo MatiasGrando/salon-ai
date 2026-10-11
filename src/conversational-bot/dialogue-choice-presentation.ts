@@ -59,7 +59,7 @@ export function choicePresentationForQuestion(state: DialogueState, services: re
 /** Exact server invitation over one focal published price, not a client-proposed cart command. */
 export function priceBookingChoice(state: DialogueState): { id: string; label: string } | null {
   const focus = state.informationFocus;
-  if (!focus || focus.businessId !== state.businessId || focus.aspect !== 'price' || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1) return null;
+  if (!focus || focus.businessId !== state.businessId || !['price', 'overview'].includes(focus.aspect ?? '') || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1) return null;
   const service = focus.options[0]!;
   const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null;
   return service.id === focus.serviceId && question?.complete && question.options.length === 1 &&
