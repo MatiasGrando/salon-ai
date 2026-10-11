@@ -527,6 +527,75 @@ try {
     for (const request of requests) { assert.equal(request.store, false); assert.match(request.instructions, /fuente|source/i) }
     assert.equal(JSON.parse(requests[0].input).services.find((item: any) => item.id === 'keratin').description, catalog[1]!.description)
   })
+  await check('Raíces inquiry keeps the selected catalog referent and answers benefit follow-ups with IA plus current facts', async () => {
+    const roots: DialogueService = { id: 'roots', name: 'Raíces', description: 'Ayuda a tapar las canas con productos A11Lux.', price: 25000, durationMinutes: 45, requiresConsultation: false }
+    const color: DialogueService = { id: 'color', name: 'Color Completo', description: 'Coloración de todo el cabello.', price: 40000, durationMinutes: 90, requiresConsultation: false }
+    const localCatalog = [color, roots], localPort = { ...port, catalog: async () => localCatalog }
+    const first = 'Quiero taparme las canas'
+    const menu = await respondWithAiInterpreter(context, initial, first, localPort, async () => ({ ...base,
+      turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose: 'inquiry', disposition: 'alternatives',
+        serviceIds: ['color', 'roots'], correction: false, continuation: false, basis: 'related_category', sourceQuote: null,
+        evidence: 'taparme las canas', confidence: 1 }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: first, mention: 'taparme las canas', confidence: 1, operationIndexes: [0] }] }, firstReply: null }))
+    assert.match(menu.reply, /Color Completo/); assert.match(menu.reply, /Raíces/)
+    assert.deepEqual(selectionBasket(menu.state), selectionBasket(initial))
+    const choice = 'Raíces'
+    const selected = await respondWithAiInterpreter(context, menu.state, choice, localPort,
+      async () => owned(choice, ['roots'], 'overview', null, choice))
+    assert.match(selected.reply, /Ayuda a tapar las canas/)
+    assert.equal(selected.state.informationFocus?.serviceId, 'roots')
+    assert.deepEqual(selectionBasket(selected.state), selectionBasket(initial))
+    const block: ExplanatoryBlock = { kind: 'general', text: 'En general, un servicio de raíces busca tratar el crecimiento visible del color. El resultado para cada persona depende de su cabello y de la técnica aplicada.', sources: [] }
+    const publishedRoots: ExplanatoryBlock = { kind: 'published', text: roots.description!, sources: [{ serviceId: 'roots', field: 'description', quote: roots.description! }] }
+    for (const body of [
+      '¿Me ayudaría para mis canas?',
+      '¿El procedimiento de raíces sirve para taparme las canas?',
+      'Antes tenía el cabello teñido y ahora me salieron canas en las raíces. ¿Me serviría?'
+    ]) {
+      const beforeAgenda = agenda
+      const proposal = { ...owned(body, ['roots'], 'overview', null), firstReply: { ...frame(null), catalogAnswer: { blocks: [block, publishedRoots] } } }
+      const result = await respondWithAiInterpreter(context, selected.state, body, localPort, async () => proposal)
+      assert.ok(result.reply.includes(block.text), 'the AI explanatory block must not be replaced by a menu: ' + JSON.stringify({ body, reply: result.reply, diagnostics: result.interpretation }))
+      assert.ok(result.reply.includes(roots.description!), 'the current local description must reach the answer')
+      assert.match(result.reply, /25[.,]000/); assert.match(result.reply, /45 min/)
+      assert.equal(result.interpretation.replyRoute, 'first_call'); assert.equal(result.interpretation.copyMode, 'ai')
+      assert.doesNotMatch(result.reply, /No tengo información confirmada sobre «|Qué servicio querés elegir o cambiar/i)
+      checkRead(result, selected.state, beforeAgenda)
+    }
+  })
+  await check('Raíces overview rejects invented local benefits and a changed catalog, and prompt keeps benefit inquiries informational', async () => {
+    const roots: DialogueService = { id: 'roots', name: 'Raíces', description: 'Ayuda a tapar las canas con productos A11Lux.', price: 25000, durationMinutes: 45, requiresConsultation: false }
+    const body = '¿El servicio de Raíces usa una técnica permanente para tapar mis canas?'
+    const localPort = { ...port, catalog: async () => [roots] }
+    const good = { ...owned(body, ['roots'], 'overview', null), firstReply: { ...frame(null), catalogAnswer: { blocks: [
+      { kind: 'general', text: 'En general, la cobertura de canas depende del producto y de la técnica; el nombre del servicio no confirma una duración permanente.', sources: [] },
+      { kind: 'published', text: roots.description!, sources: [{ serviceId: 'roots', field: 'description', quote: roots.description! }] }
+    ] } } }
+    const accepted = await respondWithAiInterpreter(context, initial, body, localPort, async () => good)
+    assert.match(accepted.reply, /Información general.*orientativa/, JSON.stringify(accepted.interpretation))
+    assert.doesNotMatch(accepted.reply, /El local garantiza|El local usa una técnica permanente/)
+    const changed = await respondWithAiInterpreter(context, initial, body,
+      { ...port, catalog: async () => [{ ...roots, description: 'Coloración sujeta a consulta previa.' }] }, async () => good)
+    assert.ok(!changed.reply.includes(roots.description!))
+    const invented = { ...good, firstReply: { ...good.firstReply, catalogAnswer: { blocks: [
+      { kind: 'general', text: 'Nuestro servicio garantiza tapar todas las canas de forma permanente.', sources: [] },
+      ...good.firstReply.catalogAnswer.blocks.slice(1)
+    ] } } }
+    const rejected = await respondWithAiInterpreter(context, initial, body, localPort, async () => invented)
+    assert.doesNotMatch(rejected.reply, /Nuestro servicio garantiza/)
+    const unsourcedCode = { ...good, firstReply: { ...good.firstReply, catalogAnswer: { blocks: [
+      good.firstReply.catalogAnswer.blocks[0],
+      { kind: 'published', text: roots.description + ' A11Lux dura 12 meses.', sources: [{ serviceId: 'roots', field: 'description', quote: roots.description! }] }
+    ] } } }
+    const deniedCode = await respondWithAiInterpreter(context, initial, body, localPort, async () => unsourcedCode)
+    assert.doesNotMatch(deniedCode.reply, /12 meses/)
+    for (const result of [accepted, changed, rejected, deniedCode]) assert.deepEqual(selectionBasket(result.state), selectionBasket(initial))
+    const requests: any[] = []
+    const fetchImpl: typeof fetch = async (_url, options) => { requests.push(JSON.parse(String(options?.body)))
+      return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(base) }] }] }), { status: 200 }) }
+    await createOpenAiInterpretationProvider({ apiKey: 'fake-local-only', fetchImpl })({ message: body, state: initial, services: [roots] }, new AbortController().signal)
+    assert.match(requests[0].instructions, /canas.*information\/service.*overview|information\/service.*overview.*canas/i)
+  })
   console.log('catalog answer: ' + passed + ' PASS / ' + failures.length + ' FAIL (controlled proposals; no live model quality claim)')
   assert.deepEqual(failures, [], 'P19 source-backed catalog explanation regressions')
 } finally {

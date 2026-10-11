@@ -45,8 +45,10 @@ function currentCatalogMention(message: string, service: DialogueService, servic
   return [...labels, head].some(label => literalCatalogName(message, label) &&
     assessServiceIdentity(label, service.id, 1, services).kind === 'supported')
 }
-const descriptive = (aspect: ServiceInformationAspect) => ['description', 'comparison', 'recommendation'].includes(aspect)
-const explanatory = (aspect: ServiceInformationAspect) => aspect === 'overview' || descriptive(aspect)
+// An owned overview may pair a bounded general explanation with the server's
+// current description, price and duration. A price-only or booking read may not.
+const descriptive = (aspect: ServiceInformationAspect) => ['overview', 'description', 'comparison', 'recommendation'].includes(aspect)
+const explanatory = descriptive
 /** Exact current informative owner; zero identities grant general explanation, never local facts. */
 export function deriveCatalogInquiry(plan: TurnPlan | null | undefined, acts: CommunicativeActs | null | undefined,
   message: string, state: DialogueState, services: readonly DialogueService[]): CatalogInquiryScope[] {
@@ -174,10 +176,11 @@ export function validateCatalogAnswer(raw: unknown, context: CatalogInformationC
     const block = rawBlock as { kind?: unknown; text: unknown; sources: unknown }
     const kind = keys === 'sources,text' ? 'published' : block.kind
     if (typeof kind !== 'string' || !['general', 'published'].includes(kind) || typeof block.text !== 'string' || !block.text.trim() ||
-        block.text.length > 700 || /[\u0000-\u001f¿?]/.test(block.text) || forbidden(block.text) ||
+        block.text.length > 700 || /[\u0000-\u001f¿?]/.test(block.text) ||
         !Array.isArray(block.sources) || block.sources.length > 10) return null
     if (kind === 'general') {
-      if (!context.generalKnowledgeAllowed || !descriptive(context.aspect) || block.sources.length || claimsLocalProperties(block.text)) return null
+      if (!context.generalKnowledgeAllowed || !descriptive(context.aspect) || block.sources.length ||
+          forbidden(block.text) || claimsLocalProperties(block.text)) return null
       general.push(block.text.trim())
       continue
     }
@@ -190,6 +193,10 @@ export function validateCatalogAnswer(raw: unknown, context: CatalogInformationC
           source.quote.length > 2000 || !service.description.includes(source.quote)) return null
       covered.add(service.id)
     }
+    // Published descriptions may themselves contain a product code or figure.
+    // Such protected text is allowed only as the exact, currently verified quote;
+    // no model-added economic, outcome or product claim inherits that authority.
+    if (forbidden(block.text) && (block.sources.length !== 1 || block.text.trim() !== (block.sources[0] as { quote: string }).quote)) return null
     published.push(block.text.trim())
   }
   if (!context.services.every(service => !service.description || covered.has(service.id))) return null
