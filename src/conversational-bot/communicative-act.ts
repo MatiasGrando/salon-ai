@@ -31,6 +31,8 @@ export type CommunicativeAdmission = {
   timeMeaningRejected?: true
   /** Current admitted temporal inquiry scopes a search, never a slot selection. */
   temporalInquiry?: true
+  /** Sole admitted exact-time answer ownership; ephemeral, never model or stored authority. */
+  currentTimeAnswer?: true
   reference?: { mention: string; evidence: string }
   /** Ephemeral server admission, never a model flag or persisted booking action. */
   continuity?: 'notice' | 'pause' | 'repair'
@@ -333,6 +335,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   const blocked = new Set<CommunicativeField>()
   let timeMeaningRejected = false
   let temporalInquiry = false
+  let currentTimeAnswer = false
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
   // Establish sole current nonoperative ownership before inspecting unowned proposals.
   const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
@@ -402,12 +405,15 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
         act.evidence !== message || operation.evidence !== message)) { blocked.add(field); return false }
     if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) { blocked.add(field); return false }
     if (temporalRead && field === 'time' && operation.confidence >= .85) temporalInquiry = true
+    if (operation.kind === 'time' && operation.confidence >= .85 && act.kind === 'answer' &&
+        plan.operations.filter(item => item.kind === 'time').length === 1) currentTimeAnswer = true
     return true
   })
   const continuity = admitted.length === 0 && blocked.size === 0 ? continuityCandidate : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(temporalInquiry ? { temporalInquiry: true as const } : {}),
+    ...(currentTimeAnswer ? { currentTimeAnswer: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&
       !metadata.acts.some(act => ['notice', 'pause', 'repair'].includes(act.kind)) ? { social: true as const } : {}),

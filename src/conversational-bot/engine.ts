@@ -479,7 +479,27 @@ function availabilityRecoveryMessage(serviceName: string, day: string, reasons: 
   }
   return 'Para ' + serviceName + ' el ' + day + ':\n' + (reasons.length ? reasons.map(reason => copy[reason]).join('\n') : copy.NO_SLOTS)
 }
-async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[], matching?: MatchRequest, presentationPage?: { kind: 'slots' | 'professionals' | 'dates'; cursor: number }): Promise<DialogueResponse> {
+/** A current answer may choose one stored whole assignment, never infer one from its prose. */
+function currentCoordinatedTimeAnswer(context: DialogueContext, state: DialogueState, time: string,
+  admission?: CommunicativeAdmission): Extract<ConversationChoiceOperation, { kind: 'slot' }> | undefined {
+  const question = state.questionContext
+  const offer = state.dialogueContext?.presentedOffer
+  if (!admission?.currentTimeAnswer || admission.temporalInquiry || admission.blockedFields.length ||
+      state.pending !== 'time' || !question?.complete || question.role !== 'time' || !offer ||
+      offer.businessId !== context.businessId || offer.date !== state.date ||
+      JSON.stringify(offer.serviceIds) !== JSON.stringify(basketServiceIds(state))) return undefined
+  const displayed = question.options.flatMap(option => {
+    const [startAt, professionalId, coordinationKey, extra] = option.id.split('/')
+    if (extra !== undefined || !startAt || !professionalId || !coordinationKey || !/^[a-f0-9]{64}$/.test(coordinationKey) ||
+        !Number.isFinite(Date.parse(startAt)) || localDateKey(new Date(startAt), context.timezone) !== state.date ||
+        new Intl.DateTimeFormat('en-GB', { timeZone: context.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(startAt)) !== time) return []
+    try {
+      return [parseConversationChoiceOperation({ kind: 'slot', date: state.date, time, startAt, professionalId, coordinationKey }) as Extract<ConversationChoiceOperation, { kind: 'slot' }>]
+    } catch { return [] }
+  })
+  return displayed.length === 1 ? displayed[0] : undefined
+}
+async function respondBooking(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision, preparedCatalog?: DialogueService[], matching?: MatchRequest, presentationPage?: { kind: 'slots' | 'professionals' | 'dates'; cursor: number }, coordinatedAnswer?: Extract<ConversationChoiceOperation, { kind: 'slot' }>): Promise<DialogueResponse> {
   if (!isCustomerText(message, 2000) || !Number.isFinite(context.dbNow.getTime())) throw new Error('invalid dialogue input')
   const state = parseDialogueState(previous, context.businessId, context.timezone)
   // A prepared turn has already applied every semantic operation: never reparse its information text.
@@ -912,6 +932,8 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   if (state.requestedTime && state.requestedTimeMode !== 'inquiry' && !state.slot) {
     const selected = slots.filter(s => s.time === state.requestedTime)
     if (!selected.some(slot => slot.coordination) && (selected.length === 1 || selected.length > 1 && state.professional.kind === 'any' && new Set(selected.map(slot => Date.parse(slot.startAt))).size === 1)) state.slot = selected[0]!
+    else if (selected.length === 1 && coordinatedAnswer && selected[0]!.startAt === coordinatedAnswer.startAt &&
+      selected[0]!.professionalId === coordinatedAnswer.professionalId && selected[0]!.coordination?.key === coordinatedAnswer.coordinationKey) state.slot = selected[0]!
 
   }
   if (!state.slot) {
@@ -1129,6 +1151,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const originalOffer = state.dialogueContext?.presentedOffer ? structuredClone(state.dialogueContext.presentedOffer) : null
   const updates = plan.operations.filter(op => !['information', 'unsupported_action', 'request_change', 'referral'].includes(op.kind))
   const bookingUpdates = updates.filter(op => op.kind !== 'name')
+  const coordinatedAnswer = bookingUpdates.length === 1 && bookingUpdates[0]?.kind === 'time'
+    ? currentCoordinatedTimeAnswer(context, state, bookingUpdates[0].value, communicative) : undefined
   if (candidateSelection) delete state.informationFocus
   if (bookingUpdates.length) delete state.informationFocus
   const invalidate = (clearTime: boolean) => { state.slot = null; if (clearTime) { state.requestedTime = null; delete state.requestedTimeMode } delete state.dialogueContext; delete state.questionContext }
@@ -1390,7 +1414,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
         selectedCandidateIds.includes(service.id) && basketServiceIds(state).includes(service.id)) : []
   // Selecting the public service resolves the choice, not an undocumented technique.
   // Keep that distinction as brief information instead of another blocking procedure.
-  const next = await respondBooking(context, state, message, port, undefined, services, matched.matching)
+  const next = await respondBooking(context, state, message, port, undefined, services, matched.matching, undefined, coordinatedAnswer)
   const selectionNote = chosenRelated.length
     ? serviceSelectionNote(previousProcedureRequest!, chosenRelated.map(service => service.name), next.reply, services) : ''
   return { ...next, reply: [...combinedAnswers(next), selectionNote, next.reply, clarificationReply].filter(Boolean).join('\n'),
