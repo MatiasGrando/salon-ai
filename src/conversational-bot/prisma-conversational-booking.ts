@@ -54,7 +54,7 @@ const blocked = (): RuntimeBookingResult => ({kind:'BLOCKED',reason:'SCOPE_REJEC
 
 /** Hash of the current service configuration, not of an AI quote or suggested ID. */
 export function runtimeServiceConfigurationHash(service: Record<string, unknown>): string {
-  return canonicalJsonHash(['attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
+  return canonicalJsonHash(['bookingOrderPriority','attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
     'requiresPhoto','validationEnabled','validationMessage','validationQuestion','customerDurationMin','customerDurationMax','depositMode','depositValue'].map(key=>service[key]??null))
 }
 function validPresented(p: unknown): p is RuntimePresentedBooking {

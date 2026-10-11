@@ -195,6 +195,30 @@ console.log('basket Prisma adapter and motor complete proposal integration: PASS
 const ordered = await port.availabilityBasket!([selected('straightening'), selected('cut')], '2026-10-02')
 assert.equal(ordered.ok, true)
 if (ordered.ok) assert.deepEqual(ordered.services.map(service => service.id), ['straightening', 'cut'], 'requested order is preserved rather than sorted or balanced away')
+const priorityFixture = fixture()
+priorityFixture.rows.get('cut')!.bookingOrderPriority = 30
+priorityFixture.rows.get('straightening')!.bookingOrderPriority = 10
+const priorityBuilt = await createPrismaDialoguePort(priorityFixture.client, 'tenant')
+const freshPriority = await priorityBuilt.port.availabilityBasket!([selected('cut'), selected('straightening')], '2026-10-02')
+assert.ok(freshPriority.ok)
+if (freshPriority.ok) assert.deepEqual(freshPriority.services.map(service => service.bookingOrderPriority), [30, 10], 'fresh catalogue exposes the configured booking priorities')
+assert.equal(priorityFixture.catalogQueries[0]?.select?.bookingOrderPriority, true, 'priority comes from the scoped service read')
+const priorityPort = { ...priorityBuilt.port, catalog: async () => [
+  { ...selected('cut'), name: 'cut', bookingOrderPriority: 30 },
+  { ...selected('straightening'), name: 'straightening', bookingOrderPriority: 10 }
+] }
+const priorityProposal = await respond(priorityBuilt.context, initialDialogueState('tenant'), text, priorityPort, decision)
+assert.deepEqual(priorityProposal.state.basket?.members.flatMap(member => member.serviceIds), ['straightening', 'cut'], 'lower configured booking priority leads the whole basket')
+assert.deepEqual(priorityProposal.proposal?.serviceIds, ['straightening', 'cut'], 'the proposal uses the verified booking order')
+const tiedPort = { ...priorityPort, catalog: async () => [
+  { ...selected('cut'), name: 'cut', bookingOrderPriority: 20 },
+  { ...selected('straightening'), name: 'straightening', bookingOrderPriority: 20 }
+] }
+const tiedProposal = await respond(priorityBuilt.context, initialDialogueState('tenant'), text, tiedPort, decision)
+assert.deepEqual(tiedProposal.proposal?.serviceIds, ['cut', 'straightening'], 'equal priorities preserve the customer selection order')
+const repricedOrder = await respond(priorityBuilt.context, tiedProposal.state, 'seguimos', priorityPort)
+assert.deepEqual(repricedOrder.state.basket?.members.flatMap(member => member.serviceIds), ['straightening', 'cut'], 'a live priority change invalidates the old basket sequence')
+assert.deepEqual(repricedOrder.proposal?.serviceIds, ['straightening', 'cut'], 'a repriced offer is rebuilt in the current order, even if its clock time remains available')
 const shorter = fixture()
 Object.assign(shorter.rows.get('straightening')!, { customerDurationMin: 60, customerDurationMax: 75 })
 const shorterPort = await createPrismaDialoguePort(shorter.client, 'tenant')
@@ -223,6 +247,10 @@ assert.equal(coordinatedResult.ok, true, 'P3-A must search a complete coordinate
 if (!coordinatedResult.ok) throw new Error('coordinated assignment unavailable')
 const coordinatedSlot = coordinatedResult.slots[0] as any
 assert.deepEqual(coordinatedSlot.coordination.segments.map((segment: any) => [segment.serviceId, segment.professionalId]), [['cut', 'ramiro'], ['straightening', 'cin']])
+const reverseCoordinated = await coordinatedPort.port.availabilityBasket!([selected('straightening'), selected('cut')], '2026-10-02')
+assert.ok(reverseCoordinated.ok)
+if (reverseCoordinated.ok) assert.deepEqual(reverseCoordinated.slots[0]?.coordination?.segments.map(segment => [segment.serviceId, segment.professionalId]),
+  [['straightening', 'cin'], ['cut', 'ramiro']], 'priority-ordered services still coordinate different professionals as one complete sequence')
 assert.equal(coordinatedSlot.coordination.segments[0].endAt, coordinatedSlot.coordination.segments[1].startAt)
 assert.match(coordinatedSlot.coordination.key, /^[a-f0-9]{64}$/)
 console.log('P3-A complete coordinated availability: PASS')
@@ -244,6 +272,11 @@ const assignmentOperation = offeredCoordinated.choicePresentation!.choices[0]!.o
 assert.equal(assignmentOperation.kind,'slot')
 const acceptedAssignment = await chooseCoordinated(coordinatedContext,offeredCoordinated.state,assignmentOperation,controlledCoordinatedPort)
 assert.deepEqual(acceptedAssignment.state.slot?.coordination,coordinatedSlot.coordination)
+const changedPriorityChoicePort = {...controlledCoordinatedPort,catalog:async () => coordinatedResult.services.map(service => ({
+  ...service, bookingOrderPriority:service.id==='cut'?30:10
+}))}
+await assert.rejects(() => chooseCoordinated(coordinatedContext,offeredCoordinated.state,assignmentOperation,changedPriorityChoicePort),
+  /choice/i,'a stale coordinated button cannot select an assignment after priority order changes')
 assert.deepEqual(acceptedAssignment.proposal?.segments,coordinatedSlot.coordination.segments)
 assert.equal(acceptedAssignment.bookingCommand,undefined,'selecting an assignment never executes confirmation without consent')
 assert.ok(acceptedAssignment.state.sandboxReservation,'B presents the full assignment for explicit confirmation')

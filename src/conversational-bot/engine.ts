@@ -2,6 +2,7 @@ import { parseAppointmentManagement, beginAppointmentManagement, attachManagemen
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
+import { orderServiceIdsByBookingPriority, hasBookingPriorityOrder } from './booking-priority.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
@@ -36,7 +37,7 @@ import { resolveDialogueDate } from './dialogue-date.js'
 import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperation, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
-export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingPolicy?: ServiceBookingPolicy }
+export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingOrderPriority?: number | null; bookingPolicy?: ServiceBookingPolicy }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true; serverRuntimeBookingScope?: RuntimeShownScope; serverManagementSnapshot?: CancellationSnapshot }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
@@ -679,6 +680,15 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
     const member = selectionBasket(state).members.find(item => item.mode !== 'single')
     questionOptions = services.filter(item => member?.serviceIds.includes(item.id)).map(item => ({ id: item.id, label: item.name }))
     return finish(clarification)
+  }
+  const basketIds = basketServiceIds(state)
+  if (basketIds.length > 1 && !hasBookingPriorityOrder(basketIds, services)) {
+    const basket = selectionBasket(state)
+    const orderedIds = orderServiceIdsByBookingPriority(basketIds, services)
+    state.basket = { ...basket, members: orderedIds.map(id => basket.members.find(member => member.serviceIds[0] === id)!) }
+    state.slot = null
+    delete state.dialogueContext; delete state.questionContext
+    delete state.sandboxReservation; delete state.bookingReservation
   }
   let selectedServices = basketServiceIds(state).map(id => services.find(item => item.id === id))
   if (selectedServices.some(item => !item)) return failedAvailability('SERVICE_UNAVAILABLE', 'preflight')
@@ -1931,6 +1941,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   const services = await port.catalog()
   if (services.length > 200 || services.some(service => !bounded(service.id,128) || !bounded(service.name,200)) || new Set(services.map(service => service.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   const selected = basketServiceIds(state).map(id => services.find(service => service.id === id))
+  if (operation.kind !== 'service' && selected.length > 1 && !hasBookingPriorityOrder(basketServiceIds(state), services)) return reject()
   if (state.editRequest && operation.kind !== 'service') return reject()
   if (operation.kind !== 'service' && (!selected.length || selected.some(service => !service || !validBookableService(service,true)))) return reject()
   const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) { state.requestedTime = null; delete state.requestedTimeMode } delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext; delete state.questionContext }

@@ -19,6 +19,7 @@ import { parseDialogueState, type DialogueContext, type DialoguePort, type Dialo
 import { Prisma } from '../generated/prisma/client.js'
 import { isDeepStrictEqual } from 'node:util'
 import { basketServiceIds } from './service-basket.js'
+import { hasBookingPriorityOrder } from './booking-priority.js'
 import { coordinationKey, type CoordinatedSegment, type DialogueAvailabilitySlot } from './coordinated-booking.js'
 import { reservationDurationLimits } from '../services/service-duration.js'
 import { parseEstimateOptions, resolveServiceEstimate, serviceConfigurationKey } from '../bot-options/domain/service-booking.js'
@@ -124,6 +125,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         `)
         if(rows.length!==ids.length || new Set(rows.map(s=>s.id)).size!==ids.length || rows.some(s=>s.businessId!==businessId || !ids.includes(s.id))) return null
         const ordered=ids.map(id=>rows.find(s=>s.id===id)!)
+        if(!hasBookingPriorityOrder(ids,ordered))return null
         if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
         const depositRequired=ordered.some(s=>s.depositMode!=='NONE')
         if(depositRequired && !runtimeDepositsEnabled())return {unavailable:'DEPOSITS_DISABLED'}

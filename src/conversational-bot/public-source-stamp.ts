@@ -18,7 +18,7 @@ export async function readPublicSourceSnapshot(client: StampClient, context: Dia
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(c."id", c."name", c."sortOrder", c."isActive") ORDER BY c."id"), '[]'::jsonb)
         FROM "ServiceCategory" c WHERE c."businessId" = b."id"),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(s."id", s."catalogCategoryId", s."parentServiceId", s."name", s."description",
-        s."duration", s."customerDurationMin", s."customerDurationMax", s."price", s."priceMode", s."isBookable", s."isActive", s."sortOrder",
+        s."duration", s."customerDurationMin", s."customerDurationMax", s."price", s."priceMode", s."isBookable", s."isActive", s."sortOrder", s."bookingOrderPriority",
         s."attentionMode", s."estimateAllowsBooking", s."estimateQuestion", s."estimateOptions", s."estimateExplanation", s."estimateDisclaimer",
         s."requiresPhoto", s."validationEnabled", s."validationMessage", s."validationQuestion") ORDER BY s."id"), '[]'::jsonb)
         FROM "Service" s WHERE s."businessId" = b."id"),

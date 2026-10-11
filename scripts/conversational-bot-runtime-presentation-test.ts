@@ -77,6 +77,13 @@ coordinated.slot=preparation.slot
 const coordinatedPreparation=await port.prepareRuntimeBooking(coordinated,scope)
 assert.ok(coordinatedPreparation && 'presented' in coordinatedPreparation)
 assert.deepEqual(coordinatedPreparation.presented.terms,preparation.presented.terms,'actual coordinated assignment preserved')
+const changedPriority=fixture()
+changedPriority.services[0]!.bookingOrderPriority=30
+changedPriority.services[1]!.bookingOrderPriority=10
+const changedPriorityPort=(await createPrismaDialoguePort(changedPriority.client,'b')).port
+assert.equal(await changedPriorityPort.prepareRuntimeBooking(state,scope),null,'a stale opposite-priority order cannot produce a new confirmation')
+assert.notEqual(runtimeServiceConfigurationHash({...rows[0],bookingOrderPriority:20}),runtimeServiceConfigurationHash({...rows[0],bookingOrderPriority:30}),
+  'a confirmed proposal must requote when service booking priority changes')
 const corrupted=structuredClone(coordinated)
 corrupted.slot!.coordination!.segments[1]!.professionalId='foreign'
 assert.equal(await port.prepareRuntimeBooking(corrupted,scope),null)

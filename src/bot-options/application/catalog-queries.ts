@@ -26,6 +26,7 @@ export type CatalogServiceItem = {
   priceMode: 'FIXED' | 'STARTING_AT'
   isBookable: boolean
   requiresConsultation: boolean
+  bookingOrderPriority?: number
   bookingPolicy?: import('../domain/service-booking.js').ServiceBookingPolicy
 }
 
