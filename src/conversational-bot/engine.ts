@@ -1360,7 +1360,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const clarification = state.pending === 'service' && !socialMessage(message) ? basketQuestion(state, services) : null
     if (clarification) {
       rememberBasketClarification(state, services, clarification)
-      return { ...finishWithoutAgenda(clarification), replyPrepared: true }
+      const choicePresentation = choicePresentationForQuestion(state, services)
+      return { ...finishWithoutAgenda(clarification), replyPrepared: true, ...(choicePresentation ? { choicePresentation } : {}) }
     }
     return { ...finishWithoutAgenda(socialQuestion(state)), ...(intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
@@ -1369,7 +1370,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (!matched.matching && (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved')) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
     if (clarification) rememberBasketClarification(state, services, clarification)
-    return { ...finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services)), replyPrepared: true }
+    const choicePresentation = clarification ? choicePresentationForQuestion(state, services) : undefined
+    return { ...finishWithoutAgenda(clarification || 'No pude identificar ese servicio. ¿Qué servicio necesitás?\n' + serviceList(services)), replyPrepared: true, ...(choicePresentation ? { choicePresentation } : {}) }
   }
   if (uncertainDate) {
     state.pending = basketIsResolved(state) ? 'date' : 'service'

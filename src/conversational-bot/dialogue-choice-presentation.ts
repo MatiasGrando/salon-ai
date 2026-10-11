@@ -38,8 +38,16 @@ export function choicePresentationForQuestion(state: DialogueState, services: re
   if (!question?.complete || !question.options.length || question.options.length > 10 || !['service', 'professional', 'estimate'].includes(question.role)) return undefined
   const target = question.targetServiceId ? services.find(service => service.id === question.targetServiceId) : undefined
   const guide = target ? serviceGuidance(target) : null
+  // A cart clarification is not a fuzzy-name matching question. Bind the
+  // published choices to its current member without changing AI copy authority.
+  const pendingMember = state.basket?.members.find(member => member.mode !== 'single')
+  const basketTarget = question.role === 'service' && !state.serviceRequest && !state.informationFocus &&
+    pendingMember?.mode === 'alternatives' && pendingMember.serviceIds.length === question.options.length &&
+    question.options.every(option => pendingMember.serviceIds.includes(option.id) && services.some(service => service.id === option.id && service.name === option.label))
+    ? pendingMember.memberId : undefined
+  const targetMemberId = question.matchTargetMemberId ?? basketTarget
   const choices = question.options.map(option => {
-    const operation: ConversationChoiceOperation | null = question.role === 'service' ? { kind: 'service', serviceId: option.id, ...(question.matchTargetMemberId ? { targetMemberId: question.matchTargetMemberId } : {}) }
+    const operation: ConversationChoiceOperation | null = question.role === 'service' ? { kind: 'service', serviceId: option.id, ...(targetMemberId ? { targetMemberId } : {}) }
       : question.role === 'professional' ? option.id === ANY_PROFESSIONAL_OPTION ? { kind: 'any_professional' } : { kind: 'professional', professionalId: option.id }
       : target && guide?.kind === 'guided' ? { kind: 'estimate', serviceId: target.id, optionId: option.id, configurationKey: serviceConfigurationKey(guide.policy) } : null
     return operation ? { label: option.label, operation } : null
