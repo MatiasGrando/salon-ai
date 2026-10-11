@@ -20,7 +20,11 @@ export function planConversationChoiceView(input: { question: ChoiceQuestion; re
   const id = input.idFactory ?? randomUUID, promptToken = input.promptToken ?? generatePromptToken()
   // Only surface separators are equivalent here. Missing service/professional/time text still requires the full fallback.
   const coverageText = (value: string) => value.replace(/\ba las (?=\d{2}:\d{2})/g, 'a ').replace(/\s*→\s*|\s+/g, ' ').trim()
-  const covered = question.choices.every(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey
+  // The existing explicit confirmation question is the textual alternative to the one actual confirm button.
+  const confirmationCovered = question.kind === 'proposal' && question.choices.length === 1 &&
+    question.choices[0]!.operation.kind === 'confirm' && ['¿Confirmás este turno?',
+      '¿Confirmás la reserva de todos estos servicios con la seña conjunta?'].some(question => input.reply.includes(question))
+  const covered = confirmationCovered || question.choices.every(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey
     ? coverageText(input.reply).includes(coverageText(choice.label)) : input.reply.includes(choice.label))
   const body = covered ? input.reply : input.reply + '\n\n' + question.choices.map(choice => choice.label).join(' · ')
   const rendered = renderWhatsAppScreen({ bodyKind: 'menu', informativeTexts: [], interactiveBody: body,

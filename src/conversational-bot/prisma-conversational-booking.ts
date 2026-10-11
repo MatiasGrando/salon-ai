@@ -339,18 +339,32 @@ export function parseRuntimeBookingReservation(value: unknown, businessId: strin
 }
 export function runtimeProposalMatchesState(p: RuntimePresentedBooking, draft: unknown): boolean { return validPresented(p) && validDraft(draft,p) }
 function runtimeBookingDetail(p: RuntimePresentedBooking): string {
-  const formatter=new Intl.DateTimeFormat('es-AR',{timeZone:p.terms.timezone,year:'numeric',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
-  const money=(amount:number)=>'$'+amount.toLocaleString('es-AR')
-  const lines=p.terms.segments.map(s=>{
-    const price=s.estimate
-      ? (s.estimate.optionLabel?s.estimate.optionLabel+' · ':'')+'Estimado '+(s.estimate.priceMax===null?'desde '+money(s.estimate.priceMin):money(s.estimate.priceMin)+' a '+money(s.estimate.priceMax))
-      : s.priceMinor===null?'Precio a confirmar':(s.priceMode==='STARTING_AT'?'Desde ':'')+money(s.priceMinor)
-    return s.serviceName+' con '+s.professionalName+' · '+formatter.format(new Date(s.startAt))+' · '+s.customerDurationMinutes+' min · '+price
+  const date = new Intl.DateTimeFormat('es-AR', { timeZone: p.terms.timezone, year: 'numeric', day: '2-digit', month: '2-digit' })
+  const time = new Intl.DateTimeFormat('es-AR', { timeZone: p.terms.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+  const money = (amount: number) => '$' + amount.toLocaleString('es-AR')
+  const dates = p.terms.segments.map(segment => date.format(new Date(segment.startAt)))
+  const commonDate = new Set(dates).size === 1 ? dates[0]! : null
+  const lines = p.terms.segments.map((segment, index) => {
+    const price = segment.estimate
+      ? (segment.estimate.optionLabel ? segment.estimate.optionLabel + ' · ' : '') + 'Estimado ' + (segment.estimate.priceMax === null
+        ? 'desde ' + money(segment.estimate.priceMin) : money(segment.estimate.priceMin) + ' a ' + money(segment.estimate.priceMax))
+      : segment.priceMinor === null ? 'Precio a confirmar' : (segment.priceMode === 'STARTING_AT' ? 'Desde ' : '') + money(segment.priceMinor)
+    return [segment.serviceName + ' con ' + segment.professionalName,
+      (commonDate ? '' : dates[index] + ' · ') + time.format(new Date(segment.startAt)),
+      'Duración: ' + segment.customerDurationMinutes + ' min', 'Precio: ' + price].join('\n')
   })
-  return p.terms.customerName+':\n'+lines.join('\n')+'\n'+(p.terms.totalPriceMinor===null?'Total a consultar.':'Total: '+money(p.terms.totalPriceMinor))
+  return p.terms.customerName + ':' + (commonDate ? '\nFecha: ' + commonDate : '') + '\n\n' + lines.join('\n\n') + '\n\n' +
+    (p.terms.totalPriceMinor === null ? 'Total a consultar.' : 'Total: ' + money(p.terms.totalPriceMinor))
 }
 export function runtimeBookingSummary(p: RuntimePresentedBooking): string {
-  return 'Propuesta para '+runtimeBookingDetail(p)+'\n'+(p.terms.deposit?'Seña requerida: $'+p.terms.deposit.financial.amount.toLocaleString('es-AR')+'. Al aceptar, el horario se mantiene por '+p.terms.deposit.financial.ttlMinutes+' minutos para enviar el comprobante.'+(p.terms.segments.length>1?' Es una seña conjunta: enviá un único comprobante para todos los servicios.':'')+' Todavía no está confirmado.':'Sin seña requerida.')+' La disponibilidad se verifica otra vez al confirmar.'
+  const deposit = p.terms.deposit
+  const conditions = deposit ? [
+    'Seña requerida: $' + deposit.financial.amount.toLocaleString('es-AR'),
+    'Al aceptar, el horario se mantiene por ' + deposit.financial.ttlMinutes + ' minutos para enviar el comprobante.',
+    ...(p.terms.segments.length > 1 ? ['Es una seña conjunta: enviá un único comprobante para todos los servicios.'] : []),
+    'Todavía no está confirmado.'
+  ].join('\n') : 'Sin seña requerida.'
+  return 'Propuesta para ' + runtimeBookingDetail(p) + '\n\n' + conditions + '\n\nLa disponibilidad se verifica otra vez al confirmar.'
 }
 export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservation): string {
   if(!reservation.receipt) throw new Error('runtime receipt required')
@@ -360,9 +374,9 @@ export function runtimeBookingReceiptReply(reservation: RuntimeBookingReservatio
     if(r.depositStatus==='REJECTED' && r.cancellationReason)return 'El pedido fue cancelado'+(r.cancellationReason==='STAFF'?' por el equipo':'')+'. El horario fue liberado; podemos comenzar un pedido nuevo.'
     if(r.depositStatus==='REJECTED')return 'El equipo rechazó el pago. La reserva no está confirmada; consultá al equipo antes de continuar.'
     if(r.depositStatus==='PROOF_RECEIVED')return 'Recibimos tu comprobante. El equipo debe validarlo; la reserva todavía no está confirmada.'
-    if(r.depositStatus!=='APPROVED')return 'Mantuvimos provisionalmente el horario. La reserva todavía no está confirmada.\n'+runtimeBookingDetail(reservation.presented)+'\nSeña: $'+r.amount.toLocaleString('es-AR')+'\nEnviá el comprobante'+(reservation.presented.terms.segments.length>1?' único para todos los servicios':'')+' antes de '+new Intl.DateTimeFormat('es-AR',{timeZone:reservation.presented.terms.timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(r.expiresAt))+'.\n'+runtimeDepositPaymentReply(reservation.presented.terms.deposit!.payment)+(r.depositStatus==='PENDING_RESUBMISSION'?'\nEl equipo necesita un nuevo comprobante.':'')
+    if(r.depositStatus!=='APPROVED')return 'Mantuvimos provisionalmente el horario. La reserva todavía no está confirmada.\n\n'+runtimeBookingDetail(reservation.presented)+'\n\nSeña: $'+r.amount.toLocaleString('es-AR')+'\nEnviá el comprobante'+(reservation.presented.terms.segments.length>1?' único para todos los servicios':'')+' antes de '+new Intl.DateTimeFormat('es-AR',{timeZone:reservation.presented.terms.timezone,dateStyle:'short',timeStyle:'short'}).format(new Date(r.expiresAt))+'.\n'+runtimeDepositPaymentReply(reservation.presented.terms.deposit!.payment)+(r.depositStatus==='PENDING_RESUBMISSION'?'\nEl equipo necesita un nuevo comprobante.':'')
   }
-  return 'La reserva fue confirmada.\n'+runtimeBookingDetail(reservation.presented)+(reservation.receipt.businessAddress?'\nTe esperamos en '+reservation.receipt.businessAddress:'')
+  return 'La reserva fue confirmada.\n\n'+runtimeBookingDetail(reservation.presented)+(reservation.receipt.businessAddress?'\nTe esperamos en '+reservation.receipt.businessAddress:'')
 }
 
 function runtimeDepositPaymentReply(p:RuntimeDepositPayment):string {
