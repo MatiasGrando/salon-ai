@@ -24970,6 +24970,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
         if (payload.businessId !== state.businessId || !payload.depositId) return
         queueCrmRealtimeMetadataRefresh({ refreshDeposits: true })
+        if (state.selected?.id) queueConversationRealtimeRefresh(state.selected.id)
+        queueAgendaRealtimeRefresh()
       })
       source.addEventListener('appointment_changed', (event) => {
         let payload
@@ -24994,6 +24996,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         stopCrmRealtimeFallback()
+        queueCrmRealtimeMetadataRefresh({ refreshCounts: true, refreshDeposits: true })
+        if (state.selected?.id) queueConversationRealtimeRefresh(state.selected.id)
         queueAgendaRealtimeRefresh()
       })
       source.addEventListener('error', () => {
@@ -25075,7 +25079,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           console.error(error)
         } finally {
           state.realtimeRefreshInFlight = false
-          if (state.realtimePendingConversationIds.size) scheduleConversationStateRefresh()
+          if (state.realtimePendingConversationIds.size || state.realtimePendingMessageIds.size
+            || state.realtimeNeedsCountsRefresh || state.realtimeNeedsDepositRefresh) scheduleConversationStateRefresh()
         }
       }
       state.realtimeStateRefreshTimer = setTimeout(refreshWhenReady, CRM_REALTIME_DEBOUNCE_MS)

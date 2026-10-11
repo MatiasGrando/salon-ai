@@ -645,7 +645,28 @@ try {
   // First lifecycle RED is an existing public writer invoked with a real held group.
   const bytes=Buffer.from('offline proof fixture')
   const evidence={sourceData:bytes,sourceMimeType:'image/png' as const,sourceFilename:'offline.png',sourceByteSize:bytes.length,sourceSha256:createHash('sha256').update(bytes).digest('hex'),derivedData:bytes,derivedMimeType:'image/webp' as const,derivedByteSize:bytes.length,derivedSha256:createHash('sha256').update(bytes).digest('hex'),validatorVersion:'f8-image-v1' as const}
-  await db.transaction(tx=>writeValidatedDepositProofInTransaction(orm(tx),{businessId:'b',depositId:estimateReceipt.anchorDepositId,operationKey:'proof-group',providerEventId:'offline-event',evidence}))
+  const receiptEvents:string[]=[]
+  const stopReceiptEvents=await db.listen('appointment_changed',payload=>receiptEvents.push(payload))
+  const proofInput={businessId:'b',depositId:estimateReceipt.anchorDepositId,operationKey:'proof-group',providerEventId:'offline-event',evidence}
+  await assert.rejects(db.transaction(async raw=>{
+    await writeValidatedDepositProofInTransaction(orm(raw),proofInput)
+    assert.equal(receiptEvents.length,0,'group event must remain invisible until every member commits')
+    throw Error('receipt event rollback fixture')
+  }),/receipt event rollback fixture/)
+  assert.equal(receiptEvents.length,0,'rolled back group must not notify CRM')
+  assert.equal((await db.query<{n:number}>('SELECT count(*)::int n FROM "BookingDepositProof"')).rows[0]!.n,0,'rollback also preserves every financial member without proof')
+  await db.transaction(async raw=>{
+    await writeValidatedDepositProofInTransaction(orm(raw),proofInput)
+    assert.equal(receiptEvents.length,0)
+  })
+  assert.equal(receiptEvents.length,1,'group must publish exactly one canonical receipt event')
+  const receiptEvent=JSON.parse(receiptEvents[0]!)
+  assert.equal(receiptEvent.depositId,estimateReceipt.anchorDepositId)
+  assert.equal(receiptEvent.appointmentId,estimateReceipt.members.find(m=>m.depositId===estimateReceipt.anchorDepositId)!.appointmentId)
+  assert.equal(receiptEvent.conversationId,'c')
+  assert.equal((await db.transaction(raw=>writeValidatedDepositProofInTransaction(orm(raw),proofInput))).outcome,'REPLAYED')
+  assert.equal(receiptEvents.length,1,'group replay must not repeat the CRM event')
+  await stopReceiptEvents()
   assert.equal((await db.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDeposit" WHERE status='PROOF_RECEIVED'`)).rows[0]!.n,2,'single proof must atomically reach ALL financial members')
   assert.equal((await db.query<{n:number}>(`SELECT count(*)::int n FROM "BookingDepositProof"`)).rows[0]!.n,2)
   console.log('P14.2 proof fanout PASS')

@@ -1,5 +1,5 @@
 import { Client } from 'pg'
-import { publishAppointmentChanged } from './crm-realtime-events.js'
+import { publishAppointmentChanged, publishConversationUpdated, publishDepositUpdated } from './crm-realtime-events.js'
 
 const CHANNEL = 'appointment_changed'
 const RECONNECT_DELAY_MS = 1_000
@@ -8,6 +8,8 @@ type AppointmentDatabaseNotification = {
   businessId: string
   appointmentId: string
   updatedAt: string
+  depositId?: string
+  conversationId?: string
 }
 
 type AppointmentRealtimeListenerOptions = {
@@ -28,19 +30,31 @@ export function dispatchAppointmentDatabaseNotification(
   try {
     const parsed = JSON.parse(payload) as Partial<AppointmentDatabaseNotification>
     if (
-      typeof parsed.businessId !== 'string' || parsed.businessId.length === 0
-      || typeof parsed.appointmentId !== 'string' || parsed.appointmentId.length === 0
-      || typeof parsed.updatedAt !== 'string' || parsed.updatedAt.length === 0
+      !validNotificationId(parsed.businessId) || !validNotificationId(parsed.appointmentId)
+      || typeof parsed.updatedAt !== 'string' || parsed.updatedAt.length > 128
+      || /[\u0000-\u001f\u007f]/.test(parsed.updatedAt)
+      || !Number.isFinite(Date.parse(parsed.updatedAt))
+      || (('depositId' in parsed) !== ('conversationId' in parsed))
+      || ('depositId' in parsed && (!validNotificationId(parsed.depositId) || !validNotificationId(parsed.conversationId)))
     ) return false
     publish({
       businessId: parsed.businessId,
       appointmentId: parsed.appointmentId,
       updatedAt: parsed.updatedAt
     })
+    if (parsed.depositId && parsed.conversationId) {
+      publishDepositUpdated({ businessId: parsed.businessId, depositId: parsed.depositId, updatedAt: parsed.updatedAt })
+      publishConversationUpdated({ businessId: parsed.businessId, conversationId: parsed.conversationId, updatedAt: parsed.updatedAt })
+    }
     return true
   } catch {
     return false
   }
+}
+
+function validNotificationId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 256
+    && value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
 /**

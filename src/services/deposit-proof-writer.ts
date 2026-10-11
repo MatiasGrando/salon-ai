@@ -62,6 +62,7 @@ export async function writeValidatedDepositProofInTransaction(tx: ProofWriterTx,
   await lockCoordinatedDepositGroupState(tx,{businessId:input.businessId,groupId:group.groupId})
   await enqueueDepositNotificationWithRecoveryTx(tx,{businessId:input.businessId,depositId:group.anchorDepositId,sourceId:anchor.proofId,
     kind:anchor.kind==='LATE'?'LATE_PROOF':'PROOF_RECEIVED',dbNow:state.dbNow,...(input.expectedProviderPhoneNumberId?{expectedProviderPhoneNumberId:input.expectedProviderPhoneNumberId}:{})})
+  if(anchor.outcome==='APPLIED') await notifyReceiptStateTx(tx,input.businessId,group.anchorDepositId,state.dbNow)
   return anchor
 }
 
@@ -212,7 +213,23 @@ async function writeSingleValidatedDepositProofInTransaction(
     WHERE "operationKey" = ${input.operationKey} AND "status" = 'STARTED' AND "requestHash" = ${requestHash}
   `)
   if (completed !== 1) throw new DepositProofWriteError('proof operation completion fence failed')
+  if (!groupContext) await notifyReceiptStateTx(tx, input.businessId, input.depositId, row.dbNow)
   return { outcome: 'APPLIED', proofId, kind: classification.kind }
+}
+
+/** Reuse the existing cross-process channel. PostgreSQL releases this hint only
+ * on commit; group callers emit once, after every member and operation succeed.
+ * No customer, evidence, amount or approval state crosses the hint boundary. */
+async function notifyReceiptStateTx(tx: ProofWriterTx, businessId: string, depositId: string, updatedAt: Date): Promise<void> {
+  const notified = await tx.$queryRaw<Array<{ notified: string }>>(Prisma.sql`
+    SELECT pg_notify('appointment_changed', (
+      jsonb_build_object('businessId', d."businessId", 'appointmentId', d."appointmentId", 'updatedAt', ${updatedAt.toISOString()}::text)
+      || CASE WHEN d."conversationId" IS NULL THEN '{}'::jsonb
+        ELSE jsonb_build_object('depositId', d.id, 'conversationId', d."conversationId") END
+    )::text) AS notified
+    FROM "BookingDeposit" d WHERE d.id=${depositId} AND d."businessId"=${businessId}
+  `)
+  if (notified.length !== 1) throw new DepositProofWriteError('receipt realtime tenant fence failed')
 }
 
 export function classifyDepositProofWrite(input: {
