@@ -232,7 +232,8 @@ export async function buildApp(options: BuildAppOptions = {}) {
           await processDepositProofJob({
             client: prisma,
             job,
-            capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled
+            capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled,
+            onDiagnostic: value => { console.info('[bot-options-deposit-proof]', JSON.stringify(value)) }
           })
           return
         }

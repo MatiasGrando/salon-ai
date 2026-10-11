@@ -7,7 +7,7 @@ import {
   DepositProofValidationError,
   validateDepositProof
 } from '../../services/deposit-proof-validation.js'
-import { writeValidatedDepositProofInTransaction } from '../../services/deposit-proof-writer.js'
+import { DEPOSIT_PROOF_TRANSACTION_OPTIONS, writeValidatedDepositProofInTransaction } from '../../services/deposit-proof-writer.js'
 import { enqueueDepositNotificationWithRecoveryTx } from '../../services/deposit-notification-outbox.js'
 import {
   downloadMetaDepositProof,
@@ -23,7 +23,55 @@ import {
 } from '../infrastructure/postgres-worker.js'
 import { upsertJob } from '../infrastructure/prisma-admission.js'
 
-type DepositProofClient = Pick<PrismaClient, '$queryRaw' | '$transaction'>
+type DepositProofClient = Pick<PrismaClient, '$queryRaw'> & {
+  $transaction<T>(run: (tx: Prisma.TransactionClient) => Promise<T>, options?: { maxWait?: number; timeout?: number }): Promise<T>
+}
+
+// Commit before each bounded phase: 15 s DB + 2 s acquire + 8 s download,
+// with margin for credential/validation work. The next phase fences again.
+const PROOF_JOB_LEASE_MS = 60_000
+export type DepositProofPhaseDiagnostic = {
+  phase: 'deployment' | 'event_load' | 'ownership' | 'target' | 'media' | 'validation' | 'write' | 'terminal' | 'fallback'
+  durationMs: number
+  outcome: 'ok' | 'error'
+  reason: 'transaction_expired' | 'media_unavailable' | 'invalid_media' | 'claim_fenced' | 'processing_error' | null
+}
+
+async function observeProofPhase<T>(emit: ((value: DepositProofPhaseDiagnostic) => void) | undefined,
+  phase: DepositProofPhaseDiagnostic['phase'], run: () => Promise<T>): Promise<T> {
+  const started = performance.now()
+  let reason: DepositProofPhaseDiagnostic['reason'] = null, outcome: 'ok' | 'error' = 'ok'
+  try { return await run() }
+  catch (error) {
+    outcome = 'error'
+    reason = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028'
+      || error instanceof Error && /Transaction already closed|expired transaction/i.test(error.message)
+      ? 'transaction_expired'
+      : error instanceof MetaDepositMediaError ? 'media_unavailable'
+      : error instanceof DepositProofValidationError ? 'invalid_media'
+      : error instanceof Error && /stale or fenced bot job claim|cannot renew proof job claim/.test(error.message) ? 'claim_fenced'
+      : 'processing_error'
+    throw error
+  } finally {
+    try { emit?.({ phase, durationMs: Math.round(Math.max(0, performance.now() - started)), outcome, reason }) }
+    catch { /* diagnostic observers cannot alter receipt processing */ }
+  }
+}
+
+/** Proof-only renewal; an expired claim is never resurrected, even with its old token. */
+export async function renewProofJobLeaseTx(tx: Prisma.TransactionClient, job: ClaimedBotJob): Promise<void> {
+  if (job.kind !== 'RECEIVE_DEPOSIT_PROOF') throw new Error('cannot renew non-proof job claim')
+  await assertClaimedBotJobTx(tx, job)
+  const count = await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotJob" SET "leasedUntil" = clock_timestamp() + (${PROOF_JOB_LEASE_MS} * interval '1 millisecond'),
+      "updatedAt" = clock_timestamp()
+    WHERE "id" = ${job.id} AND "businessId" = ${job.businessId}
+      AND "kind" = 'RECEIVE_DEPOSIT_PROOF' AND "status" = 'LEASED'::"BotJobStatus"
+      AND "leaseToken" = ${job.claimToken} AND "deploymentId" = ${job.deploymentId}
+      AND "deploymentGeneration" = ${job.deploymentGeneration} AND "leasedUntil" > clock_timestamp()
+  `)
+  if (count !== 1) throw new Error('cannot renew proof job claim')
+}
 
 type ProofEvent = {
   id: string
@@ -52,63 +100,82 @@ export async function processDepositProofJob(input: {
   job: ClaimedBotJob
   capabilityEnabled: boolean
   fetch?: MetaMediaHttp
+  onDiagnostic?: (value: DepositProofPhaseDiagnostic) => void
   resolveAccessToken?: (businessId: string, expectedProviderPhoneNumberId: string) => Promise<string>
 }): Promise<DepositProofJobOutcome> {
   if (input.job.kind !== 'RECEIVE_DEPOSIT_PROOF') throw new Error('unsupported deposit proof job')
+  // This adapter is private to this handler. No global Prisma or worker budget
+  // changes. Renewal commits before a slow transaction, so its rollback cannot
+  // undo the live lease; that transaction still repeats its normal claim fences.
+  let activeJob: ClaimedBotJob | null = null
+  const client: DepositProofClient = {
+    $queryRaw: input.client.$queryRaw.bind(input.client),
+    async $transaction<T>(run: (tx: Prisma.TransactionClient) => Promise<T>) {
+      if (activeJob) await input.client.$transaction(tx => renewProofJobLeaseTx(tx, activeJob!), DEPOSIT_PROOF_TRANSACTION_OPTIONS)
+      return input.client.$transaction(run, DEPOSIT_PROOF_TRANSACTION_OPTIONS)
+    }
+  }
+  const observe = <T>(phase: DepositProofPhaseDiagnostic['phase'], run: () => Promise<T>) => observeProofPhase(input.onDiagnostic, phase, run)
   // RECEIVE is admitted work, not perpetual recovery. A cutover may make its
   // generation stale before claim, so fence and retarget it before capability
   // handling, target lookup, credential resolution, or provider I/O.
-  const job = await retargetProofJobToCurrentDeployment(input.client, input.job)
+  const job = await observe('deployment', () => retargetProofJobToCurrentDeployment(client, input.job))
+  activeJob = job
   if (!input.capabilityEnabled) {
-    await input.client.$transaction(async (tx) => {
+    await client.$transaction(async (tx) => {
       await assertClaimedBotJobTx(tx, job)
       await rescheduleClaimedBotJobTx(tx, job, new Date(Date.now() + 5 * 60_000), { refundClaimAttempt: true })
     })
     return 'CAPABILITY_OFF'
   }
 
-  const event = await loadProofEvent(input.client, job)
-  if (!event) return finishMissingEvent(input.client, job)
-  if (await silenceProofForHumanTaken(input.client, job, event)) return 'HUMAN_TAKEN_SILENCED'
-  const target = await input.client.$transaction(tx=>resolveProofTarget(tx, event, job.deploymentId))
-  if (target.kind !== 'FOUND') return fallbackToInitialInbox(input.client, job, event)
+  const event = await observe('event_load', () => loadProofEvent(client, job))
+  if (!event) return observe('fallback', () => finishMissingEvent(client, job))
+  if (await observe('ownership', () => silenceProofForHumanTaken(client, job, event))) return 'HUMAN_TAKEN_SILENCED'
+  const target = await observe('target', () => client.$transaction(tx=>resolveProofTarget(tx, event, job.deploymentId)))
+  if (target.kind !== 'FOUND') return observe('fallback', () => fallbackToInitialInbox(client, job, event))
   const expectedDepositId = target.depositId
   const payload = messagePayload(event.payload)
   const mediaId = stringField(payload?.mediaId)
   if (!payload || !['image', 'document'].includes(String(payload.messageType)) || !mediaId || isDeclaredUnsupported(payload.mediaMimeType)) {
-    return finishTerminal(input.client, job, event, expectedDepositId, 'INVALID_PROOF')
+    return observe('terminal', () => finishTerminal(client, job, event, expectedDepositId, 'INVALID_PROOF'))
   }
 
   let downloaded: Awaited<ReturnType<typeof downloadMetaDepositProof>>
   try {
     // Short preflight only: never hold a transaction or DB connection across
     // credential resolution, provider I/O or image validation.
-    await input.client.$transaction((tx) => assertClaimedBotJobTx(tx, job))
-    if (!event.phoneNumberId) throw new MetaDepositMediaError('METADATA_UNAVAILABLE')
-    const accessToken = await (input.resolveAccessToken ?? defaultAccessToken)(event.businessId, event.phoneNumberId)
-    downloaded = await downloadMetaDepositProof({
-      mediaId,
-      accessToken,
-      fetch: input.fetch ?? nodeFetch,
+    downloaded = await observe('media', async () => {
+      await client.$transaction((tx) => assertClaimedBotJobTx(tx, job))
+      if (!event.phoneNumberId) throw new MetaDepositMediaError('METADATA_UNAVAILABLE')
+      const accessToken = await (input.resolveAccessToken ?? defaultAccessToken)(event.businessId, event.phoneNumberId)
+      return downloadMetaDepositProof({
+        mediaId,
+        accessToken,
+        fetch: input.fetch ?? nodeFetch,
+      })
     })
   } catch (error) {
+    // A DB/claim/credential failure says nothing about the bytes. Preserve the
+    // worker retry path rather than issuing a false invalid-proof notification.
+    if (!(error instanceof MetaDepositMediaError)) throw error
     if (isRetryableTransport(error) && job.attempts < job.maxAttempts) throw new Error('deposit_media_transport_retryable')
-    return finishTerminal(input.client, job, event, expectedDepositId, isRetryableTransport(error) ? 'PROOF_UNAVAILABLE' : 'INVALID_PROOF')
+    return observe('terminal', () => finishTerminal(client, job, event, expectedDepositId, isRetryableTransport(error) ? 'PROOF_UNAVAILABLE' : 'INVALID_PROOF'))
   }
 
   let evidence: Awaited<ReturnType<typeof validateDepositProof>>
   try {
-    evidence = await validateDepositProof({
+    evidence = await observe('validation', () => validateDepositProof({
       data: downloaded.data,
       declaredMimeType: downloaded.mimeType,
       filename: stringField(payload.filename)
-    })
+    }))
   } catch (error) {
     if (!(error instanceof DepositProofValidationError)) throw new Error('deposit_image_validation_failed')
-    return finishTerminal(input.client, job, event, expectedDepositId, 'INVALID_PROOF')
+    return observe('terminal', () => finishTerminal(client, job, event, expectedDepositId, 'INVALID_PROOF'))
   }
 
-  return input.client.$transaction(async (tx) => {
+  return observe('write', () => client.$transaction(async (tx) => {
     await assertClaimedBotJobTx(tx, job)
     if (await silenceProofForHumanTakenTx(tx, job, event)) return 'HUMAN_TAKEN_SILENCED'
     const current = await resolveProofTarget(tx, event, job.deploymentId)
@@ -129,7 +196,7 @@ export async function processDepositProofJob(input: {
     `)
     await completeClaimedBotJobTx(tx, job)
     return result.outcome
-  })
+  }))
 }
 
 async function silenceProofForHumanTaken(client: DepositProofClient, job: ClaimedBotJob, event: ProofEvent): Promise<boolean> {
@@ -370,7 +437,9 @@ async function retargetProofJobToCurrentDeployment(client: DepositProofClient, j
     if (job.deploymentGeneration > current.generation) {
       throw new Error('deposit proof job generation is ahead of current deployment')
     }
-    return retargetClaimedBotJobTx(tx, job, current)
+    const currentJob = await retargetClaimedBotJobTx(tx, job, current)
+    await renewProofJobLeaseTx(tx, currentJob)
+    return currentJob
   })
 }
 

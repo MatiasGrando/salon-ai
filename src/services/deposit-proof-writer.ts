@@ -5,6 +5,9 @@ import { acquireAgendaHierarchy } from './agenda-locks.js'
 import type { DepositProofValidationResult } from './deposit-proof-validation.js'
 import { enqueueDepositNotificationWithRecoveryTx } from './deposit-notification-outbox.js'
 
+/** Receipt persistence only: never held across download or byte validation. */
+export const DEPOSIT_PROOF_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 15_000 } as const
+
 type ProofWriterClient = Pick<PrismaClient, '$transaction'>
 type ProofWriterTx = Prisma.TransactionClient
 
@@ -34,7 +37,7 @@ export async function writeValidatedDepositProof(
     evidence: DepositProofValidationResult
   }
 ): Promise<DepositProofWriteResult> {
-  return client.$transaction((tx) => writeValidatedDepositProofInTransaction(tx, input))
+  return client.$transaction((tx) => writeValidatedDepositProofInTransaction(tx, input), DEPOSIT_PROOF_TRANSACTION_OPTIONS)
 }
 
 /** Exported for transaction/rollback contracts; callers normally use the wrapper above. */

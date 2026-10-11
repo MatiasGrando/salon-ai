@@ -74,7 +74,8 @@ export async function startBarberLocal() {
     if (job.kind === 'RECONCILE_PROMPT') { await reconcileActions(prisma, job); return }
     if (job.kind === 'EXPIRE_DEPOSIT') { await expireDepositHold(prisma, job); return }
     if (job.kind === 'RECEIVE_DEPOSIT_PROOF') {
-      const outcome = await processDepositProofJob({ client: prisma, job, capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled })
+      const outcome = await processDepositProofJob({ client: prisma, job, capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled,
+        onDiagnostic: value => { diagnosticSink.emit('barber-local-deposit-proof', value) } })
       diagnosticSink.emit('barber-local-deposit-proof', { outcome })
       return
     }
