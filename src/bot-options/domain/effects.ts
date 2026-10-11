@@ -66,7 +66,7 @@ export type BotOptionsEffect =
       reason: string
       detail: string | null
       /** Contexto mínimo y estable para auditar qué entidad originó la cola. */
-      context: { serviceId: string } | { professionalId: string } | null
+      context: { serviceId: string } | { professionalId: string } | { coordinationGroupId: string | null; appointmentIds: string[] } | null
     }
   /** Customer intent only: the executor resolves the active handoff under lock. */
   | { kind: 'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER' }

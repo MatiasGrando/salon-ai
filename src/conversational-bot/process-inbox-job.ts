@@ -4,7 +4,7 @@ import { interpretConversationAttachment, conversationProofBindingFromState, sam
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
-import { loadOwnConfirmedRuntimeGroupSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
+import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { routeActions } from './actions.js'
 import { canonicalJsonHash } from './canonical-json.js'
@@ -518,13 +518,17 @@ export async function processConversationInbox(input: {
       }
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
-      if (parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE' && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
+      if (parsed.state.booking === 'CONFIRMED' && ['NONE', 'APPROVED'].includes(parsed.state.deposit) && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
         const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
         const requested = routeActions(String(payload.textBody ?? '')).pendingAction
-        if ((draft.bookingReservation ?? draft.completedBooking)?.receipt && (draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')) {
+        // Supply a verified snapshot for any confirmed turn. The IA, not a narrow
+        // verb regex, decides whether a message asks to cancel or reprogram.
+        if ((draft.bookingReservation ?? draft.completedBooking)?.receipt) {
           try {
-            serverManagementSnapshot = await loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
-            runtimeManagementAllowed = true
+            serverManagementSnapshot = await (parsed.state.deposit === 'APPROVED'
+              ? loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
+              : loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision }))
+            runtimeManagementAllowed = Boolean(draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
@@ -745,12 +749,21 @@ export async function processConversationInbox(input: {
         return 'PROCESSED' as const
       }
       const proposedHandoff = 'handoffCommand' in response ? response.handoffCommand : undefined
+      const proposedConfirmedCancellation = 'confirmedCancellationHandoff' in response ? response.confirmedCancellationHandoff : undefined
       // A failed AI interpretation may reconstruct literal operations through fallback.
       // That route is conversational help, never the current dispatch authorization.
       const rejectedHandoff = Boolean(proposedHandoff && useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai')
       const handoffCommand = rejectedHandoff ? undefined : proposedHandoff
+      const confirmedCancellationHandoff = proposedConfirmedCancellation && (!useAi || (response as InterpretedDialogueResponse).interpretation.mode === 'ai')
+        ? proposedConfirmedCancellation : undefined
       const command='bookingCommand' in response ? response.bookingCommand : undefined
       const managementCommand = 'managementCommand' in response ? response.managementCommand : undefined
+      if (confirmedCancellationHandoff && (command || managementCommand || handoffCommand)) throw new Error('competing confirmed cancellation effects')
+      if (confirmedCancellationHandoff) {
+        const fresh = await loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: session.sessionId,
+          canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision })
+        if (cancellationFingerprint(fresh) !== cancellationFingerprint(confirmedCancellationHandoff.snapshot)) throw new GroupCancellationError('cancellation handoff snapshot changed')
+      }
       let finalResponse=response
       if (managementCommand) {
         if (command || handoffCommand) throw new Error('competing management effects')
@@ -789,19 +802,21 @@ export async function processConversationInbox(input: {
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
       const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
       let question:ChoiceQuestion|undefined
-      if(!handoffCommand && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+      if(!handoffCommand && !confirmedCancellationHandoff && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
         // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
         try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
       }
       const atomicText = input.writeView === persistView && !question
       const reply = rejectedHandoff ? 'No pude verificar ese consentimiento. Para enviar esta consulta al equipo, escribí «consultar al equipo». Conservé tu borrador.'
+        : proposedConfirmedCancellation && !confirmedCancellationHandoff ? 'No pude verificar tu pedido de cancelación. Tu turno sigue vigente; podés volver a pedirme que lo envíe al equipo.'
+        : confirmedCancellationHandoff ? 'Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'
         : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + finalResponse.reply
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
         generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
-        step: handoffCommand ? null : conversationStepForBotOptionsState(state),
+        step: handoffCommand || confirmedCancellationHandoff ? null : conversationStepForBotOptionsState(state),
         ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
           coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],
           dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken } } : {})
@@ -815,6 +830,14 @@ export async function processConversationInbox(input: {
           operationKey:'conversation-handoff:'+row.id,
           command:{referral:handoffCommand.referral,consent:{revision,evidence:handoffCommand.evidence}},
           pendingConversationUpdates:updates})
+      }
+      if (confirmedCancellationHandoff) {
+        await enqueueConversationalHandoffTx(tx, { businessId: row.businessId, sessionId: session.sessionId, policy,
+          expectedRevision: revision, handoffFenceEpoch: session.handoffFenceEpoch,
+          operationKey: 'conversation-confirmed-cancellation-handoff:' + row.id,
+          command: { confirmedCancellation: confirmedCancellationHandoff.snapshot,
+            consent: { revision, evidence: confirmedCancellationHandoff.evidence } },
+          pendingConversationUpdates: updates })
       }
       if (question) {
         await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))

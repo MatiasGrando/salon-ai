@@ -103,7 +103,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -1574,6 +1574,13 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   const lexical = routeActions(message).pendingAction
   const action = requested?.kind === 'unsupported_action' ? requested.action : !decision && (lexical === 'CANCEL' || lexical === 'RESCHEDULE') ? lexical : null
   if (!current || !scope || current.scope.businessId !== state.businessId || current.scope.sessionId !== scope.sessionId || current.groupId !== (state.bookingReservation ?? state.completedBooking)!.receipt!.coordinationGroupId) return null
+  if (action === 'CANCEL' || state.appointmentManagement?.context.action === 'CANCEL') {
+    // Cancellation is a staff request, not a customer-side financial or agenda write.
+    cancellationFingerprint(current)
+    delete state.appointmentManagement
+    return { ...reply('Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'),
+      confirmedCancellationHandoff: { snapshot: structuredClone(current), evidence: message } }
+  }
   if (current.members.some(member => member.depositId !== null || member.manualDepositPaid || member.manualDepositAmount !== null)) return reply('Este grupo requiere revisión financiera del equipo; no modifiqué los turnos ni los pagos.')
   const normalized = normalize(message)
   const fullConsent = /^(confirmo|si confirmo|confirmo la cancelacion|confirmo cancelar todos los turnos|confirmo la reprogramacion|confirmo reprogramar todos los turnos)$/.test(normalized) && !/[?¿]/.test(message)

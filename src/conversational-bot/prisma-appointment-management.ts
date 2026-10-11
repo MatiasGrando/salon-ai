@@ -5,7 +5,7 @@ import { assertManagementDate, managementRescheduleOfferKey, type ManagementAvai
 import { Prisma } from '../generated/prisma/client.js'
 import { acquireBusinessAgendaLock, acquireAgendaHierarchy, lockAppointmentRows } from '../services/agenda-locks.js'
 import { normalizePhone } from '../services/phone-normalization-service.js'
-import { parseRuntimeBookingReservation, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash } from './prisma-conversational-booking.js'
+import { parseRuntimeBookingReservation, loadRuntimeDepositReceipt, runtimeBookingRequestHash, runtimeBookingChildInput, runtimeBookingChildRequestHash } from './prisma-conversational-booking.js'
 import { cancelManageableAppointmentInTransaction, type CancelManageableAppointmentInput, type CancelManageableAppointmentResult } from '../bot-options/application/appointment-management.js'
 import { rescheduleManageableAppointmentInTransaction, type RescheduleManageableAppointmentInput, type RescheduleManageableAppointmentResult } from '../bot-options/application/appointment-rescheduling.js'
 import { assertManagementScope, assertCancellationSnapshot, cancellationFingerprint, managementIdentifier, GroupCancellationError, assertGroupMoves, rescheduleFingerprint, type GroupRescheduleCommand, type GroupMove, type CancellationSnapshot, type GroupCancellationCommand, type ManagementScope } from './appointment-management.js'
@@ -226,6 +226,43 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
   }
   const visits=await tx.$queryRaw<Array<{id:string;sessionId:string}>>(Prisma.sql`SELECT id,"sessionId" FROM "BookingVisit" WHERE id IN (${Prisma.join([...visitIds])}) ORDER BY id FOR UPDATE`)
   if (visits.length!==visitIds.size || visits.some(v=>!visitIds.has(v.id) || v.sessionId!==context.sessionId)) throw new GroupCancellationError('runtime visit session mismatch')
+  return snapshot
+}
+/** Cancellation handoff only: approved deposits are read, never canceled or edited. */
+export async function loadOwnConfirmedCancellationHandoffSnapshot(tx: Tx, context: RuntimeManagementContext): Promise<CancellationSnapshot> {
+  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId','canonicalPhone','expectedRevision']) ||
+      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !/^[0-9]{10,15}$/.test(context.canonicalPhone)) throw new GroupCancellationError('invalid current handoff scope')
+  managementIdentifier(context.businessId); managementIdentifier(context.sessionId)
+  const sessions=await tx.$queryRaw<Array<{phone:string;customerId:string;state:unknown}>>(Prisma.sql`
+    SELECT co.phone,c.id AS "customerId",bs.state FROM "BotSession" bs
+    JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
+    JOIN "Customer" c ON c."businessId"=bs."businessId" AND c."normalizedPhone"=${context.canonicalPhone}
+    WHERE bs.id=${context.sessionId} AND bs."businessId"=${context.businessId} AND bs.revision=${context.expectedRevision} AND bs.status='ACTIVE'
+    FOR UPDATE OF bs,co FOR SHARE OF c`)
+  const session=sessions[0]
+  if (sessions.length!==1 || !session || normalizePhone(session.phone)!==context.canonicalPhone ||
+      !managementRecord(session.state) || session.state.booking!=='CONFIRMED' || session.state.handoff!=='NONE') throw new GroupCancellationError('current handoff ownership unavailable')
+  if (session.state.deposit==='NONE') return loadOwnConfirmedRuntimeGroupSnapshot(tx,context)
+  if (session.state.deposit!=='APPROVED' || !managementRecord(session.state.conversationDraft) ||
+      !managementRecord(session.state.conversationDraft.dialogue)) throw new GroupCancellationError('approved deposit handoff unavailable')
+  let reservation: ReturnType<typeof parseRuntimeBookingReservation>
+  try { reservation=parseRuntimeBookingReservation(session.state.conversationDraft.dialogue.bookingReservation ?? session.state.conversationDraft.dialogue.completedBooking,context.businessId) }
+  catch { throw new GroupCancellationError('invalid approved runtime receipt') }
+  const receipt=reservation.receipt
+  if (receipt?.kind!=='HELD' || receipt.depositStatus!=='APPROVED' || reservation.presented.scope.sessionId!==context.sessionId) throw new GroupCancellationError('approved receipt mismatch')
+  const actual=await loadRuntimeDepositReceipt(tx,{businessId:context.businessId,sessionId:context.sessionId,
+    canonicalPhone:context.canonicalPhone,expectedRevision:context.expectedRevision},reservation)
+  if (actual?.depositStatus!=='APPROVED' || actual.coordinationGroupId!==receipt.coordinationGroupId) throw new GroupCancellationError('approved deposit not verified')
+  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId,normalizedPhone:context.canonicalPhone}
+  const snapshot=await lockManagedGroup(tx,scope,receipt.appointments[0]!.appointmentId)
+  assertCancellationSnapshot(snapshot)
+  if (snapshot.groupId!==receipt.coordinationGroupId || snapshot.members.length!==receipt.appointments.length ||
+      !snapshot.members.some(member=>member.depositId===receipt.depositId && member.depositStatus==='APPROVED') ||
+      receipt.appointments.some((entry,index)=>{
+        const member=snapshot.members.find(item=>item.appointmentId===entry.appointmentId),segment=reservation.presented.terms.segments[index]
+        return !member || !segment || member.visitId!==entry.visitId || member.professionalId!==segment.professionalId ||
+          !isDeepStrictEqual(member.serviceIds,[segment.serviceId]) || member.durationMinutes!==segment.durationMinutes
+      })) throw new GroupCancellationError('approved group membership changed')
   return snapshot
 }
 /** Read-only candidate construction. Reader is server-owned and queried for each actual assignment.

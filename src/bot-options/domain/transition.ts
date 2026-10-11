@@ -374,7 +374,7 @@ const CLIENT_ALLOWED: Partial<Record<BotOptionsFlowStep, readonly BotOptionsActi
   DEPOSIT_INSTRUCTIONS: ['deposit.cancel_confirm', 'navigation.home', 'navigation.open', 'handoff.request'],
   DEPOSIT_CANCEL_CONFIRM: ['deposit.continue_payment', 'deposit.cancel_confirm', 'navigation.close', 'handoff.request'],
   DEPOSIT_REVIEW: ['navigation.home', 'handoff.request'],
-  BOOKING_CONFIRMED: ['menu.start_booking', 'navigation.home'],
+  BOOKING_CONFIRMED: ['menu.start_booking', 'navigation.home', 'handoff.request'],
   BUSINESS_HOURS: ['hours.professional', 'hours.search_availability', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
   PROFESSIONAL_HOURS_SELECT: ['hours.professional_select', 'hours.next_page', 'hours.previous_page', 'navigation.back', 'navigation.home', 'navigation.open', 'handoff.request'],
   PROFESSIONAL_HOURS_DETAIL: [

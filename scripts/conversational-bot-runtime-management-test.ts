@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { initialDialogueState, continueCompletedBooking, respond, finalizeRuntimeBooking, type DialogueContext, type DialoguePort, type DialogueState, type DialogueResponse } from '../src/conversational-bot/engine.js'
 import { runtimeBookingFingerprint, type RuntimeShownScope, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
-import { managementRescheduleOfferKey } from '../src/conversational-bot/appointment-management.js'
+import { beginAppointmentManagement, managementRescheduleOfferKey, presentGroupCancellation, confirmGroupCancellation } from '../src/conversational-bot/appointment-management.js'
 import type { AppointmentManagementContext, CancellationSnapshot, GroupCancellationCommand, GroupRescheduleCommand } from '../src/conversational-bot/appointment-management.js'
 
 // First public RED uses controlled server ports and a controlled COMMITTED result.
@@ -40,22 +40,19 @@ assert.equal(actual.bookingCommand, undefined, 'management intent cannot reserve
 assert.equal(actual.managementCommand, undefined, 'cancellation intent alone is not effects consent')
 assert.deepEqual(booked.state, original, 'public input remains immutable')
 assert.deepEqual(actual.state.bookingReservation, original.bookingReservation, 'original immutable booking proof remains unchanged')
-assert.ok(actual.state.appointmentManagement, 'confirmed own cancellation must show a separate management proposal, not repeat old booking receipt')
-assert.equal(actual.state.appointmentManagement.context.action, 'CANCEL')
-assert.equal(actual.state.appointmentManagement.context.snapshot.members.length, 1)
-assert.equal(actual.state.appointmentManagement.context.proposal?.kind, 'GROUP_CANCELLATION_PROPOSAL')
-assert.match(actual.reply, /Corte/)
-assert.match(actual.reply, /Elisa/)
+assert.equal(actual.state.appointmentManagement, undefined, 'customer cancellation cannot start automatic management')
+assert.equal(actual.confirmedCancellationHandoff?.snapshot.groupId, snapshot.groupId)
 assert.match(actual.reply, /cancel|anul/i)
-assert.match(actual.reply, /confirm/i)
+assert.match(actual.reply, /equipo/i)
+assert.match(actual.reply, /sigue vigente/i)
 assert.doesNotMatch(actual.reply, /fue cancelad|cancelación realizada|reserva fue confirmada/i)
-console.log('runtime management first public cancellation proposal: PASS (controlled ports; caller proof still required)')
+console.log('runtime management customer cancellation routes to team: PASS (controlled ports; caller proof still required)')
 
 const approved = await respond({ ...managementContext, serverRuntimeBookingScope: { ...scope, revision: '4' } }, actual.state, 'Confirmo la cancelación.', port) as ManagementResponse
-assert.equal(approved.managementCommand?.kind, 'CANCEL_APPOINTMENT_GROUP')
+assert.equal(approved.managementCommand, undefined)
 const fullActionConsent = await respond({ ...managementContext, serverRuntimeBookingScope: { ...scope, revision: '4' } }, actual.state, 'Confirmo cancelar todos los turnos.', port)
-assert.equal(fullActionConsent.managementCommand?.kind, 'CANCEL_APPOINTMENT_GROUP', 'literal action consent must not restart the current proposal')
-assert.deepEqual(approved.state.bookingReservation, original.bookingReservation)
+assert.equal(fullActionConsent.managementCommand, undefined, 'literal action consent cannot auto-cancel')
+assert.deepEqual(approved.state.bookingReservation ?? approved.state.completedBooking, original.bookingReservation)
 for (const body of ['¿Confirmo la cancelación?', 'Confirmo si no tiene costo.', 'Sí, pero cambiá la fecha.', 'No confirmo la cancelación.']) {
   const negative = await respond({ ...managementContext, serverRuntimeBookingScope: { ...scope, revision: '4' } }, actual.state, body, port) as ManagementResponse
   assert.equal(negative.managementCommand, undefined, 'full literal consent only: ' + body)
@@ -75,20 +72,22 @@ assert.equal(approximate.state.appointmentManagement?.selectedTime, undefined)
 
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { publicAppointmentManagement } from '../src/conversational-bot/dialogue-context.js'
-const archivedManagement=structuredClone(actual.state)
+const internalManagementState=structuredClone(actual.state)
+internalManagementState.appointmentManagement={context:beginAppointmentManagement('CANCEL',snapshot),presentedScope:scope}
+const archivedManagement=structuredClone(internalManagementState)
 archivedManagement.completedBooking=archivedManagement.bookingReservation
 delete archivedManagement.bookingReservation
-assert.deepEqual(publicAppointmentManagement(archivedManagement),publicAppointmentManagement(actual.state),'archived completed receipt preserves the public management context')
+assert.deepEqual(publicAppointmentManagement(archivedManagement),publicAppointmentManagement(internalManagementState),'archived completed receipt preserves the public management context')
 
 let capturedPublicPayload: Record<string, unknown> | undefined
 const captureOnly = createOpenAiInterpretationProvider({ apiKey: 'synthetic-unused-key', fetchImpl: (async (_url, init) => {
   capturedPublicPayload = JSON.parse(JSON.parse(String(init?.body)).input)
   throw new Error('LOCAL_CAPTURE_ONLY')
 }) as typeof fetch })
-await assert.rejects(() => captureOnly({ message: 'Para mañana a las 11:00.', state: actual.state, services }, new AbortController().signal), /LOCAL_CAPTURE_ONLY/)
-assert.deepEqual(capturedPublicPayload!.management, publicAppointmentManagement(actual.state))
+await assert.rejects(() => captureOnly({ message: 'Para mañana a las 11:00.', state: internalManagementState, services }, new AbortController().signal), /LOCAL_CAPTURE_ONLY/)
+assert.deepEqual(capturedPublicPayload!.management, publicAppointmentManagement(internalManagementState))
 const payloadText = JSON.stringify(capturedPublicPayload)
-for (const privateValue of [snapshot.scope.normalizedPhone, 'owned-group', 'owned-customer', 'owned-appointment', 'owned-visit', actual.state.appointmentManagement!.context.proposal!.nonce, actual.state.appointmentManagement!.context.proposal!.fingerprint]) assert.ok(!payloadText.includes(privateValue), 'private management proof must not enter provider payload')
+for (const privateValue of [snapshot.scope.normalizedPhone, 'owned-group', 'owned-customer', 'owned-appointment', 'owned-visit', internalManagementState.appointmentManagement!.context.proposal!.nonce, internalManagementState.appointmentManagement!.context.proposal!.fingerprint]) assert.ok(!payloadText.includes(privateValue), 'private management proof must not enter provider payload')
 assert.equal(capturedPublicPayload!.date, null, 'management date is independent of immutable booking date')
 console.log('management provider whitelist: no private snapshot/IDs/phone/nonce/hash; local fake-fetch only PASS')
 import { PGlite, type Transaction } from '@electric-sql/pglite'
@@ -461,20 +460,21 @@ try {
     const managedContext:DialogueContext={businessId:'biz',timezone:'UTC',dbNow:realNow,serverRuntimeBookingScope:shownScope,serverManagementSnapshot:archivedSnapshot}
     const proposal=await respond(managedContext,archived,'Quiero cancelar mi turno confirmado.',bookingPort,{serviceId:null,candidateIds:[],correction:false,
       turnPlan:{version:1,operations:[{kind:'unsupported_action',action:'CANCEL',evidence:'Quiero cancelar mi turno confirmado.',confidence:1}]}})
-    assert.equal(proposal.managementCommand,undefined,'archive still requires a separate cancellation consent')
-    const confirmation=await respond({...managedContext,serverRuntimeBookingScope:{...shownScope,revision:String(live.session.revision+1n)}},proposal.state,'Confirmo la cancelación.',bookingPort)
-    assert.equal(confirmation.managementCommand?.kind,'CANCEL_APPOINTMENT_GROUP')
-    if(confirmation.managementCommand?.kind!=='CANCEL_APPOINTMENT_GROUP')throw Error('archive cancellation command missing')
-    assert.notEqual(confirmation.managementCommand.nonce,origin.presented.nonce,'old booking nonce cannot authorize cancellation')
-    assert.deepEqual(confirmation.state.completedBooking,origin)
-    const cancelled=await cancelGroupInTransaction(tx as never,confirmation.managementCommand)
+    assert.equal(proposal.managementCommand,undefined,'archive customer route cannot auto-cancel')
+    assert.equal(proposal.confirmedCancellationHandoff?.snapshot.groupId,archivedSnapshot.groupId)
+    assert.deepEqual(proposal.state.completedBooking,origin)
+    // Legacy domain cancellation remains independently guarded, but is no longer the customer route.
+    const internalProposal=presentGroupCancellation(archivedSnapshot)
+    const internalCommand=confirmGroupCancellation(internalProposal,{nonce:internalProposal.nonce,fingerprint:internalProposal.fingerprint})
+    assert.notEqual(internalCommand.nonce,origin.presented.nonce,'old booking nonce cannot authorize cancellation')
+    const cancelled=await cancelGroupInTransaction(tx as never,internalCommand)
     assert.equal(cancelled.appointmentIds.length,2)
     assert.ok((await raw.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CANCELLED'))
     throw Error('rollback archived management verification')
   }),/rollback archived management verification/)
   assert.deepEqual((await bookingDb.query('SELECT state FROM "BotSession" WHERE id=$1',['session'])).rows[0]!.state,durableBeforeArchive)
   assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CONFIRMED'))
-  console.log('archived completed receipt real SQL loader, foreign denial and fresh-consent group cancellation rollback: PASS')
+  console.log('archived receipt SQL loader, team routing and independent domain cancellation rollback: PASS')
   managementSecondId=origin.receipt!.appointments[1]!.appointmentId
   // Existing Prisma port, actual catalog/availability SQL in the same in-memory database.
   // Only the Prisma delegate surface is adapted; no availability results or offers are fabricated.
@@ -518,22 +518,18 @@ try {
   assert.match(live.replies.at(-1)!,/verificar|revisi|equipo/i)
   await bookingDb.query('UPDATE "Customer" SET "normalizedPhone"=$1 WHERE id=$2',['5491112345678','customer'])
   await turn('Quiero cancelar mi turno confirmado.')
-  assert.equal(readConversationDraft(live.session.state,policy,'UTC').appointmentManagement?.context.action,'CANCEL')
-  const beforeCancel=await snapshotAll(),cancelState=structuredClone(live.session.state)
-  live.next('Confirmo la cancelación.');await seed();fault.managementSecond=true
-  await assert.rejects(()=>live.run(),/second management child/)
-  assert.deepEqual(await snapshotAll(),beforeCancel);assert.deepEqual(live.session.state,cancelState)
-  fault.managementSecond=false;live.failCommit()
-  await assert.rejects(()=>live.run(),/COMMIT failed/)
-  assert.deepEqual(await snapshotAll(),beforeCancel)
-  live.allowCommit();await live.run()
-  assert.equal((live.session.state as {booking:string}).booking,'CANCELLED')
-  assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CANCELLED'))
-  assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "BookingVisit"')).rows.every(member=>member.status==='CANCELLED'))
+  assert.equal(readConversationDraft(live.session.state,policy,'UTC').appointmentManagement,undefined,'customer request must not create cancellation proposal')
+  assert.equal((live.session.state as {handoff:string}).handoff,'QUEUED')
+  assert.equal((live.session.state as {booking:string}).booking,'CONFIRMED')
+  assert.match(live.replies.at(-1)!,/sigue vigente/i)
+  assert.ok(live.statements.some(query=>query.sql.includes('INSERT INTO "BotHandoff"') &&
+    query.values.includes('confirmed_booking_cancellation_request')), 'caller must invoke handoff queue effect')
+  assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CONFIRMED'))
+  assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "BookingVisit"')).rows.every(member=>member.status==='CONFIRMED'))
   assert.deepEqual(readConversationDraft(live.session.state,policy,'UTC').bookingReservation,origin)
-  const count=(await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n
-  await turn('Quiero reservar otro Corte.')
-  assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,count)
+  const beforeRepeat=await snapshotAll()
+  await turn('Confirmo la cancelación.')
+  assert.deepEqual(await snapshotAll(),beforeRepeat,'queued handoff cannot become an automatic cancellation')
   assert.equal(parseBotOptionsState(live.session.state).ok,true)
-  console.log('runtime management real caller F7→ALL F9 reschedule/cancel + CAS/outbox + second-child/postwrite rollback: PASS')
+  console.log('runtime management caller F7→ALL F9 reschedule; cancellation invokes queued effect without changing visits (handoff adapter controlled): PASS')
 } finally {await bookingDb.close();console.info=runtimeInfo}
