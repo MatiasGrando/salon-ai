@@ -5,6 +5,7 @@ import { Prisma } from '../generated/prisma/client.js'
 import { acquireAgendaHierarchy } from './agenda-locks.js'
 import { calculateBookingDepositTerms, hasCompleteDepositPaymentConfiguration, type BookingDepositTerms } from './deposit-operations.js'
 import { canonicalJsonHash } from '../conversational-bot/canonical-json.js'
+import { rescheduleFingerprint, type GroupRescheduleCommand } from '../conversational-bot/appointment-management.js'
 import type { RuntimeBookingInput, RuntimeBookingOrigin, RuntimePresentedBooking, RuntimeBookingSegment } from '../conversational-bot/prisma-conversational-booking.js'
 
 export type CoordinatedDepositInput = { origin: RuntimeBookingOrigin; proposal: RuntimePresentedBooking; currentDraft: unknown; consent: RuntimeBookingInput['consent'] }
@@ -124,7 +125,147 @@ function expectedChildHash(group:CoordinatedDepositGroup,index:number,depositReq
 }
 
 /** Verify the sealed manifest and EVERY group member before lifecycle/replay can trust it. */
-export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; depositStatus: string; currentExpiresAt: Date; dbNow: Date; cancellationReason?: 'CUSTOMER' | 'STAFF' }
+export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; depositStatus: string; currentExpiresAt: Date; dbNow: Date;
+  currentAssignments: Array<{appointmentId:string;startAt:string;professionalId:string}>; cancellationReason?: 'CUSTOMER' | 'STAFF' }
+
+/** Reconstruct operational assignments from the immutable F8 seal and completed,
+ * append-only group amendments. Payment terms are never rewritten by a move. */
+export type PaidAssignmentSeal = Pick<CoordinatedDepositGroup,'groupId'|'proposal'|'customerId'|'canonicalPhone'> & {members: Array<Pick<CoordinatedDepositMember,'appointmentId'|'visitId'|'depositId'>>}
+export async function amendedPaidAssignments(tx: Pick<Prisma.TransactionClient,'$queryRaw'>, businessId: string, group: PaidAssignmentSeal) {
+  const assignments = new Map(group.members.map((member, index) => [member.appointmentId, {
+    startAt: group.proposal.terms.segments[index]!.startAt,
+    professionalId: group.proposal.terms.segments[index]!.professionalId,
+  }]))
+  // Older NONE group moves wrote a completed parent/child receipt plus the
+  // same immutable F9 history, without embedding the full before snapshot.
+  // Only reconstruct those date-only moves from their scoped durable proofs.
+  if(group.members.every(member=>member.depositId===null)) {
+    const legacy=await tx.$queryRaw<Array<{operationKey:string;sessionId:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`
+      SELECT "operationKey","sessionId",status,"requestHash","resultRef" FROM "BotOperation"
+      WHERE "businessId"=${businessId} AND "sessionId"=${group.proposal.scope.sessionId} AND type='RESCHEDULE_APPOINTMENT_GROUP'
+        AND "resultRef" LIKE '{"fingerprint":%' ORDER BY "updatedAt",id FOR UPDATE`)
+    const candidates=[] as Array<{proofs:Array<{appointmentId:string;fromStartAt:Date;toStartAt:Date}>}>
+    if(legacy.length>100) fail()
+    for(const parent of legacy) {
+      let receipt:Record<string,unknown>
+      try{receipt=JSON.parse(parent.resultRef ?? '') as Record<string,unknown>}catch{continue}
+      if(!object(receipt) || !Array.isArray(receipt.children) || !receipt.children.some((child:unknown)=>object(child) && assignments.has(String(child.id)))) continue
+      if(parent.status!=='COMPLETED' || parent.sessionId!==group.proposal.scope.sessionId || !/^[a-f0-9]{64}$/.test(parent.requestHash) ||
+        !text(receipt.nonce) || typeof receipt.fingerprint!=='string' || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) ||
+        receipt.children.length!==group.members.length || !Array.isArray(receipt.moves) || receipt.moves.length!==group.members.length ||
+        parent.operationKey!=='reschedule-group:'+canonicalJsonHash([{businessId,customerId:group.customerId,sessionId:parent.sessionId,normalizedPhone:group.canonicalPhone},receipt.nonce,receipt.fingerprint])) fail()
+      const proofs=[] as Array<{appointmentId:string;fromStartAt:Date;toStartAt:Date}>
+      for(const member of group.members) {
+        const children=receipt.children.filter((child:unknown)=>object(child) && child.id===member.appointmentId)
+        const moves=receipt.moves.filter((move:unknown)=>object(move) && move.appointmentId===member.appointmentId)
+        if(children.length!==1 || moves.length!==1) fail()
+        const child=children[0] as Record<string,unknown>,move=moves[0] as Record<string,unknown>
+        if(child.key!==parent.operationKey+':'+member.appointmentId || !text(move.newStartAt) || iso(move.newStartAt)!==move.newStartAt ||
+          Object.keys(move).some(key=>!['appointmentId','newStartAt'].includes(key))) fail()
+        const expectedHash=createHash('sha256').update(JSON.stringify({action:'RESCHEDULE_APPOINTMENT',businessId,normalizedPhone:group.canonicalPhone,
+          sessionId:parent.sessionId,appointmentId:member.appointmentId,operationKey:child.key,actor:'bot-session:'+parent.sessionId,confirmed:true,newStartAt:move.newStartAt})).digest('hex')
+        if(child.hash!==expectedHash) fail()
+        const rows=await tx.$queryRaw<Array<{status:string;requestHash:string;resultRef:string;sessionId:string;appointmentId:string;actor:string;fromStartAt:Date;toStartAt:Date;fromProfessionalId:string|null;toProfessionalId:string|null;bookingDepositId:string|null;depositPreserved:boolean}>>(Prisma.sql`
+          SELECT o.status,o."requestHash",o."resultRef",o."sessionId",h."appointmentId",h.actor,h."fromStartAt",h."toStartAt",h."fromProfessionalId",h."toProfessionalId",h."bookingDepositId",h."depositPreserved"
+          FROM "BotOperation" o JOIN "AppointmentChangeHistory" h ON h."operationKey"=o."operationKey"
+          WHERE o."operationKey"=${child.key as string} AND o."businessId"=${businessId} AND o.type='RESCHEDULE_APPOINTMENT' FOR UPDATE OF o,h`)
+        const proof=rows[0]
+        if(rows.length!==1 || !proof || proof.status!=='COMPLETED' || proof.requestHash!==expectedHash || proof.resultRef!==member.appointmentId ||
+          proof.sessionId!==parent.sessionId || proof.appointmentId!==member.appointmentId || proof.actor!=='bot-session:'+parent.sessionId ||
+          proof.fromProfessionalId!==null || proof.toProfessionalId!==null || proof.bookingDepositId!==null || proof.depositPreserved!==false ||
+          iso(proof.toStartAt)!==move.newStartAt || !iso(proof.fromStartAt)) fail()
+        proofs.push({appointmentId:member.appointmentId,fromStartAt:proof.fromStartAt,toStartAt:proof.toStartAt})
+      }
+      candidates.push({proofs})
+    }
+    while(candidates.length) {
+      const ready=candidates.filter(candidate=>candidate.proofs.every(proof=>assignments.get(proof.appointmentId)?.startAt===iso(proof.fromStartAt)))
+      if(ready.length!==1) fail()
+      const next=ready[0]!
+      for(const proof of next.proofs) assignments.get(proof.appointmentId)!.startAt=iso(proof.toStartAt)!
+      candidates.splice(candidates.indexOf(next),1)
+    }
+  }
+  const operations = await tx.$queryRaw<Array<{ operationKey: string; sessionId: string; status: string; requestHash: string; resultRef: string | null }>>(Prisma.sql`
+    SELECT "operationKey", "sessionId", status, "requestHash", "resultRef" FROM "BotOperation"
+    WHERE "businessId"=${businessId} AND type='RESCHEDULE_APPOINTMENT_GROUP'
+      AND "resultRef" LIKE ${'{"version":1,"groupId":"'+group.groupId+'"%'}
+    ORDER BY "updatedAt", id FOR UPDATE`)
+  if (operations.length > 100) fail()
+  const pending=[...operations]
+  while (pending.length) {
+    // Operation timestamps can tie (and are deliberately frozen in fixtures).
+    // The before-state chain, not insertion order, determines the next amendment.
+    const ready=pending.filter(operation=>{
+      try {
+        const receipt=JSON.parse(operation.resultRef ?? '') as Record<string,unknown>
+        const command=object(receipt) && object(receipt.command) ? receipt.command : null
+        const snapshot=command && object(command.snapshot) ? command.snapshot : null
+        return !!snapshot && Array.isArray(snapshot.members) && snapshot.members.length===group.members.length &&
+          snapshot.members.every((member:unknown)=>object(member) && assignments.get(String(member.appointmentId))?.startAt===member.startAt &&
+            assignments.get(String(member.appointmentId))?.professionalId===member.professionalId)
+      } catch { return false }
+    })
+    if(ready.length!==1) fail()
+    const operation=ready[0]!
+    pending.splice(pending.indexOf(operation),1)
+    if (operation.status !== 'COMPLETED' || operation.sessionId !== group.proposal.scope.sessionId || !operation.resultRef) fail()
+    let receipt: Record<string, unknown>
+    try { receipt = JSON.parse(operation.resultRef) as Record<string, unknown> } catch { return fail() }
+    if (!object(receipt) || receipt.version !== 1 || receipt.groupId !== group.groupId || !object(receipt.command) || !Array.isArray(receipt.children) ||
+      receipt.children.length<1 || receipt.children.length>group.members.length || operation.requestHash !== canonicalJsonHash(receipt.command)) fail()
+    const command = receipt.command as GroupRescheduleCommand
+    try { if (command.kind!=='RESCHEDULE_APPOINTMENT_GROUP' || command.confirmed!==true || command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves)) fail() }
+    catch { fail() }
+    if (command.nonce!==receipt.nonce || command.fingerprint!==receipt.fingerprint) fail()
+    const snapshot = command.snapshot as unknown as Record<string,unknown>
+    if (snapshot.groupId !== group.groupId || !object(snapshot.scope) || snapshot.scope.businessId !== businessId ||
+      snapshot.scope.sessionId !== operation.sessionId || snapshot.scope.customerId!==group.customerId ||
+      snapshot.scope.normalizedPhone!==group.canonicalPhone ||
+      operation.operationKey!=='reschedule-group:'+canonicalJsonHash([snapshot.scope,command.nonce,command.fingerprint]) ||
+      !Array.isArray(snapshot.members) || snapshot.members.length !== group.members.length ||
+      !Array.isArray(command.moves) || command.moves.length !== group.members.length) fail()
+    for (const [index,member] of group.members.entries()) {
+      const before = snapshot.members.filter((candidate:unknown)=>object(candidate) && candidate.appointmentId === member.appointmentId)
+      const move = command.moves.filter((candidate:unknown)=>object(candidate) && candidate.appointmentId === member.appointmentId)
+      const children = receipt.children.filter((candidate:unknown)=>object(candidate) && candidate.appointmentId === member.appointmentId)
+      if (before.length!==1 || move.length!==1 || children.length>1) fail()
+      const previous=assignments.get(member.appointmentId)!, old=before[0] as Record<string,unknown>, next=move[0] as Record<string,unknown>
+      const newProfessionalId=next.newProfessionalId ?? previous.professionalId
+      const segment=group.proposal.terms.segments[index]!
+      if (old.startAt!==previous.startAt || old.professionalId!==previous.professionalId || old.visitId!==member.visitId ||
+        old.depositId!==member.depositId || old.depositStatus!==(member.depositId===null?null:'APPROVED') ||
+        old.status!=='CONFIRMED' || old.visitStatus!=='CONFIRMED' || old.durationMinutes!==segment.durationMinutes ||
+        !isDeepStrictEqual(old.serviceIds,[segment.serviceId]) || old.quotedPrice!==(segment.priceMode==='FIXED'?segment.priceMinor:null) ||
+        old.manualDepositPaid!==false || old.manualDepositAmount!==null ||
+        !text(next.newStartAt) || iso(next.newStartAt)!==next.newStartAt || !text(newProfessionalId)) fail()
+      if(next.newStartAt===previous.startAt && newProfessionalId===previous.professionalId) {
+        if(children.length!==0) fail()
+        continue
+      }
+      if(children.length!==1) fail()
+      const child=children[0] as Record<string,unknown>
+      if (child.operationKey!==operation.operationKey+':'+member.appointmentId ||
+        child.appointmentId!==member.appointmentId || child.fromStartAt!==previous.startAt || child.toStartAt!==next.newStartAt ||
+        child.fromProfessionalId!==previous.professionalId || child.toProfessionalId!==newProfessionalId || child.depositId!==member.depositId ||
+        child.requestHash!==canonicalJsonHash({groupOperationKey:operation.operationKey,appointmentId:member.appointmentId,
+          fromStartAt:previous.startAt,toStartAt:next.newStartAt,fromProfessionalId:previous.professionalId,toProfessionalId:newProfessionalId,depositId:member.depositId})) fail()
+      const proof=await tx.$queryRaw<Array<{status:string;requestHash:string;resultRef:string;sessionId:string;appointmentId:string;actor:string;fromStartAt:Date;toStartAt:Date;fromProfessionalId:string|null;toProfessionalId:string|null;bookingDepositId:string|null;depositPreserved:boolean}>>(Prisma.sql`
+        SELECT o.status,o."requestHash",o."resultRef",o."sessionId",h."appointmentId",h.actor,h."fromStartAt",h."toStartAt",h."fromProfessionalId",h."toProfessionalId",h."bookingDepositId",h."depositPreserved"
+        FROM "BotOperation" o JOIN "AppointmentChangeHistory" h ON h."operationKey"=o."operationKey"
+        WHERE o."operationKey"=${child.operationKey as string} AND o."businessId"=${businessId} AND o.type='RESCHEDULE_APPOINTMENT'
+        FOR UPDATE OF o,h`)
+      if (proof.length!==1 || proof[0]!.status!=='COMPLETED' || proof[0]!.sessionId!==operation.sessionId ||
+        proof[0]!.requestHash!==child.requestHash || proof[0]!.resultRef!==member.appointmentId || proof[0]!.appointmentId!==member.appointmentId ||
+        proof[0]!.actor!=='bot-session:'+operation.sessionId || iso(proof[0]!.fromStartAt)!==previous.startAt ||
+        iso(proof[0]!.toStartAt)!==next.newStartAt || proof[0]!.fromProfessionalId!==previous.professionalId ||
+        proof[0]!.toProfessionalId!==newProfessionalId || proof[0]!.bookingDepositId!==member.depositId ||
+        proof[0]!.depositPreserved!==(member.depositId!==null)) fail()
+      assignments.set(member.appointmentId,{startAt:next.newStartAt as string,professionalId:newProfessionalId as string})
+    }
+  }
+  return assignments
+}
 
 /** Durable manifest authority wins over mutable appointment routing fields, even after tampering/deletion. */
 export async function lockCoordinatedDepositGroupForDeposit(tx: Prisma.TransactionClient, target: {businessId:string;depositId:string}): Promise<CoordinatedDepositGroupState|null> {
@@ -225,7 +366,9 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
       group.requestHash !== canonicalJsonHash({proposal:p,origin:{...p?.scope,canonicalPhone:group.canonicalPhone}}) || group.requestHash !== ops[0]!.requestHash || p?.scope.businessId !== target.businessId || p.fingerprint !== canonicalJsonHash(p.terms) ||
       group.amount !== p.terms.deposit?.financial.amount || iso(group.expiresAt) !== group.expiresAt ||
       JSON.stringify(group).length>24000 || !text(group.customerId) || !/^\d{10,15}$/.test(group.canonicalPhone) || !Array.isArray(group.members) || group.members.length !== p.terms.segments.length || group.members.length < 2 || group.members.length > 8) fail()
-  await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:p.terms.segments.map(s=>s.professionalId)})
+  const currentProfessionals=await tx.$queryRaw<Array<{professionalId:string}>>(Prisma.sql`
+    SELECT "professionalId" FROM "Appointment" WHERE "coordinationGroupId"=${target.groupId}`)
+  await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:[...p.terms.segments.map(s=>s.professionalId),...currentProfessionals.map(r=>r.professionalId)]})
   // Intentionally do NOT filter tenant/customer within a group: injected members invalidate ALL.
   const rows = await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
     SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."serviceId",a."startAt",a."totalDurationMinutes",a."quotedPrice",a.status AS "appointmentStatus",a.version AS "appointmentVersion",
@@ -234,6 +377,7 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId" LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
     WHERE a."coordinationGroupId"=${target.groupId} ORDER BY a.id FOR UPDATE OF a,v`)
   if (rows.length !== group.members.length) fail()
+  const assignments=await amendedPaidAssignments(tx,target.businessId,group)
   const customer = await tx.$queryRaw<Array<{ conversationId: string }>>(Prisma.sql`
     SELECT c.id AS "conversationId" FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "Customer" customer ON customer.id=${group.customerId} AND customer."businessId"=s."businessId" AND customer."normalizedPhone"=${group.canonicalPhone}
@@ -246,8 +390,8 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     const segment: RuntimeBookingSegment = p.terms.segments[i]!, row = rows.find(r=>r.appointmentId===m.appointmentId)
     if (m.segmentIndex !== i || !text(m.appointmentId) || !text(m.visitId) || ids.has(m.appointmentId) || visits.has(m.visitId) ||
         !row || row.origin!=='BOT' || row.businessId !== target.businessId || row.customerId !== group.customerId || row.visitBusinessId !== target.businessId || row.visitCustomerId !== group.customerId ||
-        row.sessionId !== p.scope.sessionId || row.visitId !== m.visitId || row.professionalId !== segment.professionalId || row.visitProfessionalId !== segment.professionalId ||
-        row.serviceId !== segment.serviceId || iso(row.startAt) !== segment.startAt || iso(row.scheduledStartAt) !== segment.startAt ||
+        row.sessionId !== p.scope.sessionId || row.visitId !== m.visitId || row.professionalId !== assignments.get(m.appointmentId)?.professionalId || row.visitProfessionalId !== assignments.get(m.appointmentId)?.professionalId ||
+        row.serviceId !== segment.serviceId || iso(row.startAt) !== assignments.get(m.appointmentId)?.startAt || iso(row.scheduledStartAt) !== assignments.get(m.appointmentId)?.startAt ||
         row.totalDurationMinutes !== segment.durationMinutes || row.visitDuration !== segment.durationMinutes ||
         row.quotedPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null) || row.totalPrice !== (segment.priceMode==='FIXED'?segment.priceMinor:null)) fail()
     ids.add(m.appointmentId); visits.add(m.visitId)
@@ -315,7 +459,9 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     proofIdentity=identity
   }
   const clock=await tx.$queryRaw<Array<{dbNow:Date}>>(Prisma.sql`SELECT clock_timestamp() AS "dbNow"`)
-  return {group,depositStatus:status,currentExpiresAt:new Date(expiry),dbNow:new Date(clock[0]!.dbNow),...(cancellationReason?{cancellationReason}:{})}
+  return {group,depositStatus:status,currentExpiresAt:new Date(expiry),dbNow:new Date(clock[0]!.dbNow),
+    currentAssignments:group.members.map(m=>({appointmentId:m.appointmentId,...assignments.get(m.appointmentId)!})),
+    ...(cancellationReason?{cancellationReason}:{})}
 }
 
 /** Cancellation has its own durable authority, never a fabricated payment review. */

@@ -19,12 +19,14 @@ import { hasAppointmentOverlap } from '../src/services/prisma-booking.js'
 import { calculateBookingDepositTerms } from '../src/services/deposit-operations.js'
 import { parseEstimateOptions, resolveServiceEstimate } from '../src/bot-options/domain/service-booking.js'
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
-import { loadRuntimeDepositReceipt, runtimeBookingChildInput, runtimeBookingRequestHash, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { loadRuntimeDepositReceipt, runtimeBookingChildInput, runtimeBookingRequestHash, runtimeBookingReceiptReply, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
+import { loadVerifiedRuntimeManagementSchedule, loadOwnConfirmedCancellationHandoffSnapshot, loadCancellationGroupSnapshot, rescheduleGroupInTransaction } from '../src/conversational-bot/prisma-appointment-management.js'
+import { presentGroupReschedule, confirmGroupReschedule } from '../src/conversational-bot/appointment-management.js'
 
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
 const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation','BusinessWhatsAppConfig','BotOutbox','StaffAuditLog','User','BotProviderEvent','BotActionInbox']
+const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','AppointmentChangeHistory','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation','BusinessWhatsAppConfig','BotOutbox','StaffAuditLog','User','BotProviderEvent','BotActionInbox']
 const enums = [...schema.matchAll(/^enum (\w+) \{/gm)].map(m=>m[1]!)
 for (const name of enums) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
@@ -35,7 +37,7 @@ for (const name of models) {
   const body = schema.match(new RegExp('model '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
   const columns = body.split('\n').flatMap(line => {
     const field = line.trim().match(/^(\w+)\s+(\w+)(\?)?(?:\s|$)/)
-    if (!field || /\[\]/.test(line)) return []
+    if (!field || /\[\]/.test(line) || name === 'AppointmentChangeHistory' && ['fromProfessionalId','toProfessionalId'].includes(field[1]!)) return []
     const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision',Bytes:'bytea'} as Record<string,string>)[field[2]!]
     const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? enums.includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
     const primary = field[1] === (name === 'BusinessBotOptionsSettings' || name === 'BusinessPaymentSettings' ? 'businessId' : 'id')
@@ -46,6 +48,13 @@ for (const name of models) {
   await db.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
 }
 await db.exec(`CREATE UNIQUE INDEX operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX appointment_visit ON "Appointment" ("visitId"); CREATE UNIQUE INDEX business_tenant_id ON "BookingVisit" ("businessId",id); CREATE UNIQUE INDEX business_service_id ON "Service" ("businessId",id)`)
+await db.exec(`CREATE UNIQUE INDEX appointment_change_operation ON "AppointmentChangeHistory" ("operationKey");
+  ALTER TABLE "AppointmentChangeHistory" ADD CONSTRAINT "AppointmentChangeHistory_start_changed" CHECK ("fromStartAt"<>"toStartAt");
+  ALTER TABLE "AppointmentChangeHistory" ADD CONSTRAINT appointment_change_payment CHECK (NOT "depositPreserved" OR "bookingDepositId" IS NOT NULL);`)
+// Install the exact additive reschedule migration against the historical table.
+await db.exec(readFileSync(new URL('../prisma/migrations/20261011010000_audit_confirmed_paid_reschedule/migration.sql',import.meta.url),'utf8'))
+const originalHistoryMigration=readFileSync(new URL('../prisma/migrations/20260827200000_add_f9_appointment_management/migration.sql',import.meta.url),'utf8')
+await db.exec(originalHistoryMigration.slice(originalHistoryMigration.indexOf('CREATE FUNCTION public.reject_appointment_change_history_mutation()')))
 // Install VERBATIM migration SQL for the real F8 constraints, membership, totals,
 // sealing and immutability. Only already-created scalar columns/table DDL are omitted.
 const migration = readFileSync(new URL('../prisma/migrations/20260827110000_add_f8_deposit_terms_and_lines/migration.sql', import.meta.url), 'utf8')
@@ -361,7 +370,9 @@ try {
   const singularOrigin={...singularBase.origin,operationKey:'singular-runtime'}
   const singularKey='conversation-booking:'+singularOrigin.operationKey+':'+singularPresented.nonce
   const singularGroup='ffb01eab-a968-411a-80f9-32c9825e1377'
-  async function singularRuntimeFixture(tx:Prisma.TransactionClient) {
+  async function singularRuntimeFixture(tx:Prisma.TransactionClient, selected=singularPresented) {
+    const singularPresented=selected, singularTerms=selected.terms
+    const singularKey='conversation-booking:'+singularOrigin.operationKey+':'+selected.nonce
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
       VALUES ('single-parent',${singularKey},'HOLD_VISIT_WITH_DEPOSIT','b','session','STARTED',${runtimeBookingRequestHash(singularOrigin,singularPresented)},${singularGroup},clock_timestamp())`)
     const r=await booking.holdBookingWithDeposit(tx,runtimeBookingChildInput(singularPresented,singularKey,0,true))
@@ -761,4 +772,192 @@ try {
   await cashService.setEstimatedAppointmentTotal({businessId:'b',appointmentId:estimateReceipt.members[0]!.appointmentId,agreedAmount:3000})
   assert.equal((await cashRepo.resolveAppointmentAccount('b',estimateReceipt.members[0]!.appointmentId))!.agreedAmount,3000)
   console.log('P14.2 estimated payment ALL PASS')
+
+  // A confirmed, estimated two-professional booking may move operational slots
+  // without changing its sealed F8 terms, proof, approval, or Cash credit.
+  testClock=new Date('2030-09-01T12:00:00.000Z')
+  await db.exec(`UPDATE "BusinessBotOptionsSettings" SET "bookingHorizonDays"=90,"rescheduleLeadMinutes"=60 WHERE "businessId"='b'`)
+  const managementScope={businessId:'b',customerId:'customer',sessionId:'session',normalizedPhone:'5491112345678'}
+  const paidBefore=await db.transaction(raw=>loadCancellationGroupSnapshot(orm(raw),managementScope,estimateReceipt.members[0]!.appointmentId))
+  const paidMoves=paidBefore.members.map(member=>({appointmentId:member.appointmentId,
+    newStartAt:new Date(Date.parse(member.startAt)+7*86400000).toISOString()}))
+  const paidOffer=presentGroupReschedule(paidBefore,paidMoves)
+  const paidCommand=confirmGroupReschedule(paidOffer,{nonce:paidOffer.nonce,fingerprint:paidOffer.fingerprint})
+  const fractional=paidMoves.map(move=>({...move,newStartAt:new Date(Date.parse(move.newStartAt)+500).toISOString()}))
+  const fractionalOffer=presentGroupReschedule(paidBefore,fractional)
+  const fractionalCommand=confirmGroupReschedule(fractionalOffer,{nonce:fractionalOffer.nonce,fingerprint:fractionalOffer.fingerprint})
+  await assert.rejects(db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),fractionalCommand)),/reschedule time grid/,
+    'the half-hour grid also rejects fractional seconds')
+  await assert.rejects(db.transaction(async raw=>{
+    await raw.exec(`INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh-last-day','b',5,'09:00','20:00');
+      INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('p1-last-day','p1',5,'09:00','20:00'),('p2-last-day','p2',5,'09:00','20:00');`)
+    const boundary=paidBefore.members.map(member=>({appointmentId:member.appointmentId,newStartAt:'2030-11-29'+member.startAt.slice(10)}))
+    const proposal=presentGroupReschedule(paidBefore,boundary)
+    await rescheduleGroupInTransaction(orm(raw),confirmGroupReschedule(proposal,{nonce:proposal.nonce,fingerprint:proposal.fingerprint}))
+    throw Error('rollback horizon calendar fixture')
+  }),/rollback horizon calendar fixture/,'the final allowed local calendar day is not cut off by UTC midnight')
+  const financialBefore=(await db.query(`SELECT id,status,amount,"reviewedAt","reviewedByUserId","snapshotSealedAt" FROM "BookingDeposit" ORDER BY id`)).rows
+  const cashBefore=(await db.query(`SELECT id,amount,"accountId" FROM "CashEntry" ORDER BY id`)).rows
+  failSql=q=>q.text.includes('UPDATE "Appointment" SET "startAt"') && q.values.includes(estimateReceipt.members[1]!.appointmentId)
+  await assert.rejects(db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),paidCommand)),/controlled lifecycle last-member failure/)
+  failSql=null
+  assert.deepEqual((await db.transaction(raw=>loadCancellationGroupSnapshot(orm(raw),managementScope,estimateReceipt.members[0]!.appointmentId))).members,paidBefore.members,
+    'a failed second paid service rolls back every assignment')
+  assert.deepEqual((await db.query(`SELECT id,status,amount,"reviewedAt","reviewedByUserId","snapshotSealedAt" FROM "BookingDeposit" ORDER BY id`)).rows,financialBefore)
+  assert.deepEqual((await db.query(`SELECT id,amount,"accountId" FROM "CashEntry" ORDER BY id`)).rows,cashBefore)
+  const moved=await db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),paidCommand))
+  assert.equal(moved.replayed,false)
+  assert.deepEqual((await db.transaction(raw=>loadCancellationGroupSnapshot(orm(raw),managementScope,estimateReceipt.members[0]!.appointmentId))).members.map(m=>m.startAt),paidMoves.map(m=>m.newStartAt))
+  const movedState=await db.transaction(raw=>group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId}))
+  assert.equal(movedState.depositStatus,'APPROVED')
+  assert.deepEqual(movedState.group,estimateReceipt,'original sealed F8 manifest remains unchanged')
+  assert.deepEqual((await db.query(`SELECT id,status,amount,"reviewedAt","reviewedByUserId","snapshotSealedAt" FROM "BookingDeposit" ORDER BY id`)).rows,financialBefore)
+  assert.deepEqual((await db.query(`SELECT id,amount,"accountId" FROM "CashEntry" ORDER BY id`)).rows,cashBefore)
+  assert.equal((await db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),paidCommand))).replayed,true)
+  const paidReceipt:RuntimeHeldReceipt={kind:'HELD',operationKey:estimateReceipt.operationKey,coordinationGroupId:estimateReceipt.groupId,
+    proposalNonce:estimateReceipt.proposal.nonce,fingerprint:estimateReceipt.proposal.fingerprint,
+    appointments:estimateReceipt.members.map(({segmentIndex,appointmentId,visitId})=>({segmentIndex,appointmentId,visitId})),
+    depositId:estimateReceipt.anchorDepositId,amount:estimateReceipt.amount,expiresAt:estimateReceipt.expiresAt,depositStatus:'APPROVED',
+    coordinatedDepositGroup:{version:1,groupId:estimateReceipt.groupId,requestHash:estimateReceipt.requestHash}}
+  await db.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'CONFIRMED',deposit:'APPROVED',handoff:'NONE',
+    conversationDraft:{dialogue:{...initialDialogueState('b'),completedBooking:{presented:estimated.proposal,receipt:paidReceipt}}}}),'session'])
+  const admittedGroup=await db.transaction(raw=>loadOwnConfirmedCancellationHandoffSnapshot(orm(raw),{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n}))
+  assert.deepEqual(admittedGroup.members.map(m=>m.startAt),paidMoves.map(m=>m.newStartAt),'management loader admits the paid group after its date amendment')
+  const operational=await db.transaction(raw=>loadRuntimeDepositReceipt(orm(raw),{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n},
+    {presented:estimated.proposal,receipt:paidReceipt}))
+  assert.ok(operational)
+  assert.match(runtimeBookingReceiptReply({presented:estimated.proposal,receipt:operational}),/09\/09\/2030/,
+    'approved payment summary projects the current operational date, not the original seal')
+  await db.exec(`INSERT INTO "Professional" (id,"businessId",name,"isActive","acceptsBotBookings","botBookingPriority") VALUES ('p3','b','Sol',true,true,0);
+    INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps3','p3','s1');
+    INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('ph3','p3',1,'09:00','20:00');`)
+  const afterDate=await db.transaction(raw=>loadCancellationGroupSnapshot(orm(raw),managementScope,estimateReceipt.members[0]!.appointmentId))
+  const proMoves=afterDate.members.map(member=>({appointmentId:member.appointmentId,newStartAt:member.startAt,
+    ...(member.appointmentId===estimateReceipt.members[0]!.appointmentId?{newProfessionalId:'p3'}:{})}))
+  const proOffer=presentGroupReschedule(afterDate,proMoves)
+  const proCommand=confirmGroupReschedule(proOffer,{nonce:proOffer.nonce,fingerprint:proOffer.fingerprint})
+  const proResult=await db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),proCommand))
+  assert.equal(proResult.replayed,false)
+  await assert.rejects(db.transaction(raw=>rescheduleGroupInTransaction(orm(raw),paidCommand)),/replay durable|snapshot|changed/i,
+    'old consent cannot be replayed after a later professional change')
+  const afterPro=await db.transaction(raw=>loadCancellationGroupSnapshot(orm(raw),managementScope,estimateReceipt.members[0]!.appointmentId))
+  assert.equal(afterPro.members.find(member=>member.appointmentId===estimateReceipt.members[0]!.appointmentId)?.professionalId,'p3')
+  assert.equal(afterPro.members.find(member=>member.appointmentId===estimateReceipt.members[1]!.appointmentId)?.professionalId,'p2')
+  assert.deepEqual(afterPro.members.map(member=>member.startAt),afterDate.members.map(member=>member.startAt),
+    'a requested professional-only move preserves both times')
+  const operationalPro=await db.transaction(raw=>loadRuntimeDepositReceipt(orm(raw),{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n},
+    {presented:estimated.proposal,receipt:paidReceipt}))
+  assert.ok(operationalPro)
+  assert.match(runtimeBookingReceiptReply({presented:estimated.proposal,receipt:operationalPro}),/Color con Sol/)
+  const admittedPro=await db.transaction(raw=>loadOwnConfirmedCancellationHandoffSnapshot(orm(raw),{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n}))
+  assert.equal(admittedPro.members.find(m=>m.appointmentId===estimateReceipt.members[0]!.appointmentId)?.professionalId,'p3')
+  assert.deepEqual((await db.query(`SELECT id,status,amount,"reviewedAt","reviewedByUserId","snapshotSealedAt" FROM "BookingDeposit" ORDER BY id`)).rows,financialBefore)
+  assert.deepEqual((await db.query(`SELECT id,amount,"accountId" FROM "CashEntry" ORDER BY id`)).rows,cashBefore)
+  await assert.rejects(db.transaction(async raw=>{
+    await raw.exec(`UPDATE "AppointmentChangeHistory" SET "toProfessionalId"='p2' WHERE "toProfessionalId"='p3'`)
+    await group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId})
+  }),/append-only/,'the existing immutable history also protects new professional fields')
+  await assert.rejects(db.transaction(async raw=>{
+    await raw.exec(`UPDATE "BotOperation" SET "resultRef"=replace("resultRef",'p3','p2') WHERE type='RESCHEDULE_APPOINTMENT_GROUP' AND "resultRef" LIKE '%p3%'`)
+    await group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId})
+  }),/membership mismatch/,'corrupted operation amendment is not financial or schedule authority')
+  assert.equal((await db.transaction(raw=>group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId}))).depositStatus,'APPROVED')
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    const rawOne=estimated.proposal.terms.segments[1]!, e=rawOne.estimate!
+    const oneSegment={...rawOne,estimate:{optionId:e.optionId,optionLabel:e.optionLabel,priceMin:e.priceMin,priceMax:e.priceMax}}
+    const oneTerms={...estimated.proposal.terms,segments:[oneSegment],totalPriceMinor:null,
+      deposit:{...estimated.proposal.terms.deposit!,financial:calculateBookingDepositTerms({services:[{id:'s2',name:'Cut',price:oneSegment.priceMinor,priceMode:'STARTING_AT',depositMode:estimated.proposal.terms.deposit!.financial.lines[1]!.mode,depositValue:estimated.proposal.terms.deposit!.financial.lines[1]!.configuredValue}],businessDepositHoldMinutes:60})}}
+    const onePresented={...estimated.proposal,terms:oneTerms,fingerprint:canonicalJsonHash(oneTerms)}
+    await raw.exec(`INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('p3-s2','p3','s2')`)
+    const held=await singularRuntimeFixture(tx,onePresented)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:held.depositId,operationKey:'single-move-proof',providerEventId:'single-move-proof',evidence:fixtureEvidence})
+    await ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',held.appointmentId)
+    const singleCash=new CashService({transaction:async fn=>fn(createCashTransactionRepository(tx))})
+    await singleCash.setEstimatedAppointmentTotal({businessId:'b',appointmentId:held.appointmentId,agreedAmount:3000})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'single-move-approve'})
+    const oneReceipt:RuntimeHeldReceipt={kind:'HELD',operationKey:'conversation-booking:'+singularOrigin.operationKey+':'+onePresented.nonce,
+      coordinationGroupId:singularGroup,proposalNonce:onePresented.nonce,fingerprint:onePresented.fingerprint,
+      appointments:[{segmentIndex:0,appointmentId:held.appointmentId,visitId:held.visitId}],depositId:held.depositId,amount:held.amount,
+      expiresAt:held.expiresAt.toISOString(),depositStatus:'APPROVED'}
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'CONFIRMED',deposit:'APPROVED',handoff:'NONE',
+      conversationDraft:{dialogue:{...initialDialogueState('b'),completedBooking:{presented:onePresented,receipt:oneReceipt}}}}),'session'])
+    const admittedSingle=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    assert.equal(admittedSingle.members.length,1,'single approved receipt has a verified current schedule before its first move')
+    const originalDeposit=(await raw.query('SELECT * FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows
+    const originalCash=(await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows
+    const before=await loadCancellationGroupSnapshot(tx,managementScope,held.appointmentId)
+    const offer=presentGroupReschedule(before,[{appointmentId:held.appointmentId,newStartAt:new Date(Date.parse(before.members[0]!.startAt)+7*86400000).toISOString(),newProfessionalId:'p3'}])
+    const command=confirmGroupReschedule(offer,{nonce:offer.nonce,fingerprint:offer.fingerprint})
+    const result=await rescheduleGroupInTransaction(tx,command)
+    assert.equal(result.replayed,false)
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,true)
+    const refreshed=await loadRuntimeDepositReceipt(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n},
+      {presented:onePresented,receipt:oneReceipt})
+    assert.ok(refreshed,'a moved single estimated service retains its approved financial receipt')
+    assert.equal(refreshed.depositStatus,'APPROVED')
+    const admittedMovedSingle=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    assert.equal(admittedMovedSingle.members[0]!.professionalId,'p3')
+    assert.equal(admittedMovedSingle.members[0]!.startAt,command.moves[0]!.newStartAt)
+    assert.match(runtimeBookingReceiptReply({presented:onePresented,receipt:refreshed}),/09\/09\/2030/)
+    assert.match(runtimeBookingReceiptReply({presented:onePresented,receipt:refreshed}),/Cut con Sol/)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows,originalDeposit)
+    assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,originalCash)
+    throw Error('rollback single paid reschedule fixture')
+  }),/rollback single paid reschedule fixture/)
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    await raw.exec(`UPDATE "Service" SET "depositMode"='NONE',"depositValue"=NULL WHERE id='s1';
+      INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('p3-tue','p3',2,'09:00','20:00');
+      INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh-tue','b',2,'09:00','20:00');`)
+    const {deposit:unused,...unpaidTerms}=singularPresented.terms
+    const unpaidPresented={...singularPresented,terms:unpaidTerms,fingerprint:canonicalJsonHash(unpaidTerms)}
+    const unpaidKey='conversation-booking:single-unpaid:'+unpaidPresented.nonce, unpaidGroup='ffe01eab-a968-411a-80f9-32c9825e1377'
+    const unpaidOrigin={...singularOrigin,operationKey:'single-unpaid'}
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
+      VALUES ('unpaid-parent',${unpaidKey},'CONFIRM_VISIT','b','session','STARTED',${runtimeBookingRequestHash(unpaidOrigin,unpaidPresented)},${unpaidGroup},clock_timestamp())`)
+    const made=await booking.confirmBookingWithoutDeposit(tx,runtimeBookingChildInput(unpaidPresented,unpaidKey,0,true))
+    if(made.kind!=='CONFIRMED') throw Error('unpaid fixture must confirm')
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${unpaidGroup} WHERE id=${made.appointmentId}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED' WHERE "operationKey"=${unpaidKey}`)
+    const receipt={kind:'COMMITTED' as const,coordinationGroupId:unpaidGroup,proposalNonce:unpaidPresented.nonce,fingerprint:unpaidPresented.fingerprint,
+      appointments:[{segmentIndex:0,appointmentId:made.appointmentId,visitId:made.visitId}]}
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'CONFIRMED',deposit:'NONE',handoff:'NONE',
+      conversationDraft:{dialogue:{...initialDialogueState('b'),completedBooking:{presented:unpaidPresented,receipt}}}}),'session'])
+    const original=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    const oldOffer=presentGroupReschedule(original,[{appointmentId:made.appointmentId,newStartAt:'2030-09-09T13:00:00.000Z'}])
+    await rescheduleGroupInTransaction(tx,confirmGroupReschedule(oldOffer,{nonce:oldOffer.nonce,fingerprint:oldOffer.fingerprint}))
+    const before=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    assert.equal(before.members[0]!.startAt,'2030-09-09T13:00:00.000Z','the pre-existing F9 time move is the baseline for explicit professional change')
+    await raw.query('UPDATE "Appointment" SET "startAt"=$1 WHERE id=$2',['2030-09-09T14:00:00.000Z',made.appointmentId])
+    await raw.query('UPDATE "BookingVisit" SET "scheduledStartAt"=$1 WHERE id=$2',['2030-09-09T14:00:00.000Z',made.visitId])
+    await assert.rejects(loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n}),
+      /runtime child receipt mismatch/,'an arbitrary coherent date without immutable history is not legacy authority')
+    await raw.query('UPDATE "Appointment" SET "startAt"=$1 WHERE id=$2',[before.members[0]!.startAt,made.appointmentId])
+    await raw.query('UPDATE "BookingVisit" SET "scheduledStartAt"=$1 WHERE id=$2',[before.members[0]!.startAt,made.visitId])
+    const offer=presentGroupReschedule(before,[{appointmentId:made.appointmentId,newStartAt:'2030-09-10T13:00:00.000Z',newProfessionalId:'p3'}])
+    const command=confirmGroupReschedule(offer,{nonce:offer.nonce,fingerprint:offer.fingerprint})
+    await rescheduleGroupInTransaction(tx,command)
+    const after=await loadCancellationGroupSnapshot(tx,managementScope,made.appointmentId)
+    assert.equal(after.members[0]!.professionalId,'p3','explicit professional request must be applied, never silently ignored by F9')
+    assert.equal(after.members[0]!.startAt,command.moves[0]!.newStartAt)
+    const admitted=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    assert.equal(admitted.members[0]!.professionalId,'p3','no-deposit original receipt survives the audited assignment amendment')
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,true)
+    await raw.exec(`INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('p3-wed','p3',3,'09:00','20:00');
+      INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh-wed','b',3,'09:00','20:00');`)
+    const later=presentGroupReschedule(admitted,[{appointmentId:made.appointmentId,newStartAt:'2030-09-11T13:00:00.000Z'}])
+    const laterCommand=confirmGroupReschedule(later,{nonce:later.nonce,fingerprint:later.fingerprint})
+    await rescheduleGroupInTransaction(tx,laterCommand)
+    const last=await loadOwnConfirmedCancellationHandoffSnapshot(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n})
+    assert.equal(last.members[0]!.professionalId,'p3','a later date-only change preserves the requested professional')
+    assert.equal(last.members[0]!.startAt,laterCommand.moves[0]!.newStartAt)
+    const currentSchedule=await loadVerifiedRuntimeManagementSchedule(tx,last,{presented:unpaidPresented,receipt})
+    const verifiedReceipt={...receipt,currentSchedule}
+    assert.match(runtimeBookingReceiptReply({presented:unpaidPresented,receipt:verifiedReceipt}),/Color con Sol/)
+    assert.match(runtimeBookingReceiptReply({presented:unpaidPresented,receipt:verifiedReceipt}),/11\/09\/2030/)
+    await assert.rejects(rescheduleGroupInTransaction(tx,command),/replay durable|snapshot|changed/i)
+    throw Error('rollback unpaid professional fixture')
+  }),/rollback unpaid professional fixture/)
+  console.log('B2 paid coordinated reschedule: atomic rollback, seal, Cash, replay PASS')
 } finally {await db.close()}

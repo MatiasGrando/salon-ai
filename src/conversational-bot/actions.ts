@@ -31,7 +31,7 @@ function informationActions(message: string): InformationAction[] {
 export function routeActions(message: string): { information: InformationAction[]; informationMessage: string; pendingAction: ActionId | null; bookingMessage: string | null } {
   const text = normalizeMessage(message)
   const pendingAction = /\b(cancelar|canselar|anular)\b/.test(text) ? 'CANCEL'
-    : /\b(reprogramar|reagendar|modificar|mover|cambiar|camviar)\b.*\bturno\b/.test(text) ? 'RESCHEDULE'
+    : /\b(?:reprogramar|reagendar|modificar|mover|cambiar|camviar)(?:lo|la)?\b.*\bturno\b|\bturno\b.*\b(?:reprogramar|reagendar|modificar|mover|cambiar|camviar)(?:lo|la)?\b/.test(text) ? 'RESCHEDULE'
     : /\b(persona|humano|personal|equipo)\b.*\b(hablar|atender)\b|\b(hablar|atienda|atender)\b.*\b(persona|humano|personal|equipo)\b|\bhablar con\b/.test(text) ? 'HUMAN_HANDOFF' : null
   // Only split meaningful clause boundaries, keeping catalog conjunctions such as "Corte y Color".
   const clauses = message.split(/(?:\s+y\s+|[,;?!]\s+)(?=(?:quiero|quisiera|necesito|reservar|agendar|cu[aá]nto|precio|direcci[oó]n|d[oó]nde|a qu[eé]|qu[eé]|cu[aá]les|abren|abre|cierran|cierra|horario|tel[eé]fono|contacto|mostrame|mostrar|ver)\b)/iu)

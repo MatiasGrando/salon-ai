@@ -2794,6 +2794,8 @@ model AppointmentChangeHistory {
   actor            String
   fromStartAt      DateTime
   toStartAt        DateTime
+  fromProfessionalId String?
+  toProfessionalId   String?
   bookingDepositId String?
   bookingDeposit   BookingDeposit? @relation("AppointmentChangeHistoryBookingDeposit", fields: [appointmentId, bookingDepositId], references: [appointmentId, id], onDelete: Restrict, onUpdate: Cascade)
   depositPreserved Boolean         @default(false)

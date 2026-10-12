@@ -75,19 +75,27 @@ export function confirmGroupCancellation(proposal: GroupCancellationProposal, co
   return { kind: 'CANCEL_APPOINTMENT_GROUP', nonce: proposal.nonce, fingerprint: proposal.fingerprint, snapshot: structuredClone(proposal.snapshot), confirmed: true }
 }
 
-export type GroupMove = { appointmentId: string; newStartAt: string }
+export type GroupMove = { appointmentId: string; newStartAt: string; newProfessionalId?: string }
 export type GroupRescheduleProposal = { kind: 'GROUP_RESCHEDULE_PROPOSAL'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot; moves: readonly GroupMove[] }
 export type GroupRescheduleCommand = { kind: 'RESCHEDULE_APPOINTMENT_GROUP'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot; moves: readonly GroupMove[]; confirmed: true }
 
-/** Conservative scope: retain assignments and never cross another member's original interval. */
+/** Keep every group member represented, even when only one professional changes. */
 export function assertGroupMoves(snapshot: CancellationSnapshot, moves: readonly GroupMove[]) {
   assertCancellationSnapshot(snapshot)
   if (moves.length !== snapshot.members.length || new Set(moves.map(m=>m.appointmentId)).size !== moves.length ||
     moves.some(m=>!snapshot.members.some(member=>member.appointmentId===m.appointmentId))) throw new GroupCancellationError('reschedule coverage mismatch')
+  if (!moves.some(move => {
+    const member = snapshot.members.find(m => m.appointmentId === move.appointmentId)!
+    return move.newStartAt !== member.startAt || move.newProfessionalId !== undefined
+  })) throw new GroupCancellationError('reschedule must be changed')
   const intervals=moves.map(move=>{
     const member=snapshot.members.find(m=>m.appointmentId===move.appointmentId)!
     const start=instant(move.newStartAt)
-    if(start<=instant(snapshot.dbNow) || move.newStartAt===member.startAt) throw new GroupCancellationError('reschedule must be future and changed')
+    if (move.newProfessionalId !== undefined) {
+      managementIdentifier(move.newProfessionalId)
+      if (move.newProfessionalId === member.professionalId) throw new GroupCancellationError('unchanged professional must be omitted')
+    }
+    if(start<=instant(snapshot.dbNow)) throw new GroupCancellationError('reschedule must be future')
     return {id:move.appointmentId,start,end:start+Math.max(member.durationMinutes,member.customerDurationMinutes ?? member.durationMinutes)*60000}
   })
   for(const [index,interval] of intervals.entries()) {
@@ -123,7 +131,7 @@ export type ManagementSlotEvidence = {
   date: string; startAt: string; professionalId: string; serviceIds: readonly string[]
   durationMinutes: number; customerDurationMinutes: number
 }
-export type ManagementAvailabilityReader = (member: CancellationMember, date: string) => Promise<readonly ManagementSlotEvidence[]>
+export type ManagementAvailabilityReader = (member: CancellationMember, date: string, professionalId: string) => Promise<readonly ManagementSlotEvidence[]>
 function managementRecord(value: unknown): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new GroupCancellationError('invalid management shape')
 }
@@ -155,7 +163,7 @@ function assertManagementOffers(snapshot: CancellationSnapshot, offers: unknown)
   for (const offer of offers) {
     managementRecord(offer); managementKeys(offer, ['key', 'date', 'moves'])
     if (!Array.isArray(offer.moves)) throw new GroupCancellationError('invalid offer moves')
-    for (const move of offer.moves) { managementRecord(move); managementKeys(move, ['appointmentId', 'newStartAt']) }
+      for (const move of offer.moves) { managementRecord(move); managementKeys(move, ['appointmentId', 'newStartAt'], ['newProfessionalId']) }
     if (offer.key !== managementRescheduleOfferKey(snapshot, offer.date as string, offer.moves as GroupMove[])) throw new GroupCancellationError('offer fingerprint mismatch')
     if (keys.has(offer.key as string)) throw new GroupCancellationError('duplicate offer')
     keys.add(offer.key as string)
@@ -177,7 +185,7 @@ export function parseAppointmentManagement(value: unknown, businessId: string, s
     if (value.action === 'CANCEL') confirmGroupCancellation(proposal as unknown as GroupCancellationProposal, consent)
     else {
       if (!Array.isArray(proposal.moves)) throw new GroupCancellationError('management selection required')
-      for (const move of proposal.moves) { managementRecord(move); managementKeys(move, ['appointmentId', 'newStartAt']) }
+      for (const move of proposal.moves) { managementRecord(move); managementKeys(move, ['appointmentId', 'newStartAt'], ['newProfessionalId']) }
       confirmGroupReschedule(proposal as unknown as GroupRescheduleProposal, consent)
       if (!value.offers || !(value.offers as ManagementRescheduleOffer[]).some(offer => canonicalJsonHash(offer.moves) === canonicalJsonHash(proposal.moves))) throw new GroupCancellationError('management offer selection mismatch')
     }

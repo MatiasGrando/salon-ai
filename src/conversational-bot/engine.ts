@@ -46,7 +46,7 @@ export type DialogueBasketAvailability =
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation; requestedStartEvidence?: RequestedStartEvidence }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
-  managementRescheduleOffers?(snapshot: CancellationSnapshot, date: string): Promise<readonly ManagementRescheduleOffer[]>
+  managementRescheduleOffers?(snapshot: CancellationSnapshot, date: string, professionalChange?: { appointmentId: string; professionalId: string }): Promise<readonly ManagementRescheduleOffer[]>
   businessTimeContext?: BusinessTimeContextReader
   identity?(): Promise<DialogueIdentity>
   verifiedDateChoices?(services: readonly DialogueService[], professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: { requestedTime: string | null; preference?: TimePreference }): Promise<DialogueBasketAvailability>
@@ -87,7 +87,7 @@ export type DialogueState = {
   questionContext?: DialogueQuestionContext
   informationFocus?: InformationFocus
   /** Server-owned QA presentation/receipt; never a production booking capability. */
-  appointmentManagement?: { context: AppointmentManagementContext; date?: string; selectedTime?: string; presentedScope?: RuntimeShownScope; outcome?: { kind: 'CANCELLED' | 'RESCHEDULED'; appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string }[] } }
+  appointmentManagement?: { context: AppointmentManagementContext; date?: string; selectedTime?: string; professionalChange?: { appointmentId: string; professionalId: string; professionalName: string }; presentedScope?: RuntimeShownScope; outcome?: { kind: 'CANCELLED' | 'RESCHEDULED'; appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string; newProfessionalId?: string }[] } }
   bookingReservation?: RuntimeBookingReservation
   /** One sealed completed receipt, independent of the next active booking draft. */
   completedBooking?: RuntimeBookingReservation
@@ -227,12 +227,15 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
   if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.appointmentManagement !== undefined) {
     const m = s.appointmentManagement
-    if (!m || Object.keys(m).some(key => !['context', 'date', 'selectedTime', 'presentedScope', 'outcome'].includes(key)) || !(s.bookingReservation ?? s.completedBooking)?.receipt) throw new Error('invalid management sidecar')
+    if (!m || Object.keys(m).some(key => !['context', 'date', 'selectedTime', 'professionalChange', 'presentedScope', 'outcome'].includes(key)) || !(s.bookingReservation ?? s.completedBooking)?.receipt) throw new Error('invalid management sidecar')
     const original = (s.bookingReservation ?? s.completedBooking)!
     parseAppointmentManagement(m.context, businessId, original.presented.scope.sessionId)
     if (m.context.snapshot.groupId !== original.receipt!.coordinationGroupId || m.context.snapshot.members.length !== original.receipt!.appointments.length ||
       m.context.snapshot.members.some(member => !original.receipt!.appointments.some(item => item.appointmentId === member.appointmentId && item.visitId === member.visitId))) throw new Error('management receipt membership mismatch')
     if (m.date !== undefined && !validCalendarDate(m.date) || m.selectedTime !== undefined && parseMinutes(m.selectedTime) === null) throw new Error('invalid management temporal fields')
+    if (m.professionalChange && (Object.keys(m.professionalChange).sort().join(',') !== 'appointmentId,professionalId,professionalName' ||
+      !m.context.snapshot.members.some(member => member.appointmentId === m.professionalChange!.appointmentId && member.professionalId !== m.professionalChange!.professionalId) ||
+      !bounded(m.professionalChange.professionalId,128) || !bounded(m.professionalChange.professionalName,200))) throw new Error('invalid management professional change')
     if (m.presentedScope && (Object.keys(m.presentedScope).sort().join(',') !== Object.keys(original.presented.scope).sort().join(',') ||
       ['businessId', 'sessionId', 'deploymentId', 'configurationId', 'generation', 'dispatchFenceEpoch', 'handoffFenceEpoch'].some(key => m.presentedScope![key as keyof RuntimeShownScope] !== original.presented.scope[key as keyof RuntimeShownScope]) || !/^\d+$/.test(m.presentedScope.revision))) throw new Error('invalid management shown scope')
     if (m.outcome && (Object.keys(m.outcome).some(key => !['kind', 'appointmentIds', 'moves'].includes(key)) || !['CANCELLED', 'RESCHEDULED'].includes(m.outcome.kind) ||
@@ -1553,12 +1556,15 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
 const canonicalManagementIds = (ids: readonly string[]) => [...ids].sort().join('\u0000')
 const MANAGEMENT_QUESTION = '¿Confirmás esta gestión del turno?'
 function managementSummary(state: DialogueState): string {
-  const m = state.appointmentManagement!, terms = (state.bookingReservation ?? state.completedBooking)!.presented.terms
+  const m = state.appointmentManagement!, reservation = (state.bookingReservation ?? state.completedBooking)!, terms = reservation.presented.terms
   return m.context.snapshot.members.map(member => {
-    const segment = terms.segments.find(item => item.professionalId === member.professionalId && member.serviceIds.includes(item.serviceId))!
+    const segment = terms.segments.find(item => member.serviceIds.includes(item.serviceId))!
     const move = m.context.proposal?.kind === 'GROUP_RESCHEDULE_PROPOSAL' ? m.context.proposal.moves.find(item => item.appointmentId === member.appointmentId) : undefined
     const at = new Date(move?.newStartAt ?? member.startAt)
-    return segment.serviceName + ' con ' + segment.professionalName + ': ' + new Intl.DateTimeFormat('es-AR', { timeZone: terms.timezone, dateStyle: 'short', timeStyle: 'short' }).format(at) + ', ' + member.durationMinutes + ' minutos.'
+    const professionalName = move?.newProfessionalId && move.newProfessionalId === m.professionalChange?.professionalId && m.professionalChange?.appointmentId === member.appointmentId
+      ? m.professionalChange.professionalName : reservation.receipt?.currentSchedule?.find(item =>
+        item.appointmentId === member.appointmentId && item.professionalId === member.professionalId)?.professionalName ?? segment.professionalName
+    return segment.serviceName + ' con ' + professionalName + ': ' + new Intl.DateTimeFormat('es-AR', { timeZone: terms.timezone, dateStyle: 'short', timeStyle: 'short' }).format(at) + ', ' + member.durationMinutes + ' minutos.'
   }).join('\n')
 }
 function managementOutcomeReply(state: DialogueState): string {
@@ -1581,9 +1587,27 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
     return { ...reply('Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'),
       confirmedCancellationHandoff: { snapshot: structuredClone(current), evidence: message } }
   }
-  if (current.members.some(member => member.depositId !== null || member.manualDepositPaid || member.manualDepositAmount !== null)) return reply('Este grupo requiere revisión financiera del equipo; no modifiqué los turnos ni los pagos.')
+  // Only the server-loaded, complete APPROVED joint hold may enter rescheduling.
+  // Other financial states remain with staff; customer cancellation stays above.
+  const receipt = (state.bookingReservation ?? state.completedBooking)!.receipt!
+  const financialReview = () => reply('Este grupo requiere revisión financiera del equipo; no modifiqué los turnos ni los pagos.')
+  try { cancellationFingerprint(current) } catch { return financialReview() }
+  const depositIds = new Set(current.members.flatMap(member => member.depositId ? [member.depositId] : []))
+  if (current.members.some(member => member.manualDepositPaid || member.manualDepositAmount !== null ||
+    member.depositId !== null && member.depositStatus !== 'APPROVED') || depositIds.size > 1 ||
+    current.members.length !== receipt.appointments.length ||
+    current.members.some(member => !receipt.appointments.some(item => item.appointmentId === member.appointmentId && item.visitId === member.visitId)) ||
+    (depositIds.size > 0 && (receipt.kind !== 'HELD' || receipt.depositStatus !== 'APPROVED' ||
+      !depositIds.has(receipt.depositId) || current.members.length > 1 && receipt.coordinatedDepositGroup?.groupId !== current.groupId)) ||
+    (depositIds.size === 0 && receipt.kind === 'HELD')) return financialReview()
   const normalized = normalize(message)
-  const fullConsent = /^(confirmo|si confirmo|confirmo la cancelacion|confirmo cancelar todos los turnos|confirmo la reprogramacion|confirmo reprogramar todos los turnos)$/.test(normalized) && !/[?¿]/.test(message)
+  const consentVeto = /[?¿]/.test(message) || /\b(no|pero|mejor|antes|depende|quizas|tal vez|cuando|sujeto)\b/.test(normalized) ||
+    /\bsi\b/.test(normalized.replace(/^si(?:,?\s+confirmo\b|$)/, 'confirmo'))
+  const semanticConsent = !consentVeto && state.appointmentManagement?.context.proposal?.kind === 'GROUP_RESCHEDULE_PROPOSAL' &&
+    decision?.confirmationEvidence === message && plan?.operations.length === 1 && plan.operations[0]?.kind === 'confirm_proposal' &&
+    plan.operations[0].confidence >= .85 && normalize(plan.operations[0].evidence) === normalized
+  const literalConsent = !decision && !consentVeto && /^(confirmo|si confirmo|confirmo la cancelacion|confirmo cancelar todos los turnos|confirmo la reprogramacion|confirmo reprogramar todos los turnos)$/.test(normalized)
+  const fullConsent = semanticConsent || literalConsent
   let m = state.appointmentManagement
   if (action && (!fullConsent || !m || action !== m.context.action)) {
     m = { context: beginAppointmentManagement(action as 'CANCEL' | 'RESCHEDULE', current) }
@@ -1594,6 +1618,12 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
     }
   }
   if (!m) return null
+  if (m.outcome?.kind === 'RESCHEDULED' && !action) {
+    // Ownership and the current paid snapshot were verified above. Completed
+    // management no longer intercepts the next ordinary conversation turn.
+    delete state.appointmentManagement
+    return respond(context, state, message, port, decision)
+  }
   if (m.outcome && !action) return reply(managementOutcomeReply(state))
   const shown = m.presentedScope
   if (fullConsent && m.context.proposal && shown && /^\d+$/.test(scope.revision) && BigInt(scope.revision) > 0n &&
@@ -1608,6 +1638,30 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
     m.presentedScope = structuredClone(scope)
     return reply('La cancelación todavía no se realizó.\n' + managementSummary(state) + '\n' + MANAGEMENT_QUESTION)
   }
+  const professionalOp = plan?.operations.find(op => op.kind === 'professional' && op.mode === 'specific')
+  const professionalMention = professionalOp?.kind === 'professional' && professionalOp.mode === 'specific'
+    ? professionalOp.mention : decision?.professionalMention
+  if (professionalMention && normalize(message).includes(normalize(professionalMention))) {
+    const terms = (state.bookingReservation ?? state.completedBooking)!.presented.terms
+    const mentioned = terms.segments.filter(segment => {
+      const words = normalize(segment.serviceName).split(' ').filter(word => word.length >= 4)
+      return words.some(word => (' ' + normalize(message) + ' ').includes(' ' + word + ' '))
+    })
+    if (terms.segments.length > 1 && mentioned.length !== 1) return reply('¿Para cuál de tus servicios querés cambiar el profesional? Indicá el servicio y el profesional en el mismo mensaje.')
+    if (!port.professionalInformation) return reply('No puedo verificar ese profesional ahora; conservé tu turno sin cambios.')
+    const facts = await port.professionalInformation({ kind: 'professional', actions: [], mention: null, serviceIds: [], date: null, weekday: null, aspect: 'overview' })
+    if (!facts.complete) return reply('No pude verificar la lista completa de profesionales. Conservé tu turno sin cambios.')
+    const professionals = professionalIdentities(facts, context.businessId).filter(person => normalize(person.name) === normalize(professionalMention))
+    if (professionals.length !== 1) return reply('No pude identificar de forma única a ese profesional. Conservé tu turno sin cambios.')
+    const segment = mentioned[0] ?? terms.segments[0]!
+    const member = current.members.find(item => item.serviceIds.includes(segment.serviceId))
+    if (!member) return reply('No pude relacionar el profesional con ese turno. Conservé tu reserva sin cambios.')
+    m.professionalChange = professionals[0]!.id === member.professionalId ? undefined : {
+      appointmentId: member.appointmentId, professionalId: professionals[0]!.id, professionalName: professionals[0]!.name
+    }
+    delete m.selectedTime
+    m.context = beginAppointmentManagement('RESCHEDULE', current)
+  }
   const dateOp = plan?.operations.find(op => op.kind === 'date'), timeOp = plan?.operations.find(op => op.kind === 'time')
   const date = dateOp?.kind === 'date' ? extractDate(normalize(dateOp.expression), context) : !decision ? extractDate(normalized, context) : null
   const temporal = !decision ? fallbackTemporalRequest(message, true) : null
@@ -1615,7 +1669,8 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   if (date) { m.date = date; delete m.selectedTime; m.context = beginAppointmentManagement('RESCHEDULE', current) }
   if (!m.date) return reply('¿Para qué fecha querés reprogramar todos los turnos? Se conservan servicios y profesionales.')
   if (!port.managementRescheduleOffers) return reply('No puedo verificar horarios completos para este grupo; no modifiqué tus turnos.')
-  const offers = await port.managementRescheduleOffers(current, m.date)
+  const offers = await port.managementRescheduleOffers(current, m.date, m.professionalChange
+    ? { appointmentId: m.professionalChange.appointmentId, professionalId: m.professionalChange.professionalId } : undefined)
   m.context = attachManagementRescheduleOffers(beginAppointmentManagement('RESCHEDULE', current), offers)
   if (!offers.length) return reply('No encontré horarios completos compatibles para todos los turnos en esa fecha. No modifiqué tu reserva.')
   const timezone = (state.bookingReservation ?? state.completedBooking)!.presented.terms.timezone
@@ -1629,7 +1684,7 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   }
   return reply('Para reprogramar todos los turnos, elegí un horario de inicio: ' + [...new Set(offers.map(label))].join(', ') + '.')
 }
-export function finalizeAppointmentManagement(response: DialogueResponse, result: { appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string }[] }): DialogueResponse {
+export function finalizeAppointmentManagement(response: DialogueResponse, result: { appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string; newProfessionalId?: string }[] }): DialogueResponse {
   const command = response.managementCommand
   if (!command || !response.state.appointmentManagement || canonicalManagementIds(result.appointmentIds) !== canonicalManagementIds(command.snapshot.members.map(member => member.appointmentId))) throw new Error('complete management result required')
   if (command.kind === 'RESCHEDULE_APPOINTMENT_GROUP' && JSON.stringify(result.moves) !== JSON.stringify([...command.moves].sort((a,b) => a.appointmentId.localeCompare(b.appointmentId)))) throw new Error('management moves mismatch')

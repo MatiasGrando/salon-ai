@@ -194,17 +194,17 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
     verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(async source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,await currentContent(source))),
     catalog: () => cached(catalogKind, loadCatalog),
-    managementRescheduleOffers: (group, date) => snapshot(async source => {
+    managementRescheduleOffers: (group, date, professionalChange) => snapshot(async source => {
       if (group.scope.businessId !== businessId) throw new Error('foreign management availability scope')
-      return prepareGroupRescheduleOffers(group, date, async member => {
+      return prepareGroupRescheduleOffers(group, date, async (member, _date, targetProfessionalId) => {
         const catalog = await loadCatalog(source)
         const selected = member.serviceIds.map(id => catalog.find(service => service.id === id))
         if (selected.some(service => !service)) throw new Error('management service unavailable')
-        const result = await loadPrismaBasketAvailability(source, context, settings, selected as DialogueService[], date, member.professionalId, {}, await currentContent(source))
+        const result = await loadPrismaBasketAvailability(source, context, settings, selected as DialogueService[], date, targetProfessionalId, {}, await currentContent(source))
         if (!result.ok) return []
         if (result.durationMinutes !== member.durationMinutes || (result.customerDurationMinutes ?? result.durationMinutes) !== (member.customerDurationMinutes ?? member.durationMinutes)) throw new Error('management duration changed; new review required')
-        return result.slots.filter(slot => slot.date === date && slot.professionalId === member.professionalId).map(slot => ({ date, startAt: slot.startAt, professionalId: slot.professionalId, serviceIds: [...member.serviceIds], durationMinutes: result.durationMinutes, customerDurationMinutes: result.customerDurationMinutes ?? result.durationMinutes }))
-      })
+        return result.slots.filter(slot => slot.date === date && slot.professionalId === targetProfessionalId).map(slot => ({ date, startAt: slot.startAt, professionalId: slot.professionalId, serviceIds: [...member.serviceIds], durationMinutes: result.durationMinutes, customerDurationMinutes: result.customerDurationMinutes ?? result.durationMinutes }))
+      }, professionalChange)
     }),    availabilityBasket: (services, date, professionalId, estimates, temporal) => snapshot(async source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, await currentContent(source), temporal)),
     async availability(selected: DialogueService, date: string, professionalId?: string, temporal?: import('./prisma-basket-availability.js').VerifiedDateTemporal) {
       return snapshot(async source => {

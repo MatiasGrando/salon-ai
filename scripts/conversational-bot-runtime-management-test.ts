@@ -506,7 +506,13 @@ try {
   await assert.rejects(()=>live.run(),/COMMIT failed/)
   assert.deepEqual(await snapshotAll(),beforeMove);assert.deepEqual(live.session.state,stateBefore)
   live.allowCommit();await live.run()
-  assert.deepEqual(readConversationDraft(live.session.state,policy,'UTC').bookingReservation,origin)
+  const currentBooking = readConversationDraft(live.session.state,policy,'UTC').bookingReservation!
+  const { currentSchedule, ...sealedReceipt } = currentBooking.receipt!
+  assert.deepEqual({ presented: currentBooking.presented, receipt: sealedReceipt }, origin, 'sealed original booking authority is unchanged')
+  assert.deepEqual(currentSchedule, origin.receipt!.appointments.map(entry => ({ appointmentId: entry.appointmentId,
+    startAt: origin.presented.terms.segments[entry.segmentIndex]!.startAt,
+    professionalId: origin.presented.terms.segments[entry.segmentIndex]!.professionalId,
+    professionalName: origin.presented.terms.segments[entry.segmentIndex]!.professionalName })), 'current names and assignments come from the verified pre-write snapshot')
   const moved=(await bookingDb.query<{startAt:Date}>('SELECT "startAt" FROM "Appointment" ORDER BY "startAt"')).rows
   assert.ok(moved.every(member=>member.startAt.toISOString().startsWith(targetDate)))
   assert.equal(readConversationDraft(live.session.state,policy,'UTC').appointmentManagement?.outcome?.kind,'RESCHEDULED')
@@ -526,7 +532,10 @@ try {
     query.values.includes('confirmed_booking_cancellation_request')), 'caller must invoke handoff queue effect')
   assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "Appointment"')).rows.every(member=>member.status==='CONFIRMED'))
   assert.ok((await bookingDb.query<{status:string}>('SELECT status FROM "BookingVisit"')).rows.every(member=>member.status==='CONFIRMED'))
-  assert.deepEqual(readConversationDraft(live.session.state,policy,'UTC').bookingReservation,origin)
+  const handoffBooking = readConversationDraft(live.session.state,policy,'UTC').bookingReservation!
+  const { currentSchedule: handoffSchedule, ...handoffSealedReceipt } = handoffBooking.receipt!
+  assert.deepEqual({ presented: handoffBooking.presented, receipt: handoffSealedReceipt }, origin, 'staff referral preserves sealed original booking authority')
+  assert.ok(handoffSchedule?.every(entry => entry.startAt.startsWith(targetDate)), 'staff referral carries the verified reprogrammed date')
   const beforeRepeat=await snapshotAll()
   await turn('Confirmo la cancelación.')
   assert.deepEqual(await snapshotAll(),beforeRepeat,'queued handoff cannot become an automatic cancellation')

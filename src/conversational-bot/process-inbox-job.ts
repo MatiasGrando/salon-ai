@@ -4,7 +4,7 @@ import { interpretConversationAttachment, conversationProofBindingFromState, sam
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
-import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
+import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, loadVerifiedRuntimeManagementSchedule, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { routeActions } from './actions.js'
 import { canonicalJsonHash } from './canonical-json.js'
@@ -528,6 +528,13 @@ export async function processConversationInbox(input: {
             serverManagementSnapshot = await (parsed.state.deposit === 'APPROVED'
               ? loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
               : loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision }))
+            const reservation = draft.bookingReservation ?? draft.completedBooking
+            if (parsed.state.deposit === 'NONE' && reservation?.receipt?.kind === 'COMMITTED') {
+              const currentSchedule = await loadVerifiedRuntimeManagementSchedule(tx, serverManagementSnapshot, reservation)
+              const currentReservation = { ...reservation, receipt: { ...reservation.receipt, currentSchedule } }
+              confirmedDraft = { ...draft, ...(draft.bookingReservation
+                ? { bookingReservation: currentReservation } : { completedBooking: currentReservation }) }
+            }
             runtimeManagementAllowed = Boolean(draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
@@ -770,7 +777,14 @@ export async function processConversationInbox(input: {
         if (useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai') {
           finalResponse = { state: snapshot.draft, proposal: null, reply: 'No pude verificar ese consentimiento; no modifiqué tus turnos.' }
         } else {
-          const fresh = await loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision })
+          // Revalidate the same server-owned financial authority used at admission.
+          // An approved deposit stays sealed while only its appointment assignment changes.
+          const managementScope = { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }
+          const managementState = parseBotOptionsState(session.state)
+          if (!managementState.ok) throw new GroupCancellationError('invalid current management state')
+          const fresh = await (managementState.state.deposit === 'APPROVED'
+            ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
+            : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
           if (cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) throw new GroupCancellationError('management snapshot changed; new consent required')
           const receipt = managementCommand.kind === 'CANCEL_APPOINTMENT_GROUP' ? await cancelGroupInTransaction(tx, managementCommand) : await rescheduleGroupInTransaction(tx, managementCommand)
           finalResponse = finalizeAppointmentManagement(response, receipt)
