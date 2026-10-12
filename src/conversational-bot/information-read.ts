@@ -134,7 +134,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     const context = catalogInformation(target, described, sourcedExplanation, state.businessId)
     // Retain what was explained, without manufacturing a choice or basket selection.
     const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id)
-      : target.aspect === 'comparison' && described.length > 1
+      : ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1
         ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null), awaitingChoice: false }, state.businessId) : undefined
     return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) || context.services.some(service => service.publicDetails?.length) ? 'found' : 'missing',
       catalogInformation: context, ...(focus ? { focus } : {}) }

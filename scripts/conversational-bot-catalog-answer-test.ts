@@ -520,12 +520,104 @@ try {
       assert.deepEqual(kinds.map((kind: any) => kind.properties.kind.enum[0]).sort(), ['general', 'published'])
       for (const kind of kinds) assert.ok(kind.required.includes('kind'))
     }
-    for (const request of requests) assert.match(request.instructions, /general.*orientativ/i)
+    for (const request of requests) {
+      assert.match(request.instructions, /general.*orientativ/i)
+      assert.match(request.instructions, /descripción suficiente.*una sola vez/)
+      assert.match(request.instructions, /descripción pobre.*orientativ/i)
+    }
     assert.doesNotMatch(requests[0].instructions, /Para consultas sobre procedimientos o variantes usa kind service_request/)
     assert.match(requests[0].instructions, /Para verificar si el negocio ofrece un procedimiento o variante/)
     assert.match(requests[0].instructions, /Las explicaciones generales del rubro usan information/)
     for (const request of requests) { assert.equal(request.store, false); assert.match(request.instructions, /fuente|source/i) }
     assert.equal(JSON.parse(requests[0].input).services.find((item: any) => item.id === 'keratin').description, catalog[1]!.description)
+  })
+  const greyCatalog: DialogueService[] = [
+    { id: 'grey-color', name: 'Color Completo', description: 'Coloración de todo el cabello.', price: 65000, durationMinutes: 90, requiresConsultation: false },
+    { id: 'grey-roots', name: 'Raíces', description: 'Ayuda a tapar las canas con productos A11Lux.', price: 40000, durationMinutes: 60, requiresConsultation: false }
+  ]
+  const greyPort = { ...port, catalog: async () => greyCatalog }
+  const greyPublished: ExplanatoryBlock[] = greyCatalog.map(service => ({ kind: 'published', text: service.description!,
+    sources: [{ serviceId: service.id, field: 'description', quote: service.description! }] }))
+  const greyGeneral: ExplanatoryBlock = { kind: 'general', text: 'En general, retocar las raíces trata el crecimiento visible; una coloración completa trabaja el largo del cabello. La elección depende del resultado buscado y de la evaluación del cabello.', sources: [] }
+  const greyMenu = async () => {
+    const body = 'Quería taparme las canas, ¿qué servicio me recomendás?'
+    return respondWithAiInterpreter(context, initial, body, greyPort, async () => ({ ...base,
+      turnPlan: { version: 1, operations: [{ kind: 'service_request', purpose: 'inquiry', disposition: 'alternatives',
+        serviceIds: greyCatalog.map(service => service.id), correction: false, continuation: false, basis: 'related_category', sourceQuote: null,
+        evidence: 'taparme las canas', confidence: 1 }] },
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, mention: 'taparme las canas', confidence: 1, operationIndexes: [0] }] }, firstReply: null }))
+  }
+  await check('B7 a goal-owned recommendation explains candidates and current local facts without a choice', async () => {
+    const body = 'Quería saber qué puedo hacerme para taparme las canas'; const beforeAgenda = agenda
+    const proposal = owned(body, greyCatalog.map(service => service.id), 'recommendation', null, 'taparme las canas')
+    const result = await respondWithAiInterpreter(context, initial, body, greyPort, async () => ({ ...proposal,
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral, ...greyPublished] } } }))
+    assert.ok(result.reply.includes(greyGeneral.text)); for (const block of greyPublished) assert.ok(result.reply.includes(block.text))
+    assert.match(result.reply, /65[.,]?000/); assert.match(result.reply, /40[.,]?000/)
+    assert.match(result.reply, /90 min/); assert.match(result.reply, /60 min/)
+    assert.doesNotMatch(result.reply, /De cuál de estos|Qué dato o variante querés precisar/)
+    assert.equal(result.interpretation.replyRoute, 'first_call'); assert.equal(result.interpretation.copyMode, 'ai')
+    assert.deepEqual(result.state.informationFocus?.options.map(option => option.id), greyCatalog.map(service => service.id))
+    assert.equal(result.state.informationFocus?.awaitingChoice, false)
+    checkRead(result, initial, beforeAgenda)
+    const followup = '¿Cuál es la diferencia entre ambos servicios?'
+    const comparisonRead = await respondWithAiInterpreter(context, result.state, followup, greyPort, async () => ({
+      ...owned(followup, greyCatalog.map(service => service.id), 'comparison', null, 'ambos servicios'),
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral, ...greyPublished] } }
+    }))
+    assert.ok(comparisonRead.reply.includes(greyGeneral.text)); assert.doesNotMatch(comparisonRead.reply, /De cuál de estos servicios/)
+    assert.equal(comparisonRead.interpretation.replyRoute, 'first_call'); checkRead(comparisonRead, result.state, beforeAgenda)
+  })
+  await check('B7 both services compares the current menu with a non-null contextual mention', async () => {
+    const menu = await greyMenu(); const body = '¿Cuál es la diferencia entre ambos servicios?'; const beforeAgenda = agenda
+    const result = await respondWithAiInterpreter(context, menu.state, body, greyPort, async () => ({
+      ...owned(body, greyCatalog.map(service => service.id), 'comparison', null, 'ambos servicios'),
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral, ...greyPublished] } }
+    }))
+    assert.ok(result.reply.includes(greyGeneral.text)); assert.doesNotMatch(result.reply, /De cuál de estos servicios/)
+    assert.match(result.reply, /65[.,]?000/); assert.match(result.reply, /60 min/)
+    assert.equal(result.interpretation.replyRoute, 'first_call'); checkRead(result, menu.state, beforeAgenda)
+  })
+  await check('B7 a contextual answer can compare the complete current pool without narrowing it', async () => {
+    const menu = await greyMenu(); const body = 'Explicame las dos opciones'; const beforeAgenda = agenda
+    const proposal = owned(body, greyCatalog.map(service => service.id), 'comparison', null, 'las dos opciones')
+    proposal.communicativeActs.acts[0]!.kind = 'answer'
+    const result = await respondWithAiInterpreter(context, menu.state, body, greyPort, async () => ({ ...proposal,
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral, ...greyPublished] } } }))
+    assert.ok(result.reply.includes(greyGeneral.text)); assert.doesNotMatch(result.reply, /De cuál de estos servicios/)
+    checkRead(result, menu.state, beforeAgenda)
+  })
+  await check('B7 a stale or partial referenced pool never acquires descriptive authority', async () => {
+    const menu = await greyMenu(); const body = '¿Cuál es la diferencia entre ambos servicios?'; const beforeAgenda = agenda
+    const proposal = { ...owned(body, greyCatalog.map(service => service.id), 'comparison', null, 'ambos servicios'),
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral, ...greyPublished] } } }
+    const renamed = greyCatalog.map(service => service.id === 'grey-roots' ? { ...service, name: 'Otro servicio' } : service)
+    const stale = await respondWithAiInterpreter(context, menu.state, body, { ...greyPort, catalog: async () => renamed }, async () => proposal)
+    assert.ok(!stale.reply.includes(greyGeneral.text)); checkRead(stale, menu.state, beforeAgenda)
+    const foreign = await respondWithAiInterpreter(context, menu.state, body, greyPort, async () => ({ ...proposal,
+      turnPlan: { version: 1, operations: [operation(body, ['grey-color', 'foreign-id'], 'comparison')] } }))
+    assert.ok(!foreign.reply.includes(greyGeneral.text)); checkRead(foreign, menu.state, beforeAgenda)
+    const partial = await respondWithAiInterpreter(context, menu.state, body, greyPort, async () => ({ ...proposal,
+      turnPlan: { version: 1, operations: [operation(body, ['grey-color'], 'comparison')] } }))
+    assert.ok(!partial.reply.includes(greyGeneral.text)); checkRead(partial, menu.state, beforeAgenda)
+    const unanchored = await respondWithAiInterpreter(context, menu.state, body, greyPort, async () => ({ ...proposal,
+      communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'service', evidence: body, mention: 'los tres servicios', confidence: 1, operationIndexes: [0] }] } }))
+    assert.ok(!unanchored.reply.includes(greyGeneral.text)); checkRead(unanchored, menu.state, beforeAgenda)
+  })
+  await check('B7 sufficient local descriptions need no duplicate general copy, while a sparse one permits orientation', async () => {
+    const body = 'Orientame para cubrir el crecimiento del color'; const beforeAgenda = agenda
+    const complete = await respondWithAiInterpreter(context, initial, body, greyPort, async () => ({
+      ...owned(body, greyCatalog.map(service => service.id), 'recommendation', null, 'cubrir el crecimiento del color'),
+      firstReply: { ...frame(null), catalogAnswer: { blocks: greyPublished } } }))
+    for (const block of greyPublished) assert.equal(complete.reply.split(block.text).length - 1, 1)
+    assert.match(complete.reply, /65[.,]?000/); assert.match(complete.reply, /60 min/)
+    assert.doesNotMatch(complete.reply, /Información general/); checkRead(complete, initial, beforeAgenda)
+    const sparse = greyCatalog.map(service => ({ ...service, description: null }))
+    const oriented = await respondWithAiInterpreter(context, initial, body, { ...greyPort, catalog: async () => sparse }, async () => ({
+      ...owned(body, sparse.map(service => service.id), 'recommendation', null, 'cubrir el crecimiento del color'),
+      firstReply: { ...frame(null), catalogAnswer: { blocks: [greyGeneral] } } }))
+    assert.ok(oriented.reply.includes(greyGeneral.text)); assert.match(oriented.reply, /No tengo una descripción publicada/)
+    assert.match(oriented.reply, /65[.,]?000/); assert.match(oriented.reply, /60 min/); checkRead(oriented, initial, beforeAgenda)
   })
   await check('Raíces inquiry keeps the selected catalog referent and answers benefit follow-ups with IA plus current facts', async () => {
     const roots: DialogueService = { id: 'roots', name: 'Raíces', description: 'Ayuda a tapar las canas con productos A11Lux.', price: 25000, durationMinutes: 45, requiresConsultation: false }

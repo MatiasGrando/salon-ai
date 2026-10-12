@@ -62,7 +62,7 @@ export function parseInformationFocus(value: unknown, businessId: string): Infor
       new Set(value.options.map(option => option.id)).size !== value.options.length ||
       value.serviceId !== null && (!text(value.serviceId, 128) || !value.options.some(option => option.id === value.serviceId)) ||
       value.candidateId !== null && (!value.awaitingChoice || !text(value.candidateId, 128) || !value.options.some(option => option.id === value.candidateId)) ||
-      !value.awaitingChoice && value.serviceId === null && !(value.aspect === 'comparison' && value.options.length > 1 && value.candidateId === null) ||
+      !value.awaitingChoice && value.serviceId === null && !(['comparison', 'recommendation'].includes(String(value.aspect)) && value.options.length > 1 && value.candidateId === null) ||
       value.awaitingChoice && value.serviceId !== null) throw new Error('invalid information focus')
   return structuredClone(value) as unknown as InformationFocus
 }
