@@ -182,6 +182,11 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
       if(options.financialRead && q.sql.includes('runtime-booking-deposit-receipt'))return options.financialRead.rows
       if(options.financialRead && q.sql.includes('FROM "BookingDepositLine"'))return options.financialRead.lines
       if(options.financialRead && q.sql.includes('FROM "AppointmentServiceItem"'))return options.financialRead.items
+      // An approved deposit verifies the append-only paid-reschedule ledger.
+      // This focused transport fixture has no amendments, so its sealed terms
+      // remain the current assignment.
+      if(options.financialRead && q.sql.includes("type='RESCHEDULE_APPOINTMENT_GROUP'"))return []
+      if(options.financialRead && q.sql.includes('SELECT name FROM "Professional"'))return [{name:'Ana'}]
       if(bookingSql && q.sql.includes('extract(minute FROM'))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows
       if(bookingSql && q.sql.includes('pg_advisory_xact_lock'))return [{locked:1}]
       if(bookingSql && q.sql.includes('conversation-inbox-lock'))return [structuredClone(row)]
@@ -1100,13 +1105,24 @@ financialRuntime.next('/reset');await financialRuntime.run('PROCESS_INBOX',{prov
 assert.deepEqual(financialRuntime.session,protectedBefore,'financial obligation cannot be reset even with empty outbox/complete operation')
 assert.match(financialRuntime.replies.at(-1)!,/No reinicié/)
 const persistedBefore=financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).length
-financialRuntime.next('Ya pagué');await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{throw new Error('protected financial status uses real rows, not AI')},timeoutMs:10})
+let approvedContinuationCalls=0
+financialRuntime.next('Ya pagué');await financialRuntime.run('PROCESS_INBOX',{provider:async()=>{
+  approvedContinuationCalls++
+  return runtimeCandidate()
+},timeoutMs:1000})
+assert.equal(approvedContinuationCalls,1,'verified approval completes the financial obligation and resumes AI interpretation')
 assert.equal((financialRuntime.session.state as {booking:string}).booking,'CONFIRMED')
 assert.equal((financialRuntime.session.state as {deposit:string}).deposit,'APPROVED')
-assert.match(financialRuntime.replies.at(-1)!,/La reserva fue confirmada/)
+assert.doesNotMatch(financialRuntime.replies.at(-1)!,/Tuve un problema|operación anterior pendiente|Mantuvimos provisionalmente/)
+const completedFinancial=readConversationDraft(financialRuntime.session.state,barberResetPolicy,'UTC').completedBooking!
+assert.equal(completedFinancial.receipt!.kind,'HELD')
+assert.equal((completedFinancial.receipt as RuntimeHeldReceipt).depositStatus,'APPROVED')
+assert.equal((completedFinancial.receipt as RuntimeHeldReceipt).amount,financialReceipt.amount,'AI continuation cannot alter the sealed deposit amount')
+assert.deepEqual(completedFinancial.receipt!.currentSchedule,[{appointmentId:'appointment',startAt:financialTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Ana'}])
+assert.deepEqual(completedFinancial.presented,financialPresented,'approval retains the original immutable financial presentation')
 assert.equal(financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).length,persistedBefore+1,'financial status needs normal revision/transition and CRM projection')
 const financialPersist=financialRuntime.statements.filter(q=>q.sql.includes('conversation-turn-persist')).at(-1)!
-assert.ok(financialPersist.values.includes('conversation.financial.reconcile'))
+assert.ok(financialPersist.values.includes('conversation.message'))
 assert.ok(financialPersist.values.includes('COMPLETED'))
 assert.equal(financialReadIds.at(-1), financialRuntime.row.providerMessageId, 'financial protected early reply/reset is acknowledged after commitment')
 console.log('P12 financial protected public reader/reset/session/history/CRM projection: PASS')
@@ -2414,12 +2430,15 @@ try {
   const body=(await bookingDb.query<{payload:{item:{body:string}}}>('SELECT payload FROM "BotOutbox" ORDER BY "createdAt" DESC LIMIT 1')).rows[0]!.payload.item.body
   assert.equal(body,live.replies.at(-1))
   live.next('Gracias.');await seed();await live.run()
-  assert.deepEqual(readConversationDraft(live.session.state,barberResetPolicy,'UTC').bookingReservation,confirmed,'protected confirmed acknowledgement retains receipt')
-  assert.match(live.replies.at(-1)!,/La reserva fue confirmada/)
+  const acknowledged=readConversationDraft(live.session.state,barberResetPolicy,'UTC')
+  assert.equal(acknowledged.bookingReservation,undefined,'completion consumes the old active draft')
+  assert.deepEqual(acknowledged.completedBooking!.presented,confirmed.presented,'completed acknowledgement retains immutable presented terms')
+  assert.deepEqual(acknowledged.completedBooking,confirmed,'completed acknowledgement retains all exact receipt and scheduling authority')
+  assert.doesNotMatch(live.replies.at(-1)!,/La reserva fue confirmada|Tuve un problema/,'ordinary acknowledgements do not replay the reservation summary')
   assert.equal((await bookingDb.query<{n:number}>('SELECT count(*)::int n FROM "Appointment"')).rows[0]!.n,2,'ack cannot book twice')
   // Simulate acceptance of previous replies before reset; no delivery/retry occurs here.
   await bookingDb.query('UPDATE "BotOutbox" SET status=$1::"BotOutboxStatus"', ['ACCEPTED'])
-  // The protected acknowledgement uses fixture settlement; reflect its terminal claim before the next real SQL persist.
+  // Reflect the acknowledged fixture settlement before the next real SQL persist.
   await bookingDb.query('UPDATE "BotDispatchClaim" SET status=$1::"BotDispatchStatus"', ['DONE'])
   const preserved = new Map<string, unknown[]>()
   for (const table of ['Appointment','AppointmentServiceItem','BookingVisit','BotOperation','Customer']) {

@@ -450,20 +450,28 @@ export async function loadRuntimeDepositReceipt(tx:Pick<Prisma.TransactionClient
   `)
   if(rows.length!==1)return null
   const row=rows[0]!,segment=p.terms.segments[0]!,financial=p.terms.deposit.financial
-  let assignment: {startAt:string;professionalId:string}
-  try {
-    const verified=await amendedPaidAssignments(tx,scope.businessId,{groupId:r.coordinationGroupId,proposal:p,
-      customerId:String(row.customerId),canonicalPhone:scope.canonicalPhone,
-      members:[{appointmentId:r.appointments[0]!.appointmentId,visitId:r.appointments[0]!.visitId,depositId:r.depositId}]})
-    assignment=verified.get(r.appointments[0]!.appointmentId)!
-  } catch {return null}
+  const status=String(row.depositStatus)
+  // A proof is not payment authority. Before approval the immutable seal is
+  // the only assignment we may trust; paid amendments are projected only once
+  // the durable deposit status is APPROVED.
+  let assignment: {startAt:string;professionalId:string}={startAt:segment.startAt,professionalId:segment.professionalId}
+  if(status==='APPROVED') {
+    try {
+      const verified=await amendedPaidAssignments(tx,scope.businessId,{groupId:r.coordinationGroupId,proposal:p,
+        customerId:String(row.customerId),canonicalPhone:scope.canonicalPhone,
+        members:[{appointmentId:r.appointments[0]!.appointmentId,visitId:r.appointments[0]!.visitId,depositId:r.depositId}]})
+      const amended=verified.get(r.appointments[0]!.appointmentId)
+      if(!amended)return null
+      assignment=amended
+    } catch {return null}
+  }
   const original:RuntimeBookingOrigin={kind:'RUNTIME',...p.scope,revision:BigInt(p.scope.revision),canonicalPhone:scope.canonicalPhone,operationKey:'read',newBookingAllowed:false}
   const date=(v:unknown)=>{try{return (v instanceof Date?v:new Date(String(v))).toISOString()}catch{return null}}
   if(row.parentHash!==runtimeBookingRequestHash(original,p)||row.childHash!==runtimeBookingChildRequestHash(runtimeBookingChildInput(p,r.operationKey,0,false),true)||
     row.serviceId!==segment.serviceId||row.professionalId!==assignment.professionalId||date(row.startAt)!==assignment.startAt||date(row.scheduledStartAt)!==assignment.startAt||row.duration!==segment.durationMinutes||row.visitDuration!==segment.durationMinutes||
     row.quotedPrice!==(segment.priceMode==='FIXED'?segment.priceMinor:null)||row.visitPrice!==(segment.priceMode==='FIXED'?segment.priceMinor:null)||row.amount!==financial.amount||row.holdTtlMinutes!==financial.ttlMinutes||row.holdTtlProvenance!==financial.ttlProvenance||!row.snapshotSealedAt||date(row.expiresAt)!==r.expiresAt)return null
   const pairs:Record<string,readonly string[]>={PENDING_PROOF:['HELD','PENDING'],PENDING_RESUBMISSION:['HELD','PENDING'],PROOF_RECEIVED:['PENDING_PAYMENT_REVIEW','PENDING'],APPROVED:['CONFIRMED','CONFIRMED'],REJECTED:['CANCELLED','CANCELLED'],EXPIRED:['EXPIRED','CANCELLED']}
-  const status=String(row.depositStatus),pair=pairs[status]
+  const pair=pairs[status]
   if(!pair||row.visitStatus!==pair[0]||row.appointmentStatus!==pair[1])return null
   const lines=await tx.$queryRaw<BookingDepositTerms['lines']>(Prisma.sql`SELECT "serviceId","sortOrder","serviceName",mode,"configuredValue","baseAmount",amount FROM "BookingDepositLine" WHERE "businessId"=${scope.businessId} AND "depositId"=${r.depositId} ORDER BY "sortOrder"`)
   const items=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`SELECT "serviceId","sortOrder","durationMinutes",price FROM "AppointmentServiceItem" WHERE "appointmentId"=${r.appointments[0]!.appointmentId} ORDER BY "sortOrder"`)
@@ -475,10 +483,13 @@ export async function loadRuntimeDepositReceipt(tx:Pick<Prisma.TransactionClient
   }
   // Persisted hints never survive a durable refresh without cancellation authority.
   const {cancellationReason:discardedReason,...receipt}=r
-  const pros=await tx.$queryRaw<Array<{name:string}>>(Prisma.sql`SELECT name FROM "Professional" WHERE id=${assignment.professionalId} AND "businessId"=${scope.businessId}`)
-  if(pros.length!==1 || !text(pros[0]!.name))return null
-  const currentSchedule=[{appointmentId:r.appointments[0]!.appointmentId,...assignment,professionalName:pros[0]!.name}]
-  return {...receipt,currentSchedule,depositStatus:status as RuntimeHeldReceipt['depositStatus'],...(cancellationReason?{cancellationReason}:{}),...(text(row.businessAddress,1000)?{businessAddress:row.businessAddress}:{})}
+  let currentSchedule:RuntimeHeldReceipt['currentSchedule']
+  if(status==='APPROVED') {
+    const pros=await tx.$queryRaw<Array<{name:string}>>(Prisma.sql`SELECT name FROM "Professional" WHERE id=${assignment.professionalId} AND "businessId"=${scope.businessId}`)
+    if(pros.length!==1 || !text(pros[0]!.name))return null
+    currentSchedule=[{appointmentId:r.appointments[0]!.appointmentId,...assignment,professionalName:pros[0]!.name}]
+  }
+  return {...receipt,...(currentSchedule?{currentSchedule}:{}),depositStatus:status as RuntimeHeldReceipt['depositStatus'],...(cancellationReason?{cancellationReason}:{}),...(text(row.businessAddress,1000)?{businessAddress:row.businessAddress}:{})}
 }
 async function replayRuntimeDeposit(tx:Prisma.TransactionClient,input:RuntimeBookingInput,key:string,requestHash:string,customerId:string|null):Promise<RuntimeHeldReceipt|null> {
   const ops=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`SELECT * FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE`)

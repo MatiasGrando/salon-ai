@@ -289,7 +289,7 @@ export async function processConversationInbox(input: {
       try {
         const draft = readConversationDraft(session.state, policy, timezone)
         resetTestDialogue(draft)
-        if (parsed.state.booking === 'CONFIRMED' && !draft.bookingReservation?.receipt) return false
+        if (parsed.state.booking === 'CONFIRMED' && !(draft.bookingReservation ?? draft.completedBooking)?.receipt) return false
       } catch { return false }
       return !await hasPendingConversationEffectsTx(tx, { businessId: policy.businessId, sessionId: session.sessionId })
     }
