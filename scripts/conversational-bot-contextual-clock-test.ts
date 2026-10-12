@@ -21,12 +21,72 @@ const todayProposal = (message: string) => ({ ...proposal(message, time('a las 3
   { kind: 'inquiry', field: 'date', evidence: 'hoy', confidence: .99, mention: null, operationIndexes: [0] },
   { kind: 'inquiry', field: 'time', evidence: 'a las 3', confidence: .99, mention: null, operationIndexes: [1] }
 ] } })
+// Exact technical proposal captured from the authorized synthetic B10 evaluation.
+// It omitted the user's explicit day despite receiving the correct public calendar.
+const omittedDayProposal = (message: string) => ({ ...proposal(message, { kind: 'time_clarification', evidence: 'a las 3', confidence: .98, candidateTimes: ['03:00', '15:00'] }),
+  communicativeActs: { version: 1, acts: [{ kind: 'inquiry', field: 'time', evidence: message, confidence: .99, mention: 'a las 3', operationIndexes: [0] }] },
+  firstReply: { catalogAnswer: null, salutation: null, opening: null, factIds: null, closing: null, variantChoices: null } })
 const failures: string[] = []
 async function check(name: string, run: () => Promise<void> | void) { try { await run(); console.log('PASS contextual clock ' + name) } catch (error) { failures.push(name); console.error('RED contextual clock ' + name + ': ' + String(error)) } }
 function unbooked(result: Awaited<ReturnType<typeof respondWithAiInterpreter>>) { assert.equal(result.state.slot, null); assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.state.serviceId, 'cut'); assert.equal(result.state.customerName, 'Ana') }
 const originalFetch = globalThis.fetch
 globalThis.fetch = async () => { throw new Error('Network forbidden') }
 try {
+  await check('B10 exact omitted-day replay repairs both date and clock through the IA', async () => {
+    const message = 'hoy a las 3 tenés lugar?'; let calls = 0
+    const result = await respondWithAiInterpreter(context, { ...state, date: null, professional: null, pending: 'date' }, message, port, async input => {
+      calls++
+      if (input.repairFeedback) { assert.equal(input.repairFeedback.cause, 'evidence'); return todayProposal(message) }
+      return omittedDayProposal(message)
+    })
+    assert.equal(calls, 2, 'omitting the explicit date cannot be reported as accepted')
+    assert.equal(result.interpretation.interpretationAttempts?.[0]?.validation.outcome, 'rejected')
+    assert.equal(result.state.date, '2026-10-12'); assert.equal(result.state.requestedTime, '15:00'); assert.equal(result.state.pending, 'professional'); unbooked(result)
+  })
+  await check('two omitted-day interpretations preserve the original request and day state', async () => {
+    const message = 'hoy a las 3 tenés lugar?'; let calls = 0; const beforeReads = agendaReads
+    const original = { ...state, date: null, professional: null, pending: 'date' as const }
+    const result = await respondWithAiInterpreter(context, original, message, port, async () => { calls++; return omittedDayProposal(message) })
+    assert.equal(calls, 2); assert.equal(result.interpretation.mode, 'fallback'); assert.equal(result.state.date, null); assert.equal(result.state.requestedTime, null); assert.equal(result.state.pending, 'date'); assert.equal(agendaReads, beforeReads); unbooked(result)
+  })
+  await check('Tuesday and its clock are repaired before asking the missing service', async () => {
+    const message = 'el martes a las 3 tenés lugar?'; let calls = 0
+    const tuesdaySnapshot = { ...snapshot, weeklyHours: [...snapshot.weeklyHours, { dayOfWeek: 2, startTime: '09:00', endTime: '20:00' }] }
+    const tuesdayPort = { ...port, businessHoursContext: (date: string) => projectBusinessHoursContext(tuesdaySnapshot, date), businessTimeContext: (date: string, times: readonly string[]) => projectBusinessTimeContext(tuesdaySnapshot, date, times) }
+    const result = await respondWithAiInterpreter(context, { ...state, serviceId: null, date: null, professional: null, pending: 'service' }, message, tuesdayPort, async input => {
+      calls++; assert.equal(input.businessHoursContext?.date, '2026-10-13')
+      if (!input.repairFeedback) return omittedDayProposal(message)
+      return { ...todayProposal(message), turnPlan: { version: 1, operations: [{ kind: 'date', expression: 'martes', value: '2026-10-13', evidence: 'martes', confidence: .99 }, time('a las 3')] }, communicativeActs: { version: 1, acts: [
+        { kind: 'inquiry', field: 'date', evidence: 'martes', confidence: .99, mention: null, operationIndexes: [0] },
+        { kind: 'inquiry', field: 'time', evidence: 'a las 3', confidence: .99, mention: null, operationIndexes: [1] }
+      ] } }
+    })
+    assert.equal(calls, 2); assert.equal(result.state.date, '2026-10-13'); assert.equal(result.state.requestedTime, '15:00'); assert.equal(result.state.pending, 'service'); assert.equal(result.state.serviceId, null); assert.match(result.reply, /servicio/); assert.equal(result.state.slot, null); assert.equal(result.bookingCommand, undefined)
+  })
+  for (const [expression, day] of [['hoy', '2026-10-12'], ['martes', '2026-10-13']] as const) await check('an omitted ' + expression + ' date with a 24-hour clock is repaired rather than inferred', async () => {
+    const message = expression + ' a las 15 tenés lugar?'; let calls = 0
+    const result = await respondWithAiInterpreter(context, { ...state, date: null, professional: null, pending: 'date' }, message, port, async input => {
+      calls++
+      if (!input.repairFeedback) return proposal(message, time('a las 15'))
+      return { ...proposal(message, time('a las 15')), turnPlan: { version: 1, operations: [{ kind: 'date', expression, value: day, evidence: expression, confidence: .99 }, time('a las 15')] }, communicativeActs: { version: 1, acts: [
+        { kind: 'inquiry', field: 'date', evidence: expression, confidence: .99, mention: null, operationIndexes: [0] },
+        { kind: 'inquiry', field: 'time', evidence: 'a las 15', confidence: .99, mention: null, operationIndexes: [1] }
+      ] } }
+    })
+    assert.equal(calls, 2); assert.equal(result.state.date, day); assert.equal(result.state.requestedTime, '15:00'); assert.equal(result.state.pending, 'professional'); unbooked(result)
+  })
+  await check('a morning period without a date does not force a tomorrow operation', async () => {
+    const message = 'por la mañana'; let calls = 0
+    const result = await respondWithAiInterpreter(context, { ...state, date: null, pending: 'date' }, message, port, async () => {
+      calls++; return proposal(message, { kind: 'time_preference', preference: { kind: 'band', band: 'MORNING' }, evidence: message, confidence: .99 })
+    })
+    assert.equal(calls, 1); assert.equal(result.state.date, null); assert.deepEqual(result.state.timePreference, { kind: 'band', band: 'MORNING' }); unbooked(result)
+  })
+  await check('an explicit morning clock is not a tomorrow date', async () => {
+    const message = 'a las 3 de la mañana tenés lugar?'; let calls = 0
+    const result = await respondWithAiInterpreter(context, state, message, port, async () => { calls++; return proposal(message, time('a las 3 de la mañana', '03:00')) })
+    assert.equal(calls, 1); assert.equal(result.state.date, state.date); assert.equal(result.state.requestedTime, '03:00'); unbooked(result)
+  })
   await check('unmarked clock exposes public hours and reads availability at 15', async () => {
     const message = 'hoy a las 3 tenés lugar?'
     const before = agendaReads

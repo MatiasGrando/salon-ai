@@ -1,4 +1,4 @@
-import { commercialTimeCandidate, temporalPlanDate, type BusinessTimeContextReader } from './business-time-context.js'
+import { commercialTimeCandidate, temporalPlanDate, prospectiveMessageDate, type BusinessTimeContextReader } from './business-time-context.js'
 import { TurnPlanValidationError } from './turn-plan.js'
 import { approximateTimeRequest, classifyTemporalRequest, parseTimePreference, timeOperationMatchesEvidence, literalClockMeaning, type TimePreference } from './time-preference.js'
 import type { DialogueState } from './engine.js'
@@ -122,10 +122,16 @@ export function groundAiClockPlan(value: unknown, message: string, state: Contex
   if (!record(operation) || !['time', 'time_clarification'].includes(String(operation.kind)) || !wellShapedTemporal(operation) || typeof operation.evidence !== 'string' ||
       approximateTimeRequest(message) || state.timeClarification && contextualTimeAnswer(message, state.timeClarification.candidateTimes)) return groundTemporalPlan(value, message, state, commercial)
   const meaning = literalClockMeaning(message, operation.evidence)
+  const date = temporalPlanDate(value, state.date ?? null, commercial.businessDate)
+  // A current explicit day cannot disappear from a combined clock inquiry.
+  // This is denial evidence only: the IA must supply the missing/correct date.
+  // A proven clock's morning qualifier belongs to its period, not tomorrow.
+  const calendarMessage = meaning.kind === 'single' ? message.replace(/\bde la ma[ñn]ana\b/gi, '') : message
+  const explicitDate = prospectiveMessageDate(calendarMessage, null, commercial.businessDate)
+  if (explicitDate && date !== explicitDate) throw new TurnPlanValidationError('evidence', 'current temporal date omitted or contradicted by the interpretation')
   if (meaning.kind !== 'unknown' || !meaning.candidateTimes) return groundTemporalPlan(value, message, state, commercial)
   const candidates = meaning.candidateTimes
   if (operation.kind === 'time' && !candidates.includes(String(operation.value)) || operation.kind === 'time_clarification' && JSON.stringify(operation.candidateTimes) !== JSON.stringify(candidates)) throw new TurnPlanValidationError('evidence', 'clock candidates do not match the current numeric evidence')
-  const date = temporalPlanDate(value, state.date ?? null, commercial.businessDate)
   const chosen = contextTime(candidates, state.timePreference) ?? commercialTimeCandidate(date ? commercial.read?.(date, candidates) : undefined, { businessId: commercial.businessId, timezone: commercial.timezone, date }, candidates)
   // A contrary/unsupported proposal goes through the existing single IA repair.
   // The validator cannot replace the hour or manufacture a clarification operation.
