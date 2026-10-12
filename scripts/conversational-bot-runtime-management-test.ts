@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { initialDialogueState, continueCompletedBooking, respond, finalizeRuntimeBooking, type DialogueContext, type DialoguePort, type DialogueState, type DialogueResponse } from '../src/conversational-bot/engine.js'
+import { initialDialogueState, continueCompletedBooking, respond, finalizeRuntimeBooking, finalizeAppointmentManagement, type DialogueContext, type DialoguePort, type DialogueState, type DialogueResponse } from '../src/conversational-bot/engine.js'
 import { runtimeBookingFingerprint, type RuntimeShownScope, type RuntimeBookingTerms } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { beginAppointmentManagement, managementRescheduleOfferKey, presentGroupCancellation, confirmGroupCancellation } from '../src/conversational-bot/appointment-management.js'
 import type { AppointmentManagementContext, CancellationSnapshot, GroupCancellationCommand, GroupRescheduleCommand } from '../src/conversational-bot/appointment-management.js'
+import { ownAppointmentKey } from '../src/conversational-bot/own-appointments.js'
 
 // First public RED uses controlled server ports and a controlled COMMITTED result.
 // This is NOT caller/F7/F9 integration proof; real caller/PGlite coverage must follow before closure.
@@ -63,12 +64,55 @@ for (const altered of [{ revision: '5' }, { sessionId: 'foreign' }, { dispatchFe
 }
 assert.deepEqual((await respond({ ...context, serverRuntimeBookingScope: { ...scope, revision: '4' } }, actual.state, 'Confirmo la cancelación.', port) as ManagementResponse).managementCommand, undefined)
 console.log('runtime management current literal scope and conditional denial: PASS')
-const reschedulePort: DialoguePort = { ...port, managementRescheduleOffers: async (current, date) => { const moves = [{ appointmentId: 'owned-appointment', newStartAt: date + 'T10:00:00.000Z' }]; return [{ key: managementRescheduleOfferKey(current, date, moves), date, moves }] } }
+const reschedulePort: DialoguePort = { ...port,
+  professionalInformation: async () => ({ businessId: 'b', complete: true, professionals: [{ id: 'marta', name: 'Marta', services: [{ id: 'cut', name: 'Corte', description: null }], description: null, schedule: null }] }),
+  managementRescheduleOffers: async (current, date, professionalChange) => { const moves = [{ appointmentId: current.members[0]!.appointmentId, newStartAt: date + 'T10:00:00.000Z', ...(professionalChange ? { newProfessionalId: professionalChange.professionalId } : {}) }]; return [{ key: managementRescheduleOfferKey(current, date, moves), date, moves }] } }
 const change = await respond(managementContext, booked.state, 'Quiero reprogramar mi turno.', reschedulePort)
 const approximate = await respond(managementContext, change.state, 'Para el 2026-10-19 alrededor de las 10:00.', reschedulePort)
 assert.equal(approximate.state.appointmentManagement?.context.proposal, undefined, 'an approximate preference is not explicit selection of a management offer')
 assert.equal(approximate.managementCommand, undefined)
 assert.equal(approximate.state.appointmentManagement?.selectedTime, undefined)
+
+// A reset conversation has no booking receipt or presented booking nonce. A new
+// own-appointment selection may authorize a *fresh* reschedule proposal only
+// from the current caller-owned snapshot; it must not reconstruct old consent.
+const ownLookupItem = { key: ownAppointmentKey(snapshot), label: 'Corte con Elisa · turno confirmado', snapshot: structuredClone(snapshot) }
+const ownLookup = { businessId: 'b', sessionId: 'session', revision: '19', dbNow: context.dbNow.toISOString(), items: [ownLookupItem], hasMore: false }
+const ownLookupContext: DialogueContext = { businessId: 'b', timezone: 'UTC', dbNow: context.dbNow,
+  serverRuntimeBookingScope: { ...scope, revision: '20' }, serverOwnAppointments: ownLookup, serverManagementSnapshot: snapshot }
+const ownTargetDate = '2026-10-19'
+const resetState = initialDialogueState('b')
+const ownRescheduleMessage = 'Quiero reprogramar mi turno.'
+const ownReschedule = await respond(ownLookupContext, resetState, ownRescheduleMessage, reschedulePort, { serviceId: null, candidateIds: [], correction: false,
+  turnPlan: { version: 1, operations: [{ kind: 'own_appointment', action: 'reschedule', optionKey: ownLookupItem.key, evidence: ownRescheduleMessage, confidence: 1 }] } })
+const ownManagement = ownReschedule.state.appointmentManagement
+assert.equal(ownManagement?.context.source, 'own_lookup', 'AI-selected own appointment starts a fresh management authority after reset')
+assert.equal(ownManagement?.context.proposal, undefined, 'selection alone does not consent to a move')
+assert.equal(ownReschedule.state.bookingReservation, undefined, 'must not recreate any prior receipt/presented booking')
+assert.match(ownReschedule.reply, /fecha/i)
+const ownDateMessage = 'Para el ' + ownTargetDate + ' a las 10:00 con Marta para Corte.'
+const ownOffer = await respond(ownLookupContext, ownReschedule.state, ownDateMessage, reschedulePort, { serviceId: null, candidateIds: [], correction: false,
+  turnPlan: { version: 1, operations: [
+    { kind: 'date', expression: ownTargetDate, value: ownTargetDate, evidence: ownDateMessage, confidence: 1 },
+    { kind: 'time', value: '10:00', evidence: ownDateMessage, confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Marta', evidence: ownDateMessage, confidence: 1 }
+  ] } })
+assert.equal(ownOffer.state.appointmentManagement?.context.source, 'own_lookup')
+const ownProposal = ownOffer.state.appointmentManagement?.context.proposal
+assert.equal(ownProposal?.kind, 'GROUP_RESCHEDULE_PROPOSAL')
+if (ownProposal?.kind !== 'GROUP_RESCHEDULE_PROPOSAL') throw new Error('own lookup reschedule offer missing')
+assert.equal(ownProposal.source, 'own_lookup', 'proposal fingerprint provenance remains explicit')
+assert.equal(ownProposal.moves[0]?.newProfessionalId, 'marta', 'only the explicitly requested professional changes')
+assert.equal(ownOffer.managementCommand, undefined, 'date/time selection is not explicit confirmation')
+const ownConfirmation = await respond({ ...ownLookupContext, serverRuntimeBookingScope: { ...scope, revision: '21' } }, ownOffer.state, 'Confirmo la reprogramación.', reschedulePort)
+assert.equal((ownConfirmation.managementCommand as GroupRescheduleCommand | undefined)?.source, 'own_lookup')
+assert.equal(ownConfirmation.managementCommand?.kind, 'RESCHEDULE_APPOINTMENT_GROUP')
+assert.deepEqual(ownConfirmation.state.bookingReservation, undefined, 'confirming a reset-origin move still does not resurrect the prior booking receipt')
+const completedOwnManagement = finalizeAppointmentManagement(ownConfirmation, { appointmentIds: ['owned-appointment'], moves: ownProposal.moves })
+assert.equal(completedOwnManagement.state.appointmentManagement?.outcome?.kind, 'RESCHEDULED')
+const postManagementGreeting = await respond(ownLookupContext, completedOwnManagement.state, 'hola', reschedulePort, { serviceId: null, candidateIds: [], correction: false, turnPlan: { version: 1, operations: [] } })
+assert.doesNotMatch(postManagementGreeting.reply, /grupo de turnos fue reprogramado/i, 'a completed own lookup must release the following normal conversation turn')
+console.log('runtime management after reset: current own lookup → date/time/professional availability → explicit own_lookup confirmation without receipt reconstruction; next turn normal: PASS')
 
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { publicAppointmentManagement } from '../src/conversational-bot/dialogue-context.js'

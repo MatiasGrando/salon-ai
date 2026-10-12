@@ -7,6 +7,7 @@ import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, loadVerifiedRuntimeManagementSchedule, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { loadOwnAppointments } from './prisma-own-appointments.js'
+import { ownAppointmentKey } from './own-appointments.js'
 import { routeActions } from './actions.js'
 import { canonicalJsonHash } from './canonical-json.js'
 import { explicitReferralAction } from './conversational-referral.js'
@@ -519,6 +520,22 @@ export async function processConversationInbox(input: {
       }
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
+      if (payload.messageType === 'text' && !isRestart(payload.textBody)) {
+        const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
+        const ownManagement = draft.appointmentManagement?.context
+        if (ownManagement?.source === 'own_lookup' && ownManagement.action === 'RESCHEDULE') {
+          try {
+            const own = await loadOwnAppointments(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
+              canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
+            const selectedKey = ownAppointmentKey(ownManagement.snapshot)
+            const current = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(ownManagement.snapshot))
+            if (current) {
+              serverManagementSnapshot = current.snapshot
+              runtimeManagementAllowed = true
+            }
+          } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
+        }
+      }
       if (parsed.state.booking === 'CONFIRMED' && ['NONE', 'APPROVED'].includes(parsed.state.deposit) && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
         const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
         const requested = routeActions(String(payload.textBody ?? '')).pendingAction
@@ -536,7 +553,7 @@ export async function processConversationInbox(input: {
               confirmedDraft = { ...draft, ...(draft.bookingReservation
                 ? { bookingReservation: currentReservation } : { completedBooking: currentReservation }) }
             }
-            runtimeManagementAllowed = Boolean(draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')
+          runtimeManagementAllowed = runtimeManagementAllowed || Boolean(draft.appointmentManagement || requested === 'CANCEL' || requested === 'RESCHEDULE')
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
@@ -794,9 +811,17 @@ export async function processConversationInbox(input: {
           const managementScope = { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }
           const managementState = parseBotOptionsState(session.state)
           if (!managementState.ok) throw new GroupCancellationError('invalid current management state')
-          const fresh = await (managementState.state.deposit === 'APPROVED'
-            ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
-            : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
+          const fresh = managementCommand.kind === 'RESCHEDULE_APPOINTMENT_GROUP' && managementCommand.source === 'own_lookup'
+            ? await (async () => {
+              const own = await loadOwnAppointments(tx, managementScope)
+              const selectedKey = ownAppointmentKey(managementCommand.snapshot)
+              const selected = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(managementCommand.snapshot))
+              if (!selected) throw new GroupCancellationError('own lookup selection changed; new consent required')
+              return selected.snapshot
+            })()
+            : await (managementState.state.deposit === 'APPROVED'
+              ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
+              : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
           if (cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) throw new GroupCancellationError('management snapshot changed; new consent required')
           const receipt = managementCommand.kind === 'CANCEL_APPOINTMENT_GROUP' ? await cancelGroupInTransaction(tx, managementCommand) : await rescheduleGroupInTransaction(tx, managementCommand)
           finalResponse = finalizeAppointmentManagement(response, receipt)

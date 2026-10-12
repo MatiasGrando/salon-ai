@@ -209,22 +209,34 @@ export async function amendedPaidAssignments(tx: Pick<Prisma.TransactionClient,'
     if(ready.length!==1) fail()
     const operation=ready[0]!
     pending.splice(pending.indexOf(operation),1)
-    if (operation.status !== 'COMPLETED' || operation.sessionId !== group.proposal.scope.sessionId || !operation.resultRef) fail()
+    if (operation.status !== 'COMPLETED' || !operation.resultRef) fail()
     let receipt: Record<string, unknown>
     try { receipt = JSON.parse(operation.resultRef) as Record<string, unknown> } catch { return fail() }
     if (!object(receipt) || receipt.version !== 1 || receipt.groupId !== group.groupId || !object(receipt.command) || !Array.isArray(receipt.children) ||
       receipt.children.length<1 || receipt.children.length>group.members.length || operation.requestHash !== canonicalJsonHash(receipt.command)) fail()
     const command = receipt.command as GroupRescheduleCommand
-    try { if (command.kind!=='RESCHEDULE_APPOINTMENT_GROUP' || command.confirmed!==true || command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves)) fail() }
+    try { if (command.kind!=='RESCHEDULE_APPOINTMENT_GROUP' || command.confirmed!==true || command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves,command.source)) fail() }
     catch { fail() }
     if (command.nonce!==receipt.nonce || command.fingerprint!==receipt.fingerprint) fail()
     const snapshot = command.snapshot as unknown as Record<string,unknown>
     if (snapshot.groupId !== group.groupId || !object(snapshot.scope) || snapshot.scope.businessId !== businessId ||
-      snapshot.scope.sessionId !== operation.sessionId || snapshot.scope.customerId!==group.customerId ||
+      snapshot.scope.sessionId !== operation.sessionId || (command.source!=='own_lookup' && operation.sessionId!==group.proposal.scope.sessionId) ||
+      snapshot.scope.customerId!==group.customerId ||
       snapshot.scope.normalizedPhone!==group.canonicalPhone ||
       operation.operationKey!=='reschedule-group:'+canonicalJsonHash([snapshot.scope,command.nonce,command.fingerprint]) ||
       !Array.isArray(snapshot.members) || snapshot.members.length !== group.members.length ||
       !Array.isArray(command.moves) || command.moves.length !== group.members.length) fail()
+    if (command.source==='own_lookup') {
+      const owner=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+        SELECT s.id FROM "BotSession" s
+        JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+        JOIN "Customer" customer ON customer.id=${group.customerId} AND customer."businessId"=s."businessId"
+          AND customer."normalizedPhone"=${group.canonicalPhone}
+        WHERE s.id=${operation.sessionId} AND s."businessId"=${businessId}
+          AND regexp_replace(c.phone,'[^0-9]','','g')=${group.canonicalPhone}
+        FOR SHARE OF s,c,customer`)
+      if(owner.length!==1) fail()
+    }
     for (const [index,member] of group.members.entries()) {
       const before = snapshot.members.filter((candidate:unknown)=>object(candidate) && candidate.appointmentId === member.appointmentId)
       const move = command.moves.filter((candidate:unknown)=>object(candidate) && candidate.appointmentId === member.appointmentId)
@@ -341,6 +353,51 @@ async function assertRuntimeSingularDeposit(tx:Prisma.TransactionClient,target:{
   const child=children[0]
   if(children.length!==1 || !child || child.businessId!==businessId || child.sessionId!==member.sessionId || child.status!=='COMPLETED' ||
       child.type!=='HOLD_VISIT_WITH_DEPOSIT' || child.resultRef!==member.visitId || !/^[a-f0-9]{64}$/.test(child.requestHash)) fail()
+}
+
+/** Durable financial authority for a singular paid appointment after the chat
+ * that created it has been reset. This intentionally returns only the sealed
+ * F8 facts and original session identity; it never reconstructs a presented
+ * booking or rewrites its receipt. */
+export async function lockRuntimeSingularApprovedDeposit(tx:Prisma.TransactionClient,target:{businessId:string;appointmentId:string}) {
+  await lockCoordinatedDepositGroupForAppointment(tx,target)
+  const rows=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT a.id AS "appointmentId",a.origin,a.status AS "appointmentStatus",a."businessId",a."customerId",a."professionalId",a."visitId",a."coordinationGroupId",
+      v.status AS "visitStatus",v."businessId" AS "visitBusinessId",v."customerId" AS "visitCustomerId",v."sessionId",
+      d.id AS "depositId",d.status AS "depositStatus",d.source,d.amount,d."snapshotSealedAt",d."visitId" AS "depositVisitId",d."conversationId",d.mode,d."configuredValue",d."baseAmount",d."expiresAt",d."holdTtlMinutes",d."holdTtlProvenance"
+    FROM "Appointment" a JOIN "BookingVisit" v ON v.id=a."visitId" AND v."businessId"=a."businessId"
+    JOIN "BookingDeposit" d ON d."appointmentId"=a.id AND d."businessId"=a."businessId"
+    WHERE a.id=${target.appointmentId} AND a."businessId"=${target.businessId}
+    FOR UPDATE OF a,v,d`)
+  const row=rows[0]
+  if(rows.length!==1 || !row || row.origin!=='BOT' || row.appointmentStatus!=='CONFIRMED' || row.visitStatus!=='CONFIRMED' ||
+    row.visitBusinessId!==target.businessId || row.customerId!==row.visitCustomerId || row.depositVisitId!==row.visitId || row.source!=='WHATSAPP' ||
+    row.depositStatus!=='APPROVED' || !text(row.coordinationGroupId) || !text(row.sessionId) || !text(row.conversationId) || !row.snapshotSealedAt ||
+    !Number.isSafeInteger(row.amount) || Number(row.amount)<0) fail()
+  const lines=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT "serviceId","sortOrder","serviceName",mode,"configuredValue","baseAmount",amount FROM "BookingDepositLine"
+    WHERE "businessId"=${target.businessId} AND "depositId"=${row.depositId} ORDER BY "sortOrder" FOR UPDATE`)
+  if(!lines.length || lines.some((line,index)=>line.sortOrder!==index || !text(line.serviceId) || !text(line.serviceName) || !Number.isSafeInteger(line.amount)) ||
+    lines.reduce((sum,line)=>sum+Number(line.amount),0)!==Number(row.amount)) fail()
+  const proofs=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT id,sequence,kind,"validationStatus","validatorVersion","validatedAt","receivedAt","sourceMimeType","sourceByteSize","derivedMimeType","derivedByteSize","sourceSha256","derivedSha256","providerEventId","providerMessageId","providerMediaId", "purgedAt","purgeReason"
+    FROM "BookingDepositProof" WHERE "businessId"=${target.businessId} AND "depositId"=${row.depositId} ORDER BY sequence FOR UPDATE`)
+  if(!proofs.length || proofs.some((proof,index)=>proof.sequence!==index+1 || proof.validationStatus!=='VALID' || !text(proof.sourceSha256) || !text(proof.derivedSha256))) fail()
+  const audits=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT a.id AS "auditId",a."proofId",a.action,a."actorUserId",a."createdAt",a."operationKey",o.status AS "operationStatus",o.type AS "operationType",o."resultRef",o."requestHash",o."sessionId" AS "operationSessionId"
+    FROM "BookingDepositReviewAudit" a JOIN "BotOperation" o ON o."businessId"=a."businessId" AND o."operationKey"=a."operationKey"
+    WHERE a."businessId"=${target.businessId} AND a."depositId"=${row.depositId} ORDER BY a."createdAt" DESC,a.id DESC LIMIT 1 FOR UPDATE OF a,o`)
+  const audit=audits[0]
+  if(audits.length!==1 || !audit || audit.action!=='APPROVED' || audit.proofId!==proofs.at(-1)!.id || !text(audit.actorUserId) ||
+    audit.operationStatus!=='COMPLETED' || audit.operationType!=='APPROVE_DEPOSIT_PROOF' || audit.resultRef!==audit.auditId || !/^[a-f0-9]{64}$/.test(String(audit.requestHash)) ||
+    audit.operationSessionId!==row.sessionId) fail()
+  const cash=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT * FROM "CashEntry" WHERE "businessId"=${target.businessId} AND "bookingDepositId"=${row.depositId} ORDER BY id FOR UPDATE`)
+  const deposit={id:row.depositId,businessId:row.businessId,appointmentId:row.appointmentId,conversationId:row.conversationId,visitId:row.depositVisitId,
+    source:row.source,amount:row.amount,status:row.depositStatus,snapshotSealedAt:row.snapshotSealedAt,mode:row.mode,configuredValue:row.configuredValue,
+    baseAmount:row.baseAmount,expiresAt:row.expiresAt,holdTtlMinutes:row.holdTtlMinutes,holdTtlProvenance:row.holdTtlProvenance}
+  return {groupId:row.coordinationGroupId,originalSessionId:row.sessionId,customerId:row.customerId,appointmentId:row.appointmentId,
+    visitId:row.visitId,depositId:row.depositId,amount:Number(row.amount),deposit,lines,proofs,audit,cash}
 }
 
 

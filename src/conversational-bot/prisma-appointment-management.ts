@@ -9,7 +9,7 @@ import { parseRuntimeBookingReservation, loadRuntimeDepositReceipt, runtimeBooki
 import { cancelManageableAppointmentInTransaction, type CancelManageableAppointmentInput, type CancelManageableAppointmentResult } from '../bot-options/application/appointment-management.js'
 import { rescheduleManageableAppointmentInTransaction, type RescheduleManageableAppointmentInput, type RescheduleManageableAppointmentResult } from '../bot-options/application/appointment-rescheduling.js'
 import { revalidateBookingWrite } from '../services/booking-operations.js'
-import { amendedPaidAssignments, lockCoordinatedDepositGroupState } from '../services/coordinated-deposit-group.js'
+import { amendedPaidAssignments, lockCoordinatedDepositGroupState, lockRuntimeSingularApprovedDeposit } from '../services/coordinated-deposit-group.js'
 import { assertManagementScope, assertCancellationSnapshot, cancellationFingerprint, managementIdentifier, GroupCancellationError, assertGroupMoves, rescheduleFingerprint, type GroupRescheduleCommand, type GroupMove, type CancellationSnapshot, type GroupCancellationCommand, type ManagementScope } from './appointment-management.js'
 
 type Tx = Prisma.TransactionClient
@@ -30,7 +30,7 @@ async function readSnapshot(tx: Tx, scope: ManagementScope, appointmentId: strin
   const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
     SELECT co.phone FROM "BotSession" bs JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
     JOIN "Customer" c ON c.id=${scope.customerId} AND c."businessId"=bs."businessId" AND c."normalizedPhone"=${scope.normalizedPhone}
-    WHERE bs.id=${scope.sessionId} AND bs."businessId"=${scope.businessId}`)
+    WHERE bs.id=${scope.sessionId} AND bs."businessId"=${scope.businessId} AND bs.status='ACTIVE'`)
   if (identity.length !== 1 || normalizePhone(identity[0]!.phone) !== scope.normalizedPhone) throw new GroupCancellationError('management ownership unavailable')
   const anchor = await tx.$queryRaw<Array<{ groupId: string | null }>>(Prisma.sql`
     SELECT "coordinationGroupId" AS "groupId" FROM "Appointment" WHERE id=${appointmentId} AND "businessId"=${scope.businessId} AND "customerId"=${scope.customerId}`)
@@ -116,7 +116,7 @@ export type GroupRescheduleReceipt = {appointmentIds:string[];moves:readonly Gro
 export async function rescheduleGroupInTransaction(tx: Tx,command: GroupRescheduleCommand,
   child: RescheduleChild = rescheduleManageableAppointmentInTransaction): Promise<GroupRescheduleReceipt> {
   if(command.kind!=='RESCHEDULE_APPOINTMENT_GROUP' || command.confirmed!==true ||
-    command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves)) throw new GroupCancellationError('current reschedule consent/snapshot mismatch')
+    command.fingerprint!==rescheduleFingerprint(command.snapshot,command.moves,command.source)) throw new GroupCancellationError('current reschedule consent/snapshot mismatch')
   managementIdentifier(command.nonce)
   const scope=command.snapshot.scope, members=[...command.snapshot.members].sort((a,b)=>a.appointmentId.localeCompare(b.appointmentId))
   const key='reschedule-group:'+canonicalJsonHash([scope,command.nonce,command.fingerprint]), hash=canonicalJsonHash(command)
@@ -180,8 +180,30 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
 /** Singleton holds have the same immutable proposal/child hashes as their
  * initial booking, but no coordinated manifest. The scoped receipt reader
  * validates that original seal and every operational amendment. */
-async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked:CancellationSnapshot) {
-  if(locked.members.length>1 && locked.members.some(member=>member.depositId!==null)) return lockCoordinatedDepositGroupState(tx,{businessId:scope.businessId,groupId:locked.groupId!})
+type RescheduleAuthorityGroup = {groupId:string;originalSessionId:string|null;customerId:string;canonicalPhone:string;anchorDepositId:string|null;
+  members:Array<{appointmentId:string;visitId:string;depositId:string|null}>}
+type RuntimeRescheduleAuthority = {group:RescheduleAuthorityGroup;depositStatus:string;currentAssignments:Array<{appointmentId:string;startAt:string;professionalId:string}>;financialSeal:unknown}
+async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked:CancellationSnapshot,source?:GroupRescheduleCommand['source']):Promise<RuntimeRescheduleAuthority> {
+  if(locked.members.length>1 && locked.members.some(member=>member.depositId!==null)) {
+    const state=await lockCoordinatedDepositGroupState(tx,{businessId:scope.businessId,groupId:locked.groupId!})
+    return {group:{groupId:state.group.groupId,originalSessionId:state.group.proposal.scope.sessionId,customerId:state.group.customerId,
+      canonicalPhone:state.group.canonicalPhone,anchorDepositId:state.group.anchorDepositId,members:state.group.members.map(({appointmentId,visitId,depositId})=>({appointmentId,visitId,depositId}))},
+      depositStatus:state.depositStatus,currentAssignments:state.currentAssignments,financialSeal:state.group}
+  }
+  if(source==='own_lookup') {
+    if(locked.members.some(member=>member.manualDepositPaid || member.manualDepositAmount!==null)) throw new GroupCancellationError('own lookup manual financial authority unavailable')
+    if(locked.members.some(member=>member.depositId!==null)) {
+      if(locked.members.length!==1 || !locked.groupId) throw new GroupCancellationError('own lookup singular deposit scope mismatch')
+      const seal=await lockRuntimeSingularApprovedDeposit(tx,{businessId:scope.businessId,appointmentId:locked.members[0]!.appointmentId})
+      if(seal.groupId!==locked.groupId || seal.customerId!==scope.customerId) throw new GroupCancellationError('own lookup singular deposit ownership mismatch')
+      return {group:{groupId:seal.groupId,originalSessionId:seal.originalSessionId,customerId:seal.customerId,canonicalPhone:scope.normalizedPhone,
+        anchorDepositId:seal.depositId,members:[{appointmentId:seal.appointmentId,visitId:seal.visitId,depositId:seal.depositId}]},
+        depositStatus:'APPROVED',currentAssignments:locked.members.map(member=>({appointmentId:member.appointmentId,startAt:member.startAt,professionalId:member.professionalId})),financialSeal:seal}
+    }
+    return {group:{groupId:locked.groupId!,originalSessionId:null,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,anchorDepositId:null,
+      members:locked.members.map(({appointmentId,visitId})=>({appointmentId,visitId,depositId:null}))},depositStatus:'NONE',
+      currentAssignments:locked.members.map(member=>({appointmentId:member.appointmentId,startAt:member.startAt,professionalId:member.professionalId})),financialSeal:null}
+  }
   const sessions=await tx.$queryRaw<Array<{revision:bigint;state:unknown}>>(Prisma.sql`
     SELECT revision,state FROM "BotSession" WHERE id=${scope.sessionId} AND "businessId"=${scope.businessId} AND status='ACTIVE' FOR UPDATE`)
   const session=sessions[0]
@@ -199,7 +221,8 @@ async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked
       throw new GroupCancellationError('no-deposit reschedule authority mismatch')
     const group={groupId:locked.groupId!,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,proposal:reservation.presented,
       anchorDepositId:null,members:receipt.appointments.map(entry=>({appointmentId:entry.appointmentId,visitId:entry.visitId,depositId:null}))}
-    return {group,depositStatus:'NONE',currentAssignments:group.members.map(member=>{
+    return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,canonicalPhone:group.canonicalPhone,
+      anchorDepositId:null,members:group.members},depositStatus:'NONE',financialSeal:reservation,currentAssignments:group.members.map(member=>{
       const current=actual.members.find(m=>m.appointmentId===member.appointmentId)!
       return {appointmentId:member.appointmentId,startAt:current.startAt,professionalId:current.professionalId}
     })}
@@ -212,7 +235,9 @@ async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked
     throw new GroupCancellationError('single approved reschedule financial authority mismatch')
   const group={groupId:locked.groupId!,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,proposal:reservation.presented,
     anchorDepositId:receipt.depositId,members:[{appointmentId:receipt.appointments[0]!.appointmentId,visitId:receipt.appointments[0]!.visitId,depositId:receipt.depositId}]}
-  return {group,depositStatus:receipt.depositStatus,currentAssignments:receipt.currentSchedule.map(({professionalName,...assignment})=>assignment)}
+  return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,canonicalPhone:group.canonicalPhone,
+    anchorDepositId:group.anchorDepositId,members:group.members},depositStatus:receipt.depositStatus,financialSeal:reservation,
+    currentAssignments:receipt.currentSchedule.map(({professionalName,...assignment})=>assignment)}
 }
 
 /** Paid move: never call the F9 child, whose price/financial policy is for a
@@ -222,8 +247,8 @@ async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked
 async function rescheduleApprovedGroupInTransaction(tx:Tx,command:GroupRescheduleCommand,locked:CancellationSnapshot,
   key:string,hash:string):Promise<GroupRescheduleReceipt> {
   const scope=command.snapshot.scope, groupId=locked.groupId!
-  const sealed=await lockRuntimeRescheduleAuthority(tx,scope,locked)
-  if(!['APPROVED','NONE'].includes(sealed.depositStatus) || sealed.group.proposal.scope.sessionId!==scope.sessionId ||
+  const sealed=await lockRuntimeRescheduleAuthority(tx,scope,locked,command.source)
+  if(!['APPROVED','NONE'].includes(sealed.depositStatus) || command.source!=='own_lookup' && sealed.group.originalSessionId!==scope.sessionId ||
     sealed.group.customerId!==scope.customerId || sealed.group.canonicalPhone!==scope.normalizedPhone ||
     sealed.group.members.length!==locked.members.length ||
     sealed.group.members.some(m=>!locked.members.some(member=>member.appointmentId===m.appointmentId && member.visitId===m.visitId && member.depositId===m.depositId)))
@@ -305,9 +330,9 @@ async function rescheduleApprovedGroupInTransaction(tx:Tx,command:GroupReschedul
   const completed=await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"resultRef"=${JSON.stringify(receipt)},"updatedAt"=clock_timestamp()
     WHERE "operationKey"=${key} AND "requestHash"=${hash} AND status='STARTED'`)
   if(completed!==1) throw new GroupCancellationError('paid group completion fence failed')
-  const after=await lockRuntimeRescheduleAuthority(tx,scope,await lockManagedGroup(tx,scope,locked.members[0]!.appointmentId))
+  const after=await lockRuntimeRescheduleAuthority(tx,scope,await lockManagedGroup(tx,scope,locked.members[0]!.appointmentId),command.source)
   if(after.depositStatus!==sealed.depositStatus || after.group.anchorDepositId!==sealed.group.anchorDepositId ||
-    !isDeepStrictEqual(after.group,sealed.group)) throw new GroupCancellationError('paid financial seal changed; rollback required')
+    !isDeepStrictEqual(after.financialSeal,sealed.financialSeal)) throw new GroupCancellationError('paid financial seal changed; rollback required')
   return {appointmentIds:locked.members.map(m=>m.appointmentId),moves:command.moves,replayed:false}
 }
 export type RuntimeManagementContext = { businessId: string; sessionId: string; canonicalPhone: string; expectedRevision: bigint }

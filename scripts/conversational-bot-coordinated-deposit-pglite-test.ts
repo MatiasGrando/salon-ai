@@ -21,7 +21,7 @@ import { parseEstimateOptions, resolveServiceEstimate } from '../src/bot-options
 import { canonicalJsonHash } from '../src/conversational-bot/canonical-json.js'
 import { loadRuntimeDepositReceipt, runtimeBookingChildInput, runtimeBookingRequestHash, runtimeBookingReceiptReply, type RuntimeHeldReceipt } from '../src/conversational-bot/prisma-conversational-booking.js'
 import { loadVerifiedRuntimeManagementSchedule, loadOwnConfirmedCancellationHandoffSnapshot, loadCancellationGroupSnapshot, rescheduleGroupInTransaction } from '../src/conversational-bot/prisma-appointment-management.js'
-import { presentGroupReschedule, confirmGroupReschedule } from '../src/conversational-bot/appointment-management.js'
+import { presentGroupReschedule, confirmGroupReschedule, rescheduleFingerprint } from '../src/conversational-bot/appointment-management.js'
 
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
 const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
@@ -862,6 +862,42 @@ try {
     await group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId})
   }),/membership mismatch/,'corrupted operation amendment is not financial or schedule authority')
   assert.equal((await db.transaction(raw=>group.lockCoordinatedDepositGroupState(orm(raw),{businessId:'b',groupId:estimateReceipt.groupId}))).depositStatus,'APPROVED')
+  // A reset is not loss of ownership: a NEW management proposal belongs to the
+  // currently authenticated caller, never a rebound original booking receipt.
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'}),'session'])
+    await raw.query(`INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,state,"handoffFenceEpoch") VALUES ('own-caller','b','c','dep',2,'ACTIVE',0,$1::jsonb,5)`,[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'})])
+    const ownScope={...managementScope,sessionId:'own-caller'}
+    await raw.query(`UPDATE "BotSession" SET status='CLOSED' WHERE id='own-caller'`)
+    await assert.rejects(loadCancellationGroupSnapshot(tx,ownScope,estimateReceipt.members[0]!.appointmentId),/management ownership unavailable/,
+      'own lookup requires an active authenticated caller session')
+    await raw.query(`UPDATE "BotSession" SET status='ACTIVE' WHERE id='own-caller'`)
+    await raw.query(`UPDATE "Conversation" SET phone='+5491199999999' WHERE id='c'`)
+    await assert.rejects(loadCancellationGroupSnapshot(tx,ownScope,estimateReceipt.members[0]!.appointmentId),/management ownership unavailable/,
+      'own lookup must retain business, customer and normalized phone identity')
+    await raw.query(`UPDATE "Conversation" SET phone='5491112345678' WHERE id='c'`)
+    const ownBefore=await loadCancellationGroupSnapshot(tx,ownScope,estimateReceipt.members[0]!.appointmentId)
+    const moves=ownBefore.members.map(m=>({appointmentId:m.appointmentId,newStartAt:new Date(Date.parse(m.startAt)+7*86400000).toISOString()}))
+    const offer={...presentGroupReschedule(ownBefore,moves),source:'own_lookup' as const,fingerprint:rescheduleFingerprint(ownBefore,moves,'own_lookup')}
+    const command=confirmGroupReschedule(offer,{nonce:offer.nonce,fingerprint:offer.fingerprint})
+    const originalManifest=(await raw.query('SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=$1',[estimateReceipt.operationKey])).rows
+    const originalFinancial=(await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows
+    const originalCash=(await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows
+    await rescheduleGroupInTransaction(tx,command)
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,true)
+    const changed=await group.lockCoordinatedDepositGroupState(tx,{businessId:'b',groupId:estimateReceipt.groupId})
+    assert.equal(changed.depositStatus,'APPROVED'); assert.deepEqual(changed.group,estimateReceipt)
+    assert.equal(changed.group.proposal.scope.sessionId,'session','the original financial identity must never be rebound')
+    assert.deepEqual(Object.fromEntries(changed.currentAssignments.map(m=>[m.appointmentId,m.startAt])),Object.fromEntries(moves.map(m=>[m.appointmentId,m.newStartAt])))
+    assert.deepEqual((await raw.query('SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=$1',[estimateReceipt.operationKey])).rows,originalManifest)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows,originalFinancial)
+    assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,originalCash)
+    const oldReceipt=await loadRuntimeDepositReceipt(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n},{presented:estimated.proposal,receipt:paidReceipt})
+    assert.ok(oldReceipt,'the original receipt reader accepts a separately authenticated new management actor')
+    assert.equal((await projectApprovedDepositPaymentInTransaction(tx,{businessId:'b',bookingDepositId:estimateReceipt.anchorDepositId,origin:'BOT_DEPOSIT'})).created,false)
+    throw Error('rollback own lookup coordinated fixture')
+  }),/rollback own lookup coordinated fixture/)
   await assert.rejects(db.transaction(async raw=>{
     const tx=orm(raw)
     const rawOne=estimated.proposal.terms.segments[1]!, e=rawOne.estimate!
@@ -905,6 +941,52 @@ try {
     assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,originalCash)
     throw Error('rollback single paid reschedule fixture')
   }),/rollback single paid reschedule fixture/)
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    const rawOne=estimated.proposal.terms.segments[1]!, e=rawOne.estimate!
+    const oneSegment={...rawOne,estimate:{optionId:e.optionId,optionLabel:e.optionLabel,priceMin:e.priceMin,priceMax:e.priceMax}}
+    const oneTerms={...estimated.proposal.terms,segments:[oneSegment],totalPriceMinor:null,
+      deposit:{...estimated.proposal.terms.deposit!,financial:calculateBookingDepositTerms({services:[{id:'s2',name:'Cut',price:oneSegment.priceMinor,priceMode:'STARTING_AT',depositMode:estimated.proposal.terms.deposit!.financial.lines[1]!.mode,depositValue:estimated.proposal.terms.deposit!.financial.lines[1]!.configuredValue}],businessDepositHoldMinutes:60})}}
+    const onePresented={...estimated.proposal,terms:oneTerms,fingerprint:canonicalJsonHash(oneTerms)}
+    await raw.exec(`INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('p3-s2','p3','s2')`)
+    const held=await singularRuntimeFixture(tx,onePresented)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:held.depositId,operationKey:'single-own-proof',providerEventId:'single-own-proof',evidence:fixtureEvidence})
+    await ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',held.appointmentId)
+    const singleCash=new CashService({transaction:async fn=>fn(createCashTransactionRepository(tx))})
+    await singleCash.setEstimatedAppointmentTotal({businessId:'b',appointmentId:held.appointmentId,agreedAmount:3000})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'single-own-approve'})
+    const originalDeposit=(await raw.query('SELECT * FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows
+    const originalLines=(await raw.query('SELECT * FROM "BookingDepositLine" WHERE "depositId"=$1',[held.depositId])).rows
+    const originalProofs=(await raw.query('SELECT * FROM "BookingDepositProof" WHERE "depositId"=$1',[held.depositId])).rows
+    const originalAudits=(await raw.query('SELECT * FROM "BookingDepositReviewAudit" WHERE "depositId"=$1',[held.depositId])).rows
+    const originalCash=(await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'}),'session'])
+    await raw.query(`INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,state,"handoffFenceEpoch") VALUES ('own-single-caller','b','c','dep',2,'ACTIVE',0,$1::jsonb,5)`,[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'})])
+    const ownScope={...managementScope,sessionId:'own-single-caller'}
+    await raw.query(`UPDATE "BotSession" SET status='CLOSED' WHERE id='own-single-caller'`)
+    await assert.rejects(loadCancellationGroupSnapshot(tx,ownScope,held.appointmentId),/management ownership unavailable/,
+      'a paid own-lookup move requires an active current caller')
+    await raw.query(`UPDATE "BotSession" SET status='ACTIVE' WHERE id='own-single-caller'`)
+    await raw.query(`UPDATE "Conversation" SET phone='+5491199999999' WHERE id='c'`)
+    await assert.rejects(loadCancellationGroupSnapshot(tx,ownScope,held.appointmentId),/management ownership unavailable/,
+      'a paid own-lookup move must match the persistent customer phone')
+    await raw.query(`UPDATE "Conversation" SET phone='5491112345678' WHERE id='c'`)
+    const before=await loadCancellationGroupSnapshot(tx,ownScope,held.appointmentId)
+    const moves=[{appointmentId:held.appointmentId,newStartAt:new Date(Date.parse(before.members[0]!.startAt)+7*86400000).toISOString(),newProfessionalId:'p3'}]
+    const offer={...presentGroupReschedule(before,moves),source:'own_lookup' as const,fingerprint:rescheduleFingerprint(before,moves,'own_lookup')}
+    const command=confirmGroupReschedule(offer,{nonce:offer.nonce,fingerprint:offer.fingerprint})
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,false,
+      'a paid individual booking remains reschedulable from a fresh conversation without its old presentation')
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,true,'own lookup replay remains idempotent')
+    const after=await group.lockCoordinatedDepositGroupForAppointment(tx,{businessId:'b',appointmentId:held.appointmentId})
+    assert.equal(after,null,'a valid BOT singular deposit is verified without a fabricated coordinated manifest')
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows,originalDeposit)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDepositLine" WHERE "depositId"=$1',[held.depositId])).rows,originalLines)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDepositProof" WHERE "depositId"=$1',[held.depositId])).rows,originalProofs)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDepositReviewAudit" WHERE "depositId"=$1',[held.depositId])).rows,originalAudits)
+    assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,originalCash)
+    throw Error('rollback own lookup single approved fixture')
+  }),/rollback own lookup single approved fixture/)
   await assert.rejects(db.transaction(async raw=>{
     const tx=orm(raw)
     await raw.exec(`UPDATE "Service" SET "depositMode"='NONE',"depositValue"=NULL WHERE id='s1';
@@ -957,6 +1039,23 @@ try {
     assert.match(runtimeBookingReceiptReply({presented:unpaidPresented,receipt:verifiedReceipt}),/Color con Sol/)
     assert.match(runtimeBookingReceiptReply({presented:unpaidPresented,receipt:verifiedReceipt}),/11\/09\/2030/)
     await assert.rejects(rescheduleGroupInTransaction(tx,command),/replay durable|snapshot|changed/i)
+    await raw.exec(`INSERT INTO "ProfessionalHours" (id,"professionalId","dayOfWeek","startTime","endTime") VALUES ('p3-thu','p3',4,'09:00','20:00');
+      INSERT INTO "BusinessHours" (id,"businessId","dayOfWeek","startTime","endTime") VALUES ('bh-thu','b',4,'09:00','20:00');`)
+    await raw.query('UPDATE "BotSession" SET state=$1::jsonb WHERE id=$2',[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'}),'session'])
+    await raw.query(`INSERT INTO "BotSession" (id,"businessId","conversationId","deploymentId","deploymentGeneration",status,revision,state,"handoffFenceEpoch") VALUES ('own-none-caller','b','c','dep',2,'ACTIVE',0,$1::jsonb,5)`,[JSON.stringify({booking:'NONE',deposit:'NONE',handoff:'NONE'})])
+    const ownScope={...managementScope,sessionId:'own-none-caller'}
+    const ownBefore=await loadCancellationGroupSnapshot(tx,ownScope,made.appointmentId)
+    const ownMoves=[{appointmentId:made.appointmentId,newStartAt:'2030-09-12T13:00:00.000Z'}]
+    const ownOffer={...presentGroupReschedule(ownBefore,ownMoves),source:'own_lookup' as const,fingerprint:rescheduleFingerprint(ownBefore,ownMoves,'own_lookup')}
+    const ownCommand=confirmGroupReschedule(ownOffer,{nonce:ownOffer.nonce,fingerprint:ownOffer.fingerprint})
+    const depositsBefore=(await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows
+    const cashBefore=(await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows
+    assert.equal((await rescheduleGroupInTransaction(tx,ownCommand)).replayed,false,'unpaid confirmed own lookup can reschedule after reset')
+    assert.equal((await rescheduleGroupInTransaction(tx,ownCommand)).replayed,true,'unpaid own lookup replay is idempotent')
+    const ownAfter=await loadCancellationGroupSnapshot(tx,ownScope,made.appointmentId)
+    assert.equal(ownAfter.members[0]!.startAt,ownCommand.moves[0]!.newStartAt)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows,depositsBefore)
+    assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,cashBefore)
     throw Error('rollback unpaid professional fixture')
   }),/rollback unpaid professional fixture/)
   console.log('B2 paid coordinated reschedule: atomic rollback, seal, Cash, replay PASS')

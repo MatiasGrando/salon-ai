@@ -82,8 +82,9 @@ try {
   assert.match(cancel.reply, /sigue vigente/)
   const reschedule = await ask('reschedule')
   assert.equal(reschedule.managementCommand, undefined, 'lost immutable source receipt cannot be manufactured')
-  assert.match(reschedule.reply, /autorización original/)
-  assert.match(reschedule.reply, /No envié una solicitud/)
+  assert.equal(reschedule.state.appointmentManagement?.context.source, 'own_lookup', 'a fresh own-appointment lookup starts a new, explicitly sourced management flow')
+  assert.match(reschedule.reply, /fecha/i, 'the new flow asks only for the missing reschedule date')
+  assert.equal(reschedule.state.bookingReservation, undefined, 'own_lookup must not recreate the lost booking receipt')
   const policy = { businessId:'barber',deploymentId:'dep',generation:1,configurationId:'cfg' }
   await db.exec(`CREATE TYPE "BotSessionStatus" AS ENUM ('ACTIVE','HUMAN_QUEUED','HUMAN_TAKEN','CLOSED');
     CREATE TYPE "BotHandoffStatus" AS ENUM ('QUEUED','TAKEN','CANCELLED','RESOLVED');
@@ -128,6 +129,11 @@ try {
   await db.exec(`UPDATE "Appointment" SET version=version+1 WHERE id='c'`)
   const stale = await ask('cancel', multiple.items[1]!.key, choose.state, { ...context, serverOwnAppointments: await read() })
   assert.equal(stale.ownAppointmentHandoff, undefined)
+  const staleReschedule = await ask('reschedule', multiple.items[1]!.key, choose.state, { ...context, serverOwnAppointments: await read() })
+  assert.notEqual(staleReschedule.state.appointmentManagement?.context.source, 'own_lookup', 'a selection from a changed appointment snapshot cannot start a management proposal')
+  await db.exec(`UPDATE "BotSession" SET status='CLOSED' WHERE id='current'`)
+  await assert.rejects(read(), /ownership/, 'own_lookup authority requires a currently active caller session')
+  await db.exec(`UPDATE "BotSession" SET status='ACTIVE' WHERE id='current'`)
   await assert.rejects(loadOwnAppointments(tx as never, { ...scope, canonicalPhone: '5491100000000' }), /ownership/)
   await assert.rejects(loadOwnAppointments(tx as never, { ...scope, expectedRevision: 4n }), /ownership/)
   await assert.rejects(loadOwnAppointments(tx as never, { ...scope, businessId: 'other' }), /ownership/)
