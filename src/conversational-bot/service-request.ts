@@ -142,7 +142,8 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
         return { ...request, disposition: 'needs_detail' };
     // A yes answers a single proposed catalog identity, never authorizes an undocumented variant.
     if (request.continuation && !request.correction &&
-        !(request.purpose === 'inquiry' && previous?.purpose === 'booking') && previous?.disposition === 'needs_detail' &&
+        !(request.purpose === 'inquiry' && previous?.purpose === 'booking') &&
+        (previous?.disposition === 'needs_detail' || previous?.disposition === 'unverified_variant') &&
         previous.basis === 'semantic_equivalent' && previous.serviceIds.length === 1 &&
         request.serviceIds.length === 1 && request.serviceIds[0] === previous.serviceIds[0] &&
         previous.candidateName === services.find(service => service.id === previous.serviceIds[0])?.name &&
@@ -163,7 +164,8 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
         return request;
     return {
         ...request,
-        disposition: request.basis === 'semantic_equivalent' ? 'needs_detail' : 'unverified_variant'
+        // A rejected clear claim is unverified, not a model-owned general goal.
+        disposition: 'unverified_variant'
     };
 }
 
@@ -174,6 +176,9 @@ export function serviceRequestSubject(request: ServiceRequestContext): string {
 /** Only a complete current catalog-category phrase resolves on published selection.
  * A proposed subject can narrow that phrase only when the existing neutral reader consumes every other word. */
 export function serviceRequestCaveat(request: ServiceRequestContext, services: readonly DialogueService[]): string {
+    // An unresolved goal is not a claim about an unpublished technique. Selecting
+    // a current public candidate resolves its identity, not a promise of results.
+    if (request.disposition === 'needs_detail' || request.disposition === 'alternatives') return '';
     const meaning = request.subject && request.aspect && neutralOwnedServiceInquiry(request.request, request.subject, request.aspect)
         ? request.subject : request.request;
     const terms = identityWords(serviceEvidenceMeaning(meaning, services));
@@ -191,7 +196,7 @@ export function serviceSelectionNote(request: ServiceRequestContext, names: read
 export function serviceRequestQuestion(request: ServiceRequestContext): string {
     if (request.referenceConfirmed) return '¿Querés elegir el servicio publicado o consultar esa técnica con el equipo?';
     if (request.disposition === 'alternatives') return '¿Cuál de estas opciones te interesa?';
-    if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && request.candidateName) {
+    if (['needs_detail', 'unverified_variant'].includes(request.disposition) && request.basis === 'semantic_equivalent' && request.candidateName) {
         return '¿Te referís al servicio publicado ' + request.candidateName + ' o buscás un procedimiento distinto?';
     }
     if (request.serviceIds.length === 1) return '¿Te referís a ese servicio o qué resultado buscás?';
@@ -255,18 +260,22 @@ export function serviceRequestReply(request: ServiceRequestContext, services: re
         return 'Para «' + description + '», estas son las opciones del catálogo:\n' +
             candidates.map(service => '• ' + service.name).join('\n') + '\n' + serviceRequestQuestion(request);
     }
-    if (request.disposition === 'needs_detail' && request.basis === 'semantic_equivalent' && candidates.length === 1) {
-        return 'No tengo información confirmada sobre «' + description + '». ' +
-            '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
+    if (['needs_detail', 'unverified_variant'].includes(request.disposition) && request.basis === 'semantic_equivalent' && candidates.length === 1) {
+        const prefix = request.disposition === 'unverified_variant'
+            ? 'No tengo información confirmada sobre «' + description + '». '
+            : 'Para «' + description + '»: ';
+        return prefix + '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
     }
-    const uncertainty = 'No tengo información confirmada sobre «' + description + '». ';
+    const uncertainty = request.disposition === 'unverified_variant'
+        ? 'No tengo información confirmada sobre «' + description + '». '
+        : 'Para «' + description + '», ';
     // Related catalog entries are clarification options, not proof of the requested technique.
     if (candidates.length === 1) {
-        return uncertainty + 'En el catálogo está ' + candidates[0]!.name + ', que podría estar relacionado. ' +
+        return uncertainty + (request.disposition === 'unverified_variant' ? 'En' : 'en') + ' el catálogo está ' + candidates[0]!.name + ', que podría estar relacionado. ' +
             '¿Te referís a ese servicio o qué resultado buscás?';
     }
     if (candidates.length > 1) {
-        return uncertainty + 'Estas opciones del catálogo podrían estar relacionadas:\n' +
+        return uncertainty + (request.disposition === 'unverified_variant' ? 'Estas' : 'estas') + ' opciones del catálogo podrían estar relacionadas:\n' +
             candidates.map(service => '• ' + service.name).join('\n') +
             '\n¿Alguna corresponde a lo que buscás o podés contarme el resultado que querés?';
     }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { initialDialogueState, parseDialogueState, type DialoguePort, type DialogueService } from '../src/conversational-bot/engine.js';
+import { initialDialogueState, parseDialogueState, respondConversationChoice, type DialoguePort, type DialogueService } from '../src/conversational-bot/engine.js';
 import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js';
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js';
 import { resolveServiceRequest } from '../src/conversational-bot/service-request.js';
@@ -191,4 +191,50 @@ assert.deepEqual(punctuationResolution.serviceIds, []);
 
 assert.throws(() => parseDialogueState({ ...pendingCategory.state, serviceRequest: { ...pendingCategory.state.serviceRequest, referenceConfirmed: false } }, 'tenant'), /scope/);
 assert.throws(() => parseDialogueState({ ...pendingCategory.state, serviceRequest: { ...pendingCategory.state.serviceRequest, referenceConfirmed: true, candidateName: undefined } }, 'tenant'), /scope/);
+
+// The model owns goal/technique semantics; the server must not impose an unknown-technique warning on a goal.
+const colorServices: DialogueService[] = [
+    { id: 'color', name: 'Color Completo', description: 'Coloración del cabello.', price: 650, durationMinutes: 90, requiresConsultation: false },
+    { id: 'roots', name: 'Raíces', description: 'Coloración del crecimiento.', price: 400, durationMinutes: 60, requiresConsultation: false }
+];
+const colorPort: DialoguePort = { catalog: async () => colorServices, availability: async () => ({ professionals: [], slots: [] }) };
+const goalMessage = 'quería cambiarme el color del pelo';
+const goal = await respondWithAiInterpreter(context, previous, goalMessage, colorPort,
+    (async () => ({ ...base, turnPlan: { version: 1, operations: [req(goalMessage, 'booking', 'needs_detail', ['color', 'roots'])] } })) as AiInterpretationProvider);
+assert.doesNotMatch(goal.reply, /No tengo (?:información confirmada|confirmado si incluye)/i, 'a broad goal is not an unknown procedure');
+assert.deepEqual(goal.choicePresentation?.choices.map(choice => choice.label), ['Color Completo', 'Raíces']);
+assert.equal(goal.state.serviceId, null, 'related candidates do not select a service');
+assert.equal(goal.proposal, null);
+assert.equal(goal.state.date, previous.date);
+assert.equal(goal.state.customerName, previous.customerName);
+const goalChoice = goal.choicePresentation!.choices[0]!.operation;
+const selectedGoal = await respondConversationChoice(context, goal.state, goalChoice, colorPort);
+assert.equal(selectedGoal.state.serviceId, 'color', 'the existing published-service button performs explicit acquisition');
+assert.doesNotMatch(selectedGoal.reply, /No tengo (?:información confirmada|confirmado si incluye)/i, 'selection does not inherit a caveat about a broad goal');
+const retiredGoalPort: DialoguePort = { ...colorPort, catalog: async () => colorServices.filter(service => service.id !== 'color') };
+await assert.rejects(() => respondConversationChoice(context, goal.state, goalChoice, retiredGoalPort), /vigente|unavailable|catalog|question/i,
+    'a retired goal candidate cannot be acquired');
+
+const techniqueMessage = 'mechas con gorra';
+const technique = await say(techniqueMessage, req(techniqueMessage, 'booking', 'unverified_variant', ['lights']));
+assert.match(technique.reply, /No tengo información confirmada sobre «mechas con gorra»/);
+assert.equal(technique.state.serviceId, null);
+assert.equal(technique.proposal, null);
+assert.deepEqual(technique.choicePresentation?.choices.map(choice => choice.label), ['Iluminación']);
+const selectedTechnique = await respondConversationChoice(context, technique.state, technique.choicePresentation!.choices[0]!.operation, port);
+assert.match(selectedTechnique.reply, /No tengo confirmado si incluye «mechas con gorra»/, 'choosing a published category never proves the technique');
+const rejectedClearTechnique = await say('corte arcoíris', { ...req('corte arcoíris', 'booking', 'clear', ['cut']), basis: 'semantic_equivalent' });
+assert.equal(rejectedClearTechnique.state.serviceRequest?.disposition, 'unverified_variant',
+    'a rejected legacy clear identity is not reclassified as a general goal');
+const selectedLegacyTechnique = await respondConversationChoice(context, rejectedClearTechnique.state,
+    rejectedClearTechnique.choicePresentation!.choices[0]!.operation, port);
+assert.match(selectedLegacyTechnique.reply, /No tengo confirmado si incluye «corte arcoíris»/,
+    'a legacy unsupported qualifier remains unverified after choosing the public service');
+const noGoalCandidates = await respondWithAiInterpreter(context, goal.state, 'sigo consultando',
+    { ...colorPort, catalog: async () => [] },
+    (async () => ({ ...base, turnPlan: { version: 1, operations: [] } })) as AiInterpretationProvider);
+assert.equal(noGoalCandidates.state.serviceId, null);
+assert.equal(noGoalCandidates.choicePresentation, undefined, 'no stale candidate is offered when all current IDs disappeared');
+assert.match(body.instructions, /objetivo general[^\n]*needs_detail/i, 'the model distinguishes a general goal without lexical triggers');
+assert.match(body.instructions, /técnica[^\n]*unverified_variant/i, 'uncertain techniques retain their distinct disposition');
 console.log('service request semantic resolution PASS');
