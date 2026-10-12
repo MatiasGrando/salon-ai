@@ -1,6 +1,7 @@
 import { parseAppointmentManagement, beginAppointmentManagement, attachManagementRescheduleOffers, selectManagementRescheduleOffer, confirmAppointmentManagement, cancellationFingerprint, type AppointmentManagementContext, type CancellationSnapshot, type GroupCancellationCommand, type GroupRescheduleCommand, type ManagementRescheduleOffer } from './appointment-management.js'
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
+import type { PublicLocationAction } from './maps-link.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { orderServiceIdsByBookingPriority, hasBookingPriorityOrder } from './booking-priority.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
@@ -104,7 +105,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -1338,9 +1339,10 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const answerFacts = () => answers.map((text, index) => ({ id: catalogAnswer?.[0] === index ? 'catalog' : 'answer' + index, text }))
   const finishWithoutAgenda = (reply: string): DialogueResponse => {
     const lastRead = informationReads.at(-1)
+    const publicLink = informationReads.find(read => read.publicLink)?.publicLink
     const next = reply || (lastRead ? informationNext(lastRead, state, hasActiveBooking(state)) : '')
     if (!reply && lastRead) rememberInformationContinuation(state, lastRead, next)
-    return { state, reply: [...answers, next, clarificationReply].filter(Boolean).join('\n'), proposal: null,
+    return { state, reply: [...answers, next, clarificationReply].filter(Boolean).join('\n'), proposal: null, ...(publicLink ? { publicLink } : {}),
       ...(catalogAnswer && !reply && !clarificationReply ? { catalogInformation: catalogAnswer[1].catalogInformation!,
         replyFacts: [...answerFacts(), ...(next ? [{ id: 'next', text: next }] : [])] } : {}),
       ...(lastRead?.focus && !reply ? informationChoiceFields(state) : {}) }
@@ -1526,7 +1528,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
       }
     }
     if (read.focus) state.informationFocus = read.focus
-    return { state, reply: renderInformationContinuation(read, state), proposal: null, ...(read.focus ? informationChoiceFields(state) : {}) }
+    return { state, reply: renderInformationContinuation(read, state), proposal: null, ...(read.publicLink ? { publicLink: read.publicLink } : {}), ...(read.focus ? informationChoiceFields(state) : {}) }
   }
   if (!target && state.dialogueContext?.presentedOffer && lexicalRoute.information.includes('HOURS')) {
     return { state, proposal: null, reply: '¿Consultás por el horario de atención del local o por los horarios que te mostré para tu turno?' }
@@ -1556,9 +1558,9 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   if (route.bookingMessage) {
     const next = await respondBooking(context, state, route.bookingMessage, services.length ? { ...port, catalog: async () => services } : port, decision)
     const bookingFields = ({ dialogueContext: _context, ...fields }: DialogueState) => fields
-    return { ...next, proposal: JSON.stringify(bookingFields(next.state)) === JSON.stringify(bookingFields(state)) ? null : next.proposal, reply: answer + '\n' + next.reply }
+    return { ...next, ...(read.publicLink ? { publicLink: read.publicLink } : {}), proposal: JSON.stringify(bookingFields(next.state)) === JSON.stringify(bookingFields(state)) ? null : next.proposal, reply: answer + '\n' + next.reply }
   }
-  return { ...delivered(renderInformationContinuation(read, state)), ...(read.focus ? informationChoiceFields(state) : {}) }
+  return { ...delivered(renderInformationContinuation(read, state)), ...(read.publicLink ? { publicLink: read.publicLink } : {}), ...(read.focus ? informationChoiceFields(state) : {}) }
 }
 
 const canonicalManagementIds = (ids: readonly string[]) => [...ids].sort().join('\u0000')

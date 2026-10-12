@@ -834,7 +834,8 @@ export async function processConversationInbox(input: {
         step: handoffCommand || confirmedCancellationHandoff ? null : conversationStepForBotOptionsState(state),
         ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
           coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],
-          dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken } } : {})
+          dispatchToken: token, jobId: input.job.id, jobToken: input.job.claimToken,
+          ...('publicLink' in finalResponse && finalResponse.publicLink ? { publicLink: finalResponse.publicLink } : {}) } } : {})
       }))
       if (update) updates.push(update)
       if (handoffCommand) {
@@ -859,7 +860,8 @@ export async function processConversationInbox(input: {
         await finish(tx,row,snapshot.consolidation?.envelope.eventIds)
       } else if (!atomicText) {
         await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
-          toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply), dbNow: row.dbNow }))
+          toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply,
+            'publicLink' in finalResponse ? finalResponse.publicLink : undefined), dbNow: row.dbNow }))
         await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
       }
       recordConsumed(row, snapshot.consolidation)

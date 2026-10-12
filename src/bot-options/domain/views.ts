@@ -13,6 +13,7 @@ import type {
   BotOptionsActionType,
   BotOptionsEntityRef
 } from './actions.js'
+import type { PublicLocationAction } from '../../conversational-bot/maps-link.js'
 
 export type ViewChoice = {
   actionType: BotOptionsActionType
@@ -24,6 +25,8 @@ export type ViewChoice = {
 export type ViewBodyKind = 'menu' | 'detail' | 'summary' | 'confirmation' | 'recovery' | 'notice'
 
 export type BotOptionsViewModel = {
+  /** Public navigation only: never a prompt, cart action or customer choice. */
+  publicLink?: PublicLocationAction
   bodyKind: ViewBodyKind
   /** Textos informativos que viajan como mensajes separados ANTES del interactivo. */
   informativeTexts: string[]
@@ -38,8 +41,8 @@ export function withStalePromptNotice(view: BotOptionsViewModel): BotOptionsView
   return { ...view, informativeTexts: [STALE_PROMPT_NOTICE, ...view.informativeTexts] }
 }
 
-export function textView(text: string): BotOptionsViewModel {
-  return { bodyKind: 'notice', informativeTexts: [], interactiveBody: text, choices: [] }
+export function textView(text: string, publicLink?: PublicLocationAction): BotOptionsViewModel {
+  return { bodyKind: 'notice', informativeTexts: [], interactiveBody: text, choices: [], ...(publicLink ? { publicLink } : {}) }
 }
 
 export function menuView(body: string, choices: ViewChoice[]): BotOptionsViewModel {

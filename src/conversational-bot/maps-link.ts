@@ -1,5 +1,12 @@
 export type PublicMapsLink = { label: 'Ver en Maps'; url: string; address: string | null; precision: 'address_search' | 'configured_link' }
 type MapsFields = { businessName?: string | null; address?: string | null; addressArea?: string | null; mapsUrl?: string | null }
+export type PublicLocationAction = { label: 'Ver ubicación'; url: string }
+/** Reuse the configured Maps allowlist at every transport boundary. */
+export function validLocationAction(value: unknown): value is PublicLocationAction {
+  if (!value || typeof value !== 'object') return false
+  const link = value as PublicLocationAction
+  return link.label === 'Ver ubicación' && publicMapsLink({ mapsUrl: link.url })?.url === link.url
+}
 const safeText = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f]/.test(value)
 /** Address search is not a verified place pin. This helper performs no network request. */
 export function publicMapsLink(fields: MapsFields): PublicMapsLink | null {

@@ -10,12 +10,13 @@ import { normalizeAnswer } from './dialogue-context.js'
 import { affirmativeMatchAnswer, matchPresentedServiceAnswer } from './contextual-matching.js'
 import { formatCatalogPrice, formatCatalogDuration } from '../bot-options/application/catalog-queries.js'
 import { formatServiceEstimate, parseEstimateOptions, resolveServiceEstimate } from '../bot-options/domain/service-booking.js'
-import { renderInformation, renderServices, validateFacts, pendingQuestion, type BusinessFacts } from './information.js'
+import { publicAddressAction, renderInformation, renderServices, validateFacts, pendingQuestion, type BusinessFacts } from './information.js'
+import type { PublicLocationAction } from './maps-link.js'
 import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ServiceInformationAspect, type BusinessInformationSubject, type ProfessionalInformationFacts } from './information-contract.js'
 import type { DialogueContext, DialoguePort, DialogueService, DialogueState } from './engine.js'
 
 export type InformationReadContext = { catalogInquiry?: CatalogInquiryScope; unverifiedProcedure?: ServiceRequestContext; currentServiceInquiry?: CurrentServiceInquiry; currentServiceRead?: CurrentServiceReadEvidence }
-export type InformationRead = { catalogInformation?: CatalogInformationContext; reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
+export type InformationRead = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; reply: string; outcome: 'found' | 'missing' | 'clarifying'; failed?: true; focus?: InformationFocus; guidanceCoverage?: { serviceId: string; remainder: string } }
 /** An informational focus is evidence for a read, never an implicit basket selection. */
 export function focusedInformationService(state: DialogueState, services: readonly DialogueService[]): DialogueService | null {
   const focus = state.informationFocus
@@ -232,7 +233,8 @@ function businessRead(target: Extract<InformationTarget, { kind: 'business' }>, 
   const reply = renderInformation(target.actions, message, facts, services, { continuation: 'external' })
   const missingData = target.actions.some(action => action === 'HOURS' ? !facts?.hours || facts.hours === 'No tengo horarios publicados.'
     : action === 'ADDRESS' ? !facts?.address && !facts?.area : action === 'BUSINESS_INFO' ? !facts?.description : action === 'SERVICES' ? !services.length : false)
-  return { reply: reply || missing().reply, outcome: missingData ? 'missing' : 'found' }
+  const publicLink = target.actions.includes('ADDRESS') ? publicAddressAction(facts) : undefined
+  return { reply: reply || missing().reply, outcome: missingData ? 'missing' : 'found', ...(publicLink ? { publicLink } : {}) }
 }
 function professionalRead(value: ProfessionalInformationFacts, businessId: string, target: Extract<InformationTarget, { kind: 'professional' }>): InformationRead {
   if (value.businessId !== businessId || typeof value.complete !== 'boolean' || !Array.isArray(value.professionals) || value.professionals.length > 50) throw new Error('invalid professional information scope')
@@ -280,7 +282,7 @@ export async function readInformation(context: DialogueContext, state: DialogueS
     if (!other.length) return read
     const additional = await readInformation(context, state, message, port, { kind: 'business', actions: other }, services)
     const serviceReply = other.includes('SERVICES') && read.outcome === 'clarifying' ? read.reply.split('\n')[0]! : read.reply
-    return { ...read, reply: additional.reply + '\n' + serviceReply, outcome: read.outcome === 'found' ? additional.outcome : read.outcome }
+    return { ...read, ...(additional.publicLink ? { publicLink: additional.publicLink } : {}), reply: additional.reply + '\n' + serviceReply, outcome: read.outcome === 'found' ? additional.outcome : read.outcome }
   }
   let facts: BusinessFacts | null = null
   if (target.actions.some(action => action !== 'SERVICES') && port.information) {

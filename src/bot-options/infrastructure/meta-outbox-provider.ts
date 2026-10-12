@@ -3,14 +3,16 @@ import type { Prisma } from '../../generated/prisma/client.js'
 import { WhatsAppCloudApi, type WhatsAppSendLatencyDiagnostic } from '../../integrations/whatsapp-cloud-api.js'
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../../services/business-whatsapp-settings.js'
 import type { OutboxProvider, OutboxProviderDiagnostic } from './whatsapp-outbox-sender.js'
+import { validLocationAction } from '../../conversational-bot/maps-link.js'
 
 type OutboxPayload = {
   to: string
   expectedProviderPhoneNumberId?: string
   item:
     | { type: 'informative_text'; body: string }
-    | { type: 'interactive'; mode: 'buttons' | 'list'; body: string; buttons?: Array<{ id: string; title: string }>; rows?: Array<{ id: string; title: string; description?: string }>; buttonText?: string; sectionTitle?: string }
+    | { type: 'interactive'; mode: 'buttons' | 'list' | 'cta_url'; body: string; buttons?: Array<{ id: string; title: string }>; rows?: Array<{ id: string; title: string; description?: string }>; buttonText?: string; sectionTitle?: string; url?: string }
 }
+type MetaMessageApi = Pick<WhatsAppCloudApi, 'sendTextMessage' | 'sendReplyButtonsMessage' | 'sendInteractiveListMessage'> & Partial<Pick<WhatsAppCloudApi, 'sendUrlButtonMessage'>>
 
 function providerId(response: unknown): string | null {
   if (typeof response !== 'object' || response === null) return null
@@ -23,13 +25,13 @@ function providerId(response: unknown): string | null {
 }
 
 export class MetaOutboxProvider implements OutboxProvider {
-  readonly #api: Pick<WhatsAppCloudApi, 'sendTextMessage' | 'sendReplyButtonsMessage' | 'sendInteractiveListMessage'>
+  readonly #api: MetaMessageApi
   readonly #resolveCredentials: (businessId: string) => Promise<WhatsAppCloudCredentials>
   readonly #monotonicBoundaries: boolean
 
   constructor(dependencies: {
     monotonicBoundaries?: boolean
-    api?: Pick<WhatsAppCloudApi, 'sendTextMessage' | 'sendReplyButtonsMessage' | 'sendInteractiveListMessage'>
+    api?: MetaMessageApi
     resolveCredentials?: (businessId: string) => Promise<WhatsAppCloudCredentials>
   } = {}) {
     this.#monotonicBoundaries = dependencies.monotonicBoundaries ?? false
@@ -41,6 +43,11 @@ export class MetaOutboxProvider implements OutboxProvider {
   async send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal, onDiagnostic?: (diagnostic: OutboxProviderDiagnostic) => void) {
     const value = input.payload as unknown as OutboxPayload
     if (!value?.to || !value.item) return { kind: 'clear_failure' as const, code: 'invalid_outbox_payload', retryable: false }
+    if (value.item.type === 'interactive' && value.item.mode === 'cta_url' &&
+        (!this.#api.sendUrlButtonMessage || !validLocationAction({ label: value.item.buttonText, url: value.item.url }) ||
+          typeof value.item.body !== 'string' || !value.item.body.trim() || Array.from(value.item.body).length > 1024)) {
+      return { kind: 'clear_failure' as const, code: 'invalid_location_cta', retryable: false }
+    }
     const emit = (diagnostic: OutboxProviderDiagnostic) => {
       try { onDiagnostic?.(diagnostic) } catch { /* diagnostics never affect delivery */ }
     }
@@ -81,6 +88,9 @@ export class MetaOutboxProvider implements OutboxProvider {
         ? await this.#api.sendTextMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, signal }, apiDiagnostic)
         : item.mode === 'buttons'
           ? await this.#api.sendReplyButtonsMessage({ businessId: input.businessId, credentials, to: value.to, text: item.body, buttons: item.buttons ?? [], signal }, apiDiagnostic)
+          : item.mode === 'cta_url'
+            ? await this.#api.sendUrlButtonMessage!({ businessId: input.businessId, credentials, to: value.to,
+                text: item.body, url: item.url!, buttonText: item.buttonText!, signal }, apiDiagnostic)
           : await this.#api.sendInteractiveListMessage({
               businessId: input.businessId, credentials, to: value.to, text: item.body, rows: item.rows ?? [], signal,
               ...(item.buttonText ? { buttonText: item.buttonText } : {}),

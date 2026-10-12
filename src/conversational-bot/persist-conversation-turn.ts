@@ -5,6 +5,7 @@ import type { ConversationUpdatedEvent } from '../services/crm-realtime-events.j
 import { randomUUID } from 'node:crypto'
 import { planPersistedView } from '../bot-options/application/process-session-job.js'
 import { textView } from '../bot-options/domain/views.js'
+import type { PublicLocationAction } from './maps-link.js'
 import { recordProducedOutbox } from '../bot-options/observability/queue-milestones.js'
 
 /** Internal conversational write unit; callers retain all fresh read/lock guards and commit ownership. */
@@ -12,14 +13,15 @@ export async function persistConversationTurnTx(tx: Prisma.TransactionClient, in
   businessId: string; sessionId: string; expectedRevision: bigint; revision: bigint; handoffFenceEpoch: number
   state: unknown; transitionId: string; deploymentId: string; generation: number
   consolidation?: ConsolidationEnvelope | undefined; admittedAt?: Date | undefined; providerEventId: string; actionType: string; step: BotOptionsConversationStep | null
-  finalizeText?: { reply: string; toPhone: string; dbNow: Date; inboxId: string; coveredIds: string[];
+  finalizeText?: { reply: string; publicLink?: PublicLocationAction; toPhone: string; dbNow: Date; inboxId: string; coveredIds: string[];
     dispatchToken: string; jobId: string; jobToken: string }
 }): Promise<Omit<ConversationUpdatedEvent, 'type'> | null> {
   const final = input.finalizeText
-  const plan = final ? planPersistedView({ view: textView(final.reply), transitionId: input.transitionId,
+  const plan = final ? planPersistedView({ view: textView(final.reply, final.publicLink), transitionId: input.transitionId,
     toPhone: final.toPhone, promptToken: '', idFactory: randomUUID }) : null
   if (final && (!final.toPhone || !final.coveredIds.length)) throw new Error('text finalization destination or coverage unavailable')
-  if (plan && (plan.promptId || plan.choiceRows.length || plan.outboxRows.some(row => row.kind !== 'informative_text'))) {
+  if (plan && (plan.promptId || plan.choiceRows.length || plan.outboxRows.some(row => row.kind !== 'informative_text' &&
+      !(row.item.type === 'interactive' && row.item.mode === 'cta_url' && final?.publicLink)))) {
     throw new Error('text finalization requires a text-only view')
   }
   const rows = await tx.$queryRaw<Array<{ sessionCount: bigint; transitionCount: bigint; stepCount: bigint;

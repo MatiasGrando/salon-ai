@@ -1,5 +1,5 @@
 import { standardDelivery, type StandardField, type StandardDeliveryOptions } from './standard-delivery.js'
-import { publicMapsLink } from './maps-link.js'
+import { publicMapsLink, type PublicLocationAction } from './maps-link.js'
 import { dialogueQuestion } from './dialogue-context.js'
 import { formatCatalogPrice, formatCatalogDuration } from '../bot-options/application/catalog-queries.js'
 import { normalizeMessage, type InformationAction } from './actions.js'
@@ -21,6 +21,12 @@ function addressLabel(facts: BusinessFacts | null): string | null {
   if (!address && !area) return null
   if (address && area && address.toLowerCase().includes(area.toLowerCase())) return address
   return [address, area].filter(Boolean).join(', ')
+}
+export function publicAddressAction(facts: BusinessFacts | null): PublicLocationAction | undefined {
+  const url = publicMapsLink({ businessName: facts?.name ?? null,
+    address: facts?.address?.trim() ? addressLabel(facts) : null,
+    mapsUrl: facts?.mapsUrl ?? null })?.url
+  return url ? { label: 'Ver ubicación', url } : undefined
 }
 export function renderServices(services: readonly DialogueService[], purpose?: 'booking' | 'price' | 'details', options?: StandardDeliveryOptions): string {
   return standardDelivery({ kind: 'services', ...(purpose ? { purpose } : {}), services: services.map(service => ({ name: service.name,
@@ -48,7 +54,7 @@ export function renderInformation(actions: readonly InformationAction[], message
     if (action === 'HOURS') replies.push(standardDelivery({ kind: 'hours', hours: facts?.hours ?? null, businessName: facts?.name ?? null }, options))
     if (action === 'ADDRESS') {
       const label = addressLabel(facts)
-      const maps = publicMapsLink({ businessName: facts?.name ?? null, address: facts?.address?.trim() ? label : null, addressArea: null, mapsUrl: facts?.mapsUrl ?? null })?.url
+      const maps = publicAddressAction(facts)?.url
       replies.push(standardDelivery({ kind: 'address', address: label, areaOnly: !facts?.address?.trim(), mapsUrl: maps ?? null, businessName: facts?.name ?? null }, options))
     }
     if (action === 'BUSINESS_INFO') {

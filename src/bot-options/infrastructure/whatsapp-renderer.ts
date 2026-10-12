@@ -25,6 +25,7 @@ import {
   type RandomBytesFn
 } from '../domain/prompt-tokens.js'
 import type { BotOptionsViewModel, ViewChoice } from '../domain/views.js'
+import { validLocationAction } from '../../conversational-bot/maps-link.js'
 import type {
   BotOptionsActionPayload,
   BotOptionsActionType,
@@ -117,7 +118,7 @@ export type WhatsAppScreenItem =
   | { type: 'informative_text'; body: string }
   | {
       type: 'interactive'
-      mode: 'buttons' | 'list'
+      mode: 'buttons' | 'list' | 'cta_url'
       body: string
       /** IDs ya compuestos `b1.<prompt>.<choice>` en el mismo orden que labels. */
       actionIds: string[]
@@ -125,6 +126,7 @@ export type WhatsAppScreenItem =
       rows?: Array<{ id: string; title: string; description?: string }>
       buttonText?: string
       sectionTitle?: string
+      url?: string
     }
   | { type: 'none' }
 
@@ -180,6 +182,7 @@ export function renderWhatsAppScreen(
   input: { promptToken: string; generateChoiceBytes?: RandomBytesFn }
 ): RenderedWhatsAppScreen {
   const generateChoiceBytes = input.generateChoiceBytes ?? defaultRandomBytes
+  if (view.publicLink && !validLocationAction(view.publicLink)) throw new Error('invalid public location action')
 
   if ((view.interactiveBody === null || view.interactiveBody.length === 0) && view.choices.length === 0 && view.informativeTexts.length === 0) {
     return { items: [{ type: 'none' }], choiceMappings: [], interactiveDependsOnPrevious: false }
@@ -195,7 +198,11 @@ export function renderWhatsAppScreen(
     }
   }
 
-  let bodyChunks = splitUnicodeSafe(view.interactiveBody ?? '', WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
+  // Only remove the exact server-produced fallback; QA and text consumers keep it.
+  const body = view.publicLink && !view.choices.length
+    ? (view.interactiveBody ?? '').replace('Te dejo la ubicación para que llegues fácil:\nMaps: ' + view.publicLink.url, '').trim()
+    : view.interactiveBody ?? ''
+  let bodyChunks = splitUnicodeSafe(body, WHATSAPP_INTERACTIVE_BODY_MAX_CODE_POINTS)
   if (bodyChunks.length === 0 && view.choices.length === 0) {
     // Sólo informativos.
     return {
@@ -214,7 +221,8 @@ export function renderWhatsAppScreen(
   const finalBody = bodyChunks[0] ?? ''
 
   if (view.choices.length === 0) {
-    items.push({ type: 'informative_text', body: finalBody })
+    items.push(view.publicLink ? { type: 'interactive', mode: 'cta_url', body: finalBody,
+      actionIds: [], buttonText: view.publicLink.label, url: view.publicLink.url } : { type: 'informative_text', body: finalBody })
     return { items, choiceMappings: [], interactiveDependsOnPrevious: dependsOnPrevious }
   }
 

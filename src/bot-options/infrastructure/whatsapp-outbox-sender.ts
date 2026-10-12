@@ -204,6 +204,7 @@ type OutboundPayload = {
     rows?: unknown
     buttonText?: unknown
     sectionTitle?: unknown
+    url?: unknown
   }
 }
 
@@ -219,9 +220,13 @@ export function outboundMessageMetadata(payload: OutboundPayload): Record<string
     source: 'bot-options',
     kind: typeof item?.type === 'string' ? item.type : null
   }
-  if (item?.type !== 'interactive' || (item.mode !== 'buttons' && item.mode !== 'list')) return metadata
+  if (item?.type !== 'interactive' || (item.mode !== 'buttons' && item.mode !== 'list' && item.mode !== 'cta_url')) return metadata
 
   const interactive: Record<string, unknown> = { mode: item.mode }
+  if (item.mode === 'cta_url' && typeof item.url === 'string' && typeof item.buttonText === 'string') {
+    interactive.url = item.url
+    interactive.buttonText = item.buttonText
+  }
   if (item.mode === 'buttons' && Array.isArray(item.buttons)) {
     interactive.buttons = item.buttons.flatMap((button) => {
       if (typeof button !== 'object' || button === null || !('title' in button) || typeof button.title !== 'string') return []

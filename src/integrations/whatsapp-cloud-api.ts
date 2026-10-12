@@ -1,6 +1,7 @@
 import { resolveBusinessWhatsAppCredentials, type WhatsAppCloudCredentials } from '../services/business-whatsapp-settings.js'
 import { isSimulatorRecipient } from '../services/simulator-booking-scope.js'
 import { normalizeArgentineMobilePhone } from '../services/phone-normalization-service.js'
+import { validLocationAction } from '../conversational-bot/maps-link.js'
 
 export type WhatsAppSendLatencyDiagnostic = {
   phase: 'meta_http' | 'meta_response_parse'
@@ -46,6 +47,18 @@ type SendInteractiveListMessageInput = SendTextMessageInput & {
   rows: Array<{ id: string; title: string; description?: string }>
   buttonText?: string
   sectionTitle?: string
+}
+type SendUrlButtonMessageInput = SendTextMessageInput & { url: string; buttonText: string }
+
+/** Navigation CTA has no reply ID and never becomes a booking choice. */
+export function buildWhatsAppUrlButtonPayload(input: SendUrlButtonMessageInput) {
+  if (!validLocationAction({ label: input.buttonText, url: input.url }) || !input.text.trim() || Array.from(input.text).length > 1024) {
+    throw new Error('invalid WhatsApp location CTA')
+  }
+  return { messaging_product: 'whatsapp', to: input.to, type: 'interactive', interactive: {
+    type: 'cta_url', body: { text: input.text }, action: { name: 'cta_url',
+      parameters: { display_text: input.buttonText, url: input.url } }
+  } }
 }
 
 export function buildWhatsAppReplyButtonsPayload(input: SendReplyButtonsMessageInput) {
@@ -559,6 +572,33 @@ export class WhatsAppCloudApi {
       }
     }
 
+    return { sent: true, to: recipientPhone, response: await measureSendPhase(onDiagnostic, 'meta_response_parse', () => response.json()) }
+  }
+
+  async sendUrlButtonMessage(input: SendUrlButtonMessageInput, onDiagnostic?: WhatsAppSendLatencySink) {
+    if (isSimulatorRecipient(input.to)) return { sent: false as const, to: input.to, reason: 'Destinatario del simulador: contacto externo bloqueado' }
+    const config = input.credentials ?? await resolveBusinessWhatsAppCredentials(input.businessId)
+    const recipientPhone = formatRecipientPhone(input.to, config)
+    const payload = buildWhatsAppUrlButtonPayload({ ...input, to: recipientPhone })
+    if (!config.accessToken || !config.phoneNumberId) {
+      return { sent: false, to: recipientPhone, reason: 'WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no configurado' }
+    }
+    const response = await measureSendPhase(onDiagnostic, 'meta_http', () => fetch(
+      `https://graph.facebook.com/${config.apiVersion}/${config.phoneNumberId}/messages`, {
+        method: 'POST', ...(input.signal ? { signal: input.signal } : {}),
+        headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }
+    ), response => response.ok ? 'ok' : 'error')
+    if (!response.ok) {
+      const { errorBody, parsedError } = await measureSendPhase(onDiagnostic, 'meta_response_parse', async () => {
+        const errorBody = await response.text()
+        return { errorBody, parsedError: parseWhatsAppError(errorBody) }
+      })
+      return { sent: false, to: recipientPhone, status: response.status, error: errorBody,
+        errorType: parsedError.type, errorCode: parsedError.code, errorSubcode: parsedError.subcode,
+        fbtraceId: parsedError.fbtraceId, errorMessage: parsedError.message }
+    }
     return { sent: true, to: recipientPhone, response: await measureSendPhase(onDiagnostic, 'meta_response_parse', () => response.json()) }
   }
 
