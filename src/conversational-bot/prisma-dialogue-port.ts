@@ -9,7 +9,7 @@ import { queryPublicProfessionalFacts } from './public-professional-facts.js'
 import { loadDialogueAssistantProfile, type DialogueIdentityClient } from './prisma-dialogue-identity.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache.js'
-import { projectBusinessTimeContext } from './business-time-context.js'
+import { projectBusinessTimeContext, projectBusinessHoursContext } from './business-time-context.js'
 import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient, type PublicSourceSnapshot } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
 import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
@@ -175,6 +175,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     }),
 
     businessTimeContext: (date,times) => projectBusinessTimeContext(commercialSnapshot,date,times),
+    businessHoursContext: date => projectBusinessHoursContext(commercialSnapshot,date),
     ...('businessFeatureSettings' in client && client.businessFeatureSettings ? {
       personality: async () => {
         assistantSnapshot = readAssistant()

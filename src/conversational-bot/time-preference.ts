@@ -257,7 +257,7 @@ export function timeOperationMatchesEvidence(operation: CanonicalTimeOperation, 
   return !temporal || temporal.kind === 'exact' || disjointClock
 }
 
-export type LiteralClockMeaning = { kind: 'single'; time: string } | { kind: 'alternatives' } | { kind: 'unknown' }
+export type LiteralClockMeaning = { kind: 'single'; time: string } | { kind: 'alternatives' } | { kind: 'unknown'; candidateTimes?: string[] }
 /** Deny-only value proof from current quoted clock spans; never infer an owner or choose a branch. */
 export function literalClockMeaning(message: string, ownedEvidence: string): LiteralClockMeaning {
   const text = normalize(message), quote = normalize(ownedEvidence)
@@ -268,7 +268,7 @@ export function literalClockMeaning(message: string, ownedEvidence: string): Lit
     if (start < 0) break
     ownedSpans.push({ start, end: start + quote.length }); from = start + 1
   }
-  const clocks: { start: number; end: number; time: string | null }[] = []
+  const clocks: { start: number; end: number; time: string | null; candidateTimes?: string[] }[] = []
   const pattern = /\b(?:(?:a\s+)?las?\s*)?(?:(\d{1,2}):([0-5]\d)|(\d{2})([0-5]\d)|(\d{1,2}))(?:\s*(am|pm|hs?|horas))?(?:\s+de la\s+(manana|tarde|noche))?\b(?![:\d])/g
   for (const match of text.matchAll(pattern)) {
     const start = match.index!, end = start + match[0].length
@@ -282,7 +282,9 @@ export function literalClockMeaning(message: string, ownedEvidence: string): Lit
     else if (period && hour < 12) hour += 12
     const precise = !!period || match[3] !== undefined || hour === 0 || hour > 12 || match[1]?.length === 2
     // One-digit twelve-hour clocks need existing contextual grounding, not a fabricated morning value.
-    clocks.push({ start, end, time: precise ? clock(String(hour), match[2] ?? match[4]) : null })
+    const minute = match[2] ?? match[4] ?? '00'
+    clocks.push({ start, end, time: precise ? clock(String(hour), minute) : null,
+      ...(!precise && explicit && hour >= 1 && hour <= 12 ? { candidateTimes: hour === 12 ? ['00:' + minute, '12:' + minute] : [clock(String(hour), minute)!, clock(String(hour + 12), minute)!] } : {}) })
   }
   const owned = clocks.filter(item => ownedSpans.some(span => span.start < item.end && span.end > item.start))
   if (!owned.length) return { kind: 'unknown' }
@@ -296,7 +298,7 @@ export function literalClockMeaning(message: string, ownedEvidence: string): Lit
           !/\b(?:no|ni|nunca|antes|anteriormente)\s*(?:(?:a\s+)?las?\s*)?$/.test(preceding)) return { kind: 'alternatives' }
     }
   }
-  if (owned.some(item => item.time === null)) return { kind: 'unknown' }
+  if (owned.some(item => item.time === null)) return { kind: 'unknown', ...(owned.length === 1 && owned[0]!.candidateTimes ? { candidateTimes: owned[0]!.candidateTimes } : {}) }
   const values = [...new Set(owned.map(item => item.time!))]
   return values.length === 1 ? { kind: 'single', time: values[0]! } : { kind: 'alternatives' }
 }

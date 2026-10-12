@@ -634,6 +634,7 @@ export async function processConversationInbox(input: {
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
       availability: (...args) => prepared.port.availability(...args),
       ...(prepared.port.businessTimeContext ? {businessTimeContext:(...args:Parameters<NonNullable<DialoguePort['businessTimeContext']>>)=>prepared.port.businessTimeContext!(...args)} : {}),
+      ...(prepared.port.businessHoursContext ? {businessHoursContext:(...args:Parameters<NonNullable<DialoguePort['businessHoursContext']>>)=>prepared.port.businessHoursContext!(...args)} : {}),
       ...(prepared.port.availabilityBasket ? { availabilityBasket: (...args: Parameters<NonNullable<DialoguePort['availabilityBasket']>>) => prepared.port.availabilityBasket!(...args) } : {}),
       ...(prepared.port.prepareRuntimeBooking ? {prepareRuntimeBooking:(...args:Parameters<NonNullable<DialoguePort['prepareRuntimeBooking']>>)=>prepared.port.prepareRuntimeBooking!(...args)} : {}),
       ...(prepared.port.identity ? {identity:()=>prepared.port.identity!()} : {}),

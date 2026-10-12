@@ -111,3 +111,24 @@ export function temporalClarificationQuestion(value: {candidateTimes: readonly s
   const minutes = value.candidateTimes[1]!.slice(3) === '00' ? '' : ':' + value.candidateTimes[1]!.slice(3)
   return '¿Te referís a las ' + hour + minutes + ' de la mañana o de la tarde?'
 }
+/** A model-proposed exact clock may have a twelve-hour ambiguity without being an approximation.
+ * Numeric evidence anchors the proposal; public opening hours resolve meaning, never occupancy.
+ * No operation is inferred from text that the interpreter did not propose.
+ */
+export function groundAiClockPlan(value: unknown, message: string, state: Context, commercial: { businessId: string; timezone: string; businessDate: string; read?: BusinessTimeContextReader }): unknown {
+  if (!record(value) || !Array.isArray(value.operations)) return groundTemporalPlan(value, message, state, commercial)
+  const temporal = value.operations.filter(operation => record(operation) && ['time', 'time_preference', 'time_clarification'].includes(String(operation.kind)))
+  const operation = temporal.length === 1 ? temporal[0] : null
+  if (!record(operation) || !['time', 'time_clarification'].includes(String(operation.kind)) || !wellShapedTemporal(operation) || typeof operation.evidence !== 'string' ||
+      approximateTimeRequest(message) || state.timeClarification && contextualTimeAnswer(message, state.timeClarification.candidateTimes)) return groundTemporalPlan(value, message, state, commercial)
+  const meaning = literalClockMeaning(message, operation.evidence)
+  if (meaning.kind !== 'unknown' || !meaning.candidateTimes) return groundTemporalPlan(value, message, state, commercial)
+  const candidates = meaning.candidateTimes
+  if (operation.kind === 'time' && !candidates.includes(String(operation.value)) || operation.kind === 'time_clarification' && JSON.stringify(operation.candidateTimes) !== JSON.stringify(candidates)) throw new TurnPlanValidationError('evidence', 'clock candidates do not match the current numeric evidence')
+  const date = temporalPlanDate(value, state.date ?? null, commercial.businessDate)
+  const chosen = contextTime(candidates, state.timePreference) ?? commercialTimeCandidate(date ? commercial.read?.(date, candidates) : undefined, { businessId: commercial.businessId, timezone: commercial.timezone, date }, candidates)
+  // A contrary/unsupported proposal goes through the existing single IA repair.
+  // The validator cannot replace the hour or manufacture a clarification operation.
+  if (operation.kind === 'time' && chosen !== operation.value || operation.kind === 'time_clarification' && chosen !== null) throw new TurnPlanValidationError('evidence', 'clock period needs a consistent interpretation or clarification')
+  return value
+}

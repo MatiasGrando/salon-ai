@@ -6,11 +6,36 @@ export type BusinessTimeContext = {
   candidates: { time: string; status: 'open' | 'closed' | 'unknown' }[]
 }
 export type BusinessTimeContextReader = (date: string, candidateTimes: readonly string[]) => BusinessTimeContext | undefined
+export type BusinessHoursContext = { businessId: string; timezone: string; date: string; known: boolean; openIntervals: { from: string; to: string }[] }
+export type BusinessHoursContextReader = (date: string) => BusinessHoursContext | undefined
 export type CommercialHoursSnapshot = {
   businessId: string; timezone: string; stamp: string; from: Date; to: Date
   weeklyHours: unknown; globalBlocks: unknown
 }
 const row = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+/** A single public day is context for interpretation, never a proof of free appointments. */
+export function projectBusinessHoursContext(snapshot: CommercialHoursSnapshot | undefined, date: string): BusinessHoursContext | undefined {
+  if (!snapshot || !projectBusinessTimeContext(snapshot, date, ['00:00', '23:59'])) return undefined
+  try {
+    const day = new Date(date + 'T12:00:00Z'), next = new Date(day.getTime() + 86400000).toISOString().slice(0, 10)
+    const starts = localDateTimeToInstants(date, 0, snapshot.timezone), ends = localDateTimeToInstants(next, 0, snapshot.timezone)
+    const covered = starts.length === 1 && ends.length === 1 && ends[0]!.getTime() - starts[0]!.getTime() === 86400000 &&
+      starts[0]!.getTime() >= snapshot.from.getTime() && ends[0]!.getTime() <= snapshot.to.getTime()
+    const exception = covered && (snapshot.globalBlocks as { startAt: string; endAt: string }[]).some(block =>
+      Date.parse(block.startAt) < ends[0]!.getTime() && Date.parse(block.endAt) > starts[0]!.getTime())
+    const known = covered && !exception
+    return { businessId: snapshot.businessId, timezone: snapshot.timezone, date, known,
+      openIntervals: known ? (snapshot.weeklyHours as BusinessWeeklyHourRow[]).filter(hour => hour.dayOfWeek === day.getUTCDay()).map(hour => ({ from: hour.startTime, to: hour.endTime })) : [] }
+  } catch { return undefined }
+}
+/** Strip untrusted callback keys and reject a different business, day or zone. */
+export function scopedBusinessHoursContext(proof: BusinessHoursContext | undefined, scope: { businessId: string; timezone: string; date: string | null }): BusinessHoursContext | undefined {
+  if (!proof || !scope.date || proof.businessId !== scope.businessId || proof.timezone !== scope.timezone || proof.date !== scope.date ||
+      typeof proof.known !== 'boolean' || !Array.isArray(proof.openIntervals) || proof.openIntervals.length > 100 ||
+      !proof.known && proof.openIntervals.length !== 0 || proof.openIntervals.some(interval => !row(interval) || typeof interval.from !== 'string' || typeof interval.to !== 'string' ||
+        !validateBusinessWeeklyRow({ dayOfWeek: 0, startTime: interval.from, endTime: interval.to }).ok)) return undefined
+  return { businessId: scope.businessId, timezone: scope.timezone, date: scope.date, known: proof.known, openIntervals: proof.openIntervals.map(interval => ({ from: interval.from, to: interval.to })) }
+}
 /** Public meaning only, never an availability/occupancy authorization. Unknown exceptions abstain. */
 export function projectBusinessTimeContext(snapshot: CommercialHoursSnapshot | undefined, date: string, times: readonly string[]): BusinessTimeContext | undefined {
   if (!snapshot || times.length < 1 || times.length > 2 || new Set(times).size !== times.length ||

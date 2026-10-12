@@ -5,10 +5,10 @@ import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqu
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
 import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
-import { memoBusinessTimeContext, scopedBusinessTimeContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
+import { memoBusinessTimeContext, scopedBusinessTimeContext, scopedBusinessHoursContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader, type BusinessHoursContext } from './business-time-context.js'
 import { approximateTimeRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
-import { groundTemporalPlan, TemporalMeaningConflictError } from './temporal-grounding.js'
+import { groundAiClockPlan, TemporalMeaningConflictError } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace, type ReplyValidation, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
@@ -29,7 +29,7 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext }
+export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
 export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -105,7 +105,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         const original = parseTurnPlanStructure(serviceGrounded, message, catalogIds)
         let parsedPlan: TurnPlan
         try {
-          parsedPlan = parseTurnPlan(groundTemporalPlan(serviceGrounded, message, state,
+          parsedPlan = parseTurnPlan(groundAiClockPlan(serviceGrounded, message, state,
             { businessId: context.businessId, timezone: context.timezone,
               businessDate: localDateKey(context.dbNow, context.timezone), ...(read ? { read } : {}) }), message, catalogIds)
         } catch (error) {
@@ -395,9 +395,15 @@ export async function respondWithAiInterpreter(
   const candidateTimes = approximateTimeRequest(message)?.candidateTimes
   const temporalDate = prospectiveMessageDate(message,state.date,businessDate)
   const commercialProof = temporalDate && candidateTimes?.length === 2 ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
+  // Public opening context accompanies interpretation without a lexical trigger.
+  // It covers only the coherent prospective/selected day, never other dates or occupancy.
+  const hoursDate = temporalDate ?? (state.date === null ? businessDate : null)
+  let commercialHours: BusinessHoursContext | undefined
+  try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
     ...(personality ? { personality } : {}), ...(commercialProof ? { businessTimeContext: commercialProof } : {}),
+    ...(commercialHours ? { businessHoursContext: commercialHours } : {}),
     expectedAnswer: expectedDialogueAnswer(state), businessDate, timezone: context.timezone,
     replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
     intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }

@@ -9,7 +9,7 @@ import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
 import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceRequestCaveat, serviceSelectionNote, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
-import { memoBusinessTimeContext, type BusinessTimeContextReader } from './business-time-context.js'
+import { memoBusinessTimeContext, type BusinessTimeContextReader, type BusinessHoursContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
 import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
 import { parseAvailabilityExplanation, parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
@@ -48,6 +48,7 @@ export type DialogueProfessional = AvailabilityProfessional & { aliases?: readon
 export type DialoguePort = {
   managementRescheduleOffers?(snapshot: CancellationSnapshot, date: string, professionalChange?: { appointmentId: string; professionalId: string }): Promise<readonly ManagementRescheduleOffer[]>
   businessTimeContext?: BusinessTimeContextReader
+  businessHoursContext?: BusinessHoursContextReader
   identity?(): Promise<DialogueIdentity>
   verifiedDateChoices?(services: readonly DialogueService[], professionalId?: string, serviceEstimates?: ServiceEstimates, temporal?: { requestedTime: string | null; preference?: TimePreference }): Promise<DialogueBasketAvailability>
   information?(actions?: readonly InformationAction[]): Promise<BusinessFacts>
