@@ -524,6 +524,8 @@ try {
       assert.match(request.instructions, /general.*orientativ/i)
       assert.match(request.instructions, /descripción suficiente.*una sola vez/)
       assert.match(request.instructions, /descripción pobre.*orientativ/i)
+      assert.match(request.instructions, /La suficiencia depende del aspecto concreto de la pregunta/)
+      assert.match(request.instructions, /dimensión no publicada.*bloque general orientativo/)
     }
     assert.doesNotMatch(requests[0].instructions, /Para consultas sobre procedimientos o variantes usa kind service_request/)
     assert.match(requests[0].instructions, /Para verificar si el negocio ofrece un procedimiento o variante/)
