@@ -1,6 +1,6 @@
 import { serviceRequestQuestion } from './service-request.js'
 import { parseProfessionalReference } from './communicative-act.js'
-import { canonicalPreferenceOptionId } from './dialogue-choice-presentation.js'
+import { ANY_PROFESSIONAL_OPTION, canonicalPreferenceOptionId } from './dialogue-choice-presentation.js'
 import { assign, initialTransition, setup, transition } from 'xstate'
 import { basketIsResolved, basketServiceIds, selectionBasket } from './service-basket.js'
 import { resolveGuidance } from './service-guidance.js'
@@ -133,6 +133,20 @@ export function expectedDialogueAnswer(state: DialogueState) {
   }
   if (state.questionContext) { const { matchConfigurationKey: _configuration, ...answer } = state.questionContext; return answer }
   return { field: state.pending, role: state.pending === 'proposal' && (state.sandboxReservation && !state.sandboxReservation.receipt || state.bookingReservation && !state.bookingReservation.receipt) ? 'confirmation' : questions[state.pending].role, question: dialogueQuestion(state.pending), options: [], complete: false, targetServiceId: null }
+}
+/** The model resolves the ordinal; the server checks the exact currently shown order and scope. */
+export function currentProfessionalOption(state: DialogueState, operation: Extract<TurnOperation, { kind: 'professional'; mode: 'option' }>, operations: readonly TurnOperation[]): DialogueQuestionOption | null {
+  if (state.professionalReference || state.pending !== 'professional' || !state.questionContext || operation.confidence < .85 ||
+      operations.some(item => ['basket', 'service', 'date', 'date_preferences', 'estimate'].includes(item.kind) ||
+        item.kind === 'service_request' && item.purpose === 'booking' ||
+        item.kind === 'request_change' && ['service', 'date', 'professional'].includes(item.field))) return null
+  let question: DialogueQuestionContext | null
+  try { question = parseDialogueQuestion(state.questionContext, state) } catch { return null }
+  if (!question?.complete || question.role !== 'professional' || !Number.isSafeInteger(operation.optionIndex) || operation.optionIndex < 1) return null
+  const selected = question.options[operation.optionIndex - 1]
+  if (!selected || selected.id !== operation.optionId || selected.id.startsWith('page:') ||
+      selected.id === ANY_PROFESSIONAL_OPTION && selected.label !== 'Cualquier profesional') return null
+  return { ...selected }
 }
 export const normalizeAnswer = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 export function explicitIdentity(message: string, value: string): boolean {

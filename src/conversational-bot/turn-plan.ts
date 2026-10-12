@@ -23,6 +23,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'estimate'; serviceId: string; optionId: string | null }
   | { kind: 'service'; mode: 'single' | 'alternatives' | 'multiple' | 'unresolved'; serviceIds: readonly string[]; correction: boolean }
   | { kind: 'professional'; mode: 'specific'; mention: string }
+  | { kind: 'professional'; mode: 'option'; optionId: string; optionIndex: number }
   | { kind: 'professional'; mode: 'any' | 'clear' }
   | { kind: 'professional_reference'; action: 'prefer' | 'dismiss' }
   | { kind: 'date'; expression: string; value?: string }
@@ -73,6 +74,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('request_change', { field: { type: 'string', enum: DRAFT_EDIT_FIELDS } }),
     operationSchema('estimate', { serviceId: stringSchema(128), optionId: { type: ['string','null'], minLength: 1, maxLength: 128 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['specific'] }, mention: stringSchema(100) }),
+    operationSchema('professional', { mode: { type: 'string', enum: ['option'] }, optionId: stringSchema(128), optionIndex: { type: 'integer', minimum: 1, maximum: 50 } }),
     operationSchema('professional', { mode: { type: 'string', enum: ['any', 'clear'] } }),
     operationSchema('professional_reference', { action: { type: 'string', enum: ['prefer', 'dismiss'] } }),
     operationSchema('date', { expression: stringSchema(300), value: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' } }),
@@ -183,8 +185,9 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
       if (catalogIds && !catalogIds.includes(raw.serviceId)) fail('catalog estimate')
       identity += ':' + raw.serviceId
     } else if (raw.kind === 'professional') {
-      exactKeys(raw, raw.mode === 'specific' ? [...common, 'mode', 'mention'] : [...common, 'mode'])
-      if (!['specific', 'any', 'clear'].includes(String(raw.mode)) || raw.mode === 'specific' && (!bounded(raw.mention, 100) || !contains(raw.evidence, raw.mention))) fail('professional')
+      exactKeys(raw, raw.mode === 'specific' ? [...common, 'mode', 'mention'] : raw.mode === 'option' ? [...common, 'mode', 'optionId', 'optionIndex'] : [...common, 'mode'])
+      if (!['specific', 'option', 'any', 'clear'].includes(String(raw.mode)) || raw.mode === 'specific' && (!bounded(raw.mention, 100) || !contains(raw.evidence, raw.mention)) ||
+          raw.mode === 'option' && (!bounded(raw.optionId, 128) || !Number.isSafeInteger(raw.optionIndex) || Number(raw.optionIndex) < 1 || Number(raw.optionIndex) > 50)) fail('professional')
     } else if (raw.kind === 'professional_reference') {
       exactKeys(raw, [...common, 'action'])
       if (!['prefer', 'dismiss'].includes(String(raw.action))) fail('professional reference')

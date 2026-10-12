@@ -27,7 +27,7 @@ import { normalizeInformativeEstimates, readInformation, inferInformationTarget,
 export type { InformationTarget } from './information-contract.js'
 import { parseSandboxReservation, presentSandboxProposal, sandboxProposalMatchesState, sandboxReceiptReply, SANDBOX_CONFIRMATION_QUESTION, type SandboxReservation, type SandboxBookingCommand } from './sandbox-booking.js'
 import { matchContextualItems, matchNamedItems, matchingQuestion, affirmativeMatchAnswer, matchPresentedServiceAnswer, type MatchingCategory, type MatchingResult, type MatchingScope } from './contextual-matching.js'
-import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
+import { normalizeAnswer, fallbackIdentity, explicitIdentity, contextualizeIdentity, currentProfessionalOption, rememberDialogueQuestion, parseDialogueQuestion, resolveDialogueRoute, type DialogueQuestionContext, type DialogueQuestionOption } from './dialogue-context.js'
 import { resolveServiceEstimate, serviceConfigurationKey, type ServiceBookingPolicy } from '../bot-options/domain/service-booking.js'
 import { guidanceBlockMessage, guidanceQuestion, parseServiceEstimates, renderGuidedEstimates, resolveGuidance, serviceGuidance, type GuidanceBlock, type GuidedSelection, type ServiceEstimates } from './service-guidance.js'
 import { ACTION_REGISTRY, routeActions, type InformationAction } from './actions.js'
@@ -269,7 +269,7 @@ function matches<T extends { id: string; name: string; aliases?: readonly string
   const result = matchNamedItems({ businessId, category }, text, items)
   return result.kind === 'exact' && result.complete ? items.filter(item => result.items.some(found => found.id === item.id)) : []
 }
-type MatchRequest = { category: MatchingCategory; identityEvidence?: string; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean; eligibleIds?: readonly string[] }
+type MatchRequest = { category: MatchingCategory; identityEvidence?: string; query?: string; confirmationId?: string; candidateIds?: readonly string[]; targetServiceId?: string; configurationKey?: string; targetMemberId?: string; answerOnly?: boolean; eligibleIds?: readonly string[]; freshOnly?: true }
 function requestedNamedMatch(request: MatchRequest, scope: MatchingScope, items: readonly { id: string; name: string; aliases?: readonly string[] }[]): MatchingResult | null {
   if (request.eligibleIds) items = items.filter(item => request.eligibleIds!.includes(item.id))
   if (request.eligibleIds && request.query) return matchPresentedServiceAnswer(scope, request.query,
@@ -309,6 +309,11 @@ function matchingTurn(state: DialogueState, message: string, raw: TurnPlan, cont
   let matching: MatchRequest | undefined
   // Semantic IDs already passed catalog/evidence validation. Retrieval must not police synonyms or typos.
   const operations = raw.operations
+  const professionalOption = operations.find(op => op.kind === 'professional' && op.mode === 'option')
+  if (professionalOption?.kind === 'professional' && professionalOption.mode === 'option') {
+    const current = currentProfessionalOption(state, professionalOption, operations)
+    if (current && current.id !== ANY_PROFESSIONAL_OPTION) matching = { category: 'professional', confirmationId: current.id, freshOnly: true }
+  }
   const unresolved = operations.find(op => op.kind === 'service' && op.mode === 'unresolved')
   const unresolvedMember = operations.flatMap(op => op.kind === 'basket' ? op.members : []).find(member => member.mode === 'unresolved')
   if (unresolved?.kind === 'service' || unresolvedMember) matching = { category: 'service', query: unresolved?.evidence ?? unresolvedMember!.evidence }
@@ -866,7 +871,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   const professionals = available.professionals
   const identityQuery = matching?.category === 'professional' ? matching.query ?? matching.confirmationId : state.professionalNameHint
   const identityAlreadyKnown = matching?.confirmationId ? professionals.some(p => p.id === matching.confirmationId) : Boolean(identityQuery && matches(identityQuery, professionals, context.businessId, 'professional').length)
-  const identities = identityQuery && !identityAlreadyKnown && port.professionalInformation ? professionalIdentities(await port.professionalInformation({ kind:'professional', actions:[], mention:null, serviceIds:[], date:null, weekday:null, aspect:'overview' }), context.businessId) : []
+  const identities = identityQuery && !identityAlreadyKnown && !matching?.freshOnly && port.professionalInformation ? professionalIdentities(await port.professionalInformation({ kind:'professional', actions:[], mention:null, serviceIds:[], date:null, weekday:null, aspect:'overview' }), context.businessId) : []
   const namedProfessionals = [...professionals, ...identities.filter(p => !professionals.some(fresh => fresh.id === p.id))]
   const professionalOptions = professionals.map(item => ({ id: item.id, label: item.name }))
   if (matching?.category === 'professional') {
@@ -1225,14 +1230,16 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     if (date) delete state.datePreferences
   }
   const professionalOp = plan.operations.find(op => op.kind === 'professional')
-  if (professionalOp?.kind === 'professional') {
+  const selectedProfessionalOption = professionalOp?.kind === 'professional' && professionalOp.mode === 'option' ? currentProfessionalOption(state, professionalOp, plan.operations) : null
+  if (professionalOp?.kind === 'professional' && (professionalOp.mode !== 'option' || selectedProfessionalOption)) {
     const mention = professionalOp.mode === 'specific' ? normalize(professionalOp.mention) || null : null
+    const selectsAny = professionalOp.mode === 'any' || selectedProfessionalOption?.id === ANY_PROFESSIONAL_OPTION
     // The current slot binds its name to the verified professional ID; aliases remain untrusted hints.
     const sameSpecific = professionalOp.mode === 'specific' && mention && state.professional?.kind === 'specific' &&
       state.slot?.professionalId === state.professional.id && normalize(state.slot.professionalName) === mention
-    const sameAny = professionalOp.mode === 'any' && state.professional?.kind === 'any'
+    const sameAny = selectsAny && state.professional?.kind === 'any'
     if (!sameSpecific && !sameAny) invalidate(Boolean(state.professional) && state.requestedTimeMode !== 'inquiry')
-    if (!sameSpecific) state.professional = professionalOp.mode === 'any' ? { kind: 'any' } : null
+    if (!sameSpecific) state.professional = selectsAny ? { kind: 'any' } : null
     state.professionalNameHint = mention
   }
   const referenceOp = plan.operations.find(op => op.kind === 'professional_reference')

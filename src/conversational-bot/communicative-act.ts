@@ -2,6 +2,7 @@ import { validServiceCandidateContext, validServiceReferenceContext } from './se
 import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentServiceInquiry, uniqueLiteralSpan, type CurrentServiceReadEvidence, type CurrentServiceInquiry } from './service-information-scope.js'
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
+import { currentProfessionalOption } from './dialogue-context.js'
 import { preferenceOptionId } from './dialogue-choice-presentation.js'
 import { serviceGuidance } from './service-guidance.js'
 import { isCustomerText } from './customer-text.js'
@@ -366,6 +367,11 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
         (operation.action === 'confirm' ? !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)
           : state.serviceRequest?.serviceIds.length !== 1 || !validServiceCandidateContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)))) {
       blocked.add('service'); return false
+    }
+    if (operation.kind === 'professional' && operation.mode === 'option' && (owners.length !== 1 || act?.kind !== 'answer' ||
+        act.field !== 'professional' || act.confidence < .85 || act.mention !== null || !contains(act.evidence, operation.evidence) ||
+        !currentProfessionalOption(state, operation, source.operations))) {
+      blocked.add('professional'); return false
     }
     if (!metadata) {
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
