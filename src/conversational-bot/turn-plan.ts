@@ -34,6 +34,7 @@ export type TurnOperation = Evidence & (
   | { kind: 'name'; value: string }
   | { kind: 'information'; target: InformationTarget }
   | { kind: 'unsupported_action'; action: UnsupportedTurnAction }
+  | { kind: 'own_appointment'; action: 'read'|'cancel'|'reschedule'; optionKey: string|null }
 )
 export type TurnPlan = { version: 1; operations: readonly TurnOperation[] }
 export const TURN_PLAN_LIMITS = { operations: 12, serialized: 16000, evidence: 300, candidates: 10 } as const
@@ -84,6 +85,7 @@ export const TURN_PLAN_JSON_SCHEMA = objectSchema({
     operationSchema('time_preference', { preference: TIME_PREFERENCE_JSON_SCHEMA }),
     operationSchema('name', { value: stringSchema(100) }),
     operationSchema('information', { target: INFORMATION_TARGET_JSON_SCHEMA }),
+    operationSchema('own_appointment', { action: { type:'string',enum:['read','cancel','reschedule'] },optionKey:{type:['string','null'],pattern:'^appointment:[a-f0-9]{24}$'} }),
     operationSchema('unsupported_action', { action: { type: 'string', enum: pendingActions } })
   ] } }
 })
@@ -227,6 +229,9 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
       identity += ':' + target.kind
     } else if (raw.kind === 'confirm_proposal') {
       exactKeys(raw, common)
+    } else if (raw.kind === 'own_appointment') {
+      exactKeys(raw,[...common,'action','optionKey'])
+      if (!['read','cancel','reschedule'].includes(String(raw.action)) || raw.optionKey!==null && (typeof raw.optionKey!=='string' || !/^appointment:[a-f0-9]{24}$/.test(raw.optionKey))) fail('own appointment')
     } else if (raw.kind === 'unsupported_action') {
       exactKeys(raw, [...common, 'action'])
       if (!pendingActions.includes(raw.action as UnsupportedTurnAction) || ACTION_REGISTRY[raw.action as UnsupportedTurnAction].status !== 'pending') fail('unsupported action')

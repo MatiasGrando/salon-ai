@@ -95,6 +95,8 @@ export function createOpenAiInterpretationProvider(options: {
           ...(input.attachment ? { attachment: input.attachment } : {}),
           replyContract: input.replyContract ?? replyContract('social', false, state.introduced === true, input.firstReplyFacts ?? []),
           management,
+          ownAppointments: input.ownAppointments ?? null,
+          ownAppointmentQuestion: state.ownAppointmentInquiry ? { action:state.ownAppointmentInquiry.action, optionKeys:state.ownAppointmentInquiry.options.map(option=>option.key) } : null,
           pending: management?.stage === 'date' ? 'date' : management?.stage === 'time' ? 'time' : input.state.pending,
           editRequest: input.state.editRequest ?? null,
           expectedAnswer: management ? {role:management.stage === 'confirmation' ? 'confirmation' : management.stage,question:management.question} : expectedDialogueAnswer(state),

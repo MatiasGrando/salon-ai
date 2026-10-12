@@ -11,6 +11,7 @@ import type { ConversationUpdatedEvent } from '../services/crm-realtime-events.j
 import { isCustomerText } from './customer-text.js'
 import { cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { loadOwnConfirmedCancellationHandoffSnapshot } from './prisma-appointment-management.js'
+import { loadOwnAppointments } from './prisma-own-appointments.js'
 
 type HandoffInput = {
   businessId: string
@@ -20,7 +21,7 @@ type HandoffInput = {
   handoffFenceEpoch: number
   operationKey: string
   /** Trusted server command, never an interpretation-provider payload. The caller proves explicit intent. */
-  command: ({ referral: ConversationalReferral } | { confirmedCancellation: CancellationSnapshot }) & { consent: { revision: bigint; evidence: string } }
+  command: ({ referral: ConversationalReferral } | { confirmedCancellation: CancellationSnapshot } | { ownAppointment: { snapshot: CancellationSnapshot; action:'cancel'; evidence:string } }) & { consent: { revision: bigint; evidence: string } }
   /** Collect only; the transaction owner publishes after commit. */
   pendingConversationUpdates?: Array<Omit<ConversationUpdatedEvent, 'type'>>
 }
@@ -53,10 +54,14 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
     throw new Error('invalid conversational handoff command scope')
   }
   const confirmedCancellation = 'confirmedCancellation' in command ? command.confirmedCancellation : null
+  const ownAppointment = 'ownAppointment' in command ? command.ownAppointment : null
+  if (ownAppointment && (ownAppointment.action!=='cancel' || ownAppointment.evidence!==command.consent.evidence ||
+    ownAppointment.snapshot.scope.businessId!==input.businessId || ownAppointment.snapshot.scope.sessionId!==input.sessionId)) throw new Error('own appointment handoff scope mismatch')
+  const appointment = confirmedCancellation ?? ownAppointment?.snapshot
   const referral = 'referral' in command ? parseConversationalReferral(command.referral, input.businessId) : null
   if (confirmedCancellation && (confirmedCancellation.scope.businessId !== input.businessId || confirmedCancellation.scope.sessionId !== input.sessionId ||
       !confirmedCancellation.members.length)) throw new Error('confirmed cancellation handoff scope mismatch')
-  const cancellationProof = confirmedCancellation ? cancellationFingerprint(confirmedCancellation) : null
+  const cancellationProof = appointment ? cancellationFingerprint(appointment) : null
   // Existing executor hashes detail and context. Bind consent and complete server scope
   // in canonical detail instead of adding a second operation ledger or widening model fields.
   const binding = JSON.stringify({ v: 1, referral, cancellationProof, consent: { revision: String(command.consent.revision),
@@ -64,9 +69,9 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
       generation: policy.generation, configurationId: policy.configurationId, serviceContent: policy.serviceContent ?? null },
     sessionId: input.sessionId, handoffFenceEpoch: input.handoffFenceEpoch })
   const detail = 'conversational-consent:' + createHash('sha256').update(binding, 'utf8').digest('hex')
-  const effect = { kind: 'REQUEST_HUMAN_HANDOFF' as const, reason: confirmedCancellation ? 'confirmed_booking_cancellation_request' : referral!.reason, detail,
-    context: confirmedCancellation ? { coordinationGroupId: confirmedCancellation.groupId,
-      appointmentIds: confirmedCancellation.members.map(member => member.appointmentId).sort() }
+  const effect = { kind: 'REQUEST_HUMAN_HANDOFF' as const, reason: appointment ? 'confirmed_booking_cancellation_request' : referral!.reason, detail,
+    context: appointment ? { coordinationGroupId: appointment.groupId,
+      appointmentIds: appointment.members.map(member => member.appointmentId).sort() }
       : referral!.serviceId === null ? null : { serviceId: referral!.serviceId } }
   const sessions = await tx.$queryRaw<LockedSession[]>(Prisma.sql`
     /* conversational-handoff-session */ SELECT s."state",s."status"::text AS "status",s."revision"::text AS "revision",s."businessTimezone",s."handoffFenceEpoch",s."handoffClaimsPausedAt",
@@ -97,11 +102,17 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
     throw new Error('stale or fenced conversational handoff')
   }
   const parsed = parseBotOptionsState(session.state)
-  if (!parsed.ok || parsed.state.handoff !== 'NONE' || (confirmedCancellation
+  if (!parsed.ok || parsed.state.handoff !== 'NONE' || (ownAppointment
+    ? !['NONE','DRAFT','CONFIRMED'].includes(parsed.state.booking) || !['NONE','APPROVED'].includes(parsed.state.deposit)
+    : confirmedCancellation
     ? parsed.state.booking !== 'CONFIRMED' || !['NONE', 'APPROVED'].includes(parsed.state.deposit)
     : !['NONE', 'DRAFT'].includes(parsed.state.booking) || parsed.state.deposit !== 'NONE')) throw new Error('protected conversational handoff state')
   const draft = readConversationDraft(session.state, policy, session.businessTimezone)
-  if (confirmedCancellation) {
+  if (ownAppointment) {
+    const own = await loadOwnAppointments(tx,{businessId:input.businessId,sessionId:input.sessionId,
+      canonicalPhone:ownAppointment.snapshot.scope.normalizedPhone,expectedRevision:input.expectedRevision})
+    if (!own.items.some(item=>cancellationFingerprint(item.snapshot)===cancellationProof)) throw new Error('own cancellation snapshot changed')
+  } else if (confirmedCancellation) {
     const booking = draft.bookingReservation ?? draft.completedBooking
     if (!booking?.receipt || booking.receipt.coordinationGroupId !== confirmedCancellation.groupId ||
         booking.receipt.appointments.length !== confirmedCancellation.members.length) throw new Error('confirmed cancellation booking changed')

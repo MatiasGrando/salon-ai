@@ -373,6 +373,10 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
         !currentProfessionalOption(state, operation, source.operations))) {
       blocked.add('professional'); return false
     }
+    if (operation.kind==='own_appointment' && operation.action!=='read' &&
+      (!act || owners.length!==1 || !['request','change','answer'].includes(act.kind))) {
+      blocked.add('general'); return false
+    }
     if (!metadata) {
       if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
       return true
@@ -381,7 +385,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
       if (!sharedBasketAuthority(owners, original, message, state, services)) { blocked.add(field); return false }
       return true
     }
-    const read = original?.kind === 'information' || original?.kind === 'unsupported_action' ||
+    const read = original?.kind === 'information' || original?.kind === 'unsupported_action' || original?.kind === 'own_appointment' ||
       original?.kind === 'service_request' && original.purpose === 'inquiry'
     // SERVICES is a catalog read. A shared current comparison inquiry may own
     // that read as service, without reclassifying unrelated business information.

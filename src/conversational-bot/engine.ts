@@ -2,6 +2,7 @@ import { parseAppointmentManagement, beginAppointmentManagement, attachManagemen
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
 import type { PublicLocationAction } from './maps-link.js'
+import { ownAppointmentOptions, parseOwnAppointmentInquiry, type OwnAppointments, type OwnAppointmentInquiry } from './own-appointments.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { orderServiceIdsByBookingPriority, hasBookingPriorityOrder } from './booking-priority.js'
 import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
@@ -39,7 +40,7 @@ import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperati
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
 export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingOrderPriority?: number | null; bookingPolicy?: ServiceBookingPolicy }
-export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true; serverRuntimeBookingScope?: RuntimeShownScope; serverManagementSnapshot?: CancellationSnapshot }
+export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true; serverRuntimeBookingScope?: RuntimeShownScope; serverManagementSnapshot?: CancellationSnapshot; serverOwnAppointments?: OwnAppointments }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
   | { ok: false; reason: 'PREFERRED_PROFESSIONAL_INCOMPATIBLE'; professionals: DialogueProfessional[]; professionalFailure?: ProfessionalEligibilityFailure }
@@ -47,6 +48,7 @@ export type DialogueBasketAvailability =
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation; requestedStartEvidence?: RequestedStartEvidence }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
+  ownAppointments?(): Promise<OwnAppointments>
   managementRescheduleOffers?(snapshot: CancellationSnapshot, date: string, professionalChange?: { appointmentId: string; professionalId: string }): Promise<readonly ManagementRescheduleOffer[]>
   businessTimeContext?: BusinessTimeContextReader
   businessHoursContext?: BusinessHoursContextReader
@@ -93,6 +95,7 @@ export type DialogueState = {
   bookingReservation?: RuntimeBookingReservation
   /** One sealed completed receipt, independent of the next active booking draft. */
   completedBooking?: RuntimeBookingReservation
+  ownAppointmentInquiry?: OwnAppointmentInquiry
   sandboxReservation?: SandboxReservation
 }
 export type BookingProposal = { kind: 'BOOKING_PROPOSAL'; segments?: CoordinatedSegment[]; businessId: string; serviceId: string; professionalId: string; startAt: string; customerName: string; serviceIds?: string[]; services?: readonly DialogueService[]; durationMinutes?: number; totalPrice?: number | null; customerDurationMinutes?: number; estimates?: ReturnType<typeof resolveGuidance>['estimates'] }
@@ -105,7 +108,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; ownAppointmentHandoff?: { snapshot: CancellationSnapshot; action: 'cancel'; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -252,6 +255,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     const completed = parseRuntimeBookingReservation(s.completedBooking, businessId)
     if (!completed.receipt || completed.receipt.kind === 'HELD' && completed.receipt.depositStatus !== 'APPROVED' || timezone && completed.presented.terms.timezone !== timezone) throw new Error('invalid completed booking')
   }
+  if (s.ownAppointmentInquiry !== undefined) parseOwnAppointmentInquiry(s.ownAppointmentInquiry)
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
@@ -1694,6 +1698,48 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
   }
   return reply('Para reprogramar todos los turnos, elegí un horario de inicio: ' + [...new Set(offers.map(label))].join(', ') + '.')
 }
+async function respondOwnAppointment(context: DialogueContext, previous: DialogueState, message: string, port: DialoguePort, decision?: DialogueDecision): Promise<DialogueResponse|null> {
+  const plan = decision?.turnPlan ? parseTurnPlan(decision.turnPlan,message) : null
+  const operation = plan?.operations.find(op=>op.kind==='own_appointment')
+  const legacy = plan?.operations.find(op=>op.kind==='unsupported_action' && ['CANCEL','RESCHEDULE'].includes(op.action))
+  if (!operation && !legacy) return null
+  const action = operation?.kind==='own_appointment' ? operation.action : legacy?.kind==='unsupported_action' && legacy.action==='CANCEL' ? 'cancel' : 'reschedule'
+  const scope = context.serverRuntimeBookingScope
+  const state = structuredClone(previous)
+  const reply = (text: string): DialogueResponse => ({ state, proposal:null, reply:text, replyFacts:[{id:'own_appointment',text}], ...(action==='read' ? {} : {replyPrepared:true as const}) })
+  if ((operation ?? legacy)!.confidence < .85) return reply('¿Querés consultar, reprogramar o pedir al equipo la cancelación de un turno existente? No modifiqué tus reservas.')
+  let own = context.serverOwnAppointments
+  if (!own && port.ownAppointments) { try { own = await port.ownAppointments() } catch { return reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') } }
+  if (!own || !scope || own.businessId!==context.businessId || own.sessionId!==scope.sessionId || String(BigInt(scope.revision)-1n)!==own.revision)
+    return operation ? reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') : null
+  if (!own.items.length) { delete state.ownAppointmentInquiry; return reply('No encontré turnos futuros confirmados asociados a tu número en este local. No inicié otra reserva.') }
+  const key = operation?.kind==='own_appointment' ? operation.optionKey : null
+  const options = ownAppointmentOptions(own.items), prior = state.ownAppointmentInquiry
+  if (key && (!prior || prior.action!==action || prior.sessionId!==own.sessionId ||
+    !prior.options.some(p=>p.key===key && options.some(o=>o.key===key && o.fingerprint===p.fingerprint)))) {
+    state.ownAppointmentInquiry={action,sessionId:own.sessionId,options}
+    return reply('Esa selección no corresponde a los turnos vigentes. ¿Cuál de estos turnos querés consultar?\n'+own.items.map((item,index)=>(index+1)+'. '+item.label).join('\n\n'))
+  }
+  const selected = key ? own.items.find(item=>item.key===key) : own.items.length===1 ? own.items[0] : undefined
+  if (!selected) {
+    state.ownAppointmentInquiry={action,sessionId:own.sessionId,options}
+    return reply('Tenés estos turnos confirmados:\n'+own.items.map((item,index)=>(index+1)+'. '+item.label).join('\n\n')+'\n¿Cuál querés '+(action==='read'?'consultar':action==='cancel'?'cancelar':'reprogramar')+'?'+(own.hasMore?' Hay más turnos; si el tuyo no aparece, indicame la fecha.':''))
+  }
+  delete state.ownAppointmentInquiry
+  if (action==='read') return reply('Tu turno confirmado:\n'+selected.label)
+  const reservation = previous.bookingReservation ?? previous.completedBooking
+  if (action==='reschedule') {
+    if (reservation?.receipt?.coordinationGroupId===selected.snapshot.groupId && context.serverManagementSnapshot &&
+      cancellationFingerprint(context.serverManagementSnapshot)===cancellationFingerprint(selected.snapshot)) {
+      const turnPlan:TurnPlan={version:1,operations:(decision?.turnPlan?.operations??[]).map(op=>op.kind==='own_appointment'
+        ? {kind:'unsupported_action',action:'RESCHEDULE',evidence:op.evidence,confidence:op.confidence} : op)}
+      return respondAppointmentManagement(context,previous,message,port,{...decision!,turnPlan})
+    }
+    return reply('Encontré tu turno:\n'+selected.label+'\nNo pude verificar la autorización original para reprogramarlo desde esta conversación. El equipo puede ayudarte a verificarla. No envié una solicitud ni cambié tus turnos o el pago.')
+  }
+  return {...reply('Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'),
+    ownAppointmentHandoff:{snapshot:structuredClone(selected.snapshot),action:'cancel',evidence:message}}
+}
 export function finalizeAppointmentManagement(response: DialogueResponse, result: { appointmentIds: string[]; moves?: readonly { appointmentId: string; newStartAt: string; newProfessionalId?: string }[] }): DialogueResponse {
   const command = response.managementCommand
   if (!command || !response.state.appointmentManagement || canonicalManagementIds(result.appointmentIds) !== canonicalManagementIds(command.snapshot.members.map(member => member.appointmentId))) throw new Error('complete management result required')
@@ -1857,6 +1903,8 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
 export async function respond(context: DialogueContext, previous: unknown, message: string, port: DialoguePort, decision?: DialogueDecision,
   options: { deferIntroduction?: boolean } = {}): Promise<DialogueResponse> {
   const before = parseDialogueState(previous, context.businessId, context.timezone)
+  const ownAppointment = await respondOwnAppointment(context,before,message,port,decision)
+  if (ownAppointment) return options.deferIntroduction ? ownAppointment : finalizeDialogueIntroduction(context,ownAppointment,port)
   const management = await respondAppointmentManagement(context, before, message, port, decision)
   if (management) return management
   if (decision?.communicative && decision.turnPlan && (decision.communicative.continuity && decision.turnPlan.operations.length === 0 && decision.communicative.plan.operations.length === 0 ||

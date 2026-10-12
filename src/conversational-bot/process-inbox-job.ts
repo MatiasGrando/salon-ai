@@ -6,6 +6,7 @@ import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
 import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, loadVerifiedRuntimeManagementSchedule, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
+import { loadOwnAppointments } from './prisma-own-appointments.js'
 import { routeActions } from './actions.js'
 import { canonicalJsonHash } from './canonical-json.js'
 import { explicitReferralAction } from './conversational-referral.js'
@@ -629,6 +630,8 @@ export async function processConversationInbox(input: {
     if (prepared.context.businessId !== policy.businessId || prepared.context.timezone !== snapshot.row.businessTimezone) throw new Error('dialogue context mismatch')
     // Preserve port method receivers. Catalog includes repository pages already traced separately.
     const port: DialoguePort & DialoguePersonalityPort = {
+      ownAppointments: () => input.client.$transaction(tx=>loadOwnAppointments(tx,{businessId:policy.businessId,sessionId:snapshot.session.sessionId,
+        canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:snapshot.session.revision})),
       ...(prepared.port.personality ? { personality: () => prepared.port.personality!() } : {}),
       ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
@@ -758,6 +761,8 @@ export async function processConversationInbox(input: {
       }
       const proposedHandoff = 'handoffCommand' in response ? response.handoffCommand : undefined
       const proposedConfirmedCancellation = 'confirmedCancellationHandoff' in response ? response.confirmedCancellationHandoff : undefined
+      const proposedOwnCancellation = 'ownAppointmentHandoff' in response ? response.ownAppointmentHandoff : undefined
+      const ownCancellation = proposedOwnCancellation && (!useAi || (response as InterpretedDialogueResponse).interpretation.mode==='ai') ? proposedOwnCancellation : undefined
       // A failed AI interpretation may reconstruct literal operations through fallback.
       // That route is conversational help, never the current dispatch authorization.
       const rejectedHandoff = Boolean(proposedHandoff && useAi && (response as InterpretedDialogueResponse).interpretation.mode !== 'ai')
@@ -766,6 +771,12 @@ export async function processConversationInbox(input: {
         ? proposedConfirmedCancellation : undefined
       const command='bookingCommand' in response ? response.bookingCommand : undefined
       const managementCommand = 'managementCommand' in response ? response.managementCommand : undefined
+      if (ownCancellation) {
+        if (command || managementCommand || handoffCommand || confirmedCancellationHandoff) throw new Error('competing own appointment effects')
+        const own = await loadOwnAppointments(tx,{businessId:row.businessId,sessionId:session.sessionId,
+          canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:session.revision})
+        if (!own.items.some(item=>cancellationFingerprint(item.snapshot)===cancellationFingerprint(ownCancellation.snapshot))) throw new GroupCancellationError('own cancellation snapshot changed')
+      }
       if (confirmedCancellationHandoff && (command || managementCommand || handoffCommand)) throw new Error('competing confirmed cancellation effects')
       if (confirmedCancellationHandoff) {
         const fresh = await loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: session.sessionId,
@@ -817,13 +828,14 @@ export async function processConversationInbox(input: {
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
       const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
       let question:ChoiceQuestion|undefined
-      if(!handoffCommand && !confirmedCancellationHandoff && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
+      if(!handoffCommand && !confirmedCancellationHandoff && !ownCancellation && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
         // Bounded question issuance is all-or-nothing. An oversized configuration keeps the full textual reply.
         try {question=issueChoiceQuestion(choiceScope,response.state,response.choicePresentation)} catch {question=undefined}
       }
       const atomicText = input.writeView === persistView && !question
       const reply = rejectedHandoff ? 'No pude verificar ese consentimiento. Para enviar esta consulta al equipo, escribí «consultar al equipo». Conservé tu borrador.'
+        : proposedOwnCancellation && !ownCancellation ? 'No pude verificar tu pedido de cancelación. Tu turno sigue vigente; podés volver a solicitarlo.'
         : proposedConfirmedCancellation && !confirmedCancellationHandoff ? 'No pude verificar tu pedido de cancelación. Tu turno sigue vigente; podés volver a pedirme que lo envíe al equipo.'
         : confirmedCancellationHandoff ? 'Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'
         : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + finalResponse.reply
@@ -856,6 +868,7 @@ export async function processConversationInbox(input: {
           pendingConversationUpdates: updates })
       }
       if (question) {
+        if (ownCancellation) throw new Error('own cancellation cannot issue competing question')
         await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))
         await finish(tx,row,snapshot.consolidation?.envelope.eventIds)
       } else if (!atomicText) {
@@ -863,6 +876,11 @@ export async function processConversationInbox(input: {
           toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply,
             'publicLink' in finalResponse ? finalResponse.publicLink : undefined), dbNow: row.dbNow }))
         await finish(tx, row, snapshot.consolidation?.envelope.eventIds)
+      }
+      if (ownCancellation) {
+        await enqueueConversationalHandoffTx(tx,{businessId:row.businessId,sessionId:session.sessionId,policy,
+          expectedRevision:revision,handoffFenceEpoch:session.handoffFenceEpoch,operationKey:'conversation-own-cancellation:'+row.id,
+          command:{ownAppointment:ownCancellation,consent:{revision,evidence:ownCancellation.evidence}},pendingConversationUpdates:updates})
       }
       recordConsumed(row, snapshot.consolidation)
       committedTransitionId = transitionId

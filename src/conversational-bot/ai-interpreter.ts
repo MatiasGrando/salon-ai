@@ -29,7 +29,7 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
+export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; ownAppointments?: { key:string; label:string }[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
 export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -402,6 +402,8 @@ export async function respondWithAiInterpreter(
   try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
+    ...(context.serverOwnAppointments ? { ownAppointments: context.serverOwnAppointments.items.map(({key,label})=>({key,label})) } : {}),
+    ...(!context.serverOwnAppointments && state.ownAppointmentInquiry ? {ownAppointments:state.ownAppointmentInquiry.options.map(({key,label})=>({key,label}))} : {}),
     ...(personality ? { personality } : {}), ...(commercialProof ? { businessTimeContext: commercialProof } : {}),
     ...(commercialHours ? { businessHoursContext: commercialHours } : {}),
     expectedAnswer: expectedDialogueAnswer(state), businessDate, timezone: context.timezone,
@@ -571,9 +573,9 @@ export async function respondWithAiInterpreter(
   const defaultServiceMenu = response.state.pending === 'service' && !response.state.serviceId &&
     !/\b(?:servicios|cat[aá]logo|lista|precios)\b/i.test(message) &&
     /^(?:Hola\. Te ayudo con tu turno\.\n)?¿Qué servicio necesitás\?\n/.test(response.reply)
-  const planHasUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information'))
-  const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
-  const planHasBookingUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && operation.kind !== 'name' && !(operation.kind === 'service_request' && operation.purpose === 'inquiry') && !(operation.kind === 'service_reference' && operation.action === 'confirm' && state.serviceRequest?.purpose === 'inquiry')))
+  const planHasUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && !(operation.kind==='own_appointment' && operation.action==='read')))
+  const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' || operation.kind==='own_appointment' && operation.action==='read' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
+  const planHasBookingUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && operation.kind !== 'own_appointment' && operation.kind !== 'name' && !(operation.kind === 'service_request' && operation.purpose === 'inquiry') && !(operation.kind === 'service_reference' && operation.action === 'confirm' && state.serviceRequest?.purpose === 'inquiry')))
   const replyIntent = planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
