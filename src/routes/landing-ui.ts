@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { siFacebook, siInstagram, siTiktok, siWhatsapp, type SimpleIcon } from 'simple-icons'
 import { BusinessService, normalizeBusinessSlug } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
-import { formatArgentineMobilePhone, inferDefaultAreaCodeFromPhone } from '../services/phone-normalization-service.js'
+import { formatArgentineMobilePhone } from '../services/phone-normalization-service.js'
 import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-account-service.js'
 import { formatCustomerDuration } from '../services/service-duration.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
@@ -1777,7 +1777,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
   const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
-  const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
   const addressLabel = formatPublicAddress(business)
   return htmlPage({
     title: `Reservar en ${business.name}`,
@@ -1876,11 +1875,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           </div>
           <form class="booking-gate-panel" id="booking-gate-phone" hidden>
             <h2>Anadir telefono</h2>
-            <p>Introduce tu numero de telefono para confirmar la cita.</p>
+            <p>Ingres&aacute; tu n&uacute;mero con caracter&iacute;stica. Para otro pa&iacute;s, inclu&iacute; + y el c&oacute;digo de pa&iacute;s.</p>
             <label for="booking-phone-input">Numero de telefono</label>
             <div class="booking-phone-row">
-              <span>+54</span>
-              <input id="booking-phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742">
+              <input id="booking-phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="11-6655-8877 o +598 99 123 456">
             </div>
             <button class="booking-gate-primary" type="submit">Continuar</button>
           </form>
@@ -1895,7 +1893,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const accountPath = ${JSON.stringify(accountPath)}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
-          const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           const previewQuery = ${JSON.stringify(demoPreview ? 'preview=1' : '')}
@@ -2675,40 +2672,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function formatPhoneInput(value) {
-            let digits = String(value || '').replace(/\\D/g, '')
-            if (digits.startsWith('00')) digits = digits.slice(2)
-            if (digits.startsWith('54')) digits = digits.slice(2)
-            if (digits.startsWith('0')) digits = digits.slice(1)
-            if (digits.startsWith('15')) digits = '9' + defaultAreaCode + digits.slice(2)
-            if (digits.slice(defaultAreaCode.length, defaultAreaCode.length + 2) === '15') {
-              digits = '9' + defaultAreaCode + digits.slice(defaultAreaCode.length + 2)
-            }
-            if (!digits.startsWith('9') && digits.length >= 10) digits = '9' + digits
-            digits = digits.slice(0, 11)
-            const hasMobilePrefix = digits.startsWith('9')
-            const national = hasMobilePrefix ? digits.slice(1) : digits
-            const areaLength = inferAreaCodeLength(national)
-            const area = national.slice(0, areaLength)
-            const local = national.slice(areaLength)
-            const firstLength = local.length >= 8 ? 4 : local.length >= 7 ? 3 : 2
-            const first = local.slice(0, firstLength)
-            const second = local.slice(first.length, first.length + 4)
-            return [
-              hasMobilePrefix ? '9 ' : '',
-              area,
-              first ? (area ? '-' : '') + first : '',
-              second ? '-' + second : ''
-            ].join('')
+            // Keep typing and pasted country prefixes intact; normalize once on the server.
+            return String(value || '')
           }
 
           function phoneForSubmit(value) {
-            return '+54 ' + formatPhoneInput(value)
-          }
-
-          function inferAreaCodeLength(nationalDigits) {
-            if (defaultAreaCode && nationalDigits.startsWith(defaultAreaCode)) return defaultAreaCode.length
-            if (nationalDigits.startsWith('11')) return 2
-            return 3
+            return formatPhoneInput(value).trim()
           }
 
           function setDate(date) {
@@ -2777,7 +2746,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             setGateFeedback('', '')
             if (mode === 'login') renderBookingGoogleButton()
             if (mode === 'phone') {
-              els.phoneInput.value = formatPhoneInput(state.weexAccount?.phone || '')
+              els.phoneInput.value = formatPhoneInput(state.weexAccount?.phone ? '+' + state.weexAccount.phone : '')
               window.setTimeout(() => els.phoneInput.focus(), 50)
             }
           }
@@ -3226,7 +3195,6 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const bookingUrl = `${basePath}/reservar`
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
-  const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
     body: `
@@ -3344,11 +3312,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           </button>
           <span class="account-modal-kicker">Telefono</span>
           <h2>Editar numero</h2>
-          <p>Usamos este dato para encontrar tus reservas y asociarlas a tu cuenta.</p>
+          <p>Usamos este dato para encontrar tus reservas. Ingres&aacute; tu n&uacute;mero con caracter&iacute;stica; para otro pa&iacute;s, inclu&iacute; + y el c&oacute;digo de pa&iacute;s.</p>
           <label for="phone-input">Numero de telefono</label>
           <div class="modal-phone-row">
-            <span>+54</span>
-            <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="9 11-6431-2742">
+            <input id="phone-input" name="phone" inputmode="tel" autocomplete="tel" placeholder="11-6655-8877 o +598 99 123 456">
           </div>
           <div class="account-modal-feedback" id="phone-modal-feedback" role="status" aria-live="polite"></div>
           <div class="modal-actions">
@@ -3364,7 +3331,6 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           const slug = ${JSON.stringify(slug)}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
-          const defaultAreaCode = ${JSON.stringify(defaultAreaCode)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           const state = {
@@ -3445,7 +3411,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           function openPhoneModal() {
             if (!state.user) return
             state.editingPhone = true
-            els.phoneInput.value = formatPhoneInput(state.user.phone || '')
+            els.phoneInput.value = formatPhoneInput(state.user.phone ? '+' + state.user.phone : '')
             setPhoneModalFeedback('', '')
             els.phoneModal.hidden = false
             document.body.classList.add('modal-open')
@@ -3779,45 +3745,17 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           }
 
           function formatPhoneInput(value) {
-            let digits = normalizePhone(value)
-            if (digits.startsWith('00')) digits = digits.slice(2)
-            if (digits.startsWith('54')) digits = digits.slice(2)
-            if (digits.startsWith('0')) digits = digits.slice(1)
-            if (digits.startsWith('15')) digits = '9' + defaultAreaCode + digits.slice(2)
-            if (digits.slice(defaultAreaCode.length, defaultAreaCode.length + 2) === '15') {
-              digits = '9' + defaultAreaCode + digits.slice(defaultAreaCode.length + 2)
-            }
-            if (!digits.startsWith('9') && digits.length >= 10) digits = '9' + digits
-            digits = digits.slice(0, 11)
-            const hasMobilePrefix = digits.startsWith('9')
-            const national = hasMobilePrefix ? digits.slice(1) : digits
-            const areaLength = inferAreaCodeLength(national)
-            const area = national.slice(0, areaLength)
-            const local = national.slice(areaLength)
-            const firstLength = local.length >= 8 ? 4 : local.length >= 7 ? 3 : 2
-            const first = local.slice(0, firstLength)
-            const second = local.slice(first.length, first.length + 4)
-            return [
-              hasMobilePrefix ? '9 ' : '',
-              area,
-              first ? (area ? '-' : '') + first : '',
-              second ? '-' + second : ''
-            ].join('')
+            // Keep typing and pasted country prefixes intact; normalize once on the server.
+            return String(value || '')
           }
 
           function formatPhoneDisplay(value) {
-            const formatted = formatPhoneInput(value)
-            return formatted ? '+54 ' + formatted : 'Sin telefono cargado'
+            const digits = normalizePhone(value)
+            return digits ? '+' + digits : 'Sin telefono cargado'
           }
 
           function phoneForSubmit(value) {
-            return '+54 ' + formatPhoneInput(value)
-          }
-
-          function inferAreaCodeLength(nationalDigits) {
-            if (defaultAreaCode && nationalDigits.startsWith(defaultAreaCode)) return defaultAreaCode.length
-            if (nationalDigits.startsWith('11')) return 2
-            return 3
+            return formatPhoneInput(value).trim()
           }
 
           function businessInitials() {
@@ -5728,7 +5666,7 @@ function htmlPage(input: {
     }
     .booking-phone-row {
       display: grid;
-      grid-template-columns: 104px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 8px;
       margin-bottom: 12px;
     }
@@ -6318,7 +6256,7 @@ function htmlPage(input: {
     }
     .modal-phone-row {
       display: grid;
-      grid-template-columns: 82px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1fr);
       gap: 10px;
       align-items: center;
     }

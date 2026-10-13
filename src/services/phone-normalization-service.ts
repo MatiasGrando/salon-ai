@@ -75,6 +75,13 @@ export function normalizeCustomerPhone(value?: string | null, options: Normalize
 }
 
 export function phoneSearchVariants(value?: string | null, options: NormalizePhoneOptions = {}) {
+  const raw = String(value || '').trim()
+  const rawDigits = raw.replace(/\D/g, '')
+  const internationalDigits = rawDigits.startsWith('00') ? rawDigits.slice(2) : rawDigits
+  if ((raw.startsWith('+') || rawDigits.startsWith('00')) && !internationalDigits.startsWith('54')) {
+    const normalized = normalizeCustomerPhone(raw, options)
+    return normalized.ok ? [...new Set([rawDigits, normalized.phone, `00${normalized.phone}`])] : []
+  }
   const normalized = normalizeArgentineMobilePhone(value, options)
   const digits = String(value || '').replace(/\D/g, '')
   const variants = new Set<string>()

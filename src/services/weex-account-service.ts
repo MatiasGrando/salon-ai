@@ -3,7 +3,7 @@ import type { FastifyRequest } from 'fastify'
 import { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../config/prisma.js'
 import { isSimulatorAppointmentId, isSimulatorBookingCommunication } from './simulator-booking-scope.js'
-import { normalizeArgentineMobilePhone, normalizePhone, phoneSearchVariants } from './phone-normalization-service.js'
+import { normalizeCustomerPhone, phoneSearchVariants } from './phone-normalization-service.js'
 
 const SESSION_COOKIE = 'weex_account_session'
 const SESSION_MAX_AGE_DAYS = 90
@@ -281,7 +281,7 @@ export async function destroyWeexSessionFromRequest(request: FastifyRequest) {
 }
 
 export async function updateWeexPhone(accountId: string, phoneInput: string, defaultAreaCode?: string | null) {
-  const normalized = normalizeArgentineMobilePhone(phoneInput, { defaultAreaCode })
+  const normalized = normalizeCustomerPhone(phoneInput, { defaultAreaCode })
   if (!normalized.ok) {
     return {
       ok: false as const,
@@ -299,7 +299,7 @@ export async function updateWeexPhone(accountId: string, phoneInput: string, def
       phoneVerifiedAt: null
     }
   })
-  const linkedCount = await linkExistingCustomersByPhone(account.id, phone, defaultAreaCode)
+  const linkedCount = await linkExistingCustomersByPhone(account.id, `+${phone}`, defaultAreaCode)
 
   return {
     ok: true as const,
@@ -309,8 +309,12 @@ export async function updateWeexPhone(accountId: string, phoneInput: string, def
 }
 
 export async function linkExistingCustomersByPhone(accountId: string, phone: string, defaultAreaCode?: string | null) {
-  const normalizedPhone = normalizePhone(phone, { defaultAreaCode })
-  const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
+  const normalized = normalizeCustomerPhone(phone, { defaultAreaCode })
+  if (!normalized.ok) return 0
+  const normalizedPhone = normalized.phone
+  const internationalPhone = normalized.local.startsWith('+')
+  const phoneVariants = [...new Set([phone.trim(), `+${normalizedPhone}`, normalized.display,
+    ...(internationalPhone ? [`00${normalizedPhone}`] : phoneSearchVariants(phone, { defaultAreaCode }))])]
   const account = await prisma.weexAccount.findUnique({
     where: { id: accountId },
     select: { email: true, emailVerified: true }
@@ -320,7 +324,7 @@ export async function linkExistingCustomersByPhone(accountId: string, phone: str
       customer: {
         OR: [
           { normalizedPhone },
-          { phone: { in: phoneVariants } }
+          { phone: { in: phoneVariants }, ...(internationalPhone ? { normalizedPhone: null } : {}) }
         ]
       }
     },

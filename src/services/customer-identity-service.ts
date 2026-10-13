@@ -79,13 +79,13 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
   if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
 
   const canonicalPhone = normalized.phone
+  const internationalPhone = normalized.local.startsWith('+')
   const digitVariants = phoneSearchVariants(input.phone, { defaultAreaCode })
   const literalVariants = [...new Set([
     input.phone.trim(),
-    canonicalPhone,
+    ...(internationalPhone ? [`00${canonicalPhone}`] : [canonicalPhone, ...digitVariants]),
     `+${canonicalPhone}`,
-    normalized.display,
-    ...digitVariants
+    normalized.display
   ].filter(Boolean))]
   const lockKey = `${businessId}:${canonicalPhone}`
 
@@ -100,7 +100,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         businessId,
         OR: [
           { normalizedPhone: canonicalPhone },
-          { phone: { in: literalVariants } }
+          { phone: { in: literalVariants }, ...(internationalPhone ? { normalizedPhone: null } : {}) }
         ]
       },
       orderBy: { createdAt: 'asc' }
@@ -112,6 +112,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         FROM "Customer"
         WHERE "businessId" = ${businessId}
           AND regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
+          ${internationalPhone ? Prisma.sql`AND "normalizedPhone" IS NULL AND (ltrim("phone") LIKE '+%' OR ltrim("phone") LIKE '00%')` : Prisma.empty}
         ORDER BY "createdAt" ASC
         LIMIT 1
       `

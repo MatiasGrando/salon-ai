@@ -5,7 +5,7 @@ import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
-import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
+import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
 import { findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
@@ -214,15 +214,16 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const time = body.time?.trim()
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
+    const normalizedPhone = normalizeCustomerPhone(weexAuth?.account.phone ? `+${weexAuth.account.phone}` : body.customerPhone, { defaultAreaCode })
+    const customerPhone = normalizedPhone.ok ? normalizedPhone.phone : ''
 
-    if (!serviceId || !professionalId || !date || !time || !customerName || !customerPhone) {
+    if (!serviceId || !professionalId || !date || !time || !customerName) {
       return reply.status(400).send({ message: 'Completa servicio, profesional, fecha, horario y tus datos de contacto' })
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
       return reply.status(400).send({ message: 'La fecha u horario no parecen validos' })
     }
-    if (customerPhone.length < 8) {
+    if (!normalizedPhone.ok) {
       return reply.status(400).send({ message: 'Ingresa un telefono valido para confirmar el turno' })
     }
 
@@ -255,7 +256,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       findOrCreatePublicCustomer({
         businessId: business.id,
         name: customerName,
-        phone: customerPhone,
+        phone: `+${customerPhone}`,
         email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
       })
     ])
@@ -311,11 +312,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     if (weexAuth?.account.phone) {
       if (deposit) {
-        void linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode).catch((error) => {
+        void linkExistingCustomersByPhone(weexAuth.account.id, `+${customerPhone}`, defaultAreaCode).catch((error) => {
           request.log.error({ error, appointmentId: appointment.id }, 'No se pudo vincular la cuenta con el cliente web')
         })
       } else {
-        await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
+        await linkExistingCustomersByPhone(weexAuth.account.id, `+${customerPhone}`, defaultAreaCode)
       }
     }
 
@@ -446,14 +447,15 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
-    if (!customerName || customerPhone.length < 8) {
+    const normalizedPhone = normalizeCustomerPhone(weexAuth?.account.phone ? `+${weexAuth.account.phone}` : body.customerPhone, { defaultAreaCode })
+    const customerPhone = normalizedPhone.ok ? normalizedPhone.phone : ''
+    if (!customerName || !normalizedPhone.ok) {
       return reply.status(400).send({ message: 'Inicia sesion y completa un telefono valido para confirmar los turnos' })
     }
     const customer = await findOrCreatePublicCustomer({
       businessId: business.id,
       name: customerName,
-      phone: customerPhone,
+      phone: `+${customerPhone}`,
       email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
     })
 
@@ -522,11 +524,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     if (weexAuth?.account.phone) {
       if (deposit) {
-        void linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode).catch((error) => {
+        void linkExistingCustomersByPhone(weexAuth.account.id, `+${customerPhone}`, defaultAreaCode).catch((error) => {
           request.log.error({ error, coordinationGroupId }, 'No se pudo vincular la cuenta con los clientes web')
         })
       } else {
-        await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
+        await linkExistingCustomersByPhone(weexAuth.account.id, `+${customerPhone}`, defaultAreaCode)
       }
     }
     const appointments = await prisma.appointment.findMany({
@@ -589,9 +591,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       include: { appointment: { include: { customer: true } } }
     })
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const accountPhone = normalizePhone(weexAuth.account.phone, { defaultAreaCode })
-    const customerPhone = normalizePhone(deposit?.appointment.customer.phone, { defaultAreaCode })
-    if (!deposit || accountPhone !== customerPhone) {
+    const accountPhone = normalizeCustomerPhone(`+${weexAuth.account.phone}`, { defaultAreaCode })
+    const customerPhone = normalizeCustomerPhone(deposit?.appointment.customer.normalizedPhone
+      ? `+${deposit.appointment.customer.normalizedPhone}`
+      : deposit?.appointment.customer.phone, { defaultAreaCode })
+    if (!deposit || !accountPhone.ok || !customerPhone.ok || accountPhone.phone !== customerPhone.phone) {
       return reply.status(404).send({ message: 'No encontre esa seña para tu cuenta' })
     }
 
@@ -617,14 +621,21 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (!weexAuth?.account.phone) return { deposit: null }
     await bookingDepositService.expireOverdue()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const phone = normalizePhone(weexAuth.account.phone, { defaultAreaCode })
+    const normalizedPhone = normalizeCustomerPhone(`+${weexAuth.account.phone}`, { defaultAreaCode })
+    if (!normalizedPhone.ok) return { deposit: null }
+    const phone = `+${normalizedPhone.phone}`
     const deposit = await prisma.bookingDeposit.findFirst({
       where: {
         businessId: business.id,
         source: 'WEB',
         status: { in: ['PENDING_PROOF', 'PROOF_RECEIVED'] },
         appointment: {
-          customer: { phone: { in: phoneSearchVariants(phone, { defaultAreaCode }) } }
+          customer: normalizedPhone.local.startsWith('+') ? {
+            OR: [
+              { normalizedPhone: normalizedPhone.phone },
+              { normalizedPhone: null, phone: { in: [phone, normalizedPhone.display, `00${normalizedPhone.phone}`] } }
+            ]
+          } : { phone: { in: phoneSearchVariants(phone, { defaultAreaCode }) } }
         }
       },
       include: {
@@ -676,17 +687,21 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
 
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const phone = normalizePhone(query.phone, { defaultAreaCode })
-    if (phone.length < 8) return reply.status(400).send({ message: 'Ingresa un telefono valido para ver tus turnos' })
-    const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
+    const phone = normalizeCustomerPhone(query.phone, { defaultAreaCode })
+    if (!phone.ok) return reply.status(400).send({ message: 'Ingresa un telefono valido para ver tus turnos' })
+    const internationalPhone = phone.local.startsWith('+')
+    const phoneVariants = internationalPhone
+      ? [String(query.phone || '').trim(), `+${phone.phone}`, phone.display, `00${phone.phone}`]
+      : phoneSearchVariants(`+${phone.phone}`, { defaultAreaCode })
 
     const appointments = await prisma.appointment.findMany({
       where: {
-        customer: {
-          phone: {
-            in: phoneVariants
-          }
-        },
+        customer: internationalPhone ? {
+          OR: [
+            { normalizedPhone: phone.phone },
+            { normalizedPhone: null, phone: { in: phoneVariants } }
+          ]
+        } : { phone: { in: phoneVariants } },
         professional: {
           businessId: business.id
         }
