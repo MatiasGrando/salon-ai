@@ -3,7 +3,7 @@ import { types as nodeTypes } from 'node:util'
 import { REPLY_SHAPE_PATHS, type ReplyRejection, type ReplyShapeDetail, type ReplyValidation, type ReplyValidationTrace, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { AVAILABILITY_CAUSES } from '../bot-options/application/availability-evidence.js'
 import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
-import { TURN_PLAN_LIMITS, TurnPlanValidationError, type TurnPlanValidationCause, type TurnOperation } from './turn-plan.js'
+import { TURN_PLAN_LIMITS, TURN_PLAN_EVIDENCE_DETAILS, TurnPlanValidationError, type TurnPlanEvidenceDetail, type TurnPlanValidationCause, type TurnOperation } from './turn-plan.js'
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
 
 type RequestKind = TurnOperation['kind']
@@ -34,7 +34,7 @@ export type ValidationSummary = {
   candidates: 'accepted' | 'rejected' | 'absent'
   correction: 'accepted' | 'rejected' | 'absent'
   /** Contract acceptance only; motor outcomes remain stateBefore/stateAfter and server facts. */
-  turnPlan?: { outcome: ValidationSummary['outcome']; validationAcceptedKinds: RequestKind[]; reason: 'turn_plan' | 'not_run' | null; cause?: TurnPlanValidationCause }
+  turnPlan?: { outcome: ValidationSummary['outcome']; validationAcceptedKinds: RequestKind[]; reason: 'turn_plan' | 'not_run' | null; cause?: TurnPlanValidationCause; detail?: TurnPlanEvidenceDetail }
 }
 export type StateSummary = {
   pending: DialogueState['pending']
@@ -120,20 +120,23 @@ export function summarizeValidation(proposal: ProposalSummary, accepted: boolean
       error instanceof Error ? reasonByMessage[error.message] ?? 'shape' : 'shape',
     service: field(proposal.service), professional: field(proposal.professional),
     candidates: field(proposal.candidateCount > 0), correction: field(proposal.correction),
-    ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause } : {}) } } : {})
+    ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause, ...(error.validationDetail ? { detail: error.validationDetail } : {}) } : {}) } } : {})
   }
 }
-export type InterpretationRepairFeedback = { reason: ValidationReason; cause?: TurnPlanValidationCause }
+export type InterpretationRepairFeedback = { reason: ValidationReason; cause?: TurnPlanValidationCause; detail?: TurnPlanEvidenceDetail }
 export type InterpretationAttemptDiagnostic = {
   reason: 'invalid_output' | 'timeout' | 'provider_error' | null
   providerMs: number; validationMs: number; validation: ValidationSummary
 }
 /** Model repair receives validator codes only, never a rejected model body or arbitrary exception. */
 export function summarizeInterpretationRepairFeedback(value: unknown): InterpretationRepairFeedback | undefined {
-  const reason = dataField(value, 'reason'), cause = dataField(value, 'cause')
+  const reason = dataField(value, 'reason'), cause = dataField(value, 'cause'), detail = dataField(value, 'detail')
   if (!Object.values(reasonByMessage).includes(reason as ValidationReason)) return undefined
   if (cause !== undefined && (reason !== 'turn_plan' || !['evidence','shape','catalog','conflict','estimate'].includes(cause as string))) return undefined
-  return { reason: reason as ValidationReason, ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }) }
+  if (value && typeof value === 'object' && Object.hasOwn(value, 'detail') &&
+      (cause !== 'evidence' || !TURN_PLAN_EVIDENCE_DETAILS.includes(detail as TurnPlanEvidenceDetail))) return undefined
+  return { reason: reason as ValidationReason, ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }),
+    ...(detail === undefined ? {} : { detail: detail as TurnPlanEvidenceDetail }) }
 }
 /** Bounded own-data projection for at most two actual interpretations. */
 export function summarizeInterpretationAttemptsDiagnostic(value: unknown): InterpretationAttemptDiagnostic[] | undefined {
@@ -180,9 +183,13 @@ export function summarizeValidationDiagnostic(value: unknown): ValidationSummary
       const cause = dataField(rawPlan, 'cause')
       if (rawPlan && Object.hasOwn(rawPlan as object, 'cause') &&
           !['evidence', 'shape', 'catalog', 'conflict', 'estimate'].includes(cause as string)) return undefined
+      const detail = dataField(rawPlan, 'detail')
+      if (rawPlan && Object.hasOwn(rawPlan as object, 'detail') && (outcome !== 'rejected' || cause !== 'evidence' ||
+          !TURN_PLAN_EVIDENCE_DETAILS.includes(detail as TurnPlanEvidenceDetail))) return undefined
       result.turnPlan = { outcome: planOutcome as ValidationSummary['outcome'], validationAcceptedKinds: kinds,
         reason: planReason as NonNullable<ValidationSummary['turnPlan']>['reason'],
-        ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }) }
+        ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }),
+        ...(detail === undefined ? {} : { detail: detail as TurnPlanEvidenceDetail }) }
     }
     return result
   } catch { return undefined }

@@ -26,7 +26,7 @@ import { serviceGuidance, guidanceDelivery, resolveGuidance } from './service-gu
 import { pendingQuestion, validateFacts } from './information.js'
 import { parseInformationTarget } from './information-contract.js'
 import { informationAspect, focusedInformationService, normalizeInformativeEstimates, validInformationEstimate, inferInformationTarget, readInformation, informationReply } from './information-read.js'
-import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
+import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, socialContinuationQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
 export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; ownAppointments?: { key:string; label:string }[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
@@ -165,7 +165,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
           currentServiceReads: deriveCurrentServiceReads(communicativeActs, original, communicative.plan, message, state.businessId) }
         turnPlan = communicative.plan
         validateEstimateOperations(turnPlan, state, services)
-      } catch (error) { if (error instanceof CandidateValidationError) throw error; throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape') }
+      } catch (error) { if (error instanceof CandidateValidationError) throw error; throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape', 'invalid AI turn plan', error instanceof TurnPlanValidationError ? error.validationDetail : undefined) }
     }
   }
   for (const key of ['serviceId', 'professionalMention'] as const) {
@@ -343,10 +343,11 @@ export async function respondWithAiInterpreter(
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
   const intakeReplyAllowed = !route.information.length && !route.pendingAction
   const arithmetic = intakeReplyAllowed ? parseIncidentalArithmetic(message)?.text ?? null : null
+  const socialNext = socialContinuationQuestion(state)
   const incidentalFacts: ReplyFact[] | null = arithmetic ? [{ id: 'calculation', text: arithmetic },
-    { id: 'next', text: state.pending === 'service' && !hasActiveBooking(state) ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }] : null
+    { id: 'next', text: socialNext }] : null
   let firstReplyFacts: ReplyFact[] | undefined = intakeReplyAllowed ? incidentalFacts ??
-    (state.pending === 'service' && !hasActiveBooking(state) ? [{ id: 'next', text: '¿En qué te puedo ayudar con el local?' }] : [{ id: socialQuestion(state) === pendingQuestion(state) ? 'next' : '0', text: socialQuestion(state) }]) : undefined
+    [{ id: 'next', text: socialNext }] : undefined
   if (intakeReplyAllowed && state.pending === 'estimate' && !state.editRequest) {
     const target = state.questionContext?.targetServiceId ?? resolveGuidance(services.filter(service => basketServiceIds(state).includes(service.id)), state.serviceEstimates).pending?.id
     const guided = services.find(service => service.id === target)
@@ -450,7 +451,8 @@ export async function respondWithAiInterpreter(
     if (reason !== 'invalid_output' || index === 1) break
     // The rejected output carries no authority and is never passed back as conversation context.
     repairFeedback = { reason: attemptValidation.reason!,
-      ...(attemptValidation.turnPlan?.cause ? { cause: attemptValidation.turnPlan.cause } : {}) }
+      ...(attemptValidation.turnPlan?.cause ? { cause: attemptValidation.turnPlan.cause } : {}),
+      ...(attemptValidation.turnPlan?.detail ? { detail: attemptValidation.turnPlan.detail } : {}) }
   }
   const proposal = summarizeProposal(raw)
   const validation = interpretationAttempts.at(-1)!.validation

@@ -128,13 +128,13 @@ export function groundAiClockPlan(value: unknown, message: string, state: Contex
   // A proven clock's morning qualifier belongs to its period, not tomorrow.
   const calendarMessage = meaning.kind === 'single' ? message.replace(/\bde la ma[ñn]ana\b/gi, '') : message
   const explicitDate = prospectiveMessageDate(calendarMessage, null, commercial.businessDate)
-  if (explicitDate && date !== explicitDate) throw new TurnPlanValidationError('evidence', 'current temporal date omitted or contradicted by the interpretation')
+  if (explicitDate && date !== explicitDate) throw new TurnPlanValidationError('evidence', 'current temporal date omitted or contradicted by the interpretation', 'current_date_missing_or_conflicting')
   if (meaning.kind !== 'unknown' || !meaning.candidateTimes) return groundTemporalPlan(value, message, state, commercial)
   const candidates = meaning.candidateTimes
-  if (operation.kind === 'time' && !candidates.includes(String(operation.value)) || operation.kind === 'time_clarification' && JSON.stringify(operation.candidateTimes) !== JSON.stringify(candidates)) throw new TurnPlanValidationError('evidence', 'clock candidates do not match the current numeric evidence')
+  if (operation.kind === 'time' && !candidates.includes(String(operation.value)) || operation.kind === 'time_clarification' && JSON.stringify(operation.candidateTimes) !== JSON.stringify(candidates)) throw new TurnPlanValidationError('evidence', 'clock candidates do not match the current numeric evidence', 'clock_candidates_conflicting')
   const chosen = contextTime(candidates, state.timePreference) ?? commercialTimeCandidate(date ? commercial.read?.(date, candidates) : undefined, { businessId: commercial.businessId, timezone: commercial.timezone, date }, candidates)
   // A contrary/unsupported proposal goes through the existing single IA repair.
   // The validator cannot replace the hour or manufacture a clarification operation.
-  if (operation.kind === 'time' && chosen !== operation.value || operation.kind === 'time_clarification' && chosen !== null) throw new TurnPlanValidationError('evidence', 'clock period needs a consistent interpretation or clarification')
+  if (operation.kind === 'time' && chosen !== operation.value || operation.kind === 'time_clarification' && chosen !== null) throw new TurnPlanValidationError('evidence', 'clock period needs a consistent interpretation or clarification', 'clock_period_inconsistent')
   return value
 }

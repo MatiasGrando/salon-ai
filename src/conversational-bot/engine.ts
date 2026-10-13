@@ -132,6 +132,16 @@ export function hasActiveBooking(state: DialogueState): boolean {
 export function socialQuestion(state: DialogueState): string {
   return state.pending === 'time' ? '¿Querés que consultemos los horarios para tu turno?' : pendingQuestion(state)
 }
+/** Stored prompts may include statements; social copy needs one recoverable question. */
+export function socialContinuationQuestion(state: DialogueState): string {
+  if (!hasActiveBooking(state)) return '¿En qué te puedo ayudar con el local?'
+  const valid = (value: string | undefined): value is string => Boolean(value?.trim() && value.length <= 1000 && value.endsWith('?'))
+  const remembered = state.questionContext?.question
+  if (valid(remembered)) return remembered
+  const pending = socialQuestion(state)
+  if (valid(pending)) return pending
+  return state.pending === 'proposal' ? '¿Querés confirmar la propuesta o cambiar algún dato?' : '¿En qué te puedo ayudar con el local?'
+}
 /** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
   const localOverview = read.outcome === 'found' && read.focus?.aspect === 'overview' &&
@@ -1073,7 +1083,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     state.pending = 'time'
   }
   if (communicative?.social && raw.operations.length === 0 && !communicative.blockedFields.length && !communicative.reference) {
-    const next = hasActiveBooking(state) ? state.questionContext?.question ?? socialQuestion(state) : '¿En qué te puedo ayudar con el local?'
+    const next = socialContinuationQuestion(state)
     return { state, reply: next, replyFacts: socialContinuationFacts(next), proposal: null, replyPrepared: true }
   }
   if (communicative?.continuity && raw.operations.length === 0 && communicative.plan.operations.length === 0 && !communicative.blockedFields.length && !communicative.reference) {
@@ -1331,7 +1341,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const nameOp = plan.operations.find(op => op.kind === 'name')
   if (nameOp?.kind === 'name') state.customerName = nameOp.value.trim()
   if (!procedureQuestion && communicative?.social && !communicative.blockedFields.length && !communicative.reference && plan.operations.every(op => op.kind === 'name') && state.pending !== 'name' && !contextual.clarify) {
-    const next = hasActiveBooking(state) ? state.questionContext?.question ?? socialQuestion(state) : '¿En qué te puedo ayudar con el local?'
+    const next = socialContinuationQuestion(state)
     return { state, reply: next, replyFacts: socialContinuationFacts(next), proposal: null, replyPrepared: true }
   }
 

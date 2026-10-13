@@ -94,13 +94,21 @@ const contains = (text: string, fragment: string) => (' ' + normalized(text) + '
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const bounded = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u001f]/.test(value)
 export type TurnPlanValidationCause = 'evidence' | 'shape' | 'catalog' | 'conflict' | 'estimate'
+/** Closed validator codes; never quotes or details supplied by the model/customer. */
+export const TURN_PLAN_EVIDENCE_DETAILS = ['operation_evidence_invalid', 'operation_confidence_invalid', 'operation_evidence_not_in_message',
+  'basket_member_evidence_invalid', 'subject_evidence_invalid', 'clock_value_conflict', 'time_range_incomplete',
+  'current_date_missing_or_conflicting', 'clock_candidates_conflicting', 'clock_period_inconsistent'] as const
+export type TurnPlanEvidenceDetail = typeof TURN_PLAN_EVIDENCE_DETAILS[number]
 export class TurnPlanValidationError extends Error {
-  constructor(readonly validationCause: TurnPlanValidationCause, message = 'invalid AI turn plan') { super(message) }
+  constructor(readonly validationCause: TurnPlanValidationCause, message = 'invalid AI turn plan', readonly validationDetail?: TurnPlanEvidenceDetail) { super(message) }
 }
 function fail(reason: string): never {
   const cause: TurnPlanValidationCause = reason.includes('catalog') ? 'catalog' : reason.includes('evidence') ? 'evidence'
     : reason.includes('duplicate') ? 'conflict' : 'shape'
-  throw new TurnPlanValidationError(cause, 'invalid turn plan: ' + reason)
+  const detail: Partial<Record<string, TurnPlanEvidenceDetail>> = { 'ungrounded evidence': 'operation_evidence_not_in_message',
+    'basket member evidence': 'basket_member_evidence_invalid', 'subject evidence': 'subject_evidence_invalid',
+    'clock value evidence': 'clock_value_conflict', 'incomplete range evidence': 'time_range_incomplete' }
+  throw new TurnPlanValidationError(cause, 'invalid turn plan: ' + reason, detail[reason])
 }
 function exactKeys(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): void {
   if (required.some(key => !Object.hasOwn(value, key)) || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) fail('keys')
@@ -128,7 +136,8 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
   if (value.version !== 1 || !Array.isArray(value.operations) || value.operations.length > TURN_PLAN_LIMITS.operations) fail('version or operations')
   const seen = new Set<string>()
   for (const raw of value.operations) {
-    if (!object(raw) || !isCustomerText(raw.evidence, TURN_PLAN_LIMITS.evidence) || typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) fail('evidence or confidence')
+    if (!object(raw) || !isCustomerText(raw.evidence, TURN_PLAN_LIMITS.evidence)) throw new TurnPlanValidationError('evidence', 'invalid AI turn plan', 'operation_evidence_invalid')
+    if (typeof raw.confidence !== 'number' || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1) throw new TurnPlanValidationError('evidence', 'invalid AI turn plan', 'operation_confidence_invalid')
     const evidence = normalized(raw.evidence)
     if (!evidence || !contains(message, raw.evidence)) fail('ungrounded evidence')
     const common = ['kind', 'evidence', 'confidence']
