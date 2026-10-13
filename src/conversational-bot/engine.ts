@@ -23,7 +23,7 @@ import { introduceDialogue, type DialogueIdentity } from './dialogue-identity.js
 import { presentAvailability, presentProfessionals, presentVerifiedDates, presentDateTimeQuestion, type ChoicePresentation, type PresentationChoice } from './availability-presentation.js'
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
 import { parseTimePreference, approximateTimeRequest, fallbackTemporalRequest, filterTimePreference, type TimePreference } from './time-preference.js'
-import { parseInformationFocus, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
+import { parseInformationFocus, parseInformationTarget, type InformationTarget, type InformationFocus, type ProfessionalInformationTarget, type ProfessionalInformationFacts } from './information-contract.js'
 import { validCatalogInquiry, type CatalogInquiryScope, type CatalogInformationContext } from './catalog-information-answer.js'
 import { normalizeInformativeEstimates, readInformation, inferInformationTarget, informationAspect, informationNext, type InformationRead } from './information-read.js'
 export type { InformationTarget } from './information-contract.js'
@@ -222,12 +222,20 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     if (!dc || typeof dc !== 'object' || Array.isArray(dc) || Object.keys(dc).sort().join(',') !== 'lastQuestion,presentedOffer' ||
       dc.lastQuestion !== null && (!bounded(dc.lastQuestion, 240) || !dc.lastQuestion.startsWith('¿') || !dc.lastQuestion.endsWith('?'))) throw new Error('invalid dialogue context')
     const offer = dc.presentedOffer
+    const alternateProfessionalWasPresented = (professionalId: unknown): boolean => {
+      if (s.pending !== 'time' || s.slot !== null || !bounded(professionalId,128) || !s.questionContext || s.professional?.kind !== 'specific' || professionalId === s.professional.id) return false
+      try {
+        const question = parseDialogueQuestion(s.questionContext, s)
+        return Boolean(question?.complete && question.role === 'time' && question.options.some(option => option.id.split('/')[1] === professionalId))
+      } catch { return false }
+    }
     if (offer !== null && (!offer || typeof offer !== 'object' || Array.isArray(offer) ||
       (offer.serviceIds === undefined ? Object.keys(offer).sort().join(',') !== 'businessId,date,professionalId,serviceId'
         : Object.keys(offer).sort().join(',') !== 'businessId,date,durationMinutes,professionalId,serviceId,serviceIds' ||
           JSON.stringify(offer.serviceIds) !== JSON.stringify(basketServiceIds(s)) || !resolvedSelection || !Number.isSafeInteger(offer.durationMinutes) || Number(offer.durationMinutes) <= 0) ||
       offer.businessId !== businessId || offer.serviceId !== s.serviceId || (basketServiceIds(s).length > 1 && !offer.serviceIds) || !validCalendarDate(offer.date) || offer.date !== s.date ||
-      !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id : offer.professionalId !== null))) throw new Error('invalid presented offer')
+      !s.professional || (s.professional.kind === 'specific' ? offer.professionalId !== s.professional.id &&
+        !alternateProfessionalWasPresented(offer.professionalId) : offer.professionalId !== null))) throw new Error('invalid presented offer')
   }
   if (s.slot) validateCoordinatedSlot(s.slot,{businessId,serviceIds:basketServiceIds(s),...(timezone ? {timezone} : {})})
   if (s.appointmentManagement !== undefined) {
@@ -518,6 +526,46 @@ function availabilityRecoveryMessage(serviceName: string, day: string, reasons: 
     NO_SLOTS: 'No encontré horarios disponibles para este pedido.'
   }
   return 'Para ' + serviceName + ' el ' + day + ':\n' + (reasons.length ? reasons.map(reason => copy[reason]).join('\n') : copy.NO_SLOTS)
+}
+/** Reads an alternative professional's live slots without changing the active preference. */
+async function readProfessionalAvailability(context: DialogueContext, state: DialogueState, rawTarget: ProfessionalInformationTarget,
+  port: DialoguePort, preparedServices?: readonly DialogueService[]): Promise<DialogueResponse> {
+  const target = parseInformationTarget(rawTarget)
+  if (target.kind !== 'professional' || target.aspect !== 'availability' || !target.mention) throw new Error('invalid professional availability target')
+  if (state.pending !== 'time' || !state.date || !basketIsResolved(state) || !state.professional || state.professional.kind !== 'specific' ||
+      !port.professionalInformation || !port.availabilityBasket) {
+    return { state, proposal: null, reply: 'Para consultar horarios con otro profesional necesito conservar el servicio y la fecha del pedido. ¿Qué fecha querés consultar?' }
+  }
+  if (target.date && target.date !== state.date) return { state, proposal: null, reply: 'Puedo comparar otro profesional para la fecha actual del pedido. Si querés cambiar el día, decime cuál.' }
+  const rosterTarget: ProfessionalInformationTarget = { ...target, aspect: 'overview', serviceIds: [] }
+  const identities = professionalIdentities(await port.professionalInformation(rosterTarget), context.businessId)
+  const named = matches(target.mention, identities, context.businessId, 'professional')
+  if (named.length !== 1) return { state, proposal: null, reply: named.length ? 'No pude identificar a qué profesional te referís. ¿Cuál de ellos querés consultar?' : 'No pude confirmar ese profesional en el equipo del local. Mantengo intacto el pedido; ¿querés consultar otra opción?' }
+  const services = preparedServices ? [...preparedServices] : await port.catalog()
+  const serviceIds = basketServiceIds(state)
+  const selected = serviceIds.map(id => services.find(service => service.id === id))
+  if (selected.some((service): service is undefined => !service) || selected.some(service => !validBookableService(service!, true))) throw new Error('invalid professional availability services')
+  const professional = named[0]!
+  const temporal = { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) }
+  const fresh = await port.availabilityBasket(selected as DialogueService[], state.date, professional.id, state.serviceEstimates, temporal)
+  if (!fresh.ok) return { state, proposal: null, reply: 'No pude verificar horarios con ' + professional.name + ' para ese pedido. Tu preferencia por ' + (identities.find(item => item.id === state.professional!.id)?.name ?? 'el profesional actual') + ' se mantiene.' }
+  validateBasketAvailability(fresh, serviceIds, state.serviceEstimates)
+  if (!fresh.professionals.some(item => item.id === professional.id) || fresh.slots.some(slot => slot.professionalId !== professional.id || slot.date !== state.date || Date.parse(slot.startAt) <= context.dbNow.getTime())) throw new Error('invalid professional availability scope')
+  if (fresh.explanation) parseAvailabilityExplanation(fresh.explanation, { date: state.date, professionals: fresh.professionals, dbNow: context.dbNow, timezone: context.timezone, professionalId: professional.id })
+  if (!fresh.slots.length) return { state, proposal: null, reply: 'No encontré horarios disponibles con ' + professional.name + ' para el ' + dateLabel(state.date, context.timezone) + ' que completen tu pedido. Tu preferencia por el profesional actual se mantiene. ¿Querés probar otro horario o cambiar de profesional?' }
+  const scope = { businessId: context.businessId, serviceIds, date: state.date, professionalId: professional.id }
+  const presentation = presentAvailability({ scope, read: { fresh: true, scope, slots: fresh.slots }, timezone: context.timezone, now: context.dbNow,
+    requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) })
+  if (presentation.kind !== 'slots' || !presentation.choices.length) return { state, proposal: null, reply: 'No encontré horarios disponibles con ' + professional.name + ' para el ' + dateLabel(state.date, context.timezone) + '. Tu preferencia actual se mantiene.' }
+  state.pending = 'time'
+  const question = '¿Cuál de estos horarios con ' + professional.name + ' te queda mejor?'
+  state.dialogueContext = { lastQuestion: question, presentedOffer: { businessId: context.businessId, serviceId: state.serviceId,
+    serviceIds: [...serviceIds], durationMinutes: fresh.durationMinutes, date: state.date, professionalId: professional.id } }
+  rememberDialogueQuestion(state, question, presentation.choices.map(choice => ({ id: choiceOptionId({ kind: 'slot', date: choice.slot.date,
+    time: choice.slot.time, startAt: choice.slot.startAt, professionalId: choice.slot.professionalId,
+    ...(choice.slot.coordination ? { coordinationKey: choice.slot.coordination.key } : {}) }), label: choice.label })))
+  return { state, proposal: null, reply: presentation.text + '\nSi elegís un horario, recién ahí cambio el profesional para este pedido. La preferencia actual se mantiene mientras tanto.',
+    choicePresentation: adaptChoicePresentation(presentation, 'slots'), availability: { outcome: 'verified', phase: 'slots', reason: null, scope: 'preferred' } }
 }
 /** A current answer may choose one stored whole assignment, never infer one from its prose. */
 function currentCoordinatedTimeAnswer(context: DialogueContext, state: DialogueState, time: string,
@@ -1035,10 +1083,13 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   const semanticPending = Boolean(communicative?.blockedFields.length || communicative?.reference || state.professionalReference)
   const possibleMatch = !semanticPending && !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
-  const needsCatalog = Boolean(state.serviceRequest || state.referral || state.informationFocus) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && op.target.serviceIds.length > 0 || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
+  const needsCatalog = Boolean(state.serviceRequest || state.referral || state.informationFocus) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && (op.target.serviceIds.length > 0 || op.target.aspect === 'availability') || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   raw = parseTurnPlan(normalizeInformativeEstimates(raw, state, services), message, services.map(service => service.id))
+  const availabilityInquiry = raw.operations.length === 1 && raw.operations[0]?.kind === 'information' && raw.operations[0].target.kind === 'professional' && raw.operations[0].target.aspect === 'availability'
+    ? raw.operations[0].target : null
+  if (availabilityInquiry) return readProfessionalAvailability(context, state, availabilityInquiry, port, services)
   // The AI proposal is transient. Only current-catalog supported identities enter selected state.
   // Keep a candidate separately until the sanitized basket has a stable member ID for its question.
   const identityCandidates: { evidence: string; serviceIds: string[] }[] = []
@@ -1504,6 +1555,9 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
     return { state, proposal: null, reply }
   }
   const lexicalRoute = routeActions(message)
+  const target = decision?.informationTarget
+  if (target?.kind === 'professional' && target.aspect === 'availability')
+    return readProfessionalAvailability(context, state, target, port)
   if (!lexicalRoute.information.length && !hasActiveBooking(state)) {
     if (socialMessage(message)) return delivered('¿En qué te puedo ayudar con el local?')
     if (/^(?:(?:hola|buenas|buen dia|buenos dias|buenas tardes|buenas noches) )?(?:soy|me llamo|mi nombre es) /.test(normalizeAnswer(message))) {
@@ -1511,7 +1565,6 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
       if (identity && explicitIdentity(message,identity) && standaloneIdentityMessage(message,identity)) { state.customerName = identity; return delivered('¿En qué te puedo ayudar con el local?') }
     }
   }
-  const target = decision?.informationTarget
   const focusTarget = !target && state.informationFocus ? inferInformationTarget(state, message, await port.catalog()) : null
   if (target?.kind === 'service' || target?.kind === 'professional' || focusTarget && !lexicalRoute.bookingMessage?.match(/\b(reservar|agendar|turno)\b/)) {
     const read = await readInformation(context, state, message, port, target ?? focusTarget!)
@@ -2124,15 +2177,23 @@ export async function respondConversationChoice(context: DialogueContext, previo
   if (state.editRequest && operation.kind !== 'service') return reject()
   if (operation.kind !== 'service' && (!selected.length || selected.some(service => !service || !validBookableService(service,true)))) return reject()
   const clearDependent = (clearExact: boolean) => { state.slot = null; if (clearExact) { state.requestedTime = null; delete state.requestedTimeMode } delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext; delete state.questionContext }
+  const alternateProfessionalOffer = operation.kind === 'slot' ? state.dialogueContext?.presentedOffer : null
+  const explicitlyOfferedProfessionalId = operation.kind === 'slot' && state.professional?.kind === 'specific' && alternateProfessionalOffer &&
+    alternateProfessionalOffer.businessId === context.businessId && alternateProfessionalOffer.date === state.date &&
+    alternateProfessionalOffer.professionalId === operation.professionalId && operation.professionalId !== state.professional.id &&
+    alternateProfessionalOffer.serviceId === state.serviceId &&
+    JSON.stringify(alternateProfessionalOffer.serviceIds ?? basketServiceIds(state)) === JSON.stringify(basketServiceIds(state))
+    ? operation.professionalId : null
   const freshAvailability = async () => {
     if (!state.date || !state.professional) return reject()
     const guidance = resolveGuidance(selected as DialogueService[], state.serviceEstimates)
     if (guidance.blocked || guidance.pending || guidance.changed) return reject()
-    const professionalId = state.professional.kind === 'specific' ? state.professional.id : undefined
+    const professionalId = explicitlyOfferedProfessionalId ?? (state.professional.kind === 'specific' ? state.professional.id : undefined)
+    const temporal = { requestedTime: state.requestedTime, ...(state.timePreference ? { preference: state.timePreference } : {}) }
     const needsBasket = selected.length > 1 || selected.some(service => service!.bookingPolicy !== undefined || Number(service!.customerDurationMinutes ?? service!.durationMinutes) > Number(service!.durationMinutes))
-    if (!needsBasket) return port.availability(selected[0]!,state.date,professionalId)
+    if (!needsBasket) return port.availability(selected[0]!,state.date,professionalId,temporal)
     if (!port.availabilityBasket) return reject()
-    const result = await port.availabilityBasket(selected as DialogueService[],state.date,professionalId,state.serviceEstimates)
+    const result = await port.availabilityBasket(selected as DialogueService[],state.date,professionalId,state.serviceEstimates,temporal)
     if (!result.ok) return reject()
     if (validateBasketAvailability(result,basketServiceIds(state),state.serviceEstimates).changed) return reject()
     return result
@@ -2180,12 +2241,13 @@ export async function respondConversationChoice(context: DialogueContext, previo
   } else if (operation.kind === 'preference') {
     delete state.timeClarification; clearDependent(true); state.timePreference = parseTimePreference(operation.preference)
   } else if (operation.kind === 'slot') {
-    if (state.date !== operation.date || state.professional?.kind === 'specific' && state.professional.id !== operation.professionalId) return reject()
+    if (state.date !== operation.date || state.professional?.kind === 'specific' && state.professional.id !== operation.professionalId && !explicitlyOfferedProfessionalId) return reject()
     const available = await freshAvailability()
     const slot = available.slots.find(slot => slot.date === operation.date && slot.time === operation.time && slot.professionalId === operation.professionalId && slot.coordination?.key === operation.coordinationKey && Date.parse(slot.startAt) === Date.parse(operation.startAt) && Date.parse(slot.startAt) > context.dbNow.getTime())
     if (!slot || !available.professionals.some(professional => professional.id === slot.professionalId)) return reject()
-    const scoped = parseDialogueState({ ...state, requestedTime: operation.time, requestedTimeMode: undefined, slot, timePreference: undefined },context.businessId,context.timezone)
+    const scoped = parseDialogueState({ ...state, ...(explicitlyOfferedProfessionalId ? { professional: { kind: 'specific' as const, id: explicitlyOfferedProfessionalId } } : {}), requestedTime: operation.time, requestedTimeMode: undefined, slot, timePreference: undefined },context.businessId,context.timezone)
     delete state.timeClarification; clearDependent(false); delete state.timePreference; delete state.requestedTimeMode; state.requestedTime = scoped.requestedTime; state.slot = scoped.slot
+    if (explicitlyOfferedProfessionalId) { state.professional = { kind: 'specific', id: explicitlyOfferedProfessionalId }; state.professionalNameHint = null }
   }
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,

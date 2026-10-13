@@ -6,7 +6,7 @@ export const BUSINESS_INFORMATION_SUBJECTS = ['general', 'socials', 'instagram',
 export type BusinessInformationSubject = typeof BUSINESS_INFORMATION_SUBJECTS[number]
 export type ProfessionalInformationTarget = {
   kind: 'professional'; actions: readonly []; mention: string | null; serviceIds: readonly string[]
-  date: string | null; weekday: number | null; aspect: 'overview' | 'services' | 'schedule'
+  date: string | null; weekday: number | null; aspect: 'overview' | 'services' | 'schedule' | 'availability'
 }
 export type InformationTarget =
   | { kind: 'business'; actions: readonly InformationAction[]; subject?: BusinessInformationSubject }
@@ -47,7 +47,7 @@ export function parseInformationTarget(value: unknown, catalogIds?: readonly str
           value.mention !== null && !text(value.mention, 100) ||
           value.date !== null && (typeof value.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.date) || !Number.isFinite(Date.parse(value.date + 'T12:00:00Z')) || new Date(value.date + 'T12:00:00Z').toISOString().slice(0, 10) !== value.date) ||
           value.weekday !== null && (!Number.isInteger(value.weekday) || Number(value.weekday) < 0 || Number(value.weekday) > 6) ||
-          !['overview', 'services', 'schedule'].includes(String(value.aspect))) throw new Error('invalid information professional')
+          !['overview', 'services', 'schedule', 'availability'].includes(String(value.aspect))) throw new Error('invalid information professional')
     } else throw new Error('invalid information kind')
     if ((value.kind === 'service' || value.kind === 'professional') && catalogIds && (value.serviceIds as string[]).some(id => !catalogIds.includes(id))) throw new Error('invalid information catalog')
   }
@@ -79,5 +79,5 @@ export const INFORMATION_TARGET_JSON_SCHEMA = { anyOf: [
   schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: { ...array, minItems: 1, maxItems: 1 }, aspect: { type: 'string', enum: ['price'] }, estimateOptionId: string }),
   schema({ kind: { type: 'string', enum: ['professional'] }, actions: emptyActions, mention: { type: ['string', 'null'], minLength: 1, maxLength: 100 },
     serviceIds: array, date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, weekday: { type: ['integer', 'null'], minimum: 0, maximum: 6 },
-    aspect: { type: 'string', enum: ['overview', 'services', 'schedule'] } })
+    aspect: { type: 'string', enum: ['overview', 'services', 'schedule', 'availability'] } })
 ] }

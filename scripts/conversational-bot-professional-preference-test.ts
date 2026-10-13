@@ -35,6 +35,43 @@ assert.match(information.reply,/Ramiro.*Alisado/s,'contextual information must e
 assert.equal(information.state.professional,null,'a professional question is not a preference change')
 assert.deepEqual(information.state.basket,state.basket);assert.equal(information.state.date,state.date);assert.deepEqual(information.state.timePreference,state.timePreference)
 assert.equal(information.proposal,null)
+const inquiryState: DialogueState = {...state,professional:{kind:'specific',id:'tamara'},pending:'time',requestedTime:'16:00',slot:null}
+delete inquiryState.timePreference
+const gasparSlots = ['16:00','15:30','16:30'].map(time=>({date:inquiryState.date!,time,startAt:'2026-10-02T'+String(Number(time.slice(0,2))+3).padStart(2,'0')+time.slice(2)+':00.000Z',professionalId:'gaspar',professionalName:'Gaspar',band:'AFTERNOON' as const,occupiedMinutes:0}))
+let inquiryAvailabilityCalls=0
+const availabilityInquiry=await respond(context,inquiryState,'y con Gaspar tiene disponibilidad?',{
+  ...port,
+  professionalInformation:async()=>({businessId:'tenant',complete:true,professionals:[{id:'gaspar',name:'Gaspar',services:[],schedule:null}]}),
+  availabilityBasket:async(requested,date,professionalId,_estimates,temporal)=>{
+    inquiryAvailabilityCalls++;assert.equal(date,inquiryState.date);assert.equal(professionalId,'gaspar')
+    assert.deepEqual(requested.map(service=>service.id),['cut','straight']);assert.equal(temporal?.requestedTime,'16:00')
+    return {ok:true,services:requested,durationMinutes:90,totalPrice:300,professionals:[{id:'gaspar',name:'Gaspar',priority:0}],slots:gasparSlots}
+  }
+},{serviceId:null,candidateIds:[],correction:false,intent:'information',informationTarget:{kind:'professional',actions:[],mention:'Gaspar',serviceIds:[],date:inquiryState.date,weekday:null,aspect:'availability'}})
+assert.equal(inquiryAvailabilityCalls,1,'a schedule inquiry should check fresh slots for the named alternative')
+assert.deepEqual(availabilityInquiry.state.professional,inquiryState.professional,'availability inquiry must not replace the selected professional')
+assert.equal(availabilityInquiry.state.date,inquiryState.date);assert.equal(availabilityInquiry.state.requestedTime,'16:00')
+assert.deepEqual(availabilityInquiry.state.basket,inquiryState.basket);assert.equal(availabilityInquiry.proposal,null)
+assert.match(availabilityInquiry.reply,/Gaspar/)
+assert.equal(availabilityInquiry.choicePresentation?.kind,'slot','actual slots should be selectable')
+assert.deepEqual(availabilityInquiry.choicePresentation?.choices.map(choice=>choice.operation.kind),['slot'])
+assert.deepEqual(availabilityInquiry.choicePresentation?.choices.map(choice=>choice.operation.kind==='slot'?choice.operation.professionalId:null),['gaspar'])
+assert.deepEqual(availabilityInquiry.choicePresentation?.choices.map(choice=>choice.operation.kind==='slot'?choice.operation.time:null),['16:00'])
+const alternateQuestion=issueChoiceQuestion(scope,availabilityInquiry.state,availabilityInquiry.choicePresentation!)
+const alternatePublic=publicChoiceQuestion(alternateQuestion)
+const alternateOption=resolveChoice(alternateQuestion,scope,availabilityInquiry.state,alternatePublic.choices[0]!.id).operation
+const explicitAlternativeQueries: string[]=[]
+const selectedAlternate=await respondConversationChoice(context,availabilityInquiry.state,alternateOption,{
+  ...port,
+  availabilityBasket:async(requested,date,professionalId,_estimates,temporal)=>{
+    explicitAlternativeQueries.push(String(professionalId));assert.equal(date,inquiryState.date);assert.equal(temporal?.requestedTime,'16:00')
+    return {ok:true,services:requested,durationMinutes:90,totalPrice:300,professionals:[{id:'gaspar',name:'Gaspar',priority:0}],slots:gasparSlots}
+  }
+})
+assert.ok(explicitAlternativeQueries.length>=1,'an explicit slot selection must revalidate the alternate professional live')
+assert.ok(explicitAlternativeQueries.every(id=>id==='gaspar'),'every fresh check after choosing must retain the explicitly selected alternative')
+assert.deepEqual(selectedAlternate.state.professional,{kind:'specific',id:'gaspar'},'only clicking a fresh alternate slot adopts that professional')
+assert.equal(selectedAlternate.state.slot?.professionalId,'gaspar')
 import { professionalFailureMessage } from '../src/conversational-bot/professional-preference.js'
 for(const bad of [{...proof,businessId:'foreign'},{...proof,serviceIds:['cut']},{...proof,missingServices:[{id:'straight',name:'Foreign name'}]},{...proof,missingServices:[{id:'foreign',name:'Alisado'}]}]) assert.throws(()=>professionalFailureMessage(bad as any,'tenant',services,'ramiro'),/eligibility proof scope/)
 const emptyAlternatives=await respond(context,state,'con Ramiro',{...port,availabilityBasket:async(_selected,_date,id)=>id?{ok:false,reason:'PREFERRED_PROFESSIONAL_INCOMPATIBLE',professionals:[],professionalFailure:proof} as any:{ok:false,reason:'NO_COMMON_PROFESSIONAL'}},{serviceId:null,candidateIds:[],correction:false,intent:'booking',professionalMention:'Ramiro'})

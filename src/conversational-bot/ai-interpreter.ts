@@ -381,7 +381,8 @@ export async function respondWithAiInterpreter(
   // A focus-only read can be inferred even when the clause router leaves the text unclassified.
   // inferInformationTarget already excludes explicit booking; mixed classified booking still waits for the motor.
   if ((pureInformation || informationTarget && !route.pendingAction && (!route.bookingMessage || !route.information.length)) && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
-    if (informationTarget && informationTarget.kind !== 'presented_offer') {
+    if (informationTarget && informationTarget.kind !== 'presented_offer' &&
+        !(informationTarget.kind === 'professional' && informationTarget.aspect === 'availability')) {
       const read = await readInformation(context, state, message, cachedPort, informationTarget, services)
       preparedInformation = !read.failed
       informationPreparationFailed = read.failed === true
