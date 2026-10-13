@@ -48,7 +48,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
 
     const body = request.body as {
-      customerId: string
+      customerId?: string
+      customerPhone?: string
       professionalId: string
       serviceId: string
       serviceIds?: string[]
@@ -112,7 +113,8 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     let result
     try {
       result = await service.create({
-        customerId: body.customerId,
+        customerId: body.customerId ?? '',
+        ...(body.customerPhone === undefined ? {} : { customerPhone: body.customerPhone }),
         professionalId: body.professionalId,
         serviceId: body.serviceId,
         ...(body.serviceIds ? { serviceIds: body.serviceIds } : {}),

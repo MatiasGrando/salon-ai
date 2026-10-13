@@ -47,6 +47,28 @@ export function customerHasContactIdentity(phone?: string | null) {
   return Boolean(phone?.trim())
 }
 
+/** Exact, read-only identity lookup for an already-authorized appointment business. */
+export async function findExistingCustomersByPhone(input: { businessId: string; phone: string }) {
+  const businessId = requireBusinessId(input.businessId)
+  if (typeof input.phone !== 'string' || input.phone.length > 100) {
+    throw new CustomerPhoneValidationError('Ingresá el número completo de un cliente registrado')
+  }
+  const defaultAreaCode = await defaultAreaCodeForBusiness(businessId)
+  const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
+  if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
+  const exactVariants = [...new Set([normalized.phone, ...phoneSearchVariants(input.phone, { defaultAreaCode }).filter(value => {
+    const candidate = normalizeCustomerPhone(value, { defaultAreaCode })
+    return candidate.ok && candidate.phone === normalized.phone
+  })])]
+  return prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "Customer"
+    WHERE "businessId" = ${businessId}
+      AND ("normalizedPhone" = ${normalized.phone}
+        OR regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(exactVariants)}))
+    LIMIT 2
+  `
+}
+
 export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInput) {
   const name = input.name.trim()
   const businessId = requireBusinessId(input.businessId)

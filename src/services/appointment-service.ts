@@ -11,6 +11,7 @@ import {
   PendingDepositCancellationError
 } from './pending-deposit-cancellation.js'
 import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
+import { CustomerPhoneValidationError, findExistingCustomersByPhone } from './customer-identity-service.js'
 import {
   reservationDurationLimits
 } from './service-duration.js'
@@ -40,6 +41,7 @@ const availabilitySlotInterval = 30
 
 type CreateAppointmentInput = {
   customerId: string
+  customerPhone?: string
   professionalId: string
   serviceId: string
   serviceIds?: string[]
@@ -276,6 +278,31 @@ export class AppointmentService {
       }
     }
 
+    const existingPhoneCustomer = input.customerPhone !== undefined
+    if (existingPhoneCustomer) {
+      if (input.customerId) {
+        return { ok: false, statusCode: 400, message: 'Elegí un cliente o ingresá su teléfono, no ambos' }
+      }
+      if (!authorizationUser) return appointmentForbidden()
+      const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+      if (!professional) return appointmentNotFound()
+      if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
+      let matches
+      try {
+        matches = await findExistingCustomersByPhone({ businessId: professional.businessId, phone: input.customerPhone! })
+      } catch (error) {
+        if (!(error instanceof CustomerPhoneValidationError)) throw error
+        return { ok: false, statusCode: 400, message: error.message }
+      }
+      if (!matches.length) {
+        return { ok: false, statusCode: 404, message: 'No encontramos un cliente registrado con ese número. Revisalo o pedí al equipo que lo registre.' }
+      }
+      if (matches.length !== 1) {
+        return { ok: false, statusCode: 409, message: 'Ese número coincide con más de una ficha. Pedí al equipo que revise el cliente antes de cargar el turno.' }
+      }
+      input = { ...input, customerId: matches[0]!.id }
+    }
+
     const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
     const { professional, services, customer, complete } = authorizationUser
       ? await loadAuthorizedAppointmentResources(prisma, authorizationUser, input, serviceIds)
@@ -420,10 +447,12 @@ export class AppointmentService {
         return 'AVAILABILITY_CONFLICT' as const
       }
 
-      await ensureDefaultMarketingPreference({
-        businessId: professional.businessId,
-        customerId: input.customerId
-      }, transaction)
+      if (!existingPhoneCustomer) {
+        await ensureDefaultMarketingPreference({
+          businessId: professional.businessId,
+          customerId: input.customerId
+        }, transaction)
+      }
 
       const createdAppointment = await createAppointmentRecord(transaction, {
         data: {

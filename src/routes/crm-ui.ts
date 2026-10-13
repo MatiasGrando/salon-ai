@@ -30779,7 +30779,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadAppointmentCustomerResults(query = '') {
-      if (!state.businessId) return
+      if (!state.businessId || !canViewAppointmentCustomerData()) return
       if (query.length === 1) {
         state.appointmentCustomerResultsData = []
         els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">Escrib&iacute; al menos 2 caracteres para buscar.</div>'
@@ -33174,9 +33174,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())
       const customerSearchRow = els.appointmentCustomerSearch.closest('.form-row')
       const customerPhoneRow = els.appointmentCustomerPhone.closest('.form-row')
-      if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer
+      if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer || !canViewAppointmentCustomerData()
       if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
-      els.appointmentCustomerName.readOnly = protectsScheduledCustomer
+      const usesExistingCustomerPhone = !appointment && state.currentUser?.role === 'STAFF' &&
+        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+      els.appointmentCustomerName.readOnly = protectsScheduledCustomer || usesExistingCustomerPhone
+      if (usesExistingCustomerPhone && !els.appointmentFeedback.textContent) {
+        els.appointmentFeedback.textContent = 'Ingresá el teléfono del cliente registrado. Usaremos su ficha existente, sin crear una nueva.'
+      }
       if (protectsScheduledCustomer) els.appointmentCustomerPhone.value = ''
       updateAppointmentContactActions(appointment)
       renderAppointmentVisitServices(appointment)
@@ -33507,6 +33512,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const attentionColor = els.appointmentAttentionColor.value
       let customerId = els.appointmentCustomer.value
       const appointment = editingAgendaAppointment()
+      const resolveExistingCustomerByPhone = !appointment && !customerId &&
+        state.currentUser?.role === 'STAFF' &&
+        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+      const existingCustomerPhone = els.appointmentCustomerPhone.value.trim()
+      if (resolveExistingCustomerByPhone && !existingCustomerPhone) {
+        els.appointmentFeedback.textContent = 'Ingresá el número completo de un cliente registrado para cargarle el turno.'
+        els.appointmentCustomerPhone.focus()
+        return
+      }
       const selectedServiceIds = appointment
         ? Array.from(new Set([
             serviceId,
@@ -33616,7 +33630,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.editingAppointmentId ? 'Guardando...' : 'Creando turno...'
       )) return
       try {
-        if (!customerId) {
+        if (!customerId && !resolveExistingCustomerByPhone) {
           const name = els.appointmentCustomerName.value.trim()
           const phone = els.appointmentCustomerPhone.value.trim()
           if (!name) {
@@ -33637,7 +33651,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           customerId = customer.id
           state.customers = await getJson(businessScopedPath('/customers'))
           renderAppointmentFormOptions()
-        } else {
+        } else if (customerId) {
           if (customerChanges.changed) {
             const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
             applyUpdatedCustomerLocally(updatedCustomer)
@@ -33647,7 +33661,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const appointmentId = state.editingAppointmentId
         const appointmentPath = appointmentId ? '/appointments/' + appointmentId : '/appointments'
         const appointmentPayload = {
-            customerId,
+            ...(resolveExistingCustomerByPhone ? { customerPhone: existingCustomerPhone } : { customerId }),
             professionalId,
             serviceId,
             serviceIds: selectedServiceIds,
