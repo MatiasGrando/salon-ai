@@ -1690,13 +1690,20 @@ export const cashRegisterScript = `
     }
 
     function renderProfessionalSettlementFilter() {
+      const scope = state.businessId + ':' + state.currentUser?.id
+      if (state.cashRegister.professionalFilterScope !== scope) {
+        state.cashRegister.professionalFilterScope = scope
+        state.cashRegister.professionalFilterOptions = []
+        cashUi.professionalFilter.value = ''
+      }
       const own = state.currentUser?.role === 'STAFF' && state.currentUser.staffProfile !== 'SECRETARY'
       cashUi.professionalFilterField.hidden = own || !canUseCashPermission('canViewProfessionalSettlements')
       if (cashUi.professionalFilterField.hidden) return
       const selected = cashUi.professionalFilter.value
-      cashUi.professionalFilter.innerHTML = '<option value="">Todos los profesionales</option>' + (state.professionals || []).map((item) =>
+      const options = state.cashRegister.professionalFilterOptions || []
+      cashUi.professionalFilter.innerHTML = '<option value="">Todos los profesionales</option>' + options.map((item) =>
         '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + (item.archivedAt ? ' — Desvinculado' : '') + '</option>').join('')
-      cashUi.professionalFilter.value = state.professionals?.some((item) => item.id === selected) ? selected : ''
+      cashUi.professionalFilter.value = options.some((item) => item.id === selected) ? selected : ''
     }
 
     async function loadStaffSettlements() {
@@ -1769,6 +1776,8 @@ export const cashRegisterScript = `
           getJson(cashScoped('/professional-settlements/entries?' + entryParams.toString()))
         ])
         if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
+        state.cashRegister.professionalFilterOptions = Array.isArray(summary.filterOptions) ? summary.filterOptions : []
+        renderProfessionalSettlementFilter()
         renderProfessionalSettlements(summary)
         renderProfessionalSettlementEntries(entries)
       } catch (error) {

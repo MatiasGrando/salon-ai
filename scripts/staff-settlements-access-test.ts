@@ -17,7 +17,7 @@ for (const [method, path] of [['GET', '/professional-settlements/configuration']
 assert.equal(canStaffAccessRoute({ ...staff, professionalId: null }, 'GET', '/professional-settlements/summary'), false)
 assert.equal(canStaffAccessRoute({ ...staff, canViewCashRegister: true }, 'GET', '/crm/cash-events'), true, 'existing cash event permission survives')
 
-const professionals = [{ id: 'pro-a', name: 'Ana', businessId: 'business-a' }, { id: 'pro-b', name: 'Bruno', businessId: 'business-a' }, { id: 'pro-foreign', name: 'Foreign', businessId: 'business-b' }]
+const professionals = [{ id: 'pro-a', name: 'Ana', businessId: 'business-a', archivedAt: null }, { id: 'pro-b', name: 'Bruno', businessId: 'business-a', archivedAt: new Date('2026-10-01T00:00:00Z') }, { id: 'pro-foreign', name: 'Foreign', businessId: 'business-b', archivedAt: null }]
 const entries = professionals.map((pro, i) => ({ id: 'earning-' + pro.id, businessId: pro.businessId, professionalId: pro.id, amount: 12_500 + i, baseAmount: 25_000, ruleMode: 'PERCENTAGE', rulePercentage: 50, type: 'EARNING', direction: 'CREDIT', effectiveAt: new Date('2026-10-13T16:00:00Z'), description: 'service', professional: { name: pro.name }, appointment: { startAt: new Date('2026-10-13T16:00:00Z'), customer: { name: 'Private ' + pro.name }, service: { name: 'Corte' } } }))
 const calls: Array<{ kind: string; args: any }> = []
 const undo: Array<() => void> = []
@@ -35,6 +35,12 @@ stub(prisma.business, 'findFirst', async (args: any) => {
 })
 stub(prisma.business, 'findUnique', async () => ({ timezone: 'America/Argentina/Buenos_Aires' }))
 stub(prisma.professional, 'findFirst', async (args: any) => { calls.push({ kind: 'professional', args }); return professionals.find((pro) => pro.businessId === args.where.businessId && pro.id === args.where.id) || null })
+stub(prisma.professional, 'findMany', async (args: any) => {
+  calls.push({ kind: 'filter-options', args })
+  assert.deepEqual(args.where, { businessId: 'business-a' }, 'options must carry trusted tenant without the selected professional or archive restriction')
+  assert.deepEqual(args.select, { id: true, name: true, archivedAt: true }, 'option metadata cannot expose contacts or compensation settings')
+  return professionals.filter((pro) => pro.businessId === args.where.businessId).map(({ id, name, archivedAt }) => ({ id, name, archivedAt }))
+})
 stub(prisma.professionalAccountEntry, 'findMany', async (args: any) => { calls.push({ kind: 'entries', args }); return selectedRows(args) })
 stub(prisma.professionalAccountEntry, 'count', async (args: any) => { calls.push({ kind: 'count', args }); return selectedRows(args).length })
 stub(prisma, '$transaction', async (queries: any[]) => Promise.all(queries))
@@ -60,6 +66,7 @@ try {
     assert.doesNotMatch(result.body, /Bruno|Foreign|Private|pro-b|pro-foreign/)
     for (const call of calls.filter((item) => ['entries', 'count'].includes(item.kind))) assert.equal(call.args.where.professionalId, 'pro-a')
     if (path.endsWith('summary')) {
+      assert.deepEqual(body.filterOptions, [], 'own view must not receive other professionals as filter options')
       assert.equal(body.items[0].id, 'pro-a')
       assert.equal(body.items[0].services.length, 1)
       assert.equal(body.items[0].currentBalance, 15_000, 'historical balance remains independent of selected period')
@@ -87,7 +94,12 @@ try {
     const filtered = await get(path + '?professionalId=pro-b', secretary)
     assert.equal(filtered.statusCode, 200)
     assert.equal(filtered.json().items.length, 1)
-    assert.doesNotMatch(filtered.body, /Ana|Private/)
+    assert.doesNotMatch(JSON.stringify(filtered.json().items), /Ana|Private/)
+    if (path.endsWith('summary')) {
+      assert.deepEqual(filtered.json().filterOptions.map((pro: any) => pro.id), ['pro-a', 'pro-b'], 'filter choices remain complete when summary is filtered')
+      assert.equal(filtered.json().filterOptions[1].archivedAt, '2026-10-01T00:00:00.000Z', 'archived professional is individually selectable')
+      assert.doesNotMatch(filtered.body, /Foreign|pro-foreign/)
+    }
     for (const call of calls.filter((item) => ['entries', 'count'].includes(item.kind))) assert.equal(call.args.where.professionalId, 'pro-b')
     assert.equal((await get(path + '?professionalId=pro-foreign', secretary)).statusCode, 404)
     assert.equal(calls.some((item) => ['entries', 'count', 'sql'].includes(item.kind)), false)

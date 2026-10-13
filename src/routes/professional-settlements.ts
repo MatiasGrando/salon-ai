@@ -210,8 +210,14 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
       current.push(service)
       servicesByProfessional.set(service.professionalId, current)
     }
+    const filterOptions = user!.role !== 'STAFF' || user!.staffProfile === 'SECRETARY'
+      ? await prisma.professional.findMany({
+          where: { businessId }, select: { id: true, name: true, archivedAt: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }]
+        })
+      : []
     return {
       items: rows.map((row) => ({ ...row, services: servicesByProfessional.get(row.id) || [] })),
+      filterOptions,
       period: range ? { from: query.from, to: query.to } : null
     }
   })

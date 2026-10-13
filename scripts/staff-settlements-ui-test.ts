@@ -44,7 +44,7 @@ function harness(profile: string, extra: any = {}) {
     escapeHtml: (value: any) => String(value).replace(/</g, '&lt;'), cashMoney: (value: any) => '$' + value,
     ensureFinancialDateDefaults() {}, syncProfessionalPaymentSource() {}, renderCashCurrent() {}, loadCashPeriod: () => { throw new Error('Caja period forbidden') }, loadTreasury: () => { throw new Error('Treasury forbidden') }, loadTreasuryConsolidated: () => { throw new Error('Treasury forbidden') },
     renderProfessionalSettlements: (result: any) => rendered.push(result), renderProfessionalSettlementEntries: (result: any) => rendered.push(result),
-    getJson: async (url: string) => { calls.push(url); assert.ok(url.startsWith('/professional-settlements/'), 'No Caja/configuration requests'); return { items: [{ id: 'p1', name: 'Ana', completedServices: 2, billedAmount: 50000 }], entries: [], date: '2026-10-13' } },
+    getJson: async (url: string) => { calls.push(url); assert.ok(url.startsWith('/professional-settlements/'), 'No Caja/configuration requests'); return { items: [{ id: 'p1', name: 'Ana', completedServices: 2, billedAmount: 50000 }], filterOptions: [{ id: 'p1', name: 'Ana', archivedAt: null }, { id: 'p2', name: 'Luis', archivedAt: null }, { id: 'p-old', name: 'Archivado', archivedAt: '2026-10-01' }], entries: [], date: '2026-10-13' } },
     window: { EventSource: true }, EventSource: class { constructor(url: string) { sources.push(url) } addEventListener() {} close() {} }
   })
   vm.runInContext(navFunctions + '\n' + cashFunctions, context)
@@ -81,6 +81,10 @@ own.cashUi.professionalFilter.value = 'p2'
 await own.context.loadStaffSettlements()
 for (const call of own.calls) assert.equal(new URL(call, 'https://example.invalid').searchParams.get('professionalId'), 'p1', 'Own filter ignores forged selection')
 const secretary = harness('SECRETARY', { canViewProfessionalSettlements: true })
+await secretary.context.loadStaffSettlements()
+assert.match(secretary.cashUi.professionalFilter.innerHTML, /Archivado/)
+assert.match(secretary.cashUi.professionalFilter.innerHTML, /Desvinculado/)
+secretary.calls.length = 0
 secretary.cashUi.professionalFilter.value = 'p2'
 await secretary.context.loadStaffSettlements()
 assert.match(secretary.cashUi.professionalFilter.innerHTML, /Todos los profesionales/)
@@ -92,6 +96,19 @@ for (const call of secretary.calls) {
   assert.equal(params.get('from'), '2026-10-01')
   assert.equal(params.get('to'), '2026-10-13')
 }
+secretary.cashUi.professionalFilter.value = 'p-old'
+secretary.calls.length = 0
+await secretary.context.loadStaffSettlements()
+assert.equal(secretary.cashUi.professionalFilter.value, 'p-old', 'Archive choice survives filtered summary that contains only p1')
+for (const call of secretary.calls) assert.equal(new URL(call, 'https://example.invalid').searchParams.get('professionalId'), 'p-old')
+secretary.state.businessId = 'b2'
+secretary.context.renderProfessionalSettlementFilter()
+assert.equal(secretary.cashUi.professionalFilter.value, '')
+assert.doesNotMatch(secretary.cashUi.professionalFilter.innerHTML, /Ana|Luis|Archivado/, 'Changing business clears cached options before requesting data')
+await secretary.context.loadStaffSettlements()
+secretary.state.currentUser.id = 'another-user'
+secretary.context.renderProfessionalSettlementFilter()
+assert.doesNotMatch(secretary.cashUi.professionalFilter.innerHTML, /Ana|Luis|Archivado/, 'Changing user also clears cached options')
 const cashier = harness('SECRETARY', { canViewProfessionalSettlements: true, canViewCashRegister: true })
 assert.equal(cashier.context.staffVisibleSections().includes('cash'), true, 'Independent legitimate Caja permission remains')
 cashier.els.appShell.dataset.section = 'cash'
