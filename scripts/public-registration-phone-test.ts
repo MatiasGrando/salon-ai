@@ -56,6 +56,7 @@ const business: any = {
 }
 let customer: any = { id: 'existing-customer', name: 'Existing', businessId: business.id, phone: '4930123456', normalizedPhone: '4930123456' }
 let customerCreates = 0
+let profileWrites = 0
 let writtenPhones: string[] = []
 let linkQuery: any = null
 let depositQuery: any = null
@@ -68,7 +69,7 @@ const cookie = { cookie: 'weex_account_session=offline-token' }
 try {
   replace(BusinessService.prototype, 'findPublicBySlug', async () => business)
   replace(db.business, 'findUnique', async () => business)
-  replace(db.weexAccount, 'update', async ({ data }: any) => { Object.assign(account, data); return { ...account } })
+  replace(db.weexAccount, 'update', async ({ data }: any) => { profileWrites++; Object.assign(account, data); return { ...account } })
   replace(db.weexAccount, 'findUnique', async () => account)
   replace(db.weexAccountSession, 'findUnique', async () => ({ account, expiresAt: new Date(Date.now() + 60_000) }))
   replace(db.weexCustomerLink, 'upsert', async ({ create }: any) => {
@@ -147,23 +148,44 @@ try {
       return scope.els.phoneInput.value
     } }
   }
-  const phones = [
+  const phones: Array<[string, string, string?]> = [
     ['11-6655-8877', '5491166558877'], ['9 11-6655-8877', '5491166558877'],
     ['11-1565-8877', '5491115658877'], ['011 15 6655 8877', '5491166558877'],
-    ['+598 99 123 456', '59899123456'], ['00598 99 123 456', '59899123456'],
-    ['+1 202 555 0123', '12025550123'], ['+44 20 7946 0123', '442079460123'], ['+49 30 123456', '4930123456']
+    ['15-5555-6666', '5491155556666'], ['11-5555-6666', '5491155556666'],
+    ['911-5555-6666', '5491155556666'], ['+54911-5555-6666', '5491155556666']
   ]
+  for (const [area, subscriber] of [['11', '55556666'], ['351', '5556666'], ['2920', '555666']]) {
+    const national = area + subscriber
+    for (const raw of [subscriber, '15-' + subscriber, area + '-' + subscriber, '9' + national,
+      '0' + national, '0' + area + '-15-' + subscriber, area + ' 15 ' + subscriber,
+      '54' + national, '549' + national, '+54 ' + area + ' ' + subscriber,
+      '+54 9 (' + area + ') ' + subscriber, '0054' + national, '00549' + national,
+      '  ' + area + '.' + subscriber + '  ']) {
+      phones.push([raw, '549' + national, area])
+    }
+  }
+  for (const digits of ['59899123456', '12025550123', '442079460123', '4930123456',
+    '56912345678', '5511987654321', '595981234567', '59171234567', '12345678', '123456789012345']) {
+    for (const prefix of ['+', '00']) phones.push([prefix + digits, digits])
+  }
+  phones.push(['+598 99 123 456', '59899123456'], ['+1 (202) 555-0123', '12025550123'])
+  function useAreaCode(area = '11') {
+    // The real profile route derives this default from the current business, not the browser.
+    business.publicWhatsapp = '+54 9 ' + area + ' ' + '4'.repeat(10 - area.length)
+  }
   for (const [index, html] of forms.entries()) {
     const functions = phoneFunctions(html)
-    for (const [raw, expected] of phones) {
+    for (const [raw, expected, area = '11'] of phones) {
       await test(`generated form ${index + 1} paste/type preserves ${raw}`, () => {
         for (const typed of [false, true]) {
           let value = ''
           if (typed) for (const char of raw) value = functions.input(value + char)
           else value = functions.input(raw)
           assert.equal(functions.input(value), value, 'formatting must be idempotent')
-          const normalized = normalizeCustomerPhone(functions.phoneForSubmit(value), { defaultAreaCode: '11' })
+          const normalized = normalizeCustomerPhone(functions.phoneForSubmit(value), { defaultAreaCode: area })
           assert.equal(normalized.ok && normalized.phone, expected)
+          const reloaded = normalizeCustomerPhone('+' + expected, { defaultAreaCode: area })
+          assert.equal(reloaded.ok && reloaded.phone, expected, 'canonical identity must be idempotent')
         }
       })
     }
@@ -176,14 +198,15 @@ try {
       const selector = index ? 'phoneForm' : 'gatePhone'
       const start = functions.script.indexOf(`els.${selector}.addEventListener('submit'`)
       const end = functions.script.indexOf('\n          })', start) + '\n          })'.length
-      for (const [raw, expected] of [['11-6655-8877', '5491166558877'], ['+598 99 123 456', '59899123456']]) {
+      for (const [raw, expected, area = '11'] of phones) {
+        useAreaCode(area)
         let handler: any
         let pending: Promise<any> | undefined
         const scope: any = { ...functions, slug: business.slug, state: {},
           els: { [selector]: { addEventListener: (_event: string, run: any) => { handler = run } }, phoneInput: { value: raw } },
           setGateFeedback() {}, setPhoneModalFeedback() {}, setFeedback() {}, proceedToConfirm() {}, closePhoneModal() {}, renderShell() {}, loadHistory: async () => {},
           postJson: (path: string, payload: any) => {
-            assert.equal(payload.phone, raw, 'client must not invent country or drop digits')
+            assert.equal(payload.phone, raw.trim(), 'client must not invent country or drop digits')
             pending = app.inject({ method: 'POST', url: path, payload, headers: cookie }).then(response => {
               assert.equal(response.statusCode, 200, response.body)
               return response.json()
@@ -193,16 +216,17 @@ try {
         }
         runInNewContext(functions.script.slice(start, end), scope)
         handler({ preventDefault() {} })
-        assert.ok(pending, 'the real generated submit must call profile/phone')
+        assert.ok(pending, `the real generated submit must call profile/phone for ${raw} (business area ${area})`)
         await pending
         assert.equal(account.phone, expected)
         assert.equal(account.phoneVerifiedAt, null)
       }
+      useAreaCode()
     })
   }
-  for (const [raw, expected] of phones) {
+  for (const [raw, expected, area = '11'] of phones) {
     await test('profile saves canonical ' + raw + ' without verifying ownership', async () => {
-      const result = await updateWeexPhone(account.id, raw, '11')
+      const result = await updateWeexPhone(account.id, raw, area)
       assert.equal(result.ok, true)
       assert.equal(account.phone, expected)
       assert.equal(account.phoneVerifiedAt, null)
@@ -211,10 +235,48 @@ try {
   }
   await test('invalid and short phone do not write profile', async () => {
     const before = account.phone
-    for (const raw of ['', '1234', '+598123', '+1234567890123456']) {
+    const writesBefore = profileWrites
+    for (const raw of ['', '   ', '1234', '55555', '555666', '5556666', '+', '00', '+1234567', '001234567',
+      '+598123', '+1234567890123456', '001234567890123456', '+549115555666', '+54911555566666']) {
       assert.equal((await updateWeexPhone(account.id, raw, '11')).ok, false)
       assert.equal(account.phone, before)
     }
+    for (const [raw, area] of [['55556666', '351'], ['5556666', '2920']]) {
+      assert.equal((await updateWeexPhone(account.id, raw, area)).ok, false)
+      assert.equal(account.phone, before)
+    }
+    assert.equal(profileWrites, writesBefore)
+  })
+  await test('profile API rejects incomplete local and foreign inputs without writes', async () => {
+    useAreaCode()
+    const before = account.phone
+    const writesBefore = profileWrites
+    for (const phone of ['555666', '5556666', '+1234567', '+1234567890123456']) {
+      const response = await app.inject({ method: 'POST', url: '/public/weex/profile/phone',
+        headers: cookie, payload: { phone, businessSlug: business.slug } })
+      assert.equal(response.statusCode, 400, phone + ': ' + response.body)
+      assert.equal(account.phone, before, 'a looser browser precheck must not permit incomplete identities')
+    }
+    assert.equal(profileWrites, writesBefore)
+  })
+  await test('foreign numbers without a country prefix never invent a foreign identity', async () => {
+    for (const digits of ['59899123456', '12025550123', '442079460123', '4930123456']) {
+      const normalized = normalizeCustomerPhone(digits, { defaultAreaCode: '11' })
+      assert.ok(!normalized.ok || normalized.phone.startsWith('549'), 'bare input uses only the local Argentine default')
+      assert.notEqual(normalized.ok && normalized.phone, digits, 'foreign country must be explicit')
+    }
+  })
+  await test('every accepted format reuses its exact canonical customer without duplicates', async () => {
+    const before = customerCreates
+    for (const [raw, expected, area = '11'] of phones) {
+      customer.phone = expected; customer.normalizedPhone = expected
+      const result = await findOrCreateCustomerByPhone({ businessId: business.id, name: 'Existing', phone: raw, defaultAreaCode: area })
+      assert.equal(result.wasExisting, true, raw)
+      assert.equal(result.customer.id, customer.id, raw)
+      assert.equal(result.canonicalPhone, expected, raw)
+    }
+    assert.equal(customerCreates, before)
+    customer.phone = '4930123456'; customer.normalizedPhone = customer.phone
   })
   await test('profile route still requires the authenticated session', async () => {
     const original = db.weexAccountSession.findUnique

@@ -3161,7 +3161,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           els.gatePhone.addEventListener('submit', (event) => {
             event.preventDefault()
             const phone = phoneForSubmit(els.phoneInput.value)
-            if (phone.replace(/\\D/g, '').length < 8) {
+            if (phone.replace(/\\D/g, '').length < 6) {
               setGateFeedback('Ingresa un telefono valido para confirmar tu turno.', 'error')
               return
             }
@@ -3783,7 +3783,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           els.phoneForm.addEventListener('submit', (event) => {
             event.preventDefault()
             const phone = phoneForSubmit(els.phoneInput.value)
-            if (normalizePhone(phone).length < 8) {
+            if (normalizePhone(phone).length < 6) {
               setPhoneModalFeedback('Ingresa un telefono valido para ver tus turnos.', 'error')
               return
             }
