@@ -22,10 +22,10 @@ Forecast 300–550 líneas authored orientativo; nunca un límite que reduzca cl
 ## Tareas
 - [x] P1 — Corregir entrada/guardado después de Google y preservar clasificación internacional en consumidores de cuenta pública; writer delegado, commit 0e2cfea. RED/GREEN51 y controles país/identidad/consentimiento observados. P3 amplía formatos posteriormente, sin invalidar los resultados de este commit.
 - [x] P2 — Regresiones y verificación de interfaz existente; parent y writer, pruebas locales y UI34 observadas, evidencia en 0e2cfea. Fallas de baseline y revisión nativa unavailable explícitas abajo; no se declara aprobación ni publicación. No se omitieron ni modificaron pruebas fallidas. Publicación separada, en espera por orden humana.
-- [x] P3 — Ampliar la matriz a todos los formatos válidos citados por el usuario (15-5555-6666, 11-5555-6666, 911-5555-6666 y +54911-5555-6666), separadores, prefijo nacional, características provinciales y países internacionales explícitos. Autoriza el usuario «hace que puedan pasar todos los casos». Ruta delegada por preparación de escritura; 243/243 funcionales y 66/66 de interfaz observados, sin relajar inválidos ni inventar país/característica. Work-unit commit se registra en el cierre siguiente.
+- [x] P3 — Ampliar la matriz a todos los formatos válidos citados por el usuario (15-5555-6666, 11-5555-6666, 911-5555-6666 y +54911-5555-6666), separadores, prefijo nacional, características provinciales y países internacionales explícitos. Autoriza el usuario «hace que puedan pasar todos los casos». Ruta delegada por preparación de escritura; 243/243 funcionales y 66/66 de interfaz observados, sin relajar inválidos ni inventar país/característica. Work-unit af131b2c162f1581194d68834e6369c6153d913b, 3 archivos y 116 authored.
 
 ## Recuperación
-P1 guardado en 0e2cfea y P2 verificado. P3 quedó verificado con 243 controles funcionales y 66 de interfaz; parent guarda su work-unit y registra evaluación nativa. La causa del rechazo exacto de 11-6655-8877 en producción sigue sin evidencia técnica; su regresión pasa sin atribuir una causa remota. Publicación y Google real no probados/autorizados en esta entrega.
+P1 guardado en 0e2cfea, P2 verificado y P3 guardado en af131b2 con 243 controles funcionales y 66 de interfaz. Assessment y preflight nativos high/unassessable/unavailable registrados en el cierre; no se compartió código ni se fabricó revisión. La causa del rechazo exacto de 11-6655-8877 en producción sigue sin evidencia técnica; su regresión pasa sin atribuir una causa remota. Publicación y Google real no probados/autorizados en esta entrega.
 
 ## Evidencia del writer (sin commit ni publicación)
 - RED inicial observado: public-registration-phone-test.ts, 12 PASS / 25 FAIL. Ejemplos: 11-1565-8877 terminaba en 5491111658877; +598 99 123 456 terminaba en 5495989912345; perfil rechazaba países y proof permitía una identidad de país diferente.
@@ -65,3 +65,26 @@ STATUS nativo repetido desde df668d8 (frontera previa a la ampliación P3) confi
 Parent repitió 243/243 y staff17/17, public-booking-services-ui, booking-theme-ui y glow-booking-return PASS. Retest delegado public_registration_phone_ui_verifier completó 66/66 en escritorio y móvil, ambos formularios con JS completo y APIs ficticias: los cuatro formatos exactos, +/00 extranjeros, locales provinciales 6/7 y errores negativos sin escrituras. Reporte tmp/public-registration-phone-visual/results-p3.json y harness verify-p3.ts conservan la evidencia previa; capturas p3-booking-mobile.png y p3-account-mobile.png inspeccionadas por verifier. Hash coincide con fuente final. Un intento inicial del harness no esperaba el error asíncrono final y fue corregido en el harness, no en fuentes.
 Sólo dos límites preliminares del navegador cambiaron en esta ampliación, con matriz parametrizada reutilizada; no hay cambios de autorización, pagos, catálogo o Google. Sin normalización extranjera por adivinación. El número corto con 15 usa la característica del negocio; se recomienda ingresar característica completa para números de otra zona.
 Siguen las limitaciones documentadas: contrato general de marketing FAIL preexistente, build/typecheck global y Google real/end-to-end de producción no ejecutados. Native RDD unavailable no equivale a permiso para compartir código, aprobación o riesgo bajo. Ninguna publicación de esta ampliación se realiza sin la orden humana y el alcance remoto correspondiente.
+
+## Commit y control de entrega P3
+af131b2c162f1581194d68834e6369c6153d913b: 99 altas y 17 bajas, 116 authored; sólo landing-ui.ts, public-registration-phone-test.ts y este documento. Encoding y scoped diff PASS inmediatamente antes del commit. Frontera df668d8 excluye los commits ajenos previos. Assessment nativo devolvió risk=high, reason=unassessable, review_due=true/high_risk, exit1: inventario supera 8388608 bytes con 88319 entradas. Preflight STATUS del mismo scope también exit1/invalid_request/not_started/not_evaluated por la misma causa. No se inicia una revisión, no se transmite código, no se registra aprobación o declinación y no se modifica modo/configuración/archivos para eludirlo. La revisión sigue unavailable y cualquier entrega remota debe resolver o comunicar este control bajo su autorización propia.
+
+## Session recovery — cierre local
+### Goal
+Corregir teléfonos del registro Google: formatos argentinos equivalentes y extranjeros explícitos, conservando identidad en reservas/historial/señas.
+### Instructions
+Ignorar el caso de secretaría. Cubrir los cuatro formatos citados y mantener validación de incompletos. No publicar todavía ni tocar Barber/Google/base real.
+### Discoveries
+- Mutación/truncado del navegador y renormalización argentina de canónicos extranjeros provocaban pérdida de dígitos/país; una coincidencia literal no puede imponerse a una identidad normalizada contradictoria.
+- El precheck de 8 dígitos bloqueaba abonados provinciales de 6/7 aunque el servidor podía completarlos con la característica del negocio.
+- El control nativo no puede generar autoridad por inventario de archivos no versionados mayor a 8MiB; no implica aprobación ni menor riesgo.
+### Accomplished
+- P1/P2 commit0e2cfea y P3 commitaf131b2, pruebas funcionales 243/243 y UI66/66, staff17/17 y regresiones citadas PASS. Argentina normaliza a 549 y extranjeros +/00 conservan país; no altas duplicadas en controles sintéticos.
+### Next Steps
+- Publicación separada únicamente con orden/alcance remoto explícito, resolver/comunicar revisión unavailable y verificar Google real después. Fallo de marketing y controles globales no ejecutados siguen informados, fuera de la ampliación.
+- Espejo Engram y mem_session_summary pendientes: búsqueda de herramientas mem_* devuelve ninguna API. Este documento es recuperación local, no sincronización remota afirmada.
+### Relevant Files
+- src/routes/landing-ui.ts — campos completos y precheck compatible con provincias.
+- src/services/phone-normalization-service.ts, weex-account-service.ts, customer-identity-service.ts y src/routes/public-booking.ts — identidad internacional/coherencia y protecciones.
+- scripts/public-registration-phone-test.ts — matriz, submit real con repositorios ficticios y SQL PGlite.
+- tmp/public-registration-phone-visual/results-p3.json — resultados de interfaz offline.
