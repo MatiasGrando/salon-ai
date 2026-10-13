@@ -3,6 +3,14 @@ export const cashRegisterStyles = `
     .app[data-section="cash"] { grid-template-columns: 80px minmax(0, 1fr); }
     .app[data-section="cash"] > :not(.workspace-nav):not(.cash-register-view):not(.crm-toast):not(.dialog-backdrop):not(.cash-dialog-backdrop) { display: none; }
     .app[data-section="cash"] .cash-register-view { display: block; grid-column: 2; }
+    .app[data-section="settlements"] { grid-template-columns: 80px minmax(0, 1fr); }
+    .app[data-section="settlements"] > :not(.workspace-nav):not(.cash-register-view):not(.crm-toast):not(.dialog-backdrop):not(.cash-dialog-backdrop) { display: none; }
+    .app[data-section="settlements"] .cash-register-view { display: block; grid-column: 2; }
+    .app[data-section="settlements"] :is(.cash-header, .cash-view-switch, #cash-empty-state, #cash-dashboard, .cash-professional-payment-panel, .cash-treasury-view, .cash-period-view) { display: none; }
+    .cash-settlement-filter { display: grid; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+    .cash-settlement-filter[hidden] { display: none; }
+    .cash-settlement-filter select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); }
+    .cash-settlement-filter select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
     .cash-shell { width: min(1260px, 100%); margin: 0 auto; padding: 28px; }
     .cash-header, .cash-toolbar, .cash-session-strip, .cash-filter-row, .cash-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     .cash-header { margin-bottom: 20px; }
@@ -236,6 +244,8 @@ export const cashRegisterStyles = `
     @media (max-width: 900px) {
       .app[data-section="cash"] { display: block; }
       .app[data-section="cash"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
+      .app[data-section="settlements"] { display: block; }
+      .app[data-section="settlements"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
       .cash-shell { padding: 16px; }
       .cash-summary-grid { grid-template-columns: 1fr 1fr; }
       .cash-period-summary-grid { grid-template-columns: 1fr 1fr; }
@@ -437,6 +447,7 @@ export const cashRegisterMarkup = `
           <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button></section>
           <section class="cash-panel" id="cash-professional-today-panel" hidden><div class="cash-today-table-wrap" id="cash-professional-today-table"></div></section>
           <section class="cash-panel cash-professional-period">
+            <label class="cash-settlement-filter" id="cash-professional-filter-field" hidden>Profesional<select id="cash-professional-filter"><option value="">Todos los profesionales</option></select></label>
             <div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
               <button class="cash-period-preset" data-cash-professional-preset="today" type="button">Hoy</button>
               <button class="cash-period-preset active" data-cash-professional-preset="week" type="button">Semana</button>
@@ -772,6 +783,7 @@ export const appointmentFinanceMarkup = `
 export const cashRegisterScript = `
     const cashUi = {
       view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), categoryShortcut: document.getElementById('cash-category-shortcut'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), viewTreasury: document.getElementById('cash-view-treasury'), treasuryView: document.getElementById('cash-treasury-view'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentSource: document.getElementById('cash-professional-payment-source'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'), professionalPeriodFrom: document.getElementById('cash-professional-period-from'), professionalPeriodTo: document.getElementById('cash-professional-period-to'), professionalPeriodApply: document.getElementById('cash-professional-period-apply'), professionalPeriodLabel: document.getElementById('cash-professional-period-label'), professionalPeriodFeedback: document.getElementById('cash-professional-period-feedback'), professionalPageInfo: document.getElementById('cash-professional-page-info'), professionalPrevious: document.getElementById('cash-professional-previous'), professionalNext: document.getElementById('cash-professional-next'),
+      professionalFilterField: document.getElementById('cash-professional-filter-field'), professionalFilter: document.getElementById('cash-professional-filter'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
       gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), unknownCollected: document.getElementById('cash-unknown-collected'), unknownCollectedRow: document.getElementById('cash-unknown-collected-row'), unknownOutgoing: document.getElementById('cash-unknown-outgoing'), unknownOutgoingRow: document.getElementById('cash-unknown-outgoing-row'), unknownTotal: document.getElementById('cash-unknown-total'), unknownTotalRow: document.getElementById('cash-unknown-total-row'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), outgoingCash: document.getElementById('cash-outgoing-cash'), outgoingTransfer: document.getElementById('cash-outgoing-transfer'), outgoingCard: document.getElementById('cash-outgoing-card'), totalCash: document.getElementById('cash-total-cash'), totalTransfer: document.getElementById('cash-total-transfer'), totalCard: document.getElementById('cash-total-card'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
       typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), subcategoryFilter: document.getElementById('cash-subcategory-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
@@ -1021,7 +1033,7 @@ export const cashRegisterScript = `
 
     function startCashRealtimeEvents() {
       stopCashRealtimeEvents()
-      if (!window.EventSource || !state.businessId || !(canUseCashPermission('canViewCashRegister') || canUseCashPermission('canViewProfessionalSettlements') || canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
+      if (!window.EventSource || !state.businessId || !(canUseCashPermission('canViewCashRegister') || canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
       const source = new EventSource(cashScoped('/crm/cash-events'))
       state.cashRegister.eventSource = source
       source.addEventListener('cash_changed', (event) => {
@@ -1677,17 +1689,42 @@ export const cashRegisterScript = `
       cashUi.professionalNext.disabled = state.cashRegister.professionalPage >= state.cashRegister.professionalTotalPages
     }
 
+    function renderProfessionalSettlementFilter() {
+      const own = state.currentUser?.role === 'STAFF' && state.currentUser.staffProfile !== 'SECRETARY'
+      cashUi.professionalFilterField.hidden = own || !canUseCashPermission('canViewProfessionalSettlements')
+      if (cashUi.professionalFilterField.hidden) return
+      const selected = cashUi.professionalFilter.value
+      cashUi.professionalFilter.innerHTML = '<option value="">Todos los profesionales</option>' + (state.professionals || []).map((item) =>
+        '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + (item.archivedAt ? ' — Desvinculado' : '') + '</option>').join('')
+      cashUi.professionalFilter.value = state.professionals?.some((item) => item.id === selected) ? selected : ''
+    }
+
+    async function loadStaffSettlements() {
+      if (!state.businessId || state.currentUser?.role !== 'STAFF' || !canUseCashPermission('canViewProfessionalSettlements')) return
+      state.cashRegister.viewMode = 'professionals'
+      cashUi.professionalView.hidden = false
+      cashUi.periodView.hidden = true
+      cashUi.treasuryView.hidden = true
+      ensureFinancialDateDefaults()
+      await loadProfessionalSettlements()
+    }
+
     async function loadProfessionalSettlements(options = {}) {
-      const limited = state.currentUser?.role === 'STAFF'
+      const staff = state.currentUser?.role === 'STAFF'
+      const limited = staff && !canUseCashPermission('canViewProfessionalSettlements')
+      const requestScope = state.businessId + ':' + state.currentUser?.id
+      const requestId = state.cashRegister.professionalRequestId = (state.cashRegister.professionalRequestId || 0) + 1
+      if (!canUseCashPermission('canViewProfessionalSettlements') && !canUseCashPermission('canViewTodayProfessionalProduction')) return
+      renderProfessionalSettlementFilter()
       const todayPanel = document.getElementById('cash-professional-today-panel')
       const fullSummaryPanel = cashUi.professionalSummary.closest('.cash-panel')
       todayPanel.hidden = !limited
       cashUi.professionalView.querySelector('.cash-professional-period').hidden = limited
       cashUi.professionalView.querySelector('.cash-professional-movements').hidden = limited
       fullSummaryPanel.hidden = limited
-      cashUi.professionalPaymentPanel.hidden = limited || !canUseCashPermission('canManageProfessionalSettlements')
+      cashUi.professionalPaymentPanel.hidden = staff || !canUseCashPermission('canManageProfessionalSettlements')
       const heading = cashUi.professionalView.querySelector('.cash-professional-heading')
-      heading.querySelector('h3').textContent = limited ? 'Actividad de profesionales de hoy' : 'Liquidaciones a profesionales'
+      heading.querySelector('h3').textContent = limited ? 'Actividad de profesionales de hoy' : (staff && state.currentUser.staffProfile !== 'SECRETARY' ? 'Mis liquidaciones' : 'Liquidaciones a profesionales')
       heading.querySelector('p').textContent = limited ? 'Servicios realizados y facturación de hoy. No incluye pagos ni saldos.' : 'Consultá servicios realizados por período sin perder de vista el saldo histórico.'
       if (limited) {
         if (!canUseCashPermission('canViewTodayProfessionalProduction')) return
@@ -1695,10 +1732,12 @@ export const cashRegisterScript = `
         target.innerHTML = '<div class="cash-inline-state">Cargando actividad de hoy...</div>'
         try {
           const result = await getJson(cashScoped('/professional-settlements/today'))
+          if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
           target.innerHTML = '<p>Hoy: ' + escapeHtml(result.date) + '</p><table class="cash-today-table"><thead><tr><th>Profesional</th><th>Servicios realizados</th><th>Facturado</th></tr></thead><tbody>' +
             (result.items || []).map((item) => '<tr><td>' + escapeHtml(item.name) + '</td><td>' + Number(item.completedServices || 0) + '</td><td>' + escapeHtml(cashMoney(item.billedAmount)) + '</td></tr>').join('') +
             '</tbody></table>'
         } catch (error) {
+          if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
           target.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
         }
         return
@@ -1716,18 +1755,24 @@ export const cashRegisterScript = `
       const page = options.page || state.cashRegister.professionalPage || 1
       const params = new URLSearchParams({ from: dates.from, to: dates.to })
       const entryParams = new URLSearchParams({ from: dates.from, to: dates.to, page: String(page), pageSize: '10' })
+      const professionalId = staff && state.currentUser.staffProfile !== 'SECRETARY'
+        ? state.currentUser.professionalId
+        : cashUi.professionalFilter.value
+      if (professionalId) { params.set('professionalId', professionalId); entryParams.set('professionalId', professionalId) }
       cashUi.professionalPeriodLabel.textContent = professionalPeriodLabel(dates)
       cashUi.professionalSummary.innerHTML = '<div class="cash-inline-state">Cargando liquidaciones...</div>'
       cashUi.professionalEntries.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
-      cashUi.professionalPaymentPanel.hidden = !canUseCashPermission('canManageProfessionalSettlements')
+      cashUi.professionalPaymentPanel.hidden = staff || !canUseCashPermission('canManageProfessionalSettlements')
       try {
         const [summary, entries] = await Promise.all([
           getJson(cashScoped('/professional-settlements/summary?' + params.toString())),
           getJson(cashScoped('/professional-settlements/entries?' + entryParams.toString()))
         ])
+        if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
         renderProfessionalSettlements(summary)
         renderProfessionalSettlementEntries(entries)
       } catch (error) {
+        if (requestId !== state.cashRegister.professionalRequestId || requestScope !== state.businessId + ':' + state.currentUser?.id) return
         const message = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
         cashUi.professionalSummary.innerHTML = message
         cashUi.professionalEntries.innerHTML = message
@@ -2086,6 +2131,7 @@ export const cashRegisterScript = `
       }
     }
     function setCashView(mode) {
+      if (els.appShell.dataset.section === 'settlements') mode = 'professionals'
       if (state.currentUser?.role === 'STAFF' && mode === 'period') mode = 'day'
       state.cashRegister.viewMode = mode
       const showingPeriod = mode === 'period'
@@ -2151,6 +2197,7 @@ export const cashRegisterScript = `
 
     async function loadCashRegister(options = {}) {
       if (!state.businessId) return
+      if (els.appShell.dataset.section === 'settlements') return loadStaffSettlements()
       const isStaffCash = state.currentUser?.role === 'STAFF'
       if (isStaffCash && state.cashRegister.viewMode === 'period') {
         state.cashRegister.viewMode = 'day'
@@ -3104,6 +3151,7 @@ export const cashRegisterScript = `
     document.getElementById('cash-financial-date-cancel').addEventListener('click', closeFinancialDateDialog)
     document.getElementById('cash-financial-date-dialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeFinancialDateDialog() })
     cashUi.professionalRefresh.addEventListener('click', () => loadProfessionalSettlements({ page: state.cashRegister.professionalPage }))
+    cashUi.professionalFilter.addEventListener('change', () => loadProfessionalSettlements({ page: 1 }))
     cashUi.professionalPaymentForm.addEventListener('submit', submitProfessionalPayment)
     for (const eventName of ['input', 'change']) cashUi.professionalPaymentForm.addEventListener(eventName, () => { delete cashUi.professionalPaymentForm.dataset.key })
     cashUi.professionalPaymentSource.addEventListener('change', syncProfessionalPaymentSource)

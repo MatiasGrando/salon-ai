@@ -130,7 +130,7 @@ assert.ok(ui.includes('Registrar pagos de turnos'), 'el permiso de cobro debe se
 assert.ok(ui.includes('canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments'), 'el permiso de cobro debe enviarse al guardar la cuenta staff')
 assert.ok(ui.includes("field.hidden = !isSecretary"), 'los permisos de secretaría deben ocultarse para profesionales')
 assert.ok(ui.includes("els.staffProfessionalField.hidden = isSecretary"), 'el profesional asignado debe ocultarse para secretaría')
-assert.ok(ui.includes("'Permisos de secretaría' : 'Permisos de agenda'"), 'el título debe explicar el conjunto visible')
+assert.ok(ui.includes("'Permisos de secretaría' : 'Permisos del profesional'"), 'el título debe explicar el conjunto visible de agenda y liquidaciones')
 assert.ok(ui.includes("state.currentUser?.canViewConversations"), 'la UI no debe cargar conversaciones sin permiso')
 
 const guard = readFileSync(new URL('../src/plugins/auth-guard.ts', import.meta.url), 'utf8')

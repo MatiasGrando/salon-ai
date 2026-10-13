@@ -16218,7 +16218,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
       <button type="button" data-mobile-section="pipeline" hidden>Pipeline</button>
-      ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button>' : ''}
+      ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button><button type="button" data-mobile-section="settlements" hidden>Liquidaciones</button>' : ''}
       <button type="button" data-mobile-section="customers">Clientes</button>
       <button type="button" data-mobile-section="professionals">Profesionales</button>
       <button type="button" data-mobile-section="services">Servicios</button>
@@ -18835,6 +18835,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"> Abrir, cerrar y cambiar responsable de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
+                  <label><input id="staff-can-view-professional-settlements" type="checkbox"> <span id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</span></label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
@@ -20371,6 +20372,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanAdjustCash: document.getElementById('staff-can-adjust-cash'),
       staffCanManageCashSessions: document.getElementById('staff-can-manage-cash-sessions'),
       staffCanViewTodayProfessionalProduction: document.getElementById('staff-can-view-today-professional-production'),
+      staffCanViewProfessionalSettlements: document.getElementById('staff-can-view-professional-settlements'),
+      staffSettlementsPermissionLabel: document.getElementById('staff-settlements-permission-label'),
       staffCanViewProducts: document.getElementById('staff-can-view-products'),
       staffCanSellProducts: document.getElementById('staff-can-sell-products'),
       staffCanManageProducts: document.getElementById('staff-can-manage-products'),
@@ -21299,6 +21302,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
         { section: 'pipeline', label: 'Pipeline', icon: 'briefcase' },
         ${cashRegisterEnabled ? "{ section: 'cash', label: 'Caja', icon: 'briefcase' }," : ''}
+        ${cashRegisterEnabled ? "{ section: 'settlements', label: staffSettlementsLabel(), icon: 'chart' }," : ''}
         { section: 'customers', label: 'Clientes', icon: 'users' },
         { section: 'professionals', label: 'Profesionales', icon: 'professional' },
         { section: 'services', label: 'Servicios', icon: 'scissors' },
@@ -21843,6 +21847,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return state.business?.businessType === 'WORKSHOP'
     }
 
+    function staffSettlementsLabel() {
+      return state.currentUser?.role === 'STAFF' && state.currentUser.staffProfile !== 'SECRETARY' ? 'Mis liquidaciones' : 'Ver liquidaciones'
+    }
+
     function staffVisibleSections() {
       if (!state.currentUser) return []
       const pipelineSection = state.currentUser.role !== 'STAFF' && state.business?.featureSettings?.pipelineEnabled === true ? 'pipeline' : null
@@ -21865,6 +21873,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         'agenda',
         ...pipelineSections,
         ${cashRegisterEnabled ? "(state.currentUser.canViewCashRegister || state.currentUser.canViewTodayProfessionalProduction) ? 'cash' : null," : ''}
+        ${cashRegisterEnabled ? "state.currentUser.canViewProfessionalSettlements === true ? 'settlements' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
       ].filter(Boolean)
@@ -22047,6 +22056,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
         button.hidden = !staffVisibleSections().includes(button.dataset.mobileSection)
+        if (button.dataset.mobileSection === 'settlements') button.textContent = staffSettlementsLabel()
       })
       if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
@@ -23433,6 +23443,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canAdjustCash: els.staffCanAdjustCash,
         canManageCashSessions: els.staffCanManageCashSessions,
         canViewTodayProfessionalProduction: els.staffCanViewTodayProfessionalProduction,
+        canViewProfessionalSettlements: els.staffCanViewProfessionalSettlements,
         canViewProducts: els.staffCanViewProducts,
         canSellProducts: els.staffCanSellProducts,
         canManageProducts: els.staffCanManageProducts
@@ -23470,10 +23481,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
         field.hidden = !isSecretary
       }
-      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos de agenda'
+      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos del profesional'
+      els.staffSettlementsPermissionLabel.textContent = isSecretary
+        ? 'Ver liquidaciones de profesionales (solo consulta)'
+        : 'Ver liquidaciones propias (solo consulta)'
       els.staffPermissionsHelp.textContent = isSecretary
         ? 'Secretaría siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
-        : 'El profesional solo accede a su propia agenda y no ve clientes, conversaciones, señas ni reportes.'
+        : 'El profesional accede a su propia agenda. Si habilitás liquidaciones, puede consultar sus trabajos, comisiones, pagos recibidos y saldo. No administra pagos ni porcentajes.'
     }
 
     function markStaffPermissionsCustom() {
@@ -23545,6 +23559,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canAdjustCash) labels.push('Ajustes de Caja')
       if (user.canManageCashSessions) labels.push('Abre y cierra Caja')
       if (user.canViewTodayProfessionalProduction) labels.push('Actividad profesionales de hoy')
+      if (user.canViewProfessionalSettlements) labels.push(user.staffProfile === 'PROFESSIONAL' ? 'Liquidaciones propias' : 'Liquidaciones de profesionales')
       if (user.canViewProducts) labels.push('Productos')
       if (user.canSellProducts) labels.push('Venta de productos')
       if (user.canManageProducts) labels.push('Administra catálogo')
@@ -36329,6 +36344,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           agenda: 'Agenda',
           pipeline: 'Pipeline',
           cash: 'Caja',
+          settlements: staffSettlementsLabel(),
           customers: 'Clientes',
           professionals: 'Profesionales',
           services: 'Servicios',
@@ -36360,6 +36376,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (${cashRegisterEnabled ? "section === 'cash'" : 'false'}) {
         loadCashRegister({ preserve: Boolean(state.cashRegister?.loaded) }).catch((error) => showCrmToast(error.message, 'error'))
+      }
+      if (${cashRegisterEnabled ? "section === 'settlements'" : 'false'}) {
+        loadStaffSettlements().catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'customers') {
