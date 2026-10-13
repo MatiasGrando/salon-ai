@@ -77,6 +77,8 @@ await db.exec('CREATE UNIQUE INDEX job_kind_aggregate ON "BotJob" (kind,"aggrega
 await db.exec(readFileSync(new URL('../prisma/migrations/20261009210000_add_pending_deposit_staff_cancellation/migration.sql',import.meta.url),'utf8'))
 const cashMigration=readFileSync(new URL('../prisma/migrations/20260906120000_add_cash_financial_ledger/migration.sql',import.meta.url),'utf8')
 await db.exec('BEGIN;'+cashMigration.slice(cashMigration.indexOf('ALTER TABLE "Appointment" ALTER COLUMN')))
+await db.exec(readFileSync(new URL('../prisma/migrations/20260924020000_cash_admin_responsible/migration.sql',import.meta.url),'utf8'))
+await db.exec('ALTER TABLE "CashEntry" ADD COLUMN "businessPaymentMethodId" TEXT')
 await db.exec(readFileSync(new URL('../prisma/migrations/20260919170000_add_appointment_total_adjustments/migration.sql',import.meta.url),'utf8'))
 await db.exec(`
 INSERT INTO "Business" (id,name,"botEnabled",timezone) VALUES ('b','Salon',true,'America/Argentina/Buenos_Aires'),('foreign','Other',true,'America/Argentina/Buenos_Aires');
@@ -1056,7 +1058,81 @@ try {
     assert.equal(ownAfter.members[0]!.startAt,ownCommand.moves[0]!.newStartAt)
     assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows,depositsBefore)
     assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,cashBefore)
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET status='COMPLETED' WHERE id=${made.appointmentId}`)
+    const unpaidAccount=await ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',made.appointmentId)
+    assert.equal(unpaidAccount.agreedAmount,1000,'completed no-deposit BOT appointment can reconstruct its financial account')
+    assert.equal((await createCashTransactionRepository(tx).resolveAppointmentAccount('b',made.appointmentId))?.id,unpaidAccount.id,
+      'no-deposit account is linked durably through the cash repository')
     throw Error('rollback unpaid professional fixture')
   }),/rollback unpaid professional fixture/)
+  const unpaidMultiBase=await input()
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    await raw.exec(`UPDATE "Service" SET "depositMode"='NONE',"depositValue"=NULL WHERE id IN ('s1','s2')`)
+    const {deposit:unused,...terms}=unpaidMultiBase.proposal.terms
+    const presented={...unpaidMultiBase.proposal,terms,fingerprint:canonicalJsonHash(terms)}
+    const origin={...unpaidMultiBase.origin,operationKey:'multi-unpaid'}
+    const operationKey='conversation-booking:'+origin.operationKey+':'+presented.nonce
+    const groupId='3ce7a21b-f7bd-41c4-a851-c49e56a5a15e'
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
+      VALUES ('multi-unpaid-parent',${operationKey},'CONFIRM_VISIT','b','session','STARTED',${runtimeBookingRequestHash(origin,presented)},${groupId},clock_timestamp())`)
+    const appointments:string[]=[]
+    for(const [index,segment] of presented.terms.segments.entries()) {
+      const child=await booking.confirmBookingWithoutDeposit(tx,runtimeBookingChildInput(presented,operationKey,index,true))
+      if(child.kind!=='CONFIRMED') throw Error('multi unpaid fixture must confirm every service')
+      appointments.push(child.appointmentId)
+      await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${groupId} WHERE id=${child.appointmentId}`)
+    }
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED' WHERE "operationKey"=${operationKey}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "manualDepositPaid"=true WHERE id=${appointments[0]}`)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[0]),
+      /coordinated deposit group scope, terms or membership mismatch/,'no-deposit authority rejects manual deposit evidence')
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "manualDepositPaid"=false WHERE id=${appointments[0]}`)
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "Appointment" (id,"businessId","customerId","professionalId","serviceId","startAt",origin,"totalDurationMinutes","coordinationGroupId",status)
+      VALUES ('forged-extra','foreign','foreign-customer','p1','s1','2030-09-02T16:00:00Z','BOT',45,${groupId},'CONFIRMED')`)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[0]),
+      /coordinated deposit group scope, terms or membership mismatch/,'a foreign unlinked group member cannot borrow no-deposit authority')
+    await tx.$executeRaw(Prisma.sql`DELETE FROM "Appointment" WHERE id='forged-extra'`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "businessId"='foreign' WHERE "operationKey"=${operationKey}`)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[0]),
+      /coordinated deposit group scope, terms or membership mismatch/,'parent operation must belong to the appointment tenant')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "businessId"='b' WHERE "operationKey"=${operationKey}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "businessId"='foreign' WHERE "operationKey"=${operationKey+':segment:0:CONFIRM_VISIT'}`)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[0]),
+      /coordinated deposit group scope, terms or membership mismatch/,'child operation must belong to the appointment tenant')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "businessId"='b' WHERE "operationKey"=${operationKey+':segment:0:CONFIRM_VISIT'}`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "sessionId"='foreign-session' WHERE "operationKey"=${operationKey+':segment:0:CONFIRM_VISIT'}`)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[0]),
+      /coordinated deposit group scope, terms or membership mismatch/,'child operation must belong to the booking session')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "sessionId"='session' WHERE "operationKey"=${operationKey+':segment:0:CONFIRM_VISIT'}`)
+    const removedChild=await tx.$queryRaw<Array<{operationKey:string}>>(Prisma.sql`DELETE FROM "BotOperation" WHERE "operationKey"=${operationKey+':segment:1:CONFIRM_VISIT'} RETURNING "operationKey"`)
+    assert.equal(removedChild.length,1)
+    await assert.rejects(ensureAppointmentAccountForPayment(createCashTransactionRepository(tx),'b',appointments[1]!),
+      /coordinated deposit group scope, terms or membership mismatch/,'missing service child cannot authorize a partial group')
+    await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
+      VALUES ('multi-unpaid-child-restored',${operationKey+':segment:1:CONFIRM_VISIT'},'CONFIRM_VISIT','b','session','COMPLETED',${'a'.repeat(64)},
+        (SELECT "visitId" FROM "Appointment" WHERE id=${appointments[1]}),clock_timestamp())`)
+    const repo=createCashTransactionRepository(tx)
+    const firstAccount=await ensureAppointmentAccountForPayment(repo,'b',appointments[0]!)
+    assert.equal(firstAccount.agreedAmount,presented.terms.segments[0]!.priceMinor,
+      'fixed no-deposit service reconstructs its own financial amount')
+    await repo.createDay({id:'unpaid-day',businessId:'b',openedAt:new Date('2030-09-02T12:00:00.000Z'),openingCash:0})
+    await repo.createSession({id:'unpaid-session',businessId:'b',registerDayId:'unpaid-day',responsibleUserId:null,
+      responsibleAdministratorUserId:'cancel-operator',responsibleName:'Offline Admin',openedAt:new Date('2030-09-02T12:00:00.000Z')})
+    const cashService=new CashService({transaction:async run=>run(repo)})
+    const payment=await cashService.recordAppointmentPayment({businessId:'b',appointmentId:appointments[0]!,cashSessionId:'unpaid-session',origin:'AGENDA',
+      lines:[{amount:250,method:'CASH'}]})
+    assert.equal(payment.finance.paidAmount,250,'cash service records payment against the reconstructed account')
+    const entries=await repo.listAccountEntries('b',firstAccount.id)
+    assert.equal(entries.length,1)
+    assert.equal(entries[0]!.amount,250)
+    assert.equal(entries[0]!.type,'PAYMENT')
+    await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET status='CANCELLED' WHERE id=${appointments[0]}`)
+    const secondAccount=await ensureAppointmentAccountForPayment(repo,'b',appointments[1]!)
+    assert.notEqual(firstAccount.id,secondAccount.id,'each service visit retains its own appointment account after a sibling is cancelled')
+    assert.equal(secondAccount.agreedAmount,null,'estimated no-deposit service retains an unset agreed amount')
+    assert.equal(secondAccount.minimumAmount,2000,'estimated service retains its catalog minimum')
+    throw Error('rollback no-deposit multisegment fixture')
+  }),/rollback no-deposit multisegment fixture/)
   console.log('B2 paid coordinated reschedule: atomic rollback, seal, Cash, replay PASS')
 } finally {await db.close()}

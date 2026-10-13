@@ -306,9 +306,81 @@ async function lockCoordinatedDepositGroupForMember(tx:Prisma.TransactionClient,
     : await tx.$queryRaw<Array<{groupId:string|null;origin:string;professionalId:string}>>(Prisma.sql`SELECT "coordinationGroupId" AS "groupId",origin,"professionalId" FROM "Appointment" WHERE id=${id} AND "businessId"=${businessId}`)
   if(rows.some(row=>row.origin==='BOT' && row.groupId)) {
     if(rows.length!==1) fail()
-    await assertRuntimeSingularDeposit(tx,{businessId,key,id,groupId:rows[0]!.groupId!,professionalId:rows[0]!.professionalId})
+    const parents=await tx.$queryRaw<Array<{type:string}>>(Prisma.sql`SELECT type FROM "BotOperation" WHERE "resultRef"=${rows[0]!.groupId}`)
+    if(parents.length===1 && parents[0]!.type==='CONFIRM_VISIT') {
+      await assertRuntimeNoDepositBooking(tx,{businessId,key,id,groupId:rows[0]!.groupId!})
+    } else {
+      await assertRuntimeSingularDeposit(tx,{businessId,key,id,groupId:rows[0]!.groupId!,professionalId:rows[0]!.professionalId})
+    }
   }
   return null // Validated runtime singular and unrelated single/legacy aggregates use their own lifecycle.
+}
+
+/** A runtime CONFIRM_VISIT parent is durable authority for no-deposit bookings.
+ * Revalidate its exact children and current membership without treating mutable
+ * appointment prices or schedules as a replay hash. The operation hashes are
+ * format checked because the original proposal is intentionally not persisted. */
+async function assertRuntimeNoDepositBooking(tx:Prisma.TransactionClient,target:{businessId:string;key:'depositId'|'appointmentId';id:string;groupId:string}) {
+  const {businessId,groupId}=target
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(groupId)) fail()
+  // Establish the lock set, then require the exact same set after acquiring the agenda hierarchy.
+  const candidates=await tx.$queryRaw<Array<{appointmentId:string;professionalId:string}>>(Prisma.sql`
+    SELECT id AS "appointmentId","professionalId" FROM "Appointment" WHERE "coordinationGroupId"=${groupId} ORDER BY id`)
+  if(candidates.length<1 || candidates.length>8 || candidates.some(member=>!text(member.appointmentId) || !text(member.professionalId))) fail()
+  await acquireAgendaHierarchy(tx,{businessId,professionalIds:candidates.map(member=>member.professionalId)})
+  // Read every member without tenant filters so forged or foreign members fail closed.
+  const members=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."visitId",
+      a."manualDepositPaid",a."manualDepositAmount",v.origin AS "visitOrigin",v."businessId" AS "visitBusinessId",
+      v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",
+      d.id AS "depositId",d."businessId" AS "depositBusinessId"
+    FROM "Appointment" a LEFT JOIN "BookingVisit" v ON v.id=a."visitId"
+    LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
+    WHERE a."coordinationGroupId"=${groupId} ORDER BY a.id FOR UPDATE OF a`)
+  if(members.length<1 || members.length>8) fail()
+  if(!isDeepStrictEqual(candidates.map(row=>[row.appointmentId,row.professionalId]),members.map(row=>[row.appointmentId,row.professionalId]))) fail()
+  const first=members[0]!
+  if(![first.customerId,first.sessionId].every(v=>text(v)) || first.businessId!==businessId || first.visitBusinessId!==businessId) fail()
+  const appointmentIds=new Set<string>(),visitIds=new Set<string>(),professionalIds:string[]=[]
+  for(const member of members) {
+    if(member.origin!=='BOT' || member.visitOrigin!=='BOT' || member.businessId!==businessId || member.visitBusinessId!==businessId ||
+      member.customerId!==first.customerId || member.visitCustomerId!==first.customerId || member.sessionId!==first.sessionId ||
+      !text(member.appointmentId) || !text(member.visitId) || !text(member.professionalId) || member.visitProfessionalId!==member.professionalId ||
+      member.depositId!==null || member.depositBusinessId!==null || member.manualDepositPaid!==false || member.manualDepositAmount!==null) fail()
+    if(appointmentIds.has(member.appointmentId) || visitIds.has(member.visitId)) fail()
+    appointmentIds.add(member.appointmentId as string); visitIds.add(member.visitId as string); professionalIds.push(member.professionalId as string)
+  }
+  if(!members.some(member=>member[target.key]===target.id)) fail()
+  const lockedVisits=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT id FROM "BookingVisit" WHERE "businessId"=${businessId} AND id IN (${Prisma.join([...visitIds])}) FOR UPDATE`)
+  if(lockedVisits.length!==visitIds.size) fail()
+  const owners=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT s.id FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+    JOIN "Customer" customer ON customer.id=${first.customerId} AND customer."businessId"=s."businessId"
+    WHERE s.id=${first.sessionId} AND s."businessId"=${businessId}
+      AND customer."normalizedPhone"=regexp_replace(c.phone,'[^0-9]','','g') FOR SHARE OF s,c,customer`)
+  if(owners.length!==1) fail()
+  const professionals=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT id FROM "Professional" WHERE "businessId"=${businessId} AND id IN (${Prisma.join([...new Set(professionalIds)])}) FOR SHARE`)
+  if(professionals.length!==new Set(professionalIds).size) fail()
+  const parents=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;requestHash:string;status:string;type:string}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId","requestHash",status,type FROM "BotOperation" WHERE "resultRef"=${groupId} FOR UPDATE`)
+  const parent=parents[0]
+  if(parents.length!==1 || !parent || parent.businessId!==businessId || parent.type!=='CONFIRM_VISIT' || parent.status!=='COMPLETED' || parent.sessionId!==first.sessionId ||
+    !text(parent.operationKey,256) || !parent.operationKey.startsWith('conversation-booking:') || !/^[a-f0-9]{64}$/.test(parent.requestHash)) fail()
+  const prefix=parent.operationKey+':segment:'
+  const children=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;requestHash:string;status:string;type:string;resultRef:string}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId","requestHash",status,type,"resultRef" FROM "BotOperation"
+    WHERE left("operationKey",length(${prefix}))=${prefix} FOR UPDATE`)
+  if(children.length!==members.length) fail()
+  const seenVisits=new Set<string>()
+  for(let index=0;index<members.length;index++) {
+    const child=children.find(row=>row.operationKey===prefix+index+':CONFIRM_VISIT')
+    if(!child || child.businessId!==businessId || child.sessionId!==first.sessionId || child.status!=='COMPLETED' ||
+      child.type!=='CONFIRM_VISIT' || !/^[a-f0-9]{64}$/.test(child.requestHash) || !visitIds.has(child.resultRef) || seenVisits.has(child.resultRef)) fail()
+    seenVisits.add(child.resultRef)
+  }
+  if(seenVisits.size!==visitIds.size) fail()
 }
 
 /** Runtime singular holds use a coordination UUID too, but NOT a coordinated
