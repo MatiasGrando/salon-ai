@@ -21205,6 +21205,32 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return 'Hola ' + name + ', te recordamos tu turno de ' + service + ' para el ' + date + ' a las ' + time + '.'
     }
 
+    function buildAgendaAppointmentWhatsappMessage(appointment, fallbackName = 'cliente') {
+      const name = String(appointment?.customer?.name || fallbackName || 'cliente').trim() || 'cliente'
+      const service = String(appointment?.service?.name || 'servicio').trim() || 'servicio'
+      const startAt = appointment?.startAt || els.appointmentStart?.value
+      const local = String(startAt || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/)
+      let when = 'Fecha y horario a confirmar'
+      if (local) {
+        when = local[3] + '/' + local[2] + '/' + local[1] + ' ' + local[4] + ':' + local[5] + 'hs'
+      } else if (startAt && !Number.isNaN(new Date(startAt).getTime())) {
+        const parts = new Intl.DateTimeFormat('es-AR', {
+          timeZone: state.business?.timezone || undefined,
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+        }).formatToParts(new Date(startAt))
+        const part = (type) => parts.find((item) => item.type === type)?.value || ''
+        when = part('day') + '/' + part('month') + '/' + part('year') + ' ' + part('hour') + ':' + part('minute') + 'hs'
+      }
+      const lines = ['Hola ' + name + '!', 'Te queremos recordar tu cita de ' + service, '', '⏰ ¿Cuándo?: ' + when]
+      const address = String(state.business?.publicAddress || '').trim()
+      const professional = String(appointment?.professional?.name || '').trim()
+      if (address) lines.push('📍 ¿Dónde?: ' + address)
+      if (professional) lines.push('👤 ¿Con quién?: ' + professional)
+      lines.push('', '¡Te esperamos!')
+      return lines.join('\\n')
+    }
+
     const iconPaths = {
       'arrow-left': '<path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>',
       'arrow-right': '<path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path>',
@@ -33401,10 +33427,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const reminderMessage = reminderAppointment
         ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
         : ''
+      const whatsappMessage = reminderAppointment
+        ? buildAgendaAppointmentWhatsappMessage({
+            ...reminderAppointment,
+            professional: state.professionals.find((item) => item.id === els.appointmentProfessional.value) || appointment.professional
+          }, els.appointmentCustomerName.value || 'cliente')
+        : ''
 
       els.appointmentWhatsapp.hidden = !canUseWhatsapp
       els.appointmentWhatsapp.href = canUseWhatsapp
-        ? whatsappAppUrl(digits, reminderMessage)
+        ? whatsappAppUrl(digits, whatsappMessage)
         : '#'
       els.appointmentOpenChat.hidden = !canOpenChat
       els.appointmentOpenChat.disabled = !canOpenChat
