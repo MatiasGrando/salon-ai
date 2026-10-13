@@ -2820,6 +2820,7 @@ export const cashRegisterScript = `
       else resetAppointmentFinanceView()
       prepareCreateAppointmentPayment(appointment)
       prepareAppointmentProducts(appointment)
+      syncAppointmentPaymentLoading()
     }
 
     async function submitAppointmentTotalAdjustment(event) {
@@ -2894,10 +2895,32 @@ export const cashRegisterScript = `
       }
     }
 
+    function appointmentPaymentOperationKey() {
+      return JSON.stringify([state.businessId, state.editingAppointmentId])
+    }
+
+    function syncAppointmentPaymentLoading() {
+      const operation = state.cashRegister.appointmentPaymentOperations?.[appointmentPaymentOperationKey()]
+      setButtonLoading(cashUi.paymentSubmit, false)
+      if (operation) {
+        setButtonLoading(cashUi.paymentSubmit, true, operation.completedWithPayment ? 'Registrando pago y turno...' : 'Registrando pago...')
+        cashUi.financeFeedback.textContent = operation.completedWithPayment ? 'Registrando pago y marcando el turno como realizado...' : 'Registrando pago...'
+        cashUi.financeFeedback.className = 'appointment-finance-feedback'
+      }
+    }
+
     async function submitAppointmentPayment(event) {
       event.preventDefault()
       const appointmentId = state.editingAppointmentId
       const businessId = state.businessId
+      if (!appointmentId || !businessId) return
+      const key = appointmentPaymentOperationKey()
+      const operations = state.cashRegister.appointmentPaymentOperations ||= {}
+      if (operations[key]) return
+      const completedWithPayment = !cashUi.paymentCompleteRow.hidden && cashUi.paymentComplete.checked
+      const operation = { completedWithPayment }
+      operations[key] = operation
+      syncAppointmentPaymentLoading()
       try {
         await loadCashPaymentMethods()
         if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
@@ -2912,7 +2935,6 @@ export const cashRegisterScript = `
           showAppointmentFinanceError('Los medios de pago deben completar exactamente el saldo pendiente.')
           return
         }
-        const completedWithPayment = !cashUi.paymentCompleteRow.hidden && cashUi.paymentComplete.checked
         await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
         if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
         cashUi.paymentAmount.value = ''
@@ -2924,12 +2946,24 @@ export const cashRegisterScript = `
         cashUi.paymentComplete.checked = false
         state.cashRegister.editFinance.collectTotal = false
         await loadAppointmentFinance()
-        if (completedWithPayment) await loadAgenda()
-        showCrmToast(completedWithPayment ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.', 'success')
+        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        if (completedWithPayment) {
+          cashUi.financeFeedback.textContent = 'Pago registrado. Actualizando Agenda...'
+          await loadAgenda()
+          if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        }
+        const message = completedWithPayment ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.'
+        cashUi.financeFeedback.textContent = message
+        cashUi.financeFeedback.className = 'appointment-finance-feedback success'
+        showCrmToast(message, 'success')
       } catch (error) {
         if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
         if (error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') await loadAppointmentFinance()
+        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
         showAppointmentFinanceError(error.message)
+      } finally {
+        if (operations[key] === operation) delete operations[key]
+        syncAppointmentPaymentLoading()
       }
     }
 

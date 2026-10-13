@@ -1,12 +1,38 @@
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { appointmentFinanceMarkup, cashRegisterScript } from '../src/routes/crm-ui/cash-register.js'
 
 const ast = ts.createSourceFile('cash-ui.js', cashRegisterScript, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-const names = ['configuredPaymentLine', 'selectDefaultPaymentMethod', 'renderConfiguredPaymentMethods', 'loadCashPaymentMethods', 'loadCreateAppointmentCashState', 'loadAppointmentFinance', 'showAppointmentFinanceError', 'submitAppointmentPayment', 'submitAppointmentDeposit', 'readCreateAppointmentPayment']
-const functions = ast.statements.filter((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && names.includes(node.name?.text || '')).map((node) => node.getText(ast)).join('\n')
-assert.equal(functions.match(/(?:async )?function /g)?.length, names.length)
+const names = ['configuredPaymentLine', 'selectDefaultPaymentMethod', 'renderConfiguredPaymentMethods', 'loadCashPaymentMethods', 'loadCreateAppointmentCashState', 'loadAppointmentFinance', 'showAppointmentFinanceError', 'submitAppointmentPayment', 'submitAppointmentDeposit', 'readCreateAppointmentPayment', 'prepareAppointmentFinance']
+const functions = ast.statements.filter((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && (names.includes(node.name?.text || '') || ['appointmentPaymentOperationKey', 'syncAppointmentPaymentLoading'].includes(node.name?.text || ''))).map((node) => node.getText(ast)).join('\n')
+const shell = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+const buttonHelperStart = shell.indexOf('    function setButtonLoading(')
+const buttonHelper = shell.slice(buttonHelperStart, shell.indexOf('    async function withButtonLoading(', buttonHelperStart))
+assert.ok(buttonHelperStart >= 0)
+
+function button() {
+  let content = 'Registrar pago'
+  const classes = new Set<string>()
+  const attributes = new Map<string, string>()
+  return {
+    dataset: {} as Record<string, string>, disabled: false,
+    get innerHTML() { return content }, set innerHTML(value: string) { content = value },
+    get textContent() { return content }, set textContent(value: string) { content = value },
+    classList: { add: (value: string) => classes.add(value), remove: (value: string) => classes.delete(value), contains: (value: string) => classes.has(value) },
+    setAttribute: (name: string, value: string) => attributes.set(name, value), removeAttribute: (name: string) => attributes.delete(name), getAttribute: (name: string) => attributes.get(name)
+  }
+}
+
+function deferred() {
+  let resolve!: (value?: any) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise((pass, fail) => { resolve = pass; reject = fail })
+  return { promise, resolve, reject }
+}
+
+async function flush() { for (let index = 0; index < 20; index++) await Promise.resolve() }
 
 function select(kind = 'CASH') {
   let options = ['CASH', 'TRANSFER', 'CARD'].map((value) => ({ value, dataset: {} as Record<string, string> }))
@@ -23,11 +49,12 @@ function select(kind = 'CASH') {
 
 function harness(role = 'STAFF') {
   const state: any = { businessId: 'salon-1', currentUser: { role }, editingAppointmentId: 'appointment-1', cashRegister: {
-    paymentMethods: [], appointmentFinanceRequestId: 0, appointmentFinanceCache: {}, appointmentFinanceInFlight: {},
+    paymentMethods: [], appointmentFinanceRequestId: 0, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, appointmentFinanceSummaryCache: {},
     appointmentFinance: { balanceAmount: 100 }, current: { session: { id: 'session-1' } }, editFinance: {}, createFinance: { collectTotal: true }
   } }
   const cashUi: any = Object.fromEntries(['operationMethod', 'productSaleMethod', 'professionalPaymentMethod', 'createDepositMethod', 'createPaymentMethod', 'createPaymentMethodTwo', 'editDepositMethod', 'paymentMethod', 'paymentMethodTwo'].map((name) => [name, select(name.includes('Two') || name.includes('Deposit') ? 'TRANSFER' : 'CASH')]))
   Object.assign(cashUi, {
+    paymentSubmit: button(), finance: { hidden: false, open: true },
     financeFeedback: { textContent: '', className: '' }, createPaymentFeedback: { textContent: '', className: '' },
     paymentAmount: { value: '100' }, paymentAmountTwo: { value: '40' }, paymentLineTwo: { hidden: true },
     paymentCompleteRow: { hidden: true }, paymentComplete: { checked: false }, paymentObservation: { value: '' },
@@ -45,6 +72,7 @@ function harness(role = 'STAFF') {
     escapeHtml: (value: string) => value,
     appointmentFinanceCacheKey: (id: string) => state.businessId + ':' + id,
     resetAppointmentFinanceView: () => {}, cacheAppointmentFinanceSummary: () => {}, renderAgenda: () => {},
+    prepareCreateAppointmentPayment: () => {}, prepareAppointmentProducts: () => {}, hydrateIcons: () => {},
     renderAppointmentFinance: (finance: any) => { state.cashRegister.appointmentFinance = finance },
     syncCreateAppointmentPayment: () => { cashUi.createPaymentFeedback.textContent = '' },
     showCrmToast: (message: string) => toasts.push(message), isCashBusinessScopedRole: () => role !== 'STAFF',
@@ -65,7 +93,7 @@ function harness(role = 'STAFF') {
       throw new Error('Unexpected request ' + url)
     }
   })
-  vm.runInContext(functions, context)
+  vm.runInContext(buttonHelper + functions, context)
   return { context, state, cashUi, calls, toasts, failMethods: (value: boolean) => { methodFailure = value }, failPayment: () => { paymentFailure = true }, methods: (value: any[]) => { customMethods = value } }
 }
 
@@ -199,4 +227,110 @@ for (const action of ['loadAppointmentFinance', 'submitAppointmentPayment', 'sub
 const feedbackAt = appointmentFinanceMarkup.indexOf('id="appointment-finance-feedback"')
 assert.ok(feedbackAt > appointmentFinanceMarkup.indexOf('id="appointment-payment-submit"'))
 assert.ok(feedbackAt < appointmentFinanceMarkup.indexOf('id="appointment-finance-history"'), 'feedback is beside payment actions, before the history')
-console.log('Agenda payment method loading: roles, cache, create/edit, mixed payment, retry and visible errors OK')
+
+{
+  const h = harness()
+  await h.context.loadCashPaymentMethods()
+  h.cashUi.paymentCompleteRow.hidden = false
+  h.cashUi.paymentComplete.checked = true
+  const payment = deferred(), finance = deferred(), agenda = deferred()
+  let posts = 0, financeRefreshes = 0, agendaRefreshes = 0
+  h.context.getJson = async () => { posts++; return payment.promise }
+  h.context.loadAppointmentFinance = async () => { financeRefreshes++; return finance.promise }
+  h.context.loadAgenda = async () => { agendaRefreshes++; return agenda.promise }
+  const saving = h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'payment disables immediately before the first await')
+  assert.equal(h.cashUi.paymentSubmit.classList.contains('is-loading'), true, 'existing spinner starts immediately')
+  assert.equal(h.cashUi.paymentSubmit.getAttribute('aria-busy'), 'true')
+  assert.match(h.cashUi.financeFeedback.textContent, /Registrando pago.*realizado/)
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  await flush()
+  assert.equal(posts, 1, 'double click cannot submit another payment')
+  payment.resolve()
+  await flush()
+  assert.equal(financeRefreshes, 1)
+  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'hold busy state during finance refresh')
+  finance.resolve()
+  await flush()
+  assert.equal(agendaRefreshes, 1)
+  assert.equal(h.cashUi.paymentSubmit.classList.contains('is-loading'), true, 'hold spinner through Agenda refresh')
+  agenda.resolve()
+  await saving
+  assert.equal(h.cashUi.paymentSubmit.disabled, false)
+  assert.equal(h.cashUi.paymentSubmit.textContent, 'Registrar pago')
+  assert.equal(h.cashUi.paymentSubmit.getAttribute('aria-busy'), undefined)
+  assert.ok(h.toasts.includes('Pago registrado y turno marcado como realizado.'))
+}
+
+for (const failure of ['methods', 'payment', 'validation']) {
+  const h = harness()
+  if (failure === 'methods') h.failMethods(true)
+  if (failure === 'payment') h.failPayment()
+  if (failure === 'validation') h.cashUi.paymentAmount.value = '0'
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(h.cashUi.paymentSubmit.disabled, false, failure + ' restores the action')
+  assert.equal(h.cashUi.paymentSubmit.classList.contains('is-loading'), false)
+  assert.equal(h.cashUi.paymentSubmit.textContent, 'Registrar pago')
+  assert.equal(h.cashUi.financeFeedback.className, 'appointment-finance-feedback error')
+}
+
+for (const outcome of ['resolve', 'reject'] as const) {
+  const h = harness()
+  await h.context.loadCashPaymentMethods()
+  const oldPayment = deferred(), newPayment = deferred()
+  let posts = 0
+  h.context.getJson = async () => { posts++; return posts === 1 ? oldPayment.promise : newPayment.promise }
+  h.context.loadAppointmentFinance = async () => {}
+  const previous = h.context.submitAppointmentPayment({ preventDefault() {} })
+  await flush()
+  h.context.prepareAppointmentFinance({ id: 'appointment-1' })
+  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'reopening a pending appointment retains its operation')
+  assert.match(h.cashUi.financeFeedback.textContent, /Registrando pago/, 'reopening preserves visible pending feedback')
+  await h.context.submitAppointmentPayment({ preventDefault() {} })
+  assert.equal(posts, 1, 'reopening must not allow a duplicate')
+  h.state.editingAppointmentId = 'appointment-2'
+  h.context.prepareAppointmentFinance({ id: 'appointment-2' })
+  assert.equal(h.cashUi.paymentSubmit.disabled, false, 'a different appointment has its own action')
+  const current = h.context.submitAppointmentPayment({ preventDefault() {} })
+  await flush()
+  const currentFeedback = h.cashUi.financeFeedback.textContent
+  if (outcome === 'resolve') oldPayment.resolve()
+  else oldPayment.reject(new Error('Old payment failed'))
+  await previous
+  assert.equal(posts, 2)
+  assert.equal(h.cashUi.paymentSubmit.disabled, true, 'old cleanup cannot enable the new payment action')
+  assert.equal(h.cashUi.financeFeedback.textContent, currentFeedback)
+  assert.equal(h.toasts.length, 0, 'old completion does not notify the new appointment')
+  newPayment.resolve()
+  await current
+  assert.equal(h.cashUi.paymentSubmit.disabled, false)
+}
+
+for (const phase of ['finance', 'agenda']) {
+  for (const outcome of ['resolve', 'reject'] as const) {
+    const h = harness()
+    await h.context.loadCashPaymentMethods()
+    h.cashUi.paymentCompleteRow.hidden = false
+    h.cashUi.paymentComplete.checked = true
+    const refresh = deferred()
+    let refreshing = false
+    h.context.loadAppointmentFinance = async () => {
+      if (phase === 'finance') { refreshing = true; return refresh.promise }
+    }
+    h.context.loadAgenda = async () => { refreshing = true; return refresh.promise }
+    const saving = h.context.submitAppointmentPayment({ preventDefault() {} })
+    await flush()
+    assert.equal(refreshing, true, phase + ' refresh reached')
+    h.state.editingAppointmentId = 'appointment-2'
+    h.context.prepareAppointmentFinance({ id: 'appointment-2' })
+    h.cashUi.financeFeedback.textContent = 'Current appointment feedback'
+    if (outcome === 'resolve') refresh.resolve()
+    else refresh.reject(new Error('Previous refresh failed'))
+    await saving
+    assert.equal(h.cashUi.financeFeedback.textContent, 'Current appointment feedback')
+    assert.equal(h.toasts.length, 0, 'late ' + phase + ' refresh cannot notify another appointment')
+    assert.equal(h.cashUi.paymentSubmit.disabled, false)
+  }
+}
+
+console.log('Agenda payment UI: configured methods, roles, loading, duplicate prevention, refresh and context isolation OK')
