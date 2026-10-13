@@ -8,7 +8,18 @@ import { summarizeCashRegister, type CashDomainEntry } from '../services/cash-do
 import { ensureProfessionalSettlementCategory } from '../services/professional-settlement-category.js'
 
 function canViewProfessionalSettlements(user: any) {
-  return user && (user.role !== 'STAFF')
+  return user && (user.role !== 'STAFF' || user.canViewProfessionalSettlements === true
+    && (user.staffProfile === 'SECRETARY' || user.staffProfile === 'PROFESSIONAL' && Boolean(user.professionalId)))
+}
+
+async function settlementProfessionalScope(user: any, businessId: string, requestedId?: string) {
+  const own = user.role === 'STAFF' && user.staffProfile === 'PROFESSIONAL'
+  if (own && requestedId && requestedId !== user.professionalId) return { denied: true, professionalId: null }
+  const professionalId = own ? user.professionalId : requestedId?.trim() || null
+  if (professionalId && !await prisma.professional.findFirst({ where: { businessId, id: professionalId }, select: { id: true } })) {
+    return { denied: true, professionalId: null }
+  }
+  return { denied: false, professionalId }
 }
 
 function canManageProfessionalSettlements(user: any) {
@@ -91,10 +102,14 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
 
   app.get('/professional-settlements/summary', async (request, reply) => {
     const user = request.auth?.user
-    const query = request.query as { businessId?: string; from?: string; to?: string }
+    const query = request.query as { businessId?: string; professionalId?: string; from?: string; to?: string }
     if (!canViewProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para ver liquidaciones' })
     const businessId = requestedBusinessId(user, query.businessId)
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
+
+    const scope = await settlementProfessionalScope(user, businessId, query.professionalId)
+    if (scope.denied) return reply.status(404).send({ message: 'Recurso no encontrado' })
+    const canViewCustomerNames = user!.role !== 'STAFF' || user!.canViewCustomers === true
 
     let range: SettlementRange | null
     try {
@@ -158,12 +173,14 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
           AND entry."professionalId" = professional."id"
       ) current_account ON true
       WHERE professional."businessId" = ${businessId}
+      ${scope.professionalId ? Prisma.sql`AND professional."id" = ${scope.professionalId}` : Prisma.empty}
       ORDER BY (professional."archivedAt" IS NOT NULL), professional."name"
     `)
 
     const services = await prisma.professionalAccountEntry.findMany({
       where: {
         businessId,
+        ...(scope.professionalId ? { professionalId: scope.professionalId } : {}),
         type: 'EARNING',
         ...(range ? { appointment: { is: { startAt: { gte: range.from, lt: range.toExclusive } } } } : {})
       },
@@ -180,7 +197,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
         appointment: {
           select: {
             startAt: true,
-            customer: { select: { name: true } },
+            customer: canViewCustomerNames ? { select: { name: true } } : false,
             service: { select: { name: true } }
           }
         }
@@ -205,6 +222,9 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
     if (!canViewProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para ver liquidaciones' })
     const businessId = requestedBusinessId(user, query.businessId)
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
+    const scope = await settlementProfessionalScope(user, businessId, query.professionalId)
+    if (scope.denied) return reply.status(404).send({ message: 'Recurso no encontrado' })
+    const canViewCustomerNames = user!.role !== 'STAFF' || user!.canViewCustomers === true
     let range: SettlementRange | null
     try {
       range = await settlementRangeForBusiness(businessId, query.from, query.to)
@@ -215,7 +235,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
     const pageSize = Math.min(50, Math.max(5, Number.parseInt(query.pageSize || '10', 10) || 10))
     const where: Prisma.ProfessionalAccountEntryWhereInput = {
       businessId,
-      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      ...(scope.professionalId ? { professionalId: scope.professionalId } : {}),
       ...(range ? {
         OR: [
           { type: 'EARNING', appointment: { is: { startAt: { gte: range.from, lt: range.toExclusive } } } },
@@ -232,7 +252,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
           appointment: {
             select: {
               startAt: true,
-              customer: { select: { name: true } },
+              customer: canViewCustomerNames ? { select: { name: true } } : false,
               service: { select: { name: true } }
             }
           }
@@ -282,7 +302,7 @@ export async function professionalSettlementRoutes(app: FastifyInstance) {
   app.get('/professional-settlements/configuration', async (request, reply) => {
     const user = request.auth?.user
     const query = request.query as { businessId?: string }
-    if (!canViewProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para ver liquidaciones' })
+    if (!canManageProfessionalSettlements(user)) return reply.status(403).send({ message: 'No tenés permiso para configurar liquidaciones' })
     const businessId = requestedBusinessId(user, query.businessId)
     if (!businessId || !await requireAuthorizedBusiness(prisma, user!, businessId)) return reply.status(404).send({ message: 'Recurso no encontrado' })
     return prisma.professional.findMany({

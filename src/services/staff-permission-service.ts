@@ -162,8 +162,7 @@ export function resolveStaffPermissions(input: Partial<StaffPermissions> & {
   }
   if (!merged.canCreateAppointments && !merged.canEditAppointments) merged.canForceAppointments = false
   if (!merged.canViewOperationalReports) merged.canViewFinancialAmounts = false
-  // La vista financiera completa y los pagos quedan exclusivamente para administración.
-  merged.canViewProfessionalSettlements = false
+  // La consulta de liquidaciones es independiente de Caja; los pagos son de administración.
   merged.canManageProfessionalSettlements = false
   if (staffProfile !== 'SECRETARY') merged.canViewTodayProfessionalProduction = false
 
@@ -202,7 +201,11 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
 
   if (path.startsWith('/professional-settlements')) {
-    return path === '/professional-settlements/today' && verb === 'GET' && user.canViewTodayProfessionalProduction === true
+    if (verb !== 'GET') return false
+    if (path === '/professional-settlements/today') return user.staffProfile === 'SECRETARY' && user.canViewTodayProfessionalProduction === true
+    return ['/professional-settlements/summary', '/professional-settlements/entries'].includes(path)
+      && user.canViewProfessionalSettlements === true
+      && (user.staffProfile === 'SECRETARY' || user.staffProfile === 'PROFESSIONAL' && Boolean(user.professionalId))
   }
   if (path.startsWith('/treasury')) return false
   if (path.startsWith('/cash-register')) {
@@ -249,7 +252,7 @@ export function canStaffAccessRoute(user: StaffAuthorizationUser, method: string
   }
   if (path === '/crm/events') return verb === 'GET' && user.canViewConversations
   if (path === '/crm/cash-events') {
-    return verb === 'GET' && (user.canViewCashRegister || user.canViewProfessionalSettlements || user.canRecordAppointmentPayments || user.canApplyDiscounts)
+    return verb === 'GET' && (user.canViewCashRegister || user.canRecordAppointmentPayments || user.canApplyDiscounts)
   }
   if (path.startsWith('/crm/deposits')) {
     // A proof is financial PII. Listing its review queue, downloading its bytes, and

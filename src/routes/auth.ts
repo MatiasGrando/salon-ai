@@ -383,7 +383,7 @@ function publicUser(user: {
     canRecordAppointmentPayments: user.role === 'STAFF' ? user.canRecordAppointmentPayments === true : isCashAdmin,
     canApplyDiscounts: user.role === 'STAFF' ? user.canApplyDiscounts === true : isCashAdmin,
     canManageCashOperations: user.role === 'STAFF' ? user.canManageCashOperations === true : isCashAdmin,
-    canViewProfessionalSettlements: user.role === 'STAFF' ? false : isCashAdmin,
+    canViewProfessionalSettlements: user.role === 'STAFF' ? user.canViewProfessionalSettlements === true : isCashAdmin,
     canManageProfessionalSettlements: user.role === 'STAFF' ? false : isCashAdmin,
     canViewTodayProfessionalProduction: user.role === 'STAFF' ? user.canViewTodayProfessionalProduction === true : isCashAdmin,
     canAdjustCash: user.role === 'STAFF' ? user.canAdjustCash === true : isCashAdmin,
