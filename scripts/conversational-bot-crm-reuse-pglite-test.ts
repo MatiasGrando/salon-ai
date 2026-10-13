@@ -64,6 +64,7 @@ async function fixture(options: { existing?: boolean; status?: string; enabled?:
       return result
     },
     async $queryRaw(q: Query): Promise<unknown[]> {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
       statements.push(q)
       if (q.sql.includes('conversation-policy')) return [policy]
       if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1, phone: 'phone' }]

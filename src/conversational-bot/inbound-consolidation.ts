@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.js'
+import { reconcileExhaustedConversationInboxTx } from './terminal-inbox-recovery.js'
 
 const MAX_EVENTS = 128
 const MAX_TEXT = 2_000
@@ -10,6 +11,7 @@ export type ConsolidationEnvelope = {
 }
 type Candidate = { providerPhoneNumberId?: string; providerMessageId?: string; id: string; admittedAt: Date; payload: Prisma.JsonValue; actionType: string | null; scopeMatches: boolean }
 type GroupInput = { businessId: string; sessionId: string; deploymentId: string; generation: number
+  currentClaimToken?: string
   handoffFenceEpoch: number; revision: bigint; state: unknown; phone: string; currentEventId: string
   isRestart: (text: unknown) => boolean }
 
@@ -59,6 +61,7 @@ async function candidates(tx: Prisma.TransactionClient, input: { businessId: str
   `)
 }
 export async function selectConsolidationGroupTx(tx: Prisma.TransactionClient, input: GroupInput) {
+  await reconcileExhaustedConversationInboxTx(tx, { ...input, phone: canonicalConversationPhone(input.phone) })
   const previous = await tx.$queryRaw<Array<{ id: string; detail: Prisma.JsonValue }>>(Prisma.sql`
     /* consolidation-previous */
     SELECT t."id", t."detail" FROM "BotTransitionLog" t

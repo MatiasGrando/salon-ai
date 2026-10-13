@@ -152,6 +152,7 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
       } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined;bookingSql=undefined }
     },
     async $queryRaw(q: Query) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
       statements.push(q)
       if (options.financialRead && q.sql.includes('runtime-booking-deposit-receipt')) return options.financialRead.rows
       const financial = options.financialRead?.cancellation
@@ -1487,6 +1488,7 @@ async function expireConversation(enabled: boolean) {
   let views = 0
   const fake = {
     async $queryRaw(q: Query) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
       if (q.sql.includes('lazy-context:session')) return [{ id: 'session', revision: 3n, state: projected, status: 'ACTIVE', deploymentGeneration: 1,
         draftTouchedAt: new Date('2026-09-29T12:00:00Z'), draftExpiresAt: new Date('2026-09-30T12:00:00Z'), dbNow: new Date('2026-10-01T12:00:00Z'), hasInbox: false, durableProtection: false, botEnabled: enabled }]
       if (q.sql.includes('lazy-context:guard')) return [{ busy: false, protectedDelivery: false }]

@@ -1,3 +1,4 @@
+import { hasEarlierConversationInputTx } from './terminal-inbox-recovery.js'
 import { PendingDepositCancellationError, loadPendingDepositCancellationTx, cancelPendingDepositInTransaction, type PendingDepositCancellationActor } from '../services/pending-deposit-cancellation.js'
 import { summarizeInterpretationAttemptsDiagnostic, summarizeReplyValidationDiagnostic, summarizeValidationDiagnostic } from './ai-diagnostics.js'
 import { interpretConversationAttachment, conversationProofBindingFromState, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from './attachment-intent.js'
@@ -213,20 +214,11 @@ export async function processConversationInbox(input: {
       if (rows.length !== 1) throw new Error('conversation inbox no longer current')
       return rows[0]!
     }
-    const ordered = async (tx: Prisma.TransactionClient, row: Row, phone: string) => {
-      const rows = await measureAttemptStage('conversation_order_read', () => tx.$queryRaw<Array<{ blocked: boolean }>>(Prisma.sql`
-        /* conversation-order */ SELECT EXISTS (
-          SELECT 1 FROM "BotProviderEvent" e WHERE e."businessId" = ${row.businessId}
-            AND e."eventType" = 'MESSAGE'::"BotProviderEventType" AND e."payload"->>'fromPhone' = ${phone}
-            AND (e."admittedAt", e."id") < (${row.admittedAt}, ${row.providerEventId})
-            AND (EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."providerEventId" = e."id" AND i."businessId" = e."businessId"
-              AND i."status" IN ('ADMITTED', 'CLAIMED', 'SELECTED', 'CONFLICT'))
-              OR (e."status" = 'ADMITTED' AND NOT EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."providerEventId" = e."id")))
-        ) AS "blocked"
-      `))
-      if (!rows[0]) throw new Error('conversation order guard unavailable')
-      return !rows[0].blocked
-    }
+    const ordered = async (tx: Prisma.TransactionClient, row: Row, phone: string) =>
+      !await measureAttemptStage('conversation_order_read', () => hasEarlierConversationInputTx(tx, {
+        businessId: row.businessId, deploymentId: row.deploymentId, generation: row.deploymentGeneration,
+        phone: canonicalConversationPhone(phone), currentClaimToken: token, admittedAt: row.admittedAt, providerEventId: row.providerEventId
+      }))
     const finish = (tx: Prisma.TransactionClient, row: Row, coveredIds: string[] = [row.providerEventId]) => measureAttemptStage('conversation_settlement', async () => {
       const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; dispatchCount: bigint; jobCount: bigint }>>(Prisma.sql`
         /* conversation-settle-batch */
@@ -620,7 +612,7 @@ export async function processConversationInbox(input: {
       const reset = !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
       if (expiredRecovery && !await ordered(tx, row, phone)) { await retry(tx, row, true); return null }
       const consolidation = eligibleText && !runtimeManagementAllowed && !expiredRecovery ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
-        sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation,
+        sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation, currentClaimToken: token,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
         phone, currentEventId: row.providerEventId, isRestart })) : null
       if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
@@ -737,7 +729,7 @@ export async function processConversationInbox(input: {
         } catch {await finish(tx,row);return 'PROCESSED' as const}
       }
       if (snapshot.consolidation) {
-        const fresh = await selectConsolidationGroupTx(tx, { businessId: row.businessId, sessionId: session.sessionId,
+        const fresh = await selectConsolidationGroupTx(tx, { businessId: row.businessId, sessionId: session.sessionId, currentClaimToken: token,
           deploymentId: policy.deploymentId, generation: policy.generation, handoffFenceEpoch: session.handoffFenceEpoch,
           revision: session.revision, state: session.state, phone: snapshot.phone, currentEventId: row.providerEventId, isRestart })
         if (!fresh || fresh.signature !== snapshot.consolidation.signature || fresh.previousTransitionId !== snapshot.consolidation.previousTransitionId ||

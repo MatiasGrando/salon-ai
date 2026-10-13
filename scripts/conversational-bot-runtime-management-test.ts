@@ -202,6 +202,7 @@ function runtimeFixture(options: { bookingDb?:PGlite;bookingPort?:DialoguePort;b
       } finally { inTransaction = false; sessionSql = undefined; computeSql = undefined; handoffSql = undefined;bookingSql=undefined }
     },
     async $queryRaw(q: Query) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
       statements.push(q)
       if(bookingSql && (q.sql.includes('FROM "BotSession" bs') || q.sql.includes('FROM "BookingVisit" v') || q.sql.includes('FROM "BookingDepositProof"') || q.sql.includes('"AppointmentChangeHistory"')))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows
       if(bookingSql && q.sql.includes('extract(minute FROM'))return (await bookingSql.query(q.text,q.values.map(v=>v instanceof Date?v.toISOString():v))).rows

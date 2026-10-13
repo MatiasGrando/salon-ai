@@ -41,6 +41,7 @@ const client = {
   },
   async $executeRaw(_q: Prisma.Sql) { if (!activeTx) releases++; return 1 }, // Non-settlement orchestration is stubbed.
   async $queryRaw(q: Prisma.Sql) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
     if (q.sql.includes('conversation-turn-persist')) return [{ sessionCount: 1n, transitionCount: 1n, stepCount: 0n, conversationId: null, updatedAt: null }]
     if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: 'phone' }]
     if (q.sql.includes('conversation-policy')) return [config]

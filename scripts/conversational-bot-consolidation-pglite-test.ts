@@ -31,13 +31,20 @@ async function save(envelope: ConsolidationEnvelope, revision = 1n, statuses = [
 }
 try {
   await db.exec(`
-    CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','CLAIMED','SELECTED','CONFLICT','PROCESSED','STALE');
-    CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED');
+    CREATE TYPE "BotInboxStatus" AS ENUM ('ADMITTED','CLAIMED','SELECTED','CONFLICT','PROCESSED','STALE','FAILED');
+    CREATE TYPE "BotProviderEventStatus" AS ENUM ('ADMITTED','PROCESSED','REJECTED');
     CREATE TYPE "BotOutboxStatus" AS ENUM ('PENDING','CLAIMED','RETRY','SKIPPED','SENDING','UNKNOWN','ACCEPTED','DELIVERED','READ');
     CREATE TABLE "BotProviderEvent" ("id" text PRIMARY KEY,"businessId" text,"eventType" text,"payload" jsonb,"admittedAt" timestamptz,"status" "BotProviderEventStatus", "phoneNumberId" text DEFAULT 'channel', "providerMessageId" text);
     CREATE TABLE "BotActionInbox" ("id" text PRIMARY KEY,"businessId" text,"providerEventId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" int,"actionType" text,"status" "BotInboxStatus");
     CREATE TABLE "BotTransitionLog" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" int,"revisionTo" bigint,"actionType" text,"detail" jsonb);
     CREATE TABLE "BotOutbox" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"transitionId" text,"status" "BotOutboxStatus","payload" jsonb,"errorCode" text,"leaseToken" text,"leasedUntil" timestamptz);
+    ALTER TABLE "BotActionInbox" ADD "claimToken" text, ADD "claimedUntil" timestamptz, ADD "operationKey" text, ADD "error" text;
+    ALTER TABLE "BotTransitionLog" ADD "providerEventId" text;
+    CREATE TABLE "BotJob" ("id" text,"kind" text,"aggregateId" text,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"status" text,"attempts" int,"maxAttempts" int,"leaseToken" text,"leasedUntil" timestamptz);
+    CREATE TABLE "BotSession" ("id" text,"businessId" text,"conversationId" text);
+    CREATE TABLE "Conversation" ("id" text,"businessId" text,"phone" text);
+    CREATE TABLE "BotOperation" ("businessId" text,"sessionId" text,"status" text);
+    CREATE TABLE "BotDispatchClaim" ("businessId" text,"sessionId" text,"resourceId" text,"claimToken" text,"status" text,"claimedUntil" timestamptz);
   `)
   assert.equal(canonicalConversationPhone('+54 9 11 0000-0000'), '5491100000000')
   await transaction(tx => lockConversationInputTx(tx, 'biz', '+5491100000000'))

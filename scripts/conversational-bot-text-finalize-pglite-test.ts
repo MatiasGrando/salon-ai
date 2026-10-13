@@ -29,6 +29,7 @@ const capture = {
   async $transaction<T>(body: (tx: unknown) => Promise<T>) { return body(capture) },
   async $executeRaw() { return 1 },
   async $queryRaw(q: Prisma.Sql) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
     if (q.sql.includes('conversation-policy')) return [config]
     if (q.sql.includes('conversation-target')) return [{ fenceEpoch: 1, phone: 'phone' }]
     if (q.sql.includes('consolidation-inbox-identity')) return [{ phone: 'phone' }]
@@ -60,6 +61,7 @@ let lastSql: Prisma.Sql | undefined
 function adapter(tx: Transaction) {
   return {
     async $queryRaw(q: Prisma.Sql) {
+      if (q.sql.includes('conversation-terminal-inbox-reconcile')) return [] // Fixture has no historical exhausted inbox; dedicated SQL suite covers recovery.
       calls++; lastSql = q
       const result = await tx.query<Record<string, unknown>>(q.text, q.values)
       return result.rows.map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => [key, key.endsWith('Count') ? BigInt(String(value)) : value])))
