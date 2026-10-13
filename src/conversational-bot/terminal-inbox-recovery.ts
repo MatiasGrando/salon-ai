@@ -37,7 +37,14 @@ export async function reconcileExhaustedConversationInboxTx(tx: Reader, scope: S
           SELECT 1 FROM "BotSession" s LEFT JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
           WHERE s."businessId"=i."businessId" AND (s."id"=i."sessionId" OR
             COALESCE(NULLIF(regexp_replace(c."phone",'[^0-9]','','g'),''),btrim(c."phone"))=${scope.phone})
-            AND (EXISTS (SELECT 1 FROM "BotOperation" op WHERE op."businessId"=s."businessId" AND op."sessionId"=s."id" AND op."status" IS DISTINCT FROM 'COMPLETED')
+            AND (EXISTS (SELECT 1 FROM "BotOperation" op WHERE op."businessId"=s."businessId" AND op."sessionId"=s."id"
+                AND op."status" IS DISTINCT FROM 'COMPLETED'
+                -- Handoff TAKE abort atomically reopens its gate and appends this audit. Its
+                -- resultRef identifies the handoff, not an uncertain payment/booking effect.
+                AND NOT COALESCE((op."status"='ABORTED' AND op."type"='HANDOFF_TAKE' AND s."handoffClaimsPausedAt" IS NULL
+                  AND EXISTS (SELECT 1 FROM "BotHandoffAudit" audit WHERE audit."businessId"=op."businessId"
+                    AND audit."sessionId"=op."sessionId" AND audit."handoffId"=op."resultRef" AND audit."operationKey"=op."operationKey"
+                    AND audit."action" IN ('TAKE_TIMEOUT_REOPENED','TAKE_RECOVERY_ABORTED'))),FALSE))
               OR EXISTS (SELECT 1 FROM "BotOutbox" o WHERE o."businessId"=s."businessId" AND o."sessionId"=s."id"
                 AND o."status"::text IN ('PENDING','CLAIMED','RETRY','SENDING','UNKNOWN'))
               OR EXISTS (SELECT 1 FROM "BotDispatchClaim" dispatch WHERE dispatch."businessId"=s."businessId" AND dispatch."sessionId"=s."id"

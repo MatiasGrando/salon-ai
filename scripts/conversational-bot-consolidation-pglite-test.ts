@@ -42,8 +42,11 @@ try {
     ALTER TABLE "BotTransitionLog" ADD "providerEventId" text;
     CREATE TABLE "BotJob" ("id" text,"kind" text,"aggregateId" text,"businessId" text,"deploymentId" text,"deploymentGeneration" int,"status" text,"attempts" int,"maxAttempts" int,"leaseToken" text,"leasedUntil" timestamptz);
     CREATE TABLE "BotSession" ("id" text,"businessId" text,"conversationId" text);
+    ALTER TABLE "BotSession" ADD "handoffClaimsPausedAt" timestamptz;
     CREATE TABLE "Conversation" ("id" text,"businessId" text,"phone" text);
     CREATE TABLE "BotOperation" ("businessId" text,"sessionId" text,"status" text);
+    ALTER TABLE "BotOperation" ADD "type" text, ADD "resultRef" text, ADD "operationKey" text;
+    CREATE TABLE "BotHandoffAudit" ("businessId" text,"sessionId" text,"handoffId" text,"operationKey" text,"action" text);
     CREATE TABLE "BotDispatchClaim" ("businessId" text,"sessionId" text,"resourceId" text,"claimToken" text,"status" text,"claimedUntil" timestamptz);
   `)
   assert.equal(canonicalConversationPhone('+54 9 11 0000-0000'), '5491100000000')

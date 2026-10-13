@@ -15,13 +15,17 @@ CREATE TABLE "BotJob" ("id" text PRIMARY KEY,"kind" text,"aggregateId" text,"bus
 CREATE TABLE "BotTransitionLog" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"deploymentId" text,"deploymentGeneration" int,"revisionTo" bigint,"actionType" text,"detail" jsonb,"providerEventId" text);
 CREATE TABLE "BotOutbox" ("id" text PRIMARY KEY,"businessId" text,"sessionId" text,"transitionId" text,"status" text,"errorCode" text);
 CREATE TABLE "BotOperation" ("id" text,"businessId" text,"sessionId" text,"operationKey" text,"status" text);
+ALTER TABLE "BotOperation" ADD "type" text, ADD "resultRef" text;
+CREATE TABLE "BotHandoffAudit" ("businessId" text,"sessionId" text,"handoffId" text,"operationKey" text,"action" text);
 CREATE TABLE "BotDispatchClaim" ("id" text,"businessId" text,"sessionId" text,"resourceId" text,"claimToken" text,"status" text,"claimedUntil" timestamptz);
 CREATE TABLE "BotSession" ("id" text,"businessId" text,"conversationId" text);
+ALTER TABLE "BotSession" ADD "handoffClaimsPausedAt" timestamptz;
 CREATE TABLE "Conversation" ("id" text,"businessId" text,"phone" text);
 INSERT INTO "Conversation" VALUES ('conversation','biz','5491100'); INSERT INTO "BotSession" VALUES ('session','biz','conversation');
 `)
 async function seed() {
- await db.exec(`TRUNCATE "BotProviderEvent","BotActionInbox","BotJob","BotTransitionLog","BotOutbox","BotOperation","BotDispatchClaim";
+ await db.exec(`TRUNCATE "BotProviderEvent","BotActionInbox","BotJob","BotTransitionLog","BotOutbox","BotOperation","BotDispatchClaim","BotHandoffAudit";
+ UPDATE "BotSession" SET "handoffClaimsPausedAt"=NULL;
  INSERT INTO "BotProviderEvent" VALUES ('old','biz','MESSAGE','{"fromPhone":"5491100","messageType":"text","textBody":"old failed greeting"}','2026-10-12T21:09:00Z','ADMITTED','channel','old-msg'),('new','biz','MESSAGE','{"fromPhone":"5491100","messageType":"text","textBody":"new greeting"}','2026-10-13T12:00:00Z','ADMITTED','channel','new-msg');
  INSERT INTO "BotActionInbox" VALUES ('old-inbox','biz','old','session','dep',1,'conversation.message','ADMITTED',NULL,NULL,NULL,NULL),('new-inbox','biz','new','session','dep',1,'conversation.message','ADMITTED',NULL,NULL,NULL,NULL);
  INSERT INTO "BotJob" VALUES ('old-job','PROCESS_INBOX','old-inbox','biz','dep',1,'POISON',5,5,NULL,NULL,'invalid social continuation');`)
@@ -50,6 +54,11 @@ try {
  assert.deepEqual((await group())?.envelope.eventIds,['new'],'after reset settles, only new input proceeds, without historical replay')
  assert.equal(await order(),false)
  console.log('PASS ordered historical exhaustion → reset → new text')
+ await seed(); await db.exec(`INSERT INTO "BotOperation" VALUES ('aborted','biz','session','take','ABORTED','HANDOFF_TAKE','handoff');
+ INSERT INTO "BotHandoffAudit" VALUES ('biz','session','handoff','take','TAKE_RECOVERY_ABORTED');`)
+ assert.equal(await order(),false,'durably aborted historical handoff with reopened gate must not count as pending work')
+ assert.deepEqual((await group())?.envelope.eventIds,['new'])
+ console.log('PASS audited terminal handoff abort does not block exhausted input recovery')
  await seed(); await db.exec(`UPDATE "BotActionInbox" SET "error"='prior diagnostic' WHERE "id"='old-inbox'`)
  assert.equal(await order(),false); assert.equal((await status()).error,'prior diagnostic\nPROCESS_INBOX_EXHAUSTED_WITHOUT_EFFECTS','prior inbox diagnostic remains in audit')
  for (const [name,change] of [
@@ -60,6 +69,12 @@ try {
  ['selected inbox',`UPDATE "BotActionInbox" SET "status"='SELECTED' WHERE "id"='old-inbox'`],
  ['operation key',`UPDATE "BotActionInbox" SET "operationKey"='operation' WHERE "id"='old-inbox'`],
  ['uncertain operation',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','operation','PENDING')`],
+ ['generic aborted operation',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','operation','ABORTED','CONFIRM_VISIT','result')`],
+ ['untyped aborted operation',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','operation','ABORTED')`],
+ ['unaudited aborted handoff',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','operation','ABORTED','HANDOFF_TAKE','handoff')`],
+ ['blocked unknown handoff',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','take','BLOCKED_UNKNOWN','HANDOFF_TAKE','handoff'); INSERT INTO "BotHandoffAudit" VALUES ('biz','session','handoff','take','TAKE_RECOVERY_ABORTED')`],
+ ['closed abort gate',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','take','ABORTED','HANDOFF_TAKE','handoff'); INSERT INTO "BotHandoffAudit" VALUES ('biz','session','handoff','take','TAKE_RECOVERY_ABORTED'); UPDATE "BotSession" SET "handoffClaimsPausedAt"='2026-10-13'`],
+ ['mismatched abort lineage',`INSERT INTO "BotOperation" VALUES ('operation','biz','session','take','ABORTED','HANDOFF_TAKE','handoff'); INSERT INTO "BotHandoffAudit" VALUES ('biz','session','different','take','TAKE_RECOVERY_ABORTED')`],
  ['unknown delivery',`INSERT INTO "BotOutbox" VALUES ('out','biz','session','t','UNKNOWN',NULL)`],
  ['live dispatch',`INSERT INTO "BotDispatchClaim" VALUES ('d','biz','session','old-inbox','other','CLAIMED','2100-01-01')`],
  ['uncertain dispatch',`INSERT INTO "BotDispatchClaim" VALUES ('d','biz','session',NULL,'other','UNKNOWN',NULL)`],
