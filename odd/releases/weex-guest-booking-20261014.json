@@ -1,5 +1,5 @@
 {
-  "status": "ready_for_authorized_deployment",
+  "status": "published_verified",
   "scope": "Guest name-and-phone web booking over published LITE; pending bot changes excluded",
   "sourceCommit": "a79656d106665f31762bee47b00c053cc1ed9acd",
   "backendCommit": "c5d6be1463278b2b85e523f02ec888075a3688c8",
@@ -39,8 +39,11 @@
   "newMigration": {
     "name": "20261014020000_add_guest_web_booking",
     "sha256": "44ef0acc4d94300783fc0963b57b0e3aceb30803fcb90baf4c5d761c85eaa641",
-    "applied": false,
-    "startup": "Existing prisma migrate deploy; preflight proves this is the only pending migration in the exact upload"
+    "applied": true,
+    "startup": "Existing prisma migrate deploy; preflight proves this is the only pending migration in the exact upload",
+    "finishedAt": "2026-10-14T18:10:30.695Z",
+    "appliedSteps": 1,
+    "existingLedgerPreserved": true
   },
   "verification": {
     "artifactFunctionalSuites": "12/12 PASS",
@@ -52,7 +55,9 @@
     "buildLimits": "Initial default-loader EPERM retained; Lubricentro used seven installed compatible versions differing from lock, not a pinned npmci proof. Railway's actual locked builds must finish successfully before closure.",
     "priorAttempts": "Deposit-security fixture absent corrected outside upload without assertion changes; parent staff runner typo corrected to the existing suite, no source edits",
     "typecheck": "Global/scoped full-graph typecheck not approved; existing errors/temporary-tree interruption remain recorded, no fabricated baseline compile",
-    "liveReservationPaymentGoogleWhatsAppTests": false
+    "liveReservationPaymentGoogleWhatsAppTests": false,
+    "livePublicBookingLimit": "Guessed /barber-demo/reservar returned404; actual business link/activation/real reservation not verified, no cause inferred",
+    "lockedRailwayBuilds": "PASS two npm ci --include=dev site commands, two completed Vite builds8.2.2/8.3.0, zero detected fatal build errors; local compatible-build limitation remains historical"
   },
   "preflight": {
     "activeDeployment": "542334d9-190e-487b-9850-01d7e5fc59c9",
@@ -75,5 +80,62 @@
     "historicalChecksumExceptions": "Same46 previously documented:42 CRLF,3 specific workspace raw equivalence,1 unchanged historical exception; no repairs or new drift",
     "mutationExecuted": false
   },
-  "activation": "Default OFF for existing businesses; administrator enables CRM Settings / Public landing / Web bookings / Allow bookings without an account"
+  "activation": "Default OFF for existing businesses; administrator enables CRM Settings / Public landing / Web bookings / Allow bookings without an account",
+  "preparationWorkUnitCommit": "b22f6fde79331d9fbdf3f4e958fee4ffedbd606f",
+  "activeDeployment": "a5d36de6-eaae-4b33-a45a-d684f2b22043",
+  "deployment": {
+    "id": "a5d36de6-eaae-4b33-a45a-d684f2b22043",
+    "status": "SUCCESS",
+    "active": true,
+    "runningInstances": 1,
+    "message": "Weex guest web b22f6fd",
+    "imageDigest": "sha256:8bb63af1454b12aceb3dca9128f210d96991f9a3a70691ea668d6136a4ff5b63"
+  },
+  "postDeployment": {
+    "checkedAt": "2026-10-14T18:12:55.495Z",
+    "configuration": {
+      "keys": 66,
+      "digest": "3a750864dc28e193286589b157214169169c8ed148fec7f3fe218505b08e7ded",
+      "unchangedFromAcceptedBaseline": true,
+      "barberExcluded": true
+    },
+    "ledger": {
+      "rows": 214,
+      "complete": 209,
+      "failed": 0,
+      "rolledBack": 5
+    },
+    "schema": {
+      "data_type": "boolean",
+      "is_nullable": "NO",
+      "column_default": "false"
+    },
+    "health": {
+      "status": 200,
+      "database": "ok",
+      "crmStatus": 200,
+      "crmMarkers": true,
+      "bookingPublicProbe": {
+        "status": 404,
+        "guestContactMarker": false,
+        "guestStatusRouteMarker": false
+      }
+    },
+    "lockedSiteBuilds": {
+      "rows": 195,
+      "lubricentroCommand": true,
+      "glowCommand": true,
+      "lockedCiCommands": 2,
+      "viteBuilt": 2,
+      "viteVersions": [
+        "8.2.2",
+        "8.3.0"
+      ],
+      "fatal": 0
+    },
+    "proof": ".codex-deploy/weex-guest-booking-20261014-77a6619/post-deployment-proof.json",
+    "proofSha256": "8d65709cf390e9252013cc41b43890007fd5ac8a70d21e1f08e60adfb4705a99",
+    "noBusinessDataTests": true,
+    "noVariablesTunnelCallbackChanges": true
+  }
 }
