@@ -1,10 +1,11 @@
 {
-  "status": "preflight_verified_not_deployed",
+  "status": "published_verified",
   "selectedCandidate": "lite",
   "sourceCommit": "5d67fdf5712368c329177cc4c2c03b6dcbad03e3",
   "consolidatedBase": "e4584bb2e6aa930a13985bdb5ee2313613af9f18",
-  "activeDeployment": "4bf0aeb5-b0bd-4c04-82b6-7cd9dfc83ec8",
-  "activeSource": {
+  "baselineDeployment": "4bf0aeb5-b0bd-4c04-82b6-7cd9dfc83ec8",
+  "activeDeployment": "542334d9-190e-487b-9850-01d7e5fc59c9",
+  "baselineSource": {
     "baseCommit": "73c5d8a02fb891ffbd0c4f85ec43da0ba99fdeba",
     "runtimeCommits": [
       "87a5408", "75b3b07", "a4d286a", "bfd28d8",
@@ -45,7 +46,11 @@
   "newMigration": {
     "path": "prisma/migrations/20261014010000_add_service_agenda_favorite/migration.sql",
     "sha256": "9a120d4cb245adb01bd29c7fd633dc187fcea4763b8f2815fdea5a14ac64f0ea",
-    "realDatabaseApplied": false,
+    "realDatabaseApplied": true,
+    "matchingLedgerRows": 1,
+    "appliedStepsCount": 1,
+    "finishedAtUtc": "2026-10-14T15:33:44.561Z",
+    "columnVerified": "Service.agendaFavorite boolean NOT NULL DEFAULT false",
     "realApplicationAuthorization": "explicitly granted for this migration only through the authorized Weex deployment"
   },
   "verified": {
@@ -112,12 +117,58 @@
       "initial scope diagnostic regex expected CONVERSATIONAL_BOT.*EXCLUDE; corrected to actual BOT_WORKER_SCOPE keys without a production change"
     ]
   },
+  "deployment": {
+    "id": "542334d9-190e-487b-9850-01d7e5fc59c9",
+    "status": "SUCCESS",
+    "active": true,
+    "runningInstances": 1,
+    "createdAtUtc": "2026-10-14T15:30:31.972Z",
+    "createdAtArgentina": "2026-10-14 12:30",
+    "image": "sha256:eb92a370c492036f15a1154ed936e64ff6920effec275bb5c690385a2f8ff448",
+    "uploadAttempts": 1,
+    "sourceCommit": "5d67fdf5712368c329177cc4c2c03b6dcbad03e3",
+    "manifestSha256": "3a662aebae4f1d7947c7bc2e4de88e468e65818dd783655a0ca73c197448eb29",
+    "projectServiceEnvironmentVerified": true,
+    "previousDeploymentStatus": "REMOVED",
+    "hostedSiteBuilds": "both completed; no fatal errors observed",
+    "filteredRuntimeLogRows": 39,
+    "runtimeMigrationTargetMentions": 2,
+    "runtimeAllMigrationsSuccessMentions": 1,
+    "runtimeErrorsObserved": 0,
+    "literalListeningLogLines": 0,
+    "serverListeningClaimFromLogs": false,
+    "publicHealth": {
+      "weexStatus": 200,
+      "weexDatabase": "ok",
+      "crmStatus": 200,
+      "crmHtmlBytes": 2102771,
+      "favoriteMarkerPresent": true,
+      "orderAgendaServicesPresent": true,
+      "candidateHealthVerified": true
+    },
+    "postflight": {
+      "completedMigrations": 208,
+      "failedMigrations": 0,
+      "pendingMigrations": [],
+      "unexpectedMigrations": 0,
+      "historicalLedgerRepaired": false,
+      "configurationUnchanged": true,
+      "configurationKeyCount": 66,
+      "configurationDigestSha256": "680ed9db0c8ecfe3280c1f04cbad28d7b8234e595e9c02b9863527ae17ebc488",
+      "barberWorkerExclusionPreserved": true,
+      "configurationTunnelOrCallbackCommandsIssued": false,
+      "pidChangesClaimed": false,
+      "artifactFilesReverified": 818
+    },
+    "preflightDocumentCommit": "02ac7444f980ec371bcae1c40d97bf29a60371ec"
+  },
   "pending": [
-    "execute only the authorized favorite migration through startup; realDatabaseApplied remains false until observed",
     "native review control unavailable with scoped human omission; must not be represented as a native approval receipt",
-    "deployment and hosted build/health/version checks"
+    "Google live, real WhatsApp, new reservations/payments and favorite toggling in production were not performed as tests",
+    "no new global typecheck claim; inherited duration-contract failure remains recorded",
+    "FULL excluded: three bounded bot-suite failures and B12-C dispatcher verification debt remain outside this published LITE release"
   ],
-  "deploymentPerformed": false,
+  "deploymentPerformed": true,
   "gitPushOrMergePerformed": false,
   "workspaceDirtyChangesIncluded": false,
   "environmentSecretsIncluded": false,
