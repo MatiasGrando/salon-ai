@@ -11,7 +11,7 @@ import { customerDurationRange, formatCustomerDuration, reservationDurationLimit
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
 import { publishDepositUpdated } from '../services/crm-realtime-events.js'
-import { prepareGuestBookingAccess, persistGuestBookingAccess, resolveGuestBookingAccess, setGuestBookingCookie } from '../services/guest-booking-access.js'
+import { ensureGuestBookingCapacity, prepareGuestBookingAccess, persistGuestBookingAccess, resolveGuestBookingAccesses, setGuestBookingCookie } from '../services/guest-booking-access.js'
 import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import {
@@ -215,6 +215,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) {
       return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
     }
+    if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
 
     const serviceId = body.serviceId?.trim()
     const professionalId = body.professionalId?.trim()
@@ -280,6 +281,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       ? new Date(Date.now() + service.depositHoldMinutes * 60_000)
       : null
     const guestAccess = !weexAuth ? prepareGuestBookingAccess() : null
+    let guestBookingId: string | undefined
     let result
     try {
       result = await appointmentService.createPublicBooking({
@@ -301,10 +303,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       } : null
       }, guestAccess ? { afterCreateInTransaction: async ({ transaction, appointment }) => {
         const created = appointment as typeof appointment & { bookingDeposit?: { id: string } | null }
-        await persistGuestBookingAccess(transaction, {
+        const grant = await persistGuestBookingAccess(transaction, {
           tokenHash: guestAccess.tokenHash, expiresAt: guestAccess.expiresAt, businessId: business.id,
           appointmentIds: [appointment.id], depositId: created.bookingDeposit?.id ?? null
         })
+        guestBookingId = grant.id
       } } : {})
     } catch (error) {
       request.log.error({ error, businessId: business.id }, 'No se pudo guardar la reserva web completa')
@@ -383,7 +386,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }, 'Tiempos de confirmacion de reserva web')
 
     return {
-      ...(guestAccess ? { guest: true, appointment: publicGuestAppointment(appointment) } : { appointment }),
+      ...(guestAccess ? { guest: true, bookingId: guestBookingId, appointment: publicGuestAppointment(appointment) } : { appointment }),
       calendarSync,
       deposit: deposit ? {
         id: deposit.id,
@@ -425,6 +428,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) {
       return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
     }
+    if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
     const date = body.date?.trim()
     const itineraryId = body.itineraryId?.trim()
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !itineraryId) {
@@ -520,6 +524,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     let deposit = null
     let guestAppointments: GuestAppointmentSummary[] | null = null
     const guestAccess = !weexAuth ? prepareGuestBookingAccess() : null
+    let guestBookingId: string | undefined
     const grantAccess = async (transaction: Parameters<typeof persistGuestBookingAccess>[0], depositId: string | null) => {
       if (!guestAccess) return
       const createdAppointments = await transaction.appointment.findMany({
@@ -527,9 +532,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         include: { service: true, professional: true }, orderBy: { startAt: 'asc' }
       })
       if (createdAppointments.length !== appointmentIds.length) throw new Error('GUEST_BOOKING_GROUP_INCOMPLETE')
-      await persistGuestBookingAccess(transaction, {
+      const grant = await persistGuestBookingAccess(transaction, {
         tokenHash: guestAccess.tokenHash, expiresAt: guestAccess.expiresAt, businessId: business.id, appointmentIds, depositId
       })
+      guestBookingId = grant.id
       guestAppointments = createdAppointments
     }
     try {
@@ -610,7 +616,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
     return {
       coordinationGroupId,
-      ...(guestAccess ? { guest: true, appointments: appointments.map(publicGuestAppointment) } : { appointments }),
+      ...(guestAccess ? { guest: true, bookingId: guestBookingId, appointments: appointments.map(publicGuestAppointment) } : { appointments }),
       itinerary,
       deposit: deposit ? {
         id: deposit.id,
@@ -629,9 +635,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
     reply.header('Cache-Control', 'no-store')
     const weexAuth = await getWeexAuthFromRequest(request)
-    const guestAccess = !weexAuth ? await resolveGuestBookingAccess(request, business.id) : null
-    if (!weexAuth?.account.phone && !guestAccess) return reply.status(401).send({ message: 'Necesitas el acceso de esta reserva o iniciar sesion para enviar el comprobante' })
-    if (guestAccess && guestAccess.access.depositId !== params.depositId) {
+    const guestScopes = !weexAuth ? await resolveGuestBookingAccesses(request, business.id) : []
+    const guestAccess = guestScopes.find(scope => scope.access.depositId === params.depositId) ?? null
+    if (!weexAuth?.account.phone && !guestScopes.length) return reply.status(401).send({ message: 'Necesitas el acceso de esta reserva o iniciar sesion para enviar el comprobante' })
+    if (!weexAuth && !guestAccess) {
       return reply.status(404).send({ message: 'No encontre esa seña para esta reserva' })
     }
 
@@ -673,16 +680,20 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
-    const scope = await resolveGuestBookingAccess(request, business.id)
-    if (!scope) return reply.status(401).send({ message: 'No hay un acceso vigente a esta reserva' })
-    const deposit = scope.access.depositId ? await prisma.bookingDeposit.findFirst({
-      where: { id: scope.access.depositId, businessId: business.id, source: 'WEB', appointmentId: { in: scope.access.appointmentIds } }
-    }) : null
-    if (scope.access.depositId && (!deposit || !scope.access.appointmentIds.includes(deposit.appointmentId))) {
-      return reply.status(401).send({ message: 'No hay un acceso vigente a esta reserva' })
-    }
-    return { guest: true, appointments: scope.appointments.map(publicGuestAppointment),
-      deposit: publicGuestDeposit(deposit, scope.appointments, business) }
+    const scopes = await resolveGuestBookingAccesses(request, business.id)
+    const summaries = await Promise.all(scopes.map(async scope => {
+      const deposit = scope.access.depositId ? await prisma.bookingDeposit.findFirst({
+        where: { id: scope.access.depositId, businessId: business.id, source: 'WEB', appointmentId: { in: scope.access.appointmentIds } }
+      }) : null
+      if (scope.access.depositId && (!deposit || !scope.access.appointmentIds.includes(deposit.appointmentId))) return null
+      return { bookingId: scope.access.id, expiresAt: scope.access.expiresAt,
+        appointments: scope.appointments.map(publicGuestAppointment), deposit: publicGuestDeposit(deposit, scope.appointments, business) }
+    }))
+    const bookings = summaries.filter((summary): summary is NonNullable<typeof summary> => summary !== null)
+    const bookingId = (request.query as { bookingId?: string }).bookingId
+    const selected = bookingId === undefined ? bookings[0] : bookings.find(booking => booking.bookingId === bookingId)
+    if (!selected) return reply.status(401).send({ message: 'No hay un acceso vigente a esta reserva' })
+    return { guest: true, ...selected, bookings }
   })
 
   app.get('/public/booking/:slug/pending-deposit', async (request, reply) => {

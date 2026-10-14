@@ -48,7 +48,7 @@ const payload = { serviceId: 'cut', professionalId: 'pro-a', date: '2026-10-20',
   customerName: 'Submitted name', customerPhone: '15-6655-3322' }
 const requestBooking = (extra: any = {}, headers: any = {}) => app.inject({ method: 'POST',
   url: '/public/booking/guest-test/book', headers, payload: { ...payload, ...extra } })
-const groupBooking = () => app.inject({ method: 'POST', url: '/public/booking/guest-test/book-coordinated',
+const groupBooking = (headers: any = {}) => app.inject({ method: 'POST', url: '/public/booking/guest-test/book-coordinated', headers,
   payload: { customerName: payload.customerName, customerPhone: payload.customerPhone,
     date: payload.date, itineraryId: 'itinerary-a', serviceSelections: services.map(s => ({ serviceId: s.id })) } })
 const cookieHeader = (response: any) => String(response.headers['set-cookie'] || '').split(';')[0]
@@ -100,9 +100,12 @@ try {
     return { ...row, appointment: appointments.get(row.appointmentId) }
   })
   replace(db, 'guestBookingAccess', {
-    create: async ({ data }: any) => { if (failGrant) throw new Error('synthetic grant failure'); grants.set(data.tokenHash, data); return data },
+    create: async ({ data }: any) => { if (failGrant) throw new Error('synthetic grant failure'); const row = { ...data,
+      id: 'grant-' + grants.size, createdAt: new Date(Date.now() + grants.size) }; grants.set(data.tokenHash, row); return row },
     findUnique: async ({ where }: any) => grants.get(where.tokenHash) || null,
-    findFirst: async ({ where }: any) => grants.get(where.tokenHash) || null
+    findFirst: async ({ where }: any) => grants.get(where.tokenHash) || null,
+    findMany: async ({ where }: any) => [...grants.values()].filter(g => (!where.tokenHash?.in || where.tokenHash.in.includes(g.tokenHash)) &&
+      (!where.businessId || g.businessId === where.businessId) && (!where.expiresAt?.gt || g.expiresAt > where.expiresAt.gt))
   })
   replace(AppointmentService.prototype, 'createPublicBooking', async (input: any, options: any) => db.$transaction(async (tx: any) => {
     const row = fixtureAppointment(input)
@@ -166,10 +169,12 @@ try {
     business.allowGuestWebBooking = true
     const before = marketingWrites, response = await requestBooking()
     assert.equal(response.statusCode, 200, response.body)
-    const cookie = cookieHeader(response); assert.match(cookie, /^guest_booking_business-a=[a-f0-9]{64}$/)
+    const cookie = cookieHeader(response); assert.match(cookie, /^guest_booking_business-a_[a-f0-9]{16}=[a-f0-9]{64}$/)
     assert.match(String(response.headers['set-cookie']), /HttpOnly.*SameSite=Strict/)
     assert.match(String(response.headers['set-cookie']), /Path=\/public\/booking\/guest-test/)
+    assert.match(String(response.headers['set-cookie']), /Max-Age=604800/)
     const grant = grants.get(createHash('sha256').update(cookie.split('=')[1]).digest('hex'))
+    assert.equal(response.json().bookingId, grant.id)
     assert.deepEqual(grant.appointmentIds, [response.json().appointment.id]); assert.equal(grant.depositId, null)
     assert.ok(!response.body.includes('PRIVATE')); assert.ok(!response.body.includes('tokenHash'))
     assert.equal(response.json().guest, true); assert.equal(marketingWrites, before)
@@ -215,6 +220,7 @@ try {
     failSecond = false
     const success = await groupBooking(); assert.equal(success.statusCode, 200, success.body)
     const cookie = cookieHeader(success), grant = grants.get(createHash('sha256').update(cookie.split('=')[1]).digest('hex'))
+    assert.equal(success.json().bookingId, grant.id)
     assert.deepEqual(grant.appointmentIds, success.json().appointments.map((a: any) => a.id))
     assert.equal(grant.appointmentIds.length, 2); assert.ok(!success.body.includes('PRIVATE'))
   })
@@ -254,6 +260,130 @@ try {
     assert.equal(tracking.statusCode, 200, tracking.body)
     assert.equal(tracking.json().deposit.segments[0].startTime, '16:00')
     assert.equal(tracking.json().deposit.segments[0].endTime, '18:00')
+  })
+  await check('two independent cookies retain both exact bookings and selection does not grant authority', async () => {
+    const first = await requestBooking(), second = await requestBooking({}, { cookie: cookieHeader(first) })
+    assert.equal(first.statusCode, 200, first.body); assert.equal(second.statusCode, 200, second.body)
+    const cookies = [cookieHeader(first), cookieHeader(second)]
+    assert.notEqual(cookies[0].split('=')[0], cookies[1].split('=')[0], 'new reservation must not replace previous cookie')
+    const before = [customerWrites, bookings, marketingWrites, deposits.size]
+    const list = await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: cookies.join('; ') } })
+    assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 2)
+    const firstGrant = grants.get(createHash('sha256').update(cookies[0].split('=')[1]).digest('hex'))
+    const secondGrant = grants.get(createHash('sha256').update(cookies[1].split('=')[1]).digest('hex'))
+    assert.equal(list.json().bookingId, secondGrant.id, 'newest grant is the default, not first cookie')
+    const selected = await app.inject({ url: '/public/booking/guest-test/guest-booking?bookingId=' + firstGrant.id,
+      headers: { cookie: cookies.join('; ') } })
+    assert.equal(selected.statusCode, 200, selected.body); assert.equal(selected.json().bookingId, firstGrant.id)
+    assert.deepEqual(selected.json().appointments.map((a: any) => a.id), firstGrant.appointmentIds)
+    for (const headers of [{}, { cookie: cookies[1] }]) assert.equal((await app.inject({
+      url: '/public/booking/guest-test/guest-booking?bookingId=' + firstGrant.id, headers })).statusCode, 401)
+    assert.equal((await app.inject({ url: '/public/booking/guest-test/guest-booking?bookingId=unknown',
+      headers: { cookie: cookies.join('; ') } })).statusCode, 401)
+    for (const privateValue of ['PRIVATE', 'tokenHash', cookies[0].split('=')[1], cookies[1].split('=')[1]]) assert.ok(!list.body.includes(privateValue))
+    assert.deepEqual([customerWrites, bookings, marketingWrites, deposits.size], before, 'reading never mutates bookings or finance')
+  })
+  await check('legacy cookie coexists, duplicates deduplicate and malformed hash suffix cannot authorize', async () => {
+    const first = await requestBooking(), second = await requestBooking()
+    const token = cookieHeader(first).split('=')[1], legacy = 'guest_booking_business-a=' + token
+    const secondCookie = cookieHeader(second)
+    const list = await app.inject({ url: '/public/booking/guest-test/guest-booking',
+      headers: { cookie: [legacy, cookieHeader(first), secondCookie].join('; ') } })
+    assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 2)
+    assert.equal((await app.inject({ url: '/public/booking/guest-test/guest-booking',
+      headers: { cookie: 'guest_booking_business-a_' + '0'.repeat(16) + '=' + token } })).statusCode, 401)
+    const grant = grants.get(createHash('sha256').update(token).digest('hex'))
+    const expiry = grant.expiresAt.getTime(); await requestBooking({}, { cookie: legacy })
+    assert.equal(grant.expiresAt.getTime(), expiry, 'new booking must not renew previous access')
+  })
+  await check('invalid grants are excluded without hiding valid completed/cancelled/no-show reservations', async () => {
+    const responses = await Promise.all(Array.from({ length: 7 }, () => requestBooking()))
+    const cookies = responses.map(cookieHeader)
+    const rows = cookies.map(cookie => grants.get(createHash('sha256').update(cookie.split('=')[1]).digest('hex')))
+    for (const [index, status] of ['COMPLETED', 'CANCELLED', 'NO_SHOW'].entries()) appointments.get(rows[index].appointmentIds[0]).status = status
+    rows[3].expiresAt = new Date(0); rows[4].businessId = 'business-b'
+    appointments.get(rows[5].appointmentIds[0]).origin = 'BOT'; rows[6].appointmentIds.push('missing')
+    const list = await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: cookies.join('; ') } })
+    assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 3)
+    assert.deepEqual(list.json().bookings.flatMap((b: any) => b.appointments.map((a: any) => a.status)).sort(), ['CANCELLED', 'COMPLETED', 'NO_SHOW'])
+    for (const row of rows.slice(3)) assert.equal((await app.inject({ url: '/public/booking/guest-test/guest-booking?bookingId=' + row.id,
+      headers: { cookie: cookies.join('; ') } })).statusCode, 401)
+  })
+  await check('earlier deposit proof remains scoped after a second booking and Google proof remains unchanged', async () => {
+    const first = await groupBooking(), second = await requestBooking()
+    const firstCookie = cookieHeader(first), cookies = [cookieHeader(second), firstCookie].join('; ')
+    const id = first.json().deposit.id, expires = deposits.get(id).expiresAt.getTime()
+    const proof = (depositId: string, cookie: string) => app.inject({ method: 'POST',
+      url: '/public/booking/guest-test/deposits/' + depositId + '/proof', headers: { cookie }, payload: { dataUrl: 'synthetic', filename: 'proof.pdf' } })
+    assert.equal((await proof(id, cookieHeader(second))).statusCode, 404)
+    const received = await proof(id, cookies)
+    assert.equal(received.statusCode, 200, received.body); assert.equal(received.json().deposit.status, 'PROOF_RECEIVED')
+    assert.equal(deposits.get(id).expiresAt.getTime(), expires); assert.ok(!received.body.includes('PRIVATE'))
+    assert.equal((await proof(id, 'weex_account_session=synthetic')).statusCode, 200)
+    const grant = grants.get(createHash('sha256').update(firstCookie.split('=')[1]).digest('hex'))
+    appointments.get(grant.appointmentIds[0]).status = 'CANCELLED'
+    const before = proofCalls; assert.equal((await proof(id, cookies)).statusCode, 404); assert.equal(proofCalls, before)
+  })
+  await check('a deposit rebound outside its grant denies detail and proof without hiding another valid booking', async () => {
+    const first = await groupBooking(), second = await requestBooking()
+    assert.equal(first.statusCode, 200, first.body); assert.equal(second.statusCode, 200, second.body)
+    const cookies = [cookieHeader(first), cookieHeader(second)].join('; ')
+    const deposit = deposits.get(first.json().deposit.id), originalAppointmentId = deposit.appointmentId
+    const before = [customerWrites, bookings, marketingWrites, proofCalls, deposits.size, deposit.status, deposit.expiresAt.getTime()]
+    deposit.appointmentId = second.json().appointment.id
+    try {
+      const denied = await app.inject({ url: '/public/booking/guest-test/guest-booking?bookingId=' + first.json().bookingId,
+        headers: { cookie: cookies } })
+      assert.equal(denied.statusCode, 401); assert.ok(!denied.body.includes(first.json().appointments[0].id))
+      const list = await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: cookies } })
+      assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 1)
+      assert.equal(list.json().bookingId, second.json().bookingId)
+      const proof = await app.inject({ method: 'POST', url: '/public/booking/guest-test/deposits/' + deposit.id + '/proof',
+        headers: { cookie: cookies }, payload: { dataUrl: 'must never reach proof storage', filename: 'proof.pdf' } })
+      assert.equal(proof.statusCode, 404)
+      assert.deepEqual([customerWrites, bookings, marketingWrites, proofCalls, deposits.size, deposit.status, deposit.expiresAt.getTime()], before)
+    } finally { deposit.appointmentId = originalAppointmentId }
+  })
+  await check('capacity rejects single and group before any mutation and retains all concurrent grants', async () => {
+    const responses = await Promise.all(Array.from({ length: 21 }, () => requestBooking()))
+    assert.ok(responses.every(r => r.statusCode === 200))
+    const cookies = responses.map(cookieHeader).join('; '), before = [customerWrites, bookings, marketingWrites, deposits.size, grants.size]
+    for (const response of [await requestBooking({}, { cookie: cookies }), await groupBooking({ cookie: cookies })]) {
+      assert.equal(response.statusCode, 409, response.body); assert.ok(!response.headers['set-cookie'])
+    }
+    assert.deepEqual([customerWrites, bookings, marketingWrites, deposits.size, grants.size], before)
+    const list = await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: cookies } })
+    assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 21, 'read threshold must not silently discard raced grants')
+    for (const cookie of responses.slice(0, 2).map(cookieHeader)) grants.get(createHash('sha256').update(cookie.split('=')[1]).digest('hex')).expiresAt = new Date(0)
+    assert.equal((await requestBooking({}, { cookie: cookies })).statusCode, 200, 'expired grants do not consume valid admission capacity')
+  })
+  await check('technical cookie/header bounds reject before mutation with no truncation or cookie replacement', async () => {
+    const excessive = Array.from({ length: 41 }, (_, i) => {
+      const token = i.toString(16).padStart(64, '0')
+      return 'guest_booking_business-a_' + createHash('sha256').update(token).digest('hex').slice(0, 16) + '=' + token
+    }).join('; ')
+    for (const cookie of [excessive, 'other=' + 'x'.repeat(12 * 1024), 'other=' + 'x'.repeat(12 * 1024 - 110)]) {
+      const before = [customerWrites, bookings, marketingWrites, deposits.size, grants.size]
+      assert.equal((await requestBooking({}, { cookie })).statusCode, 400)
+      assert.equal((await groupBooking({ cookie })).statusCode, 400)
+      assert.deepEqual([customerWrites, bookings, marketingWrites, deposits.size, grants.size], before)
+    }
+    assert.equal((await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: excessive } })).statusCode, 400)
+    assert.equal((await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie: 'other=' + 'x'.repeat(12 * 1024) } })).statusCode, 400)
+  })
+  await check('exactly forty valid concurrent grant cookies remain readable without silent truncation', async () => {
+    const responses = await Promise.all(Array.from({ length: 40 }, () => requestBooking()))
+    assert.ok(responses.every(response => response.statusCode === 200))
+    const cookie = responses.map(cookieHeader).join('; ')
+    const before = [customerWrites, bookings, marketingWrites, proofCalls, deposits.size, grants.size]
+    const list = await app.inject({ url: '/public/booking/guest-test/guest-booking', headers: { cookie } })
+    assert.equal(list.statusCode, 200, list.body); assert.equal(list.json().bookings.length, 40)
+    assert.deepEqual(list.json().bookings.map((booking: any) => booking.bookingId).sort(), responses.map(response => response.json().bookingId).sort())
+    for (const response of [responses[0], responses[39]]) {
+      const detail = await app.inject({ url: '/public/booking/guest-test/guest-booking?bookingId=' + response.json().bookingId, headers: { cookie } })
+      assert.equal(detail.statusCode, 200, detail.body); assert.equal(detail.json().appointments[0].id, response.json().appointment.id)
+    }
+    assert.deepEqual([customerWrites, bookings, marketingWrites, proofCalls, deposits.size, grants.size], before)
   })
   await check('real WEB PDF parser accepts passive PDF for manual review, rejects unsafe/mismatch/size and replay', async () => {
     const { PDFDocument } = await import('pdf-lib')
