@@ -1,0 +1,63 @@
+{
+  "status": "prepared_not_deployed",
+  "sourceCommit": "5d67fdf5712368c329177cc4c2c03b6dcbad03e3",
+  "consolidatedBase": "e4584bb2e6aa930a13985bdb5ee2313613af9f18",
+  "activeDeployment": "4bf0aeb5-b0bd-4c04-82b6-7cd9dfc83ec8",
+  "activeSource": {
+    "baseCommit": "73c5d8a02fb891ffbd0c4f85ec43da0ba99fdeba",
+    "runtimeCommits": [
+      "87a5408", "75b3b07", "a4d286a", "bfd28d8",
+      "cc703c1", "6d7e3cd", "77e8d94"
+    ],
+    "manifestSha256": "83bbe1937a5bacfb522618b5733a71321d8d671fdeb9599d9e4a86949fa5aba8"
+  },
+  "artifactRoot": ".codex-deploy/weex-agenda-favorites-20261014-7fc304",
+  "lite": {
+    "files": 818,
+    "changedPaths": 11,
+    "manifest": "lite/manifest.json",
+    "manifestSha256": "3a662aebae4f1d7947c7bc2e4de88e468e65818dd783655a0ca73c197448eb29",
+    "proofSha256": "8eafb34f2e1d392f0946965466e1b7c88cf944907287db81df7987fc504010c4",
+    "preservesActiveBot": true,
+    "scope": "active runtime plus existing-customer staff booking, registration phones and Agenda favorites"
+  },
+  "full": {
+    "files": 821,
+    "changedPaths": 44,
+    "manifest": "full/manifest.json",
+    "manifestSha256": "ba68195517af0e4b103b1417d3a3e3819e20a8cb564038856b1a56cc6d460150",
+    "proofSha256": "c9e1f9328016664b41cd9714f8266eeeb6413b2d1f3b6c578b5c5121df8b562f",
+    "scope": "positive Git source manifest including pending bot changes",
+    "verificationDebt": "5 of 8 bounded bot suites pass; own-appointment dispatcher integration and recorded fixture/catalog failures remain unresolved"
+  },
+  "newMigration": {
+    "path": "prisma/migrations/20261014010000_add_service_agenda_favorite/migration.sql",
+    "sha256": "9a120d4cb245adb01bd29c7fd633dc187fcea4763b8f2815fdea5a14ac64f0ea",
+    "realDatabaseApplied": false,
+    "realApplicationAuthorization": "awaiting explicit human answer"
+  },
+  "verified": {
+    "favoritesBehavior": "18/18",
+    "favoritesBrowser": "22/22 offline desktop/mobile",
+    "registrationPhones": "243/243",
+    "parentArtifactChecks": "all 821 FULL and 818 LITE SHA256, sizes, Git blob hashes and complete inventories; FULL matches fixed Git commit",
+    "nativeReview": "unavailable: high/unassessable and preflight invalid_request from deterministic inventory limit; no receipt, decline or risk downgrade",
+    "relativeImports": {
+      "lite": { "modules": 394, "resolvedEdges": 1433, "missing": 0, "unknownDynamic": 0, "proofSha256": "a5fe07caa69c09f7e7e923bfd322341f8f86efd82242cffd9234b43074efa1c9" },
+      "full": { "modules": 397, "resolvedEdges": 1453, "missing": 0, "unknownDynamic": 0, "proofSha256": "3a97f9b23111b27decce4c6003c0b470b372f9195ed8c222f4d152d2b0556e6c" },
+      "exceptions": "generated Prisma client only; startup runs prisma generate; WhatsApp literal alias audited",
+      "scope": "static relative closure, not global typecheck or runtime verification"
+    }
+  },
+  "pending": [
+    "human scope selection LITE or completion of bot before FULL",
+    "authorization and actual preflight for the sole new shared migration",
+    "native review control unavailable; must not be represented as approved",
+    "deployment and hosted build/health/version checks"
+  ],
+  "deploymentPerformed": false,
+  "gitPushOrMergePerformed": false,
+  "workspaceDirtyChangesIncluded": false,
+  "environmentSecretsIncluded": false,
+  "recoveryDocument": "odd/tasks/agenda-favorites-consolidated-release.md"
+}
