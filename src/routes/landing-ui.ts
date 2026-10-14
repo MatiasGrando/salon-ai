@@ -1799,6 +1799,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             </button>
             <nav class="fresha-breadcrumb" id="booking-breadcrumb" aria-label="Pasos de reserva"></nav>
             <div class="booking-header-actions">
+              <button class="booking-reservations-link" id="booking-header-reservations" type="button" hidden>Ver mis reservas</button>
               <a class="fresha-icon-btn" href="${escapeAttribute(accountPath)}" aria-label="Mi perfil">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
               </a>
@@ -1921,6 +1922,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             guestBooking: false,
             guestAppointments: [],
             guestClosed: false,
+            guestCompleted: false,
+            guestBookings: [],
+            selectedGuestBookingId: null,
+            bookingView: null,
+            bookingDraft: null,
             submitting: false,
             uploadingProof: false,
             calendarSync: null,
@@ -1930,6 +1936,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
           const els = {
             back: document.getElementById('booking-back'),
+            reservations: document.getElementById('booking-header-reservations'),
             breadcrumb: document.getElementById('booking-breadcrumb'),
             heading: document.getElementById('booking-heading'),
             content: document.getElementById('booking-content'),
@@ -1978,7 +1985,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 : null
               if (!state.weexAccount) {
                 const guest = await getJson(bookingApiUrl('/guest-booking')).catch(() => null)
-                if (guest?.guest) applyGuestBooking(guest)
+                if (guest?.guest) {
+                  rememberGuestBookings(guest)
+                  state.bookingDraft = bookingDraftSnapshot()
+                  state.bookingView = 'list'
+                }
               }
               if (pending?.deposit) {
                 state.deposit = pending.deposit
@@ -2384,11 +2395,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (!state.professionalId) {
               return
             }
-            state.slot = null
+            const availabilityScope = { serviceId: state.service.id, professionalId: state.professionalId, date: state.date }
             const slotsEl = document.getElementById('booking-slots')
             if (slotsEl) slotsEl.innerHTML = renderSlotsLoading()
             try {
               const result = await getJson(bookingApiUrl('/availability', 'serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date)))
+              if (state.bookingView || state.service?.id !== availabilityScope.serviceId || state.professionalId !== availabilityScope.professionalId || state.date !== availabilityScope.date) return
+              if (state.slot && !result.slots.some((slot) => slot.time === state.slot.time && slot.professionalId === state.slot.professionalId)) state.slot = null
               if (!result.slots.length) {
                 if (slotsEl) slotsEl.innerHTML = '<p class="fresha-muted">' + escapeHtml(result.message || 'No hay horarios disponibles para esa fecha.') + '</p>'
                 updateConfirmState()
@@ -2405,6 +2418,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 })
               }
             } catch (error) {
+              if (state.bookingView || state.service?.id !== availabilityScope.serviceId || state.professionalId !== availabilityScope.professionalId || state.date !== availabilityScope.date) return
+              state.slot = null
               if (slotsEl) slotsEl.innerHTML = ''
               setFeedback(error.message, 'error')
             } finally {
@@ -2412,22 +2427,32 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
           }
 
+          function persistedBookingActions() {
+            const disabled = state.submitting || state.uploadingProof ? ' disabled' : ''
+            return '<button class="success-link" id="booking-new-reservation" type="button"' + disabled + '>Reservar otro turno</button>' +
+              (state.guestBooking
+                ? '<button class="success-link secondary" id="booking-view-reservations" type="button"' + disabled + '>Ver mis reservas</button><button class="success-link secondary" id="booking-guest-refresh" type="button"' + disabled + '>Actualizar estado</button>'
+                : '<a class="success-link secondary" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>')
+          }
+
           function renderConfirmStep() {
-            els.heading.textContent = state.proofSent
+            els.heading.textContent = state.guestClosed ? 'Estado de tu reserva'
+              : state.guestCompleted ? 'Turno realizado'
+              : state.confirmed ? 'Turno confirmado'
+              : state.proofSent
               ? 'Comprobante enviado'
               : state.deposit
                 ? 'Pagar seña'
-                : state.confirmed ? 'Turno confirmado' : state.guestClosed ? 'Estado de tu reserva' : 'Completá tu reserva'
-            const guestActions = state.guestBooking
-              ? '<button class="success-link secondary" id="booking-guest-refresh" type="button">Actualizar estado</button>'
-              : '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>'
+                : 'Completá tu reserva'
+            const guestActions = persistedBookingActions()
             if (state.guestClosed) {
-              els.content.innerHTML = '<section class="booking-success"><h2>Esta reserva ya no est&aacute; activa</h2><p>El horario no est&aacute; confirmado. Pod&eacute;s volver al comercio para elegir un turno nuevo.</p><div class="success-actions"><a class="success-link" href="' + escapeHtml(backPath) + '">Volver al comercio</a>' + guestActions + '</div></section>'
+              const booking = { appointments: state.guestAppointments || [], deposit: state.deposit }
+              els.content.innerHTML = '<section class="booking-success"><h2>Esta reserva ya no est&aacute; activa</h2><p>' + escapeHtml(guestBookingStatus(booking)) + '. No se inici&oacute; otro turno ni se modific&oacute; su pago.</p><div class="success-actions">' + guestActions + '</div></section>'
               updateContinue(false)
               els.continue.hidden = true
               return
             }
-            if (state.proofSent) {
+            if (state.proofSent && !state.confirmed) {
               els.content.innerHTML =
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
@@ -2452,7 +2477,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               els.content.innerHTML =
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
-                  '<h2>' + (isMultiService() ? 'Reservas coordinadas exitosas, ' : 'Reserva exitosa, ') + escapeHtml(accountName) + '</h2>' +
+                  '<h2>' + (state.guestCompleted ? 'Turno realizado' : state.guestBooking ? 'Turno confirmado' : (isMultiService() ? 'Reservas coordinadas exitosas, ' : 'Reserva exitosa, ') + escapeHtml(accountName)) + '</h2>' +
                   '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.itinerary?.startTime || state.slot?.time || '') + '.</p>' +
                   calendarMessage +
                   '<div class="success-actions">' +
@@ -2491,7 +2516,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     '</span>' +
                   '</label>' +
                   '<button class="booking-proof-submit" id="booking-proof-submit" type="button" disabled>Enviar comprobante</button>' +
-                  (state.guestBooking ? '<div class="success-actions">' + guestActions + '</div>' : '') +
+                  '<div class="success-actions">' + guestActions + '</div>' +
                 '</div>'
               els.continue.hidden = true
               const input = document.getElementById('booking-proof-input')
@@ -2521,7 +2546,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     '<label for="booking-guest-phone">Tel&eacute;fono de contacto<input id="booking-guest-phone" name="customerPhone" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="booking-guest-help" placeholder="11-6655-3322 o +598 99 123 456" value="' + escapeHtml(state.guestPhone) + '" required></label>' +
                   '</div>' +
                   '<p class="booking-guest-help" id="booking-guest-help">Si sos menor, us&aacute; el tel&eacute;fono de un adulto responsable. Para otro pa&iacute;s, inclu&iacute; + o 00 y el c&oacute;digo de pa&iacute;s.</p>' +
-                  '<p class="booking-guest-help">Podr&aacute;s consultar esta reserva y enviar su comprobante desde este dispositivo. No acced&eacute;s a turnos anteriores.</p>' +
+                  '<p class="booking-guest-help">Podr&aacute;s consultar las reservas hechas desde este navegador durante 7 d&iacute;as por reserva, mientras conserve sus cookies. No acced&eacute;s al historial de otros dispositivos.</p>' +
                   '<div class="booking-guest-google-row"><span>&iquest;Ya ten&eacute;s cuenta?</span><button id="booking-guest-google" type="button">Continuar con Google</button></div>' +
                 '</section>'
               :
@@ -2534,7 +2559,30 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               : Boolean(state.service && state.professionalId && state.slot), 'Reservar turno')
           }
 
+          function renderGuestBookingSummary() {
+            const clock = new Intl.DateTimeFormat('es-AR', {
+              timeZone: state.catalog?.business?.timezone || 'America/Argentina/Buenos_Aires',
+              day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            })
+            const appointments = state.guestAppointments || []
+            els.summaryLines.innerHTML = appointments.map((appointment) => '<div class="summary-card-line primary-line">' +
+              '<div><strong>' + escapeHtml(appointment.service?.name || 'Servicio') + '</strong><span>' + escapeHtml(appointment.professional?.name || '') + '</span>' +
+              '<span>' + escapeHtml(clock.format(new Date(appointment.startAt))) + '</span><span>' + escapeHtml((appointment.totalDurationMinutes ?? appointment.service?.duration ?? '') + ' min') + '</span></div>' +
+              '<b>' + escapeHtml(Number.isFinite(appointment.quotedPrice) ? formatPrice(appointment.quotedPrice) : 'Precio a consultar') + '</b></div>').join('') +
+              (state.deposit ? '<div class="summary-card-line summary-deposit"><span>Se&ntilde;a del pedido</span><strong>' + escapeHtml(formatPrice(state.deposit.amount)) + '</strong></div>' : '')
+            const knownPrices = appointments.length && appointments.every((appointment) => Number.isFinite(appointment.quotedPrice))
+            els.total.textContent = knownPrices ? formatPrice(appointments.reduce((total, appointment) => total + appointment.quotedPrice, 0)) : 'A consultar'
+            els.totalDivider.hidden = !appointments.length
+            els.totalRow.hidden = !appointments.length
+            els.mobileBar.hidden = true
+            document.querySelector('.fresha-summary')?.classList.add('guest-reservation-detail')
+          }
+
           function renderSummary() {
+            if (state.guestBooking && state.bookingView === 'detail' && state.guestAppointments?.every((appointment) => appointment.startAt)) {
+              renderGuestBookingSummary()
+              return
+            }
             const lines = []
             for (const service of selectedServices()) {
               lines.push(
@@ -2633,7 +2681,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function goToStep(step) {
-            if (state.deposit || state.proofSent) return
+            if (state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed) return
             if (step > state.step) return
             state.step = step
             state.confirmed = false
@@ -2731,7 +2779,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               throw new Error('No pudimos conectar con el servidor. Intenta de nuevo.')
             }
             const body = await response.json().catch(() => ({}))
-            if (!response.ok) throw new Error(body.message || 'No pude completar la operacion')
+            if (!response.ok) {
+              const error = new Error(body.message || 'No pude completar la operacion')
+              error.status = response.status
+              throw error
+            }
             return body
           }
 
@@ -2782,8 +2834,108 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return state.catalog?.business?.allowGuestWebBooking === true
           }
 
+          function bookingDraftSnapshot() {
+            return Object.fromEntries(['step', 'service', 'services', 'serviceSearch', 'serviceCategory', 'serviceDetails',
+              'estimateOption', 'validationAccepted', 'professionalId', 'date', 'dateLabel', 'slot', 'itinerary', 'itineraryOptions',
+              'guestName', 'guestPhone', 'calendarSync'].map((key) => [key, state[key]]))
+          }
+
+          function restoreBookingDraft() {
+            if (state.submitting || state.uploadingProof) return
+            if (state.bookingDraft) Object.assign(state, state.bookingDraft)
+            state.bookingView = null
+            state.bookingDraft = null
+            state.selectedGuestBookingId = null
+            state.guestBooking = false
+            state.guestAppointments = []
+            state.guestClosed = false
+            state.guestCompleted = false
+            state.deposit = null
+            state.proofSent = false
+            state.confirmed = false
+            els.continue.hidden = false
+            render()
+          }
+
+          function beginNewBooking() {
+            if (state.submitting || state.uploadingProof) return
+            state.bookingDraft = {
+              step: 1, service: null, services: [], serviceSearch: '', serviceCategory: 'all', serviceDetails: {},
+              estimateOption: null, validationAccepted: false, professionalId: null, date: null, dateLabel: null,
+              slot: null, itinerary: null, itineraryOptions: [], guestName: state.bookingDraft?.guestName ?? state.guestName,
+              guestPhone: state.bookingDraft?.guestPhone ?? state.guestPhone, calendarSync: null
+            }
+            restoreBookingDraft()
+            setFeedback('Elegí un turno nuevo. Esto no cancela ni modifica tus reservas anteriores.', 'info')
+          }
+
+          function rememberGuestBookings(result) {
+            if (!result?.guest) return
+            state.guestBookings = Array.isArray(result.bookings)
+              ? result.bookings.filter((booking) => booking.bookingId && booking.appointments?.length)
+              : result.bookingId && result.appointments?.length ? [result] : []
+          }
+
+          async function viewGuestBookings() {
+            if (state.submitting || state.uploadingProof) return
+            if (!state.bookingView && !state.confirmed && !state.deposit) state.bookingDraft = bookingDraftSnapshot()
+            state.bookingView = 'list'
+            render()
+            setFeedback('Actualizando tus reservas...', 'info')
+            try {
+              const result = await getJson(bookingApiUrl('/guest-booking'))
+              rememberGuestBookings(result)
+              render()
+            } catch (error) {
+              // Missing/expired cookies never trigger a phone-based history lookup.
+              if (error.status === 401) state.guestBookings = []
+              render()
+              setFeedback(error.message, 'error')
+            }
+          }
+
+          function guestBookingStatus(booking) {
+            const statuses = (booking.appointments || []).map((appointment) => appointment.status)
+            if (statuses.includes('CANCELLED')) return 'Cancelado'
+            if (statuses.includes('NO_SHOW')) return 'Ausente'
+            if (booking.deposit?.status === 'EXPIRED') return 'Seña vencida'
+            if (booking.deposit?.status === 'REJECTED') return 'Comprobante rechazado'
+            if (statuses.length && statuses.every((status) => status === 'COMPLETED')) return 'Realizado'
+            if (statuses.length && statuses.every((status) => ['CONFIRMED', 'COMPLETED'].includes(status))) return 'Confirmado'
+            if (booking.deposit?.status === 'PROOF_RECEIVED') return 'Comprobante en revisión'
+            return booking.deposit ? 'Esperando seña' : 'Pendiente'
+          }
+
+          function renderGuestBookings() {
+            els.heading.textContent = 'Reservas de este navegador'
+            const formatter = new Intl.DateTimeFormat('es-AR', {
+              timeZone: state.catalog?.business?.timezone || 'America/Argentina/Buenos_Aires',
+              day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            })
+            const rows = (state.guestBookings || []).map((booking) => '<tr><td data-label="Servicio y profesional">' +
+              booking.appointments.map((appointment) => '<div class="booking-reservation-segment"><strong>' + escapeHtml(appointment.service.name) + '</strong><span>' + escapeHtml(appointment.professional.name) + '</span></div>').join('') +
+              '</td><td data-label="Fecha y hora">' + booking.appointments.map((appointment) => '<div class="booking-reservation-segment">' + escapeHtml(formatter.format(new Date(appointment.startAt))) + '</div>').join('') +
+              '</td><td data-label="Estado"><span class="booking-reservation-status">' + escapeHtml(guestBookingStatus(booking)) + '</span></td>' +
+              '<td><button class="booking-reservation-detail" type="button" data-guest-booking-id="' + escapeHtml(booking.bookingId) + '">Ver detalle</button></td></tr>').join('')
+            els.content.innerHTML = '<section class="booking-browser-reservations" aria-label="Reservas de este navegador">' +
+              '<p class="booking-browser-help">Pod&eacute;s consultar cada reserva durante 7 d&iacute;as desde su creaci&oacute;n, mientras este navegador conserve sus cookies. No es un historial por tel&eacute;fono.</p>' +
+              (rows ? '<table class="booking-reservations-table"><caption class="booking-reservations-caption">Cada fila es una reserva; los servicios coordinados quedan juntos.</caption><thead><tr><th scope="col">Servicio y profesional</th><th scope="col">Fecha y hora</th><th scope="col">Estado</th><th scope="col">Detalle</th></tr></thead><tbody>' + rows + '</tbody></table>'
+                : '<p class="booking-browser-empty">No hay reservas disponibles para consultar en este navegador. Si borraste las cookies o pasaron 7 d&iacute;as, ped&iacute; ayuda al comercio. Tus turnos no se cancelan por eso.</p>') +
+              '<div class="success-actions"><button class="success-link" id="booking-new-reservation" type="button">Reservar otro turno</button>' +
+              (state.bookingDraft?.services?.length ? '<button class="success-link secondary" id="booking-resume-draft" type="button">Continuar mi nueva reserva</button>' : '') + '</div></section>'
+            updateContinue(false)
+            els.continue.hidden = true
+            els.mobileBar.hidden = true
+            els.summaryLines.innerHTML = '<p class="summary-empty">Abr&iacute; el detalle para consultar el resumen o enviar un comprobante.</p>'
+            els.totalDivider.hidden = true
+            els.totalRow.hidden = true
+          }
+
           function applyGuestBooking(result) {
             if (!result?.guest || !result.appointments?.length) return
+            if (!state.bookingView && !state.confirmed && !state.deposit) state.bookingDraft = bookingDraftSnapshot()
+            state.bookingView = 'detail'
+            state.selectedGuestBookingId = result.bookingId || state.selectedGuestBookingId
             state.guestBooking = true
             state.guestAppointments = result.appointments
             state.services = result.appointments.map((appointment) => ({
@@ -2808,6 +2960,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             state.deposit = result.deposit || null
             state.proofSent = result.deposit?.status === 'PROOF_RECEIVED'
             state.confirmed = result.appointments.every((appointment) => ['CONFIRMED', 'COMPLETED'].includes(appointment.status))
+            state.guestCompleted = result.appointments.every((appointment) => appointment.status === 'COMPLETED')
             state.guestClosed = result.appointments.some((appointment) => ['CANCELLED', 'NO_SHOW'].includes(appointment.status)) || ['EXPIRED', 'REJECTED'].includes(result.deposit?.status)
             const clock = (date) => new Intl.DateTimeFormat('es-AR', {
               timeZone: state.catalog.business?.timezone || 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
@@ -2825,12 +2978,23 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function refreshGuestBooking() {
+            if (state.submitting || state.uploadingProof) return
+            const selectedBookingId = state.selectedGuestBookingId
             setFeedback('Actualizando tu reserva...', 'info')
             try {
-              const result = await getJson(bookingApiUrl('/guest-booking'))
+              const query = state.selectedGuestBookingId ? 'bookingId=' + encodeURIComponent(state.selectedGuestBookingId) : ''
+              const result = await getJson(bookingApiUrl('/guest-booking', query))
+              rememberGuestBookings(result)
+              if (state.bookingView !== 'detail' || state.selectedGuestBookingId !== selectedBookingId) return
               applyGuestBooking(result)
               render()
             } catch (error) {
+              if (state.bookingView !== 'detail' || state.selectedGuestBookingId !== selectedBookingId) return
+              if (error.status === 401) {
+                state.guestBookings = (state.guestBookings || []).filter((booking) => booking.bookingId !== selectedBookingId)
+                state.bookingView = 'list'
+                render()
+              }
               setFeedback(error.message, 'error')
             }
           }
@@ -3051,7 +3215,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function confirmBooking() {
-            if (state.submitting || state.confirmed || state.deposit || state.guestClosed) return
+            if (state.bookingView || state.submitting || state.confirmed || state.deposit || state.guestClosed) return
             const contact = !state.weexAccount && guestBookingAllowed()
               ? { customerName: state.guestName.trim(), customerPhone: phoneForSubmit(state.guestPhone) }
               : {}
@@ -3089,20 +3253,33 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               state.calendarSync = result.calendarSync || null
               state.guestBooking = result.guest === true
               state.guestAppointments = result.appointments || (result.appointment ? [result.appointment] : [])
+              state.bookingDraft = null
+              state.bookingView = 'detail'
+              state.selectedGuestBookingId = result.bookingId || null
               state.deposit = result.deposit || null
               state.confirmed = !state.deposit
+              if (state.guestBooking && state.selectedGuestBookingId) {
+                state.guestBookings = [{ bookingId: state.selectedGuestBookingId, appointments: state.guestAppointments, deposit: state.deposit },
+                  ...(state.guestBookings || []).filter((booking) => booking.bookingId !== state.selectedGuestBookingId)]
+              }
               setFeedback('', '')
               render()
+              if (state.guestBooking) {
+                // A successful new grant must not replace the earlier grants of this browser.
+                const collection = await getJson(bookingApiUrl('/guest-booking')).catch(() => null)
+                rememberGuestBookings(collection)
+              }
             } catch (error) {
               setFeedback(error.message, 'error')
               updateContinue(true, 'Confirmar turno')
             } finally {
               state.submitting = false
+              if (state.bookingView === 'detail') render()
             }
           }
 
           async function uploadDepositProof(file, button) {
-            if (!file || !state.deposit || state.uploadingProof) return
+            if (!file || !state.deposit || state.uploadingProof || state.proofSent) return
             if (file.size > 3 * 1024 * 1024) {
               setFeedback('El comprobante debe pesar hasta 3 MB.', 'error')
               return
@@ -3126,6 +3303,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               button.textContent = 'Enviar comprobante'
             } finally {
               state.uploadingProof = false
+              if (state.proofSent && state.bookingView === 'detail') render()
             }
           }
 
@@ -3141,12 +3319,20 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           function render() {
             renderBreadcrumb()
             setFeedback('', '')
-            els.back.disabled = state.step === 1 || Boolean(state.deposit || state.proofSent)
+            document.querySelector('.fresha-summary')?.classList.remove('guest-reservation-detail')
+            els.back.disabled = state.step === 1 || Boolean(state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed)
+            els.breadcrumb.hidden = Boolean(state.bookingView)
+            els.reservations.hidden = Boolean(state.weexAccount) || (!guestBookingAllowed() && !state.guestBookings.length)
+            els.reservations.disabled = state.submitting || state.uploadingProof
             if (!state.catalog) {
               els.heading.textContent = 'Cargando reserva'
               els.content.innerHTML = '<p class="fresha-muted">Estamos cargando la agenda.</p>'
               updateContinue(false)
               renderSummary()
+              return
+            }
+            if (state.bookingView === 'list') {
+              renderGuestBookings()
               return
             }
             const stepId = currentStepId()
@@ -3159,6 +3345,29 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           els.content.addEventListener('click', (event) => {
+            if (event.target.closest('#booking-new-reservation')) {
+              beginNewBooking()
+              return
+            }
+            if (event.target.closest('#booking-view-reservations')) {
+              void viewGuestBookings()
+              return
+            }
+            if (event.target.closest('#booking-resume-draft')) {
+              restoreBookingDraft()
+              return
+            }
+            const reservationButton = event.target.closest('[data-guest-booking-id]')
+            if (reservationButton) {
+              if (state.submitting || state.uploadingProof) return
+              const booking = (state.guestBookings || []).find((item) => item.bookingId === reservationButton.dataset.guestBookingId)
+              if (booking) {
+                applyGuestBooking({ ...booking, guest: true })
+                render()
+                void refreshGuestBooking()
+              }
+              return
+            }
             if (event.target.closest('#booking-guest-google')) {
               showBookingGate('login')
               return
@@ -3270,6 +3479,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           els.back.addEventListener('click', () => {
             if (state.step > 1) goToStep(state.step - 1)
           })
+
+          els.reservations.addEventListener('click', () => void viewGuestBookings())
 
           els.continue.addEventListener('click', () => {
             if (els.continue.disabled) return
@@ -5701,11 +5912,42 @@ function htmlPage(input: {
     .booking-guest-google-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--booking-border); color: var(--booking-muted); font-size: 14px; }
     .booking-guest-google-row button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--booking-border); border-radius: 8px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-weight: 700; cursor: pointer; }
     .booking-guest-google-row button:focus-visible { outline: 3px solid var(--booking-accent-soft); }
+    .booking-reservations-link {
+      min-height: 40px; padding: 8px 12px; max-width: 140px; border: 1px solid var(--booking-border);
+      border-radius: 10px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .booking-reservations-link[hidden] { display: none; }
+    .booking-browser-reservations { min-width: 0; padding: 20px; border: 1px solid var(--booking-border); border-radius: 12px; background: var(--booking-surface); color: var(--booking-ink); }
+    .booking-browser-help, .booking-browser-empty { margin: 0 0 18px; color: var(--booking-muted); line-height: 1.5; font-size: 14px; }
+    .booking-reservations-table { width: 100%; table-layout: fixed; border-collapse: collapse; text-align: left; font-size: 13px; }
+    .booking-reservations-table th, .booking-reservations-table td { padding: 12px 8px; vertical-align: top; border-bottom: 1px solid var(--booking-border); overflow-wrap: anywhere; }
+    .booking-reservations-table th { font-size: 12px; color: var(--booking-muted); }
+    .booking-reservations-table th:first-child { width: 31%; }
+    .booking-reservations-table th:last-child { width: 20%; }
+    .booking-reservations-caption { caption-side: bottom; margin-top: 12px; text-align: left; font-size: 12px; color: var(--booking-muted); }
+    .booking-reservation-segment { display: grid; gap: 3px; margin-bottom: 10px; min-width: 0; line-height: 1.4; }
+    .booking-reservation-segment:last-child { margin-bottom: 0; }
+    .booking-reservation-segment span { color: var(--booking-muted); }
+    .booking-reservation-status { font-weight: 700; line-height: 1.4; }
+    .booking-reservation-detail { min-height: 44px; padding: 8px 10px; max-width: 100%; border: 1px solid var(--booking-border); border-radius: 8px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-weight: 700; cursor: pointer; }
+    .booking-browser-reservations .success-actions { margin-top: 24px; }
+    .booking-reservations-link:focus-visible, .booking-reservation-detail:focus-visible { outline: 3px solid var(--booking-accent-soft); outline-offset: 2px; }
+    .fresha-modal .success-link:focus-visible { outline: 3px solid var(--booking-accent-soft); outline-offset: 2px; }
+    .fresha-modal button.success-link:disabled { opacity: .5; cursor: wait; }
     @media (max-width: 560px) {
       .booking-guest-contact { padding: 18px; }
       .booking-guest-fields { grid-template-columns: minmax(0, 1fr); gap: 18px; }
       .booking-guest-fields input { font-size: 16px; }
       .booking-guest-google-row { align-items: stretch; flex-direction: column; }
+      .booking-browser-reservations { padding: 14px; }
+      .booking-reservations-table, .booking-reservations-table tbody, .booking-reservations-table tr, .booking-reservations-table td { display: block; width: 100%; }
+      .booking-reservations-caption { display: block; width: 100%; margin: 0 0 12px; }
+      .booking-reservations-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+      .booking-reservations-table tr { padding: 12px 0; border-bottom: 1px solid var(--booking-border); }
+      .booking-reservations-table td { padding: 6px 0; border: 0; }
+      .booking-reservations-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 6px; color: var(--booking-muted); font-size: 12px; font-weight: 700; }
+      .booking-reservation-detail { width: 100%; }
+      .booking-reservations-link { padding: 8px; max-width: 100px; font-size: 12px; }
     }
     .booking-gate-card {
       width: min(496px, 100%);
@@ -7451,6 +7693,8 @@ function htmlPage(input: {
       body[class*="booking-theme-"] .fresha-summary .summary-eyebrow,
       body[class*="booking-theme-"] .fresha-summary #booking-summary-lines,
       body[class*="booking-theme-"] .fresha-summary .summary-total { display: none; }
+      body[class*="booking-theme-"] .fresha-summary.guest-reservation-detail #booking-summary-lines { display: block; }
+      body[class*="booking-theme-"] .fresha-summary.guest-reservation-detail .summary-total { display: flex; }
       body[class*="booking-theme-"] .fresha-summary .fresha-continue { margin: 0; }
       body[class*="booking-theme-"] .booking-mobile-bar {
         min-height: 74px;

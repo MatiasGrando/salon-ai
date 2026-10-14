@@ -18,7 +18,7 @@ Engram mem_* no expuesto (discovery vacía): espejo odd/agenda-professional-filt
 
 ## Tareas y criterios de aceptación
 - [x] A1 — Persistencia scoped implementada y14/14GREEN observado por parent. RED original1PASS10FAIL antesdeCRM; reanudación11PASS2FAIL porrefresco pendiente/catálogoobsoleto yRED13PASS1FAIL porselectHTML descarta valorantescrearoptions, todoscorregidos. Guardiasbackend/OWN intactas. Writerdelegadoprep/2+fuentes yparent repitióscope/default/prefetch/inline2/encoding/diffPASS. staff-secretary20vs15 FAIL conservado (HEADtambién20, prueba/permisos intactos). Fuentes congeladas hashCRM E4A506DA051B99F9C84100C3E5093CE276DB5F049B0FF3D37764658F757EDDA9; commit91ecc1ed365b24e880527197f212c61635265950 guarda fuentes/pruebas/docs (314authored).
-- [x] A2 — Navegador offline delegado y observado27/27,exit0: escritorio1366,móvil390/narrow320, seleccionar/reabrir/recargar/Todos/otroactorperfilrolnegocio/inactivo/OWN/storagecorrupto. Fuenteantes/después E4A506DA...idéntica,0pageexceptions/overflow0,268APIinterceptadas/25externasabortadas. Parent leyóresults/verification ycaptura móvil; tabsinvisibles no cobertura visual, suhandlersVM sí. Cierre documental de esta unidad se guarda en commit, no publicación automática por permiso viejo.
+- [x] A2 — Navegador offline delegado y observado27/27,exit0: escritorio1366,móvil390/narrow320, seleccionar/reabrir/recargar/Todos/otroactorperfilrolnegocio/inactivo/OWN/storagecorrupto. Fuenteantes/después E4A506DA...idéntica,0pageexceptions/overflow0,268APIinterceptadas/25externasabortadas. Parent leyóresults/verification ycaptura móvil; tabsinvisibles no cobertura visual, suhandlersVM sí. Cierre documental guardado en 1c6fc9d0ff36256ff121a496ded474ade6617a6a; no publicación automática por permiso viejo.
 
 ## Estado y siguiente paso
 Exploración y A1 cerrados; documento creado antes de primera escritura de fuentes. Writerinicialguest_web_ui_writer fue interrumpido trasRED/fuentes y agente ya no estaba activo; agenda_filter_resume recuperó documento/diff, observóRED adicionales yGREEN real. A2 delegado a agenda_filter_browser_verify sólo después de freeze final; primerfreeze13tests reabierto al detectarselectsemantics, no afirmar browserPASSporVM. Outcome de storage no valida permisos remotos ni sincronización entre dispositivos.
@@ -42,7 +42,7 @@ Usuario quiere preferencia personal de staff/secretaría en móvil. Local única
 - /auth/me incluye identidad estable; catálogo general no filtra OWN, por eso el filtro guardado también debe validar alcance.
 - Navegación temporal de impacto cambia selección y no es elección persistida del usuario.
 ### Accomplished
-- A1commit91ecc1e, RED/GREEN14 yregresiones específicasobservadas, A2Chrome27/27/hashes/overflow0 ycaptura móvil. Encoding/diffPASS, guardias/datos preservados. Revisión deeste bloque omitida explícitamente, modo globalON intacto; recuperaciónlocal.
+- A1 commit 91ecc1e, RED/GREEN14 y regresiones específicas observadas; A2 Chrome27/27/hashes/overflow0 y captura móvil, cierre 1c6fc9d. Encoding/diff PASS, guardias/datos preservados. Revisión de este bloque omitida explícitamente, modo global ON intacto; recuperación local.
 ### Next Steps
 - Implementación/verificación localcompletas; permisos/backend sin cambios. Falta autorización de publicación si se quiere activar junto aG7–G9. Nativeunavailable/mirrorabsente/staff-secretaryglobalcount pendientes honestos, no afirmar todosloschecksPASS ni quitarprueba.
 ### Relevant Files
