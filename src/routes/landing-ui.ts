@@ -1916,6 +1916,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             slot: null,
             itinerary: null,
             weexAccount: null,
+            guestName: '',
+            guestPhone: '',
+            guestBooking: false,
+            guestAppointments: [],
+            guestClosed: false,
+            submitting: false,
+            uploadingProof: false,
             calendarSync: null,
             deposit: null,
             proofSent: false,
@@ -1959,13 +1966,20 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           async function loadCatalog() {
             setFeedback('Cargando opciones...', 'info')
             try {
-              const [catalog, auth, pending] = await Promise.all([
+              const [catalog, auth] = await Promise.all([
                 getJson(bookingApiUrl('/catalog')),
-                getJson('/public/weex/me').catch(() => null),
-                getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
+                getJson('/public/weex/me').catch(() => null)
               ])
               state.catalog = catalog
               state.weexAccount = auth?.account || null
+              // A phone is contact data, never authority to retrieve earlier reservations.
+              const pending = state.weexAccount
+                ? await getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
+                : null
+              if (!state.weexAccount) {
+                const guest = await getJson(bookingApiUrl('/guest-booking')).catch(() => null)
+                if (guest?.guest) applyGuestBooking(guest)
+              }
               if (pending?.deposit) {
                 state.deposit = pending.deposit
                 state.proofSent = pending.deposit.status === 'PROOF_RECEIVED'
@@ -2403,7 +2417,16 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               ? 'Comprobante enviado'
               : state.deposit
                 ? 'Pagar seña'
-                : state.confirmed ? 'Turno confirmado' : 'Confirmar turno'
+                : state.confirmed ? 'Turno confirmado' : state.guestClosed ? 'Estado de tu reserva' : 'Completá tu reserva'
+            const guestActions = state.guestBooking
+              ? '<button class="success-link secondary" id="booking-guest-refresh" type="button">Actualizar estado</button>'
+              : '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>'
+            if (state.guestClosed) {
+              els.content.innerHTML = '<section class="booking-success"><h2>Esta reserva ya no est&aacute; activa</h2><p>El horario no est&aacute; confirmado. Pod&eacute;s volver al comercio para elegir un turno nuevo.</p><div class="success-actions"><a class="success-link" href="' + escapeHtml(backPath) + '">Volver al comercio</a>' + guestActions + '</div></section>'
+              updateContinue(false)
+              els.continue.hidden = true
+              return
+            }
             if (state.proofSent) {
               els.content.innerHTML =
                 '<div class="booking-success">' +
@@ -2412,7 +2435,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   '<p>El horario sigue reservado mientras el comercio revisa el pago. Te avisaremos cuando el turno quede confirmado.</p>' +
                   '<div class="success-actions">' +
                     '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver al comercio</a>' +
-                    '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>' +
+                    guestActions +
                   '</div>' +
                 '</div>'
               updateContinue(false)
@@ -2420,7 +2443,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               return
             }
             if (state.confirmed) {
-              const accountName = state.weexAccount?.name || 'tu reserva'
+              const accountName = state.weexAccount?.name || state.guestName || 'tu reserva'
               const calendarMessage = state.calendarSync?.ok
                 ? '<p class="success-calendar ok">Tambien lo agregamos a tu Google Calendar.</p>'
                 : state.calendarSync
@@ -2434,7 +2457,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   calendarMessage +
                   '<div class="success-actions">' +
                     '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
-                    '<a class="success-link" href="' + escapeHtml(accountPath) + '">Ver reservas</a>' +
+                    guestActions +
                   '</div>' +
                 '</div>'
               updateContinue(false)
@@ -2468,6 +2491,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     '</span>' +
                   '</label>' +
                   '<button class="booking-proof-submit" id="booking-proof-submit" type="button" disabled>Enviar comprobante</button>' +
+                  (state.guestBooking ? '<div class="success-actions">' + guestActions + '</div>' : '') +
                 '</div>'
               els.continue.hidden = true
               const input = document.getElementById('booking-proof-input')
@@ -2489,14 +2513,25 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               return
             }
             els.continue.hidden = false
-            els.content.innerHTML =
+            els.content.innerHTML = !state.weexAccount && guestBookingAllowed()
+              ? '<section class="booking-guest-contact" aria-labelledby="booking-guest-title">' +
+                  '<h2 id="booking-guest-title">Tus datos</h2><p>Reserv&aacute; sin crear una cuenta.</p>' +
+                  '<div class="booking-guest-fields">' +
+                    '<label for="booking-guest-name">Nombre<input id="booking-guest-name" name="customerName" autocomplete="name" value="' + escapeHtml(state.guestName) + '" required></label>' +
+                    '<label for="booking-guest-phone">Tel&eacute;fono de contacto<input id="booking-guest-phone" name="customerPhone" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="booking-guest-help" placeholder="11-6655-3322 o +598 99 123 456" value="' + escapeHtml(state.guestPhone) + '" required></label>' +
+                  '</div>' +
+                  '<p class="booking-guest-help" id="booking-guest-help">Si sos menor, us&aacute; el tel&eacute;fono de un adulto responsable. Para otro pa&iacute;s, inclu&iacute; + o 00 y el c&oacute;digo de pa&iacute;s.</p>' +
+                  '<p class="booking-guest-help">Podr&aacute;s consultar esta reserva y enviar su comprobante desde este dispositivo. No acced&eacute;s a turnos anteriores.</p>' +
+                  '<div class="booking-guest-google-row"><span>&iquest;Ya ten&eacute;s cuenta?</span><button id="booking-guest-google" type="button">Continuar con Google</button></div>' +
+                '</section>'
+              :
               '<div class="booking-account-ready">' +
                 '<div class="account-mini-avatar">' + escapeHtml(initials(state.weexAccount?.name || 'Reserva')) + '</div>' +
                 '<div><h2>Reserva para ' + escapeHtml(state.weexAccount?.name || 'vos') + '</h2></div>' +
               '</div>'
             updateContinue(isMultiService()
               ? Boolean(state.itinerary)
-              : Boolean(state.service && state.professionalId && state.slot), 'Confirmar turno')
+              : Boolean(state.service && state.professionalId && state.slot), 'Reservar turno')
           }
 
           function renderSummary() {
@@ -2720,6 +2755,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             updateContinue(false)
             const account = await refreshWeexAccount()
             if (!account) {
+              if (guestBookingAllowed()) {
+                proceedToConfirm()
+                return
+              }
               showBookingGate('login')
               updateContinue(true)
               return
@@ -2737,6 +2776,63 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             state.step = bookingSteps().length
             state.confirmed = false
             render()
+          }
+
+          function guestBookingAllowed() {
+            return state.catalog?.business?.allowGuestWebBooking === true
+          }
+
+          function applyGuestBooking(result) {
+            if (!result?.guest || !result.appointments?.length) return
+            state.guestBooking = true
+            state.guestAppointments = result.appointments
+            state.services = result.appointments.map((appointment) => ({
+              ...((state.catalog.services || []).find((service) => service.id === appointment.service.id) || appointment.service),
+              price: appointment.quotedPrice ?? appointment.service.price,
+              duration: appointment.totalDurationMinutes ?? appointment.service.duration,
+              displayDuration: appointment.totalDurationMinutes != null
+                ? appointment.totalDurationMinutes + ' min'
+                : appointment.service.displayDuration || (appointment.service.duration + ' min')
+            }))
+            state.service = state.services[0]
+            const first = result.appointments[0]
+            const parts = new Intl.DateTimeFormat('en-CA', {
+              timeZone: state.catalog.business?.timezone || 'America/Argentina/Buenos_Aires',
+              year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            }).formatToParts(new Date(first.startAt))
+            const part = (type) => parts.find((value) => value.type === type)?.value || ''
+            state.date = part('year') + '-' + part('month') + '-' + part('day')
+            state.dateLabel = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(state.date + 'T12:00:00'))
+            state.professionalId = first.professional.id
+            state.slot = { time: part('hour') + ':' + part('minute'), professionalId: first.professional.id, professionalName: first.professional.name }
+            state.deposit = result.deposit || null
+            state.proofSent = result.deposit?.status === 'PROOF_RECEIVED'
+            state.confirmed = result.appointments.every((appointment) => ['CONFIRMED', 'COMPLETED'].includes(appointment.status))
+            state.guestClosed = result.appointments.some((appointment) => ['CANCELLED', 'NO_SHOW'].includes(appointment.status)) || ['EXPIRED', 'REJECTED'].includes(result.deposit?.status)
+            const clock = (date) => new Intl.DateTimeFormat('es-AR', {
+              timeZone: state.catalog.business?.timezone || 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+            }).format(date)
+            const segments = result.deposit?.segments?.length
+              ? result.deposit.segments
+              : result.appointments.map((appointment) => ({
+                  serviceId: appointment.service.id, serviceName: appointment.service.name,
+                  professionalId: appointment.professional.id, professionalName: appointment.professional.name,
+                  startTime: clock(new Date(appointment.startAt)),
+                  endTime: clock(new Date(new Date(appointment.startAt).getTime() + (appointment.totalDurationMinutes ?? appointment.service.duration) * 60000))
+                }))
+            state.itinerary = segments.length > 1 ? { startTime: segments[0].startTime, endTime: segments[segments.length - 1].endTime, segments } : null
+            state.step = bookingSteps().length
+          }
+
+          async function refreshGuestBooking() {
+            setFeedback('Actualizando tu reserva...', 'info')
+            try {
+              const result = await getJson(bookingApiUrl('/guest-booking'))
+              applyGuestBooking(result)
+              render()
+            } catch (error) {
+              setFeedback(error.message, 'error')
+            }
           }
 
           function showBookingGate(mode) {
@@ -2859,6 +2955,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const popup = window.open(loginUrl, 'weexGoogleLogin', 'width=460,height=680,menubar=no,toolbar=no,location=yes,status=no')
 
             if (!popup) {
+              if (guestBookingAllowed()) {
+                setLocalFeedback('No pudimos abrir Google. Permití la ventana emergente o cerrá este cuadro para reservar sin cuenta.', 'error')
+                return
+              }
               window.location.assign(loginUrl)
               return
             }
@@ -2951,11 +3051,24 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function confirmBooking() {
+            if (state.submitting || state.confirmed || state.deposit || state.guestClosed) return
+            const contact = !state.weexAccount && guestBookingAllowed()
+              ? { customerName: state.guestName.trim(), customerPhone: phoneForSubmit(state.guestPhone) }
+              : {}
+            if (!state.weexAccount && (!guestBookingAllowed() || !contact.customerName || !contact.customerPhone)) {
+              setFeedback('Completá el nombre y el teléfono de contacto para reservar.', 'error')
+              const field = !contact.customerName ? 'booking-guest-name' : 'booking-guest-phone'
+              document.getElementById(field)?.setAttribute('aria-invalid', 'true')
+              document.getElementById(field)?.focus()
+              return
+            }
+            state.submitting = true
             updateContinue(false, 'Confirmando...')
             setFeedback('Confirmando tu turno...', 'info')
             try {
               const result = isMultiService()
                 ? await postJson(bookingApiUrl('/book-coordinated'), {
+                    ...contact,
                     serviceSelections: selectedServices().map((service) => ({
                       serviceId: service.id,
                       estimateOptionId: serviceDetail(service).estimateOption?.id || null,
@@ -2965,6 +3078,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     itineraryId: state.itinerary?.id
                   })
                 : await postJson(bookingApiUrl('/book'), {
+                    ...contact,
                     serviceId: state.service.id,
                     professionalId: state.slot?.professionalId || state.professionalId,
                     date: state.date,
@@ -2973,6 +3087,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                     validationAccepted: serviceDetail(state.service).validationAccepted
                   })
               state.calendarSync = result.calendarSync || null
+              state.guestBooking = result.guest === true
+              state.guestAppointments = result.appointments || (result.appointment ? [result.appointment] : [])
               state.deposit = result.deposit || null
               state.confirmed = !state.deposit
               setFeedback('', '')
@@ -2980,16 +3096,19 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             } catch (error) {
               setFeedback(error.message, 'error')
               updateContinue(true, 'Confirmar turno')
+            } finally {
+              state.submitting = false
             }
           }
 
           async function uploadDepositProof(file, button) {
-            if (!file || !state.deposit) return
+            if (!file || !state.deposit || state.uploadingProof) return
             if (file.size > 3 * 1024 * 1024) {
               setFeedback('El comprobante debe pesar hasta 3 MB.', 'error')
               return
             }
             button.disabled = true
+            state.uploadingProof = true
             button.textContent = 'Enviando...'
             setFeedback('Enviando comprobante...', 'info')
             try {
@@ -3005,6 +3124,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               setFeedback(error.message, 'error')
               button.disabled = false
               button.textContent = 'Enviar comprobante'
+            } finally {
+              state.uploadingProof = false
             }
           }
 
@@ -3038,6 +3159,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           els.content.addEventListener('click', (event) => {
+            if (event.target.closest('#booking-guest-google')) {
+              showBookingGate('login')
+              return
+            }
+            if (event.target.closest('#booking-guest-refresh')) {
+              void refreshGuestBooking()
+              return
+            }
             const categoryButton = event.target.closest('[data-service-category]')
             if (categoryButton) {
               state.serviceCategory = categoryButton.dataset.serviceCategory || 'all'
@@ -3114,6 +3243,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           })
 
           els.content.addEventListener('input', (event) => {
+            if (event.target.id === 'booking-guest-name' || event.target.id === 'booking-guest-phone') {
+              state[event.target.id === 'booking-guest-name' ? 'guestName' : 'guestPhone'] = event.target.value
+              event.target.removeAttribute('aria-invalid')
+              setFeedback('', '')
+              return
+            }
             const searchInput = event.target.closest('[data-service-search]')
             if (!searchInput) return
             const cursorPosition = searchInput.selectionStart
@@ -5532,6 +5667,7 @@ function htmlPage(input: {
       font-weight: 900;
     }
     .booking-gate {
+      /* Google remains an optional secondary action inside guest checkout. */
       position: fixed;
       inset: 0;
       z-index: 80;
@@ -5542,6 +5678,35 @@ function htmlPage(input: {
       backdrop-filter: blur(2px);
     }
     .booking-gate[hidden] { display: none; }
+    .booking-guest-contact {
+      min-width: 0;
+      padding: 24px;
+      border: 1px solid var(--booking-border);
+      border-radius: 12px;
+      color: var(--booking-ink);
+      background: var(--booking-surface);
+    }
+    .booking-guest-contact h2 { margin: 0 0 8px; font-size: 22px; }
+    .booking-guest-contact > p { margin: 0 0 20px; line-height: 1.5; color: var(--booking-muted); }
+    .booking-guest-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .booking-guest-fields label { display: grid; gap: 8px; min-width: 0; font-size: 14px; font-weight: 700; }
+    .booking-guest-fields input {
+      width: 100%; min-width: 0; min-height: 48px; padding: 12px;
+      border: 1px solid var(--booking-border); border-radius: 8px;
+      color: var(--booking-ink); background: var(--booking-surface); font: inherit;
+    }
+    .booking-guest-fields input:focus-visible { outline: 3px solid var(--booking-accent-soft); border-color: var(--booking-accent); }
+    .booking-guest-fields input[aria-invalid="true"] { border-color: #B42318; outline-color: #FECACA; }
+    .booking-guest-contact > .booking-guest-help { margin: 14px 0 0; font-size: 13px; line-height: 1.5; }
+    .booking-guest-google-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--booking-border); color: var(--booking-muted); font-size: 14px; }
+    .booking-guest-google-row button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--booking-border); border-radius: 8px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-weight: 700; cursor: pointer; }
+    .booking-guest-google-row button:focus-visible { outline: 3px solid var(--booking-accent-soft); }
+    @media (max-width: 560px) {
+      .booking-guest-contact { padding: 18px; }
+      .booking-guest-fields { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+      .booking-guest-fields input { font-size: 16px; }
+      .booking-guest-google-row { align-items: stretch; flex-direction: column; }
+    }
     .booking-gate-card {
       width: min(496px, 100%);
       position: relative;

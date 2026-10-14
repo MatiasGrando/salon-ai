@@ -9134,6 +9134,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       cursor: wait;
       opacity: .72;
     }
+    #landing-settings-form .landing-web-booking-settings {
+      min-width: 0; padding: 18px; margin-bottom: 18px;
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    }
+    #landing-settings-form .landing-web-booking-settings h4 { margin: 0 0 12px; }
+    #landing-settings-form .landing-web-booking-settings p { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    #landing-settings-form #landing-allow-guest-web-booking {
+      width: 1em !important; height: 1em; flex: 0 0 1em; margin: 0; font: inherit;
+    }
 
     .settings-feedback {
       display: none;
@@ -18406,6 +18415,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <h3>Landing p&uacute;blica</h3>
           <p>Configur&aacute; la p&aacute;gina de reservas que van a ver tus clientes.</p>
           <form class="settings-form" id="landing-settings-form">
+            <section class="landing-web-booking-settings" id="landing-web-booking-settings" aria-labelledby="landing-web-booking-title">
+              <h4 id="landing-web-booking-title">Reservas web</h4>
+              <label class="settings-toggle-row" for="landing-allow-guest-web-booking">
+                <input id="landing-allow-guest-web-booking" type="checkbox">
+                <span>Permitir reservas sin cuenta</span>
+              </label>
+              <p>El cliente completa nombre y tel&eacute;fono en la reserva. Google sigue disponible. El invitado s&oacute;lo puede consultar su reserva actual y enviar su comprobante; no accede al historial.</p>
+            </section>
             <details class="landing-settings-collapsible" open>
               <summary class="landing-settings-collapsible-summary">
                 <div>
@@ -20995,6 +21012,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       settingsAdminTab: document.getElementById('settings-admin-tab'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
+      landingAllowGuestWebBooking: document.getElementById('landing-allow-guest-web-booking'),
       landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
       landingTemplateSelectedName: document.getElementById('landing-template-selected-name'),
       landingTemplateSelectedDescription: document.getElementById('landing-template-selected-description'),
@@ -29064,6 +29082,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.bookingThemeDirty = false
       const slug = state.business?.slug || ''
       els.landingEnabled.checked = state.business?.landingEnabled !== false
+      els.landingAllowGuestWebBooking.checked = state.business?.allowGuestWebBooking === true
+      els.landingAllowGuestWebBooking.disabled = state.currentUser?.role === 'STAFF'
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
@@ -30117,6 +30137,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveLandingSettings(event) {
       event.preventDefault()
       clearLandingSettingsFeedback()
+      if (state.currentUser?.role === 'STAFF') {
+        showLandingSettingsFeedback('Tu perfil no tiene permiso para modificar las reservas web.', 'error')
+        return
+      }
       if (!state.businessId) return
 
       const slug = normalizeLandingSlug(els.landingSlug.value)
@@ -30151,6 +30175,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
+            allowGuestWebBooking: els.landingAllowGuestWebBooking.checked,
             landingTemplate: selectedTemplate,
             bookingTheme: selectedBookingTheme,
             slug,
