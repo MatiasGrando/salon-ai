@@ -1,5 +1,6 @@
 {
   "status": "published_verified",
+  "publicationWorkUnitCommit": "1a29544d0ca6db289a1339e95785c21a25667027",
   "scope": "Guest name-and-phone web booking over published LITE; pending bot changes excluded",
   "sourceCommit": "a79656d106665f31762bee47b00c053cc1ed9acd",
   "backendCommit": "c5d6be1463278b2b85e523f02ec888075a3688c8",
