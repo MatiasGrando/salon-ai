@@ -1,0 +1,79 @@
+{
+  "status": "ready_for_authorized_deployment",
+  "scope": "Guest name-and-phone web booking over published LITE; pending bot changes excluded",
+  "sourceCommit": "a79656d106665f31762bee47b00c053cc1ed9acd",
+  "backendCommit": "c5d6be1463278b2b85e523f02ec888075a3688c8",
+  "gitBase": "b15b7ba68024afb70fb5a74fef5d42c41756fa95",
+  "baselineDeployment": "542334d9-190e-487b-9850-01d7e5fc59c9",
+  "destination": {
+    "project": "tender-fulfillment",
+    "projectId": "e4ee3ccb-7b95-41dd-bd72-e3fbfda08c82",
+    "environment": "production",
+    "environmentId": "6e029482-68ec-48dc-8823-73645ee3b8fc",
+    "service": "salon-ai",
+    "serviceId": "f146cc0c-9c64-40f9-a187-9ecb0b74fafa"
+  },
+  "authorization": {
+    "deployAndOnlyGuestMigration": "explicit human grant using existing Railway session and DATABASE_URL of .env",
+    "currentConfigurationAsBaseline": "explicit human acceptance after historical digest discrepancy; preserve actual variables exactly",
+    "review": "human declined only guest block; native inventory preflight unavailable, no terminal receipt or external sharing",
+    "botChanges": false,
+    "variableChanges": false,
+    "businessDataTestWrites": false,
+    "barberTunnelCallbackChanges": false,
+    "gitPushMerge": false
+  },
+  "artifact": {
+    "upload": ".codex-deploy/weex-guest-booking-20261014-77a6619/upload",
+    "files": 820,
+    "changedPaths": 11,
+    "otherFilesByteIdentical": 809,
+    "botFilesByteIdentical": 75,
+    "manifestSha256": "144b1c87091ab6e7cfdd0df19b80127dc8c5149b490a5f1be9da20177a6ee446",
+    "preparationProofSha256": "06fc501554083c9f3c906f41fa778f151b253d9ddb2b0bba44653d08f2d82e7b",
+    "closureProofSha256": "ed812592d854e73cd63c5520dce6f4344ee19c6a307f1dcdc3d2f08d248d612c",
+    "packageAndLocksUnchanged": true,
+    "historicalMigrationsUnchanged": true,
+    "privateProofsOutsideUpload": true
+  },
+  "newMigration": {
+    "name": "20261014020000_add_guest_web_booking",
+    "sha256": "44ef0acc4d94300783fc0963b57b0e3aceb30803fcb90baf4c5d761c85eaa641",
+    "applied": false,
+    "startup": "Existing prisma migrate deploy; preflight proves this is the only pending migration in the exact upload"
+  },
+  "verification": {
+    "artifactFunctionalSuites": "12/12 PASS",
+    "parentCandidateRepeat": "backend15, UI14, phones271, favorites18, staff17, encoding PASS",
+    "browser": "59/59 offline, exit0, stable candidate hashes, desktop/mobile/narrow overflow0",
+    "prisma": "validate/generate PASS with dummy database in verification clone only",
+    "relativeImports": "395 modules, 1436 edges, zero missing; generated Prisma exception and existing lazy loader audited",
+    "siteBuilds": "2/2 actual Vite builds PASS, native config loader, no network or installation",
+    "buildLimits": "Initial default-loader EPERM retained; Lubricentro used seven installed compatible versions differing from lock, not a pinned npmci proof. Railway's actual locked builds must finish successfully before closure.",
+    "priorAttempts": "Deposit-security fixture absent corrected outside upload without assertion changes; parent staff runner typo corrected to the existing suite, no source edits",
+    "typecheck": "Global/scoped full-graph typecheck not approved; existing errors/temporary-tree interruption remain recorded, no fabricated baseline compile",
+    "liveReservationPaymentGoogleWhatsAppTests": false
+  },
+  "preflight": {
+    "activeDeployment": "542334d9-190e-487b-9850-01d7e5fc59c9",
+    "status": "SUCCESS",
+    "runningInstances": 1,
+    "configurationKeys": 66,
+    "acceptedConfigurationDigest": "3a750864dc28e193286589b157214169169c8ed148fec7f3fe218505b08e7ded",
+    "historicalDigestNotReconciled": "680ed9db0c8ecfe3280c1f04cbad28d7b8234e595e9c02b9863527ae17ebc488",
+    "configurationSerialization": "sha256(JSON.stringify(Object.keys(vars).sort().map(key => [key, vars[key]])))",
+    "barberExcluded": true,
+    "eightProtectedFlagsTrue": true,
+    "databaseMatchesAuthorizedCredential": true,
+    "ledgerRows": 213,
+    "completeMigrations": 208,
+    "rolledBackHistoricalRows": 5,
+    "failedMigrations": 0,
+    "onlyPending": "20261014020000_add_guest_web_booking",
+    "newColumnAndTableAbsent": true,
+    "ledgerDigest": "25881e2afafd371813173e9688d66b2f69a2b88c14af85135b92d304eba65b1d",
+    "historicalChecksumExceptions": "Same46 previously documented:42 CRLF,3 specific workspace raw equivalence,1 unchanged historical exception; no repairs or new drift",
+    "mutationExecuted": false
+  },
+  "activation": "Default OFF for existing businesses; administrator enables CRM Settings / Public landing / Web bookings / Allow bookings without an account"
+}
