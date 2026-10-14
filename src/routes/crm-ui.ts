@@ -7213,6 +7213,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       margin-top: 2px;
     }
 
+    #service-form #service-agenda-favorite {
+      /* The mobile field rule uses !important; only this checkbox stays compact. */
+      width: 1em !important;
+      height: 1em;
+      flex: 0 0 1em;
+      margin: 0;
+      font: inherit;
+    }
+
     .service-estimate-editor,
     .service-final-clarification-editor,
     .service-validation-editor,
@@ -17605,6 +17614,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 </select>
               </div>
               <div class="service-form-group">
+                <label class="service-photo-option" for="service-agenda-favorite">
+                  <input id="service-agenda-favorite" type="checkbox">
+                  <span>&#11088; Favorito para Agenda</span>
+                </label>
+                <div class="service-form-help">Aparece primero al cargar turnos para todo el negocio. No cambia el orden de realizaci&oacute;n de los servicios.</div>
+              </div>
+              <div class="service-form-group">
                 <label for="service-booking-order-priority">Orden cuando reservan varios servicios</label>
                 <input class="field" id="service-booking-order-priority" type="number" min="0" step="1" value="20">
                 <div class="service-form-help">Us&aacute; un n&uacute;mero menor para realizarlo antes y uno mayor para realizarlo despu&eacute;s. El valor normal es 20.</div>
@@ -20547,6 +20563,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       servicePriceMode: document.getElementById('service-price-mode'),
       servicePriceModeHelp: document.getElementById('service-price-mode-help'),
       serviceBookingOrderPriority: document.getElementById('service-booking-order-priority'),
+      serviceAgendaFavorite: document.getElementById('service-agenda-favorite'),
       serviceCategory: document.getElementById('service-category'),
       serviceItemType: document.getElementById('service-item-type'),
       serviceItemTypeHelp: document.getElementById('service-item-type-help'),
@@ -26561,6 +26578,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
       els.serviceRequiresPhoto.disabled = isGroup
+      els.serviceAgendaFavorite.disabled = isGroup
+      if (isGroup) els.serviceAgendaFavorite.checked = false
       els.serviceValidationEnabled.disabled = isGroup
       els.serviceDepositEnabled.disabled = isGroup
       for (const setting of els.serviceForm.querySelectorAll('.service-combination-setting')) {
@@ -26786,6 +26805,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 '<div class="service-card-title">' + escapeHtml(serviceLabel) + '</div>' +
                 (service.description ? '<div class="service-card-description">' + escapeHtml(service.description) + '</div>' : '') +
                 '<div class="service-card-meta">' +
+                  (itemType !== 'GROUP' && service.agendaFavorite === true ? '<span>&#11088; Favorito para Agenda</span>' : '') +
                   (service.isActive === false ? '<span class="service-inactive-status">Inactivo · no se ofrece para reservar</span>' : '') + serviceMeta +
                 '</div>' +
               '</div>' +
@@ -30750,16 +30770,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         statusLegend
     }
 
+    function orderAgendaServices(services) {
+      return services.filter((service) => service.isActive !== false).sort((left, right) =>
+        Number(right.agendaFavorite === true) - Number(left.agendaFavorite === true)
+      )
+    }
+
     function appointmentServicesForProfessional(professionalId) {
       const professional = state.professionals.find((item) => item.id === professionalId)
-      return filterAssignedServices(professional, bookableServices())
+      return orderAgendaServices(filterAssignedServices(professional, bookableServices()))
     }
 
     function renderAppointmentServiceOptions(preferredServiceId = '') {
       const services = appointmentServicesForProfessional(els.appointmentProfessional.value)
+      const appointment = editingAgendaAppointment()
+      if (appointment?.serviceId === preferredServiceId && appointment.professionalId === els.appointmentProfessional.value) {
+        const professional = state.professionals.find((item) => item.id === appointment.professionalId)
+        const historicalService = filterAssignedServices(professional, bookableServices()).find((service) =>
+          service.id === preferredServiceId && service.isActive === false
+        )
+        if (historicalService) services.push(historicalService)
+      }
       els.appointmentService.innerHTML = services.length
         ? services.map((service) => {
-            return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min</option>'
+            return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min' +
+              (service.isActive === false ? ' · Inactivo · turno existente' : '') + '</option>'
           }).join('')
         : '<option value="">Sin servicios asignados</option>'
       els.appointmentService.disabled = services.length === 0
@@ -33048,7 +33083,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const appointment = editingAgendaAppointment()
       if (!appointment) return
       const usedServiceIds = new Set(appointmentVisitSegments(appointment).flatMap(appointmentServiceIds))
-      const services = bookableServices().filter((service) => !usedServiceIds.has(service.id))
+      const services = orderAgendaServices(bookableServices().filter((service) =>
+        !usedServiceIds.has(service.id) && activeProfessionals().some((professional) =>
+          appointmentServicesForProfessional(professional.id).some((assigned) => assigned.id === service.id)
+        )
+      ))
       els.appointmentAddServiceService.innerHTML = services.length
         ? services.map((service) => '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>').join('')
         : '<option value="">No quedan servicios para agregar</option>'
@@ -36798,6 +36837,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const price = isGroup ? null : priceValue ? Number(priceValue) : null
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
       const bookingOrderPriority = isGroup ? 20 : Number(els.serviceBookingOrderPriority.value)
+      const agendaFavorite = !isGroup && els.serviceAgendaFavorite.checked
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
       const variantSelectionMode = 'ONE_OF'
@@ -36966,6 +37006,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             price,
             priceMode,
             bookingOrderPriority,
+            agendaFavorite,
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
@@ -37059,6 +37100,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceBookingOrderPriority.value = service.bookingOrderPriority ?? 20
+      els.serviceAgendaFavorite.checked = service.agendaFavorite === true
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
@@ -37206,6 +37248,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePrice.value = ''
       els.servicePriceMode.value = 'FIXED'
       els.serviceBookingOrderPriority.value = '20'
+      els.serviceAgendaFavorite.checked = false
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''

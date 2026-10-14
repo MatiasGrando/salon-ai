@@ -223,6 +223,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       variantSelectionMode?: string
       sortOrder?: number
       bookingOrderPriority?: number | string
+      agendaFavorite?: boolean
       attentionMode?: string
       requiresPhoto?: boolean
       estimateExplanation?: string | null
@@ -250,6 +251,9 @@ export async function serviceRoutes(app: FastifyInstance) {
       body.customerDurationMax
     )
     const businessId = body.businessId?.trim()
+    if (body.agendaFavorite !== undefined && typeof body.agendaFavorite !== 'boolean') {
+      return reply.status(400).send({ message: 'El favorito de Agenda debe ser verdadero o falso' })
+    }
     const category = body.category?.trim()
     let imageUrl = normalizeServiceImageUrl(body.imageUrl)
     const price = body.price === null || body.price === undefined || body.price === ''
@@ -454,6 +458,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       variantSelectionMode: isBookable ? 'ONE_OF' : variantSelectionMode ?? 'ONE_OF',
       sortOrder: normalizeSortOrder(body.sortOrder),
       bookingOrderPriority,
+      agendaFavorite: isBookable && body.agendaFavorite === true,
       attentionMode: isBookable ? attentionMode ?? 'DIRECT_BOOKING' : 'DIRECT_BOOKING',
       requiresPhoto: isBookable ? requiresPhoto : false,
       estimateExplanation: isBookable ? normalizeOptionalText(body.estimateExplanation) : null,
@@ -553,6 +558,7 @@ export async function serviceRoutes(app: FastifyInstance) {
       variantSelectionMode?: string
       sortOrder?: number
       bookingOrderPriority?: number | string
+      agendaFavorite?: boolean
       attentionMode?: string
       requiresPhoto?: boolean
       estimateExplanation?: string | null
@@ -573,6 +579,9 @@ export async function serviceRoutes(app: FastifyInstance) {
     }
     const name = body.name?.trim()
     const duration = Number(body.duration)
+    if (body.agendaFavorite !== undefined && typeof body.agendaFavorite !== 'boolean') {
+      return reply.status(400).send({ message: 'El favorito de Agenda debe ser verdadero o falso' })
+    }
     const price = body.price === null || body.price === undefined || body.price === ''
       ? null
       : Number(body.price)
@@ -618,6 +627,7 @@ export async function serviceRoutes(app: FastifyInstance) {
         isBookable: true,
         variantSelectionMode: true,
         bookingOrderPriority: true,
+        agendaFavorite: true,
         priceMode: true,
         attentionMode: true,
         requiresPhoto: true,
@@ -884,6 +894,7 @@ export async function serviceRoutes(app: FastifyInstance) {
           depositHoldMinutes: isBookable ? depositHoldMinutes : 60,
           ...(body.sortOrder === undefined ? {} : { sortOrder: normalizeSortOrder(body.sortOrder) }),
           bookingOrderPriority,
+          agendaFavorite: isBookable && (body.agendaFavorite ?? existing.agendaFavorite),
           price,
           imageUrl: imageUrl ?? null
         } as any,
