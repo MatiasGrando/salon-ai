@@ -914,6 +914,7 @@ model Business {
   slug                   String?                       @unique
   logoUrl                String?
   landingEnabled         Boolean                       @default(true)
+  allowGuestWebBooking   Boolean                       @default(false)
   landingTemplate        String                        @default("classic")
   landingSubtitle        String?
   landingFeature         String?
@@ -982,6 +983,7 @@ model Business {
   users                       User[]
   weexCustomerLinks           WeexCustomerLink[]
   bookingDeposits             BookingDeposit[]
+  guestBookingAccesses         GuestBookingAccess[]
   bookingDepositProofs        BookingDepositProof[]
   bookingVisits               BookingVisit[]
   botOptionsSettings          BusinessBotOptionsSettings?
@@ -2727,6 +2729,21 @@ model AiUsageEvent {
   @@index([conversationId, createdAt])
   @@index([appointmentId, createdAt])
   @@index([source, createdAt])
+}
+
+/// Short-lived browser capability for exactly one newly created web reservation.
+/// No account or phone identity verification, no authority over previous bookings.
+model GuestBookingAccess {
+  id             String   @id @default(cuid())
+  tokenHash      String   @unique
+  businessId     String
+  business       Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointmentIds String[]
+  depositId      String?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([businessId, expiresAt])
 }
 
 model BookingDeposit {

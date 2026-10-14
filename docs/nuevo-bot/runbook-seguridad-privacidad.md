@@ -72,8 +72,12 @@ Fuentes: `src/bot-options/application/process-deposit-proof-job.ts`,
 - Imágenes enviadas como documento conservan los mismos controles de imagen.
   Office, ZIP, ejecutables, HEIC y otros formatos no admitidos se rechazan con
   explicación, sin alterar el borrador ni convertir un archivo espontáneo en seña.
-- **PDF rechazado en el parser WEB legacy**: la ampliación sólo corresponde al
-  circuito F8. No certifica ni elimina archivos históricos almacenados.
+- **PDF WEB sólo con el validador pasivo existente**: las reservas web con Google
+  o acceso invitado admiten PDF clásico validado, JPG, PNG y WebP de hasta 3 MB.
+  No se admiten documentos con contraseña, contenido activo, Office, ZIP o MIME
+  incompatible. La recepción queda en revisión manual y no confirma un pago ni
+  extiende el plazo de la seña. Esta ampliación no certifica ni elimina archivos
+  históricos almacenados y no cambia el circuito financiero F8.
 - Sólo un pedido vigente que ya solicitó comprobante puede usar esta entrada como
   seña. La IA interpreta tipo/caption/contexto, no recibe los bytes del archivo ni
   aprueba pagos. El equipo revisa el comprobante; recepción no significa aprobación.

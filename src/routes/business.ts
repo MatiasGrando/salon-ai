@@ -312,6 +312,7 @@ export async function businessRoutes(app: FastifyInstance) {
       slug?: string | null
       logoUrl?: string | null
       landingEnabled?: boolean
+      allowGuestWebBooking?: boolean
       landingTemplate?: string
       landingSubtitle?: string | null
       landingFeature?: string | null
@@ -351,6 +352,9 @@ export async function businessRoutes(app: FastifyInstance) {
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
     const landingTemplateContent = normalizeLandingTemplateContent(body.landingTemplateContent)
+    if (body.allowGuestWebBooking !== undefined && typeof body.allowGuestWebBooking !== 'boolean') {
+      return reply.status(400).send({ message: 'La reserva sin cuenta debe estar activada o desactivada' })
+    }
     const bookingTheme = normalizeBookingTheme(body.bookingTheme)
     let landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
@@ -458,6 +462,7 @@ export async function businessRoutes(app: FastifyInstance) {
       slug === undefined &&
       logoUrl === undefined &&
       body.landingEnabled === undefined &&
+      body.allowGuestWebBooking === undefined &&
       landingTemplate === undefined &&
       landingSubtitle === undefined &&
       landingFeature === undefined &&
@@ -532,6 +537,7 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(slug !== undefined ? { slug } : {}),
         ...(logoUrl !== undefined ? { logoUrl } : {}),
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
+        ...(body.allowGuestWebBooking !== undefined ? { allowGuestWebBooking: body.allowGuestWebBooking } : {}),
         ...(landingTemplate !== undefined ? { landingTemplate } : {}),
         ...(landingSubtitle !== undefined ? { landingSubtitle } : {}),
         ...(landingFeature !== undefined ? { landingFeature } : {}),

@@ -60,6 +60,7 @@ type CreateAppointmentInput = {
 type AppointmentAuthorizationUser = BusinessAuthorizationUser & StaffAuthorizationUser & { name?: string }
 
 type CreateAppointmentOptions = {
+  skipDefaultMarketingPreference?: boolean
   afterCreateInTransaction?: (input: {
     transaction: Prisma.TransactionClient
     appointment: Awaited<ReturnType<typeof prisma.appointment.create>>
@@ -447,7 +448,7 @@ export class AppointmentService {
         return 'AVAILABILITY_CONFLICT' as const
       }
 
-      if (!existingPhoneCustomer) {
+      if (!existingPhoneCustomer && !options.skipDefaultMarketingPreference) {
         await ensureDefaultMarketingPreference({
           businessId: professional.businessId,
           customerId: input.customerId
@@ -539,7 +540,7 @@ export class AppointmentService {
     businessId: string
     customerPhone: string
     deposit?: PublicBookingDepositInput | null
-  }): Promise<PublicBookingMutationResult> {
+  }, options: CreateAppointmentOptions = {}): Promise<PublicBookingMutationResult> {
     const startAt = new Date(input.startAt)
     if (Number.isNaN(startAt.getTime())) {
       return { ok: false, statusCode: 400, message: 'La fecha de inicio no parece valida' }
@@ -567,7 +568,7 @@ export class AppointmentService {
         return 'AVAILABILITY_CONFLICT' as const
       }
 
-      return createAppointmentRecord(transaction, {
+      const createdAppointment = await createAppointmentRecord(transaction, {
         data: {
           businessId: input.businessId,
           customerId: input.customerId,
@@ -606,6 +607,8 @@ export class AppointmentService {
           serviceItems: { include: { service: true }, orderBy: { sortOrder: 'asc' } }
         }
       })
+      await options.afterCreateInTransaction?.({ transaction, appointment: createdAppointment, businessId: input.businessId })
+      return createdAppointment
     })
 
     if (appointment === 'PROFESSIONAL_INACTIVE') {
@@ -1432,7 +1435,9 @@ export class AppointmentService {
     }
   }
 
-  async confirmPendingAppointments(appointmentIds: string[]) {
+  async confirmPendingAppointments(appointmentIds: string[], options: {
+    afterConfirmInTransaction?: (transaction: Prisma.TransactionClient) => Promise<void>
+  } = {}) {
     const ids = Array.from(new Set(appointmentIds.filter(Boolean)))
     if (!ids.length) return false
     const appointments = await prisma.appointment.findMany({
@@ -1477,7 +1482,9 @@ export class AppointmentService {
         where: { id: { in: ids }, professional: { businessId }, status: 'PENDING' },
         data: { status: 'CONFIRMED' }
       })
-      return confirmed.count === ids.length
+      if (confirmed.count !== ids.length) throw new Error('COORDINATED_CONFIRMATION_CONFLICT')
+      await options.afterConfirmInTransaction?.(tx)
+      return true
     })
     if (!confirmed) return false
     return true

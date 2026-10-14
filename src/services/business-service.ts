@@ -133,6 +133,7 @@ export class BusinessService {
     slug?: string | null
     logoUrl?: string | null
     landingEnabled?: boolean
+    allowGuestWebBooking?: boolean
     landingTemplate?: string
     landingSubtitle?: string | null
     landingFeature?: string | null

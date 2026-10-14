@@ -154,6 +154,11 @@ try {
     ['15-5555-6666', '5491155556666'], ['11-5555-6666', '5491155556666'],
     ['911-5555-6666', '5491155556666'], ['+54911-5555-6666', '5491155556666']
   ]
+  // User's exact guest-registration examples reuse this same shared normalizer.
+  for (const raw of ['1566553322', '15-6655-3322', '1166553322', '91566553322', '91166553322',
+    '+541566553322', '+5491566553322', '+5491166553322', '+54911-6655-3322']) {
+    phones.push([raw, '5491166553322'])
+  }
   for (const [area, subscriber] of [['11', '55556666'], ['351', '5556666'], ['2920', '555666']]) {
     const national = area + subscriber
     for (const raw of [subscriber, '15-' + subscriber, area + '-' + subscriber, '9' + national,
@@ -322,12 +327,17 @@ try {
     customer.normalizedPhone = customer.phone
   })
   await test('history searches foreign exact digits without Argentine variants', async () => {
-    const response = await app.inject('/public/booking/phone-test/history?phone=' + encodeURIComponent('+4930123456'))
+    const response = await app.inject({ url: '/public/booking/phone-test/history?phone=' + encodeURIComponent('+4930123456'), headers: cookie })
     assert.equal(response.statusCode, 200)
     assert.equal(historyQuery.professional.businessId, business.id)
     assert.ok(matchesCustomerWhere(historyQuery.customer))
     const variants = historyQuery.customer.phone?.in ?? historyQuery.customer.OR[1].phone.in
     assert.ok(!variants.includes('5494930123456'))
+  })
+  await test('an unverified phone never authorizes guest history', async () => {
+    const before = historyQuery
+    assert.equal((await app.inject('/public/booking/phone-test/history?phone=' + encodeURIComponent('+4930123456'))).statusCode, 401)
+    assert.equal(historyQuery, before, 'reject before history lookup')
   })
   for (const pending of [false, true]) {
     await test(`${pending ? 'pending deposit' : 'history'} excludes an Argentine legacy national lookalike`, async () => {
