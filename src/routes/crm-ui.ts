@@ -20058,6 +20058,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaMobilePaging: false,
       agendaMobileScrollMinute: null,
       agendaProfessionalResizeObserver: null,
+      agendaProfessionalCatalogScope: null,
+      agendaProfessionalCatalogGeneration: 0,
+      agendaProfessionalPreferenceScope: null,
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
@@ -23803,6 +23806,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function loadBusinessScopedBasics() {
       if (isWorkshopBusiness()) return
+      const professionalCatalogScope = agendaProfessionalPreferenceKey()
+      const professionalCatalogGeneration = (state.agendaProfessionalCatalogGeneration || 0) + 1
+      state.agendaProfessionalCatalogGeneration = professionalCatalogGeneration
+      state.agendaProfessionalCatalogScope = null
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
       const lightweightCatalogQuery = businessQuery
         ? businessQuery + '&includeImages=false'
@@ -23838,7 +23845,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
           : null
       }
-      state.professionals = await getJson('/professionals' + lightweightCatalogQuery)
+      const professionals = await getJson('/professionals' + lightweightCatalogQuery)
+      if (professionalCatalogScope !== agendaProfessionalPreferenceKey() || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
+      state.professionals = professionals
+      state.agendaProfessionalCatalogScope = professionalCatalogScope
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + lightweightCatalogQuery)
@@ -30739,6 +30749,56 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .join('')
     }
 
+    function agendaProfessionalPreferenceKey() {
+      const user = state.currentUser
+      if (!user?.id || !user.role || !state.businessId || state.business?.id !== state.businessId) return null
+      return 'salon-ai-agenda-professional-v1:' + JSON.stringify([user.id, user.role, user.staffProfile || '', state.businessId])
+    }
+
+    function validAgendaProfessionalFilter(value) {
+      if (typeof value !== 'string' || !value) return ''
+      const professional = activeProfessionals().find((item) => item.id === value)
+      if (!professional || professional.businessId && professional.businessId !== state.businessId) return ''
+      if (state.currentUser?.role === 'STAFF' && state.currentUser.agendaScope !== 'ALL' && state.currentUser.professionalId !== value) return ''
+      return value
+    }
+
+    function restoreAgendaProfessionalFilter() {
+      const key = agendaProfessionalPreferenceKey()
+      if (!key || state.agendaProfessionalCatalogScope !== key) {
+        els.agendaProfessional.value = ''
+        state.agendaProfessionalPreferenceScope = null
+        return
+      }
+      let selected = els.agendaProfessional.value || ''
+      if (state.agendaProfessionalPreferenceScope !== key) {
+        selected = ''
+        try {
+          selected = JSON.parse(localStorage.getItem(key) || 'null')
+        } catch {
+          // Private browsing or malformed local data must not block the Agenda.
+        }
+        state.agendaProfessionalPreferenceScope = key
+      }
+      els.agendaProfessional.value = validAgendaProfessionalFilter(selected)
+    }
+
+    function rememberAgendaProfessionalFilter() {
+      const key = agendaProfessionalPreferenceKey()
+      if (!key || state.agendaProfessionalCatalogScope !== key) {
+        els.agendaProfessional.value = ''
+        return
+      }
+      const selected = validAgendaProfessionalFilter(els.agendaProfessional.value)
+      els.agendaProfessional.value = selected
+      state.agendaProfessionalPreferenceScope = key
+      try {
+        localStorage.setItem(key, JSON.stringify(selected))
+      } catch {
+        // Keep the current selection even when this device cannot persist it.
+      }
+    }
+
     function renderAgendaFilters() {
       const selectedProfessional = els.agendaProfessional.value || ''
       const selectedService = els.agendaService.value || ''
@@ -30748,6 +30808,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }))
         .join('')
       els.agendaProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
+      restoreAgendaProfessionalFilter()
 
       const services = bookableServices()
       els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
@@ -30778,6 +30839,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const button of els.agendaProfessionalTabs.querySelectorAll('[data-agenda-pro-tab]')) {
         button.addEventListener('click', async () => {
           els.agendaProfessional.value = button.dataset.agendaProTab || ''
+          rememberAgendaProfessionalFilter()
           renderAgendaProfessionalControls()
           await loadAgenda()
         })
@@ -32041,6 +32103,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       els.agendaGridWrap.querySelector('[data-agenda-mobile-professional]')?.addEventListener('change', async (event) => {
         els.agendaProfessional.value = event.target.value || ''
+        rememberAgendaProfessionalFilter()
         renderAgendaProfessionalControls()
         await loadAgenda()
       })
@@ -32167,6 +32230,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             button.addEventListener('click', async () => {
               if (state.agendaDidDrag) return
               els.agendaProfessional.value = button.dataset.agendaProfessionalColumn || ''
+              rememberAgendaProfessionalFilter()
               renderAgendaProfessionalControls()
               await loadAgenda()
             })
@@ -38621,6 +38685,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
     }
     els.agendaProfessional.addEventListener('change', async () => {
+      rememberAgendaProfessionalFilter()
       renderAgendaProfessionalControls()
       await loadAgenda()
     })
