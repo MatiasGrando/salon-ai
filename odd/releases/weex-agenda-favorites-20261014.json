@@ -1,5 +1,6 @@
 {
-  "status": "prepared_not_deployed",
+  "status": "preflight_verified_not_deployed",
+  "selectedCandidate": "lite",
   "sourceCommit": "5d67fdf5712368c329177cc4c2c03b6dcbad03e3",
   "consolidatedBase": "e4584bb2e6aa930a13985bdb5ee2313613af9f18",
   "activeDeployment": "4bf0aeb5-b0bd-4c04-82b6-7cd9dfc83ec8",
@@ -12,6 +13,17 @@
     "manifestSha256": "83bbe1937a5bacfb522618b5733a71321d8d671fdeb9599d9e4a86949fa5aba8"
   },
   "artifactRoot": ".codex-deploy/weex-agenda-favorites-20261014-7fc304",
+  "authorization": {
+    "humanScopeDecision": "publish LITE, preserving the active bot",
+    "newMigrationOnly": "20261014010000_add_service_agenda_favorite",
+    "destination": "Railway tender-fulfillment / salon-ai / production",
+    "credentialScope": "existing Railway session and configured production database credential; no secret values recorded",
+    "reviewDecision": "omit only this block's review",
+    "rddGlobalModeChanged": false,
+    "nativeTerminalReceiptIssued": false,
+    "fullDeploymentAuthorized": false,
+    "ipadImplementationAuthorized": false
+  },
   "lite": {
     "files": 818,
     "changedPaths": 11,
@@ -34,14 +46,18 @@
     "path": "prisma/migrations/20261014010000_add_service_agenda_favorite/migration.sql",
     "sha256": "9a120d4cb245adb01bd29c7fd633dc187fcea4763b8f2815fdea5a14ac64f0ea",
     "realDatabaseApplied": false,
-    "realApplicationAuthorization": "awaiting explicit human answer"
+    "realApplicationAuthorization": "explicitly granted for this migration only through the authorized Weex deployment"
   },
   "verified": {
     "favoritesBehavior": "18/18",
     "favoritesBrowser": "22/22 offline desktop/mobile",
     "registrationPhones": "243/243",
+    "staffExistingCustomer": "17/17",
+    "parentPreflightRepeat": "favorites 18/18, staff 17/17, phones 243/243 and text encoding PASS; browser evidence remains 22/22",
+    "prismaSchema": "PASS on exact LITE config/schema with dummy environment; no operative database",
+    "crmInlineSyntax": "2/2",
     "parentArtifactChecks": "all 821 FULL and 818 LITE SHA256, sizes, Git blob hashes and complete inventories; FULL matches fixed Git commit",
-    "nativeReview": "unavailable: high/unassessable and preflight invalid_request from deterministic inventory limit; no receipt, decline or risk downgrade",
+    "nativeReview": "unavailable: high/unassessable and preflight invalid_request/not_started/not_evaluated from 90024-entry inventory exceeding 8 MiB; human omitted only this block, no native terminal receipt, code sharing, settings change or risk downgrade",
     "relativeImports": {
       "lite": { "modules": 394, "resolvedEdges": 1433, "missing": 0, "unknownDynamic": 0, "proofSha256": "a5fe07caa69c09f7e7e923bfd322341f8f86efd82242cffd9234b43074efa1c9" },
       "full": { "modules": 397, "resolvedEdges": 1453, "missing": 0, "unknownDynamic": 0, "proofSha256": "3a97f9b23111b27decce4c6003c0b470b372f9195ed8c222f4d152d2b0556e6c" },
@@ -49,10 +65,56 @@
       "scope": "static relative closure, not global typecheck or runtime verification"
     }
   },
+  "preflight": {
+    "source": "parent observed read-only operational checks; preparer has no remote access",
+    "activeDeployment": "4bf0aeb5-b0bd-4c04-82b6-7cd9dfc83ec8",
+    "activeDeploymentStatus": "SUCCESS",
+    "baselinePublicHealth": {
+      "weexStatus": 200,
+      "weexDatabase": "ok",
+      "crmStatus": 200,
+      "crmHtml": true,
+      "candidateHealthVerified": false
+    },
+    "databaseMatchesAuthorizedProduction": true,
+    "completedMigrations": 207,
+    "failedMigrations": 0,
+    "appliedMigrationsMissingFromCandidate": 0,
+    "pendingMigrations": ["20261014010000_add_service_agenda_favorite"],
+    "targetColumnAbsent": true,
+    "startup": "prisma generate && prisma migrate deploy && tsx src/server.ts",
+    "stopOnOtherPendingFailedOrNewDrift": true,
+    "historicalChecksumProof": {
+      "rawMismatches": 46,
+      "individuallyExplainedByCRLFInMemory": 42,
+      "workspaceMixedRawMatchesLedgerAndNormalizationMatchesCandidate": [
+        "20260913023000_backfill_barber_demo_pipeline_stages",
+        "20260908190000_add_service_active",
+        "20260925010000_treasury_payment_methods_and_counterparties"
+      ],
+      "knownHistoricalException": "20260616162000_add_service_price",
+      "historicalExceptionSqlSha256": "68525aed3f91e97d87b8e4fc646bef1e312e2735b68ee718a8cafa3d201384b5",
+      "historicalExceptionUnchangedAcrossBaselineAndCandidate": true,
+      "newHistoricalDifferencesIntroduced": 0,
+      "historyOrLedgerRepaired": false,
+      "priorEvidence": "odd/tasks/weex-release-6a681cf.md and its referenced w2-preflight.json"
+    },
+    "configuration": {
+      "keyCount": 66,
+      "digestSha256": "680ed9db0c8ecfe3280c1f04cbad28d7b8234e595e9c02b9863527ae17ebc488",
+      "botWorkerScopeMode": "exclude",
+      "botWorkerScopeBusinessId": "cmpvr0oqo0000o0vcnhgyv054",
+      "valuesOrSecretsRecorded": false,
+      "configurationChanged": false
+    },
+    "diagnosticSetbacks": [
+      "native STATUS --json unsupported, compact-v2 contract unsupported, real contract reached inventory limit; no external sharing or settings changes",
+      "initial scope diagnostic regex expected CONVERSATIONAL_BOT.*EXCLUDE; corrected to actual BOT_WORKER_SCOPE keys without a production change"
+    ]
+  },
   "pending": [
-    "human scope selection LITE or completion of bot before FULL",
-    "authorization and actual preflight for the sole new shared migration",
-    "native review control unavailable; must not be represented as approved",
+    "execute only the authorized favorite migration through startup; realDatabaseApplied remains false until observed",
+    "native review control unavailable with scoped human omission; must not be represented as a native approval receipt",
     "deployment and hosted build/health/version checks"
   ],
   "deploymentPerformed": false,
