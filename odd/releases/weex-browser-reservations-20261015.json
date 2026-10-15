@@ -1,0 +1,256 @@
+{
+  "status": "prepared_local_verified_not_published",
+  "preparationDate": "2026-10-15",
+  "scope": "New web booking and multiple reservations of this browser, plus profile-scoped Agenda professional filter; published bot preserved byte-for-byte",
+  "sourceCommits": {
+    "backend": "9394fabaac0dc238042e36499a80ac4ebdd4f51b",
+    "landing": "b618b49ed835501782f6e889e630574ed17374e3",
+    "agenda": "91ecc1ed365b24e880527197f212c61635265950"
+  },
+  "baseline": {
+    "deployment": "a5d36de6-eaae-4b33-a45a-d684f2b22043",
+    "descriptor": "odd/releases/weex-guest-booking-20261014.json",
+    "manifestSha256": "144b1c87091ab6e7cfdd0df19b80127dc8c5149b490a5f1be9da20177a6ee446",
+    "liveStatus": "Historical G6 evidence only; not remotely rechecked for this preparation"
+  },
+  "authorization": {
+    "localPreparationOnly": true,
+    "humanInstruction": "Sólo dejar preparado, sin publicar",
+    "remoteReads": false,
+    "credentials": false,
+    "newMigrations": false,
+    "upload": false,
+    "botChanges": false,
+    "barberTunnelCallbackChanges": false,
+    "variableChanges": false,
+    "gitPushMerge": false,
+    "review": "Human declined only the relevant Agenda and G7-G9 runtime blocks; no technical approval or receipt fabricated"
+  },
+  "artifact": {
+    "upload": ".codex-deploy/weex-browser-reservations-20261014-b618b49/upload",
+    "manifest": ".codex-deploy/weex-browser-reservations-20261014-b618b49/manifest.json",
+    "manifestSha256": "a4e5db5b552d93fbd15da9541c94acba14ab140dc703f7e7de512818ab27f5b5",
+    "files": 820,
+    "changedPaths": [
+      "src/routes/crm-ui.ts",
+      "src/routes/landing-ui.ts",
+      "src/routes/public-booking.ts",
+      "src/services/guest-booking-access.ts"
+    ],
+    "unchangedFiles": 816,
+    "botFilesByteIdentical": 75,
+    "sqlMigrationsByteIdentical": 209,
+    "schemaPackagesLocksUnchanged": true,
+    "newMigrations": [],
+    "positiveAllowlist": true,
+    "privateVerificationOutsideUpload": true,
+    "sourceProof": [
+      {
+        "path": "src/routes/crm-ui.ts",
+        "ref": "91ecc1ed365b24e880527197f212c61635265950",
+        "workingHash": "e4a506da051b99f9c84100c3e5093ce276db5f049b0ff3d37764658f757edda9",
+        "artifactSha256": "83b946dd7510c01f0bb85abbec85cd8747efc7d7c6ac3cda0e995799bc130ad0",
+        "workingSha256": "e4a506da051b99f9c84100c3e5093ce276db5f049b0ff3d37764658f757edda9",
+        "byteIdenticalToWorking": false,
+        "contentIdenticalIgnoringCRLF": true
+      },
+      {
+        "path": "src/routes/landing-ui.ts",
+        "ref": "b618b49ed835501782f6e889e630574ed17374e3",
+        "workingHash": "a08ea68e991527b99e842b73bf378ebc34f7cf34975d5184c6b2688bd544feb0",
+        "artifactSha256": "5276c7fc20d1c7852aab3e261ef251c4bb01ca87600c3384d17fc35112f2ca74",
+        "workingSha256": "a08ea68e991527b99e842b73bf378ebc34f7cf34975d5184c6b2688bd544feb0",
+        "byteIdenticalToWorking": false,
+        "contentIdenticalIgnoringCRLF": true
+      },
+      {
+        "path": "src/routes/public-booking.ts",
+        "ref": "9394fabaac0dc238042e36499a80ac4ebdd4f51b",
+        "workingHash": "645f7ad5e3beeebc1729c8806a076bf709eee13d978a7814f0f80adb22dae6d8",
+        "artifactSha256": "645f7ad5e3beeebc1729c8806a076bf709eee13d978a7814f0f80adb22dae6d8",
+        "workingSha256": "645f7ad5e3beeebc1729c8806a076bf709eee13d978a7814f0f80adb22dae6d8",
+        "byteIdenticalToWorking": true,
+        "contentIdenticalIgnoringCRLF": true
+      },
+      {
+        "path": "src/services/guest-booking-access.ts",
+        "ref": "9394fabaac0dc238042e36499a80ac4ebdd4f51b",
+        "workingHash": "c7b728c0792858df9ae41b6c6fd61298356170c08fae8b9dd621d7d025513627",
+        "artifactSha256": "c7b728c0792858df9ae41b6c6fd61298356170c08fae8b9dd621d7d025513627",
+        "workingSha256": "c7b728c0792858df9ae41b6c6fd61298356170c08fae8b9dd621d7d025513627",
+        "byteIdenticalToWorking": true,
+        "contentIdenticalIgnoringCRLF": true
+      }
+    ]
+  },
+  "evidence": {
+    "preparation-proof.json": {
+      "path": ".codex-deploy/weex-browser-reservations-20261014-b618b49/preparation-proof.json",
+      "sha256": "4525dd196ecf475b7042e7ae870fb11e724ebde26ab6629c5a84085dfe368117"
+    },
+    "closure-proof.json": {
+      "path": ".codex-deploy/weex-browser-reservations-20261014-b618b49/closure-proof.json",
+      "sha256": "487b96f7bfa129371791b32f27f9f5672e17def6a40cdd7fb517a7bb56af5e33"
+    },
+    "verification/functional-results.json": {
+      "path": ".codex-deploy/weex-browser-reservations-20261014-b618b49/verification/functional-results.json",
+      "sha256": "95ede374e1ee3351b2f806f33cd5a2ad50e9b1e3287e4238ace4b2c8b0c05aac"
+    },
+    "verification/parent-proof.json": {
+      "path": ".codex-deploy/weex-browser-reservations-20261014-b618b49/verification/parent-proof.json",
+      "sha256": "c75490eb974f02a1a027b7efd2d399a933aa5182a4c710e2acabd293dcfdd301"
+    },
+    "verification/browser/candidate-browser-proof.json": {
+      "path": ".codex-deploy/weex-browser-reservations-20261014-b618b49/verification/browser/candidate-browser-proof.json",
+      "sha256": "a436a921715c88ccdb083ee18a201b0c2e6c52be3776032061a3b553515fbd0f"
+    }
+  },
+  "verification": {
+    "functionalSuites": 17,
+    "allFunctionalExitCodesZero": true,
+    "prisma": "validate/generate PASS with dummy database; generated client outside upload only",
+    "independentRepeat": [
+      {
+        "name": "public-guest-booking-test.ts",
+        "exitCode": 0,
+        "result": "23 passed; 0 failed"
+      },
+      {
+        "name": "guest-web-booking-ui-test.ts",
+        "exitCode": 0,
+        "result": "Guest web booking UI: 28 passed, 0 failed"
+      },
+      {
+        "name": "agenda-professional-filter-persistence-test.ts",
+        "exitCode": 0,
+        "result": "Agenda professional filter persistence: 14 passed, 0 failed"
+      }
+    ],
+    "staticClosure": {
+      "files": 395,
+      "relativeEdges": 1436,
+      "generatedPrismaEdges": 102,
+      "auditedLazyAliases": 1,
+      "missing": 0,
+      "nonLiteralUnknown": 0,
+      "replayedInMemoryWithoutDiskWrite": true
+    },
+    "browser": [
+      {
+        "suite": "reservations",
+        "passes": 32,
+        "failures": 0,
+        "exitCode": 0,
+        "sourceHash": "5276c7fc20d1c7852aab3e261ef251c4bb01ca87600c3384d17fc35112f2ca74",
+        "pageErrors": 0,
+        "metrics": [
+          {
+            "name": "desktop",
+            "viewport": 1366,
+            "overflow": 0,
+            "x": 164,
+            "right": 862,
+            "rows": 2,
+            "resize": "none",
+            "tableWidth": 656,
+            "captionWidth": 656
+          },
+          {
+            "name": "mobile",
+            "viewport": 390,
+            "overflow": 0,
+            "x": 23,
+            "right": 367,
+            "rows": 2,
+            "resize": "none",
+            "tableWidth": 314,
+            "captionWidth": 314
+          },
+          {
+            "name": "narrow",
+            "viewport": 320,
+            "overflow": 0,
+            "x": 23,
+            "right": 297,
+            "rows": 2,
+            "resize": "none",
+            "tableWidth": 244,
+            "captionWidth": 244
+          }
+        ]
+      },
+      {
+        "suite": "agenda",
+        "passes": 27,
+        "failures": 0,
+        "exitCode": 0,
+        "sourceHash": "83b946dd7510c01f0bb85abbec85cd8747efc7d7c6ac3cda0e995799bc130ad0",
+        "pageErrors": 0,
+        "metrics": [
+          {
+            "name": "desktop",
+            "width": 1366,
+            "overflow": 0,
+            "x": 353,
+            "right": 837,
+            "height": 38,
+            "font": "12px",
+            "resize": "none",
+            "focused": true
+          },
+          {
+            "name": "mobile",
+            "width": 390,
+            "overflow": 0,
+            "x": 14,
+            "right": 376,
+            "height": 38,
+            "font": "15px",
+            "resize": "none",
+            "focused": true
+          },
+          {
+            "name": "narrow",
+            "width": 320,
+            "overflow": 0,
+            "x": 14,
+            "right": 306,
+            "height": 38,
+            "font": "15px",
+            "resize": "none",
+            "focused": true
+          }
+        ]
+      }
+    ],
+    "browserScope": "Real candidate-generated HTML/handlers with synthetic API/auth, not HEAD; only fixed harness imports and evidence directories changed",
+    "builds": "Not rerun: both static-site sources and locks byte-identical to G6; historical locked Railway builds remain historical, not a new candidate build",
+    "priorAttempts": [
+      {
+        "phase": "verification fixture preparation",
+        "passed": false,
+        "error": "Incorrect CRM runner filename crm-inline-script-syntax-test.ts; corrected to existing crm-ui-inline-syntax-test.ts. Upload bytes and manifest preserved."
+      }
+    ]
+  },
+  "behaviorLimits": {
+    "guestAccess": "Seven days per reservation while its HttpOnly cookie remains; never phone-based history or automatic renewal",
+    "agendaFilter": "This browser, isolated by authenticated user/role/profile/business; not synchronization across devices",
+    "capacity": "Admission20/technicalRead40 and header12KiB; not a transactional multi-tab counter",
+    "newBooking": "Separate draft, does not edit or cancel prior appointments, deposits or payments"
+  },
+  "notApproved": [
+    "Global typecheck",
+    "Pre-existing staff-secretary assertion expects15 labels and finds20; not softened",
+    "Physical Safari/iPad",
+    "Real Google authorization and remote reservation/payment/WhatsApp flow",
+    "Fresh remote version/configuration/migrations/health preflight"
+  ],
+  "review": {
+    "mode": "Last verified ON; not changed",
+    "runtimeDecision": "Human declined relevant blocks only",
+    "native": "Unavailable on original checkout due91762-entry/8MiB inventory; no receipt or external code sharing",
+    "closureAssessment": "Pending local work-unit assessment"
+  },
+  "nextStep": "Wait for separate explicit publication authorization. Before any future publication, freshly verify exact destination/session/configuration/active deployment/migration state and health; preserve bot, variables and Barber exclusion/tunnel/callback. Never upload whole HEAD."
+}
