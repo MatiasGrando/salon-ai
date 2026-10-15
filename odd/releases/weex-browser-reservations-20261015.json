@@ -250,7 +250,21 @@
     "mode": "Last verified ON; not changed",
     "runtimeDecision": "Human declined relevant blocks only",
     "native": "Unavailable on original checkout due91762-entry/8MiB inventory; no receipt or external code sharing",
-    "closureAssessment": "Pending local work-unit assessment"
+    "closureAssessment": {
+      "risk": "high",
+      "reason": "hot_path security; unchanged b15b7ba boundary includes previously declined feature blocks",
+      "status": "Fresh target ready in isolated worktree, review not started because human declined applicable blocks",
+      "target": "sha256:1bc3a8a5c7f03826cbab9a72c498b440cd22370989e96ace4e7904aae63fe363",
+      "codeShared": false,
+      "terminalReceipt": false,
+      "boundaryAdvanced": false
+    }
   },
-  "nextStep": "Wait for separate explicit publication authorization. Before any future publication, freshly verify exact destination/session/configuration/active deployment/migration state and health; preserve bot, variables and Barber exclusion/tunnel/callback. Never upload whole HEAD."
+  "nextStep": "Wait for separate explicit publication authorization. Before any future publication, freshly verify exact destination/session/configuration/active deployment/migration state and health; preserve bot, variables and Barber exclusion/tunnel/callback. Never upload whole HEAD.",
+  "preparationWorkUnitCommit": "1d5c5cea02425f0a2f1860f76c3920b004aed59d",
+  "closureWorkspace": {
+    "path": "C:/Users/cpu/.codex/worktrees/browser-reservations-release/salon-ai",
+    "branch": "codex/new-bot-multivertical",
+    "reason": "Shared checkout moved to codex/la-cochera-landing in another task; preserved it unchanged"
+  }
 }
