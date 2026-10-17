@@ -45,7 +45,7 @@ try {
       updateContinue: (...args: any[]) => calls.push({ continue: args }), setFeedback: (...args: any[]) => messages.push(args), render() {},
       isMultiService: () => state.services.length > 1, selectedServices: () => state.services,
       serviceDetail: () => ({ validationAccepted: true }), bookingApiUrl: (path: string, query = '') => '/public/booking/guest-ui' + path + (query ? '?' + query : ''),
-      getJson: async () => null, rememberGuestBookings() {}, bookingDraftSnapshot: () => ({}),
+      getJson: async () => null, rememberGuestBookings() {}, bookingDraftSnapshot: () => ({}), restoreLoginDraft: async () => false,
       postJson: async (path: string, body: any) => { calls.push({ path, body }); return { guest: true, appointment: { id: 'new' }, deposit: null } },
       phoneForSubmit: (v: string) => v.trim(), escapeHtml: (v: any) => String(v || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'), initials: () => 'S',
       formatPrice: (v: any) => '$' + v, formatDepositDeadline: (v: any) => v, backPath: '/guest-ui', accountPath: '/guest-ui/cuenta' }

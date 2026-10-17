@@ -471,6 +471,7 @@ function renderWeexRegistration() {
           <div class="google-button-wrap" id="central-google-button"></div>
           ${googleClientId ? '' : '<div class="account-feedback visible error">Falta configurar GOOGLE_CLIENT_ID para activar el login real.</div>'}
           <div class="account-feedback" id="central-login-feedback" role="status" aria-live="polite"></div>
+          <a class="central-login-return success-link secondary" id="central-login-return" href="/" hidden>Volver al comercio</a>
         </section>
       </main>
 
@@ -485,6 +486,12 @@ function renderWeexRegistration() {
           const els = {
             button: document.getElementById('central-google-button'),
             feedback: document.getElementById('central-login-feedback')
+          }
+
+          const returnLink = document.getElementById('central-login-return')
+          if (returnLink && returnUrl) {
+            returnLink.href = returnUrl
+            returnLink.hidden = false
           }
 
           function boot() {
@@ -571,7 +578,7 @@ function renderWeexRegistration() {
           function completeLogin(account) {
             setFeedback('Sesion iniciada. Volviendo al comercio...', 'info')
             const targetOrigin = returnUrl ? new URL(returnUrl).origin : '*'
-            if (window.opener && !window.opener.closed) {
+            if (params.get('flow') !== 'redirect' && window.opener && !window.opener.closed) {
               window.opener.postMessage({ type: 'WEEX_AUTH_SUCCESS', account }, targetOrigin)
               window.setTimeout(() => window.close(), 650)
               return
@@ -599,6 +606,7 @@ function renderWeexRegistration() {
             try {
               const url = new URL(candidate)
               const hostname = url.hostname.toLowerCase()
+              if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return ''
               const allowed =
                 hostname === baseDomain ||
                 hostname === 'www.' + baseDomain ||
@@ -1979,6 +1987,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               ])
               state.catalog = catalog
               state.weexAccount = auth?.account || null
+              if (await restoreLoginDraft()) {
+                if (currentStepId() === 'confirm') {
+                  if (state.weexAccount && !state.weexAccount.phone) showBookingGate('phone')
+                  else if (!state.weexAccount && !guestBookingAllowed()) showBookingGate('login')
+                }
+                return
+              }
               // A phone is contact data, never authority to retrieve earlier reservations.
               const pending = state.weexAccount
                 ? await getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
@@ -2834,6 +2849,107 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return state.catalog?.business?.allowGuestWebBooking === true
           }
 
+          function loginDraftKey() {
+            return 'weex.login-draft:' + slug + ':' + window.location.pathname
+          }
+
+          function saveLoginDraft() {
+            if (state.bookingView || state.confirmed || state.deposit || state.submitting || state.uploadingProof) return false
+            const services = selectedServices()
+            if (!services.length || services.length > 5) return false
+            // Selection only: no session, persisted reservation, amounts or accepted terms cross this navigation.
+            const draft = {
+              version: 1, createdAt: Date.now(), slug, origin: window.location.origin, path: window.location.pathname,
+              selections: services.map((service) => ({ serviceId: service.id, estimateOptionId: state.serviceDetails[service.id]?.estimateOption?.id || null })),
+              professionalId: state.professionalId || null, date: state.date || null, time: state.slot?.time || null,
+              segments: state.itinerary?.segments?.map((segment) => ({ serviceId: segment.serviceId, professionalId: segment.professionalId, startTime: segment.startTime })) || null,
+              guestName: String(state.guestName || '').slice(0, 100), guestPhone: String(state.guestPhone || '').slice(0, 40)
+            }
+            try {
+              const serialized = JSON.stringify(draft)
+              if (serialized.length > 8192) return false
+              sessionStorage.setItem(loginDraftKey(), serialized)
+              return sessionStorage.getItem(loginDraftKey()) === serialized
+            } catch {
+              return false
+            }
+          }
+
+          async function restoreLoginDraft() {
+            let draft
+            try {
+              const raw = sessionStorage.getItem(loginDraftKey())
+              if (!raw) return false
+              sessionStorage.removeItem(loginDraftKey())
+              if (raw.length > 8192) return false
+              draft = JSON.parse(raw)
+              const id = (value) => typeof value === 'string' && value.length > 0 && value.length <= 160
+              if (draft?.version !== 1 || draft.slug !== slug || draft.path !== window.location.pathname || draft.origin !== window.location.origin ||
+                !Number.isFinite(draft.createdAt) || Date.now() - draft.createdAt > 15 * 60 * 1000 || draft.createdAt > Date.now() ||
+                !Array.isArray(draft.selections) || !draft.selections.length || draft.selections.length > 5 ||
+                !draft.selections.every((selection) => selection && id(selection.serviceId) && (selection.estimateOptionId === null || id(selection.estimateOptionId))) ||
+                new Set(draft.selections.map((selection) => selection.serviceId)).size !== draft.selections.length ||
+                (draft.professionalId !== null && !id(draft.professionalId)) ||
+                (draft.date !== null && (typeof draft.date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(draft.date))) ||
+                (draft.time !== null && (typeof draft.time !== 'string' || !/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(draft.time))) ||
+                typeof draft.guestName !== 'string' || draft.guestName.length > 100 || typeof draft.guestPhone !== 'string' || draft.guestPhone.length > 40 ||
+                (draft.segments !== null && (!Array.isArray(draft.segments) || draft.segments.length !== draft.selections.length ||
+                  !draft.segments.every((segment) => segment && id(segment.serviceId) && id(segment.professionalId) && typeof segment.startTime === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(segment.startTime))))) return false
+            } catch {
+              return false
+            }
+            const services = draft.selections.map((selection) => (state.catalog.services || []).find((service) => service.id === selection.serviceId))
+            state.services = services.every(Boolean) ? services : []
+            state.service = state.services[0] || null
+            state.serviceDetails = {}
+            state.estimateOption = null
+            state.validationAccepted = false
+            state.professionalId = null
+            state.slot = null
+            state.itinerary = null
+            state.itineraryOptions = []
+            state.guestName = draft.guestName
+            state.guestPhone = draft.guestPhone
+            state.date = null
+            state.dateLabel = null
+            const date = dates.find((date) => dateIso(date) === draft.date)
+            if (date) setDate(date)
+            for (const service of state.services) {
+              const selection = draft.selections.find((selection) => selection.serviceId === service.id)
+              const detail = serviceDetail(service)
+              detail.estimateOption = (service.estimateOptions || []).find((option) => option.id === selection.estimateOptionId) || null
+              // Consent has no terms version: the current validation must always be accepted again.
+              detail.validationAccepted = false
+            }
+            if (state.service) {
+              state.estimateOption = serviceDetail(state.service).estimateOption
+              if (!isMultiService() && availableProfessionals().some((professional) => professional.id === draft.professionalId)) state.professionalId = draft.professionalId
+              try {
+                if (state.date && !isMultiService() && state.professionalId && draft.time) {
+                  const availability = await getJson(bookingApiUrl('/availability', 'serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date)))
+                  state.slot = (availability.slots || []).find((slot) => slot.time === draft.time && slot.professionalId === state.professionalId) || null
+                } else if (state.date && isMultiService() && draft.segments) {
+                  const result = await postJson(bookingApiUrl('/itineraries'), { serviceIds: state.services.map((service) => service.id), date: state.date })
+                  state.itineraryOptions = result.options || []
+                  state.itinerary = state.itineraryOptions.find((option) => option.segments?.length === draft.segments.length && option.segments.every((segment, index) => {
+                    const selected = draft.segments[index]
+                    return segment.serviceId === selected.serviceId && segment.professionalId === selected.professionalId && segment.startTime === selected.startTime
+                  })) || null
+                }
+              } catch {
+                // A lookup failure never makes a stale time confirmable.
+                state.slot = null
+                state.itinerary = null
+              }
+            }
+            const needsDetails = state.services.some((service) => (service.attentionMode === 'GUIDED_ESTIMATE' && !serviceDetail(service).estimateOption) || (service.validationEnabled && !serviceDetail(service).validationAccepted))
+            const nextStep = !state.services.length ? 'service' : needsDetails ? 'details' : !isMultiService() && !state.professionalId ? 'professional' : state.date && (state.slot || state.itinerary) ? 'confirm' : 'time'
+            state.step = bookingSteps().findIndex((step) => step.id === nextStep) + 1
+            render()
+            setFeedback(nextStep === 'confirm' ? 'Conservamos tu selección y revisamos la disponibilidad. Revisá el resumen y confirmá para reservar.' : 'Conservamos tu pedido. Revisá las opciones y condiciones vigentes antes de confirmar.', 'info')
+            return true
+          }
+
           function bookingDraftSnapshot() {
             return Object.fromEntries(['step', 'service', 'services', 'serviceSearch', 'serviceCategory', 'serviceDetails',
               'estimateOption', 'validationAccepted', 'professionalId', 'date', 'dateLabel', 'slot', 'itinerary', 'itineraryOptions',
@@ -3064,18 +3180,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 '<span>Continuar con Google</span>' +
               '</button>'
             els.gateGoogle.querySelector('button')?.addEventListener('click', () => {
-              openCentralWeexLogin(async () => {
-                const account = await refreshWeexAccount()
-                if (!account) {
-                  setGateFeedback('No pudimos iniciar sesion. Intenta de nuevo.', 'error')
-                  return
-                }
-                if (!account.phone) {
-                  showBookingGate('phone')
-                  return
-                }
-                proceedToConfirm()
-              }, setGateFeedback)
+              openCentralWeexLogin(setGateFeedback)
             })
           }
 
@@ -3110,45 +3215,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return hostname.endsWith('.' + baseDomain)
           }
 
-          function openCentralWeexLogin(onSuccess, setLocalFeedback) {
-            const loginUrl = centralLoginBaseUrl + '/registro?business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
-            const expectedOrigin = new URL(centralLoginBaseUrl).origin
-            setLocalFeedback('Abriendo inicio de sesion...', 'info')
-
-            let finished = false
-            const popup = window.open(loginUrl, 'weexGoogleLogin', 'width=460,height=680,menubar=no,toolbar=no,location=yes,status=no')
-
-            if (!popup) {
-              if (guestBookingAllowed()) {
-                setLocalFeedback('No pudimos abrir Google. Permití la ventana emergente o cerrá este cuadro para reservar sin cuenta.', 'error')
-                return
-              }
-              window.location.assign(loginUrl)
+          function openCentralWeexLogin(setLocalFeedback) {
+            if (!saveLoginDraft()) {
+              setLocalFeedback('No pudimos conservar tu selección para volver de Google. Tu pedido sigue acá; intentá de nuevo o reservá sin cuenta si está disponible.', 'error')
               return
             }
-
-            const interval = window.setInterval(() => {
-              if (!finished && popup.closed) {
-                window.clearInterval(interval)
-                window.removeEventListener('message', handleMessage)
-                setLocalFeedback('Cerraste el inicio de sesion antes de terminar.', 'error')
-              }
-            }, 500)
-
-            async function handleMessage(event) {
-              if (event.origin !== expectedOrigin || event.data?.type !== 'WEEX_AUTH_SUCCESS') return
-              finished = true
-              window.clearInterval(interval)
-              window.removeEventListener('message', handleMessage)
-              try {
-                await onSuccess(event.data.account)
-              } catch (error) {
-                setLocalFeedback(error.message || 'No pudimos completar el inicio de sesion.', 'error')
-              }
-            }
-
-            window.addEventListener('message', handleMessage)
-            popup.focus()
+            const loginUrl = centralLoginBaseUrl + '/registro?flow=redirect&business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
+            setLocalFeedback('Abriendo inicio de sesion...', 'info')
+            window.location.assign(loginUrl)
           }
 
           async function handleBookingGoogleCode(response) {
@@ -3538,7 +3612,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
-  const bookingUrl = `${basePath}/reservar`
+  const bookingUrl = basePath === '/' ? '/reservar' : `${basePath}/reservar`
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
   return htmlPage({
@@ -3826,16 +3900,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 '<span>Continuar con Google</span>' +
               '</button>'
             els.googleButtonWrap.querySelector('button')?.addEventListener('click', () => {
-              openCentralWeexLogin(async () => {
-                const result = await getJson('/public/weex/me')
-                state.user = result.account
-                state.appointments = []
-                state.selectedId = null
-                setLoginFeedback('', '')
-                setFeedback('Sesion iniciada. Agrega tu telefono para cargar tu historial.', 'info')
-                renderShell()
-                if (state.user?.phone) void loadHistory()
-              }, setLoginFeedback)
+              openCentralWeexLogin(setLoginFeedback)
             })
           }
 
@@ -3870,41 +3935,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             return hostname.endsWith('.' + baseDomain)
           }
 
-          function openCentralWeexLogin(onSuccess, setLocalFeedback) {
-            const loginUrl = centralLoginBaseUrl + '/registro?business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
-            const expectedOrigin = new URL(centralLoginBaseUrl).origin
+          function openCentralWeexLogin(setLocalFeedback) {
+            const loginUrl = centralLoginBaseUrl + '/registro?flow=redirect&business=' + encodeURIComponent(slug) + '&return=' + encodeURIComponent(window.location.href)
             setLocalFeedback('Abriendo inicio de sesion...', 'info')
-
-            let finished = false
-            const popup = window.open(loginUrl, 'weexGoogleLogin', 'width=460,height=680,menubar=no,toolbar=no,location=yes,status=no')
-
-            if (!popup) {
-              window.location.assign(loginUrl)
-              return
-            }
-
-            const interval = window.setInterval(() => {
-              if (!finished && popup.closed) {
-                window.clearInterval(interval)
-                window.removeEventListener('message', handleMessage)
-                setLocalFeedback('Cerraste el inicio de sesion antes de terminar.', 'error')
-              }
-            }, 500)
-
-            async function handleMessage(event) {
-              if (event.origin !== expectedOrigin || event.data?.type !== 'WEEX_AUTH_SUCCESS') return
-              finished = true
-              window.clearInterval(interval)
-              window.removeEventListener('message', handleMessage)
-              try {
-                await onSuccess(event.data.account)
-              } catch (error) {
-                setLocalFeedback(error.message || 'No pudimos completar el inicio de sesion.', 'error')
-              }
-            }
-
-            window.addEventListener('message', handleMessage)
-            popup.focus()
+            window.location.assign(loginUrl)
           }
 
           async function handleGoogleCode(response) {
@@ -6243,6 +6277,9 @@ function htmlPage(input: {
     }
     .central-login-brand strong { font-size: 15px; font-weight: 900; }
     .central-login-brand small { margin-top: 2px; color: #777783; font-size: 12px; font-weight: 700; }
+    .central-login-return { margin-top: 18px; }
+    .central-login-return[hidden] { display: none; }
+
     .central-login-card h1 {
       margin: 0;
       color: #17171B;
