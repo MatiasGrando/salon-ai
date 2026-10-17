@@ -184,6 +184,22 @@ try {
       assert.deepEqual(c.calls.filter(x => x.gate).map(x => x.gate[0]), gate ? [gate] : []); assert.equal(c.state.slot.time, '15:00'); assert.equal(c.calls.some(x => x.method === 'POST'), false)
     }
   })
+  await check('mobile draft confirmation exposes the existing summary only before booking, never for other steps or financial/history states', () => {
+    for (const mode of ['draft', 'time', 'confirmed', 'deposit', 'proofSent', 'guestClosed', 'list', 'detail']) {
+      const c = context(); const classes = new Map<string, boolean>(); let summaries = 0
+      const summary = { classList: { remove: (name: string) => classes.set(name, false), toggle: (name: string, on: boolean) => classes.set(name, on) } }
+      c.document = { querySelector: (selector: string) => selector === '.fresha-summary' ? summary : null }
+      c.state.guestBookings = []; c.renderBreadcrumb = () => {}; c.renderConfirmStep = () => {}; c.renderTimeStep = () => {}; c.renderGuestBookings = () => {}; c.renderSummary = () => summaries++
+      if (mode === 'time') c.state.step = 3
+      else if (mode === 'list' || mode === 'detail') c.state.bookingView = mode
+      else if (mode !== 'draft') c.state[mode] = true
+      runInNewContext(source(bookingScript, 'render') + '; render()', c)
+      assert.equal(classes.get('draft-confirmation-summary'), mode === 'draft', mode)
+      assert.equal(summaries, mode === 'list' ? 0 : 1, 'the existing summary renderer remains in use')
+    }
+    assert.ok(bookingHtml.includes('.fresha-summary.draft-confirmation-summary #booking-summary-lines { display: block; }'))
+    assert.ok(bookingHtml.includes('.fresha-summary.draft-confirmation-summary .summary-total { display: flex; }'))
+  })
   await check('all generated inline JavaScript compiles and return action stays hidden without a safe destination', () => {
     for (const script of [accountScript, bookingScript, registrationScript]) assert.doesNotThrow(() => new Script(script))
     assert.ok(registrationHtml.includes('.central-login-return[hidden] { display: none; }'))

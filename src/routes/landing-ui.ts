@@ -3393,7 +3393,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           function render() {
             renderBreadcrumb()
             setFeedback('', '')
-            document.querySelector('.fresha-summary')?.classList.remove('guest-reservation-detail')
+            const summary = document.querySelector('.fresha-summary')
+            summary?.classList.remove('guest-reservation-detail')
+            summary?.classList.toggle('draft-confirmation-summary', Boolean(state.catalog && currentStepId() === 'confirm' &&
+              !state.bookingView && !state.confirmed && !state.deposit && !state.proofSent && !state.guestClosed))
             els.back.disabled = state.step === 1 || Boolean(state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed)
             els.breadcrumb.hidden = Boolean(state.bookingView)
             els.reservations.hidden = Boolean(state.weexAccount) || (!guestBookingAllowed() && !state.guestBookings.length)
@@ -7732,6 +7735,8 @@ function htmlPage(input: {
       body[class*="booking-theme-"] .fresha-summary .summary-total { display: none; }
       body[class*="booking-theme-"] .fresha-summary.guest-reservation-detail #booking-summary-lines { display: block; }
       body[class*="booking-theme-"] .fresha-summary.guest-reservation-detail .summary-total { display: flex; }
+      body[class*="booking-theme-"] .fresha-summary.draft-confirmation-summary #booking-summary-lines { display: block; }
+      body[class*="booking-theme-"] .fresha-summary.draft-confirmation-summary .summary-total { display: flex; }
       body[class*="booking-theme-"] .fresha-summary .fresha-continue { margin: 0; }
       body[class*="booking-theme-"] .booking-mobile-bar {
         min-height: 74px;
