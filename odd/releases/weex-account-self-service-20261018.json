@@ -1,0 +1,311 @@
+{
+  "status": "prepared_local_with_known_baseline_failure_not_published",
+  "sourceCommit": "3211bec0782ab8414662df7aef96a52493e106fe",
+  "sourceCommits": {
+    "backend": "a80c7b8dac830fb415144931ea635b9beb60ab5b",
+    "ui": "3211bec0782ab8414662df7aef96a52493e106fe"
+  },
+  "preparationDate": "2026-10-18",
+  "scope": "Secure account/browser appointment cancellation and rescheduling, responsive phone/iPad/desktop; earlier unattributed bookings contact merchant",
+  "baseline": {
+    "descriptor": "odd/releases/weex-account-booking-origin-20261017.json",
+    "manifestSha256": "dd5be3f7214e18f2295501d32acb720c00c9f0d6e6e9d878b6805475ad1c4ba0",
+    "liveStatus": "Local positive baseline only; current remote deployment/configuration/migration ledger not queried"
+  },
+  "artifact": {
+    "upload": ".codex-deploy/weex-account-self-service-20261018-3211bec/upload",
+    "files": 822,
+    "manifestSha256": "c6c9032e8f7f6eb77b0b3bf73cc1d366831948e7fbf37a8702ca146bded95413",
+    "positiveAllowlist": true,
+    "changedPaths": [
+      "prisma/schema.prisma",
+      "src/routes/landing-ui.ts",
+      "src/routes/public-booking.ts",
+      "src/services/booking-operations.ts",
+      "src/services/guest-booking-access.ts",
+      "src/services/prisma-booking.ts",
+      "src/services/weex-account-service.ts"
+    ],
+    "addedPaths": [
+      "prisma/migrations/20261018010000_add_web_appointment_self_service/migration.sql",
+      "src/services/web-appointment-self-service.ts"
+    ],
+    "removedPaths": [],
+    "unchangedFiles": 813,
+    "botFilesByteIdentical": 75,
+    "sqlMigrationsByteIdentical": 209,
+    "newMigrations": [
+      "prisma/migrations/20261018010000_add_web_appointment_self_service/migration.sql"
+    ],
+    "newMigrationAppliedToSharedDatabase": false
+  },
+  "authorization": {
+    "localOnly": true,
+    "noPublication": true,
+    "noRemoteReads": true,
+    "noCredentials": true,
+    "noBotOrWhatsAppOrVariablesChanges": true,
+    "localScratchSqlAllowed": true,
+    "sharedMigrationRequiresSeparateAuthorization": true
+  },
+  "behavior": {
+    "secureAttribution": "New account identity or exact existing browser capability; no editable-phone authority/backfill",
+    "legacyOrUnsupportedFinancialFlow": "Request change/cancellation from merchant; financial guards preserved",
+    "reschedule": "Date/time/allowed professional only, contracted services/order/duration/prices/deposits/proofs/Caja preserved",
+    "cancel": "Explicit confirmation, no automatic refund or deletion of history",
+    "groupedAppointments": "All-or-nothing server transaction with revision/idempotency/authorization revalidation and agenda locks",
+    "googleCalendarExternalSynchronization": false,
+    "forms": "Integrated non-resizable panel, no native dialogs, accessible44px controls, responsive320/390/768/820/1366"
+  },
+  "checks": {
+    "functionalSuites": 28,
+    "prismaValidateGenerate": 2,
+    "allFunctionalExitCodesZero": false,
+    "allRuntimeAndFixtureHashesCheckedBeforeAfter": true,
+    "staticClosure": {
+      "modules": 396,
+      "relativeEdges": 1443,
+      "generatedPrismaEdges": 104,
+      "auditedLazyLoader": 1,
+      "missing": 0,
+      "unknown": 0
+    },
+    "browser": {
+      "passed": 91,
+      "failed": 0,
+      "actualCandidateSourceSha256": "020201132715873e92ec24ab0bef54ac762c1a0e655b752d0db79514fbaec942",
+      "originalWorkingCRLF": "e23c33403b64467a183055e1b461d6fed1b2db2f99dc884bd2c186ed243bc454",
+      "allCandidateAndUploadAndFixedFixturesCheckedBeforeAfter": true,
+      "mockSessionsAndApis": true,
+      "chromeTouchEmulation": true,
+      "physicalIPadSafari": false
+    },
+    "sql": {
+      "passed": 15,
+      "failed": 0,
+      "freshInMemoryPGlite": true,
+      "realPrisma": true,
+      "ownLoopbackSocket": true,
+      "nativePostgresMultiSessionConcurrency": false,
+      "fullHistoricalMigrationChain": false,
+      "financialGuardsAppliedFromExistingSql": [
+        {
+          "migration": "20260827110000_add_f8_deposit_terms_and_lines",
+          "statements": 26
+        },
+        {
+          "migration": "20260827130000_add_f8_append_only_deposit_proofs",
+          "statements": 16
+        },
+        {
+          "migration": "20260827140000_add_f8_proof_writer_guards",
+          "statements": 3
+        },
+        {
+          "migration": "20260827150000_add_f8_review_operations",
+          "statements": 1
+        },
+        {
+          "migration": "20260827160000_add_f8_8_rejection_operations",
+          "statements": 1
+        },
+        {
+          "migration": "20260827161000_fix_f8_resubmission_deadline_guard",
+          "statements": 1
+        },
+        {
+          "migration": "20260827170000_add_f8_proof_byte_retention_purge",
+          "statements": 10
+        },
+        {
+          "migration": "20260827200000_add_f9_appointment_management",
+          "statements": 8
+        },
+        {
+          "migration": "20260827210000_add_f9_cancellation_transition",
+          "statements": 1
+        },
+        {
+          "migration": "20260906120000_add_cash_financial_ledger",
+          "statements": 28
+        },
+        {
+          "migration": "20261009010000_allow_f8_pdf_deposit_proofs",
+          "statements": 1
+        },
+        {
+          "migration": "20261009210000_add_pending_deposit_staff_cancellation",
+          "statements": 1
+        },
+        {
+          "migration": "20261011010000_audit_confirmed_paid_reschedule",
+          "statements": 3
+        }
+      ],
+      "migrationSha256": "67dbb40f6e90f843c97a61a0d0e05a97766f5f622e10ba7505a48874145366ad"
+    },
+    "staticSiteBuilds": "Not rerun: sources/locks byte-identical to previous prepared artifact",
+    "functionalSuitesPassed": 27,
+    "functionalSuitesFailed": 1,
+    "failedChecks": [
+      {
+        "name": "conversational-bot-coordinated-deposit-pglite-test.ts",
+        "exitCode": 1,
+        "sameFailureReproducedOnExactBaseline": true
+      }
+    ],
+    "fixtureSources": [
+      "3211bec0782ab8414662df7aef96a52493e106fe",
+      "caa30275c23dcfba079c74a9a85d004db5fa2118"
+    ],
+    "fixtureGuardScopes": {
+      "base25SuitesAndBrowser": {
+        "files": 27,
+        "allFixturesCommit": "3211bec0782ab8414662df7aef96a52493e106fe"
+      },
+      "extra3Suites": {
+        "files": 30,
+        "allFixturesCommit": "3211bec0782ab8414662df7aef96a52493e106fe"
+      },
+      "phoneRerun": {
+        "files": 30,
+        "phoneFixtureCommit": "caa30275c23dcfba079c74a9a85d004db5fa2118"
+      },
+      "finalReadback": 30,
+      "note": "Three additional immutable SQL fixtures were introduced after the original runner snapshot; each is guarded in its own extra runner and final readback"
+    },
+    "browserFixtureCaveat": "Synthetic account API intentionally embeds raw catalog prices/durations. Management panel separately renders contracted snapshots. This does not establish a product defect: real account reader maps duration/price from appointment snapshots.",
+    "baselineComparison": {
+      "manifestSha256": "dd5be3f7214e18f2295501d32acb720c00c9f0d6e6e9d878b6805475ad1c4ba0",
+      "files": 820,
+      "sameFixedTestCommit": "3211bec0782ab8414662df7aef96a52493e106fe",
+      "sameFixedTestSha256": "2f515fe049c6ac008e156b2d7dc516e468be1cc5a976ea2385e04a927ea879bd",
+      "prismaGenerateExitCode": 0,
+      "coordinatedExitCode": 1,
+      "sameClosedCallerOwnershipFailure": true,
+      "falsePassOrWaiverIssued": false
+    },
+    "phoneFixtureRerun": {
+      "file": "verification/functional-phone-rerun-results.json",
+      "tests": [
+        {
+          "name": "public-registration-phone-test.ts",
+          "runner": [
+            "C:\\Program Files\\nodejs\\node.exe",
+            "C:\\Users\\cpu\\salon-ai\\node_modules\\tsx\\dist\\cli.mjs",
+            "scripts/public-registration-phone-test.ts"
+          ],
+          "cwd": "C:\\Users\\cpu\\salon-ai\\.codex-deploy\\weex-account-self-service-20261018-3211bec\\verification\\repo",
+          "exitCode": 0,
+          "durationMs": 14145,
+          "timedOut": false,
+          "error": null,
+          "passed": true,
+          "sourceManifestSha256": "c6c9032e8f7f6eb77b0b3bf73cc1d366831948e7fbf37a8702ca146bded95413",
+          "tail": [
+            "PASS foreign identity does not reinterpret contradictory legacy 00 identity",
+            "PASS real SQL fallback reuses explicitly formatted foreign legacy +49 (30) 123456",
+            "PASS real SQL fallback reuses explicitly formatted foreign legacy 00 49 (30) 123456",
+            "Public registration phone: 273 passed; 0 failed"
+          ]
+        }
+      ],
+      "initial270Pass1FailureRetained": true
+    }
+  },
+  "review": {
+    "mode": "enabled",
+    "decision": "Human declined only this backend/UI block review",
+    "technicalApproval": false,
+    "receipt": null,
+    "codeSharedExternally": false,
+    "subsequentControlsUnchanged": true,
+    "validationClosure": "Pending separate native decision; original 15-file source omission is not extended to the added phone fixture"
+  },
+  "limitations": [
+    "No native PostgreSQL multi-session concurrency or complete historical migration-chain execution",
+    "Global typecheck not approved; pre-existing secretary label assertion15/found20 not approved",
+    "Static sites/locks byte-identical: no new static-site builds",
+    "Synthetic browser sessions/APIs only, no real Google or physical iPad/Safari",
+    "Local package only; future publication needs explicit migration authorization and fresh remote reconciliation",
+    "External Google Calendar events are not synchronized by this change",
+    "Existing coordinated bot SQL control fails caller-session ownership on both exact prepared baseline and candidate. Unchanged75 bot modules do not include the newer control behavior; control remains unapproved and is not silently waived."
+  ],
+  "evidence": {
+    "manifest.json": {
+      "sha256": "c6c9032e8f7f6eb77b0b3bf73cc1d366831948e7fbf37a8702ca146bded95413",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/manifest.json"
+    },
+    "preparation-proof.json": {
+      "sha256": "e51d63a6a8c376a1c74f20a46478394b2e9d95b8b55f29dbb959378530cd425d",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/preparation-proof.json"
+    },
+    "closure-proof.json": {
+      "sha256": "de9609d833a3c065979bab0e4da56c186628a427476116cb3d752507fb820bce",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/closure-proof.json"
+    },
+    "verification/functional-results.json": {
+      "sha256": "27b9c598ecf81d73d2400daf0ece954306a796788d2bdebbba64fc6339db6d10",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/functional-results.json"
+    },
+    "verification/functional-extra-results.json": {
+      "sha256": "3792523c518006a8e9bc73bc219296908b45087112c973b8f2fba03d1d198bcb",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/functional-extra-results.json"
+    },
+    "verification/browser/results.json": {
+      "sha256": "7e5bffe1cc2ac9f2127ecf44c89a82ed0df32a23a98a2beec1bce30667d69f1c",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/browser/results.json"
+    },
+    "verification/browser/run-results.json": {
+      "sha256": "7465f4a6a86262031dd4c65a44567ee25f7e775a511328934a3b550d255faf34",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/browser/run-results.json"
+    },
+    "verification/browser/harness-provenance.json": {
+      "sha256": "ff0e7076d0d3a604055c6a4601b5129f292ed53c0bf2f091ce343b89dda5ffa7",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/browser/harness-provenance.json"
+    },
+    "verification/repo/tmp/account-self-service-checks/sql-results.json": {
+      "sha256": "f8a918906fcbbc810cc903f0d2927a1ec306675d5592bbdcf68d02424ddd7326",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/repo/tmp/account-self-service-checks/sql-results.json"
+    },
+    "verification/baseline-comparison/results.json": {
+      "sha256": "67065aa6bcf476586129f30bacc6ebcf028cef9d9e8216549d3633e395840ea2",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/baseline-comparison/results.json"
+    },
+    "verification/baseline-comparison/conversational-bot-coordinated-deposit-pglite-test.ts.log": {
+      "sha256": "4834a39be5df3cdbf708bacde2faab9ac203bc4b22c871b091f1b0350d8547e5",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/baseline-comparison/conversational-bot-coordinated-deposit-pglite-test.ts.log"
+    },
+    "verification/conversational-bot-coordinated-deposit-pglite-test.ts.log": {
+      "sha256": "0bc61b82baacb38db31b252baef7bd79ee434dbf71d8b65bf9b35fc47c58e555",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/conversational-bot-coordinated-deposit-pglite-test.ts.log"
+    },
+    "verification/functional-phone-rerun-results.json": {
+      "sha256": "b29f4479f08fb8d70308ae622d5c1becd5dc40ca566942b17cd5562058d98bc8",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/functional-phone-rerun-results.json"
+    },
+    "verification/fixture-refresh-proof.json": {
+      "sha256": "561f4884d3543e3667eabd41c9d20b0fac65d4d0a22ae7bc52bd69080b41610a",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/fixture-refresh-proof.json"
+    },
+    "verification/visual-readback.json": {
+      "sha256": "18d43b0ea13d34feeaf70793750ea414b41af0c055445c2d06cc4162e9488509",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/visual-readback.json"
+    },
+    "verification/functional-final-results.json": {
+      "sha256": "e16f22f60d1b57039abad52a3add37de8f49a50a0b8fe2189f6606e1c7d26112",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/functional-final-results.json"
+    },
+    "verification/parent-proof.json": {
+      "sha256": "776749b62334d88082bd227eac01cef13dd7cc55d26f048774024fb41bcb9200",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/verification/parent-proof.json"
+    },
+    "final-preparation-proof.json": {
+      "sha256": "5ffc756e045b1a53404233aa5974e45342bee1f76125bf231a41e50e83b42eb3",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/final-preparation-proof.json"
+    }
+  },
+  "nextStep": "Parent records evidence and unresolved controls; no publication. Separate shared-migration permission and fresh remote preflight remain mandatory. Review or resolve the unchanged-bot baseline failure before any delivery gate requiring it.",
+  "readyForPublication": false,
+  "fixtureCommit": "caa30275c23dcfba079c74a9a85d004db5fa2118"
+}
