@@ -9176,6 +9176,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       margin-top: 18px;
     }
 
+    .bot-routing-panel {
+      display: grid; gap: 12px; min-width: 0; padding: clamp(14px, 2vw, 22px);
+      border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); color: var(--text);
+    }
+    .bot-routing-panel[hidden], .settings-automation-list .automation-control[hidden] { display: none; }
+    .bot-routing-panel h4, .bot-routing-panel p { margin: 0; }
+    .bot-routing-panel .settings-field, .bot-routing-panel select, .bot-routing-panel input { min-width: 0; width: 100%; }
+    .bot-routing-panel small, .bot-routing-panel p { overflow-wrap: anywhere; line-height: 1.5; }
+    .bot-routing-panel small, .bot-routing-panel .settings-field > label { color: var(--text); }
+    .bot-routing-panel select, .bot-routing-panel input, .bot-routing-panel button { min-height: 44px; }
+    .bot-routing-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .bot-routing-actions button { flex: 1 1 190px; white-space: normal; }
+    .bot-routing-panel :is(select, input, button):focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+
     .assistant-personality-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -18927,29 +18941,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="global-ai-toggle" type="checkbox" checked>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-            <label class="automation-control">
-              <div class="automation-copy">
-                <strong>Nuevo flujo de reservas</strong>
-                <span>Usa Booking V2 para pedir nombre, servicio, profesional, d&iacute;a, horario y confirmaci&oacute;n.</span>
-                <small id="booking-v2-status">Bot actual</small>
-              </div>
-              <input id="booking-v2-toggle" type="checkbox">
-              <span class="automation-switch" aria-hidden="true"></span>
-            </label>
-            <div class="settings-field full" id="bot-routing-control" hidden>
-              <label for="bot-routing-selector">Motor exclusivo de WhatsApp</label>
-              <select class="field" id="bot-routing-selector">
-                <option value="legacy-whatsapp">Bot actual (legacy)</option>
+            <div class="bot-routing-panel settings-field full" id="bot-routing-control" hidden>
+              <h4>Bot de WhatsApp</h4>
+              <small id="bot-routing-status" role="status">Consultando el bot actual...</small>
+              <label for="bot-routing-selector">Eleg&iacute; el bot del comercio</label>
+              <select class="field" id="bot-routing-selector" aria-describedby="bot-routing-help">
+                <option value="options">Bot de opciones</option>
+                <option value="conversational">Nuevo bot</option>
               </select>
-              <small id="bot-routing-status">Routing actual: bot legacy</small>
-              <div class="settings-field full">
+              <p id="bot-routing-help">Preparar una opci&oacute;n no activa el bot. El cambio requiere revisar y confirmar.</p>
+              <div class="settings-field">
                 <label for="bot-routing-timezone">Zona horaria del bot</label>
                 <input class="field" id="bot-routing-timezone" autocomplete="off" value="America/Argentina/Buenos_Aires">
-                <small id="bot-routing-readiness">Prepar&aacute; la configuraci&oacute;n antes de cambiar el routing.</small>
+                <small id="bot-routing-readiness">Comprobando los requisitos de WhatsApp...</small>
               </div>
-              <button class="secondary" id="bot-routing-prepare" type="button">Preparar Bot de opciones F11</button>
-              <button class="secondary" id="bot-routing-preflight" type="button">Revisar y cambiar routing</button>
-              <p class="settings-feedback" id="bot-routing-evidence" role="status"></p>
+              <div class="bot-routing-actions">
+                <button class="secondary" id="bot-routing-prepare" type="button">Preparar el bot elegido</button>
+                <button class="secondary" id="bot-routing-preflight" type="button">Revisar y activar</button>
+              </div>
+              <p class="settings-feedback" id="bot-routing-evidence" role="status" aria-live="polite"></p>
             </div>
             </div>
             <div class="assistant-personality-grid">
@@ -20298,7 +20308,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
-      bookingV2Toggle: document.getElementById('booking-v2-toggle'),
       botRoutingControl: document.getElementById('bot-routing-control'),
       botRoutingSelector: document.getElementById('bot-routing-selector'),
       botRoutingStatus: document.getElementById('bot-routing-status'),
@@ -20309,7 +20318,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       botRoutingEvidence: document.getElementById('bot-routing-evidence'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
-      bookingV2Status: document.getElementById('booking-v2-status'),
       automationSettingsForm: document.getElementById('automation-settings-form'),
       serviceCatalogDisplayMode: document.getElementById('service-catalog-display-mode'),
       bookingFlowOrder: document.getElementById('booking-flow-order'),
@@ -26866,13 +26874,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.checked = state.aiSettings.botEnabled !== false
       els.globalAiToggle.checked = state.aiSettings.aiEnabled !== false
-      els.bookingV2Toggle.checked = state.aiSettings.bookingV2Enabled === true
       els.globalBotStatus.textContent = state.aiSettings.botEnabled === false ? 'Pausado' : 'Activo'
       els.globalBotStatus.className = state.aiSettings.botEnabled === false ? 'paused' : ''
       els.globalAiStatus.textContent = state.aiSettings.aiEnabled === false ? 'Flujo basico' : 'Activo'
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
-      els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
-      els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      els.globalAiToggle.closest('.automation-control').hidden = state.botRouting?.activeVariant === 'conversational'
       renderBotRoutingControl()
       els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
       els.bookingFlowOrder.value = state.aiSettings.bookingFlowOrder || 'PROFESSIONAL_FIRST'
@@ -27735,88 +27741,101 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    async function toggleBookingV2() {
-      const nextValue = els.bookingV2Toggle.checked
-      clearAutomationSettingsFeedback()
-      els.bookingV2Toggle.disabled = true
-      try {
-        state.aiSettings = await getJson('/crm/ai-settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: state.businessId,
-            bookingV2Enabled: nextValue
-          })
-        })
-        renderAiControls()
-        showAutomationSettingsFeedback(nextValue ? 'Nuevo flujo de reservas activo.' : 'Nuevo flujo de reservas desactivado.', 'success')
-      } catch (error) {
-        renderAiControls()
-        showAutomationSettingsFeedback(error.message, 'error')
-      } finally {
-        els.bookingV2Toggle.disabled = false
-      }
+    function routingConfigurationForVariant(routing, variant) {
+      const candidates = (routing.configurations || []).filter(configuration => configuration.variant === variant)
+      return candidates.find(configuration => configuration.id === routing.activeConfigurationId) || candidates[0] || null
     }
 
     function renderBotRoutingControl() {
       const routing = state.botRouting
-      els.botRoutingControl.hidden = !routing
-      if (!routing) return
-      const selected = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId
-        ? routing.activeConfigurationId
-        : 'legacy-whatsapp'
+      els.botRoutingControl.hidden = !routing || state.currentUser?.role === 'STAFF'
+      if (!routing || state.currentUser?.role === 'STAFF') return
+      if (els.globalAiToggle) els.globalAiToggle.closest('.automation-control').hidden = routing.activeVariant === 'conversational'
+      const selected = state.botRoutingSelectionBusinessId === state.businessId
+        ? els.botRoutingSelector.value || routing.activeVariant || 'options' : routing.activeVariant || 'options'
+      state.botRoutingSelectionBusinessId = state.businessId
       els.botRoutingSelector.replaceChildren()
-      const legacyOption = document.createElement('option')
-      legacyOption.value = 'legacy-whatsapp'
-      legacyOption.textContent = 'Bot actual (legacy)'
-      els.botRoutingSelector.appendChild(legacyOption)
-      for (const configuration of routing.configurations || []) {
+      for (const choice of [{ variant: 'options', label: 'Bot de opciones' }, { variant: 'conversational', label: 'Nuevo bot' }]) {
         const option = document.createElement('option')
-        option.value = configuration.id
-        option.textContent = configuration.name + ' · ' + configuration.version
+        option.value = choice.variant
+        option.textContent = choice.label
         els.botRoutingSelector.appendChild(option)
       }
       els.botRoutingSelector.value = selected
+      const currentLabel = routing.activeVariant === 'conversational' ? 'Nuevo bot'
+        : routing.activeVariant === 'options' ? 'Bot de opciones'
+        : routing.engineKey === 'legacy-whatsapp' && state.aiSettings.bookingV2Enabled === true ? 'Booking V2 (asignación anterior)'
+        : 'Bot anterior (asignación conservada)'
       els.botRoutingStatus.textContent = routing.paused
-        ? 'Routing pausado: requiere resolución operativa'
-        : 'Routing actual: ' + (selected === 'legacy-whatsapp' ? 'bot legacy' : 'motor de opciones') + ' · generación ' + routing.generation
+        ? 'Cambio pausado: requiere resolución operativa. No se activó otro bot.'
+        : 'Bot actual: ' + currentLabel + ' · generación ' + routing.generation
       els.botRoutingStatus.className = routing.paused ? 'paused' : ''
       const preparation = routing.preparation || {}
       els.botRoutingTimezone.value = preparation.timezone || els.botRoutingTimezone.value || 'America/Argentina/Buenos_Aires'
-      els.botRoutingReadiness.textContent = preparation.ready
-        ? 'WhatsApp, App Secret y zona horaria configurados.'
-        : !preparation.hasAppSecret
-          ? 'Falta guardar el App Secret en Meta y WhatsApp.'
-          : !preparation.hasTimezone
-            ? 'Falta preparar la zona horaria del bot.'
-            : 'WhatsApp todavía no cumple todos los requisitos.'
-      els.botRoutingPrepare.disabled = routing.paused === true
-      els.botRoutingPreflight.disabled = routing.paused === true || (routing.configurations || []).length === 0
+      updateBotRoutingSelection()
+    }
+
+    function updateBotRoutingSelection() {
+      const routing = state.botRouting
+      if (!routing) return
+      const variant = els.botRoutingSelector.value
+      const preparation = routing.preparation || {}
+      const configuration = routingConfigurationForVariant(routing, variant)
+      const conversational = variant === 'conversational'
+      const aiReady = !conversational || preparation.conversationalAiReady === true
+      document.getElementById('bot-routing-help').textContent = conversational
+        ? 'El Nuevo bot interpreta las consultas y redacta con IA. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
+        : 'El Bot de opciones guía al cliente con menús y botones. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
+      els.botRoutingReadiness.textContent = !aiReady ? 'Falta habilitar y configurar la IA de WhatsApp en el servidor. No se puede activar el Nuevo bot todavía.'
+        : !preparation.hasAppSecret ? 'Falta guardar el App Secret en Meta y WhatsApp.'
+        : !preparation.whatsappReady ? 'WhatsApp todavía no cumple todos los requisitos.'
+        : !preparation.hasTimezone ? 'Falta preparar la zona horaria del bot.'
+        : configuration ? 'Configuración preparada. Revisá el cambio antes de activarlo.' : 'Prepará el bot elegido para poder revisar su activación.'
+      const disabled = routing.paused === true || state.botRoutingBusy === true
+      els.botRoutingSelector.disabled = disabled
+      els.botRoutingTimezone.disabled = disabled
+      els.botRoutingPrepare.disabled = disabled
+      els.botRoutingPrepare.textContent = 'Preparar ' + (conversational ? 'Nuevo bot' : 'Bot de opciones')
+      els.botRoutingPreflight.disabled = disabled || !configuration || !preparation.ready || !aiReady || configuration.id === routing.activeConfigurationId
     }
 
     async function prepareDefaultBotRouting() {
-      if (!state.businessId || !state.botRouting) return
+      const businessId = state.businessId
+      const routing = state.botRouting
+      const variant = els.botRoutingSelector.value
+      if (!businessId || !routing || state.botRoutingBusy) return
+      const isCurrent = () => state.businessId === businessId && state.botRouting === routing
       const timezone = els.botRoutingTimezone.value.trim()
       if (!timezone) {
         els.botRoutingEvidence.textContent = 'Ingresá la zona horaria del comercio.'
         els.botRoutingEvidence.className = 'settings-feedback visible error'
+        els.botRoutingTimezone.focus()
         return
       }
-      if (!setButtonLoading(els.botRoutingPrepare, true, 'Preparando...')) return
+      state.botRoutingBusy = true
+      updateBotRoutingSelection()
+      els.botRoutingEvidence.textContent = 'Preparando la configuración elegida, sin cambiar el bot actual...'
+      els.botRoutingEvidence.className = 'settings-feedback visible'
       try {
         await getJson('/crm/bot-routing/configurations/default', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, timezone })
+          body: JSON.stringify({ businessId, timezone, variant })
         })
-        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+        if (!isCurrent()) return
+        const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId))
+        if (!isCurrent()) return
+        state.botRouting = refreshed
         renderBotRoutingControl()
-        els.botRoutingEvidence.textContent = 'Bot de opciones F11 preparado. Seleccionalo y ejecutá el preflight para cambiar el routing.'
+        els.botRoutingEvidence.textContent = 'Configuración preparada. El bot actual no cambió. Revisá y confirmá para activar el elegido.'
         els.botRoutingEvidence.className = 'settings-feedback visible success'
       } catch (error) {
-        els.botRoutingEvidence.textContent = error.message
-        els.botRoutingEvidence.className = 'settings-feedback visible error'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = error.message
+          els.botRoutingEvidence.className = 'settings-feedback visible error'
+        }
       } finally {
-        setButtonLoading(els.botRoutingPrepare, false)
+        state.botRoutingBusy = false
+        updateBotRoutingSelection()
       }
     }
 
@@ -27825,65 +27844,93 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return Object.entries(labels).map(([key, label]) => label + ': ' + (counts[key] || '0')).join(' · ')
     }
 
-    async function abortBotRoutingPreflight(handle) {
+    async function abortBotRoutingPreflight(businessId, handle) {
       return getJson('/crm/bot-routing/abort', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessId: state.businessId, handle })
+        body: JSON.stringify({ businessId, handle })
       })
     }
 
     async function changeBotRouting() {
+      const businessId = state.businessId
       const routing = state.botRouting
-      const target = els.botRoutingSelector.value
-      if (!routing || !target) return
+      const variant = els.botRoutingSelector.value
+      const configuration = routing && routingConfigurationForVariant(routing, variant)
+      const target = configuration?.id
+      if (!businessId || !routing || !target || state.botRoutingBusy) return
+      const isCurrent = () => state.businessId === businessId && state.botRouting === routing
       const currentTarget = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId ? routing.activeConfigurationId : 'legacy-whatsapp'
       if (target === currentTarget) {
         els.botRoutingEvidence.textContent = 'Ese motor ya tiene el routing exclusivo.'
         els.botRoutingEvidence.className = 'settings-feedback visible'
         return
       }
-      els.botRoutingPreflight.disabled = true
+      state.botRoutingBusy = true
+      updateBotRoutingSelection()
       els.botRoutingEvidence.textContent = 'Pausando admisión y verificando estados protegidos...'
       els.botRoutingEvidence.className = 'settings-feedback visible'
       let preflight = null
       try {
         preflight = await getJson('/crm/bot-routing/preflight', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, expectedGeneration: routing.generation, target })
+          body: JSON.stringify({ businessId, expectedGeneration: routing.generation, target })
         })
+        if (!isCurrent()) {
+          await abortBotRoutingPreflight(businessId, preflight.handle)
+          return
+        }
         const evidence = routingCountsText(preflight.snapshot && preflight.snapshot.counts)
         if (preflight.kind !== 'CLEAN') {
           els.botRoutingEvidence.textContent = 'Cambio bloqueado (' + preflight.reason + '). ' + evidence
           els.botRoutingEvidence.className = 'settings-feedback visible error'
-          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+          try { await abortBotRoutingPreflight(businessId, preflight.handle) } catch (_) {}
           return
         }
         const accepted = await requestCrmConfirmation(
           'El preflight quedó limpio. Se descartarán sólo estados no protegidos. ' + evidence,
-          { title: 'Confirmar cambio exclusivo de routing', confirmLabel: 'Sí, cambiar routing', danger: target === 'legacy-whatsapp' }
+          { title: 'Confirmar cambio de bot', confirmLabel: 'Sí, activar el bot elegido' }
         )
-        if (!accepted) {
-          await abortBotRoutingPreflight(preflight.handle)
-          els.botRoutingEvidence.textContent = 'Cambio cancelado; el routing fue reanudado sin modificaciones.'
-          els.botRoutingEvidence.className = 'settings-feedback visible'
+        if (!isCurrent() || !accepted) {
+          await abortBotRoutingPreflight(businessId, preflight.handle)
+          if (isCurrent()) {
+            els.botRoutingEvidence.textContent = 'Cambio cancelado; el routing fue reanudado sin modificaciones.'
+            els.botRoutingEvidence.className = 'settings-feedback visible'
+          }
           return
         }
         await getJson('/crm/bot-routing/commit', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
+          body: JSON.stringify({ businessId, target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
         })
-        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
-        renderBotRoutingControl()
-        els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
-        els.botRoutingEvidence.className = 'settings-feedback visible success'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
+          els.botRoutingEvidence.className = 'settings-feedback visible success'
+        }
       } catch (error) {
         if (preflight?.kind === 'CLEAN') {
-          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+          try { await abortBotRoutingPreflight(businessId, preflight.handle) } catch (_) {}
         }
-        els.botRoutingEvidence.textContent = error.message
-        els.botRoutingEvidence.className = 'settings-feedback visible error'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = error.message
+          els.botRoutingEvidence.className = 'settings-feedback visible error'
+        }
       } finally {
-        els.botRoutingPreflight.disabled = state.botRouting?.paused === true
+        try {
+          const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId))
+          if (isCurrent()) {
+            state.botRouting = refreshed
+            renderBotRoutingControl()
+          }
+        } catch (_) {
+          if (isCurrent()) {
+            state.botRouting = { ...routing, paused: true }
+            els.botRoutingEvidence.textContent = 'No pude comprobar el estado actual. Recargá antes de volver a cambiar el bot.'
+            els.botRoutingEvidence.className = 'settings-feedback visible error'
+            renderBotRoutingControl()
+          }
+        }
+        state.botRoutingBusy = false
+        updateBotRoutingSelection()
       }
     }
 
@@ -38430,8 +38477,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
-    els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.botRoutingPreflight.addEventListener('click', changeBotRouting)
+    els.botRoutingSelector.addEventListener('change', updateBotRoutingSelection)
     els.botRoutingPrepare.addEventListener('click', prepareDefaultBotRouting)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
