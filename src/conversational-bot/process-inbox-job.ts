@@ -512,9 +512,16 @@ export async function processConversationInbox(input: {
       }
       let serverManagementSnapshot: CancellationSnapshot | undefined
       let runtimeManagementAllowed = false
+      let managementDraft: ReturnType<typeof readConversationDraft> | null = null
       if (payload.messageType === 'text' && !isRestart(payload.textBody)) {
-        const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
-        const ownManagement = draft.appointmentManagement?.context
+        // Management authority requires a strictly readable draft under the current policy.
+        // A replaced/legacy policy is handled by the protected-state guard and the existing
+        // reconciliation below; it must not fail before either can inspect it safely.
+        try { managementDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) }
+        catch { /* No current-policy draft means no management authority. */ }
+      }
+      if (managementDraft) {
+        const ownManagement = managementDraft.appointmentManagement?.context
         if (ownManagement?.source === 'own_lookup' && ownManagement.action === 'RESCHEDULE') {
           try {
             const own = await loadOwnAppointments(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
@@ -528,8 +535,8 @@ export async function processConversationInbox(input: {
           } catch (error) { if (!(error instanceof GroupCancellationError)) throw error }
         }
       }
-      if (parsed.state.booking === 'CONFIRMED' && ['NONE', 'APPROVED'].includes(parsed.state.deposit) && parsed.state.handoff === 'NONE' && payload.messageType === 'text' && !isRestart(payload.textBody)) {
-        const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
+      if (managementDraft && parsed.state.booking === 'CONFIRMED' && ['NONE', 'APPROVED'].includes(parsed.state.deposit) && parsed.state.handoff === 'NONE') {
+        const draft = managementDraft
         const requested = routeActions(String(payload.textBody ?? '')).pendingAction
         // Supply a verified snapshot for any confirmed turn. The IA, not a narrow
         // verb regex, decides whether a message asks to cancel or reprogram.

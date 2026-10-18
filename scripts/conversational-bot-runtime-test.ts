@@ -99,7 +99,7 @@ assert.ok(!mediaAdmission.writes.some(q => q.values.includes('RECEIVE_DEPOSIT_PR
 // Stateful offline client: execute the public entry, real engine, claims, CRM and persistView.
 // SQL tags identify statements; this proves orchestration/fencing, not PostgreSQL contention.
 type Query = { sql: string; text: string; values: unknown[] }
-type ResetFinancialTransport = { members: Record<string, unknown>[]; operations: Record<string, unknown>[];
+type ResetFinancialTransport = { members: Record<string, unknown>[]; operations: Record<string, unknown>[]; holdOperations: Record<string, unknown>[];
   proofJobs: Array<{ id: string; status: string; depositId: string; groupId: string }>; proofs: Array<{ id: string }>;
   failResetCas?: boolean }
 type FinancialReadFixture = { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[]; cancellation?: ResetFinancialTransport }
@@ -176,8 +176,16 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
         if (q.sql.includes('AS "groupId",origin,"professionalId"')) return [{ groupId: readConversationDraft(session!.state, { businessId, deploymentId: 'dep', generation: 1, configurationId: 'cfg' }, 'UTC').bookingReservation!.receipt!.coordinationGroupId, origin: 'BOT', professionalId: 'p1' }]
         if (q.sql.includes('WHERE a."coordinationGroupId"')) return structuredClone(financial.members)
         if (q.sql.includes('JOIN "Professional" p')) return [{ id: session!.sessionId }]
-        if (q.sql.includes("type='HOLD_VISIT_WITH_DEPOSIT'")) return [{ operationKey: 'conversation-booking:offline-hold', sessionId: session!.sessionId, requestHash: 'a'.repeat(64), status: 'COMPLETED' }]
-        if (q.sql.includes('FROM "BotOperation"') && q.values.includes('conversation-booking:offline-hold:segment:0:HOLD_VISIT_WITH_DEPOSIT')) return [{ businessId, sessionId: session!.sessionId, requestHash: 'b'.repeat(64), status: 'COMPLETED', type: 'HOLD_VISIT_WITH_DEPOSIT', resultRef: 'visit' }]
+        if (q.sql.includes('SELECT type FROM "BotOperation" WHERE "resultRef"=')) {
+          return financial.holdOperations.filter(operation => q.values.includes(operation.resultRef)).map(operation => ({ type: operation.type }))
+        }
+        if (q.sql.includes("type='HOLD_VISIT_WITH_DEPOSIT'")) {
+          return structuredClone(financial.holdOperations.filter(operation => operation.type === 'HOLD_VISIT_WITH_DEPOSIT' &&
+            q.values.includes(operation.businessId) && q.values.includes(operation.resultRef)))
+        }
+        if (q.sql.includes('FROM "BotOperation"') && q.values.includes('conversation-booking:offline-hold:segment:0:HOLD_VISIT_WITH_DEPOSIT')) {
+          return structuredClone(financial.holdOperations.filter(operation => q.values.includes(operation.operationKey)))
+        }
         if (q.sql.includes('FROM "BookingDeposit"') && q.sql.includes('FOR UPDATE')) return [{ id: 'deposit' }]
       }
       if(options.financialRead && q.sql.includes('runtime-booking-deposit-receipt'))return options.financialRead.rows
@@ -1321,7 +1329,12 @@ async function pendingResetRuntime(status = 'PENDING_PROOF') {
   reads.rows = reads.rows.map(row => ({ ...row, childHash: runtimeBookingChildRequestHash(runtimeBookingChildInput(presented, receipt.operationKey, 0, false), true),
     ...(status === 'APPROVED' ? { visitStatus: 'CONFIRMED', appointmentStatus: 'CONFIRMED' } : {}) }))
   runtime.session.state = projectConversationDraft(draft, barberResetPolicy)
-  reads.cancellation = { operations: [], proofs: [], proofJobs: [], members: [{
+  reads.cancellation = { operations: [], proofs: [], proofJobs: [], holdOperations: [
+    { operationKey: receipt.operationKey, businessId: barberResetId, sessionId: runtime.session.sessionId,
+      requestHash: 'a'.repeat(64), status: 'COMPLETED', type: 'HOLD_VISIT_WITH_DEPOSIT', resultRef: receipt.coordinationGroupId },
+    { operationKey: receipt.operationKey + ':segment:0:HOLD_VISIT_WITH_DEPOSIT', businessId: barberResetId, sessionId: runtime.session.sessionId,
+      requestHash: 'b'.repeat(64), status: 'COMPLETED', type: 'HOLD_VISIT_WITH_DEPOSIT', resultRef: 'visit' }
+  ], members: [{
     appointmentId: 'appointment', visitId: 'visit', professionalId: 'p1', businessId: barberResetId,
     customerId: 'customer', appointmentVersion: 0, visitVersion: 0, appointmentStatus: 'PENDING', visitStatus: 'HELD',
     depositStatus: status, depositId: 'deposit', depositBusinessId: barberResetId, depositVisitId: 'visit',
@@ -1342,6 +1355,22 @@ function clickPendingReset(runtime: ReturnType<typeof runtimeFixture>, index: nu
   runtime.row.expectedRevision = runtime.session.revision
   runtime.row.payload.conversationChoice = structuredClone(payloads[index])
 }
+// Missing/corrupt durable hold authority must still fail closed in this transport.
+for (const change of ['missing-parent', 'failed-parent', 'foreign-child-visit'] as const) {
+  const { runtime, reads } = await pendingResetRuntime()
+  const operations = reads.cancellation!.holdOperations
+  if (change === 'missing-parent') operations.splice(0, 1)
+  if (change === 'failed-parent') operations[0]!.status = 'FAILED'
+  if (change === 'foreign-child-visit') operations[1]!.resultRef = 'foreign-visit'
+  const before = structuredClone(reads), stateBefore = structuredClone(runtime.session)
+  runtime.next('/reset')
+  await assert.rejects(runtime.run('PROCESS_INBOX', { provider: async () => { throw new Error('invalid lineage must not call AI') }, timeoutMs: 10 }),
+    /coordinated deposit group scope, terms or membership mismatch/)
+  assert.deepEqual(reads, before, change + ' cannot mutate financial rows or operation history')
+  assert.deepEqual(runtime.session, stateBefore, change + ' cannot clear the protected conversation')
+}
+console.log('P21.5 durable hold parent/child transport authority fails closed: PASS')
+
 // Requesting reset with a current hold offers cancellation; it never silently cancels.
 for (const status of ['PENDING_PROOF', 'PROOF_RECEIVED', 'APPROVED']) {
   const { runtime, reads } = await pendingResetRuntime(status)
@@ -1774,7 +1803,7 @@ await handoffDuringAi.run('PROCESS_INBOX', { provider: async () => {
 }, timeoutMs: 4500 })
 assert.equal(handoffDuringAi.replies.length, 0, 'handoff acquired during AI suppresses outbox')
 console.log('conversational WhatsApp AI injection/fallback/fencing: PASS')
-const wrongTenantAi = runtimeFixture(); wrongTenantAi.row.customerCode = 'OTHER'
+const wrongTenantAi = runtimeFixture(); wrongTenantAi.row.configurationBusinessId = 'OTHER'
 let crossTenantCalls = 0
 await assert.rejects(wrongTenantAi.run('PROCESS_INBOX', { provider: async () => { crossTenantCalls++; return null }, timeoutMs: 4500 }), /invalid conversational runtime policy/)
 assert.equal(crossTenantCalls, 0, 'provider must never receive another tenant')
