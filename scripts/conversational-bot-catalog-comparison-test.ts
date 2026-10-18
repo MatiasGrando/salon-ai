@@ -32,20 +32,29 @@ function makePort(services: DialogueService[] = catalog): DialoguePort {
     information: async () => ({ businessId: context.businessId, name: 'Local', address: 'Calle 100', area: null, mapsUrl: null, hours: null,
       website: null, bookingUrl: null, whatsapp: null, email: null, instagram: null, facebook: null, tiktok: null, description: null }) }
 }
-async function say(message: string, operations: object[], previous: DialogueState = state, services = catalog, communicativeActs?: object) {
-  let calls = 0
-  const provider = Object.assign(async (_input: AiInterpretationInput) => {
-    calls++; return { ...base, ...(communicativeActs ? { communicativeActs } : {}), turnPlan: { version: 1, operations }, firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null } }
-  }, { respond: async () => { calls++; throw new Error('extra comparison/style call forbidden') } }) as AiInterpretationProvider
+async function say(message: string, operations: object[], previous: DialogueState = state, services = catalog, communicativeActs?: object, expectedInterpretationCalls: 1 | 2 = 1) {
+  let interpretationCalls = 0, responseCalls = 0
+  const provider = Object.assign(async (input: AiInterpretationInput) => {
+    interpretationCalls++
+    assert.equal(Boolean(input.repairFeedback), interpretationCalls === 2, 'only a bounded interpretation repair carries feedback')
+    return { ...base, ...(communicativeActs ? { communicativeActs } : {}), turnPlan: { version: 1, operations }, firstReply: { salutation: null, opening: 'Claro, te ayudo.', factIds: null, closing: null, variantChoices: null } }
+  }, { respond: async () => { responseCalls++; throw new Error('extra comparison/style call forbidden') } }) as AiInterpretationProvider
   const result = await respondWithAiInterpreter(context, previous, message, makePort(services), provider)
-  assert.equal(calls, 1); assert.equal(result.interpretation.aiCalls, 1)
+  assert.equal(interpretationCalls, expectedInterpretationCalls)
+  assert.equal(responseCalls, 0, 'a repair is not permission for another comparison/style call')
+  assert.equal(result.interpretation.aiCalls, expectedInterpretationCalls)
+  if (expectedInterpretationCalls === 2) {
+    assert.equal(result.interpretation.reason, 'invalid_output')
+    assert.deepEqual(result.interpretation.interpretationAttempts?.map(attempt => attempt.reason), ['invalid_output', 'invalid_output'])
+    assert.deepEqual(result.state, previous, 'a removed catalog target cannot select or rewrite the pending inquiry')
+  }
   assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined); assert.equal(result.handoffCommand, undefined)
   return result
 }
 
 const referenceOp = (message: string, serviceId = 'color') => ({ kind: 'service_reference', action: 'confirm', serviceId, evidence: message, confidence: 1 })
 const referenceActs = (message: string, kind = 'answer', field = 'service') => ({ version: 1, acts: [{ kind, field, evidence: message, confidence: 1, mention: null, operationIndexes: [0] }] })
-const reference = (message: string, previous: DialogueState, services = catalog) => say(message, [referenceOp(message)], previous, services, referenceActs(message))
+const reference = (message: string, previous: DialogueState, services = catalog, expectedInterpretationCalls: 1 | 2 = 1) => say(message, [referenceOp(message)], previous, services, referenceActs(message), expectedInterpretationCalls)
 await check('one related candidate is visible and clarified, never selected or handed off', async () => {
   const result = await say('quería unas mechas', [request('mechas', ['color'])])
   assert.match(result.reply, /Iluminación/); assert.match(result.reply, /relacionad|referís|resultado/)
@@ -169,7 +178,7 @@ await check('reference confirmation needs the actual live question and current c
   assert.notEqual((await reference('sí me refiero a ese', noQuestion)).state.serviceRequest?.referenceConfirmed, true)
   const renamed = await reference('sí me refiero a ese', initial.state, [cut, { ...color, name: 'Nombre nuevo' }, tint])
   assert.notEqual((renamed.state.serviceRequest as any)?.referenceConfirmed, true)
-  const removed = await reference('sí me refiero a ese', initial.state, [cut, tint])
+  const removed = await reference('sí me refiero a ese', initial.state, [cut, tint], 2)
   assert.notEqual((removed.state.serviceRequest as any)?.referenceConfirmed, true)
 })
 await check('reference answer coexists with semantic continuation, and selection stays explicit', async () => {

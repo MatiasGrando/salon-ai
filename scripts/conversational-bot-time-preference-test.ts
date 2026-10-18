@@ -88,12 +88,18 @@ const legacy = { intent: 'booking', serviceId: null, serviceEvidence: null, prof
 const fail: AiInterpretationProvider = async () => { throw new Error('offline provider failure') }
 const preservation = await respond(context, initial(), 'soy Matias quiero corte mañana después de las 13 con Ramiro', port, { serviceId: null, candidateIds: ['cut', 'woman'], correction: false, intent: 'booking' })
 assert.equal(preservation.state.customerName, 'Matias', 'legacy ambiguous service must preserve identity before returning')
-// First RED: fallback previously returns service ambiguity before explicit identity.
-const fallback = await respondWithAiInterpreter(context, initial(), 'soy Matias quiero corte mañana después de las 13 con Ramiro', port, fail)
-assert.equal(fallback.state.customerName, 'Matias', 'independent identity survives fallback ambiguity')
-assert.equal(fallback.state.date, '2026-10-03'); assert.equal(fallback.state.professionalNameHint, 'ramiro')
+// A failed interpreter is atomic: unvalidated identity/date/preference must not enter the draft.
+const fallbackBefore = initial(), fallbackReads = reads
+const fallback = await respondWithAiInterpreter(context, fallbackBefore, 'soy Matias quiero corte mañana después de las 13 con Ramiro', port, fail)
+assert.deepEqual(fallback.state, fallbackBefore)
+assert.equal(fallback.state.customerName, null); assert.equal(fallback.state.date, null)
+assert.equal(fallback.state.professionalNameHint, null); assert.equal(fallback.state.timePreference, undefined)
 assert.equal(fallback.state.slot, null); assert.equal(fallback.state.requestedTime, null)
-assert.deepEqual((fallback.state as any).timePreference, { kind: 'after', time: '13:00' })
+assert.equal(reads, fallbackReads, 'failed interpretation cannot search the agenda')
+assert.equal(fallback.interpretation.reason, 'provider_error')
+assert.equal(fallback.interpretation.decision.acceptedAction, 'preserve_after_failure')
+assert.equal(fallback.interpretation.interpretationAttempts?.length, 1)
+assert.equal(fallback.proposal, null); assert.equal(fallback.bookingCommand, undefined); assert.equal(fallback.managementCommand, undefined)
 const message = 'soy Matias Corte hombre mañana después de las 13'
 const result = await say(initial(), message, [serviceOp, dateOp, nameOp, pref({ kind: 'after', time: '13:00' })])
 assert.equal(result.state.pending, 'professional'); assert.equal(result.state.customerName, 'Matias')
@@ -183,11 +189,16 @@ await http({ message: 'hola', state: offered.state, services }, new AbortControl
 assert.deepEqual(JSON.parse(request.input).timePreference, { kind: 'after', time: '13:00' })
 assert.match(request.instructions, /time_preference/); assert.match(request.instructions, /inclusiv/); assert.ok(reads > 0)
 console.log('PASS temporal preferences, identity, snapshots, correction and offline AI contract')
-// Additional RED: fallback on a pre-existing basket must preserve explicit new identity and preference.
+// The same failure must retain a PRE-existing identity, basket and preference, not derive Juan.
+const basketBefore = structuredClone(ambiguity.state), basketReads = reads
 const basketFallback = await respondWithAiInterpreter(context, ambiguity.state, 'soy Juan mañana después de las 13', port, fail)
-assert.equal(basketFallback.state.customerName, 'Juan')
+assert.deepEqual(basketFallback.state, basketBefore)
+assert.equal(basketFallback.state.customerName, 'Matias')
 assert.deepEqual((basketFallback.state as any).timePreference, { kind: 'after', time: '13:00' })
 assert.equal(basketFallback.state.pending, 'service'); assert.equal(basketFallback.state.slot, null)
+assert.equal(reads, basketReads)
+assert.equal(basketFallback.interpretation.decision.acceptedAction, 'preserve_after_failure')
+assert.equal(basketFallback.proposal, null); assert.equal(basketFallback.bookingCommand, undefined); assert.equal(basketFallback.managementCommand, undefined)
 // Confidence is per field: a tentative preference must not become a stored filter or selection.
 const tentative = await say(restored, 'después de las 18', [{ ...pref({ kind: 'after', time: '18:00' }, 'después de las 18'), confidence: 0.6 }])
 assert.deepEqual((tentative.state as any).timePreference, { kind: 'after', time: '13:00' })
