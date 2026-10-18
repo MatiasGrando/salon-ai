@@ -1,5 +1,5 @@
 {
-  "status": "prepared_local_with_known_baseline_failure_not_published",
+  "status": "prepared_local_shared_migration_applied_with_known_baseline_failure_not_published",
   "sourceCommit": "3211bec0782ab8414662df7aef96a52493e106fe",
   "sourceCommits": {
     "backend": "a80c7b8dac830fb415144931ea635b9beb60ab5b",
@@ -10,7 +10,7 @@
   "baseline": {
     "descriptor": "odd/releases/weex-account-booking-origin-20261017.json",
     "manifestSha256": "dd5be3f7214e18f2295501d32acb720c00c9f0d6e6e9d878b6805475ad1c4ba0",
-    "liveStatus": "Local positive baseline only; current remote deployment/configuration/migration ledger not queried"
+    "liveStatus": "Local positive baseline only; authorized target migration applied and metadata/ledger freshly verified on 2026-10-18; current application deployment and configuration not reconciled or published"
   },
   "artifact": {
     "upload": ".codex-deploy/weex-account-self-service-20261018-3211bec/upload",
@@ -37,16 +37,36 @@
     "newMigrations": [
       "prisma/migrations/20261018010000_add_web_appointment_self_service/migration.sql"
     ],
-    "newMigrationAppliedToSharedDatabase": false
+    "newMigrationAppliedToSharedDatabase": true
   },
   "authorization": {
-    "localOnly": true,
+    "localOnly": false,
     "noPublication": true,
-    "noRemoteReads": true,
-    "noCredentials": true,
     "noBotOrWhatsAppOrVariablesChanges": true,
     "localScratchSqlAllowed": true,
-    "sharedMigrationRequiresSeparateAuthorization": true
+    "sharedMigrationRequiresSeparateAuthorization": false,
+    "applicationChangesLocalOnly": true,
+    "remoteMetadataReadsLimitedToAuthorizedMigration": true,
+    "existingCredentialUsedOnlyForAuthorizedMigration": true,
+    "sharedMigrationAuthorization": {
+      "status": "explicitly_granted_and_executed",
+      "name": "20261018010000_add_web_appointment_self_service",
+      "credentialSource": "DATABASE_URL in C:/Users/cpu/salon-ai/.env",
+      "operations": [
+        "technical_preflight",
+        "apply_exact_sql",
+        "record_only_target_migration",
+        "read_only_postverification"
+      ],
+      "exclusions": [
+        "application_publication",
+        "other_migrations",
+        "historical_ledger_repairs",
+        "backfill",
+        "customers_appointments_or_payment_DML",
+        "Google_Calendar_changes"
+      ]
+    }
   },
   "behavior": {
     "secureAttribution": "New account identity or exact existing browser capability; no editable-phone authority/backfill",
@@ -55,7 +75,8 @@
     "cancel": "Explicit confirmation, no automatic refund or deletion of history",
     "groupedAppointments": "All-or-nothing server transaction with revision/idempotency/authorization revalidation and agenda locks",
     "googleCalendarExternalSynchronization": false,
-    "forms": "Integrated non-resizable panel, no native dialogs, accessible44px controls, responsive320/390/768/820/1366"
+    "forms": "Integrated non-resizable panel, no native dialogs, accessible44px controls, responsive320/390/768/820/1366",
+    "googleCalendarExternalSynchronizationNote": "Existing creation stores eventId/accountId, but this web self-service writer does not update/cancel the external event. No additional synchronization implementation authorized by the explanatory question."
   },
   "checks": {
     "functionalSuites": 28,
@@ -211,6 +232,17 @@
         }
       ],
       "initial270Pass1FailureRetained": true
+    },
+    "sharedMigrationOperations": {
+      "offlinePassed": 16,
+      "offlineFailed": 0,
+      "freshInMemoryPGlite": true,
+      "distinctFromProductSql15": true,
+      "firstPreflightAbortedWithoutWrites": "APPOINTMENT_TRIGGER_ROW_SHAPE_UNSAFE",
+      "guardCorrection": "Allow only exact RETURN COALESCE(NEW, OLD) or reversed; reject row snapshots/comparisons/positional and other whole-row uses",
+      "guardRedProof": "operations/offline-results-coalesce-red.json",
+      "finalPreflightAndApplyExitCode": 0,
+      "independentReadOnlyPostverifyExitCode": 0
     }
   },
   "review": {
@@ -231,7 +263,7 @@
     "Global typecheck not approved; pre-existing secretary label assertion15/found20 not approved",
     "Static sites/locks byte-identical: no new static-site builds",
     "Synthetic browser sessions/APIs only, no real Google or physical iPad/Safari",
-    "Local package only; future publication needs explicit migration authorization and fresh remote reconciliation",
+    "Application remains local and unpublished; this exact shared migration is authorized and applied. Future publication still requires explicit authorization and fresh remote deployment/configuration reconciliation",
     "External Google Calendar events are not synchronized by this change",
     "Existing coordinated bot SQL control fails caller-session ownership on both exact prepared baseline and candidate. Unchanged75 bot modules do not include the newer control behavior; control remains unapproved and is not silently waived."
   ],
@@ -307,9 +339,48 @@
     "final-preparation-proof.json": {
       "sha256": "5ffc756e045b1a53404233aa5974e45342bee1f76125bf231a41e50e83b42eb3",
       "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/final-preparation-proof.json"
+    },
+    "operations/apply-result.json": {
+      "sha256": "f5bd7f056c5ed291e05b0ee86d6a7246dde95a3233dcfabc16c75383372920c0",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/operations/apply-result.json"
+    },
+    "operations/parent-postverify.json": {
+      "sha256": "79f96d09b9c21ff1366f0550e9fc2823d33977e99610e5168868cbbabe604767",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/operations/parent-postverify.json"
+    },
+    "operations/offline-results.json": {
+      "sha256": "06d2a814414f185e5e1590fc3212546c18dfb9d8e2199b2a5e87bda897f43210",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/operations/offline-results.json"
+    },
+    "operations/apply-self-service-migration.cjs": {
+      "sha256": "9b2f91f94ed064ceb46c04f2ab2473ec7f4df42d0bf06350b0b32c2d4fd40b52",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/operations/apply-self-service-migration.cjs"
+    },
+    "operations/offline-results-coalesce-red.json": {
+      "sha256": "d47354f39232754abd3ab416e8ca40a80e47790a39ee8526371584c6c6926fec",
+      "path": ".codex-deploy/weex-account-self-service-20261018-3211bec/operations/offline-results-coalesce-red.json"
     }
   },
-  "nextStep": "Parent records evidence and unresolved controls; no publication. Separate shared-migration permission and fresh remote preflight remain mandatory. Review or resolve the unchanged-bot baseline failure before any delivery gate requiring it.",
+  "nextStep": "Shared migration is applied and independently verified. Application publication is NOT authorized: obtain explicit publication authorization and fresh remote deployment/configuration reconciliation; resolve or explicitly accept the unchanged-bot baseline failure under the applicable delivery gate. External Google Calendar update/cancel remains unimplemented.",
   "readyForPublication": false,
-  "fixtureCommit": "caa30275c23dcfba079c74a9a85d004db5fa2118"
+  "fixtureCommit": "caa30275c23dcfba079c74a9a85d004db5fa2118",
+  "sharedMigration": {
+    "status": "applied_and_freshly_verified",
+    "name": "20261018010000_add_web_appointment_self_service",
+    "checksum": "67dbb40f6e90f843c97a61a0d0e05a97766f5f622e10ba7505a48874145366ad",
+    "committedAt": "2026-10-18T16:28:49.044Z",
+    "scriptSha256": "9b2f91f94ed064ceb46c04f2ab2473ec7f4df42d0bf06350b0b32c2d4fd40b52",
+    "targetFingerprint": "b189b21fb7cb9f66f5d49e74d1cc3980c1a11690c6384dd721e4474885959beb",
+    "preflightSha256": "df6ea69c79a81a508765c77b47ea768928a9d68981712524c979449c005f6e00",
+    "beforeFingerprint": "4f71000487762abebe7b9ac455bd04bc9ec4d862c70aecf99a3fb12a8467c4e2",
+    "afterFingerprint": "cf099e40eba12ae415847e9d1356abfdc0ed4bc79cdcbc8f20f1d35b7bac3bd2",
+    "verifiedFingerprint": "cf099e40eba12ae415847e9d1356abfdc0ed4bc79cdcbc8f20f1d35b7bac3bd2",
+    "protectedFingerprint": "4f71000487762abebe7b9ac455bd04bc9ec4d862c70aecf99a3fb12a8467c4e2",
+    "previousLedgerRowsPreserved": 215,
+    "newTargetLedgerRows": 1,
+    "businessRowsModified": false,
+    "otherMigrationsApplied": false,
+    "otherLedgerRowsModified": false,
+    "applicationPublished": false
+  }
 }
