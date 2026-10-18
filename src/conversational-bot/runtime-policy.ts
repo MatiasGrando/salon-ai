@@ -12,7 +12,7 @@ export function resolveConversationPolicy(row: PolicyRow): ConversationPolicy | 
       Object.keys(marker).sort().join(',') !== 'engine,schemaVersion' ||
       (marker as { schemaVersion?: unknown }).schemaVersion !== 1 ||
       (marker as { engine?: unknown }).engine !== 'conversational-booking-v1' ||
-      row.customerCode !== 'WX-38N6UG' || row.configurationBusinessId !== row.businessId || row.configurationStatus !== 'ACTIVE' ||
+      row.configurationBusinessId !== row.businessId || row.configurationStatus !== 'ACTIVE' ||
       row.engineKey !== 'deterministic-options' || !row.businessId || !row.deploymentId || !row.configurationId || !Number.isSafeInteger(row.generation) || row.generation < 1) {
     throw new Error('invalid conversational runtime policy')
   }

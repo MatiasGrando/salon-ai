@@ -33,7 +33,7 @@ const config = { businessId: 'biz', customerCode: 'WX-38N6UG', deploymentId: 'de
 const policy = resolveConversationPolicy(config)!
 assert.ok(policy)
 assert.equal(resolveConversationPolicy({ ...config, definition: {} }), null)
-for (const wrong of [{ customerCode: 'other' }, { configurationBusinessId: 'other' }, { configurationStatus: 'DRAFT' },
+for (const wrong of [{ configurationBusinessId: 'other' }, { configurationStatus: 'DRAFT' },
   { definition: { conversation: { schemaVersion: 2, engine: 'conversational-booking-v1' } } }]) {
   assert.throws(() => resolveConversationPolicy({ ...config, ...wrong }))
 }
