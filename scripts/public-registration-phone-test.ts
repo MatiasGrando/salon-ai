@@ -61,6 +61,9 @@ let writtenPhones: string[] = []
 let linkQuery: any = null
 let depositQuery: any = null
 let historyQuery: any = null
+let historyOwner: string | null = null
+let historyBusinessId = business.id
+let historyProfessionalBusinessId = business.id
 let deposit: any = null
 let links: any[] = []
 const app = Fastify()
@@ -102,11 +105,24 @@ try {
         ? [{ customerId: customer.id, professional: { businessId: business.id } }] : []
     }
     historyQuery = where
-    if (where.customerId?.in?.includes(customer.id) || (where.customer && matchesCustomerWhere(where.customer))) return [{
-      id: 'history-a', customer, service, professional: { ...professional, business },
+    const appointment = {
+      id: 'history-a', businessId: historyBusinessId, createdByWeexAccountId: historyOwner,
+      customer, service, professional: { ...professional, businessId: historyProfessionalBusinessId, business },
       status: 'CONFIRMED', startAt: new Date('2026-10-14T19:00:00.000Z'), totalDurationMinutes: 30
-    }]
-    return []
+    }
+    function matchesHistoryWhere(query: any): boolean {
+      if (query.OR && !query.OR.some(matchesHistoryWhere)) return false
+      if (query.AND && !query.AND.every(matchesHistoryWhere)) return false
+      if (query.businessId && query.businessId !== appointment.businessId) return false
+      if ('createdByWeexAccountId' in query && query.createdByWeexAccountId !== appointment.createdByWeexAccountId) return false
+      if (query.customerId?.in && !query.customerId.in.includes(appointment.customer.id)) return false
+      const businessFilter = query.professional?.businessId
+      if (businessFilter?.in && !businessFilter.in.includes(appointment.professional.businessId)) return false
+      if (typeof businessFilter === 'string' && businessFilter !== appointment.professional.businessId) return false
+      if (query.customer && !matchesCustomerWhere(query.customer)) return false
+      return true
+    }
+    return matchesHistoryWhere(where) ? [appointment] : []
   })
   replace(db.bookingDeposit, 'findFirst', async ({ where }: any) => {
     depositQuery = where
@@ -385,8 +401,53 @@ try {
     assert.equal(response.statusCode, 200, response.body)
     assert.equal(response.json().appointments[0].customer.id, customer.id)
     assert.equal(response.json().appointments[0].customer.phone, '4930123456')
-    assert.deepEqual(historyQuery.customerId.in, [customer.id])
-    assert.deepEqual(historyQuery.professional.businessId.in, [business.id])
+    assert.equal(historyQuery.businessId, business.id)
+    assert.deepEqual(historyQuery.OR, [
+      { createdByWeexAccountId: account.id },
+      { customerId: { in: [customer.id] }, professional: { businessId: { in: [business.id] } } }
+    ], 'account ownership and the exact legacy customer/business link must both remain scoped')
+  })
+  await test('authenticated account history includes its own appointment without a legacy phone link', async () => {
+    const previousLinks = links
+    links = []; historyOwner = account.id
+    try {
+      const response = await app.inject({ url: '/public/weex/appointments?businessSlug=phone-test', headers: cookie })
+      assert.equal(response.statusCode, 200, response.body)
+      assert.equal(response.json().appointments[0]?.customer.id, customer.id)
+      assert.equal(historyQuery.businessId, business.id)
+      assert.deepEqual(historyQuery.OR, [
+        { createdByWeexAccountId: account.id },
+        { customerId: { in: [] }, professional: { businessId: { in: [] } } }
+      ])
+    } finally { links = previousLinks; historyOwner = null }
+  })
+  await test('authenticated account history rejects foreign owners and non-exact legacy links', async () => {
+    const previousLinks = links
+    const exactLink = previousLinks[0]
+    assert.ok(exactLink)
+    const query = () => app.inject({ url: '/public/weex/appointments?businessSlug=phone-test', headers: cookie })
+    try {
+      for (const [label, owner, appointmentBusiness, professionalBusiness, linkedCustomer, linkedBusiness] of [
+        ['foreign owner without a link', 'account-other', business.id, business.id, null, business.id],
+        ['wrong legacy customer', null, business.id, business.id, 'customer-other', business.id],
+        ['foreign legacy business link', null, business.id, business.id, customer.id, 'business-other'],
+        ['foreign legacy account link', null, business.id, business.id, customer.id, business.id],
+        ['legacy professional outside the linked business', null, business.id, 'business-other', customer.id, business.id],
+        ['own appointment outside the requested business', account.id, 'business-other', 'business-other', null, business.id]
+      ] as const) {
+        historyOwner = owner
+        historyBusinessId = appointmentBusiness
+        historyProfessionalBusinessId = professionalBusiness
+        links = linkedCustomer ? [{ ...exactLink, customerId: linkedCustomer, businessId: linkedBusiness,
+          weexAccountId: label === 'foreign legacy account link' ? 'account-other' : account.id }] : []
+        const response = await query()
+        assert.equal(response.statusCode, 200, label + ': ' + response.body)
+        assert.deepEqual(response.json().appointments, [], label)
+      }
+    } finally {
+      links = previousLinks; historyOwner = null
+      historyBusinessId = business.id; historyProfessionalBusinessId = business.id
+    }
   })
   await test('Argentine legacy proof without normalized identity retains ownership', async () => {
     account.phone = '5491166558877'; customer.phone = '(011) 15-6655-8877'; customer.normalizedPhone = null
