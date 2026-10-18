@@ -62,17 +62,17 @@ export function setGuestBookingCookie(request: FastifyRequest, reply: FastifyRep
   reply.header('Cache-Control', 'no-store')
 }
 
-export async function resolveGuestBookingAccesses(request: FastifyRequest, businessId: string) {
+export async function resolveGuestBookingAccesses(request: FastifyRequest, businessId: string, client?: Prisma.TransactionClient) {
   const tokens = guestCookieTokens(request, businessId)
   if (!tokens.length) return []
-  const accesses = await prisma.guestBookingAccess.findMany({
+  const accesses = await (client ?? prisma).guestBookingAccess.findMany({
     where: { tokenHash: { in: tokens.map(hashToken) }, businessId, expiresAt: { gt: new Date() } }
   })
   const validAccesses = accesses.filter(access => access.businessId === businessId && access.expiresAt.getTime() > Date.now() &&
     access.appointmentIds.length > 0 && access.appointmentIds.length <= 5 &&
     new Set(access.appointmentIds).size === access.appointmentIds.length)
   if (!validAccesses.length) return []
-  const appointments = await prisma.appointment.findMany({
+  const appointments = await (client ?? prisma).appointment.findMany({
     where: { id: { in: [...new Set(validAccesses.flatMap(access => access.appointmentIds))] }, businessId, origin: 'WEB' },
     include: { service: true, professional: true }, orderBy: { startAt: 'asc' }
   })

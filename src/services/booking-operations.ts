@@ -72,6 +72,8 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
   serviceIds: readonly string[]
   startAt: Date
   excludeAppointmentId?: string
+  excludeAppointmentIds?: readonly string[]
+  contractedDurationMinutes?: { professional: number; customer: number }
   timezone?: string
   dbNow?: Date
 }) {
@@ -97,14 +99,17 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
 
   const servicesById = new Map(services.map((service) => [service.id, service]))
   const orderedServices = input.serviceIds.map((serviceId) => servicesById.get(serviceId)!)
-  const professionalDuration = orderedServices.reduce(
+  const professionalDuration = input.contractedDurationMinutes?.professional ?? orderedServices.reduce(
     (total, service) => total + reservationDurationLimits(service).professional,
     0
   )
-  const customerDuration = orderedServices.reduce(
+  const customerDuration = input.contractedDurationMinutes?.customer ?? orderedServices.reduce(
     (total, service) => total + reservationDurationLimits(service).business,
     0
   )
+  if (input.contractedDurationMinutes && ![professionalDuration, customerDuration].every(duration => Number.isSafeInteger(duration) && duration > 0 && duration <= 1440)) {
+    throw new Error('Invalid contracted booking duration')
+  }
   const professionalEndAt = addMinutes(input.startAt, professionalDuration)
   const customerEndAt = addMinutes(input.startAt, customerDuration)
 
@@ -132,6 +137,7 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
     startAt: input.startAt,
     endAt: professionalEndAt,
     ...(input.excludeAppointmentId ? { excludeAppointmentId: input.excludeAppointmentId } : {}),
+    ...(input.excludeAppointmentIds ? { excludeAppointmentIds: input.excludeAppointmentIds } : {}),
     ...(input.dbNow ? { dbNow: input.dbNow } : {})
   })
 

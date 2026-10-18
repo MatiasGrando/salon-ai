@@ -12,6 +12,8 @@ import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
 import { publishDepositUpdated } from '../services/crm-realtime-events.js'
 import { ensureGuestBookingCapacity, prepareGuestBookingAccess, persistGuestBookingAccess, resolveGuestBookingAccesses, setGuestBookingCookie } from '../services/guest-booking-access.js'
+import { persistWebBookingOwner, webSelfServiceSummary, webAppointmentManagement, webAppointmentRescheduleOptions,
+  mutateWebAppointment, WebAppointmentSelfServiceError } from '../services/web-appointment-self-service.js'
 import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import {
@@ -26,6 +28,48 @@ const appointmentService = new AppointmentService()
 const availabilityProvider = new InternalBookingProvider()
 
 export async function publicBookingRoutes(app: FastifyInstance) {
+  app.get('/public/booking/:slug/appointments/:appointmentId/manage', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const params = request.params as { slug: string; appointmentId: string }
+    const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
+    if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    try { return await webAppointmentManagement(prisma, { request, businessId: business.id, appointmentId: params.appointmentId }) }
+    catch (error) {
+      if (error instanceof WebAppointmentSelfServiceError) return reply.status(error.statusCode).send({ message: error.message })
+      throw error
+    }
+  })
+  app.get('/public/booking/:slug/appointments/:appointmentId/reschedule-options', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const params = request.params as { slug: string; appointmentId: string }
+    const query = request.query as { date?: string; professionalIds?: string }
+    const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
+    if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    try { return await webAppointmentRescheduleOptions(prisma, { request, businessId: business.id,
+      appointmentId: params.appointmentId, date: query.date || '',
+      professionalIds: typeof query.professionalIds === 'string' ? query.professionalIds.split(',') : undefined }) }
+    catch (error) {
+      if (error instanceof WebAppointmentSelfServiceError) return reply.status(error.statusCode).send({ message: error.message })
+      throw error
+    }
+  })
+  for (const action of ['reschedule', 'cancel'] as const) {
+    app.post('/public/booking/:slug/appointments/:appointmentId/' + action, async (request, reply) => {
+      reply.header('Cache-Control', 'no-store')
+      const params = request.params as { slug: string; appointmentId: string }
+      const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
+      if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+      try {
+        return await prisma.$transaction(transaction => mutateWebAppointment(transaction, { request,
+          businessId: business.id, appointmentId: params.appointmentId,
+          action: action === 'cancel' ? 'CANCEL' : 'RESCHEDULE', body: request.body }))
+      } catch (error) {
+        if (error instanceof WebAppointmentSelfServiceError) return reply.status(error.statusCode).send({ message: error.message })
+        request.log.error({ error, businessId: business.id }, 'No se completó la gestión web del turno')
+        return reply.status(409).send({ message: 'No se modificó la reserva. Actualizá los datos e intentá nuevamente.' })
+      }
+    })
+  }
   app.get('/public/booking/:slug/catalog', async (request, reply) => {
     const params = request.params as { slug: string }
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
@@ -301,14 +345,18 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         amount: depositCalculation.amount,
         expiresAt: depositExpiresAt
       } : null
-      }, guestAccess ? { afterCreateInTransaction: async ({ transaction, appointment }) => {
+      }, { afterCreateInTransaction: async ({ transaction, appointment }) => {
+        if (weexAuth) await persistWebBookingOwner(transaction, {
+          businessId: business.id, appointmentId: appointment.id, accountId: weexAuth.account.id
+        })
+        if (!guestAccess) return
         const created = appointment as typeof appointment & { bookingDeposit?: { id: string } | null }
         const grant = await persistGuestBookingAccess(transaction, {
           tokenHash: guestAccess.tokenHash, expiresAt: guestAccess.expiresAt, businessId: business.id,
           appointmentIds: [appointment.id], depositId: created.bookingDeposit?.id ?? null
         })
         guestBookingId = grant.id
-      } } : {})
+      } })
     } catch (error) {
       request.log.error({ error, businessId: business.id }, 'No se pudo guardar la reserva web completa')
       return reply.status(409).send({ message: 'No pudimos completar la reserva. Tus horarios no fueron confirmados; intenta nuevamente.' })
@@ -508,7 +556,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           status: 'PENDING',
           quotedPrice: resolved.estimate.priceMin,
           coordinationGroupId
-        }, undefined, { skipDefaultMarketingPreference: !weexAuth })
+        }, undefined, { skipDefaultMarketingPreference: !weexAuth,
+          afterCreateInTransaction: async ({ transaction, appointment }) => {
+            if (weexAuth) await persistWebBookingOwner(transaction, {
+              businessId: business.id, appointmentId: appointment.id, accountId: weexAuth.account.id
+            })
+          }
+        })
         if (!created.ok) throw new Error(created.message)
         appointmentIds.push(created.appointment.id)
       }
@@ -686,8 +740,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         where: { id: scope.access.depositId, businessId: business.id, source: 'WEB', appointmentId: { in: scope.access.appointmentIds } }
       }) : null
       if (scope.access.depositId && (!deposit || !scope.access.appointmentIds.includes(deposit.appointmentId))) return null
-      return { bookingId: scope.access.id, expiresAt: scope.access.expiresAt,
-        appointments: scope.appointments.map(publicGuestAppointment), deposit: publicGuestDeposit(deposit, scope.appointments, business) }
+        const selfService = scope.appointments.map(a => webSelfServiceSummary({ ...a,
+          bookingDeposit: deposit?.appointmentId === a.id ? deposit : null }, true))
+        const canManage = selfService.every(p => p.mode === 'direct')
+        return { bookingId: scope.access.id, expiresAt: scope.access.expiresAt,
+          appointments: scope.appointments.map(a => ({ ...publicGuestAppointment(a),
+            selfService: canManage ? selfService[0] : { mode: 'contact', canReschedule: false, canCancel: false,
+              reason: 'Esta reserva requiere la gestión del local. La seña y los pagos se conservan.' } })),
+          deposit: publicGuestDeposit(deposit, scope.appointments, business) }
     }))
     const bookings = summaries.filter((summary): summary is NonNullable<typeof summary> => summary !== null)
     const bookingId = (request.query as { bookingId?: string }).bookingId

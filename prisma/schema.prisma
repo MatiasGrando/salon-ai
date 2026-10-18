@@ -2018,6 +2018,7 @@ model WeexAccount {
 
   sessions      WeexAccountSession[]
   customerLinks WeexCustomerLink[]
+  createdAppointments Appointment[] @relation("WebAppointmentCreator")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2133,6 +2134,9 @@ model Appointment {
   totalDurationMinutes Int
   coordinationGroupId  String?
   version              Int                       @default(0)
+  /// Authority is captured from the creating session, never inferred from contact data.
+  createdByWeexAccountId String?
+  createdByWeexAccount WeexAccount? @relation("WebAppointmentCreator", fields: [createdByWeexAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   visitId String?       @unique
   visit   BookingVisit? @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2158,6 +2162,7 @@ model Appointment {
 
   @@unique([businessId, id])
   @@index([coordinationGroupId])
+  @@index([createdByWeexAccountId, businessId])
   @@index([businessId, startAt])
   @@index([professionalId, startAt])
 }
@@ -2179,6 +2184,22 @@ model AppointmentAccount {
   totalAdjustments AppointmentTotalAdjustment[]
 
   @@unique([businessId, id])
+  @@index([businessId, createdAt])
+}
+
+/// Append-only idempotency and audit for customer-initiated web changes.
+model WebAppointmentAction {
+  operationId    String   @id
+  businessId     String
+  appointmentIds String[]
+  actorType      String
+  actorId        String
+  action         String
+  requestHash    String
+  before         Json
+  after          Json
+  createdAt      DateTime @default(dbgenerated("clock_timestamp()"))
+
   @@index([businessId, createdAt])
 }
 

@@ -77,11 +77,13 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
   startAt: Date
   endAt: Date
   excludeAppointmentId?: string
+  excludeAppointmentIds?: readonly string[]
   dbNow?: Date
 }) {
-  const excluded = input.excludeAppointmentId
-    ? Prisma.sql`AND a."id" <> ${input.excludeAppointmentId}`
-    : Prisma.empty
+  const excludedIds = [...new Set([...(input.excludeAppointmentIds ?? []), ...(input.excludeAppointmentId ? [input.excludeAppointmentId] : [])])]
+  const excluded = input.excludeAppointmentIds?.length
+    ? Prisma.sql`AND a."id" NOT IN (${Prisma.join(excludedIds)})`
+    : input.excludeAppointmentId ? Prisma.sql`AND a."id" <> ${input.excludeAppointmentId}` : Prisma.empty
   const now = input.dbNow ? Prisma.sql`${input.dbNow}` : Prisma.sql`clock_timestamp()`
   const rows = await tx.$queryRaw<Array<{ overlaps: boolean }>>(Prisma.sql`
     SELECT EXISTS (

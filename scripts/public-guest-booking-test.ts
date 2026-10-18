@@ -92,6 +92,11 @@ try {
   replace(db.appointment, 'findMany', async ({ where }: any) => [...appointments.values()].filter(row =>
     (!where.id?.in || where.id.in.includes(row.id)) && (!where.businessId || row.businessId === where.businessId) &&
     (!where.origin || row.origin === where.origin)))
+  replace(db.appointment, 'updateMany', async ({ where, data }: any) => {
+    const row = appointments.get(where.id)
+    if (!row || row.businessId !== where.businessId || row.origin !== where.origin || row.createdByWeexAccountId != null) return { count: 0 }
+    Object.assign(row, data); return { count: 1 }
+  })
   replace(db.bookingDeposit, 'create', async ({ data }: any) => { const row = { ...data, id: 'deposit-' + deposits.size,
     status: 'PENDING_PROOF', updatedAt: new Date(), proofData: Buffer.from('PRIVATE') }; deposits.set(row.id, row); return row })
   replace(db.bookingDeposit, 'findFirst', async ({ where }: any) => {
@@ -205,6 +210,7 @@ try {
     business.allowGuestWebBooking = false
     const response = await requestBooking({}, { cookie: 'weex_account_session=synthetic' })
     assert.equal(response.statusCode, 200, response.body); assert.ok(!response.headers['set-cookie']); assert.equal(response.json().guest, undefined)
+    assert.equal(appointments.get(response.json().appointment.id).createdByWeexAccountId, account.id)
   })
   await check('single grant failure rolls appointment/deposit back and never emits cookie', async () => {
     business.allowGuestWebBooking = true; failGrant = true
