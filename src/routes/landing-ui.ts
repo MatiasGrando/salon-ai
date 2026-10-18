@@ -1900,6 +1900,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const slug = ${JSON.stringify(slug)}
           const backPath = ${JSON.stringify(landingReturnPath)}
           const accountPath = ${JSON.stringify(accountPath)}
+          ${appointmentSelfServiceClient()}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const baseDomain = ${JSON.stringify(baseDomain)}
@@ -3417,8 +3418,26 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (stepId === 'details') renderDetailsStep()
             if (stepId === 'professional') renderProfessionalStep()
             if (stepId === 'time') void renderTimeStep()
-            if (stepId === 'confirm') renderConfirmStep()
+            if (stepId === 'confirm') {
+              renderConfirmStep()
+              if (state.guestBooking && state.bookingView === 'detail' && state.guestAppointments?.length) renderGuestAppointmentManagement()
+            }
             renderSummary()
+          }
+
+          function renderGuestAppointmentManagement() {
+            const host = document.createElement('div')
+            host.className = 'appointment-management-host'
+            els.content.appendChild(host)
+            mountAppointmentManager(host, {
+              slug, appointmentId: state.guestAppointments[0].id, appointments: state.guestAppointments,
+              timeZone: state.catalog.business?.timezone,
+              contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
+              onUpdated: async () => {
+                await refreshGuestBooking()
+                setFeedback('Cambios guardados. Revis\u00e1 el estado actualizado de tu reserva.', 'info')
+              }
+            })
           }
 
           els.content.addEventListener('click', (event) => {
@@ -3612,6 +3631,154 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
   })
 }
 
+function appointmentSelfServiceClient() {
+  return String.raw`
+          function mountAppointmentManager(host, config) {
+            if (!host) return { ready: Promise.resolve() }
+            const url = '/public/booking/' + encodeURIComponent(config.slug) + '/appointments/' + encodeURIComponent(config.appointmentId)
+            let data = null, view = 'home', busy = false, notice = '', accessLost = false
+            let options = [], selected = null, date = '', professionals = [], pendingOperation = null
+            const active = () => host.isConnected !== false
+            const permission = (action) => data?.selfService?.mode === 'direct' && data.selfService[action] === true && !accessLost
+            const e = (value) => escapeHtml(value == null ? '' : value)
+            const appointments = () => data?.appointments || config.appointments || []
+            const localDate = (value) => {
+              const parts = new Intl.DateTimeFormat('en-CA', { timeZone: config.timeZone || 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value))
+              return ['year', 'month', 'day'].map((key) => parts.find((part) => part.type === key)?.value || '').join('-')
+            }
+            const dateTime = (value) => new Intl.DateTimeFormat('es-AR', { timeZone: config.timeZone || 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
+            function contact() {
+              let href = ''
+              try { const link = new URL(config.contactUrl); if (link.protocol === 'https:' && link.hostname === 'wa.me' && !link.username && !link.password && /^\/[0-9]+$/.test(link.pathname)) href = link.href } catch {}
+              return href ? '<a class="self-service-contact" href="' + e(href) + '" target="_blank" rel="noopener noreferrer">Solicitar cambio o cancelaci&oacute;n al local</a>'
+                : '<p class="self-service-note">No hay un contacto publicado para este comercio. Comunicate directamente con el local para solicitar el cambio.</p>'
+            }
+            function table(items, upcoming = false) {
+              return '<div class="self-service-table-wrap"><table><caption>' + (upcoming ? 'Nuevo horario solicitado' : 'Reserva actual completa') + '</caption><thead><tr><th scope="col">Servicio / profesional</th><th scope="col">Fecha y hora</th></tr></thead><tbody>' + items.map((item) => {
+                const saved = upcoming ? appointments().find((appointment) => appointment.id === item.appointmentId) : item
+                const duration = saved?.totalDurationMinutes ?? saved?.service?.duration
+                const price = saved?.quotedPrice ?? saved?.service?.price
+                const priceLabel = price != null && Number.isFinite(Number(price)) ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(price)) : 'Precio a consultar'
+                return '<tr><td><strong>' + e(item.serviceName || item.service?.name || 'Servicio') + '</strong><span>' + e(item.professionalName || item.professional?.name || '') + '</span><small>' + e(duration == null ? '' : duration + ' min · ') + e(priceLabel) + '</small></td><td>' + e(dateTime(item.startAt)) + '</td></tr>'
+              }).join('') + '</tbody></table></div>'
+            }
+            function button(action, text, extra = '') {
+              return '<button type="button" data-self-action="' + action + '"' + (busy ? ' disabled' : '') + extra + '>' + text + '</button>'
+            }
+            function fields() {
+              return '<div class="self-service-fields"><label>Nuevo d&iacute;a<input type="date" data-self-date value="' + e(date) + '" min="' + e(localDate(new Date())) + '"' + (busy ? ' disabled' : '') + '></label>' + appointments().map((appointment, index) => {
+                const choices = data.selfService.professionalChoices?.find((item) => item.appointmentId === appointment.id)?.professionals || []
+                return '<label>' + e(appointment.service.name) + ': profesional<select data-self-professional="' + e(appointment.id) + '"' + (busy ? ' disabled' : '') + '>' + choices.map((professional) => '<option value="' + e(professional.id) + '"' + (professionals[index] === professional.id ? ' selected' : '') + '>' + e(professional.name) + '</option>').join('') + '</select></label>'
+              }).join('') + '</div>'
+            }
+            function renderPanel(focus = false) {
+              if (!active()) return
+              let title = 'Gestionar esta reserva', content = '', actions = ''
+              if (!data) {
+                content = busy ? '<p class="self-service-note">Cargando acciones disponibles...</p>' : contact()
+                if (!busy && !accessLost) actions = button('retry', 'Volver a cargar')
+              } else if (view === 'success') {
+                title = 'Cambio registrado'
+                content = table(appointments()) + '<p class="self-service-note">El historial, la se&ntilde;a y los pagos se conservan. Cualquier devoluci&oacute;n se gestiona con el local.</p>'
+              } else if (view === 'cancel' && permission('canCancel')) {
+                title = 'Cancelar esta reserva'
+                content = table(appointments()) + '<p class="self-service-warning">Se cancelar&aacute;n todos los servicios de este pedido. Esto no realiza una devoluci&oacute;n autom&aacute;tica de la se&ntilde;a ni de otros pagos; coordin&aacute; cualquier devoluci&oacute;n con el local.</p>'
+                actions = button('back', 'Conservar la reserva') + button('confirm-cancel', busy ? 'Cancelando...' : 'Confirmar cancelaci&oacute;n', ' class="self-service-danger"')
+              } else if (view === 'reschedule' && permission('canReschedule')) {
+                title = 'Reprogramar esta reserva'
+                content = '<p class="self-service-note">Eleg&iacute; otro d&iacute;a u otro profesional. Los servicios, precios, se&ntilde;a y pagos no cambian.</p>' + fields() + '<div class="self-service-actions">' + button('find-options', busy ? 'Buscando horarios...' : 'Buscar horarios disponibles') + '</div>'
+                if (options.length) content += '<fieldset class="self-service-options"><legend>Horarios disponibles</legend>' + options.map((option) => button('select-option', e(option.time) + ' <span>' + e(option.segments.map((segment) => segment.serviceName + ' con ' + segment.professionalName + ' · ' + dateTime(segment.startAt)).join(' / ')) + '</span>', ' data-self-option="' + e(option.id) + '" aria-pressed="' + String(selected?.id === option.id) + '"')).join('') + '</fieldset>'
+                if (selected) content += '<section class="self-service-comparison" aria-label="Revisar cambio"><h4>Antes</h4>' + table(appointments()) + '<h4>Despu&eacute;s</h4>' + table(selected.segments, true) + '<p class="self-service-note">S&oacute;lo cambia el horario o el profesional. Conservamos los servicios, los importes, la se&ntilde;a y los pagos. El horario se verifica nuevamente al confirmar.</p></section>'
+                actions = button('back', 'Volver sin cambios') + (selected ? button('confirm-reschedule', busy ? 'Guardando cambio...' : 'Confirmar cambio', ' class="self-service-primary"') : '')
+              } else {
+                content = table(appointments()) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
+                if (permission('canReschedule')) actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
+                if (permission('canCancel')) actions += button('cancel', 'Cancelar reserva', ' class="self-service-danger"')
+                if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti&oacute;n del local.') + '</p>' + contact()
+              }
+              host.innerHTML = '<section class="appointment-management" aria-busy="' + String(busy) + '"><header class="self-service-header"><h3 tabindex="-1" data-self-title>' + title + '</h3></header><div class="self-service-feedback" role="status" aria-live="polite"' + (notice ? '' : ' hidden') + '>' + e(notice) + '</div><div class="self-service-body">' + content + '</div>' + (actions ? '<footer class="self-service-actions">' + actions + '</footer>' : '') + '</section>'
+              if (focus) host.querySelector('[data-self-title]')?.focus()
+            }
+            async function request(path, payload) {
+              const response = await fetch(url + path, payload ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) } : { credentials: 'same-origin' })
+              const result = await response.json().catch(() => ({}))
+              if (!response.ok) { const error = new Error(result.message || 'No pudimos completar la operaci\u00f3n.'); error.status = response.status; throw error }
+              return result
+            }
+            async function load(message = '') {
+              busy = true; notice = message; renderPanel()
+              try {
+                const result = await request('/manage')
+                if (!active()) return
+                data = result; accessLost = false; view = 'home'; options = []; selected = null; pendingOperation = null
+              } catch (error) {
+                if (!active()) return
+                data = null; notice = error.message; accessLost = [401, 403, 404].includes(error.status)
+              } finally { busy = false; renderPanel() }
+            }
+            function readFields() {
+              date = host.querySelector('[data-self-date]')?.value || date
+              const controls = [...host.querySelectorAll('[data-self-professional]')]
+              professionals = appointments().map((appointment, index) => controls.find((control) => control.dataset.selfProfessional === appointment.id)?.value || professionals[index])
+            }
+            async function findOptions() {
+              if (!permission('canReschedule')) return
+              readFields(); selected = null; options = []; pendingOperation = null
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || professionals.some((value) => !value)) { notice = 'Eleg\u00ed un d\u00eda y un profesional para cada servicio.'; renderPanel(); return }
+              busy = true; notice = ''; renderPanel()
+              try {
+                const result = await request('/reschedule-options?date=' + encodeURIComponent(date) + '&professionalIds=' + professionals.map(encodeURIComponent).join(','))
+                if (!active()) return
+                data.selfService = result.selfService; options = Array.isArray(result.options) ? result.options : []
+                if (!options.length) notice = 'No hay horarios disponibles para esa selecci\u00f3n. Prob\u00e1 otro d\u00eda o profesional.'
+              } catch (error) { if (active()) { notice = error.message; if ([401, 403, 404].includes(error.status)) { accessLost = true; view = 'home' } } }
+              finally { busy = false; renderPanel() }
+            }
+            async function submit(action) {
+              if (action === 'cancel' ? !permission('canCancel') || view !== 'cancel' : !permission('canReschedule') || view !== 'reschedule' || !selected) return
+              if (!pendingOperation) {
+                if (!globalThis.crypto?.randomUUID) { notice = 'No pudimos iniciar un cambio seguro. Comunicate con el local.'; renderPanel(); return }
+                pendingOperation = { revision: data.selfService.revision, operationId: crypto.randomUUID(), ...(action === 'cancel' ? { confirmed: true } : { date, professionalIds: professionals.slice(), optionId: selected.id }) }
+              }
+              busy = true; notice = ''; renderPanel()
+              try {
+                const result = await request('/' + action, pendingOperation)
+                if (!active()) return
+                data = result; view = 'success'; selected = null; options = []; pendingOperation = null
+                notice = action === 'cancel' ? 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.' : 'La reserva fue reprogramada. Tu se\u00f1a y tus pagos se conservan.'
+                renderPanel(true)
+                try { await config.onUpdated?.(result) } catch { if (active()) notice += ' Actualiz\u00e1 la p\u00e1gina para ver el estado m\u00e1s reciente.' }
+              } catch (error) {
+                if (!active()) return
+                notice = error.message
+                if (error.status === 409) { busy = false; await load(error.message + ' Revis\u00e1 la reserva actual antes de volver a intentar.'); return }
+                if ([401, 403, 404].includes(error.status)) { accessLost = true; view = 'home'; pendingOperation = null }
+              } finally { busy = false; renderPanel() }
+            }
+            host.addEventListener('click', async (event) => {
+              const target = event.target.closest('[data-self-action]')
+              if (!target || !host.contains(target) || busy || !active()) return
+              event.preventDefault()
+              const action = target.dataset.selfAction
+              if (action === 'retry' && !accessLost) { await load(); return }
+              if (action === 'back') { view = 'home'; selected = null; options = []; pendingOperation = null; notice = ''; renderPanel(true); return }
+              if (action === 'reschedule' && permission('canReschedule')) { view = 'reschedule'; date = localDate(appointments()[0].startAt); professionals = appointments().map((appointment) => appointment.professional.id); notice = ''; renderPanel(true); return }
+              if (action === 'cancel' && permission('canCancel')) { view = 'cancel'; pendingOperation = null; notice = ''; renderPanel(true); return }
+              if (action === 'find-options') { await findOptions(); return }
+              if (action === 'select-option' && view === 'reschedule') { selected = options.find((option) => option.id === target.dataset.selfOption) || null; pendingOperation = null; notice = ''; renderPanel(); return }
+              if (action === 'confirm-cancel') await submit('cancel')
+              if (action === 'confirm-reschedule') await submit('reschedule')
+            })
+            host.addEventListener('change', (event) => {
+              if (busy || view !== 'reschedule' || !active()) return
+              if (!event.target.matches('[data-self-date]') && !event.target.matches('[data-self-professional]')) return
+              readFields(); selected = null; options = []; pendingOperation = null; notice = 'Busc\u00e1 los horarios disponibles para esta nueva selecci\u00f3n.'; renderPanel()
+            })
+            return { ready: load() }
+          }
+`
+}
+
 function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
@@ -3756,6 +3923,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
+          ${appointmentSelfServiceClient()}
           const state = {
             tab: 'profile',
             user: null,
@@ -4061,11 +4229,21 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 '<span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
                 '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</strong></span>' +
               '</div>' +
+              '<div class="appointment-management-host" id="account-appointment-management"></div>' +
               '<div class="detail-actions">' +
                 '<a class="primary" href="${escapeAttribute(bookingUrl)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg>Volver a reservar</a>' +
                 '<a href="${escapeAttribute(basePath)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
               '</div>' +
               '</div>'
+            mountAppointmentManager(document.getElementById('account-appointment-management'), {
+              slug, appointmentId: appointment.id, appointments: [appointment],
+              timeZone: ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')},
+              contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
+              onUpdated: async () => {
+                await loadHistory()
+                setFeedback('Cambios guardados. Revis\u00e1 el estado actualizado de tu reserva.', 'info')
+              }
+            })
           }
 
           function setFeedback(message, type) {
@@ -6985,6 +7163,58 @@ function htmlPage(input: {
       color: #747480;
       font-size: 14px;
     }
+    .appointment-management-host { width: 100%; min-width: 0; margin-top: 22px; }
+    .appointment-management {
+      width: 100%; min-width: 0; padding: clamp(14px, 2vw, 22px);
+      color: var(--booking-ink, #242427); background: var(--booking-surface, #FFFFFF);
+      border: 1px solid var(--booking-border, #E1DDD4); border-radius: 12px;
+      font-family: var(--font-sans); overflow-wrap: anywhere; color-scheme: light;
+    }
+    .booking-theme-dark .appointment-management { color-scheme: dark; }
+    .appointment-management [hidden] { display: none !important; }
+    .appointment-management .self-service-header { margin: 0 0 16px; }
+    .appointment-management h3 { margin: 0; font-size: clamp(17px, 1.8vw, 21px); line-height: 1.3; }
+    .appointment-management h4 { margin: 18px 0 8px; font-size: 15px; }
+    .appointment-management .self-service-body { display: grid; gap: 16px; min-width: 0; }
+    .appointment-management .self-service-note,
+    .appointment-management .self-service-warning {
+      display: block; margin: 0; color: var(--booking-secondary-ink, #5C5860); font-size: 14px; line-height: 1.55;
+    }
+    .appointment-management .self-service-warning { padding: 14px; color: #722727; background: #FFF1EF; border-radius: 8px; }
+    .appointment-management .self-service-feedback { margin: 0 0 16px; padding: 12px; border-radius: 8px; color: var(--booking-ink, #242427); background: var(--booking-accent-soft, #F0F3FA); font-size: 14px; line-height: 1.5; }
+    .appointment-management .self-service-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
+    .appointment-management label { display: grid; gap: 8px; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
+    .appointment-management input,
+    .appointment-management select { min-width: 0; width: 100%; min-height: 44px; padding: 10px; color: var(--booking-ink, #242427); background: var(--booking-surface, #FFFFFF); border: 1px solid var(--booking-secondary-ink, #77717A); border-radius: 8px; font: inherit; font-size: 16px; }
+    .appointment-management .self-service-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; min-width: 0; }
+    .appointment-management .self-service-body > .self-service-actions { margin-top: 0; }
+    .appointment-management button,
+    .appointment-management .self-service-contact { display: inline-flex; align-items: center; justify-content: center; min-width: 0; max-width: 100%; min-height: 44px; padding: 11px 14px; color: var(--booking-ink, #242427); background: var(--booking-surface, #FFFFFF); border: 1px solid var(--booking-secondary-ink, #77717A); border-radius: 8px; font: inherit; font-size: 14px; font-weight: 700; line-height: 1.4; text-align: center; white-space: normal; cursor: pointer; touch-action: manipulation; }
+    .appointment-management .self-service-primary { color: var(--booking-on-cta, #FFFFFF); background: var(--booking-cta, #242427); border-color: var(--booking-cta, #242427); }
+    .appointment-management .self-service-danger { color: #8E2424; background: #FFF5F3; border-color: #D8A39E; }
+    .appointment-management button:disabled,
+    .appointment-management input:disabled,
+    .appointment-management select:disabled { color: var(--booking-secondary-ink, #5C5860); background: var(--booking-surface, #FFFFFF); border-color: var(--booking-secondary-ink, #77717A); opacity: 1; cursor: wait; }
+    .appointment-management :focus-visible { outline: 3px solid var(--booking-accent, #376DB8); outline-offset: 3px; }
+    .appointment-management .self-service-options { display: grid; gap: 10px; min-width: 0; padding: 0; border: 0; }
+    .appointment-management .self-service-options legend { margin-bottom: 12px; font-size: 14px; font-weight: 700; }
+    .appointment-management .self-service-options button { width: 100%; display: grid; justify-content: start; text-align: left; gap: 5px; }
+    .appointment-management .self-service-options button[aria-pressed="true"] { color: var(--booking-ink, #242427); border-color: var(--booking-accent, #376DB8); background: var(--booking-accent-soft, #EDF3FC); }
+    .appointment-management .self-service-options span { font-size: 12px; font-weight: 500; }
+    .appointment-management .self-service-table-wrap { min-width: 0; width: 100%; }
+    .appointment-management table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+    .appointment-management caption { margin: 0 0 8px; text-align: left; font-weight: 700; }
+    .appointment-management th,
+    .appointment-management td { padding: 10px 6px; vertical-align: top; text-align: left; border-bottom: 1px solid #E5E1D9; overflow-wrap: anywhere; }
+    .appointment-management td span,
+    .appointment-management td small { display: block; margin-top: 5px; }
+    @media (max-width: 680px) {
+      .appointment-management .self-service-fields { grid-template-columns: minmax(0, 1fr); }
+      .appointment-management .self-service-actions > * { width: 100%; }
+      .appointment-management th,
+      .appointment-management td { padding: 9px 4px; font-size: 12px; }
+    }
+
     .history-detail {
       min-height: 524px;
       overflow: hidden;
