@@ -220,7 +220,11 @@
     "receipt": null,
     "codeSharedExternally": false,
     "subsequentControlsUnchanged": true,
-    "validationClosure": "Pending separate native decision; original 15-file source omission is not extended to the added phone fixture"
+    "validationClosure": "Human explicitly declined only the updated 18-file validation/preparation closure review; no code shared, no receipt or technical approval, future controls unchanged",
+    "decisions": {
+      "backendAndUi15Files": "human_declined",
+      "updatedClosure18Files": "human_declined"
+    }
   },
   "limitations": [
     "No native PostgreSQL multi-session concurrency or complete historical migration-chain execution",
