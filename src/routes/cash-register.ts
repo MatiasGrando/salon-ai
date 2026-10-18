@@ -194,7 +194,10 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
         ...(query.sessionId === undefined ? {} : { cashSessionId: query.sessionId }),
         ...(query.q === undefined ? {} : { query: query.q })
       })
-      return { entries: page.entries, nextCursor: page.nextCursor, permissions: cashPermissionSnapshot(request.auth!.user) }
+      const canCorrectService = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(request.auth!.user.role) ||
+        (request.auth!.user.role === 'BUSINESS_ADMIN' && request.auth!.user.businessId === access.businessId)
+      const entries = canCorrectService ? page.entries : page.entries.map(({ serviceCorrectionAppointmentId: _appointmentId, ...entry }) => entry)
+      return { entries, nextCursor: page.nextCursor, permissions: cashPermissionSnapshot(request.auth!.user) }
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -578,6 +581,22 @@ function validation(reply: FastifyReply, message: string) {
 
 export function sendCashError(reply: FastifyReply, error: unknown) {
   const code = error instanceof CashServiceError || error instanceof CashDomainError ? error.code : 'INTERNAL_ERROR'
+  if (code === 'BUSINESS_ADMIN_REQUIRED') return reply.status(403).send({ code, message: 'Se requiere un administrador activo con acceso a este local para corregir el servicio realizado' })
+  const correctionErrors: Record<string, string> = {
+    COMPLETED_SINGLE_SERVICE_APPOINTMENT_REQUIRED: 'La corrección requiere un turno realizado de un único servicio',
+    SERVICE_CORRECTION_SHARED_ACCOUNT: 'Esta visita comparte su cuenta con otros turnos y requiere una corrección conjunta',
+    SERVICE_CORRECTION_STALE: 'El servicio cambió. Actualizá el detalle antes de corregirlo',
+    SERVICE_CORRECTION_REQUEST_CONFLICT: 'La solicitud ya fue utilizada con otros datos. Volvé a abrir la corrección',
+    SERVICE_CORRECTION_FIXED_PRICE_REQUIRED: 'La corrección requiere una cuenta y un servicio de destino con precio fijo',
+    PROFESSIONAL_SERVICE_MISMATCH: 'El profesional no realiza ese servicio en este local',
+    DISCOUNT_EXCEEDS_NEW_TOTAL: 'El descuento actual supera el nuevo total. Revisalo antes de corregir el servicio',
+    SERVICE_UNCHANGED: 'Elegí un servicio diferente al actual',
+    SERVICE_CORRECTION_COMPENSATION_REQUIRED: 'No se pudo recalcular la liquidación del turno'
+  }
+  if (correctionErrors[code]) return reply.status(409).send({ code, message: correctionErrors[code] })
+  if (['SERVICE_REQUIRED', 'SERVICE_CORRECTION_REQUEST_REQUIRED', 'SERVICE_CORRECTION_REASON_REQUIRED', 'SERVICE_CORRECTION_ACTOR_REQUIRED', 'SERVICE_CORRECTION_REFUND_CONTEXT_REQUIRED', 'SERVICE_PRICE_REQUIRED'].includes(code)) {
+    return reply.status(400).send({ code, message: 'Revisá el servicio, el motivo y los datos de devolución' })
+  }
   if (code === 'CASH_PERMISSION_REQUIRED') {
     return reply.status(403).send({ code, message: 'No tenés permiso para corregir este movimiento' })
   }

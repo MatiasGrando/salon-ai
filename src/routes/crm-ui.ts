@@ -15198,6 +15198,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .agenda-gcal-actions {
       margin-left: auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .agenda-gcal-actions > * {
+      flex-shrink: 0;
+    }
+
+    .agenda-gcal-drag-lock {
+      flex: 0 0 auto;
+      min-height: 38px;
+      margin: 0;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      color: #334155;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .agenda-gcal-drag-lock input {
+      flex: 0 0 17px;
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      padding: 0;
+      accent-color: #2563eb;
+    }
+
+    .agenda-gcal-drag-lock:focus-within {
+      outline: 2px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    .agenda-drag-locked .agenda-gcal-event,
+    .agenda-drag-locked .agenda-event {
+      touch-action: pan-x pan-y pinch-zoom;
+      cursor: pointer;
+    }
+
+    .agenda-drag-locked .agenda-gcal-scroll,
+    .agenda-drag-locked .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
+      touch-action: pan-x pan-y pinch-zoom;
     }
 
     .agenda-gcal-icon,
@@ -15256,6 +15305,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-view-select {
+      flex: 0 0 auto;
+      width: auto;
       min-width: 94px;
       padding: 0 10px;
     }
@@ -16162,7 +16213,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       [data-agenda-mobile-menu] { order: 1; }
       .agenda-gcal-title { order: 2; flex: 1 1 120px; min-width: 0; padding: 0 4px; font-size: 20px; }
       .agenda-gcal-nav { order: 3; }
-      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; overflow-x: auto; }
+      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; flex-wrap: wrap; justify-content: flex-start; padding: 3px; }
+      .agenda-gcal-drag-lock { flex-basis: 100%; }
       .agenda-gcal-control, .agenda-gcal-filter { padding: 0 10px; }
       .agenda-gcal-view-select { min-width: 82px; }
       .agenda-gcal-frame { --agenda-time-width: 54px; }
@@ -20071,6 +20123,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaProfessionalCatalogScope: null,
       agendaProfessionalCatalogGeneration: 0,
       agendaProfessionalPreferenceScope: null,
+      agendaDragLocked: true,
+      agendaDragLockScope: null,
+      agendaDragLockRevision: 0,
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
@@ -22781,10 +22836,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function applyAgendaPermissions() {
+      const completedReadOnly = editingAgendaAppointment()?.status === 'COMPLETED'
       if (els.agendaNewAppointment) els.agendaNewAppointment.disabled = !canCreateAppointments()
       if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
       if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
       if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
+      els.appointmentSubmit.hidden = completedReadOnly
+      els.appointmentService.disabled = completedReadOnly || !appointmentServicesForProfessional(els.appointmentProfessional.value).length
+      els.appointmentProfessional.disabled = completedReadOnly
+      for (const control of [els.appointmentStart, els.appointmentCustomerSearch, els.appointmentCustomerName, els.appointmentCustomerPhone, els.appointmentNotes, els.appointmentDepositPaid]) control.disabled = completedReadOnly
+      els.appointmentDepositAmount.disabled = completedReadOnly || !els.appointmentDepositPaid.checked
+      if (completedReadOnly) els.appointmentDelete.hidden = true
       if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
       if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
@@ -30810,6 +30872,58 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return value
     }
 
+    function agendaDragLockPreferenceKey() {
+      const user = state.currentUser
+      if (!user?.id || !user.role || !state.businessId || state.business?.id !== state.businessId) return null
+      return 'salon-ai-agenda-drag-lock-v1:' + JSON.stringify([user.id, user.role, user.staffProfile || '', state.businessId])
+    }
+
+    function restoreAgendaDragLock() {
+      const key = agendaDragLockPreferenceKey()
+      if (key && state.agendaDragLockScope === key) return
+      if (state.agendaPointerDrag) clearAgendaPointerDrag()
+      state.agendaDragLocked = true
+      state.agendaDragLockScope = key
+      state.agendaDragLockRevision += 1
+      if (!key) return
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || 'null')
+        if (typeof saved === 'boolean') state.agendaDragLocked = saved
+      } catch {
+        // Keep accidental movement blocked when this device cannot read preferences.
+      }
+    }
+
+    function canDragAgendaAppointments() {
+      restoreAgendaDragLock()
+      return Boolean(state.agendaDragLockScope) && state.agendaDragLocked === false && canEditAppointments()
+    }
+
+    function syncAgendaDragLockControl() {
+      const locked = !canDragAgendaAppointments()
+      els.agendaGridWrap.classList.toggle('agenda-drag-locked', locked)
+      const checkbox = els.agendaGridWrap.querySelector('[data-agenda-drag-lock]')
+      if (checkbox) {
+        checkbox.checked = locked
+        checkbox.disabled = !canEditAppointments() || !state.agendaDragLockScope
+      }
+    }
+
+    function setAgendaDragLocked(locked) {
+      restoreAgendaDragLock()
+      state.agendaDragLocked = locked !== false || !canEditAppointments() || !state.agendaDragLockScope
+      state.agendaDragLockRevision += 1
+      clearAgendaPointerDrag({ keepDidDrag: Boolean(state.agendaPointerDrag?.dragging) })
+      if (state.agendaDragLockScope) {
+        try {
+          localStorage.setItem(state.agendaDragLockScope, JSON.stringify(state.agendaDragLocked))
+        } catch {
+          // The current choice still works if this device cannot store preferences.
+        }
+      }
+      syncAgendaDragLockControl()
+    }
+
     function restoreAgendaProfessionalFilter() {
       const key = agendaProfessionalPreferenceKey()
       if (!key || state.agendaProfessionalCatalogScope !== key) {
@@ -31387,6 +31501,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderAgendaMobileThreeDay() {
       state.agendaProfessionalResizeObserver?.disconnect()
       state.agendaProfessionalResizeObserver = null
+      syncAgendaDragLockControl()
       const hourHeight = 88
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
       const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
@@ -31439,6 +31554,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '</select>' +
             '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
+            '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
             '</div>' +
             '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
           '</header>' +
@@ -32100,6 +32216,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function bindAgendaMobileControls(hourHeight, displayRange) {
+      els.agendaGridWrap.querySelector('[data-agenda-drag-lock]')?.addEventListener('change', (event) => {
+        setAgendaDragLocked(event.target.checked)
+      })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
         await navigateAgendaToDate(addDays(state.agendaSelectedDate, -state.agendaViewDays))
@@ -32669,6 +32788,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function startAgendaPointerDrag(pointerEvent, eventNode, appointmentId) {
       if (pointerEvent.button !== 0) return
+      if (!canDragAgendaAppointments()) return
       if (!canEditAppointments()) {
         showCrmToast('No tenes permiso para editar turnos.', 'error')
         return
@@ -32680,6 +32800,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const rect = eventNode.getBoundingClientRect()
       state.agendaPointerDrag = {
         appointmentId,
+        lockScope: state.agendaDragLockScope,
+        lockRevision: state.agendaDragLockRevision,
         pointerId: pointerEvent.pointerId,
         eventNode,
         ghost: null,
@@ -32706,6 +32828,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function handleAgendaPointerMove(pointerEvent) {
       const drag = state.agendaPointerDrag
       if (!drag || pointerEvent.pointerId !== drag.pointerId) return
+      if (!canDragAgendaAppointments() || drag.lockScope !== state.agendaDragLockScope || drag.lockRevision !== state.agendaDragLockRevision) {
+        clearAgendaPointerDrag({ keepDidDrag: drag.dragging })
+        return
+      }
 
       const moved = Math.hypot(pointerEvent.clientX - drag.startX, pointerEvent.clientY - drag.startY)
       if (!drag.dragging && moved < 5) return
@@ -32727,6 +32853,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function handleAgendaPointerEnd(pointerEvent) {
       const drag = state.agendaPointerDrag
       if (!drag || pointerEvent.pointerId !== drag.pointerId) return
+      if (!canDragAgendaAppointments() || drag.lockScope !== state.agendaDragLockScope || drag.lockRevision !== state.agendaDragLockRevision) {
+        clearAgendaPointerDrag({ keepDidDrag: drag.dragging })
+        return
+      }
 
       if (!drag.dragging) {
         clearAgendaPointerDrag()
@@ -32825,6 +32955,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       window.removeEventListener('pointercancel', handleAgendaPointerCancel, true)
       window.removeEventListener('blur', handleAgendaPointerCancel)
       document.removeEventListener('visibilitychange', handleAgendaVisibilityChange)
+      try {
+        drag?.eventNode.releasePointerCapture?.(drag.pointerId)
+      } catch {}
       drag?.eventNode.classList.remove('dragging')
       drag?.ghost?.remove()
       removeOrphanAgendaDragGhosts()
@@ -32891,6 +33024,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute, requestedProfessionalId) {
+      if (!canDragAgendaAppointments()) return
+      const moveScope = state.agendaDragLockScope
+      const moveRevision = state.agendaDragLockRevision
+      const canContinue = () => canDragAgendaAppointments() && state.agendaDragLockScope === moveScope && state.agendaDragLockRevision === moveRevision
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
       if (state.agendaPendingAppointmentIds.has(appointmentId)) return
@@ -32916,6 +33053,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderAgenda()
 
       try {
+        if (!canContinue()) return
         let saved
         try {
           saved = await getJson('/appointments/' + appointmentId, {
@@ -32924,6 +33062,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             body: JSON.stringify(payload)
           })
         } catch (error) {
+          if (!canContinue()) return
           const conflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
           if (error.body?.code !== 'APPOINTMENT_AVAILABILITY_CONFLICT' || error.body?.forceable !== true || !conflicts.length) {
             throw error
@@ -32945,7 +33084,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               danger: false
             }
           )
-          if (!wantsOverride) return
+          if (!wantsOverride || !canContinue()) return
 
           const confirmedOverride = await requestCrmConfirmation(
             'Esta es la confirmación final. El turno se guardará aunque exista una superposición, un bloqueo o el profesional no esté trabajando.\\n\\n' + conflictList,
@@ -32954,7 +33093,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               confirmLabel: 'Sí, mover como excepción'
             }
           )
-          if (!confirmedOverride) return
+          if (!confirmedOverride || !canContinue()) return
 
           saved = await getJson('/appointments/' + appointmentId, {
             method: 'PATCH',
@@ -32963,6 +33102,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         }
 
+        if (agendaDragLockPreferenceKey() !== moveScope) return
         state.agendaAppointments = state.agendaAppointments.map((item) => {
           return item.id === appointmentId ? { ...item, ...saved } : item
         })
@@ -33315,9 +33455,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
+      state.editingAppointmentSnapshot = input.source === 'cash' ? appointment || null : null
+      state.appointmentDialogSource = input.source || null
+      state.appointmentDialogRevision = (state.appointmentDialogRevision || 0) + 1
       setAppointmentAttentionColor(appointment?.attentionColor || 'NONE')
       closeAppointmentAttentionMenu()
-      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
+      els.appointmentTitle.textContent = appointment?.status === 'COMPLETED' ? 'Detalle del turno realizado' : appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
       const canMarkCompleted = Boolean(
@@ -33411,6 +33554,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentDialog.hidden = true
       els.appointmentFeedback.textContent = ''
       state.editingAppointmentId = null
+      state.editingAppointmentSnapshot = null
+      state.appointmentDialogSource = null
+      state.appointmentDialogRevision = (state.appointmentDialogRevision || 0) + 1
       els.appointmentDelete.hidden = true
       els.appointmentComplete.hidden = true
       els.appointmentNoShow.hidden = true
@@ -33423,6 +33569,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function editingAgendaAppointment() {
+      const snapshot = state.editingAppointmentSnapshot
+      if (snapshot?.id === state.editingAppointmentId && (!snapshot.businessId || snapshot.businessId === state.businessId)) return snapshot
       return state.agendaAppointments.find((item) => item.id === state.editingAppointmentId) ||
         state.appointments.find((item) => item.id === state.editingAppointmentId) ||
         null
@@ -33715,6 +33863,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveManualAppointment(event) {
       event.preventDefault()
       els.appointmentFeedback.textContent = ''
+      if (editingAgendaAppointment()?.status === 'COMPLETED') {
+        els.appointmentFeedback.textContent = 'El turno está realizado. El administrador del local puede usar Corregir servicio realizado.'
+        return
+      }
 
       if (state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()) {
         els.appointmentFeedback.textContent = state.editingAppointmentId

@@ -1,9 +1,32 @@
 export const cashRegisterStyles = `
-    .cash-register-view { display: none; min-width: 0; overflow: auto; background: var(--bg); }
-    .app[data-section="cash"] { grid-template-columns: 80px minmax(0, 1fr); }
+    .appointment-service-correction { width: 100%; min-width: 0; padding: 1em; border: 1px solid #b8c4d4; border-radius: .75em; background: #f8fafc; color: #334155; }
+    .appointment-service-correction[hidden], .appointment-service-correction [hidden] { display: none; }
+    .appointment-service-correction > button { width: 100%; text-align: left; }
+    .appointment-correction-panel { display: grid; gap: 1em; margin-top: 1em; min-width: 0; }
+    .appointment-correction-panel h4, .appointment-correction-panel p { margin: 0; }
+    .appointment-correction-panel p { font-size: .9em; line-height: 1.5; }
+    .appointment-correction-panel fieldset { min-width: 0; margin: 0; padding: .9em; border: 1px solid #d7e0eb; border-radius: .6em; }
+    .appointment-correction-panel legend { padding: 0 .35em; font-weight: 750; }
+    .appointment-correction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8em; }
+    .appointment-correction-grid > div { display: grid; gap: .35em; overflow-wrap: anywhere; }
+    .appointment-correction-panel label { display: grid; gap: .45em; min-width: 0; }
+    .appointment-correction-panel :is(select, textarea) { width: 100%; min-width: 0; padding: .8em; font: inherit; background: #fff; color: #0f172a; border: 1px solid #b8c4d4; border-radius: .55em; }
+    .appointment-correction-panel :is(select, textarea):focus-visible { outline: 3px solid #bfdbfe; outline-offset: 1px; border-color: #2563eb; }
+    .appointment-correction-panel [aria-invalid="true"] { border-color: #dc2626; }
+    .appointment-correction-impact { padding: .8em; margin-top: .8em !important; border-radius: .55em; background: #e0edff; color: #1e3a8a; font-weight: 650; }
+    .appointment-correction-refund { display: grid; gap: .8em; }
+    .appointment-correction-actions { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .65em; padding: .8em 0; border-top: 1px solid #d7e0eb; background: #f8fafc; box-shadow: 0 2em 0 #f8fafc; }
+    .appointment-correction-actions button { min-height: 2.75em; font-size: inherit; }
+    @media (max-width: 640px) {
+      .appointment-correction-grid { grid-template-columns: minmax(0, 1fr); }
+      .appointment-service-correction { padding: .8em; }
+      .appointment-correction-actions > button { flex: 1 1 100%; white-space: normal; }
+    }
+    .cash-register-view { display: none; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--bg); }
+    .app[data-section="cash"] { grid-template-columns: var(--workspace-nav-width, 80px) minmax(0, 1fr); }
     .app[data-section="cash"] > :not(.workspace-nav):not(.cash-register-view):not(.crm-toast):not(.dialog-backdrop):not(.cash-dialog-backdrop) { display: none; }
     .app[data-section="cash"] .cash-register-view { display: block; grid-column: 2; }
-    .app[data-section="settlements"] { grid-template-columns: 80px minmax(0, 1fr); }
+    .app[data-section="settlements"] { grid-template-columns: var(--workspace-nav-width, 80px) minmax(0, 1fr); }
     .app[data-section="settlements"] > :not(.workspace-nav):not(.cash-register-view):not(.crm-toast):not(.dialog-backdrop):not(.cash-dialog-backdrop) { display: none; }
     .app[data-section="settlements"] .cash-register-view { display: block; grid-column: 2; }
     .app[data-section="settlements"] :is(.cash-header, .cash-view-switch, #cash-empty-state, #cash-dashboard, .cash-professional-payment-panel, .cash-treasury-view, .cash-period-view) { display: none; }
@@ -11,9 +34,13 @@ export const cashRegisterStyles = `
     .cash-settlement-filter[hidden] { display: none; }
     .cash-settlement-filter select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); }
     .cash-settlement-filter select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-    .cash-shell { width: min(1260px, 100%); margin: 0 auto; padding: 28px; }
+    .cash-shell { width: min(1260px, 100%); min-width: 0; margin: 0 auto; padding: 28px; }
+    .cash-shell :is(section, article, label, form) { min-width: 0; }
+    .cash-shell :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+    .cash-shell :is(label, strong, p, small) { overflow-wrap: anywhere; }
     .cash-header, .cash-toolbar, .cash-session-strip, .cash-filter-row, .cash-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    .cash-header { margin-bottom: 20px; }
+    .cash-header { margin-bottom: 20px; flex-wrap: wrap; }
+    .cash-header > div, .cash-session-copy { min-width: 0; }
     .cash-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .cash-header-actions .secondary { min-height: 40px; white-space: normal; }
     .cash-header h2, .cash-empty-state h3, .cash-dialog h3 { margin: 0; }
@@ -25,10 +52,13 @@ export const cashRegisterStyles = `
     .cash-empty-state > div { max-width: 520px; }
     .cash-empty-state button { margin-top: 18px; }
     .cash-dashboard { display: grid; gap: 18px; }
-    .cash-session-strip, .cash-toolbar, .cash-filter-row { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+    .cash-session-strip, .cash-toolbar, .cash-filter-row { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; flex-wrap: wrap; }
+    .cash-toolbar > label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; flex: 1 1 220px; }
+    .cash-toolbar select { flex: 1; width: 100%; }
     .cash-session-copy { display: grid; gap: 3px; }
     .cash-session-copy span { color: var(--muted); font-size: 13px; }
-    .cash-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cash-actions { display: flex; min-width: 0; gap: 8px; flex-wrap: wrap; }
+    .cash-actions > button { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
     .cash-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .cash-summary-card { padding: 16px; display: grid; gap: 7px; }
     .cash-summary-card span { color: var(--muted); font-size: 13px; }
@@ -52,9 +82,8 @@ export const cashRegisterStyles = `
     .cash-session-difference.negative { color: var(--danger); }
     .cash-panel { overflow: hidden; }
     .cash-filter-row { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
-    .cash-filter-controls { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
-    .cash-filter-controls :is(select,input) { min-height: 40px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: white; }
-    .cash-filter-controls input { min-width: min(320px, 100%); flex: 1; }
+    .cash-filter-controls { display: flex; min-width: 0; gap: 8px; flex: 1; flex-wrap: wrap; }
+    .cash-filter-controls :is(select,input) { min-width: 0; flex: 1 1 170px; min-height: 40px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: white; }
     .cash-category-toolbar { display: flex; gap: 8px; align-items: center; }
     .cash-operation-category-field { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
     .cash-operation-category-field[hidden] { display: none; }
@@ -74,7 +103,9 @@ export const cashRegisterStyles = `
     .cash-entry-list { display: grid; }
     .cash-entry { display: grid; grid-template-columns: minmax(180px, 1.2fr) 120px 120px 140px auto auto; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
     .cash-entry:last-child { border-bottom: 0; }
-    .cash-entry-main { display: grid; gap: 4px; }
+    .cash-entry-main { display: grid; min-width: 0; gap: 4px; }
+    .cash-entry-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
+    .cash-entry-actions button { white-space: normal; }
     .cash-entry-main span, .cash-entry small { color: var(--muted); }
     .cash-entry-amount { font-weight: 900; text-align: right; }
     .cash-entry-amount.outflow { color: var(--danger); }
@@ -204,8 +235,9 @@ export const cashRegisterStyles = `
       .appointment-product-add-row > button { grid-column: 1 / -1; width: 100%; }
     }
     .appointment-product-note { margin: 0; color: var(--muted); font-size: 13px; }
-    .cash-view-switch { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); width: fit-content; }
-    .cash-view-tab { min-height: 40px; padding: 0 18px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 850; cursor: pointer; }
+    .cash-view-switch { display: flex; gap: 4px; width: max-content; max-width: 100%; margin-bottom: 16px; padding: 4px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
+    .cash-view-tab { flex: 0 0 auto; min-height: 44px; padding: 0 18px; white-space: nowrap; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-weight: 850; cursor: pointer; }
+    .cash-view-tab:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
     .cash-view-tab.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 4px rgba(15, 23, 42, .12); }
     .cash-method-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
     .cash-method-total[hidden] { display: none; }
@@ -242,10 +274,6 @@ export const cashRegisterStyles = `
     .cash-pagination { border-top: 1px solid var(--line); }
     .cash-pagination-controls { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
-      .app[data-section="cash"] { display: block; }
-      .app[data-section="cash"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
-      .app[data-section="settlements"] { display: block; }
-      .app[data-section="settlements"] .cash-register-view { min-height: 100vh; padding-top: 70px; }
       .cash-shell { padding: 16px; }
       .cash-summary-grid { grid-template-columns: 1fr 1fr; }
       .cash-period-summary-grid { grid-template-columns: 1fr 1fr; }
@@ -258,6 +286,10 @@ export const cashRegisterStyles = `
       .cash-entry > :not(.cash-entry-main):not(.cash-entry-amount):not(.cash-entry-action) { display: none; }
       .cash-entry-action { grid-column: 1 / -1; justify-self:stretch; }
     }
+    @media (max-width: 767px) {
+      .app[data-section="cash"], .app[data-section="settlements"] { display: block; }
+      .app[data-section="cash"] .cash-register-view, .app[data-section="settlements"] .cash-register-view { height: 100%; min-height: 0; padding: 0; }
+    }
     @media (max-width: 560px) {
       .cash-header, .cash-toolbar, .cash-session-strip, .cash-filter-row { align-items: stretch; flex-direction: column; }
       .cash-header-actions { width: 100%; justify-content: space-between; }
@@ -269,10 +301,10 @@ export const cashRegisterStyles = `
       .cash-operation-category-head { align-items: stretch; flex-direction: column; }
       .appointment-create-actions { flex-direction: column; }
       .appointment-create-summary { grid-template-columns: 1fr 1fr; }
-      .cash-actions > button { flex: 1; }
+      .cash-actions > button { flex: 1 1 140px; }
+      .cash-toolbar > label { display: grid; grid-template-columns: minmax(0, 1fr); flex: 0 0 auto; width: 100%; }
       .cash-category-toolbar { align-items: stretch; flex-direction: column; }
       .cash-view-switch { width: 100%; }
-      .cash-view-tab { flex: 1; }
       .cash-period-dates, .cash-period-movements, .cash-period-expense-filters, .cash-method-totals { grid-template-columns: 1fr; }
       .cash-period-highlight { grid-column: auto; }
       .cash-period-expense-row { grid-template-columns: 1fr auto; }
@@ -328,6 +360,8 @@ export const cashRegisterStyles = `
     .cash-professional-period { padding:14px 16px; display:grid; gap:12px; }
     .cash-professional-period-dates { display:grid; grid-template-columns:minmax(150px,210px) minmax(150px,210px) auto minmax(190px,1fr); gap:10px; align-items:end; }
     .cash-professional-period-dates label { display:grid; gap:5px; color:#475569; font-size:12px; font-weight:700; }
+    .cash-professional-period-dates input, .cash-period-dates input { width:100%; min-width:0; }
+    .cash-professional-table { min-width:0; max-width:100%; overflow-x:auto; }
     .cash-professional-period-dates input { min-height:40px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
     .cash-professional-period-selected { min-height:40px; padding:4px 12px; border-left:1px solid #dbe5f3; display:grid; align-content:center; }
     .cash-professional-period-selected span { color:#64748b; font-size:11px; }
@@ -362,7 +396,7 @@ export const cashRegisterStyles = `
     .cash-professional-movement-row { font-size:12px; }
     .cash-professional-movement-row .negative { color:#dc2626; }
     .cash-professional-movements { padding-bottom:0; overflow:hidden; }
-    .cash-professional-heading { padding:16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .cash-professional-heading { padding:16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; }
     .cash-professional-heading h3, .cash-professional-payment-panel h3 { margin:0; }
     .cash-professional-heading p, .cash-professional-payment-panel p { margin:4px 0 0; color:#64748b; }
     .cash-professional-panel, .cash-professional-payment-panel { padding:16px; }
@@ -374,7 +408,9 @@ export const cashRegisterStyles = `
     .cash-professional-payment-form label { display:grid; gap:6px; font-size:12px; font-weight:700; }
     .cash-professional-payment-form input, .cash-professional-payment-form select { min-height:40px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px; background:#fff; }
     .cash-professional-observation { grid-column:1 / -2; }
-    @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-table { overflow:auto; } .cash-professional-payment-form { grid-template-columns:1fr; } .cash-professional-observation { grid-column:auto; } .cash-professional-period-dates { grid-template-columns:1fr 1fr; } .cash-professional-period-selected { border-left:0; padding-left:0; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
+    @media (max-width:1000px) { .cash-professional-payment-form { grid-template-columns:repeat(2, minmax(0,1fr)); } .cash-professional-period-dates { grid-template-columns:repeat(2,minmax(0,1fr)); } .cash-professional-observation { grid-column:auto; } .cash-professional-period-selected { border-left:0; padding-left:0; } }
+    @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
+    @media (max-width:560px) { .cash-professional-payment-form, .cash-professional-period-dates { grid-template-columns:minmax(0,1fr); } }
 `
 
 export const cashRegisterMarkup = `
@@ -683,6 +719,19 @@ export const cashRegisterMarkup = `
 `
 
 export const appointmentFinanceMarkup = `
+          <section class="appointment-service-correction" id="appointment-service-correction" hidden>
+            <button class="secondary" id="appointment-correction-toggle" type="button" aria-expanded="false" aria-controls="appointment-correction-panel">Corregir servicio realizado</button>
+            <div class="appointment-correction-panel" id="appointment-correction-panel" hidden>
+              <h4>Corregir servicio realizado</h4>
+              <p>Reemplaz&aacute; el servicio cargado por el que realmente se hizo. Se actualizar&aacute;n Caja y la liquidaci&oacute;n del profesional, y el cambio quedar&aacute; registrado.</p>
+              <fieldset><legend>Servicio realizado</legend><div class="appointment-correction-grid"><div><span>Servicio actual</span><strong id="appointment-correction-current"></strong></div><label>Servicio correcto<select id="appointment-correction-service" aria-describedby="appointment-correction-feedback"></select></label></div></fieldset>
+              <fieldset><legend>Impacto financiero</legend><div class="appointment-correction-grid"><div><span>Total anterior</span><strong id="appointment-correction-previous">--</strong></div><div><span>Nuevo total</span><strong id="appointment-correction-next">--</strong></div><div><span>Productos conservados</span><strong id="appointment-correction-products">--</strong></div><div><span>Descuento conservado</span><strong id="appointment-correction-discount">--</strong></div><div><span>Pagado neto</span><strong id="appointment-correction-paid">--</strong></div></div><p class="appointment-correction-impact" id="appointment-correction-impact" role="status"></p><p>La comisi&oacute;n se recalcula para el nuevo servicio. Los pagos ya realizados al profesional se conservan y la diferencia se refleja en su saldo.</p></fieldset>
+              <fieldset class="appointment-correction-refund" id="appointment-correction-refund" hidden><legend>Devoluci&oacute;n al cliente</legend><p>Al guardar se registrar&aacute; la salida por la diferencia. Confirm&aacute; el medio por el que devolv&eacute;s el dinero.</p><p id="appointment-correction-session"></p><label>Medio de devoluci&oacute;n<select id="appointment-correction-method"><option value="">Seleccion&aacute; un medio</option></select></label></fieldset>
+              <label>Motivo de la correcci&oacute;n<textarea id="appointment-correction-reason" rows="2" maxlength="300" aria-describedby="appointment-correction-feedback"></textarea></label>
+              <p class="appointment-finance-feedback" id="appointment-correction-feedback" role="status" aria-live="polite"></p>
+              <div class="appointment-correction-actions"><button class="secondary" id="appointment-correction-cancel" type="button">Cancelar</button><button class="primary" id="appointment-correction-submit" type="button">Guardar correcci&oacute;n</button></div>
+            </div>
+          </section>
           <details class="appointment-products" id="appointment-product-items" hidden>
             <summary><span>Productos comprados</span><span id="appointment-product-total">$0</span></summary>
             <div class="appointment-product-content"><p class="appointment-product-note">Agreg&aacute; esmaltes, cremas, geles u otros productos. El total del turno se actualiza al guardar cada producto.</p><div class="appointment-product-add-row"><label>Producto<select id="appointment-product-select"></select></label><label>Cantidad<input id="appointment-product-quantity" type="number" min="1" step="1" value="1" inputmode="numeric"></label><button class="secondary" id="appointment-product-add" type="button">Agregar</button></div><div class="appointment-product-list" id="appointment-product-list"><div class="cash-inline-state">Todav&iacute;a no hay productos.</div></div><p class="appointment-finance-feedback" id="appointment-product-feedback" role="status"></p></div>
@@ -782,6 +831,7 @@ export const appointmentFinanceMarkup = `
 
 export const cashRegisterScript = `
     const cashUi = {
+      correction: document.getElementById('appointment-service-correction'), correctionToggle: document.getElementById('appointment-correction-toggle'), correctionPanel: document.getElementById('appointment-correction-panel'), correctionService: document.getElementById('appointment-correction-service'), correctionCurrent: document.getElementById('appointment-correction-current'), correctionPrevious: document.getElementById('appointment-correction-previous'), correctionNext: document.getElementById('appointment-correction-next'), correctionProducts: document.getElementById('appointment-correction-products'), correctionDiscount: document.getElementById('appointment-correction-discount'), correctionPaid: document.getElementById('appointment-correction-paid'), correctionImpact: document.getElementById('appointment-correction-impact'), correctionRefund: document.getElementById('appointment-correction-refund'), correctionSession: document.getElementById('appointment-correction-session'), correctionMethod: document.getElementById('appointment-correction-method'), correctionReason: document.getElementById('appointment-correction-reason'), correctionFeedback: document.getElementById('appointment-correction-feedback'), correctionSubmit: document.getElementById('appointment-correction-submit'), correctionCancel: document.getElementById('appointment-correction-cancel'),
       view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), categoryShortcut: document.getElementById('cash-category-shortcut'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), viewTreasury: document.getElementById('cash-view-treasury'), treasuryView: document.getElementById('cash-treasury-view'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentSource: document.getElementById('cash-professional-payment-source'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'), professionalPeriodFrom: document.getElementById('cash-professional-period-from'), professionalPeriodTo: document.getElementById('cash-professional-period-to'), professionalPeriodApply: document.getElementById('cash-professional-period-apply'), professionalPeriodLabel: document.getElementById('cash-professional-period-label'), professionalPeriodFeedback: document.getElementById('cash-professional-period-feedback'), professionalPageInfo: document.getElementById('cash-professional-page-info'), professionalPrevious: document.getElementById('cash-professional-previous'), professionalNext: document.getElementById('cash-professional-next'),
       professionalFilterField: document.getElementById('cash-professional-filter-field'), professionalFilter: document.getElementById('cash-professional-filter'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
@@ -1410,6 +1460,36 @@ export const cashRegisterScript = `
       } finally { setButtonLoading(cashUi.categorySave, false) }
     }
 
+    function canCorrectCashEntryService(entry) {
+      return Boolean(entry?.serviceCorrectionAppointmentId && entry.type === 'PAYMENT' && entry.direction === 'INFLOW' &&
+        !entry.reversesEntryId && !entry.reversedById &&
+        (['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) ||
+          (state.currentUser?.role === 'BUSINESS_ADMIN' && state.currentUser.businessId === state.businessId)) && entry.businessId === state.businessId)
+    }
+
+    async function openCashServiceCorrection(entry, button) {
+      if (!canCorrectCashEntryService(entry) || state.cashRegister.serviceCorrectionOpening) return
+      const businessId = state.businessId
+      const dayId = state.cashRegister.selectedDayId
+      const revision = state.appointmentDialogRevision || 0
+      const opening = { businessId, appointmentId: entry.serviceCorrectionAppointmentId }
+      state.cashRegister.serviceCorrectionOpening = opening
+      if (button) setButtonLoading(button, true, 'Cargando...')
+      try {
+        const appointment = await getJson(cashScoped('/appointments/' + encodeURIComponent(opening.appointmentId) + '/service-correction-context'))
+        if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId || revision !== (state.appointmentDialogRevision || 0) ||
+          els.appShell.dataset.section !== 'cash' || !canCorrectCashEntryService(entry)) return
+        if (appointment.id !== opening.appointmentId || !canCorrectCompletedService(appointment)) throw new Error('El turno ya no está disponible para esta corrección.')
+        openAppointmentDialog({ appointment, source: 'cash' })
+        await openCompletedServiceCorrection()
+      } catch (error) {
+        if (businessId === state.businessId && revision === (state.appointmentDialogRevision || 0)) showCrmToast(error.message || 'No se pudo cargar el turno.', 'error')
+      } finally {
+        if (state.cashRegister.serviceCorrectionOpening === opening) state.cashRegister.serviceCorrectionOpening = null
+        if (button) setButtonLoading(button, false)
+      }
+    }
+
     function renderCashEntries() {
       if (!state.cashRegister.entries.length) {
         cashUi.entryList.innerHTML = '<div class="cash-inline-state">No hay movimientos para estos filtros.</div>'
@@ -1419,7 +1499,9 @@ export const cashRegisterScript = `
           const correctionDetail = entry.correctionSourceId ? 'Correcci&oacute;n de fecha' : entry.dateCorrected ? 'Fecha corregida' : ''
           const details = [cashTypeLabels[entry.type] || entry.type, entry.expenseCategoryName ? 'Categor&iacute;a: ' + escapeHtml(entry.expenseCategoryName) : '', entry.expenseSubcategoryName ? 'Subcategor&iacute;a: ' + escapeHtml(entry.expenseSubcategoryName) : '', entry.observation ? escapeHtml(entry.observation) : '', correctionDetail, entry.correctionReason ? 'Motivo: ' + escapeHtml(entry.correctionReason) : ''].filter(Boolean).join(' · ')
           const canCorrectDate = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role) && ['PAYMENT', 'INCOME', 'EXPENSE'].includes(entry.type) && !entry.reversesEntryId && !entry.reversedById && !entry.correctionSourceId && !entry.dateCorrected
-          const action = canCorrectDate ? '<button class="secondary cash-entry-action" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : '<span></span>'
+          const dateAction = canCorrectDate ? '<button class="secondary" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : ''
+          const serviceAction = canCorrectCashEntryService(entry) ? '<button class="secondary" type="button" data-cash-correct-service="' + escapeHtml(entry.id) + '">Corregir servicio</button>' : ''
+          const action = '<div class="cash-entry-action cash-entry-actions">' + dateAction + serviceAction + '</div>'
           return '<article class="cash-entry"><div class="cash-entry-main"><strong>' + escapeHtml(title) + '</strong><span>' + details + '</span></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><small>' + escapeHtml(entry.origin || '') + '</small><strong class="cash-entry-amount ' + entry.direction.toLowerCase() + '">' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong>' + action + '</article>'
         }).join('')
       }
@@ -1428,6 +1510,7 @@ export const cashRegisterScript = `
 
     async function loadCashEntries(options = {}) {
       const dayId = state.cashRegister.selectedDayId
+      const businessId = state.businessId
       if (!dayId) return
       if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
       const params = new URLSearchParams({ limit: '40' })
@@ -1441,17 +1524,21 @@ export const cashRegisterScript = `
       if (cashUi.search.value.trim()) params.set('q', cashUi.search.value.trim())
       try {
         const page = await getJson('/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString())
+        if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
         state.cashRegister.entries = options.append ? state.cashRegister.entries.concat(page.entries || []) : (page.entries || [])
         state.cashRegister.nextCursor = page.nextCursor || null
         renderCashEntries()
       } catch (error) {
+        if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
         cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
       }
     }
 
     async function selectCashDay(dayId) {
+      const businessId = state.businessId
       state.cashRegister.selectedDayId = dayId
       const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
+      if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
       renderCashSummary(result.day, result.summary, result.sessions)
       await loadCashEntries()
     }
@@ -2729,6 +2816,140 @@ export const cashRegisterScript = `
       }
     }
 
+    function canCorrectCompletedService(appointment) {
+      return Boolean(appointment && appointment.status === 'COMPLETED' &&
+        (['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role) ||
+          (state.currentUser?.role === 'BUSINESS_ADMIN' && state.currentUser.businessId === state.businessId)) &&
+        (!appointment.businessId || appointment.businessId === state.businessId) && appointmentServiceIds(appointment).length === 1)
+    }
+
+    function completedServiceCorrectionPreview() {
+      const appointment = editingAgendaAppointment()
+      const finance = state.cashRegister.appointmentFinance
+      const service = appointment && appointmentServicesForProfessional(appointment.professionalId).find((item) => item.id === cashUi.correctionService.value && item.id !== appointment.serviceId && item.priceMode === 'FIXED' && Number.isSafeInteger(item.price) && item.price >= 0)
+      if (!service || !finance || finance.pricingMode !== 'FIXED') return null
+      const productSubtotal = Number(finance.productSubtotal || 0)
+      const discountAmount = Number(finance.discountAmount || 0)
+      const paidAmount = Number(finance.paidAmount || 0)
+      const finalAmount = service.price + productSubtotal - discountAmount
+      if (!Number.isSafeInteger(finalAmount) || finalAmount < 0) return null
+      return { service, finalAmount, productSubtotal, discountAmount, paidAmount, refundAmount: Math.max(0, paidAmount - finalAmount), balanceAmount: Math.max(0, finalAmount - paidAmount) }
+    }
+
+    function syncCompletedServiceCorrection() {
+      const finance = state.cashRegister.appointmentFinance
+      const preview = completedServiceCorrectionPreview()
+      cashUi.correctionPrevious.textContent = finance ? cashMoney(finance.finalAmount) : '--'
+      cashUi.correctionNext.textContent = preview ? cashMoney(preview.finalAmount) : '--'
+      cashUi.correctionProducts.textContent = finance ? cashMoney(finance.productSubtotal || 0) : '--'
+      cashUi.correctionDiscount.textContent = finance ? cashMoney(finance.discountAmount || 0) : '--'
+      cashUi.correctionPaid.textContent = finance ? cashMoney(finance.paidAmount || 0) : '--'
+      cashUi.correctionRefund.hidden = !preview?.refundAmount
+      cashUi.correctionSession.textContent = state.cashRegister.current?.session?.id ? 'Se registrará en la sesión activa de Caja.' : 'Necesitás abrir una sesión de Caja antes de registrar la devolución.'
+      cashUi.correctionImpact.textContent = !finance ? 'Cargando estado financiero...' : !preview ? 'Seleccioná otro servicio de precio fijo. El descuento no puede superar el nuevo subtotal.' : preview.refundAmount > 0 ? 'Devolución que se registrará: ' + cashMoney(preview.refundAmount) : preview.balanceAmount > 0 ? 'Quedará un saldo pendiente de ' + cashMoney(preview.balanceAmount) + '. Podés cobrarlo desde Pago.' : 'El turno quedará pagado, sin devolución ni saldo pendiente.'
+    }
+
+    function prepareCompletedServiceCorrection(appointment) {
+      state.cashRegister.serviceCorrection = { ready: false }
+      setButtonLoading(cashUi.correctionSubmit, false)
+      cashUi.correction.hidden = !canCorrectCompletedService(appointment)
+      cashUi.correctionPanel.hidden = true
+      cashUi.correctionToggle.setAttribute('aria-expanded', 'false')
+      cashUi.correctionReason.value = ''
+      cashUi.correctionSubmit.disabled = true
+      cashUi.correctionFeedback.textContent = ''
+      cashUi.correctionReason.removeAttribute('aria-invalid')
+      cashUi.correctionService.removeAttribute('aria-invalid')
+      cashUi.correctionMethod.removeAttribute('aria-invalid')
+      cashUi.correctionMethod.value = ''
+      if (cashUi.correction.hidden) return
+      cashUi.correctionCurrent.textContent = appointment.service?.name || 'Servicio actual'
+      const services = appointmentServicesForProfessional(appointment.professionalId).filter((service) => service.id !== appointment.serviceId && service.priceMode === 'FIXED' && Number.isSafeInteger(service.price) && service.price >= 0)
+      cashUi.correctionService.innerHTML = '<option value="">Seleccion&aacute; el servicio correcto</option>' + services.map((service) => '<option value="' + escapeHtml(service.id) + '">' + escapeHtml(service.name) + ' · ' + escapeHtml(cashMoney(service.price)) + '</option>').join('')
+      cashUi.correctionService.value = ''
+      cashUi.correctionToggle.disabled = services.length === 0
+      if (!services.length) cashUi.correctionFeedback.textContent = 'El profesional no tiene otro servicio de precio fijo asignado.'
+      syncCompletedServiceCorrection()
+    }
+
+    async function submitCompletedServiceCorrection() {
+      const appointment = editingAgendaAppointment()
+      const businessId = state.businessId
+      const revision = state.appointmentDialogRevision || 0
+      const source = state.appointmentDialogSource
+      const selectedDayId = state.cashRegister.selectedDayId
+      if (!canCorrectCompletedService(appointment)) return
+      const key = businessId + ':' + appointment.id
+      const operations = state.cashRegister.serviceCorrectionOperations ||= {}
+      if (operations[key]) return
+      if (!state.cashRegister.serviceCorrection?.ready) return
+      const preview = completedServiceCorrectionPreview()
+      const reason = cashUi.correctionReason.value.trim()
+      const fail = (message, control) => {
+        cashUi.correctionFeedback.textContent = message
+        cashUi.correctionFeedback.className = 'appointment-finance-feedback error'
+        if (control) { control.setAttribute('aria-invalid', 'true'); control.focus() }
+      }
+      if (!preview) return fail('Seleccioná un servicio correcto y verificá el descuento.', cashUi.correctionService)
+      if (!reason) return fail('Ingresá el motivo de la corrección.', cashUi.correctionReason)
+      const sessionId = state.cashRegister.current?.session?.id
+      const method = state.cashRegister.paymentMethodsBusinessId === businessId && state.cashRegister.paymentMethods.find((item) => item.id === cashUi.correctionMethod.value)
+      if (preview.refundAmount && !sessionId) return fail('Abrí una sesión de Caja para registrar la devolución.')
+      if (preview.refundAmount && !method) return fail('Seleccioná el medio por el que devolvés el dinero.', cashUi.correctionMethod)
+      const finance = state.cashRegister.appointmentFinance
+      const payload = { serviceId: preview.service.id, expectedServiceId: appointment.serviceId, expectedServicePrice: preview.service.price, expectedAgreedAmount: finance.agreedAmount, expectedPaidAmount: preview.paidAmount, expectedDiscountAmount: preview.discountAmount, expectedProductSubtotal: preview.productSubtotal, reason, ...(preview.refundAmount ? { cashSessionId: sessionId, paymentMethodId: method.id } : {}) }
+      const fingerprint = JSON.stringify([key, payload])
+      const operation = state.cashRegister.serviceCorrection ||= {}
+      if (operation.fingerprint !== fingerprint) { operation.fingerprint = fingerprint; operation.requestId = crypto.randomUUID() }
+      operations[key] = operation
+      setButtonLoading(cashUi.correctionSubmit, true, 'Guardando...')
+      cashUi.correctionFeedback.textContent = ''
+      let saved = false
+      try {
+        const result = await getJson(cashScoped('/appointments/' + encodeURIComponent(appointment.id) + '/correct-completed-service'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, requestId: operation.requestId }) })
+        saved = true
+        operation.ready = false
+        const cacheKey = businessId + ':' + appointment.id
+        delete state.cashRegister.appointmentFinanceCache[cacheKey]
+        delete state.cashRegister.appointmentFinanceSummaryCache[cacheKey]
+        if (businessId !== state.businessId || appointment.id !== state.editingAppointmentId || revision !== (state.appointmentDialogRevision || 0)) return
+        state.cashRegister.periodLoaded = false
+        state.cashRegister.professionalSummaryResult = null
+        state.cashRegister.loaded = false
+        if (result.finance) renderAppointmentFinance(result.finance)
+        let updated
+        if (source === 'cash') {
+          const refreshes = [getJson(cashScoped('/appointments/' + encodeURIComponent(appointment.id) + '/service-correction-context'))]
+          if (els.appShell.dataset.section === 'cash' && state.cashRegister.selectedDayId === selectedDayId && selectedDayId) refreshes.push(selectCashDay(selectedDayId))
+          if (state.cashRegister.viewMode === 'professionals') refreshes.push(loadProfessionalSettlements())
+          if (state.cashRegister.viewMode === 'period') refreshes.push(loadCashPeriod({ page: state.cashRegister.periodPage }))
+          if (state.cashRegister.viewMode === 'treasury') refreshes.push(loadTreasury(), loadTreasuryConsolidated())
+          ;[updated] = await Promise.all(refreshes)
+        } else {
+          await loadAgenda()
+          if (state.selected) { await loadAppointments(); renderAppointments() }
+          updated = editingAgendaAppointment()
+        }
+        if (businessId !== state.businessId || appointment.id !== state.editingAppointmentId || revision !== (state.appointmentDialogRevision || 0)) return
+        closeAppointmentDialog()
+        if (updated) openAppointmentDialog({ appointment: updated, source })
+        showCrmToast('Servicio corregido. Caja y liquidación actualizadas.', 'success')
+      } catch (error) {
+        if (businessId !== state.businessId || appointment.id !== state.editingAppointmentId || revision !== (state.appointmentDialogRevision || 0)) return
+        if (saved) { closeAppointmentDialog(); showCrmToast('La corrección se guardó. Volvé a abrir el turno para ver los datos actualizados.', 'success') }
+        else if (error.body?.code === 'SERVICE_CORRECTION_STALE') {
+          state.cashRegister.serviceCorrection.ready = false
+          fail('Los importes cambiaron mientras revisabas el turno. Cerrá y volvé a abrir esta corrección para confirmar el impacto actualizado.')
+        } else fail(error.message || 'No se pudo corregir el servicio. Podés reintentar.')
+      } finally {
+        delete operations[key]
+        if (businessId === state.businessId && appointment.id === state.editingAppointmentId && revision === (state.appointmentDialogRevision || 0)) {
+          setButtonLoading(cashUi.correctionSubmit, false)
+          if (!state.cashRegister.serviceCorrection?.ready) cashUi.correctionSubmit.disabled = true
+        }
+      }
+    }
+
     function renderAppointmentFinanceSummary(finance) {
       state.cashRegister.appointmentFinance = finance
       cashUi.financeBalance.textContent = finance.balanceAmount > 0 ? 'Saldo ' + cashMoney(finance.balanceAmount) : 'Pagado'
@@ -2752,13 +2973,20 @@ export const cashRegisterScript = `
       cashUi.totalForm.hidden = !state.cashRegister.editFinance.adjust || !canUseCashPermission('canRecordAppointmentPayments')
       cashUi.financeHistory.innerHTML = '<div class="cash-inline-state">Abr&iacute; Pago para ver los movimientos.</div>'
       syncEditAppointmentFinanceActions()
+      syncCompletedServiceCorrection()
     }
 
     function renderAppointmentFinance(finance) {
       renderAppointmentFinanceSummary(finance)
+      const corrections = (finance.serviceCorrections || []).map((correction) => {
+        const compensationLabel = (snapshot) => snapshot && Number.isSafeInteger(snapshot.amount) ? cashMoney(snapshot.amount) : 'Sin registro'
+        const commission = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role)
+          ? '<small>Comisi&oacute;n: ' + escapeHtml(compensationLabel(correction.previousCompensation)) + ' &rarr; ' + escapeHtml(compensationLabel(correction.newCompensation)) + '</small>' : ''
+        return '<article><span><strong>Correcci&oacute;n de servicio</strong> · ' + escapeHtml(correction.previousServiceName) + ' &rarr; ' + escapeHtml(correction.newServiceName) + '<small> · ' + escapeHtml(correction.actorName) + ' · ' + escapeHtml(cashDate(correction.createdAt)) + ' · ' + escapeHtml(correction.reason) + '</small>' + commission + '</span><strong>' + escapeHtml(cashMoney(correction.previousAmount)) + ' &rarr; ' + escapeHtml(cashMoney(correction.newAmount)) + '</strong></article>'
+      })
       const adjustments = (finance.totalAdjustments || []).map((adjustment) => '<article><span><strong>Ajuste de total</strong> · ' + escapeHtml(adjustment.actorName) + '<small> · ' + escapeHtml(cashDate(adjustment.createdAt)) + ' · ' + escapeHtml(adjustment.reason) + '</small></span><strong>' + cashMoney(adjustment.previousAmount) + ' &rarr; ' + cashMoney(adjustment.newAmount) + '</strong></article>')
       const payments = (finance.entries || []).map((entry) => '<article><span>' + escapeHtml(financeEntryLabel(entry)) + ' · ' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + (entry.effectiveAt ? '<small> · ' + escapeHtml(cashDate(entry.effectiveAt)) + '</small>' : '') + '</span><strong>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong></article>')
-      cashUi.financeHistory.innerHTML = adjustments.concat(payments).join('') || '<div class="cash-inline-state">Todav&iacute;a no hay movimientos.</div>'
+      cashUi.financeHistory.innerHTML = corrections.concat(adjustments, payments).join('') || '<div class="cash-inline-state">Todav&iacute;a no hay movimientos.</div>'
     }
 
     function resetAppointmentFinanceView() {
@@ -2856,6 +3084,7 @@ export const cashRegisterScript = `
         state.cashRegister.current = current
         renderAppointmentFinance(finance)
         cashUi.financeFeedback.textContent = ''
+        return finance
       } catch (error) {
         delete state.cashRegister.appointmentFinanceInFlight[key]
         if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
@@ -2877,6 +3106,7 @@ export const cashRegisterScript = `
       prepareCreateAppointmentPayment(appointment)
       prepareAppointmentProducts(appointment)
       syncAppointmentPaymentLoading()
+      prepareCompletedServiceCorrection(appointment)
     }
 
     async function submitAppointmentTotalAdjustment(event) {
@@ -3216,10 +3446,50 @@ export const cashRegisterScript = `
     cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
     cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
     cashUi.entryList.addEventListener('click', (event) => {
+      const serviceButton = event.target.closest('[data-cash-correct-service]')
+      if (serviceButton) {
+        openCashServiceCorrection(state.cashRegister.entries.find((entry) => entry.id === serviceButton.dataset.cashCorrectService), serviceButton)
+        return
+      }
       const button = event.target.closest('[data-cash-correct-date]')
       if (!button) return
       openFinancialDateDialog('cash', state.cashRegister.entries.find((entry) => entry.id === button.dataset.cashCorrectDate))
     })
+    async function openCompletedServiceCorrection() {
+      const appointmentId = state.editingAppointmentId
+      const businessId = state.businessId
+      if (!canCorrectCompletedService(editingAgendaAppointment())) return
+      if (!cashUi.correctionPanel.hidden) return
+      const opening = state.cashRegister.serviceCorrection
+      cashUi.correctionPanel.hidden = false
+      cashUi.correctionToggle.setAttribute('aria-expanded', 'true')
+      cashUi.correctionFeedback.textContent = 'Cargando información de Caja...'
+      let finance, services
+      try { [finance, services] = await Promise.all([loadAppointmentFinance({ force: true, preserve: true }), getJson(cashScoped('/services'))]) }
+      catch (error) { if (businessId === state.businessId && appointmentId === state.editingAppointmentId && opening === state.cashRegister.serviceCorrection) cashUi.correctionFeedback.textContent = 'No se pudieron cargar los servicios. Cerrá y volvé a abrir la corrección.'; return }
+      if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || cashUi.correctionPanel.hidden || opening !== state.cashRegister.serviceCorrection) return
+      if (!finance) { cashUi.correctionFeedback.textContent = 'No se pudo cargar el estado financiero. Cerrá y volvé a abrir la corrección.'; return }
+      if (finance.pricingMode !== 'FIXED') { cashUi.correctionFeedback.textContent = 'Esta corrección está disponible para turnos con precio fijo. Los turnos con total estimado requieren revisar el importe acordado.'; return }
+      state.services = services
+      prepareCompletedServiceCorrection(editingAgendaAppointment())
+      cashUi.correctionPanel.hidden = false
+      cashUi.correctionToggle.setAttribute('aria-expanded', 'true')
+      cashUi.correctionMethod.innerHTML = '<option value="">Seleccion&aacute; un medio</option>' + state.cashRegister.paymentMethods.map((method) => '<option value="' + escapeHtml(method.id) + '">' + escapeHtml(method.name) + '</option>').join('')
+      state.cashRegister.serviceCorrection.ready = true
+      cashUi.correctionSubmit.disabled = false
+      cashUi.correctionFeedback.textContent = ''
+      syncCompletedServiceCorrection()
+      cashUi.correctionService.focus()
+    }
+    cashUi.correctionToggle.addEventListener('click', () => {
+      if (!cashUi.correctionPanel.hidden) prepareCompletedServiceCorrection(editingAgendaAppointment())
+      else openCompletedServiceCorrection()
+    })
+    cashUi.correctionCancel.addEventListener('click', () => prepareCompletedServiceCorrection(editingAgendaAppointment()))
+    cashUi.correctionService.addEventListener('change', () => { cashUi.correctionService.removeAttribute('aria-invalid'); syncCompletedServiceCorrection() })
+    cashUi.correctionReason.addEventListener('input', () => cashUi.correctionReason.removeAttribute('aria-invalid'))
+    cashUi.correctionMethod.addEventListener('change', () => cashUi.correctionMethod.removeAttribute('aria-invalid'))
+    cashUi.correctionSubmit.addEventListener('click', submitCompletedServiceCorrection)
     cashUi.finance.addEventListener('toggle', () => { if (cashUi.finance.open) { scrollAppointmentFinanceIntoView(); loadAppointmentFinance({ force: false, preserve: true }) } })
     cashUi.totalToggle.addEventListener('click', () => {
       state.cashRegister.editFinance.adjust = !state.cashRegister.editFinance.adjust

@@ -199,6 +199,9 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       include: { accountLink: true, serviceItems: true }
     })
     if (!anchor) return sendAuthorizationFailure(reply, 'notFound')
+    if (anchor.status === 'COMPLETED') {
+      return reply.status(409).send({ code: 'COMPLETED_APPOINTMENT_IMMUTABLE', message: 'Para corregir un turno realizado, usá la corrección administrativa de servicio' })
+    }
     if (['CANCELLED', 'NO_SHOW'].includes(anchor.status)) {
       return reply.status(409).send({ code: 'APPOINTMENT_NOT_ACTIVE', message: 'No se pueden agregar servicios a un turno cancelado o ausente' })
     }
@@ -482,7 +485,12 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para consultar pagos del turno' })
     }
     try {
-      return await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
+      const finance = await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
+      if (request.auth?.user.role !== 'STAFF') return finance
+      return {
+        ...finance,
+        serviceCorrections: (finance.serviceCorrections || []).map(({ previousCompensation: _before, newCompensation: _after, requestFingerprint: _fingerprint, requestId: _requestId, ...correction }) => correction)
+      }
     } catch (error) {
       return sendCashError(reply, error)
     }
@@ -620,6 +628,85 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       return sendCashError(reply, error)
     }
   })
+
+  if (options.cashRegisterEnabled !== false) app.get('/appointments/:id/service-correction-context', async (request, reply) => {
+    const authUser = request.auth?.user
+    const administrator = await serviceCorrectionAdministrator(authUser)
+    if (!administrator) return reply.status(403).send({ code: 'BUSINESS_ADMIN_REQUIRED', message: 'Se requiere un administrador activo con acceso al local' })
+    const query = request.query as { businessId?: string }
+    const businessId = financeBusinessId(administrator, query.businessId)
+    if (!businessId) return sendAuthorizationFailure(reply, 'notFound')
+    const business = await requireAuthorizedBusiness(prisma, administrator, businessId)
+    if (!business) return sendAuthorizationFailure(reply, 'notFound')
+    const params = request.params as { id: string }
+    const appointments = await service.findAll({ businessId, appointmentId: params.id })
+    const appointment = appointments[0]
+    if (!appointment || appointment.businessId !== businessId || appointment.status !== 'COMPLETED') return sendAuthorizationFailure(reply, 'notFound')
+    return appointmentForAuthenticatedUser(appointment, authUser)
+  })
+
+  if (options.cashRegisterEnabled !== false) app.post('/appointments/:id/correct-completed-service', async (request, reply) => {
+    const params = request.params as { id: string }
+    const body = request.body as {
+      serviceId?: string
+      expectedServiceId?: string
+      requestId?: string
+      expectedServicePrice?: number
+      expectedAgreedAmount?: number
+      expectedPaidAmount?: number
+      expectedDiscountAmount?: number
+      expectedProductSubtotal?: number
+      reason?: string
+      cashSessionId?: string
+      paymentMethodId?: string
+    }
+    const authUser = request.auth?.user
+    const administrator = await serviceCorrectionAdministrator(authUser)
+    if (!administrator) return reply.status(403).send({ code: 'BUSINESS_ADMIN_REQUIRED', message: 'Se requiere un administrador activo con acceso al local' })
+    const query = request.query as { businessId?: string }
+    const businessId = financeBusinessId(administrator, query.businessId)
+    if (!businessId || !await requireAuthorizedBusiness(prisma, administrator, businessId)) return sendAuthorizationFailure(reply, 'notFound')
+    if (!body || typeof body !== 'object' || typeof body.serviceId !== 'string' || typeof body.reason !== 'string' ||
+      typeof body.expectedServiceId !== 'string' || typeof body.requestId !== 'string' ||
+      ![body.expectedServicePrice, body.expectedAgreedAmount, body.expectedPaidAmount, body.expectedDiscountAmount, body.expectedProductSubtotal]
+        .every(amount => typeof amount === 'number' && Number.isSafeInteger(amount) && amount >= 0)) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'Servicio correcto y motivo son requeridos' })
+    }
+    if ((body.cashSessionId !== undefined && typeof body.cashSessionId !== 'string') ||
+      (body.paymentMethodId !== undefined && typeof body.paymentMethodId !== 'string')) {
+      return reply.status(400).send({ code: 'VALIDATION', message: 'La sesión de Caja y el medio de devolución no son válidos' })
+    }
+    try {
+      return await cashService.correctCompletedAppointmentService({
+        businessId,
+        appointmentId: params.id,
+        serviceId: body.serviceId,
+        expectedServiceId: body.expectedServiceId,
+        requestId: body.requestId,
+        expectedServicePrice: body.expectedServicePrice!, expectedAgreedAmount: body.expectedAgreedAmount!,
+        expectedPaidAmount: body.expectedPaidAmount!, expectedDiscountAmount: body.expectedDiscountAmount!,
+        expectedProductSubtotal: body.expectedProductSubtotal!,
+        reason: body.reason,
+        actorUserId: administrator.id,
+        actorName: administrator.name,
+        ...(body.cashSessionId === undefined ? {} : { cashSessionId: body.cashSessionId }),
+        ...(body.paymentMethodId === undefined ? {} : { paymentMethodId: body.paymentMethodId })
+      })
+    } catch (error) {
+      return sendCashError(reply, error)
+    }
+  })
+}
+
+async function serviceCorrectionAdministrator(user: Parameters<typeof requireAuthorizedBusiness>[1] | undefined) {
+  if (!user || !['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(user.role)) return null
+  // Re-read the role and business relationship: a stale session or support/demo
+  // override must not grant this financial mutation to an unassigned account.
+  const administrator = await prisma.user.findFirst({
+    where: { id: user.id, role: user.role, isActive: true },
+    select: { id: true, name: true, role: true, businessId: true, canCreateBusinesses: true }
+  })
+  return administrator
 }
 
 function financeBusinessId(user: { role: string; businessId: string | null } | undefined, requested: string | undefined) {

@@ -990,6 +990,7 @@ model Business {
   legacyCutoverInbounds       LegacyWhatsAppCutoverInbound[]
   appointmentAccounts         AppointmentAccount[]
   appointmentTotalAdjustments AppointmentTotalAdjustment[]
+  appointmentServiceCorrections AppointmentServiceCorrection[]
   appointmentAccountLinks     AppointmentAccountLink[]
   appointments                Appointment[]
   professionalAccountEntries  ProfessionalAccountEntry[]
@@ -1300,6 +1301,7 @@ model User {
   cashSessions                     CashSession[] @relation("CashSessionLocalResponsible")
   administratorCashSessions        CashSession[] @relation("CashSessionAdministrator")
   appointmentTotalAdjustments      AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
+  appointmentServiceCorrections    AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionActor")
   productSales                     ProductSale[]                @relation("ProductSaleActor")
   productSaleAudits                ProductSaleAudit[]           @relation("ProductSaleAuditActor")
   assignedPipelineLeads            PipelineLead[]               @relation("PipelineLeadAssignee")
@@ -1736,6 +1738,8 @@ model Service {
   combinationRulesA   ServiceCombinationRule[] @relation("ServiceCombinationA")
   combinationRulesB   ServiceCombinationRule[] @relation("ServiceCombinationB")
   bookingDepositLines BookingDepositLine[]
+  previousServiceCorrections AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionPreviousService")
+  newServiceCorrections AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionNewService")
 
   createdAt DateTime @default(now())
 
@@ -2152,6 +2156,7 @@ model Appointment {
   bookingDeposit           BookingDeposit?
   changeHistory            AppointmentChangeHistory[]
   serviceItems             AppointmentServiceItem[]
+  serviceCorrections       AppointmentServiceCorrection[]
   accountLink              AppointmentAccountLink?
   productSale              ProductSale?
   professionalAccountEntry ProfessionalAccountEntry?
@@ -2219,6 +2224,40 @@ model AppointmentTotalAdjustment {
   appliedAt      DateTime?
 
   @@index([businessId, accountId, createdAt, id])
+  @@index([businessId, actorUserId, createdAt])
+}
+
+model AppointmentServiceCorrection {
+  id                   String      @id @default(cuid())
+  businessId           String
+  business             Business    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointmentId        String
+  appointment          Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousServiceId    String
+  previousService      Service     @relation("AppointmentServiceCorrectionPreviousService", fields: [businessId, previousServiceId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  newServiceId         String
+  newService           Service     @relation("AppointmentServiceCorrectionNewService", fields: [businessId, newServiceId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  requestId            String
+  requestFingerprint   String
+  previousServicePrice Int?
+  newServicePrice      Int?
+  previousAmount       Int
+  newAmount            Int
+  refundAmount         Int         @default(0)
+  refundCashEntryId    String?     @unique
+  refundCashEntry      CashEntry?  @relation("AppointmentServiceCorrectionRefund", fields: [businessId, refundCashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousCompensation Json?
+  newCompensation      Json
+  actorUserId          String?
+  actor                User?       @relation("AppointmentServiceCorrectionActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorName            String
+  reason               String
+  createdAt            DateTime    @default(dbgenerated("clock_timestamp()"))
+
+  @@unique([businessId, id])
+  @@unique([businessId, requestId])
+  @@unique([businessId, refundCashEntryId])
+  @@index([businessId, appointmentId, createdAt, id])
   @@index([businessId, actorUserId, createdAt])
 }
 
@@ -2447,6 +2486,7 @@ model CashEntry {
   correctionSourceId       String?
   correctionSource         CashEntry?                @relation("CashEntryDateCorrections", fields: [businessId, correctionSourceId], references: [businessId, id], onDelete: NoAction, onUpdate: Cascade)
   dateCorrections          CashEntry[]               @relation("CashEntryDateCorrections")
+  serviceCorrectionRefund  AppointmentServiceCorrection? @relation("AppointmentServiceCorrectionRefund")
   correctionReason         String?
   effectiveAt              DateTime?                 @default(dbgenerated("clock_timestamp()"))
   createdAt                DateTime                  @default(now())
