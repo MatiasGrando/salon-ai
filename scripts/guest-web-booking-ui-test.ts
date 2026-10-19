@@ -31,7 +31,7 @@ try {
     const tail = script.slice(start + 10).search(/\n          (?:(?:async )?function |const |let |els\.|window\.)/)
     return script.slice(start, tail < 0 ? script.length : start + 10 + tail)
   }
-  function element() { return { value: '', hidden: false, disabled: false, textContent: '', innerHTML: '', focus() {}, setAttribute() {}, classList: { toggle() {} }, addEventListener() {}, querySelector() { return null }, querySelectorAll() { return [] } } }
+  function element() { return { value: '', hidden: false, disabled: false, textContent: '', innerHTML: '', focus() {}, scrollIntoView() {}, setAttribute() {}, classList: { toggle() {} }, addEventListener() {}, querySelector() { return null }, querySelectorAll() { return [] } } }
   function context(on = true): any {
     const calls: any[] = [], messages: any[] = [], gates: string[] = []
     const service = { id: 'cut', name: 'Corte', duration: 30, price: 100 }
@@ -40,7 +40,7 @@ try {
       guestName: 'Synthetic', guestPhone: '15-6655-3322', weexAccount: null, submitting: false, guestBooking: false, deposit: null }
     const els: any = new Proxy({}, { get: (t: any, k: string) => t[k] ??= element() })
     const document = { getElementById: (_: string) => element(), querySelector: (_: string) => null }
-    return { state, els, calls, messages, gates, document, window: { setTimeout() {} },
+    return { state, els, calls, messages, gates, document, window: { setTimeout() {}, scrollTo() {}, scrollY: 0 },
       refreshWeexAccount: async () => state.weexAccount, showBookingGate: (s: string) => gates.push(s), proceedToConfirm: () => calls.push({ proceed: true }),
       updateContinue: (...args: any[]) => calls.push({ continue: args }), setFeedback: (...args: any[]) => messages.push(args), render() {},
       isMultiService: () => state.services.length > 1, selectedServices: () => state.services,
@@ -257,11 +257,19 @@ try {
   })
   await check('reservation collection is a responsive table with grouped segments, real statuses, and privacy help', () => {
     const c = context(); const group = browserBooking('group'); group.appointments.push({ ...group.appointments[0], id: 'second', service: { id: 'color', name: '<Color>', duration: 90 }, professional: { id: 'other', name: 'Second professional' } })
-    c.state.guestBookings = [group, browserBooking('cancelled', 'CANCELLED'), browserBooking('done', 'COMPLETED'), browserBooking('absent', 'NO_SHOW'), browserBooking('expired', 'PENDING', { status: 'EXPIRED' })]
+    group.appointments.forEach((item) => item.startAt = new Date(Date.now() + 86400000).toISOString())
+    const terminal = [browserBooking('cancelled', 'CANCELLED'), browserBooking('done', 'COMPLETED'), browserBooking('absent', 'NO_SHOW'), browserBooking('expired', 'PENDING', { status: 'EXPIRED' }), browserBooking('rejected', 'PENDING', { status: 'REJECTED' })]
+    terminal.forEach((booking) => booking.appointments.forEach((item) => item.startAt = new Date(Date.now() + 86400000 * 2).toISOString()))
+    c.state.guestBookings = [group, ...terminal]
     runInNewContext(browserFunctions() + '; renderGuestBookings()', c)
     const markup = c.els.content.innerHTML
-    for (const text of ['<table', '<thead', 'data-guest-booking-id="group"', '&lt;Color&gt;', 'Second professional', 'Cancelado', 'Realizado', 'Ausente', 'Seña vencida', '7 d', 'cookies', 'booking-new-reservation']) assert.ok(markup.includes(text), text)
-    assert.equal((markup.match(/data-guest-booking-id="group"/g) || []).length, 1)
+    for (const text of ['<table', '<thead', 'data-guest-booking-id="group"', '&lt;Color&gt;', 'Second professional', '7 d', 'cookies', 'booking-new-reservation']) assert.ok(markup.includes(text), text)
+    assert.equal((markup.match(/data-guest-booking-id="group"/g) || []).length, 2, 'touchable row and its keyboard button target the same booking')
+    for (const booking of terminal) assert.ok(!markup.includes('data-guest-booking-id="' + booking.bookingId + '"'), 'future terminal booking is excluded from upcoming: ' + booking.bookingId)
+    c.state.guestReservationFilter = 'history'
+    runInNewContext(browserFunctions() + '; renderGuestBookings()', c)
+    for (const text of ['Cancelado', 'Realizado', 'Ausente', 'Seña vencida', 'Comprobante rechazado']) assert.ok(c.els.content.innerHTML.includes(text), text)
+    assert.ok(!c.els.content.innerHTML.includes('data-guest-booking-id="group"'))
     assert.ok(!/localStorage|sessionStorage|tokenHash|customerPhone/.test(markup))
     assert.equal(c.els.continue.hidden, true)
   })
@@ -340,7 +348,7 @@ try {
       c.event = { target: { closest: (current: string) => current === selector ? { dataset: { guestBookingId: 'old' } } : null } }
       const routed: string[] = []; Object.assign(c, { beginNewBooking: () => routed.push('new'), viewGuestBookings: () => routed.push('list'), restoreBookingDraft: () => routed.push('resume'), applyGuestBooking: () => routed.push('detail'), refreshGuestBooking: () => routed.push('get') })
       runInNewContext('(function(){' + handler + '})()', c)
-      assert.deepEqual(routed, selector === '#booking-new-reservation' ? ['new'] : selector === '#booking-view-reservations' ? ['list'] : selector === '#booking-resume-draft' ? ['resume'] : ['detail', 'get'])
+      assert.deepEqual(routed, selector === '#booking-new-reservation' ? ['new'] : selector === '#booking-view-reservations' ? ['list'] : selector === '#booking-resume-draft' ? ['resume'] : ['detail'])
       assert.equal(c.calls.filter(x => x.path).length, 0)
     }
   })

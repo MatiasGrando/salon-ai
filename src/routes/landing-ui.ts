@@ -1933,6 +1933,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             guestClosed: false,
             guestCompleted: false,
             guestBookings: [],
+            guestReservationFilter: 'upcoming',
+            guestListScrollY: 0,
             selectedGuestBookingId: null,
             bookingView: null,
             bookingDraft: null,
@@ -3003,6 +3005,9 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               const result = await getJson(bookingApiUrl('/guest-booking'))
               rememberGuestBookings(result)
               render()
+              window.scrollTo({ top: state.guestListScrollY, behavior: 'instant' })
+              const selected = [...els.content.querySelectorAll('button[data-guest-booking-id]')].find((button) => button.dataset.guestBookingId === state.selectedGuestBookingId)
+              selected?.focus({ preventScroll: true })
             } catch (error) {
               // Missing/expired cookies never trigger a phone-based history lookup.
               if (error.status === 401) state.guestBookings = []
@@ -3024,20 +3029,24 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderGuestBookings() {
-            els.heading.textContent = 'Reservas de este navegador'
+            els.heading.textContent = 'Mis turnos'
             const formatter = new Intl.DateTimeFormat('es-AR', {
               timeZone: state.catalog?.business?.timezone || 'America/Argentina/Buenos_Aires',
               day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
             })
-            const rows = (state.guestBookings || []).map((booking) => '<tr><td data-label="Servicio y profesional">' +
+            const isUpcoming = (booking) => !booking.appointments.some((item) => ['CANCELLED', 'NO_SHOW'].includes(item.status)) && !booking.appointments.every((item) => item.status === 'COMPLETED') && !['EXPIRED', 'REJECTED'].includes(booking.deposit?.status) && new Date(booking.appointments[0].startAt).getTime() >= Date.now()
+            const upcoming = (state.guestBookings || []).filter(isUpcoming).sort((a, b) => new Date(a.appointments[0].startAt) - new Date(b.appointments[0].startAt))
+            const history = (state.guestBookings || []).filter((booking) => !isUpcoming(booking)).sort((a, b) => new Date(b.appointments[0].startAt) - new Date(a.appointments[0].startAt))
+            const rows = (state.guestReservationFilter === 'history' ? history : upcoming).map((booking) => '<tr data-guest-booking-id="' + escapeHtml(booking.bookingId) + '"><td data-label="Servicio y profesional">' +
               booking.appointments.map((appointment) => '<div class="booking-reservation-segment"><strong>' + escapeHtml(appointment.service.name) + '</strong><span>' + escapeHtml(appointment.professional.name) + '</span></div>').join('') +
               '</td><td data-label="Fecha y hora">' + booking.appointments.map((appointment) => '<div class="booking-reservation-segment">' + escapeHtml(formatter.format(new Date(appointment.startAt))) + '</div>').join('') +
               '</td><td data-label="Estado"><span class="booking-reservation-status">' + escapeHtml(guestBookingStatus(booking)) + '</span></td>' +
-              '<td><button class="booking-reservation-detail" type="button" data-guest-booking-id="' + escapeHtml(booking.bookingId) + '">Ver detalle</button></td></tr>').join('')
+              '<td><button class="booking-reservation-detail" type="button" data-guest-booking-id="' + escapeHtml(booking.bookingId) + '">Ver detalle &#8250;</button></td></tr>').join('')
             els.content.innerHTML = '<section class="booking-browser-reservations" aria-label="Reservas de este navegador">' +
-              '<p class="booking-browser-help">Pod&eacute;s consultar cada reserva durante 7 d&iacute;as desde su creaci&oacute;n, mientras este navegador conserve sus cookies. No es un historial por tel&eacute;fono.</p>' +
+              '<div class="guest-reservation-filters" aria-label="Mostrar turnos"><button type="button" data-guest-filter="upcoming" aria-pressed="' + String(state.guestReservationFilter !== 'history') + '">Pr&oacute;ximos (' + upcoming.length + ')</button><button type="button" data-guest-filter="history" aria-pressed="' + String(state.guestReservationFilter === 'history') + '">Historial (' + history.length + ')</button></div>' +
               (rows ? '<table class="booking-reservations-table"><caption class="booking-reservations-caption">Cada fila es una reserva; los servicios coordinados quedan juntos.</caption><thead><tr><th scope="col">Servicio y profesional</th><th scope="col">Fecha y hora</th><th scope="col">Estado</th><th scope="col">Detalle</th></tr></thead><tbody>' + rows + '</tbody></table>'
-                : '<p class="booking-browser-empty">No hay reservas disponibles para consultar en este navegador. Si borraste las cookies o pasaron 7 d&iacute;as, ped&iacute; ayuda al comercio. Tus turnos no se cancelan por eso.</p>') +
+                : '<p class="booking-browser-empty">No hay turnos en esta secci&oacute;n.</p>') +
+              '<p class="booking-browser-help">Reservas hechas en este navegador: disponibles durante 7 d&iacute;as desde su creaci&oacute;n, mientras conserve sus cookies. Si perdiste el acceso, consult&aacute; al local; tu turno se conserva.</p>' +
               '<div class="success-actions"><button class="success-link" id="booking-new-reservation" type="button">Reservar otro turno</button>' +
               (state.bookingDraft?.services?.length ? '<button class="success-link secondary" id="booking-resume-draft" type="button">Continuar mi nueva reserva</button>' : '') + '</div></section>'
             updateContinue(false)
@@ -3433,14 +3442,32 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               slug, appointmentId: state.guestAppointments[0].id, appointments: state.guestAppointments,
               timeZone: state.catalog.business?.timezone,
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
-              onUpdated: async () => {
-                await refreshGuestBooking()
-                setFeedback('Cambios guardados. Revis\u00e1 el estado actualizado de tu reserva.', 'info')
+              onBusyChange: (busy) => {
+                state.managingAppointment = busy
+                els.reservations.disabled = busy
+                els.content.querySelectorAll('#booking-view-reservations, #booking-new-reservation, #booking-guest-refresh').forEach((button) => button.disabled = busy)
+              },
+              onUpdated: (result) => {
+                const bookingId = state.selectedGuestBookingId
+                applyGuestBooking({ ...result, guest: true, bookingId, deposit: state.deposit })
+                state.guestBookings = (state.guestBookings || []).map((booking) => booking.bookingId === bookingId ? { ...booking, appointments: result.appointments } : booking)
+                const cancelled = result.appointments.every((item) => item.status === 'CANCELLED')
+                if (cancelled) state.guestReservationFilter = 'history'
+                els.heading.textContent = cancelled ? 'Reserva cancelada' : 'Reserva actualizada'
+                const summary = els.content.querySelector('.booking-success')
+                if (summary) {
+                  summary.querySelector('h2').textContent = cancelled ? 'Tu reserva fue cancelada' : 'Tu cambio qued\u00f3 guardado'
+                  summary.querySelector('.success-check')?.setAttribute('hidden', '')
+                }
+                renderSummary()
               }
             })
           }
 
           els.content.addEventListener('click', (event) => {
+            if (state.managingAppointment && !event.target.closest('[data-self-action]')) return
+            const guestFilter = event.target.closest('[data-guest-filter]')
+            if (guestFilter) { state.guestReservationFilter = guestFilter.dataset.guestFilter; renderGuestBookings(); return }
             if (event.target.closest('#booking-new-reservation')) {
               beginNewBooking()
               return
@@ -3458,9 +3485,12 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               if (state.submitting || state.uploadingProof) return
               const booking = (state.guestBookings || []).find((item) => item.bookingId === reservationButton.dataset.guestBookingId)
               if (booking) {
+                state.guestListScrollY = window.scrollY
                 applyGuestBooking({ ...booking, guest: true })
                 render()
-                void refreshGuestBooking()
+                els.heading.setAttribute('tabindex', '-1')
+                els.heading.scrollIntoView({ block: 'start', behavior: 'instant' })
+                els.heading.focus({ preventScroll: true })
               }
               return
             }
@@ -3678,8 +3708,11 @@ function appointmentSelfServiceClient() {
                 content = busy ? '<p class="self-service-note">Cargando acciones disponibles...</p>' : contact()
                 if (!busy && !accessLost) actions = button('retry', 'Volver a cargar')
               } else if (view === 'success') {
-                title = 'Cambio registrado'
+                title = appointments().every((item) => item.status === 'CANCELLED') ? 'Reserva cancelada' : 'Cambio registrado'
                 content = table(appointments()) + '<p class="self-service-note">El historial, la se&ntilde;a y los pagos se conservan. Cualquier devoluci&oacute;n se gestiona con el local.</p>'
+              } else if (appointments().length && appointments().every((item) => item.status === 'CANCELLED')) {
+                title = 'Reserva cancelada'
+                content = '<p class="self-service-note">Este turno ya fue cancelado. Pod&eacute;s reservar otro cuando quieras. La se&ntilde;a y los pagos se conservan; cualquier devoluci&oacute;n se gestiona con el local.</p>'
               } else if (view === 'cancel' && permission('canCancel')) {
                 title = 'Cancelar esta reserva'
                 content = table(appointments()) + '<p class="self-service-warning">Se cancelar&aacute;n todos los servicios de este pedido. Esto no realiza una devoluci&oacute;n autom&aacute;tica de la se&ntilde;a ni de otros pagos; coordin&aacute; cualquier devoluci&oacute;n con el local.</p>'
@@ -3740,20 +3773,23 @@ function appointmentSelfServiceClient() {
                 if (!globalThis.crypto?.randomUUID) { notice = 'No pudimos iniciar un cambio seguro. Comunicate con el local.'; renderPanel(); return }
                 pendingOperation = { revision: data.selfService.revision, operationId: crypto.randomUUID(), ...(action === 'cancel' ? { confirmed: true } : { date, professionalIds: professionals.slice(), optionId: selected.id }) }
               }
-              busy = true; notice = ''; renderPanel()
+              busy = true; notice = action === 'cancel' ? 'Estamos gestionando la cancelaci\u00f3n. Esper\u00e1 la confirmaci\u00f3n; no hace falta volver a enviarla.' : 'Estamos guardando el cambio. Esper\u00e1 la confirmaci\u00f3n.'; renderPanel()
+              config.onBusyChange?.(true)
               try {
                 const result = await request('/' + action, pendingOperation)
                 if (!active()) return
                 data = result; view = 'success'; selected = null; options = []; pendingOperation = null
                 notice = action === 'cancel' ? 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.' : 'La reserva fue reprogramada. Tu se\u00f1a y tus pagos se conservan.'
+                busy = false
+                config.onBusyChange?.(false)
                 renderPanel(true)
-                try { await config.onUpdated?.(result) } catch { if (active()) notice += ' Actualiz\u00e1 la p\u00e1gina para ver el estado m\u00e1s reciente.' }
+                Promise.resolve().then(() => config.onUpdated?.(result)).catch(() => { if (active()) { notice += ' No pudimos actualizar el historial; el cambio ya qued\u00f3 guardado.'; renderPanel() } })
               } catch (error) {
                 if (!active()) return
                 notice = error.message
                 if (error.status === 409) { busy = false; await load(error.message + ' Revis\u00e1 la reserva actual antes de volver a intentar.'); return }
                 if ([401, 403, 404].includes(error.status)) { accessLost = true; view = 'home'; pendingOperation = null }
-              } finally { busy = false; renderPanel() }
+              } finally { busy = false; config.onBusyChange?.(false); renderPanel() }
             }
             host.addEventListener('click', async (event) => {
               const target = event.target.closest('[data-self-action]')
@@ -3798,6 +3834,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 <small>Reservas Weex</small>
               </span>
             </a>
+            <button class="account-profile-toggle" id="account-profile-toggle" type="button" aria-label="Ver mi perfil" title="Mi perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg></button>
             <div class="account-user">
               <div class="account-avatar" id="account-avatar">G</div>
               <div>
@@ -3806,13 +3843,13 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               </div>
             </div>
             <nav class="account-tabs" aria-label="Mi cuenta">
-              <button class="account-tab active" type="button" data-tab="profile">
+              <button class="account-tab" type="button" data-tab="profile">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
                 Perfil
               </button>
-              <button class="account-tab" type="button" data-tab="history">
+              <button class="account-tab active" type="button" data-tab="history">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg>
-                Historial
+                Mis turnos
               </button>
             </nav>
             <button class="account-logout" id="account-logout" type="button" hidden>Cerrar sesion</button>
@@ -3832,7 +3869,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               <header class="account-section-head">
                 <div>
                   <span class="account-kicker">Mi cuenta</span>
-                  <h1 id="account-title">Perfil</h1>
+                  <h1 id="account-title">Mis turnos</h1>
                 </div>
                 <a class="account-book" href="${escapeAttribute(bookingUrl)}">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg>
@@ -3842,7 +3879,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
               <div class="account-feedback" id="account-feedback" role="status" aria-live="polite"></div>
 
-              <section class="account-panel" id="profile-panel">
+              <section class="account-panel" id="profile-panel" hidden>
                 <div class="profile-grid">
                   <div class="google-profile">
                     <div class="large-avatar" id="large-avatar">G</div>
@@ -3863,7 +3900,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 </div>
               </section>
 
-              <section class="account-summary" id="account-summary" aria-label="Resumen de reservas">
+              <section class="account-summary" id="account-summary" aria-label="Resumen de reservas" hidden>
                 <article class="summary-tile">
                   <span class="summary-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg></span>
                   <span><small>Proxima reserva</small><strong id="summary-next">Sin reservas proximas</strong></span>
@@ -3881,12 +3918,12 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               <section class="history-layout" id="history-panel" hidden>
                 <div class="history-list">
                   <div class="history-filter">
-                    <button class="history-chip active" type="button">Citas <span id="history-count">0</span></button>
+                    <button class="history-chip active" type="button" data-reservation-filter="upcoming" aria-pressed="true">Pr&oacute;ximos <span id="upcoming-count">0</span></button>
+                    <button class="history-chip" type="button" data-reservation-filter="history" aria-pressed="false">Historial <span id="history-count">0</span></button>
                   </div>
-                  <h2>Proximas reservas <span id="upcoming-count">0</span></h2>
                   <div id="upcoming-state"></div>
-                  <h2>Historial</h2>
-                  <div id="history-items"></div>
+                  <div id="history-items" hidden></div>
+                  <a class="account-new-booking" href="${escapeAttribute(bookingUrl)}">Reservar otro turno</a>
                 </div>
                 <aside class="history-detail" id="history-detail"></aside>
               </section>
@@ -3925,10 +3962,14 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           ${appointmentSelfServiceClient()}
           const state = {
-            tab: 'profile',
+            tab: 'history',
             user: null,
             appointments: [],
             selectedId: null,
+            reservationFilter: 'upcoming',
+            mobileDetail: false,
+            listScrollY: 0,
+            appointmentOverrides: {},
             editingPhone: false,
             booted: false
           }
@@ -3969,6 +4010,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function renderShell() {
             const logged = Boolean(state.user)
+            document.getElementById('account-shell').dataset.accountView = state.tab
             els.login.hidden = logged
             els.workspace.hidden = !logged
             els.logout.hidden = !logged
@@ -3992,10 +4034,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.largeAvatar.textContent = avatarText
             els.phoneReadonly.textContent = user.phone ? formatPhoneDisplay(user.phone) : 'Sin telefono cargado'
             els.phoneEdit.textContent = user.phone ? 'Editar' : 'Cargar numero'
-            els.title.textContent = state.tab === 'profile' ? 'Perfil' : 'Historial'
+            els.title.textContent = state.tab === 'profile' ? 'Mi perfil' : 'Mis turnos'
             els.profilePanel.hidden = state.tab !== 'profile'
-            els.accountSummary.hidden = state.tab !== 'profile'
-            els.historyPanel.hidden = false
+            els.accountSummary.hidden = true
+            els.historyPanel.hidden = state.tab === 'profile'
             renderHistory()
           }
 
@@ -4122,6 +4164,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               const result = await postJson('/public/weex/auth/google-code', { code: response.code })
               state.user = result.account
               state.appointments = []
+              state.appointmentOverrides = {}
               state.selectedId = null
               setLoginFeedback('', '')
               setFeedback('Sesion iniciada. Tus proximas reservas se podran cargar en Google Calendar.', 'info')
@@ -4142,6 +4185,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               const result = await postJson('/public/weex/auth/google', { credential: response.credential })
               state.user = result.account
               state.appointments = []
+              state.appointmentOverrides = {}
               state.selectedId = null
               setLoginFeedback('', '')
               setFeedback('Sesion iniciada. Agrega tu telefono para cargar tu historial.', 'info')
@@ -4152,7 +4196,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             }
           }
 
-          async function loadHistory() {
+          async function loadHistory({ background = false } = {}) {
             if (!state.user?.phone || normalizePhone(state.user.phone).length < 8) {
               state.appointments = []
               state.selectedId = null
@@ -4160,14 +4204,17 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               if (state.tab === 'history') setFeedback('Agrega tu telefono en Perfil para cargar tus turnos.', 'info')
               return
             }
-            setFeedback('Cargando tus turnos...', 'info')
+            if (!background) setFeedback('Cargando tus turnos...', 'info')
             try {
               const result = await getJson('/public/weex/appointments?businessSlug=' + encodeURIComponent(slug) + '&limit=5')
-              state.appointments = result.appointments || []
-              state.selectedId = state.appointments[0]?.id || null
-              setFeedback('', '')
-              renderHistory()
+              const overrides = state.appointmentOverrides || {}
+              const rows = (result.appointments || []).map((item) => overrides[item.id] || item)
+              state.appointments = [...rows, ...Object.values(overrides).filter((item) => !rows.some((row) => row.id === item.id))]
+              if (!state.appointments.some((item) => item.id === state.selectedId)) state.selectedId = null
+              if (!background) setFeedback('', '')
+              renderHistory(background)
             } catch (error) {
+              if (background) return
               state.appointments = []
               state.selectedId = null
               setFeedback(error.message, 'error')
@@ -4175,12 +4222,31 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             }
           }
 
-          function renderHistory() {
+          function appointmentGroups() {
+            const now = Date.now()
+            const terminal = (item) => ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(item.status)
+            return {
+              upcoming: state.appointments.filter((item) => !terminal(item) && new Date(item.startAt).getTime() >= now).sort((a, b) => new Date(a.startAt) - new Date(b.startAt)),
+              history: state.appointments.filter((item) => terminal(item) || new Date(item.startAt).getTime() < now).sort((a, b) => new Date(b.startAt) - new Date(a.startAt))
+            }
+          }
+
+          function applyAppointmentUpdate(result) {
+            const rows = Array.isArray(result.appointments) ? result.appointments : []
+            state.appointmentOverrides ||= {}
+            for (const item of rows) state.appointmentOverrides[item.id] = item
+            state.appointments = state.appointments.map((item) => state.appointmentOverrides[item.id] || item)
+            for (const item of rows) if (!state.appointments.some((saved) => saved.id === item.id)) state.appointments.push(item)
+            renderHistory(true)
+            renderDetailSummary()
+            void loadHistory({ background: true })
+          }
+
+          function renderHistory(preserveDetail = false) {
             if (!state.user) return
-            const now = new Date()
-            const upcoming = state.appointments.filter((appointment) => new Date(appointment.startAt) >= now)
-            const past = state.appointments.filter((appointment) => new Date(appointment.startAt) < now)
-            els.historyCount.textContent = String(state.appointments.length)
+            const { upcoming, history: past } = appointmentGroups()
+            if (!state.selectedId) state.selectedId = (upcoming[0] || past[0])?.id || null
+            els.historyCount.textContent = String(past.length)
             els.upcomingCount.textContent = String(upcoming.length)
             els.summaryUpcoming.textContent = String(upcoming.length)
             els.summaryPast.textContent = String(past.length)
@@ -4191,14 +4257,22 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.historyItems.innerHTML = past.length
               ? '<div class="appointment-stack">' + past.map(renderAppointmentCard).join('') + '</div>'
               : '<p class="account-empty-line">Todavia no hay turnos anteriores para este telefono.</p>'
-            renderDetail()
+            els.upcomingState.hidden = state.reservationFilter === 'history'
+            els.historyItems.hidden = state.reservationFilter !== 'history'
+            els.historyPanel.dataset.mobileDetail = String(Boolean(state.mobileDetail))
+            document.querySelectorAll('[data-reservation-filter]').forEach((button) => {
+              const active = button.dataset.reservationFilter === state.reservationFilter
+              button.classList.toggle('active', active)
+              button.setAttribute('aria-pressed', String(active))
+            })
+            if (!preserveDetail) renderDetail()
           }
 
           function renderAppointmentCard(appointment) {
             const active = appointment.id === state.selectedId ? ' active' : ''
             const date = formatDateTime(appointment.startAt)
             return '<button class="appointment-card' + active + '" type="button" data-appointment-id="' + escapeHtml(appointment.id) + '">' +
-              '<span class="appointment-thumb">' + escapeHtml(initials(businessInitials())) + '</span>' +
+              '<span class="appointment-date"><b>' + escapeHtml(new Intl.DateTimeFormat('es-AR', { day: '2-digit' }).format(new Date(appointment.startAt))) + '</b><small>' + escapeHtml(new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(new Date(appointment.startAt))) + '</small></span>' +
               '<span class="appointment-copy">' +
                 '<span class="appointment-card-head"><strong>' + escapeHtml(appointment.service.name) + '</strong><i>' + statusLabel(appointment.status) + '</i></span>' +
                 '<small>' + escapeHtml(date.short) + '</small>' +
@@ -4206,9 +4280,46 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</small>' +
                   '<small><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 12V8a2 2 0 0 0-2-2h-6l-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</small>' +
                 '</span>' +
-                '<em>Volver a reservar</em>' +
+                '<span class="appointment-professional">' + escapeHtml(appointment.professional.name) + '</span>' +
               '</span>' +
+              '<span class="appointment-chevron" aria-hidden="true">&#8250;</span>' +
             '</button>'
+          }
+
+          function renderDetailSummary() {
+            const appointment = state.appointments.find((item) => item.id === state.selectedId)
+            const summary = els.historyDetail.querySelector('[data-account-detail-summary]')
+            if (!summary || !appointment) return
+            const date = formatDateTime(appointment.startAt)
+            summary.innerHTML = '<span class="status-pill" data-status="' + escapeHtml(appointment.status) + '">' + statusLabel(appointment.status) + '</span>' +
+              '<h2 tabindex="-1" data-account-detail-title>' + escapeHtml(appointment.service.name) + '</h2>' +
+              '<p class="account-detail-date">' + escapeHtml(date.long) + '</p>' +
+              '<div class="detail-facts"><span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
+                '<span><b>Duraci&oacute;n</b><strong>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</strong></span>' +
+                '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.quotedPrice ?? appointment.service.price)) + '</strong></span></div>'
+          }
+
+          function showAppointmentDetail(id) {
+            if (state.managerBusy) return
+            state.listScrollY = window.scrollY
+            state.selectedId = id
+            state.mobileDetail = true
+            renderHistory()
+            if (window.matchMedia('(max-width: 767px)').matches) {
+              els.historyPanel.scrollIntoView({ block: 'start', behavior: 'instant' })
+              els.historyDetail.querySelector('[data-account-detail-title]')?.focus({ preventScroll: true })
+            }
+          }
+
+          function showAppointmentList() {
+            if (state.managerBusy) return
+            state.mobileDetail = false
+            if (appointmentGroups().history.some((item) => item.id === state.selectedId)) state.reservationFilter = 'history'
+            renderHistory(true)
+            els.historyPanel.dataset.mobileDetail = 'false'
+            window.scrollTo({ top: state.listScrollY || 0, behavior: 'instant' })
+            const selected = [...els.historyPanel.querySelectorAll('[data-appointment-id]')].find((item) => item.dataset.appointmentId === state.selectedId)
+            selected?.focus({ preventScroll: true })
           }
 
           function renderDetail() {
@@ -4217,32 +4328,26 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               els.historyDetail.innerHTML = '<div class="detail-empty">Selecciona un turno para ver el detalle.</div>'
               return
             }
-            const date = formatDateTime(appointment.startAt)
             els.historyDetail.innerHTML =
-              '<div class="detail-hero"><div class="detail-logo">' + escapeHtml(businessInitials()) + '</div><span><strong>${escapeHtml(business.name)}</strong><small>Clasico. Preciso. Personal.</small></span></div>' +
+              '<button class="account-detail-back" data-account-back type="button">&#8249; Volver a mis turnos</button>' +
               '<div class="detail-body">' +
-              '<span class="status-pill">' + statusLabel(appointment.status) + '</span>' +
-              '<h2>' + escapeHtml(date.long) + '</h2>' +
-              '<p><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + ' de duraci&oacute;n · Reserva #' + escapeHtml(appointment.id.slice(-6).toUpperCase()) + '</p>' +
-              '<div class="detail-facts">' +
-                '<span><b>Servicio</b><strong>' + escapeHtml(appointment.service.name) + '</strong></span>' +
-                '<span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
-                '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.service.price)) + '</strong></span>' +
-              '</div>' +
+              '<div data-account-detail-summary></div>' +
               '<div class="appointment-management-host" id="account-appointment-management"></div>' +
               '<div class="detail-actions">' +
-                '<a class="primary" href="${escapeAttribute(bookingUrl)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="4" y="5" width="16" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg>Volver a reservar</a>' +
+                '<a class="primary" href="${escapeAttribute(bookingUrl)}">Reservar otro turno</a>' +
                 '<a href="${escapeAttribute(basePath)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
               '</div>' +
               '</div>'
+            renderDetailSummary()
             mountAppointmentManager(document.getElementById('account-appointment-management'), {
               slug, appointmentId: appointment.id, appointments: [appointment],
               timeZone: ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')},
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
-              onUpdated: async () => {
-                await loadHistory()
-                setFeedback('Cambios guardados. Revis\u00e1 el estado actualizado de tu reserva.', 'info')
-              }
+              onBusyChange: (busy) => {
+                state.managerBusy = busy
+                document.querySelectorAll('[data-account-back], #account-profile-toggle, .account-tab').forEach((button) => button.disabled = busy)
+              },
+              onUpdated: applyAppointmentUpdate
             })
           }
 
@@ -4335,6 +4440,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             await postJson('/public/weex/logout').catch(() => null)
             state.user = null
             state.appointments = []
+            state.appointmentOverrides = {}
             state.selectedId = null
             setFeedback('', '')
             renderShell()
@@ -4387,6 +4493,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           document.querySelectorAll('.account-tab').forEach((tab) => {
             tab.addEventListener('click', () => {
+              if (state.managerBusy) return
               state.tab = tab.dataset.tab
               setFeedback('', '')
               renderShell()
@@ -4395,10 +4502,23 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           })
 
           els.historyPanel.addEventListener('click', (event) => {
+            if (event.target.closest('[data-account-back]')) { showAppointmentList(); return }
+            const filter = event.target.closest('[data-reservation-filter]')
+            if (filter) {
+              if (state.managerBusy) return
+              state.reservationFilter = filter.dataset.reservationFilter
+              renderHistory(true)
+              return
+            }
             const card = event.target.closest('[data-appointment-id]')
             if (!card) return
-            state.selectedId = card.dataset.appointmentId
-            renderHistory()
+            showAppointmentDetail(card.dataset.appointmentId)
+          })
+
+          document.getElementById('account-profile-toggle').addEventListener('click', () => {
+            if (state.managerBusy) return
+            state.tab = state.tab === 'profile' ? 'history' : 'profile'
+            renderShell()
           })
 
           renderShell()
@@ -5169,9 +5289,9 @@ function htmlPage(input: {
       gap: 8px;
     }
     .fresha-icon-btn {
-      width: 38px;
-      height: 38px;
-      flex: 0 0 38px;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -6128,7 +6248,7 @@ function htmlPage(input: {
     .booking-guest-google-row button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--booking-border); border-radius: 8px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-weight: 700; cursor: pointer; }
     .booking-guest-google-row button:focus-visible { outline: 3px solid var(--booking-accent-soft); }
     .booking-reservations-link {
-      min-height: 40px; padding: 8px 12px; max-width: 140px; border: 1px solid var(--booking-border);
+      min-height: 44px; padding: 8px 12px; max-width: 140px; border: 1px solid var(--booking-border);
       border-radius: 10px; background: var(--booking-surface); color: var(--booking-ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
     }
     .booking-reservations-link[hidden] { display: none; }
@@ -6844,8 +6964,8 @@ function htmlPage(input: {
       position: absolute;
       top: 16px;
       right: 16px;
-      width: 36px;
-      height: 36px;
+      width: 44px;
+      height: 44px;
       display: grid;
       place-items: center;
       color: #17171B;
@@ -7181,6 +7301,7 @@ function htmlPage(input: {
       display: block; margin: 0; color: var(--booking-secondary-ink, #5C5860); font-size: 14px; line-height: 1.55;
     }
     .appointment-management .self-service-warning { padding: 14px; color: #722727; background: #FFF1EF; border-radius: 8px; }
+    .appointment-management .self-service-body p.self-service-warning { color: #722727; background: #FFF1EF; }
     .appointment-management .self-service-feedback { margin: 0 0 16px; padding: 12px; border-radius: 8px; color: var(--booking-ink, #242427); background: var(--booking-accent-soft, #F0F3FA); font-size: 14px; line-height: 1.5; }
     .appointment-management .self-service-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
     .appointment-management label { display: grid; gap: 8px; min-width: 0; font-size: 13px; font-weight: 700; line-height: 1.4; }
@@ -8077,6 +8198,111 @@ function htmlPage(input: {
       .history-detail h2,
       .history-detail p,
       .detail-actions { margin-left: 22px; margin-right: 22px; }
+    }
+
+    /* Account navigation shares the merchant palette and keeps appointments first. */
+    .account-page { background: var(--booking-bg, #FAFAF8); color: var(--booking-ink, #17171B); }
+    .account-page [hidden] { display: none !important; }
+    .account-page .account-brand { min-height: 44px; }
+    .account-page :focus-visible { outline: 3px solid var(--booking-accent, #376DB8); outline-offset: 3px; }
+    .account-shell { grid-template-columns: 220px minmax(0, 1fr); }
+    .account-sidebar, .account-panel, .history-detail { background: var(--booking-surface, #FFFFFF); border-color: var(--booking-border, #E1DDD4); }
+    .account-page .account-brand, .account-page .account-tab, .account-page .history-chip,
+    .account-page .profile-grid, .account-page .profile-grid h2, .account-page .detail-facts b,
+    .account-page .detail-facts strong, .account-page .history-detail h2 { color: var(--booking-ink, #17171B); }
+    .account-page .account-brand small, .account-page .account-user small, .account-page .profile-grid p,
+    .account-page .phone-form small, .account-page .appointment-copy small, .account-page .account-empty-line,
+    .account-page .detail-empty, .account-page .history-detail p { color: var(--booking-secondary-ink, #5C5860); }
+    .account-page .account-tab.active { color: var(--booking-ink, #17171B); background: var(--booking-accent-soft, #F8F1E1); }
+    .account-page .account-book, .account-page .edit-phone, .account-page .detail-actions a.primary { color: var(--booking-on-cta, #FFFFFF); background: var(--booking-cta, #242427); }
+    .account-main { min-width: 0; padding: 28px clamp(16px, 3vw, 40px); }
+    .account-section-head { align-items: center; margin-bottom: 22px; }
+    .account-kicker { display: none; }
+    .account-page .account-section-head h1 { color: var(--booking-ink, #17171B); font-size: clamp(24px, 3vw, 30px); }
+    .account-profile-toggle { display: none; }
+    .account-new-booking { display: none; }
+    .account-book { min-height: 44px; }
+    .history-layout { grid-template-columns: minmax(250px, .85fr) minmax(0, 1.15fr); gap: 22px; scroll-margin-top: 82px; }
+    .history-filter { margin-bottom: 16px; gap: 8px; }
+    .account-page .history-chip { min-height: 44px; flex: 1; padding: 8px 10px; border-color: var(--booking-border, #E1DDD4); background: var(--booking-surface, #FFFFFF); }
+    .account-page .history-chip.active { color: var(--booking-on-cta, #FFFFFF); background: var(--booking-cta, #242427); border-color: var(--booking-cta, #242427); }
+    .account-page .history-chip span { color: var(--booking-ink, #17171B); background: var(--booking-accent-soft, #F0F3FA); }
+    .appointment-stack { gap: 0; border: 1px solid var(--booking-border, #E1DDD4); border-radius: 14px; overflow: hidden; }
+    .account-page .appointment-card { min-height: 106px; grid-template-columns: 45px minmax(0, 1fr) 16px; gap: 12px; padding: 15px 12px; border: 0; border-bottom: 1px solid var(--booking-border, #E1DDD4); border-radius: 0; color: var(--booking-ink, #17171B); background: var(--booking-surface, #FFFFFF); }
+    .account-page .appointment-card:last-child { border-bottom: 0; }
+    .account-page .appointment-card.active { background: var(--booking-accent-soft, #F8F1E1); box-shadow: inset 3px 0 var(--booking-accent, #B38724); }
+    .appointment-date { display: grid; align-content: center; justify-items: center; gap: 2px; color: var(--booking-ink, #17171B); }
+    .appointment-date b { font-size: 23px; line-height: 1; }
+    .appointment-date small { font-size: 12px; text-transform: uppercase; }
+    .appointment-copy { gap: 6px; }
+    .appointment-card-head { align-items: flex-start; flex-wrap: wrap; gap: 5px; }
+    .account-page .appointment-copy strong { white-space: normal; line-height: 1.4; }
+    .account-page .appointment-card-head i, .account-page .status-pill { color: var(--booking-ink, #17171B); background: var(--booking-accent-soft, #F8F1E1); }
+    .account-page .appointment-card-head i { padding: 3px 7px; font-size: 10px; font-weight: 700; }
+    .appointment-professional { font-size: 12px; color: var(--booking-secondary-ink, #5C5860); }
+    .appointment-chevron { align-self: center; color: var(--booking-secondary-ink, #5C5860); font-size: 28px; }
+    .appointment-meta { flex-wrap: wrap; gap: 4px 10px; }
+    .account-page .history-detail { min-height: 0; border: 1px solid var(--booking-border, #E1DDD4); border-radius: 14px; }
+    .account-detail-back { display: none; }
+    .account-page .detail-body { padding: clamp(16px, 2vw, 26px); }
+    .account-page .history-detail h2 { margin: 0 0 8px; font-size: clamp(23px, 3vw, 29px); }
+    .account-page .history-detail p { margin: 0 0 20px; line-height: 1.5; display: block; }
+    .account-page .status-pill { margin: 0 0 16px; }
+    .account-page .status-pill[data-status="CANCELLED"] { border: 1px solid var(--booking-border, #E1DDD4); background: var(--booking-bg, #FAFAF8); }
+    .account-page .detail-facts span { min-height: 44px; grid-template-columns: 1fr 1fr; padding: 10px 0; gap: 10px; border-color: var(--booking-border, #E1DDD4); }
+    .account-page .detail-facts strong { text-align: right; }
+    .account-page .appointment-management-host { margin-top: 20px; }
+    .account-page .appointment-management { padding: 16px; }
+    .account-page .detail-actions { margin: 18px 0 0; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .account-page .detail-actions a { min-height: 44px; color: var(--booking-ink, #17171B); background: var(--booking-surface, #FFFFFF); border-color: var(--booking-border, #E1DDD4); }
+    .account-page .detail-actions a:last-child { border: 0; }
+    .account-page .phone-readonly { color: var(--booking-ink, #17171B); background: var(--booking-bg, #FAFAF8); border-color: var(--booking-border, #E1DDD4); }
+    .booking-browser-reservations .booking-browser-help { color: var(--booking-secondary-ink); font-size: 13px; }
+    .booking-reservation-detail { min-height: 44px; }
+    .guest-reservation-filters { display: flex; gap: 8px; margin-bottom: 18px; }
+    .guest-reservation-filters button { flex: 1; min-height: 44px; padding: 10px; border: 1px solid var(--booking-border); border-radius: 10px; color: var(--booking-ink); background: var(--booking-surface); font: inherit; font-size: 14px; font-weight: 700; }
+    .guest-reservation-filters button[aria-pressed="true"] { color: var(--booking-on-cta); background: var(--booking-cta); border-color: var(--booking-cta); }
+    .booking-reservations-table tr[data-guest-booking-id] { cursor: pointer; }
+    .booking-browser-reservations .booking-browser-help { margin: 18px 0 0; }
+    .booking-browser-reservations button:focus-visible { outline: 3px solid var(--booking-accent); outline-offset: 3px; }
+    @media (max-width: 1150px) {
+      .account-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+      .account-sidebar { position: sticky; top: 0; z-index: 30; min-width: 0; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-right: 0; border-bottom: 1px solid var(--booking-border, #E1DDD4); }
+      .account-brand { margin: 0; min-width: 0; }
+      .account-brand > span:last-child { min-width: 0; }
+      .account-user, .account-tabs, .account-logout { display: none; }
+      .account-profile-toggle { flex: 0 0 44px; min-height: 44px; width: 44px; display: grid; place-items: center; border: 1px solid var(--booking-border, #E1DDD4); border-radius: 50%; color: var(--booking-ink, #17171B); background: var(--booking-surface, #FFFFFF); }
+      .account-profile-toggle svg { width: 21px; height: 21px; }
+      .account-main { padding: 24px 18px; }
+      .account-shell[data-account-view="profile"] .account-logout { display: inline-flex; width: auto; margin: 0; padding: 0 8px; border: 0; }
+      .history-layout { grid-template-columns: minmax(240px, .85fr) minmax(0, 1.15fr); }
+    }
+    @media (max-width: 767px) {
+      .account-sidebar { padding: 10px 14px; }
+      .account-brand { gap: 9px; }
+      .account-brand-mark { width: 38px; height: 38px; flex: 0 0 38px; }
+      .account-brand small { font-size: 11px; }
+      .account-main { padding: 20px 14px 32px; }
+      .account-section-head { flex-direction: row; gap: 12px; margin-bottom: 18px; }
+      .account-book { padding: 0 12px; font-size: 12px; }
+      .account-shell[data-account-view="history"] .account-book { display: none; }
+      .account-new-booking { display: flex; align-items: center; justify-content: center; min-height: 50px; width: 100%; margin-top: 18px; padding: 12px 16px; color: var(--booking-on-cta, #FFFFFF); background: var(--booking-cta, #242427); border-radius: 10px; font-size: 14px; font-weight: 800; }
+      .history-layout { display: block; }
+      .history-layout:not([data-mobile-detail="true"]) .history-detail,
+      .history-layout[data-mobile-detail="true"] .history-list { display: none; }
+      .history-layout[data-mobile-detail="true"] .history-detail { display: block; }
+      .account-detail-back { min-height: 48px; display: flex; align-items: center; width: 100%; gap: 8px; padding: 12px 16px; border: 0; border-bottom: 1px solid var(--booking-border, #E1DDD4); color: var(--booking-ink, #17171B); background: var(--booking-surface, #FFFFFF); font: inherit; font-size: 14px; font-weight: 700; text-align: left; }
+      .account-page .detail-body { padding: 18px 14px; }
+      .account-page .detail-facts span { grid-template-columns: 1fr 1fr; align-items: center; }
+      .account-page .appointment-management { padding: 14px 12px; }
+      .account-page .self-service-actions { position: sticky; bottom: 0; z-index: 2; padding: 12px 0 max(4px, env(safe-area-inset-bottom)); background: var(--booking-surface, #FFFFFF); }
+      .account-page .self-service-actions > * { min-height: 48px; }
+      .account-page .profile-grid { padding: 20px 16px; }
+      .account-page .large-avatar { width: 56px; height: 56px; flex: 0 0 56px; font-size: 22px; }
+      .account-page .google-profile { gap: 12px; }
+      .account-page .google-profile h2 { font-size: 20px; overflow-wrap: anywhere; }
+      .account-page .google-profile p { overflow-wrap: anywhere; }
+      .account-page .account-feedback { margin-bottom: 14px; }
     }
 
     .landing-template-editorial {

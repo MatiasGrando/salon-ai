@@ -132,6 +132,105 @@ try {
     c.ctx.fetch = async (url: string, options: any) => { c.requests.push({ url, ...options }); return new Promise(resolve => release = () => resolve({ ok: true, status: 200, json: async () => managed(false) })) }
     const first = c.click('confirm-cancel'); await c.click('confirm-cancel'); assert.equal(c.requests.length, 2); assert.ok(c.host.innerHTML.includes('aria-busy="true"')); release(); await first
   })
+  await check('cancellation announces pending work, then finishes without waiting for background history', async () => {
+    const c = harness(); await c.start(script); await c.click('cancel')
+    let releasePost: any, releaseRefresh: any
+    c.ctx.fetch = async () => new Promise(resolve => releasePost = () => resolve({ ok: true, json: async () => ({ ...managed(false), appointments: [{ ...appointment(), status: 'CANCELLED' }] }) }))
+    c.ctx.config.onUpdated = () => new Promise(resolve => releaseRefresh = resolve)
+    const pending = c.click('confirm-cancel')
+    assert.match(c.host.innerHTML, /Estamos gestionando la cancelaci/)
+    releasePost(); await new Promise(resolve => setImmediate(resolve))
+    assert.ok(c.host.innerHTML.includes('La reserva fue cancelada'))
+    assert.ok(c.host.innerHTML.includes('aria-busy="false"'), 'authoritative POST ends pending state before history finishes')
+    releaseRefresh(); await pending
+  })
+  await check('a cancelled reservation is final and cannot offer cancellation contact again', async () => {
+    const data = managed(false); data.appointments[0]!.status = 'CANCELLED'
+    const c = harness(data); await c.start(script)
+    assert.ok(c.host.innerHTML.includes('Reserva cancelada'))
+    assert.ok(!c.host.innerHTML.includes('https://wa.me/'))
+    assert.ok(!c.host.innerHTML.includes('data-self-action="cancel"'))
+  })
+  await check('a synchronous account refresh error cannot undo a successful cancellation notice', async () => {
+    const c = harness(); await c.start(script); await c.click('cancel')
+    c.ctx.config.onUpdated = () => { throw new Error('Refresh callback failed') }
+    c.queue.push({ ...managed(false), appointments: [{ ...appointment(), status: 'CANCELLED' }] })
+    await c.click('confirm-cancel'); await new Promise(resolve => setImmediate(resolve))
+    assert.ok(c.host.innerHTML.includes('La reserva fue cancelada'))
+    assert.ok(c.host.innerHTML.includes('el cambio ya qued'))
+    assert.ok(!c.host.innerHTML.includes('Refresh callback failed'))
+  })
+  function accountHarness(items: any[]) {
+    const elements: Record<string, any> = {}
+    for (const key of ['historyCount', 'upcomingCount', 'summaryUpcoming', 'summaryPast', 'summaryNext', 'upcomingState', 'historyItems', 'historyDetail', 'historyPanel']) elements[key] = { innerHTML: '', textContent: '', hidden: false, dataset: {}, classList: { toggle() {} }, querySelector: () => null }
+    let managerConfig: any, renderCount = 0, releaseHistory: any
+    const context: any = { state: { user: { phone: '5491166553322' }, appointments: items, selectedId: items[0]?.id, tab: 'history', reservationFilter: 'upcoming', mobileDetail: false }, els: elements, slug: 'safe-local', Date, Intl, Promise, encodeURIComponent,
+      window: { matchMedia: () => ({ matches: true }), scrollY: 0, scrollTo() {}, requestAnimationFrame: (fn: any) => fn() },
+      document: { getElementById: () => ({}) , querySelectorAll: () => [] },
+      mountAppointmentManager: (_host: any, config: any) => { managerConfig = config; renderCount++; return { ready: Promise.resolve() } },
+      setFeedback() {}, getJson: () => new Promise(resolve => releaseHistory = resolve) }
+    const names = ['loadHistory', 'renderHistory', 'renderAppointmentCard', 'renderDetail', 'formatDateTime', 'formatPriceLine', 'statusLabel', 'normalizePhone', 'businessInitials', 'initials', 'escapeHtml']
+    // Execute the emitted account functions and its actual onUpdated callback, rather than a callback fixture.
+    const optional = ['appointmentGroups', 'applyAppointmentUpdate', 'renderDetailSummary', 'showAppointmentDetail', 'showAppointmentList']
+    for (const name of optional) if (script.includes('function ' + name + '(')) names.push(name)
+    runInNewContext(names.map(name => source(script, name)).join('\n') + '; globalThis.accountFunctions = { renderHistory, renderDetail, loadHistory }', context)
+    return { context, elements, get config() { return managerConfig }, get renders() { return renderCount }, get release() { return releaseHistory } }
+  }
+  await check('account applies POST rows immediately and preserves manager through delayed or stale history refresh', async () => {
+    const h = accountHarness([appointment()]); h.context.accountFunctions.renderHistory()
+    const originalRenders = h.renders
+    const updated = { ...managed(false), appointments: [{ ...appointment(), status: 'CANCELLED' }] }
+    const callback = h.config.onUpdated(updated)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(h.context.state.appointments[0].status, 'CANCELLED', 'POST outcome immediately updates local account rows')
+    assert.equal(h.renders, originalRenders, 'updating the list must not remount the successful manager')
+    if (h.release) { h.release({ appointments: [appointment()] }); await callback; await new Promise(resolve => setImmediate(resolve)) }
+    assert.equal(h.context.state.appointments[0].status, 'CANCELLED', 'stale history cannot overwrite authoritative POST')
+    assert.equal(h.context.state.selectedId, 'one')
+    assert.equal(h.renders, originalRenders)
+  })
+  await check('upcoming appointments are chronological and future cancelled appointments move to history', () => {
+    const now = Date.now(), later = { ...appointment('later'), startAt: new Date(now + 86400000 * 4).toISOString() }, soon = { ...appointment('soon'), startAt: new Date(now + 86400000).toISOString() }, cancelled = { ...appointment('cancelled'), startAt: new Date(now + 86400000 * 2).toISOString(), status: 'CANCELLED' }
+    const h = accountHarness([later, cancelled, soon]); h.context.accountFunctions.renderHistory()
+    assert.ok(!h.elements.upcomingState.innerHTML.includes('data-appointment-id="cancelled"'))
+    assert.ok(h.elements.historyItems.innerHTML.includes('data-appointment-id="cancelled"'))
+    assert.ok(h.elements.upcomingState.innerHTML.indexOf('data-appointment-id="soon"') < h.elements.upcomingState.innerHTML.indexOf('data-appointment-id="later"'))
+    assert.equal(h.elements.summaryUpcoming.textContent, '2')
+  })
+  await check('mobile account starts at appointments and provides explicit list/detail navigation', () => {
+    assert.match(script, /tab: 'history'/)
+    assert.ok(accountHtml.includes('data-account-back'))
+    assert.ok(accountHtml.includes('data-reservation-filter="upcoming"'))
+    assert.ok(accountHtml.includes('data-reservation-filter="history"'))
+    assert.ok(accountHtml.includes('account-profile-toggle'))
+    assert.ok(!source(script, 'renderAppointmentCard').includes('<em>Volver a reservar</em>'))
+  })
+  await check('the profile editor close control remains a full touch target', () => {
+    const rules = accountHtml.match(/\.account-modal-close\s*\{([^}]+)\}/)![1]!
+    for (const dimension of ['width', 'height']) assert.ok(Number(rules.match(new RegExp('(?:^|[;\\s])' + dimension + ':\\s*(\\d+)px'))![1]) >= 44, dimension + ' must be at least44px')
+  })
+  await check('guest booking navigation icons remain full touch targets', () => {
+    const rules = accountHtml.match(/\.fresha-icon-btn\s*\{([^}]+)\}/)![1]!
+    for (const dimension of ['width', 'height']) assert.ok(Number(rules.match(new RegExp('(?:^|[;\\s])' + dimension + ':\\s*(\\d+)px'))![1]) >= 44, dimension + ' must be at least44px')
+  })
+  await check('the account brand home link remains a full touch target on tablet and desktop', () => {
+    assert.match(accountHtml, /\.account-page \.account-brand\s*\{[^}]*min-height: 44px/)
+  })
+  await check('account keeps its light approved surface and compact mobile header with clear warnings', () => {
+    assert.ok(!accountHtml.match(/<body[^>]*class="[^"]*booking-theme-dark/), 'merchant theme must not unexpectedly change the account skin')
+    assert.ok(accountHtml.includes('grid-template-rows: auto 1fr'), 'compact brand header must not stretch into unused viewport height')
+    assert.match(accountHtml, /\.appointment-management \.self-service-body p\.self-service-warning\s*\{[^}]*color: #722727/)
+    assert.ok(accountHtml.includes('account-new-booking'), 'mobile appointment list includes its own full-width booking action')
+  })
+  await check('authoritative refresh rows are cleared when the signed-in account changes or logs out', async () => {
+    for (const name of ['handleGoogleCode', 'handleGoogleCredential', 'logout']) {
+      const context: any = { state: { user: { id: 'previous' }, appointments: [appointment()], appointmentOverrides: { one: appointment() }, selectedId: 'one' },
+        postJson: async () => ({ account: { id: 'new-account' } }), setLoginFeedback() {}, setFeedback() {}, renderShell() {}, renderGoogleButton() {}, loadHistory() {} }
+      const action = name === 'logout' ? script.match(/els\.logout\.addEventListener\('click', async \(\) => \{([\s\S]*?)\n          \}\)/)![1]! : source(script, name) + '; await ' + name + '({ code: "synthetic-code", credential: "synthetic-credential" })'
+      await runInNewContext('(async () => {' + action + '})()', context)
+      assert.equal(Object.keys(context.state.appointmentOverrides).length, 0, name + ' must discard the previous account rows')
+    }
+  })
   await check('disconnected detail ignores stale async response and never changes another selected reservation', async () => {
     const c = harness(); c.host.isConnected = false; await c.start(script); assert.equal(c.updated.length, 0); assert.equal(c.host.innerHTML.includes('data-self-action="cancel"'), false)
   })
