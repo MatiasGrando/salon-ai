@@ -43,6 +43,7 @@ try {
     return { state, els, calls, messages, gates, document, window: { setTimeout() {}, scrollTo() {}, scrollY: 0 },
       refreshWeexAccount: async () => state.weexAccount, showBookingGate: (s: string) => gates.push(s), proceedToConfirm: () => calls.push({ proceed: true }),
       updateContinue: (...args: any[]) => calls.push({ continue: args }), setFeedback: (...args: any[]) => messages.push(args), render() {},
+      currentStepId: () => 'time', updateConfirmState() {},
       isMultiService: () => state.services.length > 1, selectedServices: () => state.services,
       serviceDetail: () => ({ validationAccepted: true }), bookingApiUrl: (path: string, query = '') => '/public/booking/guest-ui' + path + (query ? '?' + query : ''),
       getJson: async () => null, rememberGuestBookings() {}, bookingDraftSnapshot: () => ({}), restoreLoginDraft: async () => false,

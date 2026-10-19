@@ -1940,6 +1940,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             bookingDraft: null,
             submitting: false,
             uploadingProof: false,
+            timeStepTransition: null,
             calendarSync: null,
             deposit: null,
             proofSent: false,
@@ -2378,6 +2379,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               '<div class="section-label">Itinerarios disponibles</div>' +
               '<div id="booking-itineraries">' + renderSlotsLoading() + '</div>'
             setupDateNavigation()
+            const selectedItineraryId = state.itinerary?.id
             state.itinerary = null
             updateContinue(false)
             try {
@@ -2391,8 +2393,9 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 container.innerHTML = '<p class="fresha-muted">' + escapeHtml(result.message || 'No encontramos horarios coordinados para ese d&iacute;a.') + '</p>'
                 return
               }
+              state.itinerary = result.options.find((option) => option.id === selectedItineraryId) || null
               container.innerHTML = '<div class="booking-itineraries">' + result.options.map((option) =>
-                '<button class="booking-itinerary" type="button" data-itinerary-id="' + escapeHtml(option.id) + '">' +
+                '<button class="booking-itinerary' + (option.id === state.itinerary?.id ? ' selected' : '') + '" type="button" data-itinerary-id="' + escapeHtml(option.id) + '">' +
                   '<span class="booking-itinerary-time"><strong>' + escapeHtml(option.startTime) + '</strong><small>hasta ' + escapeHtml(option.endTime) + '</small></span>' +
                   '<span class="booking-itinerary-segments">' + option.segments.map((segment) =>
                     '<span><b>' + escapeHtml(segment.serviceName) + '</b><small>' + escapeHtml(segment.startTime + ' a ' + segment.endTime + ' con ' + segment.professionalName) + '</small></span>'
@@ -2400,6 +2403,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 '</button>'
               ).join('') + '</div>'
               state.itineraryOptions = result.options
+              updateConfirmState()
             } catch (error) {
               const container = document.getElementById('booking-itineraries')
               if (container) container.innerHTML = '<p class="fresha-muted">' + escapeHtml(error.message) + '</p>'
@@ -2426,15 +2430,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 return
               }
               if (slotsEl) slotsEl.innerHTML = result.slots.map((slot) => {
-                return '<button class="slot ' + (state.slot?.time === slot.time ? 'selected' : '') + '" type="button" onclick="window.__selectBookingSlot(this)" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '">' +
+                return '<button class="slot ' + (state.slot?.time === slot.time ? 'selected' : '') + '" type="button" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '">' +
                   escapeHtml(slot.time) +
                 '</button>'
               }).join('')
-              if (slotsEl) {
-                slotsEl.querySelectorAll('[data-time]').forEach((slotButton) => {
-                  slotButton.addEventListener('click', () => selectSlot(slotButton))
-                })
-              }
             } catch (error) {
               if (state.bookingView || state.service?.id !== availabilityScope.serviceId || state.professionalId !== availabilityScope.professionalId || state.date !== availabilityScope.date) return
               state.slot = null
@@ -2668,6 +2667,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function selectSlot(slotButton) {
+            if (currentStepId() !== 'time' || state.timeStepTransition) return
             state.slot = {
               time: slotButton.dataset.time,
               professionalId: slotButton.dataset.professionalId,
@@ -2677,9 +2677,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               item.classList.toggle('selected', item === slotButton)
             })
             renderSummary()
-            updateContinue(true)
+            void continueFromTimeStep()
           }
-          window.__selectBookingSlot = selectSlot
 
           function professionalName(id) {
             return (state.catalog?.professionals || []).find((professional) => professional.id === id)?.name || ''
@@ -2822,23 +2821,33 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function continueFromTimeStep() {
+            if (currentStepId() !== 'time' || state.bookingView || state.timeStepTransition) return
+            const selection = isMultiService() ? state.itinerary : state.slot
+            if (!state.date || !selection) return
+            const transition = { step: state.step, selection }
+            state.timeStepTransition = transition
             updateContinue(false)
-            const account = await refreshWeexAccount()
-            if (!account) {
-              if (guestBookingAllowed()) {
-                proceedToConfirm()
+            try {
+              const account = await refreshWeexAccount()
+              if (currentStepId() !== 'time' || state.step !== transition.step || state.bookingView ||
+                (isMultiService() ? state.itinerary : state.slot) !== selection) return
+              if (!account) {
+                if (guestBookingAllowed()) {
+                  proceedToConfirm()
+                  return
+                }
+                showBookingGate('login')
                 return
               }
-              showBookingGate('login')
-              updateContinue(true)
-              return
+              if (!account.phone) {
+                showBookingGate('phone')
+                return
+              }
+              proceedToConfirm()
+            } finally {
+              if (state.timeStepTransition === transition) state.timeStepTransition = null
+              if (currentStepId() === 'time') updateConfirmState()
             }
-            if (!account.phone) {
-              showBookingGate('phone')
-              updateContinue(true)
-              return
-            }
-            proceedToConfirm()
           }
 
           function proceedToConfirm() {
@@ -3423,6 +3432,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               return
             }
             const stepId = currentStepId()
+            els.continue.hidden = stepId === 'time'
             if (stepId === 'service') renderServiceStep()
             if (stepId === 'details') renderDetailsStep()
             if (stepId === 'professional') renderProfessionalStep()
@@ -3549,10 +3559,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
             const itineraryButton = event.target.closest('[data-itinerary-id]')
             if (itineraryButton) {
+              if (currentStepId() !== 'time' || state.timeStepTransition) return
               state.itinerary = (state.itineraryOptions || []).find((option) => option.id === itineraryButton.dataset.itineraryId) || null
               document.querySelectorAll('[data-itinerary-id]').forEach((item) => item.classList.toggle('selected', item === itineraryButton))
               renderSummary()
-              updateContinue(Boolean(state.itinerary))
+              if (state.itinerary) void continueFromTimeStep()
               return
             }
             const slotButton = event.target.closest('.slot[data-time]')
@@ -5809,13 +5820,13 @@ function htmlPage(input: {
     }
     .date-navigator {
       display: grid;
-      grid-template-columns: 38px minmax(0, 1fr) 38px;
+      grid-template-columns: 44px minmax(0, 1fr) 44px;
       align-items: center;
       gap: 8px;
       margin-bottom: 32px;
     }
     .date-nav-button {
-      width: 38px;
+      width: 44px;
       height: 44px;
       display: grid;
       place-items: center;
@@ -6092,6 +6103,7 @@ function htmlPage(input: {
       text-transform: uppercase;
       cursor: not-allowed;
     }
+    .fresha-continue[hidden] { display: none !important; }
     .fresha-continue.enabled {
       color: #FFF8E9;
       background: linear-gradient(180deg, var(--burgundy), var(--burgundy-dark));
@@ -8072,7 +8084,7 @@ function htmlPage(input: {
       .booking-template-salon-white .fresha-heading { font-size: 32px; }
       body[class*="booking-theme-"] .fresha-booking { padding: 12px 10px calc(112px + env(safe-area-inset-bottom)); }
       body[class*="booking-theme-"] .fresha-body { grid-template-columns: 1fr; padding: 12px; }
-      body[class*="booking-theme-"] .fresha-main { padding: 0 0 12px; }
+      body[class*="booking-theme-"] .fresha-main { min-height: 0; padding: 0 0 12px; }
       body[class*="booking-theme-"] .fresha-heading { font-size: 24px; }
       body[class*="booking-theme-"] .fresha-summary {
         min-height: 0;
