@@ -160,6 +160,31 @@ try {
     assert.ok(c.host.innerHTML.includes('el cambio ya qued'))
     assert.ok(!c.host.innerHTML.includes('Refresh callback failed'))
   })
+  await check('the actual guest update callback retains booked snapshots across the management DTO and updates the same detail', async () => {
+    const guestScript = clientScript(bookingHtml)
+    const prior = { ...appointment(), totalDurationMinutes: 30, serviceId: 'cut', professionalId: 'p' }
+    const updated = { id: prior.id, startAt: '2026-10-26T19:00:00Z', status: 'CANCELLED', service: { ...prior.service }, professional: { id: 'q', name: 'Profesional q' } }
+    let managerConfig: any, mounted = 0, summaryRenders = 0
+    const context: any = {
+      state: { guestAppointments: [prior], selectedGuestBookingId: 'booking-one', guestBookings: [{ bookingId: 'booking-one', appointments: [prior] }], bookingView: 'detail', catalog: { business: { timezone: 'America/Argentina/Buenos_Aires' }, services: [{ ...prior.service, price: 99000, duration: 180 }] }, deposit: null },
+      els: { content: { appendChild() {}, querySelector: () => null }, heading: { textContent: '' }, summaryLines: { innerHTML: '' }, total: { textContent: '' }, totalDivider: {}, totalRow: {}, mobileBar: {} },
+      document: { createElement: () => ({ className: '' }), querySelector: () => null }, slug: 'safe-local', Intl, Date,
+      mountAppointmentManager: (_host: any, config: any) => { managerConfig = config; mounted++ },
+      bookingSteps: () => ['service', 'time', 'confirm'],
+      escapeHtml: (value: any) => String(value ?? ''), formatPrice: (value: number) => '$ ' + value.toLocaleString('es-AR')
+    }
+    runInNewContext(['applyGuestBooking', 'renderGuestBookingSummary', 'renderGuestAppointmentManagement'].map(name => source(guestScript, name)).join('\n') + '; globalThis.renderSummary = () => { summaryRendered(); renderGuestBookingSummary() }; renderGuestAppointmentManagement()', { ...context, summaryRendered: () => summaryRenders++ })
+    await managerConfig.onUpdated({ appointments: [updated], selfService: managed(false).selfService })
+    for (const row of [context.state.guestAppointments[0], context.state.guestBookings[0].appointments[0]]) {
+      assert.equal(row.quotedPrice, 15000, 'guest quoted price remains the saved snapshot')
+      assert.equal(row.totalDurationMinutes, 30, 'guest duration remains the saved snapshot')
+      assert.equal(row.status, 'CANCELLED'); assert.equal(row.startAt, updated.startAt); assert.equal(row.professional.id, 'q')
+    }
+    assert.ok(context.els.summaryLines.innerHTML.includes('$ 15.000'))
+    assert.ok(!context.els.summaryLines.innerHTML.includes('Precio a consultar'))
+    assert.equal(context.els.total.textContent, '$ 15.000')
+    assert.equal(mounted, 1, 'success must keep the current manager mounted'); assert.equal(summaryRenders, 1)
+  })
   function accountHarness(items: any[]) {
     const elements: Record<string, any> = {}
     for (const key of ['historyCount', 'upcomingCount', 'summaryUpcoming', 'summaryPast', 'summaryNext', 'upcomingState', 'historyItems', 'historyDetail', 'historyPanel']) elements[key] = { innerHTML: '', textContent: '', hidden: false, dataset: {}, classList: { toggle() {} }, querySelector: () => null }

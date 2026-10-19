@@ -3449,9 +3449,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               },
               onUpdated: (result) => {
                 const bookingId = state.selectedGuestBookingId
-                applyGuestBooking({ ...result, guest: true, bookingId, deposit: state.deposit })
-                state.guestBookings = (state.guestBookings || []).map((booking) => booking.bookingId === bookingId ? { ...booking, appointments: result.appointments } : booking)
-                const cancelled = result.appointments.every((item) => item.status === 'CANCELLED')
+                const appointments = result.appointments.map((item) => ({ ...state.guestAppointments.find((saved) => saved.id === item.id), ...item }))
+                applyGuestBooking({ ...result, appointments, guest: true, bookingId, deposit: state.deposit })
+                state.guestBookings = (state.guestBookings || []).map((booking) => booking.bookingId === bookingId ? { ...booking, appointments } : booking)
+                const cancelled = appointments.every((item) => item.status === 'CANCELLED')
                 if (cancelled) state.guestReservationFilter = 'history'
                 els.heading.textContent = cancelled ? 'Reserva cancelada' : 'Reserva actualizada'
                 const summary = els.content.querySelector('.booking-success')
