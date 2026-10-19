@@ -213,6 +213,9 @@ try {
     const rules = accountHtml.match(/\.fresha-icon-btn\s*\{([^}]+)\}/)![1]!
     for (const dimension of ['width', 'height']) assert.ok(Number(rules.match(new RegExp('(?:^|[;\\s])' + dimension + ':\\s*(\\d+)px'))![1]) >= 44, dimension + ' must be at least44px')
   })
+  await check('guest reservation list and detail hide the booking-step breadcrumb', () => {
+    assert.match(accountHtml, /\.fresha-breadcrumb\[hidden\]\s*\{[^}]*display:\s*none\s*!important/)
+  })
   await check('the account brand home link remains a full touch target on tablet and desktop', () => {
     assert.match(accountHtml, /\.account-page \.account-brand\s*\{[^}]*min-height: 44px/)
   })

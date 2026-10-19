@@ -5304,6 +5304,7 @@ function htmlPage(input: {
     .fresha-icon-btn:hover { background: rgba(201,161,59,.1); border-color: rgba(201,161,59,.7); }
     .fresha-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
     .fresha-icon-btn svg { width: 16px; height: 16px; }
+    .fresha-breadcrumb[hidden] { display: none !important; }
     .fresha-breadcrumb {
       display: flex;
       align-items: center;
