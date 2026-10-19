@@ -89,11 +89,14 @@ async function load(tx: Prisma.TransactionClient, scope: Scope): Promise<Loaded>
     !Number.isInteger(policy.bookingHorizonDays) || policy.bookingHorizonDays < 1 || policy.bookingHorizonDays > 366) {
     fail(422, 'El local debe revisar sus reglas para gestionar turnos.')
   }
-  const revision = digest(members.map(a => ({ id: a.id, version: a.version, startAt: a.startAt.toISOString(),
+  return { members, actor, policy, now: clock[0].now, revision: revisionFor(members) }
+}
+
+function revisionFor(members: Member[]) {
+  return digest(members.map(a => ({ id: a.id, version: a.version, startAt: a.startAt.toISOString(),
     professionalId: a.professionalId, status: a.status, duration: a.totalDurationMinutes,
     serviceIds: services(a), quote: a.quotedPrice, owner: a.createdByWeexAccountId,
     deposit: a.bookingDeposit, visitId: a.visitId })))
-  return { members, actor, policy, now: clock[0].now, revision }
 }
 
 function services(member: Member) { return member.serviceItems.length ? member.serviceItems.map(s => s.serviceId) : [member.serviceId] }
@@ -124,8 +127,9 @@ async function professionalChoices(tx: Prisma.TransactionClient, scope: Scope, l
     professionals: professionals.filter(p => services(member).every(serviceId => links.some(l => l.professionalId === p.id && l.serviceId === serviceId))) }))
 }
 async function management(tx: Prisma.TransactionClient, scope: Scope, loaded: Loaded) {
-  return { appointments: loaded.members.map(serialize), selfService: { ...permissions(loaded),
-    professionalChoices: await professionalChoices(tx, scope, loaded), timezone: loaded.policy.timezone } }
+  const permission = permissions(loaded)
+  return { appointments: loaded.members.map(serialize), selfService: { ...permission,
+    professionalChoices: permission.canReschedule ? await professionalChoices(tx, scope, loaded) : [], timezone: loaded.policy.timezone } }
 }
 export async function webAppointmentManagement(tx: Prisma.TransactionClient, input: Scope) {
   return management(tx, input, await load(tx, input))
@@ -275,17 +279,32 @@ export async function mutateWebAppointment(tx: Prisma.TransactionClient, input: 
     }
   }
   const before = loaded.members.map(serialize)
+  const changedMembers: Member[] = []
   for (const [index, member] of loaded.members.entries()) {
     const segment = option?.segments[index]
-    await tx.appointment.update({ where: { id: member.id }, data: segment
+    const updated = await tx.appointment.update({ where: { id: member.id }, data: segment
       ? { startAt: new Date(segment.startAt), professionalId: segment.professionalId, version: { increment: 1 } }
       : { status: 'CANCELLED', version: { increment: 1 } } })
+    if (updated.professionalId !== (segment?.professionalId ?? member.professionalId) ||
+      updated.startAt.getTime() !== (segment ? new Date(segment.startAt).getTime() : member.startAt.getTime()) ||
+      updated.status !== (segment ? member.status : 'CANCELLED') || updated.serviceId !== member.serviceId ||
+      updated.businessId !== member.businessId || updated.customerId !== member.customerId ||
+      updated.quotedPrice !== member.quotedPrice || updated.totalDurationMinutes !== member.totalDurationMinutes ||
+      updated.coordinationGroupId !== member.coordinationGroupId || updated.createdByWeexAccountId !== member.createdByWeexAccountId ||
+      updated.origin !== member.origin || updated.visitId !== member.visitId) stale()
+    // UPDATE returns real database scalars (including trigger-produced version).
+    // Relations/snapshots came from the fresh authorized read under the same locks;
+    // only a validated professional can replace that relation in this operation.
+    changedMembers.push({ ...member, ...updated, professional: segment
+      ? { ...member.professional, id: updated.professionalId, name: segment.professionalName }
+      : member.professional })
   }
   await tx.reminderDelivery.updateMany({
     where: { businessId: input.businessId, appointmentId: { in: loaded.members.map(a => a.id) }, status: { in: ['PENDING', 'FAILED'] } },
     data: { status: 'CANCELLED', manualNote: 'La reserva cambió desde la web; se requiere preparar el recordatorio vigente.' }
   })
-  const changed = await load(tx, input)
+  changedMembers.sort((a, b) => a.startAt.getTime() - b.startAt.getTime() || a.id.localeCompare(b.id))
+  const changed: Loaded = { ...loaded, members: changedMembers, revision: revisionFor(changedMembers) }
   await tx.webAppointmentAction.create({ data: {
     operationId: body.operationId as string, businessId: input.businessId, appointmentIds: loaded.members.map(a => a.id),
     actorType: loaded.actor.kind, actorId: loaded.actor.id, action: input.action, requestHash,

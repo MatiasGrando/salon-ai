@@ -59,13 +59,26 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       const params = request.params as { slug: string; appointmentId: string }
       const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
       if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+      const startedAt = performance.now()
       try {
-        return await prisma.$transaction(transaction => mutateWebAppointment(transaction, { request,
+        const result = await prisma.$transaction(transaction => mutateWebAppointment(transaction, { request,
           businessId: business.id, appointmentId: params.appointmentId,
-          action: action === 'cancel' ? 'CANCEL' : 'RESCHEDULE', body: request.body }))
+          action: action === 'cancel' ? 'CANCEL' : 'RESCHEDULE', body: request.body }), { maxWait: 5000, timeout: 15000 })
+        request.log.info({ event: 'web_appointment_management', businessId: business.id, action, outcome: 'completed',
+          transactionDurationMs: Math.round(performance.now() - startedAt) }, 'Gestión web del turno completada')
+        return result
       } catch (error) {
-        if (error instanceof WebAppointmentSelfServiceError) return reply.status(error.statusCode).send({ message: error.message })
-        request.log.error({ error, businessId: business.id }, 'No se completó la gestión web del turno')
+        const transactionDurationMs = Math.round(performance.now() - startedAt)
+        if (error instanceof WebAppointmentSelfServiceError) {
+          request.log.info({ event: 'web_appointment_management', businessId: business.id, action, outcome: 'rejected', transactionDurationMs,
+            statusCode: error.statusCode }, 'Gestión web del turno rechazada')
+          return reply.status(error.statusCode).send({ message: error.message })
+        }
+        const code = error && typeof error === 'object' && 'code' in error ? error.code : null
+        const errorCode = typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,31}$/.test(code) ? code : 'UNEXPECTED'
+        // Do not serialize the exception: Prisma messages can contain SQL/values.
+        request.log.error({ event: 'web_appointment_management', businessId: business.id, action, outcome: 'error', transactionDurationMs, errorCode },
+          'No se completó la gestión web del turno')
         return reply.status(409).send({ message: 'No se modificó la reserva. Actualizá los datos e intentá nuevamente.' })
       }
     })
