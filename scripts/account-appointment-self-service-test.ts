@@ -243,5 +243,65 @@ await check('real Fastify endpoints return no-store, enforce Origin and complete
     await app.close(); db.$transaction = priorTransaction; for (const reset of resets.reverse()) reset()
   }
 })
+
+async function routeOriginCase(input: { host: string; origin?: string; forwardedHost?: string; forwardedProto?: string; site?: string; action?: 'cancel' | 'reschedule'; status?: number; trusted?: boolean; base?: string; production?: boolean }) {
+  const f = fixture(), app = Fastify({ trustProxy: input.trusted ? '127.0.0.1' : false }), db = prisma as any
+  const resets: Array<() => void> = [], previousEnv = { node: process.env.NODE_ENV, base: process.env.PUBLIC_BASE_DOMAIN }
+  process.env.NODE_ENV = input.production === false ? 'development' : 'production'
+  if (input.base === undefined) delete process.env.PUBLIC_BASE_DOMAIN; else process.env.PUBLIC_BASE_DOMAIN = input.base
+  for (const [key, value] of Object.entries(f.tx)) { const old = db[key]; db[key] = value; resets.push(() => { db[key] = old }) }
+  const transaction = db.$transaction; db.$transaction = async (run: any) => run(f.tx)
+  try {
+    await app.register(publicBookingRoutes)
+    const action = input.action || 'cancel', root = '/public/booking/demo/appointments/a1'
+    const body = action === 'reschedule' ? await f.rescheduleBody() : {
+      operationId: '77b53ee1-5912-4ee2-a594-dc01713f9ba0', revision: (await f.management()).selfService.revision, confirmed: true }
+    const routeHeaders: Record<string, string> = { host: input.host, cookie: headers.cookie, 'sec-fetch-site': input.site || 'same-origin' }
+    if (input.origin !== undefined) routeHeaders.origin = input.origin
+    if (input.forwardedHost) routeHeaders['x-forwarded-host'] = input.forwardedHost
+    if (input.forwardedProto) routeHeaders['x-forwarded-proto'] = input.forwardedProto
+    const response = await app.inject({ method: 'POST', url: root + '/' + action, remoteAddress: '127.0.0.1', headers: routeHeaders, payload: body })
+    assert.equal(response.statusCode, input.status ?? 200, response.body)
+    assert.equal(response.headers['cache-control'], 'no-store')
+    if ((input.status ?? 200) === 200) {
+      assert.equal(f.writes.length, 1); assert.equal(f.rows[0].status, action === 'cancel' ? 'CANCELLED' : 'CONFIRMED')
+      if (action === 'reschedule') assert.equal(f.rows[0].startAt.toISOString(), '2026-10-21T13:00:00.000Z')
+    } else { assert.equal(f.writes.length, 0); assert.equal(f.journal.size, 0) }
+  } finally {
+    await app.close(); db.$transaction = transaction; for (const reset of resets.reverse()) reset()
+    if (previousEnv.node === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousEnv.node
+    if (previousEnv.base === undefined) delete process.env.PUBLIC_BASE_DOMAIN; else process.env.PUBLIC_BASE_DOMAIN = previousEnv.base
+  }
+}
+for (const action of ['cancel', 'reschedule'] as const) await check('real route accepts public HTTPS over HTTP transport for ' + action, async () => {
+  await routeOriginCase({ host: 'demo-barber.weex.com.ar', origin: 'https://demo-barber.weex.com.ar', action })
+})
+await check('canonical public root, www, tenant alias and configured domain preserve exact authority', async () => {
+  for (const host of ['weex.com.ar', 'www.weex.com.ar', 'demo.weex.com.ar', 'tamaragrando.weex.com.ar', 'demo.weex.com.ar:8443', 'demo.weex.com.ar:80', 'demo.weex.com.ar:443'])
+    await routeOriginCase({ host, origin: new URL('https://' + host).origin })
+  await routeOriginCase({ host: 'tenant.example.test', origin: 'https://tenant.example.test', base: 'example.test' })
+})
+await check('foreign, sibling, malformed and noncanonical origins never write through real routes', async () => {
+  for (const origin of [undefined, 'https://evil.test', 'https://other.weex.com.ar', 'https://demo.weex.com.ar:444', 'https://evil@demo.weex.com.ar', 'null', 'https://demo.weex.com.ar:443', 'https://demo.weex.com.ar/', 'https://demo.weex.com.ar/path'])
+    await routeOriginCase({ host: 'demo.weex.com.ar', origin, status: 403 })
+  for (const site of ['cross-site', 'same-site']) await routeOriginCase({ host: 'demo.weex.com.ar', origin: 'https://demo.weex.com.ar', site, status: 403 })
+  for (const host of ['weex.com.ar.evil.test', 'nested.demo.weex.com.ar', 'proxy.internal'])
+    await routeOriginCase({ host, origin: 'https://' + host, status: 403 })
+})
+await check('raw forwarding cannot change host or scheme authority; explicitly trusted proxy still works', async () => {
+  await routeOriginCase({ host: 'proxy.internal', origin: 'https://demo.weex.com.ar', forwardedHost: 'demo.weex.com.ar', forwardedProto: 'https', status: 403 })
+  await routeOriginCase({ host: 'demo.weex.com.ar', origin: 'https://other.weex.com.ar', forwardedHost: 'other.weex.com.ar', forwardedProto: 'https', status: 403 })
+  await routeOriginCase({ host: 'demo.weex.com.ar', origin: 'http://demo.weex.com.ar', forwardedProto: 'http', status: 403 })
+  await routeOriginCase({ host: 'proxy.internal', origin: 'https://demo.weex.com.ar', forwardedHost: 'demo.weex.com.ar', forwardedProto: 'https', trusted: true })
+})
+await check('malformed configured public domains cannot authorize transport upgrade', async () => {
+  for (const base of ['', 'https://weex.com.ar', 'weex.com.ar:443', 'weex.com.ar/path', '.weex.com.ar', 'weex..com.ar', 'weex.com.ar,evil.test'])
+    await routeOriginCase({ host: 'demo.weex.com.ar', origin: 'https://demo.weex.com.ar', base, status: 403 })
+})
+await check('development HTTP remains compatible and does not consume forged forwarding', async () => {
+  await routeOriginCase({ host: 'localhost:3000', origin: 'http://localhost:3000', production: false })
+  await routeOriginCase({ host: 'localhost:3000', origin: 'https://demo.weex.com.ar', forwardedHost: 'demo.weex.com.ar', forwardedProto: 'https', production: false, status: 403 })
+})
+
 console.log(`RESULT ${passed} PASS ${failed} FAIL`)
 if (failed) process.exitCode = 1

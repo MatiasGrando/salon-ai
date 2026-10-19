@@ -69,6 +69,12 @@ try {
       assert.ok(!c.host.innerHTML.includes('data-self-action="cancel"')); await c.click('cancel'); assert.equal(c.requests.length, 1)
     }
   })
+  await check('403 fallback renders ordinary Spanish text once, without literal HTML entities', async () => {
+    const c = harness(); await c.start(script); await c.click('cancel')
+    c.queue.push({ error: true, status: 403, message: 'Acceso no disponible' }); await c.click('confirm-cancel')
+    assert.ok(c.host.innerHTML.includes('Esta reserva necesita gestión del local.'))
+    assert.ok(!c.host.innerHTML.includes('&amp;oacute;')); assert.ok(c.host.innerHTML.includes('https://wa.me/'))
+  })
   await check('missing or unsafe contact shows explanation without broken or dangerous link', async () => {
     for (const contactUrl of ['', 'javascript:alert(1)', 'https://evil.example/', 'https://wa.me@evil.example/']) {
       const c = harness(managed(false)); c.ctx.config.contactUrl = contactUrl; await c.start(script)

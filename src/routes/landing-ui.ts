@@ -3694,7 +3694,7 @@ function appointmentSelfServiceClient() {
                 content = table(appointments()) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
                 if (permission('canReschedule')) actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
                 if (permission('canCancel')) actions += button('cancel', 'Cancelar reserva', ' class="self-service-danger"')
-                if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti&oacute;n del local.') + '</p>' + contact()
+                if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti\u00f3n del local.') + '</p>' + contact()
               }
               host.innerHTML = '<section class="appointment-management" aria-busy="' + String(busy) + '"><header class="self-service-header"><h3 tabindex="-1" data-self-title>' + title + '</h3></header><div class="self-service-feedback" role="status" aria-live="polite"' + (notice ? '' : ' hidden') + '>' + e(notice) + '</div><div class="self-service-body">' + content + '</div>' + (actions ? '<footer class="self-service-actions">' + actions + '</footer>' : '') + '</section>'
               if (focus) host.querySelector('[data-self-title]')?.focus()

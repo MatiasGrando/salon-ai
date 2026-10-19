@@ -207,7 +207,19 @@ export function assertWebAppointmentMutationOrigin(request: FastifyRequest) {
     fail(403, 'Esta acción debe realizarse desde la página de tu reserva.')
   }
   try {
-    const supplied = new URL(origin), expected = new URL(request.protocol + '://' + request.host)
+    const supplied = new URL(origin)
+    let expected = new URL(request.protocol + '://' + request.host)
+    if (process.env.NODE_ENV === 'production' && request.protocol === 'http') {
+      const baseDomain = (process.env.PUBLIC_BASE_DOMAIN ?? 'weex.com.ar').trim().toLowerCase()
+      const publicDomain = baseDomain.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(baseDomain)
+      const publicExpected = new URL('https://' + request.host)
+      const authority = request.host.toLowerCase()
+      const canonicalAuthority = authority === publicExpected.host || !publicExpected.port && authority === publicExpected.hostname + ':443'
+      const prefix = publicExpected.hostname.endsWith('.' + baseDomain) ? publicExpected.hostname.slice(0, -baseDomain.length - 1) : ''
+      // Public HTTPS is canonical even when ingress terminates TLS. Forwarded
+      // headers are usable only through Fastify's explicitly trusted peer policy.
+      if (publicDomain && canonicalAuthority && (publicExpected.hostname === baseDomain || /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(prefix))) expected = publicExpected
+    }
     if (!['https:', 'http:'].includes(supplied.protocol) || supplied.username || supplied.password || supplied.origin !== expected.origin || origin !== supplied.origin) throw new Error('origin')
   } catch { fail(403, 'Esta acción debe realizarse desde la página de tu reserva.') }
 }
