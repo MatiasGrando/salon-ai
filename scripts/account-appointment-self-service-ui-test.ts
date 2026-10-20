@@ -68,7 +68,7 @@ try {
   })
   await check('loads server authority with business and appointment only; no mutation or telephone authority', async () => {
     const c = harness(); await c.start(script)
-    assert.equal(c.requests.length, 1); assert.equal(c.requests[0].url, '/public/booking/safe-local/appointments/one/manage'); assert.equal(c.requests[0].method, undefined)
+    assert.equal(c.requests.length, 1); assert.equal(c.requests[0].url, '/public/booking/safe-local/appointments/one/manage?view=actions'); assert.equal(c.requests[0].method, undefined)
     assert.ok(c.host.innerHTML.includes('data-self-action="reschedule"')); assert.ok(c.host.innerHTML.includes('data-self-action="cancel"'))
     assert.ok(!JSON.stringify(c.requests).includes('phone')); assert.ok(c.host.innerHTML.includes('Corte &lt;ejemplo&gt;'))
   })
@@ -152,7 +152,7 @@ try {
   })
   await check('409 refreshes authority and clears stale selected operation without submitting again', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push({ error: true, status: 409, message: 'La reserva cambió.' }, managed()); await c.click('confirm-cancel')
-    assert.equal(c.requests.length, 3); assert.ok(c.requests[2].url.endsWith('/manage')); assert.ok(!c.host.innerHTML.includes('data-self-action="confirm-cancel"')); assert.ok(c.host.innerHTML.includes('La reserva camb'))
+    assert.equal(c.requests.length, 3); assert.ok(c.requests[2].url.endsWith('/manage?view=actions')); assert.ok(!c.host.innerHTML.includes('data-self-action="confirm-cancel"')); assert.ok(c.host.innerHTML.includes('La reserva camb'))
   })
   await check('busy double click is blocked and actions expose loading state', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); let release: any
@@ -187,10 +187,19 @@ try {
     assert.ok(c.host.innerHTML.includes('el cambio ya qued'))
     assert.ok(!c.host.innerHTML.includes('Refresh callback failed'))
   })
+  await check('a summary renderer failure cannot undo an authoritative successful cancellation', async () => {
+    const c = harness(); await c.start(script); await c.click('cancel')
+    c.ctx.config.onLoaded = () => { throw new Error('Summary rendering failed') }
+    c.queue.push({ ...managed(false), appointments: [{ ...appointment(), status: 'CANCELLED' }] })
+    await c.click('confirm-cancel'); await new Promise(resolve => setImmediate(resolve))
+    assert.ok(c.host.innerHTML.includes('La reserva fue cancelada'))
+    assert.equal(c.updated.length, 1); assert.ok(!c.host.innerHTML.includes('Summary rendering failed'))
+  })
   await check('the actual guest update callback retains booked snapshots across the management DTO and updates the same detail', async () => {
     const guestScript = clientScript(bookingHtml)
-    const prior = { ...appointment(), totalDurationMinutes: 30, serviceId: 'cut', professionalId: 'p' }
-    const updated = { id: prior.id, startAt: '2026-10-26T19:00:00Z', status: 'CANCELLED', service: { ...prior.service }, professional: { id: 'q', name: 'Profesional q' } }
+    const prior = { ...appointment(), totalDurationMinutes: 30, serviceId: 'cut', professionalId: 'p', browserMetadata: 'retain-only',
+      service: { ...appointment().service, depositMode: 'FIXED', depositValue: 5000 } }
+    const updated = { id: prior.id, startAt: '2026-10-26T19:00:00Z', status: 'CANCELLED', service: { id: prior.service.id, name: prior.service.name, price: 17000, duration: 35 }, professional: { id: 'q', name: 'Profesional q' } }
     let managerConfig: any, mounted = 0, summaryRenders = 0
     const context: any = {
       state: { guestAppointments: [prior], selectedGuestBookingId: 'booking-one', guestBookings: [{ bookingId: 'booking-one', appointments: [prior] }], bookingView: 'detail', catalog: { business: { timezone: 'America/Argentina/Buenos_Aires' }, services: [{ ...prior.service, price: 99000, duration: 180 }] }, deposit: null },
@@ -200,16 +209,17 @@ try {
       bookingSteps: () => ['service', 'time', 'confirm'],
       escapeHtml: (value: any) => String(value ?? ''), formatPrice: (value: number) => '$ ' + value.toLocaleString('es-AR')
     }
-    runInNewContext(['applyGuestBooking', 'renderGuestBookingSummary', 'renderGuestAppointmentManagement'].map(name => source(guestScript, name)).join('\n') + '; globalThis.renderSummary = () => { summaryRendered(); renderGuestBookingSummary() }; renderGuestAppointmentManagement()', { ...context, summaryRendered: () => summaryRenders++ })
+    runInNewContext(['managedAppointmentSnapshot', 'applyGuestBooking', 'renderGuestBookingSummary', 'renderGuestAppointmentManagement'].map(name => source(guestScript, name)).join('\n') + '; globalThis.renderSummary = () => { summaryRendered(); renderGuestBookingSummary() }; renderGuestAppointmentManagement()', { ...context, summaryRendered: () => summaryRenders++ })
     await managerConfig.onUpdated({ appointments: [updated], selfService: managed(false).selfService })
     for (const row of [context.state.guestAppointments[0], context.state.guestBookings[0].appointments[0]]) {
-      assert.equal(row.quotedPrice, 15000, 'guest quoted price remains the saved snapshot')
-      assert.equal(row.totalDurationMinutes, 30, 'guest duration remains the saved snapshot')
+      assert.equal(row.quotedPrice, 17000, 'management service.price is the effective booked snapshot, not old guest top-level fields')
+      assert.equal(row.totalDurationMinutes, 35, 'management service.duration is the effective booked duration')
       assert.equal(row.status, 'CANCELLED'); assert.equal(row.startAt, updated.startAt); assert.equal(row.professional.id, 'q')
+      assert.equal(row.browserMetadata, 'retain-only'); assert.equal(row.service.depositMode, 'FIXED'); assert.equal(row.service.depositValue, 5000)
     }
-    assert.ok(context.els.summaryLines.innerHTML.includes('$ 15.000'))
+    assert.ok(context.els.summaryLines.innerHTML.includes('$ 17.000'))
     assert.ok(!context.els.summaryLines.innerHTML.includes('Precio a consultar'))
-    assert.equal(context.els.total.textContent, '$ 15.000')
+    assert.equal(context.els.total.textContent, '$ 17.000')
     assert.equal(mounted, 1, 'success must keep the current manager mounted'); assert.equal(summaryRenders, 1)
   })
   function accountHarness(items: any[]) {
@@ -221,7 +231,7 @@ try {
       document: { getElementById: () => ({}) , querySelectorAll: () => [] },
       mountAppointmentManager: (_host: any, config: any) => { managerConfig = config; renderCount++; return { ready: Promise.resolve() } },
       setFeedback() {}, getJson: () => new Promise(resolve => releaseHistory = resolve) }
-    const names = ['loadHistory', 'renderHistory', 'renderAppointmentCard', 'renderDetail', 'formatDateTime', 'formatPriceLine', 'statusLabel', 'normalizePhone', 'businessInitials', 'initials', 'escapeHtml']
+    const names = ['managedAppointmentSnapshot', 'loadHistory', 'renderHistory', 'renderAppointmentCard', 'renderDetail', 'formatDateTime', 'formatPriceLine', 'statusLabel', 'normalizePhone', 'businessInitials', 'initials', 'escapeHtml']
     // Execute the emitted account functions and its actual onUpdated callback, rather than a callback fixture.
     const optional = ['appointmentGroups', 'applyAppointmentUpdate', 'renderDetailSummary', 'showAppointmentDetail', 'showAppointmentList']
     for (const name of optional) if (script.includes('function ' + name + '(')) names.push(name)
@@ -229,12 +239,15 @@ try {
     return { context, elements, get config() { return managerConfig }, get renders() { return renderCount }, get release() { return releaseHistory } }
   }
   await check('account applies POST rows immediately and preserves manager through delayed or stale history refresh', async () => {
-    const h = accountHarness([appointment()]); h.context.accountFunctions.renderHistory()
+    const h = accountHarness([appointment()]); h.context.state.mobileDetail = true; h.context.accountFunctions.renderHistory()
     const originalRenders = h.renders
-    const updated = { ...managed(false), appointments: [{ ...appointment(), status: 'CANCELLED' }] }
+    const item = appointment()
+    const updated = { ...managed(false), appointments: [{ id: item.id, startAt: item.startAt, status: 'CANCELLED', service: { ...item.service, price: 17000, duration: 35 }, professional: item.professional }] }
     const callback = h.config.onUpdated(updated)
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(h.context.state.appointments[0].status, 'CANCELLED', 'POST outcome immediately updates local account rows')
+    assert.equal(h.context.state.appointments[0].quotedPrice, 17000, 'actual management POST service.price supersedes an old top-level field')
+    assert.equal(h.context.state.appointments[0].totalDurationMinutes, 35)
     assert.equal(h.renders, originalRenders, 'updating the list must not remount the successful manager')
     if (h.release) { h.release({ appointments: [appointment()] }); await callback; await new Promise(resolve => setImmediate(resolve)) }
     assert.equal(h.context.state.appointments[0].status, 'CANCELLED', 'stale history cannot overwrite authoritative POST')
@@ -248,6 +261,10 @@ try {
     assert.ok(h.elements.historyItems.innerHTML.includes('data-appointment-id="cancelled"'))
     assert.ok(h.elements.upcomingState.innerHTML.indexOf('data-appointment-id="soon"') < h.elements.upcomingState.innerHTML.indexOf('data-appointment-id="later"'))
     assert.equal(h.elements.summaryUpcoming.textContent, '2')
+  })
+  await check('zero is a real saved price in the account summary, not an unknown value', () => {
+    const format = runInNewContext(source(script, 'formatPriceLine') + '; formatPriceLine', { Intl })
+    assert.match(format(0), /\$\s*0/); assert.equal(format(null), 'Consultar')
   })
   await check('mobile account starts at appointments and provides explicit list/detail navigation', () => {
     assert.match(script, /tab: 'history'/)

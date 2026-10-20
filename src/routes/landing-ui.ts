@@ -3246,11 +3246,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               const result = await getJson(bookingApiUrl('/guest-booking', query))
               rememberGuestBookings(result)
               if (state.bookingView !== 'detail' || state.selectedGuestBookingId !== selectedBookingId) return
+              state.guestManagementVersion = (state.guestManagementVersion || 0) + 1
               applyGuestBooking(result)
               render()
             } catch (error) {
               if (state.bookingView !== 'detail' || state.selectedGuestBookingId !== selectedBookingId) return
               if (error.status === 401) {
+                state.guestManagementVersion = (state.guestManagementVersion || 0) + 1
                 state.guestBookings = (state.guestBookings || []).filter((booking) => booking.bookingId !== selectedBookingId)
                 state.bookingView = 'list'
                 render()
@@ -3536,6 +3538,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function render() {
+            // Keep the current detail's actual DOM while its list is shown; never persist permissions.
+            const guestManager = state.guestManager
+            if (guestManager) {
+              const same = state.bookingView && guestManager.bookingId === state.selectedGuestBookingId && guestManager.account === state.weexAccount && guestManager.version === (state.guestManagementVersion || 0)
+              if (!same) { guestManager.controller?.dispose(); guestManager.host.remove(); state.guestManager = null }
+              else if (els.content.parentElement) { guestManager.host.hidden = true; els.content.parentElement.appendChild(guestManager.host) }
+            }
             renderBreadcrumb()
             setFeedback('', '')
             const summary = document.querySelector('.fresha-summary')
@@ -3580,20 +3589,44 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderGuestAppointmentManagement() {
+            const existing = state.guestManager
+            if (existing?.bookingId === state.selectedGuestBookingId && existing.account === state.weexAccount && existing.version === (state.guestManagementVersion || 0)) {
+              existing.host.hidden = false
+              els.content.appendChild(existing.host)
+              existing.controller?.refreshSummary()
+              return
+            }
+            existing?.controller?.dispose()
+            existing?.host.remove()
             const host = document.createElement('div')
             const managedBookingId = state.selectedGuestBookingId
             host.className = 'appointment-management-host'
             els.content.appendChild(host)
-            mountAppointmentManager(host, {
+            const current = { bookingId: managedBookingId, account: state.weexAccount, version: state.guestManagementVersion || 0, host, controller: null }
+            state.guestManager = current
+            function applyManagedRows(result) {
+              if (state.bookingView !== 'detail') return false
+              const appointments = result.appointments.map((item) => managedAppointmentSnapshot(state.guestAppointments.find((saved) => saved.id === item.id), item))
+              applyGuestBooking({ ...result, appointments, guest: true, bookingId: managedBookingId, deposit: state.deposit })
+              state.guestBookings = (state.guestBookings || []).map((booking) => booking.bookingId === managedBookingId ? { ...booking, appointments } : booking)
+              const date = els.content.querySelector('[data-booking-date]')
+              if (date) date.textContent = (state.dateLabel || '') + ' a las ' + (state.itinerary?.startTime || state.slot?.time || '') + '.'
+              renderSummary()
+              return true
+            }
+            current.controller = mountAppointmentManager(host, {
               slug, appointmentId: state.guestAppointments[0].id, appointments: state.guestAppointments,
+              isCurrent: () => state.guestManager === current && state.weexAccount === current.account && state.selectedGuestBookingId === current.bookingId && (state.guestManagementVersion || 0) === current.version,
+              onLoaded: applyManagedRows,
               onReschedule: (appointmentId) => {
                 if (state.bookingDraft?.services?.length && !saveLoginDraft(state.bookingDraft)) { setFeedback('No pudimos conservar tu pedido actual. Intentá nuevamente antes de salir.', 'error'); return false }
                 return navigateAppointmentReschedule(window.location.pathname, appointmentId, 'browser')
               },
               timeZone: state.catalog.business?.timezone,
               onTimezone: (timezone) => {
-                if (!timezone || host.isConnected === false || state.bookingView !== 'detail' || state.selectedGuestBookingId !== managedBookingId || state.catalog.business.timezone === timezone) return
+                if (!timezone || host.isConnected === false || state.selectedGuestBookingId !== managedBookingId || state.catalog.business.timezone === timezone) return
                 state.catalog.business.timezone = timezone
+                if (state.bookingView !== 'detail') return
                 applyGuestBooking({ guest: true, bookingId: managedBookingId, appointments: state.guestAppointments, deposit: state.deposit })
                 const date = els.content.querySelector('[data-booking-date]')
                 if (date) date.textContent = (state.dateLabel || '') + ' a las ' + (state.itinerary?.startTime || state.slot?.time || '') + '.'
@@ -3606,11 +3639,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 els.content.querySelectorAll('#booking-view-reservations, #booking-new-reservation, #booking-guest-refresh').forEach((button) => button.disabled = busy)
               },
               onUpdated: (result) => {
-                const bookingId = state.selectedGuestBookingId
-                const appointments = result.appointments.map((item) => ({ ...state.guestAppointments.find((saved) => saved.id === item.id), ...item }))
-                applyGuestBooking({ ...result, appointments, guest: true, bookingId, deposit: state.deposit })
-                state.guestBookings = (state.guestBookings || []).map((booking) => booking.bookingId === bookingId ? { ...booking, appointments } : booking)
-                const cancelled = appointments.every((item) => item.status === 'CANCELLED')
+                applyManagedRows(result)
+                const cancelled = result.appointments.every((item) => item.status === 'CANCELLED')
                 if (cancelled) state.guestReservationFilter = 'history'
                 els.heading.textContent = cancelled ? 'Reserva cancelada' : 'Reserva actualizada'
                 const summary = els.content.querySelector('.booking-success')
@@ -3618,7 +3648,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   summary.querySelector('h2').textContent = cancelled ? 'Tu reserva fue cancelada' : 'Tu cambio qued\u00f3 guardado'
                   summary.querySelector('.success-check')?.setAttribute('hidden', '')
                 }
-                renderSummary()
               }
             })
           }
@@ -3835,6 +3864,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
 function appointmentSelfServiceClient() {
   return String.raw`
+          function managedAppointmentSnapshot(previous, item) {
+            // Management serializes booked price/duration inside service, unlike the guest status DTO.
+            return { ...previous, ...item, service: { ...previous?.service, ...item.service },
+              professional: { ...previous?.professional, ...item.professional },
+              quotedPrice: item.service?.price !== undefined ? item.service.price : item.quotedPrice !== undefined ? item.quotedPrice : previous?.quotedPrice,
+              totalDurationMinutes: item.service?.duration !== undefined ? item.service.duration : item.totalDurationMinutes !== undefined ? item.totalDurationMinutes : previous?.totalDurationMinutes }
+          }
+
           function navigateAppointmentReschedule(bookingPath, appointmentId, from) {
             const target = new URL(bookingPath, window.location.origin)
             if (target.origin !== window.location.origin || !/^https?:$/.test(target.protocol)) return false
@@ -3849,8 +3886,8 @@ function appointmentSelfServiceClient() {
             if (!host) return { ready: Promise.resolve() }
             const url = '/public/booking/' + encodeURIComponent(config.slug) + '/appointments/' + encodeURIComponent(config.appointmentId)
             let data = null, view = 'home', busy = false, notice = '', accessLost = false
-            let pendingOperation = null
-            const active = () => host.isConnected !== false
+            let pendingOperation = null, disposed = false, loading = null, summaryRendered = false
+            const active = () => !disposed && host.isConnected !== false && (typeof config.isCurrent !== 'function' || config.isCurrent())
             const permission = (action) => data?.selfService?.mode === 'direct' && data.selfService[action] === true && !accessLost
             const e = (value) => escapeHtml(value == null ? '' : value)
             const appointments = () => data?.appointments || config.appointments || []
@@ -3873,6 +3910,12 @@ function appointmentSelfServiceClient() {
             function button(action, text, extra = '') {
               return '<button type="button" data-self-action="' + action + '"' + (busy ? ' disabled' : '') + extra + '>' + text + '</button>'
             }
+            function refreshSummaryInPlace() {
+              summaryRendered = false
+              try { summaryRendered = config.onLoaded?.(data, table(appointments())) === true } catch {
+                // Presentation cannot turn a successful server operation into a failed cancellation.
+              }
+            }
             function renderPanel(focus = false) {
               if (!active()) return
               let title = 'Gestionar esta reserva', content = '', actions = ''
@@ -3890,7 +3933,7 @@ function appointmentSelfServiceClient() {
                 content = table(appointments()) + '<p class="self-service-warning">Se cancelar&aacute;n todos los servicios de este pedido. Esto no realiza una devoluci&oacute;n autom&aacute;tica de la se&ntilde;a ni de otros pagos; coordin&aacute; cualquier devoluci&oacute;n con el local.</p>'
                 actions = button('back', 'Conservar la reserva') + button('confirm-cancel', busy ? 'Cancelando...' : 'Confirmar cancelaci&oacute;n', ' class="self-service-danger"')
               } else {
-                content = table(appointments()) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
+                content = (summaryRendered && !notice ? '' : table(appointments())) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
                 if (permission('canReschedule') && typeof config.onReschedule === 'function') actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
                 if (permission('canCancel')) actions += button('cancel', 'Cancelar reserva', ' class="self-service-danger"')
                 if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti\u00f3n del local.') + '</p>' + contact()
@@ -3904,17 +3947,23 @@ function appointmentSelfServiceClient() {
               if (!response.ok) { const error = new Error(result.message || 'No pudimos completar la operaci\u00f3n.'); error.status = response.status; throw error }
               return result
             }
-            async function load(message = '') {
+            function load(message = '') {
+              if (loading) return loading
+              if (!active()) return Promise.resolve()
               busy = true; notice = message; renderPanel()
-              try {
-                const result = await request('/manage')
-                if (!active()) return
-                data = result; accessLost = false; view = 'home'; pendingOperation = null
-                config.onTimezone?.(data.selfService?.timezone)
-              } catch (error) {
-                if (!active()) return
-                data = null; notice = error.message; accessLost = [401, 403, 404].includes(error.status)
-              } finally { busy = false; renderPanel() }
+              loading = (async () => {
+                try {
+                  const result = await request('/manage?view=actions')
+                  if (!active()) return
+                  data = result; accessLost = false; view = 'home'; pendingOperation = null
+                  refreshSummaryInPlace()
+                  config.onTimezone?.(data.selfService?.timezone)
+                } catch (error) {
+                  if (!active()) return
+                  data = null; notice = error.message; accessLost = [401, 403, 404].includes(error.status)
+                } finally { loading = null; if (active()) { busy = false; renderPanel() } }
+              })()
+              return loading
             }
             async function submit(action) {
               if (action !== 'cancel' || !permission('canCancel') || view !== 'cancel') return
@@ -3928,6 +3977,7 @@ function appointmentSelfServiceClient() {
                 const result = await request('/' + action, pendingOperation)
                 if (!active()) return
                 data = result; view = 'success'; pendingOperation = null
+                refreshSummaryInPlace()
                 notice = 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.'
                 busy = false
                 config.onBusyChange?.(false)
@@ -3954,7 +4004,11 @@ function appointmentSelfServiceClient() {
               if (action === 'cancel' && permission('canCancel')) { view = 'cancel'; pendingOperation = null; notice = ''; renderPanel(true); return }
               if (action === 'confirm-cancel') await submit('cancel')
             })
-            return { ready: load() }
+            return {
+              ready: load(),
+              refreshSummary: () => { if (active() && data) { refreshSummaryInPlace(); renderPanel() } },
+              dispose: () => { disposed = true }
+            }
           }
 `
 }
@@ -4161,6 +4215,9 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.logout.hidden = !logged
             document.querySelectorAll('.account-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === state.tab))
             if (!logged) {
+              state.detailSession?.controller?.dispose()
+              state.detailSession = null
+              els.historyDetail.innerHTML = ''
               els.avatar.textContent = 'G'
               els.name.textContent = 'Invitado'
               els.email.textContent = 'Inicia sesion con Google'
@@ -4311,6 +4368,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               state.appointments = []
               state.appointmentOverrides = {}
               state.selectedId = null
+              state.mobileDetail = false
               setLoginFeedback('', '')
               setFeedback('Sesion iniciada. Tus proximas reservas se podran cargar en Google Calendar.', 'info')
               renderShell()
@@ -4332,6 +4390,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               state.appointments = []
               state.appointmentOverrides = {}
               state.selectedId = null
+              state.mobileDetail = false
               setLoginFeedback('', '')
               setFeedback('Sesion iniciada. Agrega tu telefono para cargar tu historial.', 'info')
               renderShell()
@@ -4350,8 +4409,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               return
             }
             if (!background) setFeedback('Cargando tus turnos...', 'info')
+            const account = state.user
             try {
               const result = await getJson('/public/weex/appointments?businessSlug=' + encodeURIComponent(slug) + '&limit=5')
+              if (state.user !== account) return
               const overrides = state.appointmentOverrides || {}
               const rows = (result.appointments || []).map((item) => overrides[item.id] || item)
               state.appointments = [...rows, ...Object.values(overrides).filter((item) => !rows.some((row) => row.id === item.id))]
@@ -4359,6 +4420,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               if (!background) setFeedback('', '')
               renderHistory(background)
             } catch (error) {
+              if (state.user !== account) return
               if (background) return
               state.appointments = []
               state.selectedId = null
@@ -4379,7 +4441,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           function applyAppointmentUpdate(result) {
             const rows = Array.isArray(result.appointments) ? result.appointments : []
             state.appointmentOverrides ||= {}
-            for (const item of rows) state.appointmentOverrides[item.id] = item
+            for (const item of rows) state.appointmentOverrides[item.id] = managedAppointmentSnapshot(state.appointments.find((saved) => saved.id === item.id), item)
             state.appointments = state.appointments.map((item) => state.appointmentOverrides[item.id] || item)
             for (const item of rows) if (!state.appointments.some((saved) => saved.id === item.id)) state.appointments.push(item)
             renderHistory(true)
@@ -4410,7 +4472,8 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               button.classList.toggle('active', active)
               button.setAttribute('aria-pressed', String(active))
             })
-            if (!preserveDetail) renderDetail()
+            const detailVisible = state.tab === 'history' && (state.mobileDetail || !window.matchMedia('(max-width: 767px)').matches)
+            if (!preserveDetail && detailVisible) renderDetail()
           }
 
           function renderAppointmentCard(appointment) {
@@ -4432,16 +4495,18 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           }
 
           function renderDetailSummary() {
-            const appointment = state.appointments.find((item) => item.id === state.selectedId)
+            const appointment = state.detailSession?.rows?.find((item) => item.id === state.selectedId) || state.appointments.find((item) => item.id === state.selectedId)
             const summary = els.historyDetail.querySelector('[data-account-detail-summary]')
             if (!summary || !appointment) return
             const date = formatDateTime(appointment.startAt)
+            const groupSummary = state.detailSession?.appointmentId === appointment.id && state.detailSession.rows?.length > 1 ? state.detailSession.summary : ''
             summary.innerHTML = '<span class="status-pill" data-status="' + escapeHtml(appointment.status) + '">' + statusLabel(appointment.status) + '</span>' +
-              '<h2 tabindex="-1" data-account-detail-title>' + escapeHtml(appointment.service.name) + '</h2>' +
-              '<p class="account-detail-date">' + escapeHtml(date.long) + '</p>' +
-              '<div class="detail-facts"><span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
-                '<span><b>Duraci&oacute;n</b><strong>' + escapeHtml(appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</strong></span>' +
-                '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.quotedPrice ?? appointment.service.price)) + '</strong></span></div>'
+              '<h2 tabindex="-1" data-account-detail-title>' + (groupSummary ? 'Tu reserva' : escapeHtml(appointment.service.name)) + '</h2>' +
+              (groupSummary ? '' : '<p class="account-detail-date">' + escapeHtml(date.long) + '</p>') +
+              (groupSummary || '<div class="detail-facts"><span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
+                '<span><b>Duraci&oacute;n</b><strong>' + escapeHtml(appointment.totalDurationMinutes != null ? appointment.totalDurationMinutes + ' min' : appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</strong></span>' +
+                '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.quotedPrice ?? appointment.service.price)) + '</strong></span></div>')
+            return true
           }
 
           function showAppointmentDetail(id) {
@@ -4469,6 +4534,13 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function renderDetail() {
             const appointment = state.appointments.find((item) => item.id === state.selectedId)
+            const session = state.detailSession
+            if (appointment && session?.account === state.user && session.appointmentId === appointment.id && session.host.isConnected !== false) {
+              renderDetailSummary()
+              return
+            }
+            session?.controller?.dispose()
+            state.detailSession = null
             if (!appointment) {
               els.historyDetail.innerHTML = '<div class="detail-empty">Selecciona un turno para ver el detalle.</div>'
               return
@@ -4484,8 +4556,12 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               '</div>' +
               '</div>'
             renderDetailSummary()
-            mountAppointmentManager(document.getElementById('account-appointment-management'), {
+            const current = { account: state.user, appointmentId: appointment.id, host: document.getElementById('account-appointment-management'), controller: null, rows: [appointment], summary: '' }
+            state.detailSession = current
+            current.controller = mountAppointmentManager(current.host, {
               slug, appointmentId: appointment.id, appointments: [appointment],
+              isCurrent: () => state.detailSession === current && state.user === current.account && state.selectedId === appointment.id,
+              onLoaded: (result, summary) => { current.rows = result.appointments; current.summary = summary; return renderDetailSummary() },
               onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(bookingUrl)}, appointmentId, 'account'),
               timeZone: state.timezone,
               onTimezone: (timezone) => {
@@ -4553,7 +4629,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           }
 
           function formatPriceLine(value) {
-            return value ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value) : 'Consultar'
+            return value != null && Number.isFinite(Number(value)) ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(value)) : 'Consultar'
           }
 
           function statusLabel(status) {
@@ -4597,6 +4673,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             state.appointments = []
             state.appointmentOverrides = {}
             state.selectedId = null
+            state.mobileDetail = false
             setFeedback('', '')
             renderShell()
             renderGoogleButton()
@@ -7479,13 +7556,14 @@ function htmlPage(input: {
     .appointment-management .self-service-options button { width: 100%; display: grid; justify-content: start; text-align: left; gap: 5px; }
     .appointment-management .self-service-options button[aria-pressed="true"] { color: var(--booking-ink, #242427); border-color: var(--booking-accent, #376DB8); background: var(--booking-accent-soft, #EDF3FC); }
     .appointment-management .self-service-options span { font-size: 12px; font-weight: 500; }
-    .appointment-management .self-service-table-wrap { min-width: 0; width: 100%; }
-    .appointment-management table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+    .appointment-management .self-service-table-wrap, [data-account-detail-summary] .self-service-table-wrap { min-width: 0; width: 100%; }
+    .appointment-management table, [data-account-detail-summary] table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
     .appointment-management caption { margin: 0 0 8px; text-align: left; font-weight: 700; }
     .appointment-management th,
-    .appointment-management td { padding: 10px 6px; vertical-align: top; text-align: left; border-bottom: 1px solid #E5E1D9; overflow-wrap: anywhere; }
+    .appointment-management td, [data-account-detail-summary] th, [data-account-detail-summary] td { padding: 10px 6px; vertical-align: top; text-align: left; border-bottom: 1px solid #E5E1D9; overflow-wrap: anywhere; }
     .appointment-management td span,
-    .appointment-management td small { display: block; margin-top: 5px; }
+    .appointment-management td small, [data-account-detail-summary] td span, [data-account-detail-summary] td small { display: block; margin-top: 5px; }
+    .appointment-management-host[hidden] { display: none !important; }
     @media (max-width: 680px) {
       .appointment-management .self-service-fields { grid-template-columns: minmax(0, 1fr); }
       .appointment-management .self-service-actions > * { width: 100%; }
