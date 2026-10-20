@@ -1993,7 +1993,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 getJson(bookingApiUrl('/catalog')),
                 state.reschedule ? Promise.resolve(null) : getJson('/public/weex/me').catch(() => null)
               ])
-              state.catalog = catalog
+              state.catalog = { ...catalog, business: { ...catalog.business, timezone: catalog.business?.timezone || ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')} } }
               state.weexAccount = auth?.account || null
               if (state.reschedule) { await loadRescheduleContext(); return }
               const restoredDraft = await restoreLoginDraft()
@@ -2613,7 +2613,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 '<div class="booking-success">' +
                   '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
                   '<h2>' + (state.guestCompleted ? 'Turno realizado' : state.guestBooking ? 'Turno confirmado' : (isMultiService() ? 'Reservas coordinadas exitosas, ' : 'Reserva exitosa, ') + escapeHtml(accountName)) + '</h2>' +
-                  '<p>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.itinerary?.startTime || state.slot?.time || '') + '.</p>' +
+                  '<p data-booking-date>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.itinerary?.startTime || state.slot?.time || '') + '.</p>' +
                   calendarMessage +
                   '<div class="success-actions">' +
                     '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
@@ -3227,9 +3227,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const clock = (date) => new Intl.DateTimeFormat('es-AR', {
               timeZone: state.catalog.business?.timezone || 'America/Argentina/Buenos_Aires', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
             }).format(date)
-            const segments = result.deposit?.segments?.length
-              ? result.deposit.segments
-              : result.appointments.map((appointment) => ({
+            const segments = result.appointments.map((appointment) => ({
                   serviceId: appointment.service.id, serviceName: appointment.service.name,
                   professionalId: appointment.professional.id, professionalName: appointment.professional.name,
                   startTime: clock(new Date(appointment.startAt)),
@@ -3583,6 +3581,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function renderGuestAppointmentManagement() {
             const host = document.createElement('div')
+            const managedBookingId = state.selectedGuestBookingId
             host.className = 'appointment-management-host'
             els.content.appendChild(host)
             mountAppointmentManager(host, {
@@ -3592,6 +3591,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 return navigateAppointmentReschedule(window.location.pathname, appointmentId, 'browser')
               },
               timeZone: state.catalog.business?.timezone,
+              onTimezone: (timezone) => {
+                if (!timezone || host.isConnected === false || state.bookingView !== 'detail' || state.selectedGuestBookingId !== managedBookingId || state.catalog.business.timezone === timezone) return
+                state.catalog.business.timezone = timezone
+                applyGuestBooking({ guest: true, bookingId: managedBookingId, appointments: state.guestAppointments, deposit: state.deposit })
+                const date = els.content.querySelector('[data-booking-date]')
+                if (date) date.textContent = (state.dateLabel || '') + ' a las ' + (state.itinerary?.startTime || state.slot?.time || '') + '.'
+                renderSummary()
+              },
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
               onBusyChange: (busy) => {
                 state.managingAppointment = busy
@@ -3847,7 +3854,7 @@ function appointmentSelfServiceClient() {
             const permission = (action) => data?.selfService?.mode === 'direct' && data.selfService[action] === true && !accessLost
             const e = (value) => escapeHtml(value == null ? '' : value)
             const appointments = () => data?.appointments || config.appointments || []
-            const dateTime = (value) => new Intl.DateTimeFormat('es-AR', { timeZone: config.timeZone || 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
+            const dateTime = (value) => new Intl.DateTimeFormat('es-AR', { timeZone: data?.selfService?.timezone || config.timeZone || 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
             function contact() {
               let href = ''
               try { const link = new URL(config.contactUrl); if (link.protocol === 'https:' && link.hostname === 'wa.me' && !link.username && !link.password && /^\/[0-9]+$/.test(link.pathname)) href = link.href } catch {}
@@ -3903,6 +3910,7 @@ function appointmentSelfServiceClient() {
                 const result = await request('/manage')
                 if (!active()) return
                 data = result; accessLost = false; view = 'home'; pendingOperation = null
+                config.onTimezone?.(data.selfService?.timezone)
               } catch (error) {
                 if (!active()) return
                 data = null; notice = error.message; accessLost = [401, 403, 404].includes(error.status)
@@ -4106,6 +4114,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             mobileDetail: false,
             listScrollY: 0,
             appointmentOverrides: {},
+            timezone: ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')},
             editingPhone: false,
             booted: false
           }
@@ -4408,7 +4417,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const active = appointment.id === state.selectedId ? ' active' : ''
             const date = formatDateTime(appointment.startAt)
             return '<button class="appointment-card' + active + '" type="button" data-appointment-id="' + escapeHtml(appointment.id) + '">' +
-              '<span class="appointment-date"><b>' + escapeHtml(new Intl.DateTimeFormat('es-AR', { day: '2-digit' }).format(new Date(appointment.startAt))) + '</b><small>' + escapeHtml(new Intl.DateTimeFormat('es-AR', { month: 'short' }).format(new Date(appointment.startAt))) + '</small></span>' +
+              '<span class="appointment-date"><b>' + escapeHtml(date.day) + '</b><small>' + escapeHtml(date.month) + '</small></span>' +
               '<span class="appointment-copy">' +
                 '<span class="appointment-card-head"><strong>' + escapeHtml(appointment.service.name) + '</strong><i>' + statusLabel(appointment.status) + '</i></span>' +
                 '<small>' + escapeHtml(date.short) + '</small>' +
@@ -4478,7 +4487,13 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             mountAppointmentManager(document.getElementById('account-appointment-management'), {
               slug, appointmentId: appointment.id, appointments: [appointment],
               onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(bookingUrl)}, appointmentId, 'account'),
-              timeZone: ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')},
+              timeZone: state.timezone,
+              onTimezone: (timezone) => {
+                if (!timezone || state.selectedId !== appointment.id || state.timezone === timezone) return
+                state.timezone = timezone
+                renderHistory(true)
+                renderDetailSummary()
+              },
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
               onBusyChange: (busy) => {
                 state.managerBusy = busy
@@ -4527,10 +4542,13 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function formatDateTime(value) {
             const date = new Date(value)
+            const timeZone = state.timezone || ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')}
             return {
-              short: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date),
-              long: new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date),
-              compact: new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
+              day: new Intl.DateTimeFormat('es-AR', { timeZone, day: '2-digit' }).format(date),
+              month: new Intl.DateTimeFormat('es-AR', { timeZone, month: 'short' }).format(date),
+              short: new Intl.DateTimeFormat('es-AR', { timeZone, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date),
+              long: new Intl.DateTimeFormat('es-AR', { timeZone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date),
+              compact: new Intl.DateTimeFormat('es-AR', { timeZone, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date)
             }
           }
 

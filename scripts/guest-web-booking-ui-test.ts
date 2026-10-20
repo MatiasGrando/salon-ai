@@ -168,6 +168,22 @@ try {
       }
     }
   })
+  await check('guest detail derives displayed segment clocks from booked instants and authoritative timezone, not legacy deposit clock strings', () => {
+    const c: any = context(); c.bookingSteps = () => [1, 2, 3, 4]
+    c.state.catalog.business.timezone = 'UTC'
+    const deposit = { id: 'paid-deposit', amount: 5000, status: 'APPROVED', segments: [{ serviceId: 'cut', startTime: '13:00', endTime: '14:25' }, { serviceId: 'second', startTime: '14:25', endTime: '15:00' }] }
+    const result = { guest: true, bookingId: 'own-browser', deposit, appointments: [
+      { id: 'one', startAt: '2026-10-27T16:00:00Z', status: 'CONFIRMED', quotedPrice: 64000, totalDurationMinutes: 85, service: { id: 'cut', name: 'Primero', price: 999999, duration: 5 }, professional: { id: 'p', name: 'P' } },
+      { id: 'two', startAt: '2026-10-27T17:25:00Z', status: 'CONFIRMED', quotedPrice: 17000, totalDurationMinutes: 35, service: { id: 'second', name: 'Segundo', price: 999999, duration: 5 }, professional: { id: 'q', name: 'Q' } }
+    ] }
+    const before = JSON.stringify(result); c.result = result
+    runInNewContext(source('applyGuestBooking') + '; applyGuestBooking(result)', c)
+    assert.equal(c.state.slot.time, '16:00')
+    assert.equal(c.state.itinerary.startTime, '16:00'); assert.equal(c.state.itinerary.endTime, '18:00')
+    assert.equal(c.state.itinerary.segments[1].startTime, '17:25')
+    assert.equal(c.state.deposit, deposit); assert.equal(JSON.stringify(result), before)
+    assert.equal(c.state.services[0].price, 64000); assert.equal(c.state.services[0].duration, 85)
+  })
   await check('proof upload retains scoped existing endpoint, blocks repeat, and reports rejected files in place', async () => {
     const c: any = context(); c.state.guestBooking = true; c.state.deposit = { id: 'own-deposit' }; c.readFileAsDataUrl = async () => 'data:image/png;base64,offline'
     let resolve: any

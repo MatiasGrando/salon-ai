@@ -72,6 +72,18 @@ try {
     assert.ok(c.host.innerHTML.includes('data-self-action="reschedule"')); assert.ok(c.host.innerHTML.includes('data-self-action="cancel"'))
     assert.ok(!JSON.stringify(c.requests).includes('phone')); assert.ok(c.host.innerHTML.includes('Corte &lt;ejemplo&gt;'))
   })
+  await check('shared detail and cancellation use management timezone, not the caller or browser timezone', async () => {
+    const result: any = managed(); result.selfService.timezone = 'UTC'
+    const c = harness(result), timezones: string[] = []
+    c.ctx.config.onTimezone = (value: string) => timezones.push(value)
+    await c.start(script)
+    assert.match(c.host.innerHTML, /18:00/)
+    assert.ok(!c.host.innerHTML.includes('15:00'))
+    assert.deepEqual(timezones, ['UTC'])
+    await c.click('cancel')
+    assert.match(c.host.innerHTML, /18:00/)
+    assert.equal(c.requests.length, 1)
+  })
   await check('current snapshots stay intact when delegating reschedule to the shared wizard', async () => {
     const data = managed(); data.appointments.push(appointment('two', 'q')); const before = JSON.stringify(data)
     const c = harness(data); await c.start(script)

@@ -37,7 +37,7 @@ async function fixture(config: any = {}) {
   if (config.startAt) rows[0].startAt = config.startAt
   const policyTimezone = config.policyTimezone || 'America/Argentina/Buenos_Aires'
   const optionStart = (date: string, time: string, offset = 0) => new Date(new Date(date + 'T' + time + ':00Z').getTime() + (policyTimezone === 'Asia/Tokyo' ? -9 : policyTimezone === 'UTC' ? 0 : 3) * 3600000 + offset * 60000).toISOString()
-  business = { id: 'safe-wizard', slug: 'safe-wizard', name: 'Local sintetico', timezone: 'America/Argentina/Buenos_Aires', accountStatus: 'ACTIVE', landingEnabled: true, landingTemplate: 'classic', bookingTheme: config.theme || 'light', allowGuestWebBooking: true, services: [], professionals: [] }
+  business = { id: 'safe-wizard', slug: 'safe-wizard', name: 'Local sintetico', timezone: config.businessTimezone || 'America/Argentina/Buenos_Aires', accountStatus: 'ACTIVE', landingEnabled: true, landingTemplate: 'classic', bookingTheme: config.theme || 'light', allowGuestWebBooking: true, services: [], professionals: [] }
   const context = await browser.newContext({ viewport: { width: config.width || 390, height: 844 }, hasTouch: true, reducedMotion: 'reduce', serviceWorkers: 'block', timezoneId: 'America/Buenos_Aires' }); contexts.push(context)
   await context.addInitScript({ content: 'globalThis.__name = value => value;' })
   const f: any = { context, requests, errors, dialogs, rows, base, host, manageStatus: config.manageStatus || 200, submitStatus: config.submitStatus || 200, optionsStatus: config.optionsStatus || 200, mode: config.mode || 'direct', postGate: null, posts: [], revision: 'initial-revision', optionsCount: 0 }
@@ -48,7 +48,7 @@ async function fixture(config: any = {}) {
     if (req.isNavigationRequest()) { const rendered = await app.inject({ url: url.pathname + url.search, headers: { host, 'x-forwarded-proto': 'https' } }); assert.equal(rendered.statusCode, 200); return route.fulfill({ contentType: 'text/html', body: rendered.body }) }
     const entry: any = { path: url.pathname, query: url.search, method: req.method(), body: req.postData() ? req.postDataJSON() : undefined }; requests.push(entry)
     let status = 200, body: any = {}
-    if (url.pathname.endsWith('/catalog')) body = { business, services: [{ id: 'same-service', name: 'Catalogo cambiado', price: 999999, duration: 5, professionalIds: ['p'], attentionMode: 'GUIDED_ESTIMATE', estimateOptions: [{ id: 'changed', priceMin: 999999 }] }], professionals: pros }
+    if (url.pathname.endsWith('/catalog')) body = { business: config.omitCatalogTimezone ? { ...business, timezone: undefined } : business, services: [{ id: 'same-service', name: 'Catalogo cambiado', price: 999999, duration: 5, professionalIds: ['p'], attentionMode: 'GUIDED_ESTIMATE', estimateOptions: [{ id: 'changed', priceMin: 999999 }] }], professionals: pros }
     else if (url.pathname === '/public/weex/me') { status = config.guest ? 401 : 200; body = config.guest ? {} : { account: { id: 'synthetic-owner', name: 'Propietario sintetico', phone: '5491166553322' } } }
     else if (url.pathname.endsWith('/manage')) { status = f.manageStatus; body = status === 200 ? managed() : { message: 'Acceso a la reserva no disponible.' } }
     else if (url.pathname.endsWith('/reschedule-options')) {
@@ -99,7 +99,7 @@ try {
     f.postGate = deferred(); await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).dblclick({ delay: 30 }); await f.page.waitForTimeout(100); assert.equal(f.posts.length, 1)
     assert.deepEqual(Object.keys(f.posts[0].body).sort(), ['date', 'operationId', 'optionId', 'professionalIds', 'revision']); assert.deepEqual(f.posts[0].body.professionalIds, ['q', 'p']); assert.match(f.posts[0].body.optionId, /^opaque-/)
     f.postGate.resolve(); f.postGate = null; await f.page.getByText('Tu reserva fue reprogramada', { exact: false }).waitFor({ state: 'visible' }); assert.deepEqual(f.rows.map((r: any) => r.id), ['appointment-first', 'appointment-second']); assert.equal(f.posts.length, 1)
-    if (format === 'path' && guest) await f.page.screenshot({ path: directory + '/guest-success-390.png', fullPage: true }); await clean(f)
+    if (format === 'path' && guest) await f.page.screenshot({ path: directory + '/guest-success-390.png', fullPage: true, timeout: 15000 }); await clean(f)
   })
   for (const guest of [false, true]) await check('actual ' + (guest ? 'guest' : 'account') + ' entry opens the same booking wizard', async () => {
     const f = await fixture({ entry: true, guest })
@@ -129,7 +129,7 @@ try {
     const f = await fixture({ group: false, width: 820 }); await professionalSteps(f); await chooseTime(f)
     await f.page.locator('#booking-back').tap(); await f.page.locator('.slot.selected[data-time="16:00"]').waitFor({ state: 'visible' }); await f.page.locator('.slot[data-time="15:00"]').tap()
     await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).waitFor({ state: 'visible' }); assert.equal(f.posts.length, 0); assert.match(await f.page.locator('#booking-summary-lines').innerText(), /15:00/)
-    assert.equal(await f.page.locator('[data-self-date], [data-self-professional]').count(), 0); await f.page.screenshot({ path: directory + '/review-820.png', fullPage: true }); await clean(f)
+    assert.equal(await f.page.locator('[data-self-date], [data-self-professional]').count(), 0); await f.page.screenshot({ path: directory + '/review-820.png', fullPage: true, timeout: 15000 }); await clean(f)
   })
   for (const config of [{ mode: 'contact' }, { manageStatus: 404 }]) await check('denied authority preserves reason and cannot open booking mutation ' + JSON.stringify(config), async () => {
     const f = await fixture(config); await f.page.getByText(config.manageStatus ? 'Acceso a la reserva no disponible.' : 'Reserva fuera de plazo. Comunicate con el local.', { exact: false }).waitFor({ state: 'visible' })
@@ -140,6 +140,43 @@ try {
     await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).tap(); await f.page.getByText(status === 409 ? 'La reserva cambió.' : 'El horario ya no está disponible.', { exact: false }).waitFor({ state: 'visible' })
     assert.equal(JSON.stringify(f.rows), before); assert.equal(f.posts.length, 1); await f.page.waitForTimeout(100); assert.equal(f.posts.length, 1)
     if (status === 409) { assert.ok(f.requests.filter((r: any) => r.path.endsWith('/manage')).length >= 2); assert.equal(await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).count(), 0) }
+    await clean(f)
+  })
+  await check('guest collection uses embedded business timezone when the catalog omits it', async () => {
+    const f = await fixture({ guest: true, entry: true, policyTimezone: 'UTC', businessTimezone: 'UTC', omitCatalogTimezone: true })
+    await f.page.locator('button[data-guest-booking-id="browser-grant"]').waitFor({ state: 'visible' })
+    const collection = await f.page.locator('.booking-reservations-table').innerText()
+    assert.match(collection, /19:00/); assert.match(collection, /20:25/)
+    assert.equal(f.requests.filter((r: any) => r.path.endsWith('/manage')).length, 0, 'list does not add management lookups')
+    await clean(f)
+  })
+  for (const guest of [false, true]) await check('management timezone stays coherent in returned detail and cancellation ' + (guest ? 'guest' : 'account'), async () => {
+    const f = await fixture({ guest, entry: true, policyTimezone: 'UTC', businessTimezone: 'America/Argentina/Buenos_Aires', omitCatalogTimezone: true })
+    await f.page.locator(guest ? 'button[data-guest-booking-id="browser-grant"]' : '[data-appointment-id="appointment-first"]').tap()
+    await f.page.locator('.appointment-management [data-self-action="reschedule"]').waitFor({ state: 'visible' })
+    assert.match(await f.page.locator('.self-service-table-wrap').innerText(), /19:00/)
+    const expectedDetailTime = async (hour: string) => guest ? hour + ':00' : await f.page.evaluate((hour: string) => new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }).format(new Date('2026-10-27T' + hour + ':00:00Z')), hour)
+    const detailText = async () => (await f.page.locator(guest ? '.fresha-summary' : '.account-detail-date').innerText()).replace(/\s/g, '')
+    assert.ok((await detailText()).includes((await expectedDetailTime('19')).replace(/\s/g, '')), 'detail reflects UTC rather than browser/SSR timezone, retaining its existing clock format')
+    await f.page.locator('.appointment-management [data-self-action="reschedule"]').tap()
+    await professionalSteps(f); await chooseTime(f)
+    await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).tap()
+    await f.page.getByText('Tu reserva fue reprogramada', { exact: false }).waitFor({ state: 'visible' })
+    await f.page.getByRole('button', { name: 'Volver a reservas', exact: true }).tap()
+    await f.page.locator(guest ? 'button[data-guest-booking-id="browser-grant"]' : '[data-appointment-id="appointment-first"]').tap()
+    await f.page.locator('.appointment-management [data-self-action="cancel"]').waitFor({ state: 'visible' })
+    assert.match(await f.page.locator('.self-service-table-wrap').innerText(), /16:00/)
+    assert.ok((await detailText()).includes((await expectedDetailTime('16')).replace(/\s/g, '')))
+    if (guest) {
+      assert.match(await f.page.locator('.fresha-summary').innerText(), /17:25/)
+      assert.match(await f.page.locator('.booking-success').innerText(), /16:00/)
+    }
+    await f.page.locator('.appointment-management [data-self-action="cancel"]').tap()
+    assert.match(await f.page.locator('.self-service-table-wrap').innerText(), /16:00/)
+    assert.match(await f.page.locator('.self-service-table-wrap').innerText(), /17:25/)
+    assert.equal(f.posts.length, 1)
+    assert.equal(f.requests.filter((r: any) => r.method === 'POST').length, 1, 'read-timezone update cannot post a cancellation')
+    assert.equal(f.requests.filter((r: any) => r.path.endsWith('/manage')).length, guest ? 3 : 5, 'one management GET per mounted detail/wizard only; Account auto-selects before each explicit detail click')
     await clean(f)
   })
   for (const policyTimezone of ['UTC', 'Asia/Tokyo']) await check('management timezone is authoritative for initial date, segments and review ' + policyTimezone, async () => {
