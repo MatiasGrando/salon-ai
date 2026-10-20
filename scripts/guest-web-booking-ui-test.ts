@@ -40,7 +40,7 @@ try {
       guestName: 'Synthetic', guestPhone: '15-6655-3322', weexAccount: null, submitting: false, guestBooking: false, deposit: null }
     const els: any = new Proxy({}, { get: (t: any, k: string) => t[k] ??= element() })
     const document = { getElementById: (_: string) => element(), querySelector: (_: string) => null }
-    return { state, els, calls, messages, gates, document, window: { setTimeout() {}, scrollTo() {}, scrollY: 0 },
+    return { state, els, calls, messages, gates, document, bookingParameters: new URLSearchParams(), window: { setTimeout() {}, scrollTo() {}, scrollY: 0 },
       refreshWeexAccount: async () => state.weexAccount, showBookingGate: (s: string) => gates.push(s), proceedToConfirm: () => calls.push({ proceed: true }),
       updateContinue: (...args: any[]) => calls.push({ continue: args }), setFeedback: (...args: any[]) => messages.push(args), render() {},
       currentStepId: () => 'time', updateConfirmState() {},

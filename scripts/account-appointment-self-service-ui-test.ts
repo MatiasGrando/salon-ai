@@ -24,7 +24,7 @@ function source(script: string, name: string) {
 const appointment = (id = 'one', professionalId = 'p') => ({ id, startAt: '2026-10-25T18:00:00Z', status: 'CONFIRMED', quotedPrice: 15000, service: { id: 'cut', name: 'Corte <ejemplo>', duration: 30, price: 15000 }, professional: { id: professionalId, name: 'Profesional ' + professionalId } })
 function managed(direct = true) { return { appointments: [appointment()], selfService: { mode: direct ? 'direct' : 'contact', canReschedule: direct, canCancel: direct, reason: direct ? '' : 'Solicitá el cambio al local.', revision: 'server-revision', professionalChoices: [{ appointmentId: 'one', professionals: [{ id: 'p', name: 'Profesional p' }, { id: 'q', name: 'Profesional q' }] }] } } }
 function harness(result: any = managed()) {
-  const handlers: Record<string, any> = {}, fields = new Map<string, any>(), requests: any[] = [], updated: any[] = []
+  const handlers: Record<string, any> = {}, fields = new Map<string, any>(), requests: any[] = [], updated: any[] = [], navigated: string[] = []
   const host: any = { innerHTML: '', isConnected: true, setAttribute() {}, addEventListener: (name: string, fn: any) => handlers[name] = fn,
     querySelector: (selector: string) => fields.get(selector) || null, querySelectorAll: (selector: string) => selector === '[data-self-professional]' ? [...fields.values()].filter(f => f.dataset?.selfProfessional) : [], contains: () => true }
   const queue: any[] = [result]
@@ -32,10 +32,10 @@ function harness(result: any = managed()) {
   const ctx: any = { Intl, Date, URL, encodeURIComponent, console, crypto: { randomUUID: () => '00000000-0000-4000-8000-' + String(++uuid).padStart(12, '0') },
     document: { activeElement: null }, escapeHtml: (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'),
     fetch: async (url: string, options?: any) => { requests.push({ url, ...options, payload: options?.body ? JSON.parse(options.body) : undefined }); const item = queue.shift(); if (item instanceof Error) throw item; return { ok: !item?.error, status: item?.status || 200, json: async () => item?.error ? { message: item.message } : item } }, host,
-    config: { slug: 'safe-local', appointmentId: 'one', timeZone: 'America/Argentina/Buenos_Aires', contactUrl: 'https://wa.me/5491166553322', appointments: result?.appointments || [appointment()], onUpdated: async (value: any) => updated.push(value) } }
+    config: { slug: 'safe-local', appointmentId: 'one', timeZone: 'America/Argentina/Buenos_Aires', contactUrl: 'https://wa.me/5491166553322', appointments: result?.appointments || [appointment()], onReschedule: (id: string) => { navigated.push(id); return true }, onUpdated: async (value: any) => updated.push(value) } }
   const click = async (action: string, data: any = {}) => { const target = { dataset: { selfAction: action, ...data }, closest: () => target }; await handlers.click({ target, preventDefault() {} }) }
   const change = async (selector: string, value: string, dataset: any = {}) => { const field = { value, dataset, matches: (s: string) => s === selector }; fields.set(selector, field); await handlers.change({ target: field }) }
-  return { ctx, host, queue, requests, updated, fields, click, change, start: async (script: string) => { const controller = runInNewContext(source(script, 'mountAppointmentManager') + '; mountAppointmentManager(host, config)', ctx); await controller.ready } }
+  return { ctx, host, queue, requests, updated, navigated, fields, click, change, start: async (script: string) => { const controller = runInNewContext(source(script, 'mountAppointmentManager') + '; mountAppointmentManager(host, config)', ctx); await controller.ready } }
 }
 try {
   const accountHtml = (await app.inject({ url: '/cuenta', headers: { host: 'safe-local.weex.com.ar' } })).body
@@ -48,19 +48,36 @@ try {
     }
     assert.equal(source(clientScript(bookingHtml), 'mountAppointmentManager'), source(script, 'mountAppointmentManager'))
   })
+  await check('navigation carries only a safe reservation origin enum and rejects a cross-origin destination', () => {
+    const targets: string[] = []
+    const context = { URL, window: { location: { origin: 'https://safe.weex.test', assign: (target: string) => targets.push(target) } } }
+    const navigate = runInNewContext(source(script, 'navigateAppointmentReschedule') + '; navigateAppointmentReschedule', context)
+    assert.equal(navigate('/reservar', 'one', 'account'), true)
+    assert.equal(new URL(targets[0]!, 'https://safe.weex.test').searchParams.get('rescheduleFrom'), 'account')
+    assert.equal(navigate('/reservar', 'one', 'browser'), true)
+    assert.equal(new URL(targets[1]!, 'https://safe.weex.test').searchParams.get('rescheduleFrom'), 'browser')
+    assert.equal(navigate('/reservar?rescheduleFrom=https://evil.test', 'one', 'https://evil.test'), true)
+    assert.equal(new URL(targets[2]!, 'https://safe.weex.test').searchParams.has('rescheduleFrom'), false)
+    assert.equal(navigate('https://evil.test/reservar', 'one', 'account'), false)
+    assert.equal(targets.length, 3)
+  })
+  await check('one reschedule journey: manager cannot render an internal date/professional mini form', async () => {
+    const c = harness(); await c.start(script)
+    assert.ok(!source(script, 'mountAppointmentManager').includes('data-self-date'), 'obsolete renderer must be removed, not hidden behind configuration')
+    assert.ok(!source(script, 'mountAppointmentManager').includes('find-options'), 'old options route must not remain as a second journey')
+  })
   await check('loads server authority with business and appointment only; no mutation or telephone authority', async () => {
     const c = harness(); await c.start(script)
     assert.equal(c.requests.length, 1); assert.equal(c.requests[0].url, '/public/booking/safe-local/appointments/one/manage'); assert.equal(c.requests[0].method, undefined)
     assert.ok(c.host.innerHTML.includes('data-self-action="reschedule"')); assert.ok(c.host.innerHTML.includes('data-self-action="cancel"'))
     assert.ok(!JSON.stringify(c.requests).includes('phone')); assert.ok(c.host.innerHTML.includes('Corte &lt;ejemplo&gt;'))
   })
-  await check('current and proposed summaries preserve booked duration and price rather than mutable catalog values', async () => {
-    const c = harness(); await c.start(script)
+  await check('current snapshots stay intact when delegating reschedule to the shared wizard', async () => {
+    const data = managed(); data.appointments.push(appointment('two', 'q')); const before = JSON.stringify(data)
+    const c = harness(data); await c.start(script)
     assert.ok(c.host.innerHTML.includes('30 min')); assert.ok(c.host.innerHTML.includes('15.000'))
-    await c.click('reschedule'); c.fields.set('[data-self-date]', { value: '2026-10-26' }); c.fields.set('pro', { value: 'p', dataset: { selfProfessional: 'one' } })
-    c.queue.push({ selfService: managed().selfService, options: [{ id: 'fresh', date: '2026-10-26', time: '15:00', segments: [{ appointmentId: 'one', serviceName: 'Corte', professionalId: 'p', professionalName: 'Profesional p', startAt: '2026-10-26T18:00:00Z', durationMinutes: 30 }] }] })
-    await c.click('find-options'); await c.click('select-option', { selfOption: 'fresh' })
-    assert.equal((c.host.innerHTML.match(/15\.000/g) || []).length, 2)
+    await c.click('reschedule'); assert.deepEqual(c.navigated, ['one']); assert.equal(c.requests.length, 1)
+    assert.equal(JSON.stringify(data), before); assert.equal(c.updated.length, 0)
   })
   await check('legacy and unsupported finances expose contact, never direct action', async () => {
     for (const reason of ['Reserva anterior.', 'Seña en revisión.']) {
@@ -99,25 +116,23 @@ try {
     assert.deepEqual(Object.keys(request.payload).sort(), ['confirmed', 'operationId', 'revision']); assert.equal(request.payload.confirmed, true); assert.equal(request.payload.revision, 'server-revision')
     assert.match(request.payload.operationId, /^[a-f0-9-]{36}$/); assert.equal(c.updated.length, 1); assert.ok(c.host.innerHTML.includes('cancelada'))
   })
-  await check('rescheduling asks current date and per-segment professionals before fetching, never posts reservation creation', async () => {
-    const c = harness(); await c.start(script); await c.click('reschedule'); assert.ok(c.host.innerHTML.includes('type="date"')); assert.ok(c.host.innerHTML.includes('data-self-professional="one"'))
-    c.fields.set('[data-self-date]', { value: '2026-10-26' }); c.fields.set('pro', { value: 'q', dataset: { selfProfessional: 'one' } })
-    c.queue.push({ selfService: managed().selfService, options: [] }); await c.click('find-options')
-    assert.ok(c.requests[1].url.includes('date=2026-10-26&professionalIds=q')); assert.equal(c.requests[1].method, undefined); assert.ok(c.host.innerHTML.includes('No hay horarios'))
-  })
-  await check('date or professional change invalidates selected option and comparison', async () => {
+  await check('reprogramar delegates only the authorized appointment identity, without a mutation payload', async () => {
     const c = harness(); await c.start(script); await c.click('reschedule')
-    c.fields.set('[data-self-date]', { value: '2026-10-26' }); c.fields.set('pro', { value: 'p', dataset: { selfProfessional: 'one' } })
-    c.queue.push({ selfService: managed().selfService, options: [{ id: 'fresh', date: '2026-10-26', time: '15:00', segments: [{ appointmentId: 'one', serviceName: 'Corte', professionalId: 'p', professionalName: 'Profesional p', startAt: '2026-10-26T18:00:00Z', durationMinutes: 30 }] }] })
-    await c.click('find-options'); await c.click('select-option', { selfOption: 'fresh' }); assert.ok(c.host.innerHTML.includes('Antes')); assert.ok(c.host.innerHTML.includes('Despu'))
-    await c.change('[data-self-date]', '2026-10-27'); await c.click('confirm-reschedule'); assert.equal(c.requests.length, 2)
+    assert.deepEqual(c.navigated, ['one']); assert.equal(c.requests.length, 1); assert.ok(c.host.innerHTML.includes('Abriendo'))
+    const denied = harness(managed(false)); await denied.start(script); await denied.click('reschedule')
+    assert.deepEqual(denied.navigated, []); assert.equal(denied.requests.length, 1)
   })
-  await check('reschedule posts opaque current option and identity only after explicit confirmation', async () => {
-    const c = harness(); await c.start(script); await c.click('reschedule'); c.fields.set('[data-self-date]', { value: '2026-10-26' }); c.fields.set('pro', { value: 'q', dataset: { selfProfessional: 'one' } })
-    c.queue.push({ selfService: managed().selfService, options: [{ id: 'fresh', date: '2026-10-26', time: '15:00', segments: [{ appointmentId: 'one', serviceName: 'Corte', professionalId: 'q', professionalName: 'Profesional q', startAt: '2026-10-26T18:00:00Z', durationMinutes: 30 }] }] })
-    await c.click('find-options'); await c.click('select-option', { selfOption: 'fresh' }); assert.equal(c.requests.length, 2)
-    assert.ok(c.host.innerHTML.includes('se&ntilde;a')); c.queue.push(managed()); await c.click('confirm-reschedule')
-    assert.deepEqual(Object.keys(c.requests[2].payload).sort(), ['date', 'operationId', 'optionId', 'professionalIds', 'revision']); assert.equal(c.requests[2].payload.optionId, 'fresh'); assert.deepEqual(c.requests[2].payload.professionalIds, ['q']); assert.equal(c.updated.length, 1)
+  await check('an unconfigured manager cannot open a second reschedule form or options route', async () => {
+    const c = harness(); delete c.ctx.config.onReschedule; await c.start(script)
+    assert.ok(!c.host.innerHTML.includes('data-self-action="reschedule"'))
+    for (const action of ['reschedule', 'find-options', 'select-option', 'confirm-reschedule']) await c.click(action)
+    assert.equal(c.requests.length, 1); assert.ok(!c.host.innerHTML.includes('type="date"')); assert.equal(c.updated.length, 0)
+  })
+  await check('double navigation cannot post or trigger booking confirmation in the manager', async () => {
+    const c = harness(); await c.start(script); await c.click('reschedule'); await c.click('reschedule')
+    await c.click('confirm-reschedule'); assert.deepEqual(c.navigated, ['one']); assert.equal(c.requests.length, 1); assert.equal(c.updated.length, 0)
+    const blocked = harness(); blocked.ctx.config.onReschedule = () => false; await blocked.start(script); await blocked.click('reschedule')
+    assert.ok(blocked.host.innerHTML.includes('data-self-action="cancel"')); assert.equal(blocked.requests.length, 1)
   })
   await check('network error keeps frozen action UUID for explicit retry; no hidden retry or auto-submit', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push(new Error('Sin conexión')); await c.click('confirm-cancel'); assert.equal(c.requests.length, 2)

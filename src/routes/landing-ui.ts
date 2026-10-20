@@ -1910,7 +1910,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const parameters = [query, previewQuery].filter(Boolean).join('&')
             return '/public/booking/' + encodeURIComponent(slug) + path + (parameters ? '?' + parameters : '')
           }
+          const bookingParameters = new URLSearchParams(window.location.search)
+          const rescheduleId = bookingParameters.get('reschedule')
+          const rescheduleFrom = ['account', 'browser'].includes(bookingParameters.get('rescheduleFrom')) ? bookingParameters.get('rescheduleFrom') : null
           const state = {
+            reschedule: rescheduleId ? { appointmentId: rescheduleId, returnTo: rescheduleFrom, loading: true, appointments: [], professionalIds: [], options: [] } : null,
             step: 1,
             catalog: null,
             service: null,
@@ -1987,17 +1991,21 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             try {
               const [catalog, auth] = await Promise.all([
                 getJson(bookingApiUrl('/catalog')),
-                getJson('/public/weex/me').catch(() => null)
+                state.reschedule ? Promise.resolve(null) : getJson('/public/weex/me').catch(() => null)
               ])
               state.catalog = catalog
               state.weexAccount = auth?.account || null
-              if (await restoreLoginDraft()) {
+              if (state.reschedule) { await loadRescheduleContext(); return }
+              const restoredDraft = await restoreLoginDraft()
+              if (bookingParameters.get('reservationView') === 'browser') { await viewGuestBookings(); return }
+              if (restoredDraft) {
                 if (currentStepId() === 'confirm') {
                   if (state.weexAccount && !state.weexAccount.phone) showBookingGate('phone')
                   else if (!state.weexAccount && !guestBookingAllowed()) showBookingGate('login')
                 }
                 return
               }
+              if (bookingParameters.get('reservationView') === 'new') { render(); return }
               // A phone is contact data, never authority to retrieve earlier reservations.
               const pending = state.weexAccount
                 ? await getJson(bookingApiUrl('/pending-deposit')).catch(() => null)
@@ -2056,6 +2064,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function bookingSteps() {
+            if (state.reschedule) return state.reschedule.appointments.map((appointment, index) => ({ id: 'professional', label: appointment.service.name, appointmentIndex: index })).concat([{ id: 'time', label: 'Hora' }, { id: 'confirm', label: 'Confirmar cambio' }])
             const steps = [{ id: 'service', label: 'Servicios' }]
             if (selectedServices().some(serviceNeedsDetails)) {
               steps.push({
@@ -2187,6 +2196,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function renderProfessionalStep() {
             els.heading.textContent = 'Seleccionar profesional'
+            if (state.reschedule) {
+              const index = bookingSteps()[state.step - 1]?.appointmentIndex ?? 0
+              state.professionalId = state.reschedule.professionalIds[index] || null
+              els.heading.textContent = 'Profesional para ' + state.reschedule.appointments[index].service.name + (state.reschedule.appointments.length > 1 ? ' (' + (index + 1) + '/' + state.reschedule.appointments.length + ')' : '')
+            }
             const professionals = availableProfessionals()
             if (!state.service) {
               els.content.innerHTML = '<p class="fresha-muted">Primero elegi un servicio.</p>'
@@ -2291,6 +2305,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function availableProfessionals() {
+            if (state.reschedule) {
+              const index = bookingSteps()[state.step - 1]?.appointmentIndex ?? 0
+              const appointment = state.reschedule.appointments[index]
+              return state.reschedule.selfService?.professionalChoices?.find((choice) => choice.appointmentId === appointment?.id)?.professionals || []
+            }
             if (!state.catalog) return []
             if (!state.service) return state.catalog.professionals || []
             const allowed = new Set(state.service.professionalIds || [])
@@ -2383,10 +2402,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             state.itinerary = null
             updateContinue(false)
             try {
-              const result = await postJson(bookingApiUrl('/itineraries'), {
-                serviceIds: selectedServices().map((service) => service.id),
-                date: state.date
-              })
+              const result = state.reschedule
+                ? await loadRescheduleOptions()
+                : await postJson(bookingApiUrl('/itineraries'), { serviceIds: selectedServices().map((service) => service.id), date: state.date })
+              if (!result) return
               const container = document.getElementById('booking-itineraries')
               if (!container) return
               if (!result.options?.length) {
@@ -2421,7 +2440,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const slotsEl = document.getElementById('booking-slots')
             if (slotsEl) slotsEl.innerHTML = renderSlotsLoading()
             try {
-              const result = await getJson(bookingApiUrl('/availability', 'serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date)))
+              const result = state.reschedule
+                ? await loadRescheduleOptions()
+                : await getJson(bookingApiUrl('/availability', 'serviceId=' + encodeURIComponent(state.service.id) + '&professionalId=' + encodeURIComponent(state.professionalId) + '&date=' + encodeURIComponent(state.date)))
+              if (!result) return
               if (state.bookingView || state.service?.id !== availabilityScope.serviceId || state.professionalId !== availabilityScope.professionalId || state.date !== availabilityScope.date) return
               if (state.slot && !result.slots.some((slot) => slot.time === state.slot.time && slot.professionalId === state.slot.professionalId)) state.slot = null
               if (!result.slots.length) {
@@ -2430,7 +2452,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 return
               }
               if (slotsEl) slotsEl.innerHTML = result.slots.map((slot) => {
-                return '<button class="slot ' + (state.slot?.time === slot.time ? 'selected' : '') + '" type="button" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '">' +
+                return '<button class="slot ' + (state.slot?.time === slot.time ? 'selected' : '') + '" type="button" data-time="' + escapeHtml(slot.time) + '" data-professional-id="' + escapeHtml(slot.professionalId) + '" data-professional-name="' + escapeHtml(slot.professionalName) + '" data-reschedule-option-id="' + escapeHtml(slot.optionId || '') + '">' +
                   escapeHtml(slot.time) +
                 '</button>'
               }).join('')
@@ -2444,6 +2466,101 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
           }
 
+          function rescheduleApi(path, query = '') {
+            return bookingApiUrl('/appointments/' + encodeURIComponent(state.reschedule.appointmentId) + path, query)
+          }
+
+          function rescheduleTimezone() {
+            return state.reschedule?.selfService?.timezone || state.catalog?.business?.timezone || 'America/Argentina/Buenos_Aires'
+          }
+
+          function rescheduleClock(value) {
+            return new Intl.DateTimeFormat('es-AR', { timeZone: rescheduleTimezone(), hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
+          }
+
+          async function loadRescheduleContext(message = '') {
+            const mode = state.reschedule
+            if (!mode) return
+            mode.loading = true; mode.error = ''; render()
+            try {
+              if (!/^[a-zA-Z0-9_-]{1,160}$/.test(mode.appointmentId)) throw new Error('El acceso a esta reserva no es válido.')
+              const result = await getJson(rescheduleApi('/manage'))
+              if (state.reschedule !== mode) return
+              if (result.selfService?.mode !== 'direct' || !result.selfService.canReschedule || !result.appointments?.length) throw new Error(result.selfService?.reason || 'Esta reserva no permite reprogramación en línea.')
+              mode.appointments = result.appointments
+              mode.selfService = result.selfService
+              mode.professionalIds = result.appointments.map((appointment) => appointment.professional.id)
+              mode.options = []; mode.selected = null; mode.pendingOperation = null; mode.saved = false
+              state.services = result.appointments.map((appointment) => ({ ...appointment.service, price: appointment.quotedPrice ?? appointment.service.price,
+                duration: appointment.totalDurationMinutes ?? appointment.service.duration,
+                displayDuration: (appointment.totalDurationMinutes ?? appointment.service.duration) + ' min', attentionMode: 'STANDARD', validationEnabled: false, estimateOptions: [], deposit: null, depositMode: 'NONE', depositValue: null }))
+              state.service = state.services[0]; state.serviceDetails = {}; state.professionalId = mode.professionalIds[0]
+              const firstDate = new Intl.DateTimeFormat('en-CA', { timeZone: rescheduleTimezone(), year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(result.appointments[0].startAt))
+              const date = ['year', 'month', 'day'].map((key) => firstDate.find((part) => part.type === key)?.value).join('-')
+              setDate(new Date(date + 'T12:00:00')); state.slot = null; state.itinerary = null; state.step = 1
+            } catch (error) { if (state.reschedule === mode) mode.error = error.message }
+            finally { if (state.reschedule === mode) { mode.loading = false; render(); if (message && !mode.error) setFeedback(message, 'error') } }
+          }
+
+          async function loadRescheduleOptions() {
+            const mode = state.reschedule, date = state.date, professionals = mode.professionalIds.slice()
+            const version = (mode.lookupVersion || 0) + 1; mode.lookupVersion = version
+            const result = await getJson(rescheduleApi('/reschedule-options', 'date=' + encodeURIComponent(date) + '&professionalIds=' + professionals.map(encodeURIComponent).join(',')))
+            if (state.reschedule !== mode || mode.lookupVersion !== version || state.date !== date || mode.professionalIds.join(',') !== professionals.join(',')) return null
+            if (result.selfService?.mode !== 'direct' || !result.selfService.canReschedule) { mode.error = result.selfService?.reason || 'Esta reserva ya no permite reprogramación en línea.'; render(); return null }
+            mode.selfService = { ...mode.selfService, ...result.selfService }
+            const options = (result.options || []).map((option) => ({ ...option, startTime: option.time,
+              endTime: rescheduleClock(new Date(new Date(option.segments[option.segments.length - 1].startAt).getTime() + option.segments[option.segments.length - 1].durationMinutes * 60000)),
+              segments: option.segments.map((segment) => ({ ...segment, startTime: rescheduleClock(segment.startAt), endTime: rescheduleClock(new Date(new Date(segment.startAt).getTime() + segment.durationMinutes * 60000)) })) }))
+            mode.options = options
+            return { options, slots: options.map((option) => ({ time: option.time, optionId: option.id, professionalId: option.segments[0].professionalId, professionalName: option.segments[0].professionalName })) }
+          }
+
+          function renderRescheduleReview() {
+            const mode = state.reschedule
+            els.heading.textContent = mode.saved ? 'Reserva actualizada' : 'Revisá el nuevo horario'
+            els.content.innerHTML = mode.saved
+              ? '<div class="booking-success"><h2>Tu reserva fue reprogramada</h2><p>La se&ntilde;a, los pagos y los servicios se conservan.</p><div class="success-actions"><button class="success-link" id="booking-new-reservation" type="button">Reservar otro turno</button><button class="success-link secondary" id="booking-reschedule-exit" type="button">Volver a reservas</button></div></div>'
+              : '<p class="booking-service-help">Revis&aacute; el nuevo d&iacute;a, horario y profesional en el resumen. Los servicios, precios, se&ntilde;a y pagos no cambian. Tu reserva actual sigue vigente hasta confirmar el cambio.</p>'
+            els.continue.hidden = Boolean(mode.saved)
+            updateContinue(Boolean(mode.selected) && !state.submitting && !mode.saved, state.submitting ? 'Guardando cambio...' : 'Confirmar cambio')
+          }
+
+          async function confirmReschedule() {
+            const mode = state.reschedule
+            if (!mode || mode.saved || mode.error || state.submitting || !mode.selected || mode.selfService?.mode !== 'direct' || !mode.selfService.canReschedule) return
+            if (!mode.pendingOperation) {
+              if (!globalThis.crypto?.randomUUID) { setFeedback('No pudimos iniciar un cambio seguro. Intentá nuevamente.', 'error'); return }
+              mode.pendingOperation = { revision: mode.selfService.revision, operationId: crypto.randomUUID(), date: state.date, professionalIds: mode.professionalIds.slice(), optionId: mode.selected.id }
+            }
+            state.submitting = true; renderRescheduleReview(); setFeedback('Estamos guardando el cambio. Tu reserva anterior se conserva hasta la confirmación.', 'info')
+            try {
+              const result = await postJson(rescheduleApi('/reschedule'), mode.pendingOperation)
+              if (state.reschedule !== mode) return
+              mode.appointments = result.appointments; mode.saved = true; mode.pendingOperation = null
+              const target = new URL(window.location.href); target.searchParams.delete('reschedule'); target.searchParams.delete('rescheduleFrom'); history.replaceState(null, '', target.pathname + target.search + target.hash)
+              render(); setFeedback('El cambio quedó guardado. La seña y tus pagos se conservan.', 'success')
+            } catch (error) {
+              if (state.reschedule !== mode) return
+              if (error.status === 409) { state.submitting = false; await loadRescheduleContext(error.message + ' Revisá la reserva actual antes de elegir de nuevo.'); return }
+              if ([401, 403, 404].includes(error.status)) { mode.error = error.message; mode.selected = null; render() }
+              setFeedback(error.message, 'error')
+            } finally {
+              state.submitting = false
+              if (state.reschedule === mode && !mode.error && !mode.loading && currentStepId() === 'confirm') renderRescheduleReview()
+            }
+          }
+
+          function exitReschedule(newBooking = false) {
+            if (state.submitting) return
+            if (!newBooking && state.reschedule?.returnTo === 'account') { window.location.assign(accountPath); return }
+            const target = new URL(window.location.href)
+            target.searchParams.delete('reschedule'); target.searchParams.delete('rescheduleFrom'); target.searchParams.delete('reservationView')
+            if (newBooking) target.searchParams.set('reservationView', 'new')
+            else if (state.reschedule?.returnTo === 'browser') target.searchParams.set('reservationView', 'browser')
+            window.location.assign(target.pathname + target.search + target.hash)
+          }
+
           function persistedBookingActions() {
             const disabled = state.submitting || state.uploadingProof ? ' disabled' : ''
             return '<button class="success-link" id="booking-new-reservation" type="button"' + disabled + '>Reservar otro turno</button>' +
@@ -2453,6 +2570,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderConfirmStep() {
+            if (state.reschedule) { renderRescheduleReview(); return }
             els.heading.textContent = state.guestClosed ? 'Estado de tu reserva'
               : state.guestCompleted ? 'Turno realizado'
               : state.confirmed ? 'Turno confirmado'
@@ -2616,7 +2734,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (totalDeposit) lines.push(
               '<div class="summary-card-line summary-deposit"><span>Se&ntilde;a a pagar ahora</span><strong>' + escapeHtml(formatPrice(totalDeposit)) + '</strong></div>'
             )
-            if (state.professionalId) {
+            if (state.professionalId && (!state.reschedule || !isMultiService())) {
               lines.push(
                 '<div class="summary-card-line">' +
                   '<span>Profesional</span>' +
@@ -2668,6 +2786,11 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function selectSlot(slotButton) {
             if (currentStepId() !== 'time' || state.timeStepTransition) return
+            if (state.reschedule) {
+              state.reschedule.selected = state.reschedule.options.find((option) => option.id === slotButton.dataset.rescheduleOptionId) || null
+              state.reschedule.pendingOperation = null
+              if (!state.reschedule.selected) return
+            }
             state.slot = {
               time: slotButton.dataset.time,
               professionalId: slotButton.dataset.professionalId,
@@ -2824,6 +2947,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (currentStepId() !== 'time' || state.bookingView || state.timeStepTransition) return
             const selection = isMultiService() ? state.itinerary : state.slot
             if (!state.date || !selection) return
+            if (state.reschedule) {
+              if (state.reschedule.selfService?.canReschedule && state.reschedule.selected) proceedToConfirm()
+              return
+            }
             const transition = { step: state.step, selection }
             state.timeStepTransition = transition
             updateContinue(false)
@@ -2865,17 +2992,17 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return 'weex.login-draft:' + slug + ':' + window.location.pathname
           }
 
-          function saveLoginDraft() {
-            if (state.bookingView || state.confirmed || state.deposit || state.submitting || state.uploadingProof) return false
-            const services = selectedServices()
+          function saveLoginDraft(draftState = state) {
+            if (state.reschedule || draftState.bookingView || draftState.confirmed || draftState.deposit || draftState.submitting || draftState.uploadingProof) return false
+            const services = draftState.services || []
             if (!services.length || services.length > 5) return false
             // Selection only: no session, persisted reservation, amounts or accepted terms cross this navigation.
             const draft = {
               version: 1, createdAt: Date.now(), slug, origin: window.location.origin, path: window.location.pathname,
-              selections: services.map((service) => ({ serviceId: service.id, estimateOptionId: state.serviceDetails[service.id]?.estimateOption?.id || null })),
-              professionalId: state.professionalId || null, date: state.date || null, time: state.slot?.time || null,
-              segments: state.itinerary?.segments?.map((segment) => ({ serviceId: segment.serviceId, professionalId: segment.professionalId, startTime: segment.startTime })) || null,
-              guestName: String(state.guestName || '').slice(0, 100), guestPhone: String(state.guestPhone || '').slice(0, 40)
+              selections: services.map((service) => ({ serviceId: service.id, estimateOptionId: draftState.serviceDetails[service.id]?.estimateOption?.id || null })),
+              professionalId: draftState.professionalId || null, date: draftState.date || null, time: draftState.slot?.time || null,
+              segments: draftState.itinerary?.segments?.map((segment) => ({ serviceId: segment.serviceId, professionalId: segment.professionalId, startTime: segment.startTime })) || null,
+              guestName: String(draftState.guestName || '').slice(0, 100), guestPhone: String(draftState.guestPhone || '').slice(0, 40)
             }
             try {
               const serialized = JSON.stringify(draft)
@@ -3308,6 +3435,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           async function confirmBooking() {
+            if (state.reschedule) { await confirmReschedule(); return }
             if (state.bookingView || state.submitting || state.confirmed || state.deposit || state.guestClosed) return
             const contact = !state.weexAccount && guestBookingAllowed()
               ? { customerName: state.guestName.trim(), customerPhone: phoneForSubmit(state.guestPhone) }
@@ -3416,13 +3544,22 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             summary?.classList.remove('guest-reservation-detail')
             summary?.classList.toggle('draft-confirmation-summary', Boolean(state.catalog && currentStepId() === 'confirm' &&
               !state.bookingView && !state.confirmed && !state.deposit && !state.proofSent && !state.guestClosed))
-            els.back.disabled = state.step === 1 || Boolean(state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed)
+            els.back.disabled = !state.reschedule && (state.step === 1 || Boolean(state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed))
             els.breadcrumb.hidden = Boolean(state.bookingView)
             els.reservations.hidden = Boolean(state.weexAccount) || (!guestBookingAllowed() && !state.guestBookings.length)
             els.reservations.disabled = state.submitting || state.uploadingProof
+            if (state.reschedule) els.reservations.hidden = true
             if (!state.catalog) {
               els.heading.textContent = 'Cargando reserva'
               els.content.innerHTML = '<p class="fresha-muted">Estamos cargando la agenda.</p>'
+              updateContinue(false)
+              renderSummary()
+              return
+            }
+            if (state.reschedule?.loading || state.reschedule?.error) {
+              els.heading.textContent = 'Reprogramar tu reserva'
+              els.content.innerHTML = '<p class="booking-service-help">' + escapeHtml(state.reschedule.error || 'Revisando el acceso a tu reserva...') + '</p>'
+              els.continue.hidden = true
               updateContinue(false)
               renderSummary()
               return
@@ -3450,6 +3587,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.content.appendChild(host)
             mountAppointmentManager(host, {
               slug, appointmentId: state.guestAppointments[0].id, appointments: state.guestAppointments,
+              onReschedule: (appointmentId) => {
+                if (state.bookingDraft?.services?.length && !saveLoginDraft(state.bookingDraft)) { setFeedback('No pudimos conservar tu pedido actual. Intentá nuevamente antes de salir.', 'error'); return false }
+                return navigateAppointmentReschedule(window.location.pathname, appointmentId, 'browser')
+              },
               timeZone: state.catalog.business?.timezone,
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
               onBusyChange: (busy) => {
@@ -3479,7 +3620,9 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (state.managingAppointment && !event.target.closest('[data-self-action]')) return
             const guestFilter = event.target.closest('[data-guest-filter]')
             if (guestFilter) { state.guestReservationFilter = guestFilter.dataset.guestFilter; renderGuestBookings(); return }
+            if (event.target.closest('#booking-reschedule-exit')) { exitReschedule(); return }
             if (event.target.closest('#booking-new-reservation')) {
+              if (state.reschedule) { exitReschedule(true); return }
               beginNewBooking()
               return
             }
@@ -3561,6 +3704,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (itineraryButton) {
               if (currentStepId() !== 'time' || state.timeStepTransition) return
               state.itinerary = (state.itineraryOptions || []).find((option) => option.id === itineraryButton.dataset.itineraryId) || null
+              if (state.reschedule) { state.reschedule.selected = state.itinerary; state.reschedule.pendingOperation = null }
               document.querySelectorAll('[data-itinerary-id]').forEach((item) => item.classList.toggle('selected', item === itineraryButton))
               renderSummary()
               if (state.itinerary) void continueFromTimeStep()
@@ -3574,6 +3718,13 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const professionalButton = event.target.closest('.fresha-option[data-professional-id]')
             if (professionalButton) {
               state.professionalId = professionalButton.dataset.professionalId
+              if (state.reschedule) {
+                const index = bookingSteps()[state.step - 1]?.appointmentIndex ?? 0
+                state.reschedule.professionalIds[index] = state.professionalId
+                state.reschedule.selected = null
+                state.reschedule.pendingOperation = null
+                state.itinerary = null
+              }
               state.slot = null
               render()
               return
@@ -3582,6 +3733,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (dateButton) {
               const date = new Date(dateButton.dataset.date + 'T00:00:00')
               setDate(date)
+              if (state.reschedule) { state.reschedule.selected = null; state.reschedule.pendingOperation = null }
               state.slot = null
               state.itinerary = null
               render()
@@ -3615,6 +3767,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           })
 
           els.back.addEventListener('click', () => {
+            if (state.reschedule && (state.step === 1 || state.reschedule.saved || state.reschedule.error)) { exitReschedule(); return }
             if (state.step > 1) goToStep(state.step - 1)
           })
 
@@ -3675,19 +3828,25 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
 function appointmentSelfServiceClient() {
   return String.raw`
+          function navigateAppointmentReschedule(bookingPath, appointmentId, from) {
+            const target = new URL(bookingPath, window.location.origin)
+            if (target.origin !== window.location.origin || !/^https?:$/.test(target.protocol)) return false
+            target.searchParams.set('reschedule', appointmentId)
+            target.searchParams.delete('reservationView'); target.searchParams.delete('rescheduleFrom')
+            if (from === 'account' || from === 'browser') target.searchParams.set('rescheduleFrom', from)
+            window.location.assign(target.pathname + target.search + target.hash)
+            return true
+          }
+
           function mountAppointmentManager(host, config) {
             if (!host) return { ready: Promise.resolve() }
             const url = '/public/booking/' + encodeURIComponent(config.slug) + '/appointments/' + encodeURIComponent(config.appointmentId)
             let data = null, view = 'home', busy = false, notice = '', accessLost = false
-            let options = [], selected = null, date = '', professionals = [], pendingOperation = null
+            let pendingOperation = null
             const active = () => host.isConnected !== false
             const permission = (action) => data?.selfService?.mode === 'direct' && data.selfService[action] === true && !accessLost
             const e = (value) => escapeHtml(value == null ? '' : value)
             const appointments = () => data?.appointments || config.appointments || []
-            const localDate = (value) => {
-              const parts = new Intl.DateTimeFormat('en-CA', { timeZone: config.timeZone || 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value))
-              return ['year', 'month', 'day'].map((key) => parts.find((part) => part.type === key)?.value || '').join('-')
-            }
             const dateTime = (value) => new Intl.DateTimeFormat('es-AR', { timeZone: config.timeZone || 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
             function contact() {
               let href = ''
@@ -3707,12 +3866,6 @@ function appointmentSelfServiceClient() {
             function button(action, text, extra = '') {
               return '<button type="button" data-self-action="' + action + '"' + (busy ? ' disabled' : '') + extra + '>' + text + '</button>'
             }
-            function fields() {
-              return '<div class="self-service-fields"><label>Nuevo d&iacute;a<input type="date" data-self-date value="' + e(date) + '" min="' + e(localDate(new Date())) + '"' + (busy ? ' disabled' : '') + '></label>' + appointments().map((appointment, index) => {
-                const choices = data.selfService.professionalChoices?.find((item) => item.appointmentId === appointment.id)?.professionals || []
-                return '<label>' + e(appointment.service.name) + ': profesional<select data-self-professional="' + e(appointment.id) + '"' + (busy ? ' disabled' : '') + '>' + choices.map((professional) => '<option value="' + e(professional.id) + '"' + (professionals[index] === professional.id ? ' selected' : '') + '>' + e(professional.name) + '</option>').join('') + '</select></label>'
-              }).join('') + '</div>'
-            }
             function renderPanel(focus = false) {
               if (!active()) return
               let title = 'Gestionar esta reserva', content = '', actions = ''
@@ -3729,15 +3882,9 @@ function appointmentSelfServiceClient() {
                 title = 'Cancelar esta reserva'
                 content = table(appointments()) + '<p class="self-service-warning">Se cancelar&aacute;n todos los servicios de este pedido. Esto no realiza una devoluci&oacute;n autom&aacute;tica de la se&ntilde;a ni de otros pagos; coordin&aacute; cualquier devoluci&oacute;n con el local.</p>'
                 actions = button('back', 'Conservar la reserva') + button('confirm-cancel', busy ? 'Cancelando...' : 'Confirmar cancelaci&oacute;n', ' class="self-service-danger"')
-              } else if (view === 'reschedule' && permission('canReschedule')) {
-                title = 'Reprogramar esta reserva'
-                content = '<p class="self-service-note">Eleg&iacute; otro d&iacute;a u otro profesional. Los servicios, precios, se&ntilde;a y pagos no cambian.</p>' + fields() + '<div class="self-service-actions">' + button('find-options', busy ? 'Buscando horarios...' : 'Buscar horarios disponibles') + '</div>'
-                if (options.length) content += '<fieldset class="self-service-options"><legend>Horarios disponibles</legend>' + options.map((option) => button('select-option', e(option.time) + ' <span>' + e(option.segments.map((segment) => segment.serviceName + ' con ' + segment.professionalName + ' · ' + dateTime(segment.startAt)).join(' / ')) + '</span>', ' data-self-option="' + e(option.id) + '" aria-pressed="' + String(selected?.id === option.id) + '"')).join('') + '</fieldset>'
-                if (selected) content += '<section class="self-service-comparison" aria-label="Revisar cambio"><h4>Antes</h4>' + table(appointments()) + '<h4>Despu&eacute;s</h4>' + table(selected.segments, true) + '<p class="self-service-note">S&oacute;lo cambia el horario o el profesional. Conservamos los servicios, los importes, la se&ntilde;a y los pagos. El horario se verifica nuevamente al confirmar.</p></section>'
-                actions = button('back', 'Volver sin cambios') + (selected ? button('confirm-reschedule', busy ? 'Guardando cambio...' : 'Confirmar cambio', ' class="self-service-primary"') : '')
               } else {
                 content = table(appointments()) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
-                if (permission('canReschedule')) actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
+                if (permission('canReschedule') && typeof config.onReschedule === 'function') actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
                 if (permission('canCancel')) actions += button('cancel', 'Cancelar reserva', ' class="self-service-danger"')
                 if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti\u00f3n del local.') + '</p>' + contact()
               }
@@ -3755,43 +3902,25 @@ function appointmentSelfServiceClient() {
               try {
                 const result = await request('/manage')
                 if (!active()) return
-                data = result; accessLost = false; view = 'home'; options = []; selected = null; pendingOperation = null
+                data = result; accessLost = false; view = 'home'; pendingOperation = null
               } catch (error) {
                 if (!active()) return
                 data = null; notice = error.message; accessLost = [401, 403, 404].includes(error.status)
               } finally { busy = false; renderPanel() }
             }
-            function readFields() {
-              date = host.querySelector('[data-self-date]')?.value || date
-              const controls = [...host.querySelectorAll('[data-self-professional]')]
-              professionals = appointments().map((appointment, index) => controls.find((control) => control.dataset.selfProfessional === appointment.id)?.value || professionals[index])
-            }
-            async function findOptions() {
-              if (!permission('canReschedule')) return
-              readFields(); selected = null; options = []; pendingOperation = null
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || professionals.some((value) => !value)) { notice = 'Eleg\u00ed un d\u00eda y un profesional para cada servicio.'; renderPanel(); return }
-              busy = true; notice = ''; renderPanel()
-              try {
-                const result = await request('/reschedule-options?date=' + encodeURIComponent(date) + '&professionalIds=' + professionals.map(encodeURIComponent).join(','))
-                if (!active()) return
-                data.selfService = result.selfService; options = Array.isArray(result.options) ? result.options : []
-                if (!options.length) notice = 'No hay horarios disponibles para esa selecci\u00f3n. Prob\u00e1 otro d\u00eda o profesional.'
-              } catch (error) { if (active()) { notice = error.message; if ([401, 403, 404].includes(error.status)) { accessLost = true; view = 'home' } } }
-              finally { busy = false; renderPanel() }
-            }
             async function submit(action) {
-              if (action === 'cancel' ? !permission('canCancel') || view !== 'cancel' : !permission('canReschedule') || view !== 'reschedule' || !selected) return
+              if (action !== 'cancel' || !permission('canCancel') || view !== 'cancel') return
               if (!pendingOperation) {
                 if (!globalThis.crypto?.randomUUID) { notice = 'No pudimos iniciar un cambio seguro. Comunicate con el local.'; renderPanel(); return }
-                pendingOperation = { revision: data.selfService.revision, operationId: crypto.randomUUID(), ...(action === 'cancel' ? { confirmed: true } : { date, professionalIds: professionals.slice(), optionId: selected.id }) }
+                pendingOperation = { revision: data.selfService.revision, operationId: crypto.randomUUID(), confirmed: true }
               }
-              busy = true; notice = action === 'cancel' ? 'Estamos gestionando la cancelaci\u00f3n. Esper\u00e1 la confirmaci\u00f3n; no hace falta volver a enviarla.' : 'Estamos guardando el cambio. Esper\u00e1 la confirmaci\u00f3n.'; renderPanel()
+              busy = true; notice = 'Estamos gestionando la cancelaci\u00f3n. Esper\u00e1 la confirmaci\u00f3n; no hace falta volver a enviarla.'; renderPanel()
               config.onBusyChange?.(true)
               try {
                 const result = await request('/' + action, pendingOperation)
                 if (!active()) return
-                data = result; view = 'success'; selected = null; options = []; pendingOperation = null
-                notice = action === 'cancel' ? 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.' : 'La reserva fue reprogramada. Tu se\u00f1a y tus pagos se conservan.'
+                data = result; view = 'success'; pendingOperation = null
+                notice = 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.'
                 busy = false
                 config.onBusyChange?.(false)
                 renderPanel(true)
@@ -3809,18 +3938,13 @@ function appointmentSelfServiceClient() {
               event.preventDefault()
               const action = target.dataset.selfAction
               if (action === 'retry' && !accessLost) { await load(); return }
-              if (action === 'back') { view = 'home'; selected = null; options = []; pendingOperation = null; notice = ''; renderPanel(true); return }
-              if (action === 'reschedule' && permission('canReschedule')) { view = 'reschedule'; date = localDate(appointments()[0].startAt); professionals = appointments().map((appointment) => appointment.professional.id); notice = ''; renderPanel(true); return }
+              if (action === 'back') { view = 'home'; pendingOperation = null; notice = ''; renderPanel(true); return }
+              if (action === 'reschedule' && permission('canReschedule') && typeof config.onReschedule === 'function') {
+                if (config.onReschedule(appointments()[0].id) === false) return
+                busy = true; notice = 'Abriendo la selecci\u00f3n de nuevo horario...'; renderPanel(); config.onBusyChange?.(true); return
+              }
               if (action === 'cancel' && permission('canCancel')) { view = 'cancel'; pendingOperation = null; notice = ''; renderPanel(true); return }
-              if (action === 'find-options') { await findOptions(); return }
-              if (action === 'select-option' && view === 'reschedule') { selected = options.find((option) => option.id === target.dataset.selfOption) || null; pendingOperation = null; notice = ''; renderPanel(); return }
               if (action === 'confirm-cancel') await submit('cancel')
-              if (action === 'confirm-reschedule') await submit('reschedule')
-            })
-            host.addEventListener('change', (event) => {
-              if (busy || view !== 'reschedule' || !active()) return
-              if (!event.target.matches('[data-self-date]') && !event.target.matches('[data-self-professional]')) return
-              readFields(); selected = null; options = []; pendingOperation = null; notice = 'Busc\u00e1 los horarios disponibles para esta nueva selecci\u00f3n.'; renderPanel()
             })
             return { ready: load() }
           }
@@ -4353,6 +4477,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             renderDetailSummary()
             mountAppointmentManager(document.getElementById('account-appointment-management'), {
               slug, appointmentId: appointment.id, appointments: [appointment],
+              onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(bookingUrl)}, appointmentId, 'account'),
               timeZone: ${JSON.stringify(business.timezone || 'America/Argentina/Buenos_Aires')},
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
               onBusyChange: (busy) => {

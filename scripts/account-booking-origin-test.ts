@@ -40,7 +40,7 @@ function context() {
     itinerary: null, guestName: 'Nombre sintético', guestPhone: '11-6655-3322', weexAccount: null, confirmed: false, deposit: null, bookingView: null, submitting: false, uploadingProof: false }
   const messages: any[] = [], navigations: string[] = [], opens: string[] = [], calls: any[] = [], storage = new Map<string, string>()
   const location = { href: 'https://lacochera.weex.com.ar/reservar?template=classic', origin: 'https://lacochera.weex.com.ar', hostname: 'lacochera.weex.com.ar', pathname: '/reservar', assign: (url: string) => navigations.push(url) }
-  const c: any = { state, slug: 'lacochera', baseDomain: 'weex.com.ar', centralLoginBaseUrl: 'https://weex.com.ar', URL, URLSearchParams, Date, Intl, dates: [today], dateIso, messages, navigations, opens, storage, calls,
+  const c: any = { state, bookingParameters: new URLSearchParams(), slug: 'lacochera', baseDomain: 'weex.com.ar', centralLoginBaseUrl: 'https://weex.com.ar', URL, URLSearchParams, Date, Intl, dates: [today], dateIso, messages, navigations, opens, storage, calls,
     window: { location, open: (url: string) => { opens.push(url); return { focus() {}, closed: false } }, setInterval() {}, clearInterval() {}, addEventListener() {}, removeEventListener() {} },
     sessionStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
     setFeedback: (...args: any[]) => messages.push(args), setGateFeedback: (...args: any[]) => messages.push(args), render() {}, hideBookingGate() {}, showBookingGate: (...args: any[]) => calls.push({ gate: args }),
