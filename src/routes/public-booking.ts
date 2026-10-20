@@ -33,7 +33,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string; appointmentId: string }
     const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
-    try { return await webAppointmentManagement(prisma, { request, businessId: business.id, appointmentId: params.appointmentId }) }
+    const query = request.query as { view?: unknown }
+    if (query.view !== undefined && query.view !== 'actions') return reply.status(400).send({ message: 'Elegí una vista válida de la reserva.' })
+    try { return await webAppointmentManagement(prisma, { request, businessId: business.id, appointmentId: params.appointmentId,
+      ...(query.view === 'actions' ? { view: 'actions' as const } : {}) }) }
     catch (error) {
       if (error instanceof WebAppointmentSelfServiceError) return reply.status(error.statusCode).send({ message: error.message })
       throw error
@@ -124,6 +127,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         .map((service) => ({
         id: service.id,
         name: service.name,
+        imageUrl: publicServiceImageUrl(service.imageUrl),
         duration: service.duration,
         customerDurationMin: service.customerDurationMin,
         customerDurationMax: service.customerDurationMax,
@@ -1222,6 +1226,26 @@ function resolvePublicEstimateSelection(service: {
   return { ok: false as const, message: 'Este servicio necesita una estimacion valida antes de reservar' }
 }
 
+// Preserve uploaded raster data and existing public URLs without exposing active
+// schemes, credential-bearing URLs or unsupported relative paths to the catalog.
+function publicServiceImageUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const image = value.trim()
+  if (!image || /[\u0000-\u0020\u007f\\]/.test(image)) return null
+  if (/^\/landing-assets\/[a-z0-9-]+\.png$/i.test(image)) return image
+  if (/^data:/i.test(image)) {
+    // Legacy service media migration supports raster payloads up to 4 MiB.
+    if (image.length > Math.ceil(4 * 1024 * 1024 / 3) * 4 + 64) return null
+    const data = /^data:image\/(png|jpeg|webp|gif);base64,([a-z0-9+/]+={0,2})$/i.exec(image)
+    if (!data || data[2]!.length % 4 === 1 || data[2]!.includes('=') && data[2]!.length % 4 !== 0) return null
+    return Buffer.byteLength(data[2]!, 'base64') <= 4 * 1024 * 1024 ? image : null
+  }
+  try {
+    const url = new URL(image)
+    return /^https?:\/\//i.test(image) && ['http:', 'https:'].includes(url.protocol) &&
+      !url.username && !url.password ? image : null
+  } catch { return null }
+}
 async function findAvailablePublicBookingBusiness(request: FastifyRequest, slug: string) {
   const business = await businessService.findPublicBySlug(slug)
   if (!business) return null

@@ -126,13 +126,13 @@ async function professionalChoices(tx: Prisma.TransactionClient, scope: Scope, l
   return loaded.members.map(member => ({ appointmentId: member.id,
     professionals: professionals.filter(p => services(member).every(serviceId => links.some(l => l.professionalId === p.id && l.serviceId === serviceId))) }))
 }
-async function management(tx: Prisma.TransactionClient, scope: Scope, loaded: Loaded) {
+async function management(tx: Prisma.TransactionClient, scope: Scope, loaded: Loaded, view?: 'actions') {
   const permission = permissions(loaded)
   return { appointments: loaded.members.map(serialize), selfService: { ...permission,
-    professionalChoices: permission.canReschedule ? await professionalChoices(tx, scope, loaded) : [], timezone: loaded.policy.timezone } }
+    professionalChoices: view !== 'actions' && permission.canReschedule ? await professionalChoices(tx, scope, loaded) : [], timezone: loaded.policy.timezone } }
 }
-export async function webAppointmentManagement(tx: Prisma.TransactionClient, input: Scope) {
-  return management(tx, input, await load(tx, input))
+export async function webAppointmentManagement(tx: Prisma.TransactionClient, input: Scope & { view?: 'actions' }) {
+  return management(tx, input, await load(tx, input), input.view)
 }
 
 type Segment = { appointmentId: string; startAt: string; professionalId: string; professionalName: string; serviceName: string; durationMinutes: number }
