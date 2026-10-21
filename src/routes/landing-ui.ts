@@ -4628,6 +4628,8 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const appointment = state.detailSession?.rows?.find((item) => item.id === state.selectedId) || state.appointments.find((item) => item.id === state.selectedId)
             const summary = els.historyDetail.querySelector('[data-account-detail-summary]')
             if (!summary || !appointment) return
+            const previousTitle = summary.querySelector('[data-account-detail-title]')
+            const restoreTitleFocus = previousTitle && document.activeElement === previousTitle
             const date = formatDateTime(appointment.startAt)
             const groupSummary = state.detailSession?.appointmentId === appointment.id && state.detailSession.rows?.length > 1 ? state.detailSession.summary : ''
             summary.innerHTML = '<span class="status-pill" data-status="' + escapeHtml(appointment.status) + '">' + statusLabel(appointment.status) + '</span>' +
@@ -4636,6 +4638,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               (groupSummary || '<div class="detail-facts"><span><b>Profesional</b><strong>' + escapeHtml(appointment.professional.name) + '</strong></span>' +
                 '<span><b>Duraci&oacute;n</b><strong>' + escapeHtml(appointment.totalDurationMinutes != null ? appointment.totalDurationMinutes + ' min' : appointment.service.displayDuration || (appointment.service.duration + ' min')) + '</strong></span>' +
                 '<span><b>Precio</b><strong>' + escapeHtml(formatPriceLine(appointment.quotedPrice ?? appointment.service.price)) + '</strong></span></div>')
+            if (restoreTitleFocus) summary.querySelector('[data-account-detail-title]')?.focus({ preventScroll: true })
             return true
           }
 

@@ -76,6 +76,30 @@ try {
     const f = await fixture(); await f.page.waitForTimeout(150); assert.equal(f.manage().length, 0)
     await open(f); await loaded(f); assert.equal(f.manage().length, 1); assert.equal(f.manage()[0].query, '?view=actions'); await clean(f)
   })
+  for (const group of [false, true]) await check('accepted delayed management summary preserves the focused detail title ' + (group ? 'group' : 'single'), async () => {
+    const f = await fixture({ group, fresh: true }), hold = gate(); f.gates.set('first', hold)
+    await open(f); await f.page.locator('.appointment-management[aria-busy="true"]').waitFor()
+    const title = f.page.locator('[data-account-detail-title]')
+    assert.equal(await title.evaluate((node: Element) => node === document.activeElement), true)
+    hold.resolve(); await loaded(f)
+    assert.match(await f.page.locator('[data-account-detail-summary]').innerText(), /Profesional actualizado/)
+    assert.equal(await title.evaluate((node: Element) => node === document.activeElement), true, 'accepted summary must not leave focus on BODY')
+    assert.equal(await title.innerText(), group ? 'Tu reserva' : 'Corte sintetico')
+    assert.equal(f.manage().length, 1); await clean(f)
+  })
+  await check('accepted delayed summary never steals focus moved elsewhere or returned to the list', async () => {
+    for (const target of ['account', 'list']) {
+      const f = await fixture({ group: true, fresh: true }), hold = gate(); f.gates.set('first', hold)
+      await open(f); await f.page.locator('.appointment-management[aria-busy="true"]').waitFor()
+      if (target === 'list') await f.page.locator('[data-account-back]').tap()
+      else await f.page.locator('#account-profile-toggle').focus()
+      const selector = target === 'list' ? '[data-appointment-id="first"]' : '#account-profile-toggle'
+      assert.equal(await f.page.locator(selector).evaluate((node: Element) => node === document.activeElement), true)
+      hold.resolve(); await f.page.waitForTimeout(150)
+      assert.equal(await f.page.locator(selector).evaluate((node: Element) => node === document.activeElement), true, 'summary may restore only its own previously focused title')
+      assert.equal(f.manage().length, 1); await clean(f)
+    }
+  })
   await check('mobile close and reopen retain the actual manager without another authority request', async () => {
     const f = await fixture(); await open(f); await loaded(f); const before = f.manage().length
     await f.page.locator('[data-account-back]').tap(); await open(f); await loaded(f); assert.equal(f.manage().length, before); await clean(f)
