@@ -3618,6 +3618,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               slug, appointmentId: state.guestAppointments[0].id, appointments: state.guestAppointments,
               isCurrent: () => state.guestManager === current && state.weexAccount === current.account && state.selectedGuestBookingId === current.bookingId && (state.guestManagementVersion || 0) === current.version,
               onLoaded: applyManagedRows,
+              onReturnToList: () => void viewGuestBookings(),
               onReschedule: (appointmentId) => {
                 if (state.bookingDraft?.services?.length && !saveLoginDraft(state.bookingDraft)) { setFeedback('No pudimos conservar tu pedido actual. Intentá nuevamente antes de salir.', 'error'); return false }
                 return navigateAppointmentReschedule(window.location.pathname, appointmentId, 'browser')
@@ -3887,6 +3888,10 @@ function appointmentSelfServiceClient() {
             const url = '/public/booking/' + encodeURIComponent(config.slug) + '/appointments/' + encodeURIComponent(config.appointmentId)
             let data = null, view = 'home', busy = false, notice = '', accessLost = false
             let pendingOperation = null, disposed = false, loading = null, summaryRendered = false
+            const shell = document.createElement('section'), panel = document.createElement('div')
+            shell.className = 'appointment-management'
+            shell.appendChild(panel); host.appendChild(shell)
+            let dialog = null, opener = null, previousOverflow = null
             const active = () => !disposed && host.isConnected !== false && (typeof config.isCurrent !== 'function' || config.isCurrent())
             const permission = (action) => data?.selfService?.mode === 'direct' && data.selfService[action] === true && !accessLost
             const e = (value) => escapeHtml(value == null ? '' : value)
@@ -3916,6 +3921,65 @@ function appointmentSelfServiceClient() {
                 // Presentation cannot turn a successful server operation into a failed cancellation.
               }
             }
+            function closeDialog(restoreFocus = true) {
+              if (!dialog?.open) return
+              dialog.close()
+              if (previousOverflow !== null) { document.body.style.overflow = previousOverflow; previousOverflow = null }
+              dialog.innerHTML = ''
+              if (restoreFocus) {
+                const target = opener?.isConnected ? opener : panel.querySelector('[data-self-action="cancel"]') || panel.querySelector('[data-self-title]')
+                target?.focus({ preventScroll: true })
+              }
+            }
+            function dismissDialog() {
+              if (busy) return
+              view = 'home'; pendingOperation = null; notice = ''; renderPanel()
+            }
+            function renderDialog(focus = false) {
+              const wanted = data && !accessLost && (view === 'success' || view === 'cancel' && permission('canCancel'))
+              if (!wanted) { closeDialog(); return }
+              if (!dialog) {
+                dialog = document.createElement('dialog')
+                dialog.className = 'appointment-cancel-dialog'
+                dialog.setAttribute('aria-modal', 'true')
+                dialog.setAttribute('aria-label', 'Cancelar esta reserva')
+                shell.appendChild(dialog)
+                dialog.addEventListener('cancel', (event) => { event.preventDefault(); dismissDialog() })
+                dialog.addEventListener('click', (event) => {
+                  if (event.target !== dialog || busy) return
+                  const rect = dialog.getBoundingClientRect()
+                  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dismissDialog()
+                })
+                dialog.addEventListener('keydown', (event) => {
+                  if (event.key !== 'Tab') return
+                  const controls = [...dialog.querySelectorAll('button:not([disabled]), a[href], [tabindex="0"]')].filter((node) => !node.hidden)
+                  event.preventDefault()
+                  if (!controls.length) { dialog.querySelector('[data-cancel-title]')?.focus(); return }
+                  const index = controls.indexOf(document.activeElement)
+                  const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length
+                  controls[next].focus()
+                })
+              }
+              const opening = !dialog.open, hadFocus = dialog.contains(document.activeElement), success = view === 'success'
+              dialog.setAttribute('aria-label', success ? 'Turno cancelado' : busy ? 'Cancelaci\u00f3n en curso' : 'Cancelar esta reserva')
+              const heading = success ? 'Turno cancelado' : busy ? 'Estamos cancelando tu turno' : '&iquest;Quer&eacute;s cancelar esta reserva?'
+              const message = success ? 'La reserva fue cancelada. Ya no ocupa ese horario.' : busy ? 'Esper&aacute; la confirmaci&oacute;n. No hace falta volver a enviarla ni salir de esta pantalla.' : 'Se cancelar&aacute;n todos los servicios de este pedido.'
+              dialog.innerHTML = '<div class="appointment-cancel-card" aria-busy="' + String(busy) + '"><header class="appointment-cancel-header">' +
+                '<div><span class="appointment-cancel-eyebrow">' + (success ? 'Operaci&oacute;n completada' : 'Confirmaci&oacute;n de cancelaci&oacute;n') + '</span><h2 data-cancel-title tabindex="-1">' + heading + '</h2></div>' +
+                (success ? '' : button('dismiss-cancel', '<span aria-hidden="true">&times;</span>', ' class="appointment-cancel-close" aria-label="Cerrar confirmaci&oacute;n"')) + '</header>' +
+                '<div class="appointment-cancel-body">' + (busy ? '<div class="appointment-cancel-progress" role="status"><span class="appointment-cancel-spinner" aria-hidden="true"></span><strong>Cancelando tu reserva...</strong></div>' : success ? '<div class="appointment-cancel-result" role="status"><span aria-hidden="true">&#10003;</span><strong>Tu turno qued&oacute; cancelado</strong></div>' : '') +
+                '<p class="appointment-cancel-message">' + message + '</p>' + table(appointments()) +
+                '<p class="appointment-cancel-payment">Si pagaste una se&ntilde;a u otro importe, coordin&aacute; su devoluci&oacute;n con el local.</p>' +
+                (notice && !busy ? '<p class="self-service-feedback" role="status">' + e(notice) + '</p>' : '') + '</div>' +
+                '<footer class="appointment-cancel-actions">' + (success ? button('close-success', typeof config.onReturnToList === 'function' ? 'Volver a mis turnos' : 'Cerrar', ' class="self-service-primary"') :
+                  button('back', 'Conservar turno') + button('confirm-cancel', busy ? 'Cancelando...' : 'S&iacute;, cancelar turno', ' class="self-service-danger"')) + '</footer></div>'
+              if (opening) {
+                previousOverflow = document.body.style.overflow
+                document.body.style.overflow = 'hidden'
+                dialog.showModal()
+                dialog.querySelector(success ? '[data-cancel-title]' : '[data-self-action="back"]')?.focus({ preventScroll: true })
+              } else if (focus || busy || success || hadFocus) dialog.querySelector('[data-cancel-title]')?.focus({ preventScroll: true })
+            }
             function renderPanel(focus = false) {
               if (!active()) return
               let title = 'Gestionar esta reserva', content = '', actions = ''
@@ -3928,18 +3992,16 @@ function appointmentSelfServiceClient() {
               } else if (appointments().length && appointments().every((item) => item.status === 'CANCELLED')) {
                 title = 'Reserva cancelada'
                 content = '<p class="self-service-note">Este turno ya fue cancelado. Pod&eacute;s reservar otro cuando quieras. La se&ntilde;a y los pagos se conservan; cualquier devoluci&oacute;n se gestiona con el local.</p>'
-              } else if (view === 'cancel' && permission('canCancel')) {
-                title = 'Cancelar esta reserva'
-                content = table(appointments()) + '<p class="self-service-warning">Se cancelar&aacute;n todos los servicios de este pedido. Esto no realiza una devoluci&oacute;n autom&aacute;tica de la se&ntilde;a ni de otros pagos; coordin&aacute; cualquier devoluci&oacute;n con el local.</p>'
-                actions = button('back', 'Conservar la reserva') + button('confirm-cancel', busy ? 'Cancelando...' : 'Confirmar cancelaci&oacute;n', ' class="self-service-danger"')
               } else {
                 content = (summaryRendered && !notice ? '' : table(appointments())) + '<p class="self-service-note">Pod&eacute;s modificar o cancelar sin crear otra reserva.</p>'
                 if (permission('canReschedule') && typeof config.onReschedule === 'function') actions += button('reschedule', 'Reprogramar', ' class="self-service-primary"')
                 if (permission('canCancel')) actions += button('cancel', 'Cancelar reserva', ' class="self-service-danger"')
                 if (!actions) content = '<p class="self-service-note">' + e(data.selfService?.reason || 'Esta reserva necesita gesti\u00f3n del local.') + '</p>' + contact()
               }
-              host.innerHTML = '<section class="appointment-management" aria-busy="' + String(busy) + '"><header class="self-service-header"><h3 tabindex="-1" data-self-title>' + title + '</h3></header><div class="self-service-feedback" role="status" aria-live="polite"' + (notice ? '' : ' hidden') + '>' + e(notice) + '</div><div class="self-service-body">' + content + '</div>' + (actions ? '<footer class="self-service-actions">' + actions + '</footer>' : '') + '</section>'
-              if (focus) host.querySelector('[data-self-title]')?.focus()
+              shell.setAttribute('aria-busy', String(busy))
+              panel.innerHTML = '<header class="self-service-header"><h3 tabindex="-1" data-self-title>' + title + '</h3></header><div class="self-service-feedback" role="status" aria-live="polite"' + (notice ? '' : ' hidden') + '>' + e(notice) + '</div><div class="self-service-body">' + content + '</div>' + (actions ? '<footer class="self-service-actions">' + actions + '</footer>' : '')
+              renderDialog(focus)
+              if (focus && !dialog?.open) panel.querySelector('[data-self-title]')?.focus()
             }
             async function request(path, payload) {
               const response = await fetch(url + path, payload ? { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) } : { credentials: 'same-origin' })
@@ -3976,6 +4038,11 @@ function appointmentSelfServiceClient() {
               try {
                 const result = await request('/' + action, pendingOperation)
                 if (!active()) return
+                const ids = appointments().map((item) => item.id)
+                if (!Array.isArray(result.appointments) || !result.appointments.length || result.appointments.length !== ids.length ||
+                  result.appointments.some((item) => item.status !== 'CANCELLED') || ids.some((id) => !result.appointments.some((item) => item.id === id))) {
+                  throw new Error('No pudimos verificar el resultado de la cancelaci\u00f3n. Revis\u00e1 la reserva o volv\u00e9 a intentar desde esta pantalla.')
+                }
                 data = result; view = 'success'; pendingOperation = null
                 refreshSummaryInPlace()
                 notice = 'La reserva fue cancelada. No realizamos devoluciones autom\u00e1ticas.'
@@ -3997,17 +4064,19 @@ function appointmentSelfServiceClient() {
               const action = target.dataset.selfAction
               if (action === 'retry' && !accessLost) { await load(); return }
               if (action === 'back') { view = 'home'; pendingOperation = null; notice = ''; renderPanel(true); return }
+              if (action === 'dismiss-cancel') { dismissDialog(); return }
+              if (action === 'close-success' && view === 'success') { dismissDialog(); config.onReturnToList?.(); return }
               if (action === 'reschedule' && permission('canReschedule') && typeof config.onReschedule === 'function') {
                 if (config.onReschedule(appointments()[0].id) === false) return
                 busy = true; notice = 'Abriendo la selecci\u00f3n de nuevo horario...'; renderPanel(); config.onBusyChange?.(true); return
               }
-              if (action === 'cancel' && permission('canCancel')) { view = 'cancel'; pendingOperation = null; notice = ''; renderPanel(true); return }
+              if (action === 'cancel' && permission('canCancel')) { opener = target; view = 'cancel'; pendingOperation = null; notice = ''; renderPanel(true); return }
               if (action === 'confirm-cancel') await submit('cancel')
             })
             return {
               ready: load(),
               refreshSummary: () => { if (active() && data) { refreshSummaryInPlace(); renderPanel() } },
-              dispose: () => { disposed = true }
+              dispose: () => { disposed = true; closeDialog(false); dialog?.remove(); shell.remove() }
             }
           }
 `
@@ -4562,6 +4631,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               slug, appointmentId: appointment.id, appointments: [appointment],
               isCurrent: () => state.detailSession === current && state.user === current.account && state.selectedId === appointment.id,
               onLoaded: (result, summary) => { current.rows = result.appointments; current.summary = summary; return renderDetailSummary() },
+              onReturnToList: showAppointmentList,
               onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(bookingUrl)}, appointmentId, 'account'),
               timeZone: state.timezone,
               onTimezone: (timezone) => {
@@ -7564,6 +7634,39 @@ function htmlPage(input: {
     .appointment-management td span,
     .appointment-management td small, [data-account-detail-summary] td span, [data-account-detail-summary] td small { display: block; margin-top: 5px; }
     .appointment-management-host[hidden] { display: none !important; }
+    dialog.appointment-cancel-dialog {
+      position: fixed; inset: 0; width: min(580px, calc(100vw - 40px)); max-width: calc(100vw - 40px);
+      max-height: min(760px, calc(100dvh - 40px)); margin: auto; padding: 0; border: 0; border-radius: 22px;
+      color: var(--booking-ink, #242427); background: var(--booking-surface, #FFFFFF);
+      box-shadow: 0 24px 90px rgba(15, 23, 42, .28); overflow: hidden; overscroll-behavior: contain;
+    }
+    dialog.appointment-cancel-dialog[open] { display: flex; }
+    dialog.appointment-cancel-dialog::backdrop { background: rgba(15, 23, 42, .58); }
+    .appointment-cancel-dialog .appointment-cancel-card { display: flex; flex-direction: column; min-width: 0; width: 100%; max-height: min(760px, calc(100dvh - 40px)); }
+    .appointment-cancel-dialog .appointment-cancel-header { display: flex; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 24px 24px 18px; border-bottom: 1px solid var(--booking-border, #E1DDD4); }
+    .appointment-cancel-dialog .appointment-cancel-eyebrow { display: block; margin-bottom: 8px; color: var(--booking-secondary-ink, #5C5860); font-size: 12px; font-weight: 700; }
+    .appointment-cancel-dialog h2 { margin: 0; font-size: clamp(21px, 3vw, 26px); line-height: 1.25; }
+    .appointment-cancel-dialog button.appointment-cancel-close { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border-radius: 50%; font-size: 28px; }
+    .appointment-cancel-dialog .appointment-cancel-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 20px 24px; display: grid; gap: 18px; overscroll-behavior: contain; }
+    .appointment-cancel-dialog .appointment-cancel-message, .appointment-cancel-dialog .appointment-cancel-payment { margin: 0; font-size: 14px; line-height: 1.6; }
+    .appointment-cancel-dialog .appointment-cancel-payment { padding: 14px; border-radius: 12px; color: var(--booking-secondary-ink, #5C5860); background: var(--booking-accent-soft, #F0F3FA); }
+    .appointment-cancel-dialog .appointment-cancel-actions { flex-shrink: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 18px 24px max(20px, env(safe-area-inset-bottom)); border-top: 1px solid var(--booking-border, #E1DDD4); }
+    .appointment-cancel-dialog .appointment-cancel-actions > :only-child { grid-column: 1 / -1; }
+    .appointment-cancel-dialog .appointment-cancel-actions button { width: 100%; min-height: 48px; }
+    .appointment-cancel-dialog .appointment-cancel-actions .self-service-danger { color: #FFFFFF; background: #A82727; border-color: #A82727; }
+    .appointment-cancel-dialog .appointment-cancel-actions button:disabled { color: var(--booking-secondary-ink, #5C5860); background: var(--booking-surface, #FFFFFF); border-color: var(--booking-border, #E1DDD4); cursor: wait; }
+    .appointment-cancel-dialog .appointment-cancel-progress, .appointment-cancel-dialog .appointment-cancel-result { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; color: var(--booking-ink, #242427); background: var(--booking-accent-soft, #F0F3FA); font-size: 15px; }
+    .appointment-cancel-dialog .appointment-cancel-result > span { display: grid; flex: 0 0 32px; height: 32px; place-items: center; border-radius: 50%; background: #E0F1E9; color: #17633D; font-size: 22px; }
+    .appointment-cancel-dialog .appointment-cancel-spinner { width: 22px; height: 22px; flex: 0 0 22px; border: 3px solid var(--booking-border, #D9DFEA); border-top-color: var(--booking-accent, #376DB8); border-radius: 50%; animation: appointment-cancel-spin .8s linear infinite; }
+    @keyframes appointment-cancel-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .appointment-cancel-dialog .appointment-cancel-spinner { animation: none; } }
+    @media (max-width: 767px) {
+      dialog.appointment-cancel-dialog { inset: auto 0 0; width: 100%; max-width: 100%; max-height: calc(100dvh - 16px); margin: 0; border-radius: 22px 22px 0 0; }
+      .appointment-cancel-dialog .appointment-cancel-card { max-height: calc(100dvh - 16px); }
+      .appointment-cancel-dialog .appointment-cancel-header { padding: 20px 18px 16px; }
+      .appointment-cancel-dialog .appointment-cancel-body { padding: 18px; }
+      .appointment-cancel-dialog .appointment-cancel-actions { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px 18px max(18px, env(safe-area-inset-bottom)); }
+    }
     @media (max-width: 680px) {
       .appointment-management .self-service-fields { grid-template-columns: minmax(0, 1fr); }
       .appointment-management .self-service-actions > * { width: 100%; }

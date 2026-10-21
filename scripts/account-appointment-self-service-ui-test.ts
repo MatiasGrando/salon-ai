@@ -22,15 +22,37 @@ function source(script: string, name: string) {
   return script.slice(start, tail < 0 ? script.length : start + 10 + tail)
 }
 const appointment = (id = 'one', professionalId = 'p') => ({ id, startAt: '2026-10-25T18:00:00Z', status: 'CONFIRMED', quotedPrice: 15000, service: { id: 'cut', name: 'Corte <ejemplo>', duration: 30, price: 15000 }, professional: { id: professionalId, name: 'Profesional ' + professionalId } })
-function managed(direct = true) { return { appointments: [appointment()], selfService: { mode: direct ? 'direct' : 'contact', canReschedule: direct, canCancel: direct, reason: direct ? '' : 'Solicitá el cambio al local.', revision: 'server-revision', professionalChoices: [{ appointmentId: 'one', professionals: [{ id: 'p', name: 'Profesional p' }, { id: 'q', name: 'Profesional q' }] }] } } }
+function managed(direct = true) {
+  const { quotedPrice: _guestOnly, ...row } = appointment()
+  return { appointments: [row], selfService: { mode: direct ? 'direct' : 'contact', canReschedule: direct, canCancel: direct,
+    reason: direct ? '' : 'Solicitá el cambio al local.', revision: 'server-revision', professionalChoices: [] } }
+}
+function cancelled() { const result = managed(false); result.appointments = result.appointments.map(row => ({ ...row, status: 'CANCELLED' })); return result }
 function harness(result: any = managed()) {
   const handlers: Record<string, any> = {}, fields = new Map<string, any>(), requests: any[] = [], updated: any[] = [], navigated: string[] = []
-  const host: any = { innerHTML: '', isConnected: true, setAttribute() {}, addEventListener: (name: string, fn: any) => handlers[name] = fn,
-    querySelector: (selector: string) => fields.get(selector) || null, querySelectorAll: (selector: string) => selector === '[data-self-professional]' ? [...fields.values()].filter(f => f.dataset?.selfProfessional) : [], contains: () => true }
+  // Minimal DOM adapter only; actual dialog top-layer, focus, touch and CSS are tested in Chrome.
+  function element(tag: string): any {
+    const attributes: Record<string, string> = {}, children: any[] = []
+    let html = ''
+    return { tag, className: '', open: false, isConnected: true, parent: null,
+      get innerHTML() { return html + children.map(child => child.outerHTML).join('') },
+      set innerHTML(value: string) { html = value; children.splice(0).forEach(child => { child.parent = null; child.isConnected = false }) },
+      get outerHTML() { return '<' + tag + (this.className ? ' class="' + this.className + '"' : '') + Object.entries(attributes).map(([key, value]) => ' ' + key + '="' + value + '"').join('') + '>' + this.innerHTML + '</' + tag + '>' },
+      appendChild(child: any) { child.remove(); children.push(child); child.parent = this; child.isConnected = this.isConnected; return child },
+      remove() { if (this.parent) { const index = this.parent.children.indexOf(this); if (index >= 0) this.parent.children.splice(index, 1) }; this.parent = null; this.isConnected = false },
+      children, setAttribute(key: string, value: string) { attributes[key] = value }, addEventListener() {},
+      querySelector: (selector: string) => fields.get(selector) || null,
+      querySelectorAll: (selector: string) => selector === '[data-self-professional]' ? [...fields.values()].filter(f => f.dataset?.selfProfessional) : [],
+      contains(node: any) { return Boolean(node && (node === this || children.some(child => child.contains(node)))) },
+      focus() { document.activeElement = this }, showModal() { this.open = true }, close() { this.open = false }
+    }
+  }
+  const document: any = { activeElement: null, body: { style: { overflow: '' } }, createElement: element }
+  const host: any = element('div'); host.contains = () => true; host.addEventListener = (name: string, fn: any) => handlers[name] = fn
   const queue: any[] = [result]
   let uuid = 0
   const ctx: any = { Intl, Date, URL, encodeURIComponent, console, crypto: { randomUUID: () => '00000000-0000-4000-8000-' + String(++uuid).padStart(12, '0') },
-    document: { activeElement: null }, escapeHtml: (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'),
+    document, escapeHtml: (v: any) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'),
     fetch: async (url: string, options?: any) => { requests.push({ url, ...options, payload: options?.body ? JSON.parse(options.body) : undefined }); const item = queue.shift(); if (item instanceof Error) throw item; return { ok: !item?.error, status: item?.status || 200, json: async () => item?.error ? { message: item.message } : item } }, host,
     config: { slug: 'safe-local', appointmentId: 'one', timeZone: 'America/Argentina/Buenos_Aires', contactUrl: 'https://wa.me/5491166553322', appointments: result?.appointments || [appointment()], onReschedule: (id: string) => { navigated.push(id); return true }, onUpdated: async (value: any) => updated.push(value) } }
   const click = async (action: string, data: any = {}) => { const target = { dataset: { selfAction: action, ...data }, closest: () => target }; await handlers.click({ target, preventDefault() {} }) }
@@ -123,7 +145,7 @@ try {
     assert.ok(c.host.innerHTML.includes('data-self-action="confirm-cancel"')); await c.click('back'); assert.equal(c.requests.length, 1)
   })
   await check('cancel sends scoped revision, stable UUID and explicit confirmation only; refreshes after success', async () => {
-    const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push(managed(false)); await c.click('confirm-cancel')
+    const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push(cancelled()); await c.click('confirm-cancel')
     const request = c.requests[1]; assert.ok(request.url.endsWith('/one/cancel')); assert.equal(request.method, 'POST')
     assert.deepEqual(Object.keys(request.payload).sort(), ['confirmed', 'operationId', 'revision']); assert.equal(request.payload.confirmed, true); assert.equal(request.payload.revision, 'server-revision')
     assert.match(request.payload.operationId, /^[a-f0-9-]{36}$/); assert.equal(c.updated.length, 1); assert.ok(c.host.innerHTML.includes('cancelada'))
@@ -148,7 +170,7 @@ try {
   })
   await check('network error keeps frozen action UUID for explicit retry; no hidden retry or auto-submit', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push(new Error('Sin conexión')); await c.click('confirm-cancel'); assert.equal(c.requests.length, 2)
-    c.queue.push(managed(false)); await c.click('confirm-cancel'); assert.equal(c.requests[1].payload.operationId, c.requests[2].payload.operationId); assert.equal(c.updated.length, 1)
+    c.queue.push(cancelled()); await c.click('confirm-cancel'); assert.equal(c.requests[1].payload.operationId, c.requests[2].payload.operationId); assert.equal(c.updated.length, 1)
   })
   await check('409 refreshes authority and clears stale selected operation without submitting again', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); c.queue.push({ error: true, status: 409, message: 'La reserva cambió.' }, managed()); await c.click('confirm-cancel')
@@ -156,7 +178,7 @@ try {
   })
   await check('busy double click is blocked and actions expose loading state', async () => {
     const c = harness(); await c.start(script); await c.click('cancel'); let release: any
-    c.ctx.fetch = async (url: string, options: any) => { c.requests.push({ url, ...options }); return new Promise(resolve => release = () => resolve({ ok: true, status: 200, json: async () => managed(false) })) }
+    c.ctx.fetch = async (url: string, options: any) => { c.requests.push({ url, ...options }); return new Promise(resolve => release = () => resolve({ ok: true, status: 200, json: async () => cancelled() })) }
     const first = c.click('confirm-cancel'); await c.click('confirm-cancel'); assert.equal(c.requests.length, 2); assert.ok(c.host.innerHTML.includes('aria-busy="true"')); release(); await first
   })
   await check('cancellation announces pending work, then finishes without waiting for background history', async () => {
@@ -194,6 +216,17 @@ try {
     await c.click('confirm-cancel'); await new Promise(resolve => setImmediate(resolve))
     assert.ok(c.host.innerHTML.includes('La reserva fue cancelada'))
     assert.equal(c.updated.length, 1); assert.ok(!c.host.innerHTML.includes('Summary rendering failed'))
+  })
+  await check('HTTP 200 without a complete cancelled group cannot fabricate success or discard the retry identity', async () => {
+    for (const result of [managed(), { ...cancelled(), appointments: [] }, { ...cancelled(), appointments: [{ ...cancelled().appointments[0], id: 'unrelated' }] }]) {
+      const c = harness(); await c.start(script); await c.click('cancel')
+      c.queue.push(result); await c.click('confirm-cancel')
+      assert.ok(!c.host.innerHTML.includes('La reserva fue cancelada'))
+      assert.ok(!c.host.innerHTML.includes('Turno cancelado')); assert.equal(c.updated.length, 0)
+      c.queue.push(cancelled()); await c.click('confirm-cancel')
+      assert.equal(c.requests[1].payload.operationId, c.requests[2].payload.operationId)
+      assert.equal(c.updated.length, 1)
+    }
   })
   await check('the actual guest update callback retains booked snapshots across the management DTO and updates the same detail', async () => {
     const guestScript = clientScript(bookingHtml)
