@@ -1792,27 +1792,30 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
     body: `
       <main class="fresha-booking" data-booking-slug="${escapeAttribute(slug)}">
         <div class="booking-brand-rail">
+          ${business.coverImageUrl ? `<img class="booking-brand-cover" src="${escapeAttribute(business.coverImageUrl)}" alt="" aria-hidden="true">` : ''}
           <a class="booking-brand" href="${escapeAttribute(landingReturnPath)}">
+            <span class="booking-brand-logo">${escapeHtml(initialsText)}${business.logoUrl ? `<img src="${escapeAttribute(business.logoUrl)}" alt="">` : ''}</span>
             <span class="booking-brand-name">
               <strong>${escapeHtml(business.name)}</strong>
               <span>${escapeHtml(subtitle)}</span>
             </span>
           </a>
-          <div class="booking-brand-note">Reserva online</div>
+          <div class="booking-brand-actions">
+            <button class="booking-reservations-link" id="booking-header-reservations" type="button" hidden>Mis turnos</button>
+            <a class="booking-navigation-close" href="${escapeAttribute(landingReturnPath)}" aria-label="Cerrar reserva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></a>
+          </div>
         </div>
         <section class="fresha-modal">
-          <header class="fresha-header">
-            <button class="fresha-icon-btn" id="booking-back" type="button" aria-label="Volver">
+          <header class="fresha-header booking-navigation" data-booking-navigation>
+            <button class="booking-navigation-control booking-navigation-back" id="booking-back" type="button">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 19l-7-7 7-7"></path></svg>
+              <span>Volver</span>
             </button>
             <nav class="fresha-breadcrumb" id="booking-breadcrumb" aria-label="Pasos de reserva"></nav>
             <div class="booking-header-actions">
-              <button class="booking-reservations-link" id="booking-header-reservations" type="button" hidden>Ver mis reservas</button>
-              <a class="fresha-icon-btn" href="${escapeAttribute(accountPath)}" aria-label="Mi perfil">
+              <a class="booking-navigation-control booking-navigation-account" id="booking-account" href="${escapeAttribute(accountPath)}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg>
-              </a>
-              <a class="fresha-icon-btn" href="${escapeAttribute(landingReturnPath)}" aria-label="Cerrar reserva">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                <span>Mi cuenta</span>
               </a>
             </div>
           </header>
@@ -2055,12 +2058,27 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function renderBreadcrumb() {
-            els.breadcrumb.innerHTML = bookingSteps().map((item, index) => {
-              const step = index + 1
-              const className = step === state.step ? 'active' : step < state.step ? 'done' : ''
-              const separator = index < bookingSteps().length - 1 ? '<span class="crumb-sep">›</span>' : ''
-              return '<button class="crumb ' + className + '" type="button" data-step="' + step + '"' + (step > state.step ? ' disabled' : '') + '><span class="crumb-number">' + step + '</span><span>' + escapeHtml(item.label) + '</span></button>' + separator
-            }).join('')
+            const terminal = state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed || state.reschedule?.saved
+            const preparing = !state.catalog || state.reschedule?.loading || state.reschedule?.error
+            if (terminal || preparing) {
+              els.breadcrumb.innerHTML = '<strong class="booking-navigation-static">' + (preparing ? 'Tu reserva' : state.bookingView ? 'Mis turnos' : 'Tu reserva') + '</strong>'
+            } else {
+              const steps = bookingSteps(), current = Math.max(1, Math.min(state.step, steps.length))
+              const label = steps[current - 1].id === 'service' ? 'Eleg&iacute; tus servicios' : escapeHtml(steps[current - 1].label)
+              els.breadcrumb.innerHTML = '<div class="booking-progress" data-booking-progress data-step="' + current + '" data-total="' + steps.length + '" aria-label="Paso ' + current + ' de ' + steps.length + '">' +
+                '<span class="booking-progress-number" aria-hidden="true">' + current + '</span><strong class="booking-progress-label">' + label + '</strong>' +
+                '<span class="booking-progress-segments" aria-hidden="true">' + steps.map((_step, index) => '<span data-booking-progress-segment class="' + (index < current ? 'active' : '') + '"></span>').join('') + '</span>' +
+                '<span class="booking-progress-count">Paso ' + current + ' de ' + steps.length + '</span></div>'
+            }
+            syncBookingNavigation()
+          }
+
+          function syncBookingNavigation() {
+            const blocked = Boolean(state.submitting || state.uploadingProof || state.managingAppointment)
+            document.querySelectorAll('[data-booking-navigation] button, [data-booking-navigation] a, .booking-brand-rail a, #booking-header-reservations').forEach((control) => {
+              if (control.tagName === 'BUTTON') control.disabled = blocked
+              else { control.setAttribute('aria-disabled', String(blocked)); control.tabIndex = blocked ? -1 : 0 }
+            })
           }
 
           function bookingSteps() {
@@ -2136,9 +2154,26 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const selected = selectedServices().some((item) => item.id === service.id)
             return '<button class="fresha-option booking-service-option ' + (selected ? 'selected' : '') + '" type="button" data-service-id="' + escapeHtml(service.id) + '" aria-pressed="' + (selected ? 'true' : 'false') + '">' +
               '<span class="service-check" aria-hidden="true"></span>' +
+              renderServiceThumbnail(service) +
               '<span class="service-copy"><strong>' + escapeHtml(service.name) + '</strong><span class="service-meta"><small>' + escapeHtml(service.displayDuration || (service.duration + ' min')) + '</small></span></span>' +
               '<span class="option-right"><strong class="service-price">' + escapeHtml(service.price ? formatPrice(service.price, service.priceMode) : 'Consultar') + '</strong>' + depositLabel + '</span>' +
             '</button>'
+          }
+
+          function renderServiceThumbnail(service) {
+            const value = typeof service.imageUrl === 'string' ? service.imageUrl.trim() : ''
+            let image = ''
+            if (value && !/[\\u0000-\\u001f\\u007f]/.test(value)) {
+              if (/^\\/landing-assets\\/[a-z0-9-]+\\.png$/.test(value)) image = value
+              else if (value.startsWith('data:')) {
+                const match = /^data:image\\/(?:png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/.exec(value)
+                const encoded = match?.[1] || '', padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0
+                if (encoded && encoded.length % 4 === 0 && encoded.length / 4 * 3 - padding <= 4 * 1024 * 1024) image = value
+              }
+              else { try { const url = new URL(value); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) image = url.href } catch {} }
+            }
+            return '<span class="booking-service-thumbnail" data-service-thumbnail aria-hidden="true"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="22" height="22" rx="5"></rect><circle cx="12" cy="12" r="2"></circle><path d="m7 24 7-8 5 5 3-3 4 5"></path></svg>' +
+              (image ? '<img src="' + escapeHtml(image) + '" alt="" loading="lazy" decoding="async">' : '') + '</span>'
           }
 
           function renderServiceGroups(groups) {
@@ -2547,6 +2582,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               setFeedback(error.message, 'error')
             } finally {
               state.submitting = false
+              syncBookingNavigation()
               if (state.reschedule === mode && !mode.error && !mode.loading && currentStepId() === 'confirm') renderRescheduleReview()
             }
           }
@@ -2814,6 +2850,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.mobileContinue.disabled = !enabled
             els.mobileContinue.classList.toggle('enabled', Boolean(enabled))
             els.mobileContinueLabel.textContent = currentStepId() === 'service' ? 'Continuar' : label
+            syncBookingNavigation()
           }
 
           function updateConfirmState() {
@@ -3495,6 +3532,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               updateContinue(true, 'Confirmar turno')
             } finally {
               state.submitting = false
+              updateContinue(!els.continue.disabled, els.continueLabel.textContent || 'Continuar')
               if (state.bookingView === 'detail') render()
             }
           }
@@ -3507,6 +3545,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
             button.disabled = true
             state.uploadingProof = true
+            updateContinue(false)
             button.textContent = 'Enviando...'
             setFeedback('Enviando comprobante...', 'info')
             try {
@@ -3524,6 +3563,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               button.textContent = 'Enviar comprobante'
             } finally {
               state.uploadingProof = false
+              updateContinue(false)
               if (state.proofSent && state.bookingView === 'detail') render()
             }
           }
@@ -3551,8 +3591,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             summary?.classList.remove('guest-reservation-detail')
             summary?.classList.toggle('draft-confirmation-summary', Boolean(state.catalog && currentStepId() === 'confirm' &&
               !state.bookingView && !state.confirmed && !state.deposit && !state.proofSent && !state.guestClosed))
-            els.back.disabled = !state.reschedule && (state.step === 1 || Boolean(state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed))
-            els.breadcrumb.hidden = Boolean(state.bookingView)
+            els.back.disabled = Boolean(state.submitting || state.uploadingProof || state.managingAppointment)
+            els.breadcrumb.hidden = false
             els.reservations.hidden = Boolean(state.weexAccount) || (!guestBookingAllowed() && !state.guestBookings.length)
             els.reservations.disabled = state.submitting || state.uploadingProof
             if (state.reschedule) els.reservations.hidden = true
@@ -3797,16 +3837,32 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             }
           })
 
+          els.content.addEventListener('error', (event) => {
+            if (event.target.matches?.('[data-service-thumbnail] img')) event.target.hidden = true
+          }, true)
+
           els.breadcrumb.addEventListener('click', (event) => {
-            const button = event.target.closest('[data-step]')
+            const button = event.target.closest('button[data-step]')
             if (!button || button.disabled) return
             goToStep(Number(button.dataset.step))
           })
 
           els.back.addEventListener('click', () => {
+            if (state.submitting || state.uploadingProof || state.managingAppointment) return
             if (state.reschedule && (state.step === 1 || state.reschedule.saved || state.reschedule.error)) { exitReschedule(); return }
-            if (state.step > 1) goToStep(state.step - 1)
+            if (state.bookingView === 'detail') { if (state.weexAccount) window.location.assign(accountPath); else void viewGuestBookings(); return }
+            if (state.bookingView === 'list' && state.bookingDraft?.services?.length) { restoreBookingDraft(); return }
+            if (state.bookingView || state.confirmed || state.deposit || state.proofSent || state.guestClosed || state.step === 1) { window.location.assign(backPath); return }
+            goToStep(state.step - 1)
           })
+
+          document.querySelectorAll('[data-booking-navigation] a, .booking-brand-rail a').forEach((link) => link.addEventListener('click', (event) => {
+            if (state.submitting || state.uploadingProof || state.managingAppointment) { event.preventDefault(); return }
+            if (!state.bookingView && !state.confirmed && !state.deposit && !state.reschedule && selectedServices().length && !saveLoginDraft()) {
+              event.preventDefault(); setFeedback('No pudimos conservar tu selección. Intentá nuevamente antes de salir.', 'error'); return
+            }
+            state.timeStepTransition = null
+          }))
 
           els.reservations.addEventListener('click', () => void viewGuestBookings())
 
@@ -4101,7 +4157,6 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                 <small>Reservas Weex</small>
               </span>
             </a>
-            <button class="account-profile-toggle" id="account-profile-toggle" type="button" aria-label="Ver mi perfil" title="Mi perfil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg></button>
             <div class="account-user">
               <div class="account-avatar" id="account-avatar">G</div>
               <div>
@@ -4133,6 +4188,11 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             </div>
 
             <div class="account-workspace" id="account-workspace" hidden>
+              <nav class="booking-navigation account-navigation" data-booking-navigation aria-label="Navegaci&oacute;n de mi cuenta">
+                <button class="booking-navigation-control booking-navigation-back" id="account-navigation-back" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"></path></svg><span>Volver</span></button>
+                <strong class="booking-navigation-static" id="account-navigation-label">Mis turnos</strong>
+                <button class="booking-navigation-control booking-navigation-account" id="account-profile-toggle" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"></circle><path d="M5 20a7 7 0 0 1 14 0"></path></svg><span>Mi cuenta</span></button>
+              </nav>
               <header class="account-section-head">
                 <div>
                   <span class="account-kicker">Mi cuenta</span>
@@ -4278,6 +4338,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
 
           function renderShell() {
             const logged = Boolean(state.user)
+            document.getElementById('account-navigation-label').textContent = state.tab === 'profile' ? 'Mi perfil' : 'Mis turnos'
             document.getElementById('account-shell').dataset.accountView = state.tab
             els.login.hidden = logged
             els.workspace.hidden = !logged
@@ -4643,7 +4704,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               contactUrl: ${JSON.stringify(`https://wa.me/${String(publicWhatsappNumber(business) || '').replace(/\D/g, '')}`)},
               onBusyChange: (busy) => {
                 state.managerBusy = busy
-                document.querySelectorAll('[data-account-back], #account-profile-toggle, .account-tab').forEach((button) => button.disabled = busy)
+                document.querySelectorAll('[data-account-back], #account-navigation-back, #account-profile-toggle, .account-tab').forEach((button) => button.disabled = busy)
               },
               onUpdated: applyAppointmentUpdate
             })
@@ -4821,6 +4882,13 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             if (state.managerBusy) return
             state.tab = state.tab === 'profile' ? 'history' : 'profile'
             renderShell()
+          })
+
+          document.getElementById('account-navigation-back').addEventListener('click', () => {
+            if (state.managerBusy) return
+            if (state.tab === 'profile') { state.tab = 'history'; renderShell(); return }
+            if (state.mobileDetail) { showAppointmentList(); return }
+            window.location.assign(${JSON.stringify(basePath || '/')})
           })
 
           renderShell()
@@ -8495,6 +8563,82 @@ function htmlPage(input: {
         width: 58px;
         flex-basis: 58px;
       }
+    }
+
+    .booking-navigation[data-booking-navigation], body[class*="booking-theme-"] .fresha-header.booking-navigation {
+      display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px;
+      min-width: 0; min-height: 78px; padding: 14px 18px; color: var(--booking-ink, #202B43);
+      background: var(--booking-surface, #FFFFFF); border: 1px solid var(--booking-border, #DEE3EC); border-radius: 16px;
+    }
+    .booking-navigation .booking-navigation-control, .booking-navigation-close {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px;
+      padding: 10px 12px; color: var(--booking-ink, #202B43); background: transparent; border: 0; border-radius: 10px;
+      font: inherit; font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer;
+    }
+    .booking-navigation .booking-navigation-control svg, .booking-navigation-close svg { flex: 0 0 20px; width: 20px; height: 20px; }
+    .booking-navigation .booking-navigation-control:hover, .booking-navigation-close:hover { background: var(--booking-accent-soft, #EDF3FC); }
+    .booking-navigation :focus-visible, .booking-navigation-close:focus-visible { outline: 3px solid var(--booking-accent, #376DB8); outline-offset: 2px; }
+    .booking-navigation [aria-disabled="true"], .booking-navigation button:disabled, .booking-navigation-close[aria-disabled="true"] { opacity: .55; cursor: wait; }
+    .booking-navigation .booking-navigation-account { border-left: 1px solid var(--booking-border, #DEE3EC); border-radius: 0 10px 10px 0; }
+    .booking-navigation .fresha-breadcrumb { display: block; width: 100%; min-width: 0; text-transform: none; letter-spacing: 0; }
+    .booking-navigation-static { display: block; color: var(--booking-ink, #202B43); text-align: center; font-size: 15px; line-height: 1.35; }
+    .booking-progress { display: grid; grid-template-columns: 32px minmax(65px, 1fr) minmax(65px, 1fr) auto; align-items: center; gap: 12px; min-width: 0; }
+    .booking-progress-number { display: grid; width: 32px; height: 32px; place-items: center; color: var(--booking-on-accent, #FFFFFF); background: var(--booking-accent, #376DB8); border-radius: 50%; font-size: 16px; font-weight: 700; }
+    .booking-progress-label { min-width: 0; color: var(--booking-ink, #202B43); font-size: 13px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+    .booking-progress-count { color: var(--booking-secondary-ink, #64738E); font-size: 12px; font-weight: 400; white-space: nowrap; }
+    .booking-progress-segments { display: flex; min-width: 0; gap: 5px; }
+    .booking-progress-segments > span { flex: 1 1 0; min-width: 0; height: 7px; background: var(--booking-border, #DEE3EC); border-radius: 999px; }
+    .booking-progress-segments > .active { background: var(--booking-accent, #376DB8); }
+    body[class*="booking-theme-"] .booking-brand-rail { position: relative; min-height: 88px; padding: 16px; overflow: hidden; isolation: isolate; border: 1px solid var(--booking-border); border-radius: 16px; background: var(--booking-surface); }
+    .booking-brand-cover { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; opacity: .18; }
+    .booking-brand-logo { display: grid; position: relative; flex: 0 0 48px; width: 48px; height: 48px; overflow: hidden; place-items: center; color: var(--booking-accent, #376DB8); background: var(--booking-accent-soft, #EDF3FC); border: 1px solid var(--booking-border, #DEE3EC); border-radius: 14px; font-size: 18px; font-weight: 700; }
+    .booking-brand-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--booking-surface, #FFFFFF); }
+    .booking-brand-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .booking-brand-actions .booking-reservations-link { min-height: 44px; min-width: 44px; padding: 8px; color: var(--booking-secondary-ink); font-size: 12px; }
+    .booking-brand-actions .booking-reservations-link[hidden] { display: none !important; }
+    body[class*="booking-theme-"] .booking-brand-name strong { line-height: 1.25; font-size: 18px; }
+    body[class*="booking-theme-"] .booking-brand-name span { color: var(--booking-ink); white-space: normal; line-height: 1.4; }
+    body[class*="booking-theme-"] .booking-service-option { min-height: 90px; grid-template-columns: 20px 56px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px; }
+    .booking-service-thumbnail { display: grid; position: relative; width: 56px; height: 56px; flex-shrink: 0; place-items: center; overflow: hidden; color: var(--booking-secondary-ink, #66758D); background: var(--booking-bg, #F1F4F8); border: 1px solid var(--booking-border, #DEE3EC); border-radius: 12px; }
+    .booking-service-thumbnail svg { width: 28px; height: 28px; }
+    .booking-service-thumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .booking-service-thumbnail img[hidden] { display: none !important; }
+    body[class*="booking-theme-"] .booking-service-option .option-right { grid-column: auto; width: auto; min-width: 0; justify-items: end; }
+    body[class*="booking-theme-"] .service-copy > strong { font-size: 16px; line-height: 1.35; font-weight: 600; }
+    body[class*="booking-theme-"] .booking-service-search { min-height: 44px; }
+    body[class*="booking-theme-"] .booking-service-search input { font-size: 16px; }
+    body[class*="booking-theme-"] .booking-service-filter { min-width: 44px; min-height: 44px; font-size: 14px; }
+    .account-navigation { margin-bottom: 24px; }
+    @media (max-width: 820px) {
+      body[class*="booking-theme-"] .booking-brand-rail { flex-direction: row; align-items: center; gap: 8px; padding: 12px; }
+      body[class*="booking-theme-"] .booking-brand { gap: 10px; }
+      .booking-brand-logo { flex-basis: 40px; width: 40px; height: 40px; border-radius: 12px; font-size: 15px; }
+    }
+    @media (max-width: 560px) {
+      .booking-navigation[data-booking-navigation], body[class*="booking-theme-"] .fresha-header.booking-navigation { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 10px; padding: 10px 12px; }
+      .booking-navigation .booking-navigation-back { justify-self: start; }
+      .booking-navigation .booking-header-actions, .booking-navigation > .booking-navigation-account { grid-column: 2; grid-row: 1; justify-self: end; }
+      .booking-navigation .fresha-breadcrumb, .booking-navigation > .booking-navigation-static { grid-column: 1 / -1; grid-row: 2; padding: 8px 0 4px; border-top: 1px solid var(--booking-border, #DEE3EC); }
+      .booking-progress { grid-template-columns: 28px minmax(0, 1fr) minmax(45px, .8fr) auto; gap: 8px; }
+      .booking-progress-number { width: 28px; height: 28px; font-size: 14px; }
+      .booking-progress-label { font-size: 13px; }
+      .booking-progress-count { font-size: 11px; }
+      .booking-navigation .booking-navigation-control { padding: 8px; }
+      body[class*="booking-theme-"] .booking-service-option { grid-template-columns: 18px 48px minmax(0, 1fr) auto; gap: 8px; padding: 12px; }
+      .booking-service-thumbnail { width: 48px; height: 48px; border-radius: 10px; }
+      body[class*="booking-theme-"] .service-copy > strong { font-size: 14px; }
+      body[class*="booking-theme-"] .booking-service-option .service-price { font-size: 14px; }
+      body[class*="booking-theme-"] .booking-service-option .option-deposit { max-width: 100%; font-size: 10px; padding: 3px 5px; white-space: normal; text-align: right; }
+      body[class*="booking-theme-"] .booking-service-option .service-meta small { padding: 2px 4px; font-size: 11px; }
+      .account-sidebar { grid-template-columns: 1fr; }
+      .account-navigation { margin-bottom: 18px; }
+    }
+    @media (max-width: 360px) {
+      body[class*="booking-theme-"] .booking-service-option { grid-template-columns: 18px 48px minmax(0, 1fr); }
+      body[class*="booking-theme-"] .booking-service-option .service-check { grid-column: 1; grid-row: 1 / span 2; }
+      body[class*="booking-theme-"] .booking-service-option .booking-service-thumbnail { grid-column: 2; grid-row: 1 / span 2; }
+      body[class*="booking-theme-"] .booking-service-option .service-copy { grid-column: 3; grid-row: 1; }
+      body[class*="booking-theme-"] .booking-service-option .option-right { grid-column: 3; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 4px 8px; }
     }
 
     @media (max-width: 980px) {

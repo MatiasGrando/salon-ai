@@ -43,7 +43,9 @@ for (const token of [
   assert.match(bookingUi, new RegExp(token), `public booking must expose ${token}`)
 }
 
-assert.match(bookingUi, /class="crumb-number"/, 'booking progress should use numbered steps')
+assert.match(bookingUi, /class="booking-progress-number"/, 'booking progress should identify the actual numbered step')
+assert.match(bookingUi, /data-booking-progress data-step=/, 'booking progress should expose the actual current step and total')
+assert.match(bookingUi, /data-booking-progress-segment/, 'booking progress should keep one visual segment per real step')
 assert.match(bookingUi, /summary-eyebrow/, 'summary should have a compact reservation hierarchy')
 assert.match(bookingUi, /summary-subtotal/, 'summary should distinguish subtotal from the amount due now')
 assert.match(bookingUi, /summary-deposit/, 'summary should expose the deposit as a separate amount')

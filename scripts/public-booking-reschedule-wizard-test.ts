@@ -125,6 +125,19 @@ try {
     await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).tap(); await f.page.getByText('Tu reserva fue reprogramada', { exact: false }).waitFor({ state: 'visible' })
     assert.equal(f.posts.length, 2); assert.deepEqual(f.posts[1].body, first); await clean(f)
   })
+  await check('navigation locks only while reschedule writes and releases after an authority rejection', async () => {
+    const f = await fixture({ group: false, submitStatus: 403 }); await professionalSteps(f); await chooseTime(f)
+    const before = JSON.stringify(f.rows); f.postGate = deferred()
+    await f.page.getByRole('button', { name: 'Confirmar cambio', exact: true }).tap()
+    await f.page.waitForTimeout(80); assert.equal(f.posts.length, 1)
+    assert.equal(await f.page.locator('#booking-back').isDisabled(), true)
+    assert.equal(await f.page.locator('#booking-account').getAttribute('aria-disabled'), 'true')
+    f.postGate.resolve(); f.postGate = null
+    await f.page.getByText('El horario ya no está disponible.', { exact: false }).first().waitFor({ state: 'visible' })
+    assert.equal(await f.page.locator('#booking-back').isEnabled(), true, 'rejected write must not trap the client')
+    assert.equal(await f.page.locator('#booking-account').getAttribute('aria-disabled'), 'false')
+    assert.equal(JSON.stringify(f.rows), before); assert.equal(f.posts.length, 1); await clean(f)
+  })
   await check('single appointment uses same time picker and Back, not a mini form', async () => {
     const f = await fixture({ group: false, width: 820 }); await professionalSteps(f); await chooseTime(f)
     await f.page.locator('#booking-back').tap(); await f.page.locator('.slot.selected[data-time="16:00"]').waitFor({ state: 'visible' }); await f.page.locator('.slot[data-time="15:00"]').tap()

@@ -192,8 +192,11 @@ try {
     const first = runInNewContext(source('uploadDepositProof') + '; uploadDepositProof(file,button)', c)
     await new Promise(r => setTimeout(r, 0))
     await runInNewContext(source('uploadDepositProof') + '; uploadDepositProof(file,button)', c)
-    assert.equal(c.calls.length, 1); assert.equal(c.calls[0].path, '/public/booking/guest-ui/deposits/own-deposit/proof')
-    assert.equal(c.calls[0].body.filename, 'synthetic.png'); resolve({ ok: true }); await first
+    const proofCalls = c.calls.filter((call: any) => call.path)
+    assert.equal(proofCalls.length, 1); assert.equal(proofCalls[0].path, '/public/booking/guest-ui/deposits/own-deposit/proof')
+    assert.equal(proofCalls[0].body.filename, 'synthetic.png'); assert.equal(c.state.uploadingProof, true)
+    assert.ok(c.calls.some((call: any) => call.continue?.[0] === false), 'pending proof disables navigation together with the existing submit control')
+    resolve({ ok: true }); await first
     assert.equal(c.state.proofSent, true); assert.equal(c.state.uploadingProof, false)
     c.state.proofSent = false; c.postJson = async () => { throw new Error('Formato no admitido') }
     await runInNewContext(source('uploadDepositProof') + '; uploadDepositProof(file,button)', c)
