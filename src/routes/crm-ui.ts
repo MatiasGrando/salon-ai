@@ -18104,6 +18104,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <select id="reminder-before">
                     <option value="60">1 hora antes</option>
                     <option value="120">2 horas antes</option>
+                    <option value="240">4 horas antes</option>
+                    <option value="360">6 horas antes</option>
+                    <option value="480">8 horas antes</option>
+                    <option value="720">12 horas antes</option>
                     <option value="1440" selected>24 horas antes</option>
                     <option value="2880">48 horas antes</option>
                   </select>
@@ -34677,6 +34681,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function reminderTimeLabel(minutes) {
       if (Number(minutes) === 60) return '1 hora'
       if (Number(minutes) === 120) return '2 horas'
+      if ([240, 360, 480, 720].includes(Number(minutes))) return (Number(minutes) / 60) + ' horas'
       if (Number(minutes) === 2880) return '48 hs'
       return '24 hs'
     }
