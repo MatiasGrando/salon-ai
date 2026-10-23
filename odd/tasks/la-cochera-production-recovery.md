@@ -19,7 +19,7 @@ La publicación anterior se armó desde `d3ada31`, cuya base no incluye `d190949
 
 - [x] REC1 — Reincorporar la landing V13 y recursos OG sobre `938af67`, sin reemplazar los cambios de reserva posteriores. Comprobar que `d190949` y sus miniaturas siguen presentes.
 - [x] REC2 — Hacer que los CTA propios a `lacochera.weex.com.ar/reservar` naveguen en la pestaña actual y cubrirlo con una prueba de contrato.
-- [ ] REC3 — Validar landing, miniaturas de reserva y ambas direcciones; publicar en Railway y verificar públicamente el resultado.
+- [x] REC3 — Validar landing, miniaturas de reserva y ambas direcciones; publicar en Railway y verificar públicamente el resultado.
 
 ## Aceptación
 
@@ -30,3 +30,6 @@ La landing y la reserva muestran el diseño y datos correctos. La reserva conser
 - REC1: `d190949` es ancestro de esta recuperación; `src/routes/public-booking.ts` permanece idéntico a `938af67`. `node --import tsx scripts/public-booking-services-ui-contract-test.ts` pasó.
 - REC2: la prueba de contrato nueva falló antes del cambio porque los enlaces tenían `target="_blank"`; luego pasó y comprueba los ocho CTA de `published-v13.html` e `index.html`.
 - Verificaciones locales: contrato de hosting de La Cochera, contrato de servicios de reserva y `npm run test:text-encoding` pasaron. La prueba visual con Playwright quedó pendiente porque esa dependencia no está instalada en este entorno.
+- Implementación REC1–REC2: `0aae498` (`fix(la-cochera): recover booking thumbnails`). La evaluación nativa de revisión no pudo acceder a la raíz Git compartida; su preflight también falló de forma segura por `Acceso denegado`, por lo que queda registrada como no disponible.
+- REC3: Railway production `2c9193bc-049e-4950-beb1-7470dd981390` terminó en `SUCCESS` sin migraciones. Las dos entradas y las dos imágenes de WhatsApp respondieron HTTP 200. La comprobación pública encontró ocho CTA internos sin `target` y once referencias al render de miniaturas en `/reservar`.
+- Próximo paso: usuario revisa la corrección publicada.
