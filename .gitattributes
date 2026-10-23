@@ -1,0 +1,2 @@
+# La landing autónoma se sirve y verifica como artefacto exacto.
+sites/la-cochera/published-v13.html -text -diff

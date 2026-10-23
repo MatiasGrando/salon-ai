@@ -9,6 +9,7 @@ import { weexGoogleCalendarEnabled, weexGoogleClientId } from '../services/weex-
 import { formatCustomerDuration } from '../services/service-duration.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
+import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -65,6 +66,8 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business.landingEnabled && !modelPreview) return reply.status(404).type('text/html').send(renderNotFound())
 
+    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply)
+
     return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), modelPreview))
   })
 
@@ -110,6 +113,8 @@ export async function landingUiRoutes(app: FastifyInstance) {
     const modelPreview = isLandingDemoPreview(request)
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || (!business.landingEnabled && !modelPreview)) return reply.status(404).type('text/html').send(renderNotFound())
+
+    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply)
 
     return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), modelPreview))
   })
