@@ -3,8 +3,10 @@ import { prisma } from '../../config/prisma.js'
 import type { CommunicationAttemptRepository, RecordCommunicationAttemptInput } from '../../application/communications/record-communication-attempt.js'
 
 export class PrismaCommunicationAttemptRepository implements CommunicationAttemptRepository {
+  constructor(private readonly database: typeof prisma = prisma) {}
+
   async record(input: RecordCommunicationAttemptInput) {
-    await prisma.$transaction(async (tx) => {
+    await this.database.$transaction(async (tx) => {
       const existing = await tx.communicationRecipient.findUnique({ where: { sourceDeliveryId: input.sourceDeliveryId } })
       if (existing) {
         await tx.communicationExecution.update({
@@ -43,6 +45,7 @@ export class PrismaCommunicationAttemptRepository implements CommunicationAttemp
             create: {
               business: { connect: { id: input.businessId } },
               customer: { connect: { id: input.customerId } },
+              recipientKey: input.customerId,
               phoneSnapshot: input.phone,
               customerNameSnapshot: input.customerName,
               messageSnapshot: input.message,
