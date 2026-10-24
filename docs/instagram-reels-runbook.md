@@ -19,6 +19,20 @@ Cada comercio que use una Meta App propia carga en el CRM su **Instagram Account
 
 No mezclar este circuito con tokens o endpoints de **Instagram API with Facebook Login**. La integración implementada usa Instagram Login y `graph.instagram.com`.
 
+### Estado de conexión en el CRM
+
+El panel distingue **conexión guardada** de **cuenta comprobada**. Guardar o pulsar **Comprobar cuenta** consulta el mismo Instagram Account ID configurado; la respuesta de perfil puede devolver un ID propio de la aplicación distinto del ID profesional. No reemplazar la cuenta configurada usando `/me` ni exigir que ambos identificadores coincidan.
+
+La comprobación y su fecha describen esa operación en la pantalla actual. Al recargar, el estado vuelve a **sin comprobar**: no se almacena un historial ni se garantiza que el token siga vigente. La fecha de vencimiento es **declarada manualmente**, incluso cuando aparece como pasada; si falta, se presenta como desconocida. Los avisos operativos (por ejemplo, falta de WhatsApp) son independientes de la consulta de perfil.
+
+Leer el perfil **no confirma** permisos de métricas, publicaciones/historias, comentarios o mensajes, suscripciones webhook ni disponibilidad de workers/storage. Esas funciones permanecen con **permisos sin verificar** hasta implementar su verificación específica. Los errores del proveedor no se devuelven literalmente al navegador para evitar exponer credenciales.
+
+Contrato local, sin credenciales reales ni conexión a bases remotas:
+
+```text
+npm run test:instagram-settings
+```
+
 ## 2. Almacenamiento
 
 Crear un **bucket privado** en Supabase Storage. El nombre recomendado es `instagram-reels` y se configura con:

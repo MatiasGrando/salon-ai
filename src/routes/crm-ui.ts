@@ -8160,6 +8160,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-size: 13px;
     }
 
+    .instagram-connection-panel { min-width: 0; padding: 4px; }
+    .instagram-connection-status { display: grid; gap: 7px; padding: 16px; border: 1px solid #dce3ef; border-radius: 12px; background: #f8faff; color: #42526c; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .instagram-connection-status p { margin: 0; }
+    .instagram-capabilities-wrap { min-width: 0; overflow-x: auto; border: 1px solid #dce3ef; border-radius: 12px; }
+    .instagram-capabilities { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+    .instagram-capabilities caption { padding: 14px 16px; text-align: left; font-weight: 750; color: #25344e; background: #f8faff; }
+    .instagram-capabilities th, .instagram-capabilities td { padding: 11px 16px; border-top: 1px solid #e2e8f0; overflow-wrap: anywhere; }
+    .instagram-capabilities th { color: #52617b; font-weight: 650; }
+    .instagram-connection-form { min-width: 0; padding: 18px; border: 1px solid #dce3ef; border-radius: 12px; }
+    .instagram-connection-form .whatsapp-technical-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .instagram-connection-form .settings-field { min-width: 0; }
+    .instagram-connection-form .field { box-sizing: border-box; width: 100%; min-width: 0; }
+    .instagram-connection-form .field:focus { outline: 3px solid #dbeafe; border-color: #2563eb; }
+    .instagram-connection-form .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    @media (max-width: 720px) {
+      .instagram-connection-panel .whatsapp-status-card { grid-template-columns: minmax(0, 1fr); }
+      .instagram-connection-panel .whatsapp-status-badge { justify-self: start; min-width: 0; }
+      .instagram-connection-form { padding: 14px; }
+      .instagram-connection-form .whatsapp-technical-grid { grid-template-columns: minmax(0, 1fr); }
+      .instagram-capabilities th, .instagram-capabilities td { padding: 10px; }
+    }
+
     .whatsapp-settings-grid {
       margin-top: 20px;
       display: grid;
@@ -19230,18 +19252,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <summary class="settings-collapsible-summary">
               <div>
                 <h3>Instagram del comercio</h3>
-                <p>Conect&aacute; la cuenta profesional para recibir mensajes y derivar las reservas al WhatsApp p&uacute;blico del comercio.</p>
+                <p>Guard&aacute; la conexi&oacute;n de la cuenta profesional y comprob&aacute; su consulta de perfil. Los permisos de cada funci&oacute;n se verifican por separado.</p>
               </div>
               <span class="settings-collapse-icon" aria-hidden="true"></span>
             </summary>
             <div class="settings-collapsible-content">
-          <div class="whatsapp-settings-grid">
+          <div class="whatsapp-settings-grid instagram-connection-panel">
             <div class="whatsapp-status-card">
               <div>
-                <strong id="instagram-settings-title">Instagram no conectado</strong>
+                <strong id="instagram-settings-title">Instagram sin conectar</strong>
                 <span id="instagram-settings-copy">Carg&aacute; el Instagram Account ID y el token generado en Meta.</span>
               </div>
               <div class="whatsapp-status-badge" id="instagram-settings-badge">Pendiente</div>
+            </div>
+            <div class="instagram-connection-status" aria-live="polite">
+              <p id="instagram-connection-verification">Sin comprobar en esta pantalla.</p>
+              <p id="instagram-connection-expiry">Vencimiento declarado: desconocido.</p>
+              <p>Una consulta de perfil no confirma permisos, webhooks ni disponibilidad para publicar o responder.</p>
+            </div>
+            <div class="instagram-capabilities-wrap">
+              <table class="instagram-capabilities" id="instagram-capabilities">
+                <caption>Permisos de Instagram</caption>
+                <thead><tr><th scope="col">Funci&oacute;n</th><th scope="col">Estado</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">M&eacute;tricas y alcance</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Publicaciones e historias</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Comentarios</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Mensajes privados</th><td>Permisos sin verificar</td></tr>
+                </tbody>
+              </table>
             </div>
             <label class="automation-control">
               <div class="automation-copy">
@@ -19252,7 +19291,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="instagram-enabled-toggle" type="checkbox">
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-            <form class="whatsapp-technical-form" id="instagram-technical-form">
+            <form class="whatsapp-technical-form instagram-connection-form" id="instagram-technical-form">
               <h4>Datos manuales de conexi&oacute;n</h4>
               <div class="whatsapp-technical-grid">
                 <div class="settings-field">
@@ -19264,7 +19303,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <input class="field" id="instagram-username" autocomplete="off" placeholder="usuario sin @">
                 </div>
                 <div class="settings-field">
-                  <label for="instagram-token-expires">Vencimiento del token</label>
+                  <label for="instagram-token-expires">Vencimiento declarado del token</label>
                   <input class="field" id="instagram-token-expires" type="datetime-local">
                 </div>
                 <div class="settings-field full">
@@ -19287,7 +19326,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
               <div class="settings-actions">
                 <button class="secondary" id="instagram-technical-submit" type="submit">Guardar conexi&oacute;n</button>
-                <button class="secondary" id="instagram-test-button" type="button">Probar token</button>
+                <button class="secondary" id="instagram-test-button" type="button">Comprobar cuenta</button>
               </div>
             </form>
             <p class="settings-feedback" id="instagram-settings-feedback" role="status" aria-live="polite"></p>
@@ -20426,6 +20465,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       instagramSettingsTitle: document.getElementById('instagram-settings-title'),
       instagramSettingsCopy: document.getElementById('instagram-settings-copy'),
       instagramSettingsBadge: document.getElementById('instagram-settings-badge'),
+      instagramConnectionVerification: document.getElementById('instagram-connection-verification'),
+      instagramConnectionExpiry: document.getElementById('instagram-connection-expiry'),
       instagramEnabledToggle: document.getElementById('instagram-enabled-toggle'),
       instagramEnabledStatus: document.getElementById('instagram-enabled-status'),
       instagramTechnicalForm: document.getElementById('instagram-technical-form'),
@@ -29529,18 +29570,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const settings = state.instagramSettings || {}
       const connection = settings.connection || {}
       const connected = Boolean(connection.connected)
-      const ready = connected && Boolean(settings.redirectReady)
+      const verification = connection.verification || { status: 'not_checked', checkedAt: null }
+      const verified = connected && verification.status === 'verified'
       els.instagramSettingsTitle.textContent = connected
-        ? 'Instagram conectado' + (connection.username ? ' · @' + connection.username : '')
-        : 'Instagram no conectado'
+        ? 'Conexión guardada' + (connection.username ? ' · @' + connection.username : '')
+        : 'Instagram sin conectar'
       els.instagramSettingsCopy.textContent = connection.lastError
-        || (ready
-          ? 'La cuenta puede responder consultas y derivar reservas a WhatsApp conservando el contexto.'
-          : connected
-            ? 'La cuenta puede responder consultas, pero falta cargar el WhatsApp publico para derivar reservas.'
-            : 'Carga el Instagram Account ID y el token generado en Meta.')
-      els.instagramSettingsBadge.textContent = ready ? 'Listo' : connected ? 'Incompleto' : 'Pendiente'
-      els.instagramSettingsBadge.classList.toggle('connected', ready)
+        ? 'Último aviso operativo: ' + connection.lastError
+        : connected ? 'La credencial está guardada. Comprobá la cuenta antes de continuar.' : 'Carga el Instagram Account ID y el token generado en Meta.'
+      els.instagramSettingsBadge.textContent = verified ? 'Cuenta comprobada' : connected ? 'Guardada' : 'Pendiente'
+      els.instagramSettingsBadge.classList.toggle('connected', verified)
+      els.instagramConnectionVerification.textContent = verified
+        ? 'Cuenta comprobada: ' + new Date(verification.checkedAt).toLocaleString('es-AR') + '. Solo se consultó el perfil; permisos sin verificar.'
+        : verification.status === 'failed' ? 'No se pudo comprobar la cuenta. Volvé a intentar.' : 'Sin comprobar en esta pantalla. Usá Comprobar cuenta.'
+      const expiry = connection.expiry || { status: 'unknown' }
+      els.instagramConnectionExpiry.textContent = expiry.status === 'unknown'
+        ? 'Vencimiento declarado: desconocido. Instagram no lo confirmó.'
+        : (expiry.status === 'declared_expired' ? 'Vencimiento declarado pasado: ' : 'Vencimiento declarado: ') + new Date(connection.tokenExpiresAt).toLocaleString('es-AR') + '. Fecha cargada manualmente.'
       els.instagramEnabledToggle.checked = Boolean(settings.enabled)
       els.instagramEnabledToggle.disabled = !connected
       els.instagramEnabledStatus.textContent = settings.enabled ? 'Activo' : 'Desactivado'
@@ -29599,7 +29645,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify(payload)
         })
         renderInstagramSettings()
-        showInstagramSettingsFeedback('Instagram conectado y token validado.', 'success')
+        showInstagramSettingsFeedback('Conexión guardada y consulta de cuenta comprobada. Permisos sin verificar.', 'success')
       } catch (error) {
         renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
@@ -29631,8 +29677,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!setButtonLoading(els.instagramTestButton, true, 'Probando...')) return
       try {
         const result = await getJson('/businesses/' + state.businessId + '/instagram-settings/test', { method: 'POST' })
-        showInstagramSettingsFeedback('Token valido para @' + (result.account?.username || 'la cuenta conectada') + '.', 'success')
+        state.instagramSettings = result
+        renderInstagramSettings()
+        showInstagramSettingsFeedback('Cuenta comprobada. Los permisos siguen sin verificar.', 'success')
       } catch (error) {
+        if (error.body?.connection) state.instagramSettings = error.body
+        else if (state.instagramSettings?.connection) state.instagramSettings.connection.verification = { status: 'failed', checkedAt: null }
+        renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
         setButtonLoading(els.instagramTestButton, false)

@@ -102,6 +102,7 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/appointments\/[^/]+\/(?:finance|estimated-total|discount|payments)$/.test(path)
     || /^\/businesses\/[^/]+$/.test(path)
     || /^\/businesses\/[^/]+\/(?:payment-settings|whatsapp-settings|instagram-settings)$/.test(path)
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-settings\/test$/.test(path))
     || isInstagramPublicationWorkspaceRoute(method, path)
 }
 

@@ -46,8 +46,9 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
     let account: Awaited<ReturnType<InstagramApi['getAccount']>>
     try {
       account = await instagramApi.getAccountById({ accountId: instagramAccountId, accessToken })
-    } catch (error) {
-      return reply.status(400).send({ message: error instanceof Error ? error.message : 'No pude validar el token de Instagram.' })
+    } catch {
+      // Provider messages can contain credentials; do not reflect them to the browser.
+      return reply.status(400).send({ message: 'No pude comprobar la cuenta configurada de Instagram. Revisa el ID y el token.' })
     }
 
     const tokenExpiresAt = parseOptionalDate(body.tokenExpiresAt)
@@ -80,26 +81,35 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
         connectedAt: new Date(),
         lastError: business.publicWhatsapp ? null : 'Falta cargar el WhatsApp publico del comercio para derivar reservas.'
       }
-    })
-    return presentSettings(settings, business.publicWhatsapp)
+    }).catch(() => null)
+    if (!settings) {
+      return reply.status(500).send({ message: 'No pude guardar la conexion de Instagram. Volve a intentar.' })
+    }
+    return presentSettings(settings, business.publicWhatsapp, { status: 'verified', checkedAt: new Date() })
   })
 
   app.post('/businesses/:id/instagram-settings/test', async (request, reply) => {
     const params = request.params as { id: string }
     if (!await canAccessBusiness(request, params.id)) return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
-    const settings = await prisma.businessInstagramConfig.findUnique({ where: { businessId: params.id } })
-    if (!settings?.accessToken) return reply.status(409).send({ message: 'Instagram todavia no esta conectado.' })
+    const business = await prisma.business.findUnique({
+      where: { id: params.id },
+      select: { publicWhatsapp: true, instagramConfig: true }
+    })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    const settings = business.instagramConfig
+    if (!settings?.accessToken || !settings.instagramAccountId) return reply.status(409).send({ message: 'Instagram todavia no esta conectado.' })
     try {
-      const account = await instagramApi.getAccount({ accessToken: settings.accessToken })
-      await prisma.businessInstagramConfig.update({
+      const account = await instagramApi.getAccountById({ accountId: settings.instagramAccountId, accessToken: settings.accessToken })
+      const updated = await prisma.businessInstagramConfig.update({
         where: { businessId: params.id },
-        data: { apiAccountId: account.id, username: account.username, lastError: null }
+        data: { apiAccountId: account.id, username: account.username }
       })
-      return { ok: true, account }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'No pude validar Instagram.'
-      await prisma.businessInstagramConfig.update({ where: { businessId: params.id }, data: { lastError: message } })
-      return reply.status(400).send({ message })
+      return { ok: true, account, ...presentSettings(updated, business.publicWhatsapp, { status: 'verified', checkedAt: new Date() }) }
+    } catch {
+      return reply.status(400).send({
+        message: 'No pude comprobar la cuenta configurada de Instagram. Revisa el ID y el token.',
+        ...presentSettings(settings, business.publicWhatsapp, { status: 'failed', checkedAt: new Date() })
+      })
     }
   })
 }
@@ -116,7 +126,8 @@ function presentSettings(
     connectedAt: Date | null
     lastError: string | null
   } | null,
-  publicWhatsapp: string | null
+  publicWhatsapp: string | null,
+  verification: { status: 'not_checked' | 'verified' | 'failed'; checkedAt: Date | null } = { status: 'not_checked', checkedAt: null }
 ) {
   return {
     connection: settings
@@ -128,7 +139,12 @@ function presentSettings(
           hasAppSecret: Boolean(settings.appSecret),
           tokenExpiresAt: settings.tokenExpiresAt,
           connectedAt: settings.connectedAt,
-          lastError: settings.lastError
+          lastError: redactStoredError(settings),
+          verification,
+          expiry: {
+            status: !settings.tokenExpiresAt ? 'unknown' : settings.tokenExpiresAt.getTime() <= Date.now() ? 'declared_expired' : 'declared_future',
+            source: 'manual'
+          }
         }
       : {
           connected: false,
@@ -138,8 +154,12 @@ function presentSettings(
           hasAppSecret: false,
           tokenExpiresAt: null,
           connectedAt: null,
-          lastError: null
+          lastError: null,
+          verification,
+          expiry: { status: 'unknown', source: 'manual' }
         },
+    // Reading a profile proves none of these permissions or runtime prerequisites.
+    capabilities: ['insights', 'publishing', 'comments', 'messages'].map((id) => ({ id, status: 'unknown' })),
     enabled: settings?.enabled ?? false,
     redirectReady: Boolean(String(publicWhatsapp ?? '').replace(/\D/g, '')),
     webhook: {
@@ -147,6 +167,14 @@ function presentSettings(
       verifyToken: instagramConfig.verifyToken
     }
   }
+}
+
+function redactStoredError(settings: { lastError: string | null; accessToken: string | null; appSecret: string | null }) {
+  let message = settings.lastError
+  for (const secret of [settings.accessToken, settings.appSecret]) {
+    if (message && secret) message = message.replaceAll(secret, '[oculto]').replaceAll(encodeURIComponent(secret), '[oculto]')
+  }
+  return message
 }
 
 async function canAccessBusiness(request: FastifyRequest, businessId: string) {
