@@ -85,8 +85,14 @@ export class PrismaInstagramMediaRepository implements InstagramMediaRepository 
         await tx.instagramMediaInsight.create({ data: { ...scope, mediaId: row.id, observedAt: observation.observedAt,
           apiVersion: observation.apiVersion, status: observation.status, errorCode: observation.errorCode, periods: observation.periods, ...observation.values } })
       }
-      if (input.nextCursor) await tx.instagramMediaSync.update({ where: { id: session.id }, data: { after: input.nextCursor, seenCursors: { push: input.nextCursor }, claimToken: null, claimUntil: null } })
-      else await tx.instagramMediaSync.delete({ where: { id: session.id } })
+      // The lease can be recovered after the read above. Fence the final mutation too;
+      // throwing here rolls back the entire page instead of clearing the new owner.
+      const ownership = { id: session.id, ...scope, claimToken: input.claim.claimToken,
+        expiresAt: { gt: input.now }, claimUntil: { gt: input.now } }
+      const settled = input.nextCursor
+        ? await tx.instagramMediaSync.updateMany({ where: ownership, data: { after: input.nextCursor, seenCursors: { push: input.nextCursor }, claimToken: null, claimUntil: null } })
+        : await tx.instagramMediaSync.deleteMany({ where: ownership })
+      if (settled.count !== 1) throw conflict()
     }, { timeout: 10000 })
   }
 

@@ -25,6 +25,7 @@ export async function instagramMediaRoutes(app: FastifyInstance, options: { serv
         if (query[name] !== undefined) {
           const value = query[name]
           if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) throw invalid()
+          if (value.includes('T') && !/(?:Z|[+-]\d{2}:?\d{2})$/.test(value)) throw invalid()
           const parsed = new Date(value)
           if (!Number.isFinite(parsed.getTime())) throw invalid()
           const calendarDay = new Date(value.slice(0, 10) + 'T00:00:00.000Z')

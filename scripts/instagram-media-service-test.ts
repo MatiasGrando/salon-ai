@@ -11,6 +11,14 @@ const tables: Record<string, any[]> = { media: [], observations: [], sessions: [
 const publications = [{ id: 'pub-a', businessId: 'business-a', metaMediaId: 'reel-a' }, { id: 'foreign-pub', businessId: 'business-b', metaMediaId: 'reel-a' }]
 let sequence = 0
 const events: string[] = []
+let beforeSessionMutation: (() => void) | null = null
+let rollbackState: Record<string, any[]> | null = null
+function interleaveSessionMutation(table: string) {
+  if (table !== 'sessions' || !beforeSessionMutation) return
+  const interleave = beforeSessionMutation
+  beforeSessionMutation = null
+  interleave()
+}
 function matches(row: any, where: any): boolean {
   return Object.entries(where ?? {}).every(([key, expected]: [string, any]) => {
     if (key === 'OR') return expected.some((clause: any) => matches(row, clause))
@@ -56,14 +64,16 @@ function delegate(table: string) {
       return row ? apply(row, update) : this.create({ data: create })
     },
     async update({ where, data }: any) {
+      interleaveSessionMutation(table)
       const row = rows().find((item) => matches(item, where)); assert.ok(row)
       events.push('write-' + table); return apply(row, data)
     },
     async updateMany({ where, data }: any) {
+      interleaveSessionMutation(table)
       const found = rows().filter((row) => matches(row, where)); found.forEach((row) => apply(row, data)); return { count: found.length }
     },
-    async delete({ where }: any) { tables[table] = rows().filter((row) => !matches(row, where)) },
-    async deleteMany({ where }: any) { tables[table] = rows().filter((row) => !matches(row, where)) }
+    async delete({ where }: any) { interleaveSessionMutation(table); tables[table] = rows().filter((row) => !matches(row, where)) },
+    async deleteMany({ where }: any) { interleaveSessionMutation(table); const count = rows().filter((row) => matches(row, where)).length; tables[table] = rows().filter((row) => !matches(row, where)); return { count } }
   }
 }
 const client: any = {
@@ -77,7 +87,9 @@ const client: any = {
   },
   async $transaction(callback: any) {
     const saved = structuredClone(tables)
+    rollbackState = saved
     try { return await callback(client) } catch (error) { Object.assign(tables, saved); throw error }
+    finally { rollbackState = null }
   }
 }
 const repository = new PrismaInstagramMediaRepository(client)
@@ -250,3 +262,34 @@ assert.equal(afterLate.lastInsightAttemptAt.toISOString(), currentAttempt.toISOS
 assert.equal(afterLate.lastSyncedAt.toISOString(), current.lastSyncedAt.toISOString(), 'metadata freshness cannot move backwards')
 assert.equal(afterLate.caption, current.caption, 'an older page cannot overwrite newer metadata')
 console.log('OK: expiry/lease recovery, stale owners, in-flight token rotation, mixed failures and out-of-order observations')
+
+// B recovers AFTER A validated the lease, immediately before A's final mutation.
+const lateTakeoverResults: any[] = []
+for (const nextCursor of ['continue-after-takeover', null]) {
+  const key = nextCursor ? 'continuing' : 'terminal'
+  const connection = (await repository.connection('business-a'))!
+  const claim = await repository.claim(connection, undefined, 'validated-owner-a-' + key, now)
+  const beforeMedia = tables.media!.length
+  const beforeObservations = tables.observations!.length
+  beforeSessionMutation = () => {
+    now = new Date(now.getTime() + 60001)
+    const session = tables.sessions!.find((row) => row.id === claim.id)!
+    apply(session, { claimToken: 'recovered-owner-b', claimUntil: new Date(now.getTime() + 60000) })
+    // B's independently committed claim survives rollback of A's page transaction.
+    const committed = rollbackState!.sessions!.findIndex((row) => row.id === claim.id)
+    rollbackState!.sessions![committed] = structuredClone(session)
+  }
+  let rejected = false
+  try {
+    await repository.commit({ connection, claim, media: [media('late-takeover-' + key)], metadataObservedAt: now, nextCursor, now,
+      observations: [{ providerMediaId: 'late-takeover-' + key, observedAt: now, apiVersion: 'v25.0', values: { ...emptyInsights(), reach: 0 }, periods, status: 'partial', errorCode: null }] })
+  } catch (error) {
+    assert.match(String(error), /continuacion/)
+    rejected = true
+  }
+  const surviving = tables.sessions!.find((row) => row.id === claim.id)
+  lateTakeoverResults.push({ key, rejected, newOwnerPreserved: surviving?.claimToken === 'recovered-owner-b',
+    pageRolledBack: tables.media!.length === beforeMedia && tables.observations!.length === beforeObservations })
+}
+assert.deepEqual(lateTakeoverResults, ['continuing', 'terminal'].map((key) => ({ key, rejected: true, newOwnerPreserved: true, pageRolledBack: true })), 'a late takeover must fence both final mutations and roll back page writes')
+console.log('OK: takeover between ownership read and final mutation preserves B and rolls back A for both page types')

@@ -37,13 +37,17 @@ try {
   assert.equal(calls.at(-1)?.args[1].kind, 'REELS')
   assert.equal(calls.at(-1)?.args[1].limit, 5)
   assert.equal(calls.at(-1)?.args[1].from.toISOString(), '2026-01-01T00:00:00.000Z')
+  for (const [value, expected] of [['2026-01-01T00:30:00+03:00', '2025-12-31T21:30:00.000Z'], ['2026-12-31T23:30:00-03:00', '2027-01-01T02:30:00.000Z'], ['2026-01-01T00:00:00Z', '2026-01-01T00:00:00.000Z']]) {
+    assert.equal((await request('GET', base + '?from=' + encodeURIComponent(value!))).statusCode, 200)
+    assert.equal(calls.at(-1)?.args[1].from.toISOString(), expected)
+  }
   assert.equal((await request('POST', base + '/sync')).statusCode, 200)
   assert.equal((await request('POST', base + '/sync', { continuation: '12345678-1234-4234-8234-123456789abc' })).statusCode, 200)
   assert.equal(calls.at(-1)?.args[1], '12345678-1234-4234-8234-123456789abc')
   assert.equal((await request('GET', base + '/catalogue-id/history?limit=5&offset=1')).statusCode, 200)
   assert.deepEqual(calls.at(-1)?.args, ['business-a', 'catalogue-id', 5, 1])
   const beforeInvalid = calls.length
-  for (const query of ['limit=0', 'limit=101', 'offset=-1', 'sort=accessToken', 'kind=VIDEO', 'from=oops', 'from=2026-02-30', 'from=2026-12-31&to=2026-01-01']) {
+  for (const query of ['limit=0', 'limit=101', 'offset=-1', 'sort=accessToken', 'kind=VIDEO', 'from=oops', 'from=2026-02-30', 'from=2026-12-31&to=2026-01-01', 'from=2026-10-24T10:00:00', 'to=2026-10-24T10:00', 'from=2026-10-24T10:00:00.000']) {
     assert.equal((await request('GET', base + '?' + query)).statusCode, 400, query)
   }
   for (const body of [{ continuation: 'https://evil.test/' }, { continuation: 123 }, []]) assert.equal((await request('POST', base + '/sync', body)).statusCode, 400)
