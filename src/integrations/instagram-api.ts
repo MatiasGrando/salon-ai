@@ -1,4 +1,5 @@
 import { instagramConfig } from '../config/instagram.js'
+import { INSTAGRAM_INSIGHT_METRICS, INSTAGRAM_MEDIA_PAGE_SIZE, parseInsights, parseMediaPage } from '../services/instagram-media-domain.js'
 
 type MetaErrorBody = {
   error?: {
@@ -39,6 +40,26 @@ export class InstagramApiRequestError extends Error {
 
 export class InstagramApi {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
+
+  async listMedia(input: { accountId: string; accessToken: string; after?: string | null }) {
+    this.assertMediaResourceId(input.accountId)
+    const url = this.resourceUrl(input.accountId, 'media')
+    url.searchParams.set('fields', 'id,caption,media_type,media_product_type,permalink,thumbnail_url,timestamp')
+    url.searchParams.set('limit', String(INSTAGRAM_MEDIA_PAGE_SIZE))
+    if (input.after) url.searchParams.set('after', input.after)
+    const body = await this.request(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudo consultar el contenido de Instagram.')
+    return parseMediaPage(body, input.accessToken)
+  }
+
+  async getReelInsights(input: { mediaId: string; accessToken: string }) {
+    this.assertMediaResourceId(input.mediaId)
+    // views replaced legacy play metrics from v22; do not silently upgrade the configured API.
+    if (Number(instagramConfig.apiVersion.match(/^v(\d+)\./)?.[1] ?? 0) < 22) throw new Error('unsupported_api_version')
+    const url = this.resourceUrl(input.mediaId, 'insights')
+    url.searchParams.set('metric', INSTAGRAM_INSIGHT_METRICS.join(','))
+    const body = await this.request(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudieron consultar las metricas de Instagram.')
+    return parseInsights(body)
+  }
 
   async getAccount(input: { accessToken: string }) {
     return this.getAccountById({ accountId: 'me', accessToken: input.accessToken })
@@ -182,6 +203,10 @@ export class InstagramApi {
     return new URL(
       `https://graph.instagram.com/${instagramConfig.apiVersion}/${encodeURIComponent(id)}${suffix}`
     )
+  }
+
+  private assertMediaResourceId(id: string) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new TypeError('Identificador de Instagram no valido.')
   }
 
   private authorization(accessToken: string) {

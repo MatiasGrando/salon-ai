@@ -941,6 +941,8 @@ model Business {
   whatsappConfig         BusinessWhatsAppConfig?
   instagramConfig        BusinessInstagramConfig?
   instagramPublications  InstagramPublication[]
+  instagramMedia         InstagramMedia[]
+  instagramMediaSyncs    InstagramMediaSync[]
   instagramAutomations   InstagramCommentAutomation[]
   instagramExecutions    InstagramCommentExecution[]
   featureSettings        BusinessFeatureSettings?
@@ -1478,6 +1480,73 @@ model InstagramPublication {
   @@index([status, availableAt])
   @@index([businessId, createdAt])
   @@index([claimedUntil])
+}
+
+model InstagramMedia {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, map: "InstagramMedia_business_fkey")
+  accountId String
+  providerMediaId String
+  caption String?
+  mediaType String?
+  mediaProductType String?
+  permalink String?
+  thumbnailUrl String?
+  publishedAt DateTime?
+  cataloguedAt DateTime @default(now())
+  lastSyncedAt DateTime
+  lastInsightAttemptAt DateTime?
+  insightsStatus String @default("not_applicable")
+  insightsErrorCode String?
+  views Float?
+  reach Float?
+  likes Float?
+  comments Float?
+  shares Float?
+  saved Float?
+  total_interactions Float?
+  metricObservedAt Json @default("{}")
+  snapshots InstagramMediaInsight[]
+  @@unique([businessId, accountId, providerMediaId])
+  @@unique([businessId, accountId, id])
+  @@index([businessId, accountId, publishedAt])
+}
+
+model InstagramMediaInsight {
+  id String @id @default(cuid())
+  businessId String
+  accountId String
+  mediaId String
+  media InstagramMedia @relation(fields: [businessId, accountId, mediaId], references: [businessId, accountId, id], onDelete: Cascade, map: "InstagramMediaInsight_scope_fkey")
+  observedAt DateTime
+  apiVersion String
+  status String
+  errorCode String?
+  periods Json @default("{}")
+  views Float?
+  reach Float?
+  likes Float?
+  comments Float?
+  shares Float?
+  saved Float?
+  total_interactions Float?
+  @@index([businessId, accountId, mediaId, observedAt], map: "InstagramMediaInsight_scope_observedAt_idx")
+}
+
+// Short-lived, explicit page continuation. No worker, source video or provider URL.
+model InstagramMediaSync {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, map: "InstagramMediaSync_business_fkey")
+  accountId String
+  credentialHash String
+  after String?
+  seenCursors String[] @default([])
+  expiresAt DateTime
+  claimToken String?
+  claimUntil DateTime?
+  @@index([businessId, expiresAt])
 }
 
 model InstagramCommentAutomation {

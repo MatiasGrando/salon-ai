@@ -35,6 +35,7 @@ import { scheduleBlockRoutes } from './routes/schedule-block.js'
 import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { instagramWebhookRoutes } from './routes/instagram-webhook.js'
 import { instagramSettingsRoutes } from './routes/instagram-settings.js'
+import { instagramMediaRoutes } from './routes/instagram-media.js'
 import { instagramPublicationRoutes } from './routes/instagram-publications.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
@@ -174,6 +175,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(businessRoutes)
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
+  await app.register(instagramMediaRoutes)
   await app.register(instagramPublicationRoutes, {
     runtimeReady: instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
