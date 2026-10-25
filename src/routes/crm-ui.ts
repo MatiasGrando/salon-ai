@@ -10,6 +10,7 @@ import {
   cashRegisterStyles
 } from './crm-ui/cash-register.js'
 import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipeline.js'
+import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from './crm-ui/instagram-media.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -3985,6 +3986,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .conversation-channel.instagram { background: #fdf2f8; color: #be185d; }
+
+    ${instagramMediaStyles}
 
     .instagram-reels-manager {
       display: grid;
@@ -18189,10 +18192,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <section class="instagram-reels-toolbar">
             <div>
               <h3>Reels de Instagram</h3>
-              <p>Prepar&aacute; el Reel y activ&aacute; una respuesta privada cuando un comentario incluya tus palabras clave.</p>
+              <p>Consult&aacute; el alcance de tus publicaciones y prepar&aacute; nuevos Reels.</p>
             </div>
             <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
+          ${instagramMediaMarkup}
+          <div class="instagram-media-local-heading"><h4>Creaciones del CRM pendientes de sincronizar</h4><p>Borradores, publicaciones en proceso y Reels publicados que todav&iacute;a no est&aacute;n en el cat&aacute;logo de arriba.</p></div>
           <p class="instagram-reel-feedback" id="instagram-reels-feedback" role="status" aria-live="polite"></p>
           <div class="instagram-reels-table-wrap">
             <table class="instagram-reels-table">
@@ -20266,6 +20271,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       marketingView: 'templates',
       instagramReels: [],
       instagramReelsLoaded: false,
+      instagramMedia: null,
+      instagramMediaGeneration: 0,
       instagramReelKeywords: [],
       instagramReelPreviewUrl: null,
       settingsView: 'commerce',
@@ -22353,6 +22360,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.businessId = profile.id
         state.instagramReels = []
         state.instagramReelsLoaded = false
+        resetInstagramMediaState()
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
         renderLandingSettings()
@@ -22373,6 +22381,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessId = null
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       hydrateWorkspaceNav()
       state.settingsView = 'admin'
       setSection('settings')
@@ -22386,6 +22395,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessId = state.currentSessionBusiness.id
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       try {
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
@@ -23951,9 +23961,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.whatsappSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
-      state.instagramSettings = state.businessId && !isStaff && !isSalesAdminDemo
-        ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
+      const instagramSettingsBusinessId = state.businessId
+      const instagramSettingsGeneration = state.instagramMediaGeneration || 0
+      const instagramSettings = instagramSettingsBusinessId && !isStaff && !isSalesAdminDemo
+        ? await getJson('/businesses/' + instagramSettingsBusinessId + '/instagram-settings')
         : null
+      if (instagramSettingsBusinessId === state.businessId && instagramSettingsGeneration === (state.instagramMediaGeneration || 0)) {
+        state.instagramSettings = instagramSettings
+        instagramMediaObserveAccount(instagramSettings?.connection?.instagramAccountId || null)
+      }
       if (!isStaff) {
         state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
         state.botRouting = state.businessId
@@ -24100,6 +24116,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.campaignsLoaded = false
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       state.campaignAudiences = {}
       state.campaignDeliveries = {}
       state.campaignSimulations = {}
@@ -29614,6 +29631,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveInstagramSettings(event) {
       event.preventDefault()
       if (!state.businessId) return
+      const businessId = state.businessId
+      const generation = state.instagramMediaGeneration || 0
       clearInstagramSettingsFeedback()
       const payload = {
         instagramAccountId: els.instagramAccountId.value.trim(),
@@ -29639,14 +29658,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!setButtonLoading(els.instagramTechnicalSubmit, true, 'Validando...')) return
       try {
-        state.instagramSettings = await getJson('/businesses/' + state.businessId + '/instagram-settings', {
+        const saved = await getJson('/businesses/' + businessId + '/instagram-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         })
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
+        resetInstagramMediaState()
+        state.instagramSettings = saved
         renderInstagramSettings()
         showInstagramSettingsFeedback('Conexión guardada y consulta de cuenta comprobada. Permisos sin verificar.', 'success')
       } catch (error) {
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
         renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
@@ -29673,14 +29696,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function testInstagramConnection() {
       if (!state.businessId) return
+      const businessId = state.businessId
+      const generation = state.instagramMediaGeneration || 0
       clearInstagramSettingsFeedback()
       if (!setButtonLoading(els.instagramTestButton, true, 'Probando...')) return
       try {
-        const result = await getJson('/businesses/' + state.businessId + '/instagram-settings/test', { method: 'POST' })
+        const result = await getJson('/businesses/' + businessId + '/instagram-settings/test', { method: 'POST' })
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
+        instagramMediaObserveAccount(result.connection?.instagramAccountId || null)
         state.instagramSettings = result
         renderInstagramSettings()
         showInstagramSettingsFeedback('Cuenta comprobada. Los permisos siguen sin verificar.', 'success')
       } catch (error) {
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
         if (error.body?.connection) state.instagramSettings = error.body
         else if (state.instagramSettings?.connection) state.instagramSettings.connection.verification = { status: 'failed', checkedAt: null }
         renderInstagramSettings()
@@ -34330,6 +34358,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
     const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
 
+    ${instagramMediaScript}
+
     function instagramReelStatusMeta(status) {
       const statuses = {
         DRAFT: { label: 'Borrador', tone: 'draft' },
@@ -34345,11 +34375,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderInstagramReels() {
-      if (!state.instagramReels.length) {
+      const linked = new Set(state.instagramMedia?.data?.linkedPublicationIds || [])
+      const local = state.instagramReels.filter((publication) => !linked.has(publication.id))
+      if (!local.length) {
         els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Todav&iacute;a no hay Reels preparados.</td></tr>'
         return
       }
-      els.instagramReelsTableBody.innerHTML = state.instagramReels.map((publication) => {
+      els.instagramReelsTableBody.innerHTML = local.map((publication) => {
         const status = instagramReelStatusMeta(publication.status)
         const keywords = Array.isArray(publication.automation?.keywords)
           ? publication.automation.keywords.map((keyword) => escapeHtml(keyword.value || '')).filter(Boolean).join(', ')
@@ -34372,7 +34404,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function refreshInstagramPublication(publicationId) {
       if (!state.businessId || !state.instagramReelsLoaded) return
+      const context = instagramMediaContext()
       const publication = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications/' + encodeURIComponent(publicationId))
+      if (!instagramMediaCurrent(context)) return
       const index = state.instagramReels.findIndex((item) => item.id === publicationId)
       if (index >= 0) state.instagramReels.splice(index, 1, publication)
       else state.instagramReels.unshift(publication)
@@ -34400,23 +34434,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function loadInstagramReels(options = {}) {
       if (!state.businessId) return
+      const context = instagramMediaContext()
       if (!options.silent) {
         els.instagramReelsFeedback.textContent = ''
-        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando Reels...</td></tr>'
+        if (!state.instagramReels.length) els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando creaciones del CRM...</td></tr>'
       }
-      try {
-        const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
-        state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
-        state.instagramReelsLoaded = true
-        renderInstagramReels()
-      } catch (error) {
-        if (!options.silent) {
-          state.instagramReels = []
-          els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">No pudimos cargar los Reels.</td></tr>'
-          els.instagramReelsFeedback.textContent = error.message
-          els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+      await Promise.allSettled([loadInstagramMediaCatalogue(), (async () => {
+        try {
+          const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
+          if (!instagramMediaCurrent(context)) return
+          state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
+          state.instagramReelsLoaded = true
+          renderInstagramReels()
+        } catch (error) {
+          if (!instagramMediaCurrent(context)) return
+          if (!options.silent) {
+            renderInstagramReels()
+            els.instagramReelsFeedback.textContent = 'No pudimos leer las creaciones del CRM. El catálogo de Instagram sigue disponible.'
+            els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+          }
         }
-      }
+      })()])
     }
 
     function instagramReelMimeType(file) {
@@ -34629,6 +34667,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function setMarketingView(view) {
+      if (view !== 'instagram-reels' && state.instagramMedia?.syncing) pauseInstagramMediaSync()
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
       els.templateManager.hidden = view !== 'templates'
@@ -34646,10 +34685,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'instagram-reels') {
         document.querySelector('.campaigns-title h2').textContent = 'Instagram Reels'
-        document.querySelector('.campaigns-title p').textContent = 'Publicá videos y convertí comentarios con palabras clave en conversaciones privadas.'
+        document.querySelector('.campaigns-title p').textContent = 'Consultá alcance y vistas orgánicas, sincronizá publicaciones y prepará nuevos Reels.'
         els.campaignSearch.hidden = true
         els.campaignNew.hidden = true
-        if (!state.instagramReelsLoaded) loadInstagramReels()
+        if (!state.instagramReelsLoaded || !state.instagramMedia?.loaded) loadInstagramReels()
       } else if (view === 'reminders') {
         els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'
@@ -38115,6 +38154,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (event.target === els.instagramReelDialog) closeInstagramReelDialog()
     })
     els.instagramReelForm.addEventListener('submit', submitInstagramReel)
+    bindInstagramMediaControls()
     els.instagramReelVideo.addEventListener('change', readInstagramReelVideo)
     els.instagramReelKeywordAdd.addEventListener('click', addInstagramReelKeyword)
     els.instagramReelKeywordInput.addEventListener('keydown', (event) => {

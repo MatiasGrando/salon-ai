@@ -14,7 +14,7 @@ function fn(name: string) {
   assert.ok(match, 'expected existing UI function ' + name)
   return inline.slice(match.index, inline.indexOf('\n    }', match.index) + 6)
 }
-const names = ['renderInstagramSettings', 'showInstagramSettingsFeedback', 'clearInstagramSettingsFeedback', 'saveInstagramSettings', 'testInstagramConnection', 'getJson']
+const names = ['renderInstagramSettings', 'showInstagramSettingsFeedback', 'clearInstagramSettingsFeedback', 'saveInstagramSettings', 'testInstagramConnection', 'getJson', 'resetInstagramMediaState', 'instagramMediaObserveAccount']
 const script = names.map(fn).join('\n')
 const node = () => ({ textContent: '', className: '', innerHTML: '', value: '', checked: false, disabled: false, classList: { toggle() {} } })
 const els: any = new Proxy({}, { get(target: any, key) { return target[key] ??= node() } })

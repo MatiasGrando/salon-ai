@@ -125,4 +125,16 @@ Se solicitan los contadores orgánicos `views,reach,likes,comments,shares,saved,
 
 La documentación vigente introduce `views` el 21 de enero de 2025 y depreca métricas de reproducciones anteriores desde v22. La integración conserva la versión configurada (actualmente v25.0); versiones anteriores a v22 dejan insights no disponibles, sin actualización silenciosa. La matriz vigente documenta los siete contadores para Reels, pero no garantiza disponibilidad para toda cuenta o versión futura. Errores de permisos/versión/cuota se muestran sin inventar números ni exponer mensajes originales. Referencias primarias: https://developers.facebook.com/documentation/instagram-platform/changelog , https://developers.facebook.com/documentation/instagram-platform/reference/instagram-media/insights y https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/get-started .
 
-Verificación local sin cuentas reales ni base remota: `npm run test:instagram-media`, incluido en `npm run test:instagram-reels`. La primera unidad aporta exclusivamente API y persistencia; la tabla y sus controles del CRM se entregan en SOC-2B.
+Verificación local sin cuentas reales ni base remota: `npm run test:instagram-media`, incluido en `npm run test:instagram-reels`.
+
+## 9. Consulta del catálogo en el CRM
+
+En **Marketing → Instagram Reels**, la tabla de publicaciones importadas muestra alcance y vistas orgánicas, con interacciones desplegables. Cada valor conserva su fecha individual de observación; **Sin datos** no equivale a cero. El último intento puede ser parcial o fallido mientras siguen visibles valores anteriores. El historial se abre a pedido y pagina observaciones reales desde la primera sincronización.
+
+Los filtros **Publicado desde/hasta** seleccionan fechas de publicación, no ventanas de medición. El navegador convierte los límites del día local en instantes ISO con zona. El orden permite publicación reciente, mayor alcance o vistas; los desconocidos quedan al final según el contrato del catálogo. La paginación de datos guardados y la continuación de importación son independientes.
+
+**Releer datos guardados** solo consulta la caché. **Sincronizar Instagram** inicia explícitamente una cadena de páginas acotadas y muestra publicaciones procesadas. **Pausar**, cambiar de sección o esconder la pestaña detiene nuevas páginas al terminar la petición en curso. Ante error se pausa y, cuando existe una continuación vigente, se ofrece continuar; una continuación vencida requiere comenzar otra sincronización. No hay sincronización automática desde apertura, SSE o polling.
+
+Las creaciones del CRM se mantienen separadas: borradores, cola y publicaciones todavía no importadas. Los vínculos globales excluyen duplicados incluso cuando la fila importada está en otra página o fuera del filtro. Una indisponibilidad del almacenamiento de publicaciones no impide consultar el catálogo; errores de lectura conservan la última caché. Cambiar comercio, demo, cuenta o guardar credenciales invalida continuaciones e historial y descarta respuestas tardías.
+
+Prueba de interacción local: `npm run test:instagram-media-ui`, incluida en el agregado de Reels. La fixture neutral se genera con `tsx scripts/instagram-media-ui-fixture.ts <directorio-local>`; reutiliza markup, estilos, funciones y bindings de producción con respuestas falsas. No abre una sesión de cliente ni llama a Meta. Esta fixture no sustituye una verificación del CRM completo ni acredita una prueba visual hasta observar el navegador.
