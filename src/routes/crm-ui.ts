@@ -34396,8 +34396,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<td><strong>' + (caption ? escapeHtml(caption) : 'Reel sin descripci&oacute;n') + '</strong><small>' + (publication.shareToFeed ? 'Reel y feed' : 'Solo Reels') + '</small></td>' +
           '<td>' + (publication.automation?.enabled ? 'Activa' : 'Pausada') + '</td>' +
           '<td>' + (keywords || 'Sin palabras clave') + '</td>' +
-          '<td>Mensaje privado</td>' +
-          '<td><div class="instagram-reel-row-actions"><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span>' + deleteLabel + '</div></td>' +
+          '<td>' + (publication.status === 'PUBLISHED' ? 'Respuestas por palabra clave' : 'Mensaje privado') + '</td>' +
+          '<td><div class="instagram-reel-row-actions"><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span>' + deleteLabel + (publication.status === 'PUBLISHED' ? '<button type="button" data-instagram-automation="publications" data-instagram-automation-id="' + escapeHtml(publication.id) + '">Configurar respuestas</button>' : '') + '</div></td>' +
         '</tr>'
       }).join('')
     }
@@ -34667,6 +34667,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function setMarketingView(view) {
+      if (view !== 'instagram-reels') instagramMediaAutomationClose(false)
       if (view !== 'instagram-reels' && state.instagramMedia?.syncing) pauseInstagramMediaSync()
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
@@ -36753,6 +36754,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       els.appShell.dataset.section = section
+      if (section !== 'campaigns') instagramMediaAutomationClose(false)
       document.body.dataset.currentSection = section
       const mobileTitle = document.getElementById('mobile-current-section-title')
       if (mobileTitle) {

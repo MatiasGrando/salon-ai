@@ -25,6 +25,7 @@ let response: any = null
 const requests: string[] = []
 const requestOptions: any[] = []
 const context = { state, els, window: { location: { origin: 'https://fixture.invalid' } },
+  document: { getElementById: () => null },
   toDatetimeLocalValue: (value: string) => value.slice(0, 16),
   setButtonLoading: () => true,
   buildGetJsonRequestOptions: (options: unknown) => options,

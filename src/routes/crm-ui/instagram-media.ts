@@ -1,4 +1,7 @@
+import { instagramAutomationMarkup, instagramAutomationScript, instagramAutomationStyles } from './instagram-automation.js'
+
 export const instagramMediaStyles = `
+    ${instagramAutomationStyles}
     .instagram-media-panel { min-width: 0; display: grid; gap: 14px; padding: 18px; border: 1px solid #dce3ef; border-radius: 14px; background: #fff; }
     .instagram-media-panel h4, .instagram-media-history h4 { margin: 0; color: #17213a; font-size: 16px; }
     .instagram-media-panel p { margin: 0; color: #52617b; font-size: 13px; line-height: 1.5; }
@@ -48,11 +51,15 @@ export const instagramMediaMarkup = `
               <div class="instagram-media-table-wrap"><table class="instagram-media-table"><thead><tr><th>Observado</th><th>Estado</th><th>Alcance</th><th>Vistas</th><th>Me gusta</th><th>Comentarios</th><th>Compartidos</th><th>Guardados</th><th>Interacciones</th></tr></thead><tbody id="instagram-media-history-body"></tbody></table></div>
               <div class="instagram-media-pagination"><button id="instagram-media-history-prev" type="button">Observaciones anteriores</button><span id="instagram-media-history-summary"></span><button id="instagram-media-history-next" type="button">M&aacute;s observaciones</button></div>
             </section>
+            ${instagramAutomationMarkup}
           </section>
 `
 
 export const instagramMediaScript = String.raw`
+    ${instagramAutomationScript}
     function resetInstagramMediaState() {
+      state.instagramMedia?.automation?.controller.abort()
+      document.getElementById('instagram-automation-panel')?.setAttribute('hidden', '')
       state.instagramMedia = null
       state.instagramMediaGeneration = (state.instagramMediaGeneration || 0) + 1
     }
@@ -130,7 +137,7 @@ export const instagramMediaScript = String.raw`
           '<td>' + instagramMediaHtml(instagramMediaDate(row.publishedAt)) + '</td><td>' + instagramMediaMetric(row, 'reach') + '</td><td>' + instagramMediaMetric(row, 'views') + '</td>' +
           '<td><details><summary>Ver interacciones</summary><dl class="instagram-media-secondary">' + secondary + '</dl></details></td>' +
           '<td>' + instagramMediaHtml(instagramMediaStatus(row.insightsStatus)) + '<small>Intento: ' + instagramMediaHtml(instagramMediaDate(row.lastInsightAttemptAt)) + '</small></td>' +
-          '<td><button type="button" data-instagram-media-history="' + instagramMediaHtml(row.id) + '">Ver historial</button></td></tr>'
+          '<td><button type="button" data-instagram-media-history="' + instagramMediaHtml(row.id) + '">Ver historial</button> <button type="button" data-instagram-automation="media" data-instagram-automation-id="' + instagramMediaHtml(row.id) + '">Configurar respuestas</button></td></tr>'
       }).join('') : '<tr><td colspan="7">' + (m.loading ? 'Cargando datos guardados...' : m.accountId ? 'Sin Reels para estas fechas. Pod&eacute;s sincronizar Instagram.' : 'Conect&aacute; Instagram en Ajustes para importar tus Reels.') + '</td></tr>'
       nodes.feedback.textContent = m.error || m.message || (m.loading ? 'Leyendo datos guardados...' : 'Los datos guardados se actualizan solo con Sincronizar Instagram.')
       nodes.feedback.className = 'instagram-media-feedback' + (m.error ? ' error' : '')
@@ -280,6 +287,7 @@ export const instagramMediaScript = String.raw`
     }
 
     function bindInstagramMediaControls() {
+      instagramMediaAutomationBind()
       const nodes = instagramMediaNodes()
       nodes.filters.addEventListener('submit', applyInstagramMediaFilters)
       nodes.refresh.addEventListener('click', () => loadInstagramMediaCatalogue())

@@ -252,7 +252,7 @@ for (const transition of transitions) {
     businesses: [{ id: 'new-business', name: 'New' }], instagramMedia: { continuation, history: {}, offset: 25 },
     instagramMediaGeneration: 7, instagramReels: localRows, instagramReelsLoaded: true,
     conversationCache: new Map(), conversationMarketingCache: new Map(), conversationViewCache: new Map(), knownInboundMessageIds: new Set() }
-  const isolated: any = { state: transitionState, els, encodeURIComponent,
+  const isolated: any = { state: transitionState, els, encodeURIComponent, document: context.document,
     isSalesAccountAdministrator: () => true, isWorkshopBusiness: () => true,
     getJson: async () => ({ id: 'demo-business', name: 'Demo' }) }
   for (const name of ['loadBusinessScopedBasics', 'hydrateWorkspaceNav', 'renderLandingSettings', 'renderAiControls',

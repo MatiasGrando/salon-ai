@@ -276,7 +276,7 @@
     "test:instagram-hybrid": "tsx scripts/instagram-hybrid-contract-test.ts",
     "test:instagram-settings": "tsx scripts/instagram-settings-contract-test.ts && tsx scripts/instagram-settings-ui-test.ts",
     "test:instagram-media": "tsx scripts/instagram-media-api-test.ts && tsx scripts/instagram-media-service-test.ts && tsx scripts/instagram-media-migration-test.ts && tsx scripts/instagram-media-routes-test.ts && tsx scripts/instagram-media-wiring-test.ts && npm run test:instagram-media-ui",
-    "test:instagram-media-ui": "tsx scripts/instagram-media-ui-test.ts",
+    "test:instagram-media-ui": "tsx scripts/instagram-media-ui-test.ts && tsx scripts/instagram-automation-ui-test.ts",
     "test:instagram-comment-actions": "tsx scripts/instagram-comment-actions-test.ts && tsx scripts/instagram-comment-timing-test.ts && tsx scripts/instagram-comment-configuration-test.ts && tsx scripts/instagram-comment-migration-test.ts && tsx scripts/instagram-comment-routes-test.ts && tsx scripts/instagram-form-ref-contract-test.ts && npm run test:lead-form-submission",
     "test:instagram-reel-domain": "tsx scripts/instagram-reel-domain-contract-test.ts",
     "test:instagram-reel-migration": "tsx scripts/instagram-reel-migration-test.ts",
