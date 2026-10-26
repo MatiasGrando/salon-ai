@@ -75,7 +75,7 @@ assert.equal(tenantBStore.creates[0]?.businessId, 'business-b')
 const claimed: ClaimedInstagramComment = {
   id: 'execution-1', businessId: 'business-a', claimToken: 'claim-1', attempts: 1, maxAttempts: 3,
   providerCommentId: 'comment-1', commenterInstagramUserId: 'commenter-1', commenterUsername: 'ana',
-  commentText: 'precio'
+  commentText: 'precio', executionId: 'execution-1', kind: 'PRIVATE_REPLY'
 }
 
 class WorkerStore implements InstagramCommentWorkerStore {
@@ -107,7 +107,7 @@ const apiCalls: unknown[] = []
 const delivered = await new InstagramCommentWorker(deliveredStore, {
   async getComment() { return { id: 'comment-1', timestamp: '2026-09-12T00:00:00Z', from: { id: 'commenter-1' }, media: { id: 'provider-a' } } },
   async sendPrivateReply(input) { apiCalls.push(input); return { messageId: 'message-1', recipientId: 'commenter-1' } }
-}).processOne(new Date('2026-09-13T00:00:00Z'))
+}, 30_000, () => new Date('2026-09-13T00:00:00Z')).processOne(new Date('2026-09-13T00:00:00Z'))
 assert.equal(delivered, 'SENT')
 assert.equal(apiCalls.length, 1)
 assert.deepEqual(deliveredStore.sent, {
@@ -158,13 +158,13 @@ const prismaStore = new PrismaInstagramCommentWorkerStore({
   instagramLead: { async upsert() { return { id: 'lead-db' } } },
   instagramMessage: { async create(input: any) { messageCreates.push(input) } },
   async $transaction(callback: (tx: any) => Promise<unknown>) { return callback(this) }
-} as any)
+} as any, undefined, () => new Date('2026-09-13T00:00:00Z'))
 const dbClaim = await prismaStore.claim(new Date('2026-09-13T00:00:00Z'), 45_000)
 assert.ok(dbClaim)
 assert.equal(updateCalls[0].where.businessId, 'business-db')
 assert.equal(updateCalls[0].data.status, 'CLAIMED')
 assert.equal(typeof updateCalls[0].data.claimToken, 'string')
-await prismaStore.markSending(dbClaim, new Date('2026-09-13T00:00:00Z'), 45_000)
+await prismaStore.markSending(dbClaim, 45_000, new Date('2026-09-12T00:00:00Z'))
 assert.deepEqual(
   { businessId: updateCalls[1].where.businessId, claimToken: updateCalls[1].where.claimToken, status: updateCalls[1].where.status },
   { businessId: 'business-db', claimToken: dbClaim.claimToken, status: 'CLAIMED' }

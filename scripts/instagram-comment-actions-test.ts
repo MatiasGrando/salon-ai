@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
-import { InstagramCommentWorker } from '../src/services/instagram-comment-worker.js'
+import { InstagramCommentWorker as ProductionInstagramCommentWorker } from '../src/services/instagram-comment-worker.js'
 import { PrismaInstagramCommentWorkerStore } from '../src/services/instagram-comment-worker.js'
 import { InstagramApi, InstagramApiRequestError } from '../src/integrations/instagram-api.js'
 
 const now = new Date('2026-10-26T12:00:00Z')
+class InstagramCommentWorker extends ProductionInstagramCommentWorker {
+  constructor(store: ConstructorParameters<typeof ProductionInstagramCommentWorker>[0], api: ConstructorParameters<typeof ProductionInstagramCommentWorker>[1]) {
+    super(store, api, 30_000, () => now)
+  }
+}
 const action: any = { id: 'action-public', executionId: 'execution-1', kind: 'PUBLIC_REPLY', businessId: 'business-a',
   claimToken: 'claim-a', attempts: 1, maxAttempts: 3, providerCommentId: 'comment-a',
   commenterInstagramUserId: 'user-a', commenterUsername: 'ana', commentText: 'precio' }
@@ -137,7 +142,7 @@ const client: any = {
   async $queryRaw() { return [] },
   async $transaction(callback: any) { return callback(this) }
 }
-const repository = new PrismaInstagramCommentWorkerStore(client)
+const repository = new PrismaInstagramCommentWorkerStore(client, undefined, () => now)
 assert.equal(await repository.loadConfiguration({ ...action, kind: 'PRIVATE_REPLY' }), null, 'invalid private form fails closed')
 persistedAction = { body: 'Respuesta publica', execution: parent }
 assert.equal((await repository.loadConfiguration(action))?.publicReplyText, 'Respuesta publica', 'invalid private template cannot suppress public action')
@@ -153,7 +158,7 @@ for (const change of ['pause', 'action-disabled', 'keywords-removed', 'publicati
   parent.automation.enabled = true; parent.automation.publicReplyEnabled = true
   parent.automation.keywords = [{ normalizedValue: 'precio' }]; parent.publication = null; configMatch = true
   let sends = 0
-  const guarded = new PrismaInstagramCommentWorkerStore(client)
+  const guarded = new PrismaInstagramCommentWorkerStore(client, undefined, () => now)
   guarded.claim = async () => action
   const result = await new InstagramCommentWorker(guarded, { async getComment() {
     if (change === 'pause') parent.automation.enabled = false

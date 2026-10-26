@@ -17,8 +17,8 @@ export type ClaimedInstagramComment = {
   commenterInstagramUserId: string
   commenterUsername: string | null
   commentText: string
-  executionId?: string
-  kind?: 'PUBLIC_REPLY' | 'PRIVATE_REPLY'
+  executionId: string
+  kind: 'PUBLIC_REPLY' | 'PRIVATE_REPLY'
 }
 
 export type InstagramCommentDeliveryConfiguration = {
@@ -43,7 +43,7 @@ export type CompleteInstagramCommentInput = {
 export interface InstagramCommentWorkerStore {
   claim(now: Date, leaseMs: number): Promise<ClaimedInstagramComment | null>
   loadConfiguration(execution: ClaimedInstagramComment): Promise<InstagramCommentDeliveryConfiguration | null>
-  markSending(execution: ClaimedInstagramComment, now: Date, leaseMs: number): Promise<boolean>
+  markSending(execution: ClaimedInstagramComment, leaseMs: number, commentCreatedAt: Date | null): Promise<boolean>
   completeSent(input: CompleteInstagramCommentInput): Promise<boolean>
   markRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date): Promise<boolean>
   markPreparationRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date): Promise<boolean>
@@ -70,13 +70,15 @@ export class InstagramCommentWorker {
   constructor(
     private readonly store: InstagramCommentWorkerStore,
     private readonly api: PrivateReplyApi,
-    private readonly leaseMs = DEFAULT_LEASE_MS
+    private readonly leaseMs = DEFAULT_LEASE_MS,
+    private readonly clock: () => Date = () => new Date()
   ) {}
 
-  async processOne(now = new Date()): Promise<InstagramCommentWorkerOutcome> {
+  async processOne(now = this.clock()): Promise<InstagramCommentWorkerOutcome> {
     await this.store.expireSendingLeases?.(now)
     const execution = await this.store.claim(now, this.leaseMs)
     if (!execution) return 'IDLE'
+    if (!validActionIdentity(execution)) return 'SKIPPED'
 
     const configuration = await this.store.loadConfiguration(execution)
     if (!configuration) {
@@ -84,15 +86,17 @@ export class InstagramCommentWorker {
       return 'SKIPPED'
     }
     const isPublic = execution.kind === 'PUBLIC_REPLY'
+    let commentCreatedAt: Date | null = null
     try {
       const metadata = await this.api.getComment?.({ commentId: execution.providerCommentId, accessToken: configuration.accessToken })
       const created = metadata?.timestamp && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(metadata.timestamp) ? Date.parse(metadata.timestamp) : NaN
+      commentCreatedAt = Number.isFinite(created) ? new Date(created) : null
       if (metadata?.parent_id || metadata?.id !== execution.providerCommentId || metadata?.from?.id !== execution.commenterInstagramUserId ||
         !configuration.providerMediaId || metadata?.media?.id !== configuration.providerMediaId) {
         await this.store.markSkipped(execution, 'No se pudo verificar la identidad y el origen del comentario.')
         return 'SKIPPED'
       }
-      if (!isPublic && (!Number.isFinite(created) || created > now.getTime() || now.getTime() - created >= 7 * 24 * 60 * 60 * 1000)) {
+      if (!isPublic && !privateReplyEligible(commentCreatedAt, this.clock())) {
         await this.store.markSkipped(execution, 'No se pudo acreditar la creacion dentro de los ultimos siete dias para responder por privado.')
         return 'SKIPPED'
       }
@@ -100,13 +104,17 @@ export class InstagramCommentWorker {
       const transientRead = !(error instanceof InstagramApiRequestError) || error.transient || error.httpStatus === null || error.httpStatus === 429 || (error.httpStatus !== null && error.httpStatus >= 500)
       if (transientRead && execution.attempts < execution.maxAttempts) {
         await this.store.markPreparationRetry(execution, 'No se pudo leer el comentario. Se reintentara sin haber enviado una respuesta.',
-          new Date(now.getTime() + retryDelay(execution.attempts)))
+          new Date(this.clock().getTime() + retryDelay(execution.attempts)))
         return 'RETRY'
       }
       await this.store.markSkipped(execution, 'No se pudo verificar el comentario en Instagram.')
       return 'SKIPPED'
     }
-    if (!await this.store.markSending(execution, now, this.leaseMs)) return 'UNKNOWN'
+    if (!await this.store.markSending(execution, this.leaseMs, commentCreatedAt)) return 'UNKNOWN'
+    if (!isPublic && !privateReplyEligible(commentCreatedAt, this.clock())) {
+      await this.store.markFailed(execution, 'La ventana privada vencio antes del envio; no se envio respuesta.')
+      return 'FAILED'
+    }
 
     let delivery: { messageId: string; recipientId: string | null }
     try {
@@ -128,7 +136,7 @@ export class InstagramCommentWorker {
         return 'UNKNOWN'
       }
       if (isDefinedRetryableDelivery(error) && execution.attempts < execution.maxAttempts) {
-        await this.store.markRetry(execution, message, new Date(now.getTime() + retryDelay(execution.attempts)))
+        await this.store.markRetry(execution, message, new Date(this.clock().getTime() + retryDelay(execution.attempts)))
         return 'RETRY'
       }
       await this.store.markFailed(execution, message)
@@ -179,7 +187,8 @@ type PrismaLike = {
 export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorkerStore {
   constructor(
     private readonly client: PrismaLike,
-    private readonly businessIds?: readonly string[]
+    private readonly businessIds?: readonly string[],
+    private readonly clock: () => Date = () => new Date()
   ) {}
 
   async claim(now: Date, leaseMs: number): Promise<ClaimedInstagramComment | null> {
@@ -255,6 +264,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
   }
 
   async loadConfiguration(execution: ClaimedInstagramComment): Promise<InstagramCommentDeliveryConfiguration | null> {
+    if (!validActionIdentity(execution)) return null
     const action = await this.client.instagramCommentAction.findFirst({
       where: {
         id: execution.id, businessId: execution.businessId,
@@ -297,7 +307,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       const ref = createInstagramFormRef(secret, {
         businessId: execution.businessId,
         formId: form.id,
-        executionId: execution.executionId!,
+        executionId: execution.executionId,
         expiresAt: Date.now() + 24 * 60 * 60 * 1000
       })
       privateReplyText = privateReplyText.replace(placeholder[0], `https://${binding.hostname}/f/${placeholder[1]}?ref=${ref}`)
@@ -313,7 +323,8 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
     }
   }
 
-  async markSending(execution: ClaimedInstagramComment, now: Date, leaseMs: number) {
+  async markSending(execution: ClaimedInstagramComment, leaseMs: number, commentCreatedAt: Date | null) {
+    if (!validActionIdentity(execution)) return false
     return this.client.$transaction(async (tx) => {
       await tx.$queryRaw!`SELECT "businessId" FROM "BusinessInstagramConfig" WHERE "businessId"=${execution.businessId} FOR UPDATE`
       const action = await tx.instagramCommentAction.findFirst({ where: fence(execution, 'CLAIMED'),
@@ -322,12 +333,17 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       const config = await tx.businessInstagramConfig.findFirst({ where: { businessId: execution.businessId,
         instagramAccountId: action.execution.receivedAccountId, enabled: true, accessToken: { not: null }, business: { accountStatus: 'ACTIVE' } } })
       if (!config) return false
+      // Read after lock acquisition AND awaited configuration reads. Never
+      // revive an expired claim using the time captured before provider I/O.
+      const now = this.clock()
+      if (execution.kind === 'PRIVATE_REPLY' && !privateReplyEligible(commentCreatedAt, now)) return false
       return (await tx.instagramCommentAction.updateMany({ where: { ...fence(execution, 'CLAIMED'), claimedUntil: { gt: now } },
         data: { status: 'SENDING', claimedUntil: new Date(now.getTime() + leaseMs) } })).count === 1
     })
   }
 
   async completeSent(input: CompleteInstagramCommentInput) {
+    if (!validActionIdentity(input.execution)) return false
     return this.client.$transaction(async (tx) => {
       const fenced = await tx.instagramCommentAction.updateMany({
         where: fence(input.execution, 'SENDING'),
@@ -435,6 +451,7 @@ function fence(execution: ClaimedInstagramComment, status: string) {
 }
 
 function eligibleAction(action: any, execution: ClaimedInstagramComment) {
+  if (!validActionIdentity(execution)) return false
   const row = action?.execution
   if (!row?.receivedAccountId || !row.automation?.enabled ||
     (row.publication && row.publication.status !== 'PUBLISHED') ||
@@ -443,6 +460,19 @@ function eligibleAction(action: any, execution: ClaimedInstagramComment) {
   if (isPublic ? !row.automation.publicReplyEnabled : !row.automation.privateReplyEnabled) return false
   if (isPublic && /\{\{weex_form:|[?&]ref=/i.test(action.body)) return false
   return matchInstagramKeywords(execution.commentText, row.automation.keywords.map((item: { normalizedValue: string }) => item.normalizedValue)).matched
+}
+
+function validActionIdentity(action: ClaimedInstagramComment) {
+  return typeof action?.id === 'string' && action.id.length > 0 &&
+    typeof action.businessId === 'string' && action.businessId.length > 0 &&
+    typeof action.claimToken === 'string' && action.claimToken.length > 0 &&
+    typeof action.executionId === 'string' && action.executionId.length > 0 &&
+    (action.kind === 'PUBLIC_REPLY' || action.kind === 'PRIVATE_REPLY')
+}
+
+function privateReplyEligible(createdAt: Date | null, now: Date) {
+  return createdAt !== null && Number.isFinite(createdAt.getTime()) && createdAt <= now &&
+    now.getTime() - createdAt.getTime() < 7 * 24 * 60 * 60 * 1000
 }
 
 function isAmbiguousDelivery(error: unknown) {
