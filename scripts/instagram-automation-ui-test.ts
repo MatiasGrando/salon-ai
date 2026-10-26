@@ -204,4 +204,63 @@ state.instagramMedia.data.items[0].caption = '<img onerror=bad()> Reel'
 await clickRow()
 assert.equal(n.caption.textContent, '<img onerror=bad()> Reel')
 assert.equal(n['public-text'].value, '</textarea><script>bad()</script>', 'remote texts populate values without interpolating markup')
+
+for (const type of ['publications', 'media']) {
+  state.businessId = 'business-a'; call('resetInstagramMediaState()')
+  const fresh = call('instagramMediaContext()'); fresh.accountId = 'account-a'; fresh.data = media.data
+  const publication = { id: 'published-a', businessId: 'business-a', status: 'PUBLISHED', caption: 'Conservar título', videoAvailable: false,
+    automation: { ...legacy, retained: 'evidence', keywords: [{ value: 'precio', normalizedValue: 'precio' }] } }
+  const unrelated = { id: 'other-publication', status: 'DRAFT', caption: 'Sin cambios', automation: { enabled: true, keywords: [{ value: 'otra' }] } }
+  state.instagramReels = [publication, unrelated]
+  const unrelatedBefore = JSON.stringify(unrelated)
+  const target = type === 'media' ? 'media-a' : 'published-a'
+  const linkedResult = (config: any) => ({ ...result(target, type, config), publicationId: 'published-a' })
+  handler = async (_, options) => response(linkedResult(options.method === 'PATCH' ? { id: legacy.id, ...JSON.parse(options.body) } : legacy))
+  const button = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: target } }
+  await clickRow(button, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  n.keywords.value = 'Nueva oferta, turno'
+  const beforeSave = requests.length
+  await pause()
+  assert.equal(publication.automation.enabled, false, 'successful pause reconciles the cached publication rather than leaving its row active')
+  assert.deepEqual(JSON.parse(JSON.stringify(publication.automation.keywords)), [
+    { value: 'Nueva oferta', normalizedValue: 'nueva oferta' }, { value: 'turno', normalizedValue: 'turno' }
+  ], 'configuration strings retain the publication-list keyword object contract')
+  assert.match(els.instagramReelsTableBody.innerHTML, /<td>Pausada<\/td><td>Nueva oferta, turno<\/td>/, 'the shipped table immediately renders committed keywords and pause state')
+  assert.equal(publication.automation.retained, 'evidence'); assert.equal(publication.caption, 'Conservar título')
+  assert.equal(JSON.stringify(unrelated), unrelatedBefore)
+  assert.equal(requests.length, beforeSave + 1, 'a committed save never depends on a follow-up GET')
+  const committed = JSON.stringify(state.instagramReels)
+  n.keywords.value = 'No guardada'
+  handler = async () => response({}, 503)
+  await submit()
+  assert.equal(JSON.stringify(state.instagramReels), committed, 'failed PATCH cannot change cached publication rows')
+  handler = async () => response({ ...linkedResult(legacy), accountId: 'other-account' })
+  await submit()
+  assert.equal(JSON.stringify(state.instagramReels), committed, 'a mismatched PATCH response cannot reconcile rows or report success')
+  assert.match(n.feedback.textContent, /No se guardó/)
+  button.isConnected = false
+  const replacement = { ...node(), dataset: button.dataset }
+  context.document.querySelectorAll = () => [replacement]
+  n.close.listeners.click[0]()
+  assert.equal(context.document.activeElement, replacement, 'reconciliation rerender preserves replacement-trigger focus return')
+  context.document.querySelectorAll = () => []
+  handler = async () => response(linkedResult(legacy))
+  await clickRow(replacement, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  let releaseRowSave!: (value: Response) => void
+  handler = async () => new Promise((resolve) => { releaseRowSave = resolve })
+  const lateSave = submit()
+  state.businessId = 'business-b'; call('resetInstagramMediaState()')
+  releaseRowSave(response(linkedResult({ ...legacy, keywords: ['Respuesta tardía'] })))
+  await lateSave
+  assert.equal(JSON.stringify(state.instagramReels), committed, 'a cross-business late save cannot reconcile cached publication rows')
+  assert.equal(state.instagramMedia?.automation ?? null, null)
+}
+state.businessId = 'business-a'; call('resetInstagramMediaState()')
+const noMatchContext = call('instagramMediaContext()'); noMatchContext.accountId = 'account-a'; noMatchContext.data = media.data
+const noMatchRows = JSON.stringify(state.instagramReels)
+handler = async (_, options) => response({ ...result('media-a', 'media', options.method === 'PATCH' ? { ...legacy, ...JSON.parse(options.body) } : legacy), publicationId: 'not-cached' })
+await clickRow()
+await pause()
+assert.equal(JSON.stringify(state.instagramReels), noMatchRows, 'an uncached linked publication is never invented')
+assert.match(n.feedback.textContent, /pausada/)
 console.log('OK: shipped bindings configure both real targets, preserve private values, save/pause/errors, action outcomes, focus and stale-context safety')

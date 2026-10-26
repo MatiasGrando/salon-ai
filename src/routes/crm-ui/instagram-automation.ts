@@ -154,6 +154,12 @@ export const instagramAutomationScript = String.raw`
         const data = instagramMediaAutomationResponse(editor, response)
         if (!data.automation) throw new Error('Missing saved automation')
         editor.data = data; instagramMediaAutomationHydrate(editor)
+        const publication = state.instagramReels.find((item) => item.id === data.publicationId && (!item.businessId || item.businessId === m.businessId))
+        if (publication) {
+          publication.automation = { ...publication.automation, ...data.automation,
+            keywords: data.automation.keywords.map((value) => ({ value, normalizedValue: normalizeInstagramReelKeyword(value) })) }
+          renderInstagramReels()
+        }
         editor.message = paused ? 'Automatización pausada.' : 'Configuración guardada.'
       } catch {
         if (instagramMediaAutomationCurrent(m, editor)) { editor.error = 'No se guardó la configuración. Conservamos tus cambios para que puedas intentarlo de nuevo.'; editor.message = '' }
