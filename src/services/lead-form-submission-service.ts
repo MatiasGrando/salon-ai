@@ -215,6 +215,8 @@ export class LeadFormSubmissionService {
                 id: true,
                 matchedKeyword: true,
                 publicationId: true,
+                providerMediaId: true,
+                receivedAccountId: true,
                 commenterInstagramUserId: true,
                 commenterUsername: true
               }
@@ -225,7 +227,9 @@ export class LeadFormSubmissionService {
               source: 'INSTAGRAM_COMMENT',
               campaign: execution.matchedKeyword,
               instagramExecutionId: execution.id,
-              instagramPublicationId: execution.publicationId,
+              ...(execution.publicationId ? { instagramPublicationId: execution.publicationId } : {}),
+              ...(execution.providerMediaId ? { instagramMediaId: execution.providerMediaId } : {}),
+              ...(execution.receivedAccountId ? { instagramAccountId: execution.receivedAccountId } : {}),
               instagramUserId: execution.commenterInstagramUserId
             }
             instagramIdentity = {

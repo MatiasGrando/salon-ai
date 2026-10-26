@@ -1508,6 +1508,7 @@ model InstagramMedia {
   total_interactions Float?
   metricObservedAt Json @default("{}")
   snapshots InstagramMediaInsight[]
+  automation InstagramCommentAutomation?
   @@unique([businessId, accountId, providerMediaId])
   @@unique([businessId, accountId, id])
   @@index([businessId, accountId, publishedAt])
@@ -1554,11 +1555,17 @@ model InstagramCommentAutomation {
 
   businessId    String
   business      Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  publicationId String
-  publication   InstagramPublication @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  publicationId String?
+  publication   InstagramPublication? @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  accountId String?
+  mediaId String?
+  media InstagramMedia? @relation(fields: [businessId, accountId, mediaId], references: [businessId, accountId, id], onDelete: Cascade, map: "IgAutomation_media_fkey")
 
   enabled          Boolean @default(true)
   privateReplyText String
+  privateReplyEnabled Boolean @default(true)
+  publicReplyEnabled Boolean @default(false)
+  publicReplyText String @default("")
 
   keywords   InstagramAutomationKeyword[]
   executions InstagramCommentExecution[]
@@ -1567,6 +1574,7 @@ model InstagramCommentAutomation {
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, publicationId])
+  @@unique([businessId, accountId, mediaId], map: "IgAutomation_media_key")
   @@unique([businessId, id])
   @@unique([businessId, publicationId, id])
   @@index([businessId, enabled])
@@ -1593,10 +1601,13 @@ model InstagramCommentExecution {
 
   businessId    String
   business      Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  publicationId String
-  publication   InstagramPublication       @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  publicationId String?
+  publication   InstagramPublication?       @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
   automationId  String
-  automation    InstagramCommentAutomation @relation(fields: [businessId, publicationId, automationId], references: [businessId, publicationId, id], onDelete: Cascade, map: "IgCommentExecution_scope_automation_fkey")
+  automation    InstagramCommentAutomation @relation(fields: [businessId, automationId], references: [businessId, id], onDelete: Cascade, map: "IgExecution_automation_fkey")
+  receivedAccountId String?
+  providerMediaId String?
+  actions InstagramCommentAction[]
   leadId        String?
   lead          InstagramLead?             @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
 
@@ -1621,11 +1632,35 @@ model InstagramCommentExecution {
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, providerCommentId])
+  @@unique([businessId, id])
   @@unique([businessId, providerMessageId])
   @@index([status, availableAt])
   @@index([businessId, publicationId, receivedAt], map: "IgCommentExecution_publication_received_idx")
   @@index([businessId, commenterInstagramUserId, receivedAt], map: "IgCommentExecution_commenter_received_idx")
   @@index([claimedUntil])
+}
+
+model InstagramCommentAction {
+  id String @id @default(cuid())
+  businessId String
+  executionId String
+  execution InstagramCommentExecution @relation(fields: [businessId, executionId], references: [businessId, id], onDelete: Cascade, map: "IgAction_execution_fkey")
+  kind String
+  body String
+  status InstagramCommentExecutionStatus @default(READY)
+  providerMessageId String?
+  recipientId String?
+  attempts Int @default(0)
+  maxAttempts Int @default(5)
+  availableAt DateTime @default(now())
+  claimToken String?
+  claimedUntil DateTime?
+  lastError String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([businessId, executionId, kind], map: "IgAction_execution_kind_key")
+  @@index([status, availableAt], map: "IgAction_status_available_idx")
 }
 
 model WeexLead {

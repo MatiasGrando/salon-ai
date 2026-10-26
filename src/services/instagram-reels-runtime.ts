@@ -95,19 +95,20 @@ export async function createInstagramReelsRuntime(input: {
     return { ready: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
 
-  if (!(input.storageReady ?? Boolean(instagramReelStorageConfig()))) {
+  const storageReady = input.storageReady ?? Boolean(instagramReelStorageConfig())
+  if (!storageReady) {
     input.onError(new Error('Instagram Reels está habilitado, pero su almacenamiento no está listo.'))
-    return { ready: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
 
   const client = input.client ?? prisma as unknown as Record<string, any>
   try {
-    if (!client.instagramPublication?.count || !client.instagramCommentExecution?.count) {
+    if (!client.instagramPublication?.count || !client.instagramCommentExecution?.count || !client.instagramCommentAction?.count) {
       throw new Error('Prisma no contiene los modelos de Instagram Reels.')
     }
     await Promise.all([
       client.instagramPublication.count(),
-      client.instagramCommentExecution.count()
+      client.instagramCommentExecution.count(),
+      client.instagramCommentAction.count()
     ])
   } catch {
     input.onError(new Error('Instagram Reels está habilitado, pero su base de datos no está lista.'))
@@ -144,14 +145,15 @@ export async function createInstagramReelsRuntime(input: {
   })
   let loop: ReturnType<typeof startInstagramReelsWorkerRuntime> | null = null
   return {
-    ready: true as const,
+    ready: storageReady,
+    commentsReady: true,
     businessIds,
     start() {
       loop ??= startInstagramReelsWorkerRuntime({
         intervalMs: config.intervalMs,
-        publicationWorker,
+        publicationWorker: storageReady ? publicationWorker : { async runOnce() {} },
         commentWorker,
-        retentionWorker,
+        retentionWorker: storageReady ? retentionWorker : { async runOnce() {} },
         onError: input.onError
       })
     },

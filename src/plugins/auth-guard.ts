@@ -105,6 +105,7 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-settings\/test$/.test(path))
     || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-media(?:\/[^/]+\/history)?$/.test(path))
     || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-media\/sync$/.test(path))
+    || (['GET', 'PATCH'].includes(method) && /^\/businesses\/[^/]+\/instagram-(?:media|publications)\/[^/]+\/automation$/.test(path))
     || isInstagramPublicationWorkspaceRoute(method, path)
 }
 

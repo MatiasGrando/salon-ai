@@ -61,11 +61,12 @@ export function parseInstagramWebhookPayload(payload: unknown): ParsedInstagramW
       })
     }
 
-    for (const rawChange of array(entry.changes)) {
+    for (const rawChange of [...array(entry.changes), ...(entry.field ? [entry] : [])]) {
       const change = record(rawChange)
       if (change?.field !== 'comments') continue
       const value = record(change.value)
       const from = record(value?.from)
+      if (from?.self_ig_scoped_id) continue
       const media = record(value?.media)
       const providerCommentId = text(value?.id)
       const commenterInstagramUserId = text(from?.id)

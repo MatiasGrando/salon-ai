@@ -157,6 +157,22 @@ export class InstagramApi {
     })
   }
 
+  async getComment(input: { commentId: string; accessToken: string }) {
+    this.assertMediaResourceId(input.commentId)
+    const url = this.resourceUrl(input.commentId)
+    url.searchParams.set('fields', 'id,timestamp,parent_id,from,media')
+    return this.request<MetaErrorBody & { id?: string; timestamp?: string; parent_id?: string; from?: { id?: string }; media?: { id?: string } }>(url,
+      { method: 'GET', headers: this.authorization(input.accessToken) }, 'No se pudo verificar la fecha del comentario.')
+  }
+
+  async replyToComment(input: { commentId: string; accessToken: string; text: string }) {
+    this.assertMediaResourceId(input.commentId)
+    const body = await this.request<MetaErrorBody & { id?: string }>(this.resourceUrl(input.commentId, 'replies'),
+      this.postJson(input.accessToken, { message: input.text }), 'Instagram rechazo la respuesta publica.')
+    if (!body.id) throw this.invalidResponse('Instagram no devolvio el identificador de la respuesta publica.', true)
+    return { replyId: body.id }
+  }
+
   async sendTextMessage(input: {
     instagramAccountId: string
     accessToken: string

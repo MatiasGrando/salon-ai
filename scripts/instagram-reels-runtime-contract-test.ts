@@ -34,6 +34,15 @@ const notReady = await createInstagramReelsRuntime({
 assert.equal(notReady.ready, false, 'sin client/migración compatible no debe aceptar trabajo')
 assert.match(readinessErrors[0]?.message || '', /base de datos no está lista/i)
 
+const commentsOnly = await createInstagramReelsRuntime({
+  config: { enabled: true, intervalMs: 5, businessIds: ['business-a'] }, storageReady: false,
+  client: { instagramPublication: { async count() { return 0 } }, instagramCommentExecution: { async count() { return 0 } },
+    instagramCommentAction: { async count() { return 0 } } }, onError() {}
+})
+assert.equal(commentsOnly.ready, false, 'upload/publication readiness remains false without storage')
+assert.equal('commentsReady' in commentsOnly && commentsOnly.commentsReady, true, 'imported comment delivery is independent from upload storage')
+await commentsOnly.stop()
+
 let publicationActive = 0
 let publicationMaxActive = 0
 let publicationCalls = 0

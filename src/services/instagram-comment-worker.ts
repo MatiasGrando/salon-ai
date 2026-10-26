@@ -17,19 +17,23 @@ export type ClaimedInstagramComment = {
   commenterInstagramUserId: string
   commenterUsername: string | null
   commentText: string
+  executionId?: string
+  kind?: 'PUBLIC_REPLY' | 'PRIVATE_REPLY'
 }
 
 export type InstagramCommentDeliveryConfiguration = {
   privateReplyText: string
+  publicReplyText?: string
+  providerMediaId?: string | null
   accountId: string
   accessToken: string
-  publicationId: string
+  publicationId: string | null
   automationId: string
 }
 
 export type CompleteInstagramCommentInput = {
   execution: ClaimedInstagramComment
-  publicationId: string
+  publicationId: string | null
   automationId: string
   body: string
   providerMessageId: string
@@ -42,6 +46,7 @@ export interface InstagramCommentWorkerStore {
   markSending(execution: ClaimedInstagramComment, now: Date, leaseMs: number): Promise<boolean>
   completeSent(input: CompleteInstagramCommentInput): Promise<boolean>
   markRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date): Promise<boolean>
+  markPreparationRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date): Promise<boolean>
   markUnknown(execution: ClaimedInstagramComment, error: string): Promise<boolean>
   markFailed(execution: ClaimedInstagramComment, error: string): Promise<boolean>
   markSkipped(execution: ClaimedInstagramComment, reason: string): Promise<boolean>
@@ -49,6 +54,10 @@ export interface InstagramCommentWorkerStore {
 }
 
 type PrivateReplyApi = {
+  replyToComment?(input: { commentId: string; accessToken: string; text: string }): Promise<{ replyId: string }>
+  getComment?(input: { commentId: string; accessToken: string }): Promise<{
+    id?: string; timestamp?: string; parent_id?: string; from?: { id?: string }; media?: { id?: string }
+  }>
   sendPrivateReply(input: { accountId: string; accessToken: string; commentId: string; text: string }): Promise<{
     messageId: string
     recipientId: string | null
@@ -71,21 +80,49 @@ export class InstagramCommentWorker {
 
     const configuration = await this.store.loadConfiguration(execution)
     if (!configuration) {
-      await this.store.markSkipped(execution, 'La publicación, automatización o conexión ya no está activa.')
+      await this.store.markSkipped(execution, 'No se pudieron verificar el destino, la automatizacion o la cuenta recibida como activos.')
+      return 'SKIPPED'
+    }
+    const isPublic = execution.kind === 'PUBLIC_REPLY'
+    try {
+      const metadata = await this.api.getComment?.({ commentId: execution.providerCommentId, accessToken: configuration.accessToken })
+      const created = metadata?.timestamp && /(?:Z|[+-]\d{2}:?\d{2})$/i.test(metadata.timestamp) ? Date.parse(metadata.timestamp) : NaN
+      if (metadata?.parent_id || metadata?.id !== execution.providerCommentId || metadata?.from?.id !== execution.commenterInstagramUserId ||
+        !configuration.providerMediaId || metadata?.media?.id !== configuration.providerMediaId) {
+        await this.store.markSkipped(execution, 'No se pudo verificar la identidad y el origen del comentario.')
+        return 'SKIPPED'
+      }
+      if (!isPublic && (!Number.isFinite(created) || created > now.getTime() || now.getTime() - created >= 7 * 24 * 60 * 60 * 1000)) {
+        await this.store.markSkipped(execution, 'No se pudo acreditar la creacion dentro de los ultimos siete dias para responder por privado.')
+        return 'SKIPPED'
+      }
+    } catch (error) {
+      const transientRead = !(error instanceof InstagramApiRequestError) || error.transient || error.httpStatus === null || error.httpStatus === 429 || (error.httpStatus !== null && error.httpStatus >= 500)
+      if (transientRead && execution.attempts < execution.maxAttempts) {
+        await this.store.markPreparationRetry(execution, 'No se pudo leer el comentario. Se reintentara sin haber enviado una respuesta.',
+          new Date(now.getTime() + retryDelay(execution.attempts)))
+        return 'RETRY'
+      }
+      await this.store.markSkipped(execution, 'No se pudo verificar el comentario en Instagram.')
       return 'SKIPPED'
     }
     if (!await this.store.markSending(execution, now, this.leaseMs)) return 'UNKNOWN'
 
     let delivery: { messageId: string; recipientId: string | null }
     try {
-      delivery = await this.api.sendPrivateReply({
+      if (isPublic) {
+        if (!this.api.replyToComment) throw new Error('Public adapter unavailable')
+        const reply = await this.api.replyToComment({ commentId: execution.providerCommentId,
+          accessToken: configuration.accessToken, text: configuration.publicReplyText! })
+        delivery = { messageId: reply.replyId, recipientId: null }
+      } else delivery = await this.api.sendPrivateReply({
         accountId: configuration.accountId,
         accessToken: configuration.accessToken,
         commentId: execution.providerCommentId,
         text: configuration.privateReplyText
       })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Fallo desconocido al responder el comentario.'
+      const message = 'No se pudo confirmar la respuesta de Instagram.'
       if (isAmbiguousDelivery(error)) {
         await this.store.markUnknown(execution, message)
         return 'UNKNOWN'
@@ -98,21 +135,33 @@ export class InstagramCommentWorker {
       return 'FAILED'
     }
 
-    const completed = await this.store.completeSent({
-      execution,
-      publicationId: configuration.publicationId,
-      automationId: configuration.automationId,
-      body: configuration.privateReplyText,
-      providerMessageId: delivery.messageId,
-      recipientId: delivery.recipientId
-    })
-    // A lost fence means another process declared the in-flight attempt
-    // ambiguous. Never send again or overwrite that terminal state.
-    return completed ? 'SENT' : 'UNKNOWN'
+    try {
+      if (!delivery.messageId) throw new Error('Missing delivery identity')
+      const completed = await this.store.completeSent({
+        execution,
+        publicationId: configuration.publicationId,
+        automationId: configuration.automationId,
+        body: isPublic ? configuration.publicReplyText! : configuration.privateReplyText,
+        providerMessageId: delivery.messageId,
+        recipientId: delivery.recipientId
+      })
+      // A lost fence means another process declared the in-flight attempt
+      // ambiguous. Never send again or overwrite that terminal state.
+      return completed ? 'SENT' : 'UNKNOWN'
+    } catch {
+      // A successful POST followed by failed persistence is never safely retryable.
+      await this.store.markUnknown(execution, 'Envio aceptado sin confirmacion durable. No reenviar.').catch(() => false)
+      return 'UNKNOWN'
+    }
   }
 }
 
 type PrismaLike = {
+  instagramCommentAction: {
+    findFirst(input: unknown): Promise<any>
+    findMany(input: unknown): Promise<any[]>
+    updateMany(input: unknown): Promise<{ count: number }>
+  }
   instagramCommentExecution: {
     findFirst(input: unknown): Promise<any>
     findMany(input: unknown): Promise<any[]>
@@ -124,6 +173,7 @@ type PrismaLike = {
   instagramLead: { upsert(input: unknown): Promise<any> }
   instagramMessage: { create(input: unknown): Promise<unknown> }
   $transaction<T>(callback: (tx: PrismaLike) => Promise<T>): Promise<T>
+  $queryRaw?(strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown>
 }
 
 export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorkerStore {
@@ -134,7 +184,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
 
   async claim(now: Date, leaseMs: number): Promise<ClaimedInstagramComment | null> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const candidates = await this.client.instagramCommentExecution.findMany({
+      const candidates = await this.client.instagramCommentAction.findMany({
         where: {
           ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
           availableAt: { lte: now },
@@ -147,13 +197,14 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
         take: 20,
         select: {
           id: true, businessId: true, status: true, claimToken: true, attempts: true, maxAttempts: true,
-          providerCommentId: true, commenterInstagramUserId: true, commenterUsername: true, commentText: true
+          kind: true, executionId: true,
+          execution: { select: { providerCommentId: true, commenterInstagramUserId: true, commenterUsername: true, commentText: true } }
         }
       })
       const candidate = candidates.find((row) => row.attempts < row.maxAttempts)
       if (!candidate) {
         for (const exhausted of candidates) {
-          await this.client.instagramCommentExecution.updateMany({
+          await this.client.instagramCommentAction.updateMany({
             where: {
               id: exhausted.id,
               businessId: exhausted.businessId,
@@ -172,7 +223,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       }
       const claimToken = randomUUID()
       const claimedUntil = new Date(now.getTime() + leaseMs)
-      const claimed = await this.client.instagramCommentExecution.updateMany({
+      const claimed = await this.client.instagramCommentAction.updateMany({
         where: {
           id: candidate.id,
           businessId: candidate.businessId,
@@ -192,38 +243,32 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
         claimToken,
         attempts: candidate.attempts + 1,
         maxAttempts: candidate.maxAttempts,
-        providerCommentId: candidate.providerCommentId,
-        commenterInstagramUserId: candidate.commenterInstagramUserId,
-        commenterUsername: candidate.commenterUsername,
-        commentText: candidate.commentText
+        executionId: candidate.executionId,
+        kind: candidate.kind,
+        providerCommentId: candidate.execution.providerCommentId,
+        commenterInstagramUserId: candidate.execution.commenterInstagramUserId,
+        commenterUsername: candidate.execution.commenterUsername,
+        commentText: candidate.execution.commentText
       }
     }
     return null
   }
 
   async loadConfiguration(execution: ClaimedInstagramComment): Promise<InstagramCommentDeliveryConfiguration | null> {
-    const row = await this.client.instagramCommentExecution.findFirst({
+    const action = await this.client.instagramCommentAction.findFirst({
       where: {
         id: execution.id, businessId: execution.businessId,
         claimToken: execution.claimToken, status: 'CLAIMED'
       },
-      select: {
-        publicationId: true,
-        automationId: true,
-        publication: { select: { status: true } },
-        automation: {
-          select: {
-            enabled: true, privateReplyText: true,
-            keywords: { select: { normalizedValue: true } }
-          }
-        }
-      }
+      include: { execution: { include: { publication: true, automation: { include: { keywords: true, media: true } } } } }
     })
-    if (!row || row.publication.status !== 'PUBLISHED' || !row.automation.enabled || !row.automation.privateReplyText.trim()) return null
-    if (!matchInstagramKeywords(execution.commentText, row.automation.keywords.map((item: { normalizedValue: string }) => item.normalizedValue)).matched) return null
+    const row = action?.execution
+    const isPublic = execution.kind === 'PUBLIC_REPLY'
+    if (!eligibleAction(action, execution)) return null
     const config = await this.client.businessInstagramConfig.findFirst({
       where: {
         businessId: execution.businessId,
+        instagramAccountId: row.receivedAccountId,
         enabled: true,
         accessToken: { not: null },
         business: { accountStatus: 'ACTIVE' }
@@ -231,7 +276,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       select: { instagramAccountId: true, apiAccountId: true, accessToken: true }
     })
     if (!config?.accessToken) return null
-    let privateReplyText = row.automation.privateReplyText
+    let privateReplyText = isPublic ? '' : action.body
     const placeholder = /\{\{weex_form:([a-z0-9-]{1,120})\}\}/.exec(privateReplyText)
     if (privateReplyText.includes('{{weex_form:') && (!placeholder || privateReplyText.indexOf('{{weex_form:', placeholder.index + placeholder[0].length) !== -1)) return null
     if (placeholder) {
@@ -252,13 +297,15 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
       const ref = createInstagramFormRef(secret, {
         businessId: execution.businessId,
         formId: form.id,
-        executionId: execution.id,
+        executionId: execution.executionId!,
         expiresAt: Date.now() + 24 * 60 * 60 * 1000
       })
       privateReplyText = privateReplyText.replace(placeholder[0], `https://${binding.hostname}/f/${placeholder[1]}?ref=${ref}`)
     }
     return {
       privateReplyText,
+      publicReplyText: isPublic ? action.body : '',
+      providerMediaId: row.providerMediaId ?? row.automation.media?.providerMediaId ?? row.publication?.metaMediaId ?? null,
       accountId: config.apiAccountId ?? config.instagramAccountId,
       accessToken: config.accessToken,
       publicationId: row.publicationId,
@@ -267,15 +314,22 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
   }
 
   async markSending(execution: ClaimedInstagramComment, now: Date, leaseMs: number) {
-    return (await this.client.instagramCommentExecution.updateMany({
-      where: fence(execution, 'CLAIMED'),
-      data: { status: 'SENDING', claimedUntil: new Date(now.getTime() + leaseMs) }
-    })).count === 1
+    return this.client.$transaction(async (tx) => {
+      await tx.$queryRaw!`SELECT "businessId" FROM "BusinessInstagramConfig" WHERE "businessId"=${execution.businessId} FOR UPDATE`
+      const action = await tx.instagramCommentAction.findFirst({ where: fence(execution, 'CLAIMED'),
+        include: { execution: { include: { publication: true, automation: { include: { keywords: true, media: true } } } } } })
+      if (!eligibleAction(action, execution)) return false
+      const config = await tx.businessInstagramConfig.findFirst({ where: { businessId: execution.businessId,
+        instagramAccountId: action.execution.receivedAccountId, enabled: true, accessToken: { not: null }, business: { accountStatus: 'ACTIVE' } } })
+      if (!config) return false
+      return (await tx.instagramCommentAction.updateMany({ where: { ...fence(execution, 'CLAIMED'), claimedUntil: { gt: now } },
+        data: { status: 'SENDING', claimedUntil: new Date(now.getTime() + leaseMs) } })).count === 1
+    })
   }
 
   async completeSent(input: CompleteInstagramCommentInput) {
     return this.client.$transaction(async (tx) => {
-      const fenced = await tx.instagramCommentExecution.updateMany({
+      const fenced = await tx.instagramCommentAction.updateMany({
         where: fence(input.execution, 'SENDING'),
         data: {
           status: 'SENT', providerMessageId: input.providerMessageId,
@@ -283,6 +337,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
         }
       })
       if (fenced.count !== 1) return false
+      if (input.execution.kind === 'PUBLIC_REPLY') return true
       const lead = await tx.instagramLead.upsert({
         where: {
           businessId_instagramUserId: {
@@ -315,15 +370,16 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
             provider: 'instagram',
             origin: 'REEL_COMMENT_AUTOMATION',
             providerCommentId: input.execution.providerCommentId,
-            publicationId: input.publicationId,
+            ...(input.publicationId ? { publicationId: input.publicationId } : {}),
+            executionId: input.execution.executionId,
             automationId: input.automationId,
             recipientId: input.recipientId
           }
         }
       })
       await tx.instagramCommentExecution.updateMany({
-        where: { id: input.execution.id, businessId: input.execution.businessId, claimToken: input.execution.claimToken, status: 'SENT' },
-        data: { leadId: lead.id }
+        where: { id: input.execution.executionId, businessId: input.execution.businessId },
+        data: { leadId: lead.id, status: 'SENT', providerMessageId: input.providerMessageId, recipientId: input.recipientId, sentAt: new Date() }
       })
       return true
     })
@@ -331,6 +387,11 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
 
   async markRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date) {
     return this.finish(execution, 'RETRY', { lastError: error, availableAt, claimToken: null, claimedUntil: null })
+  }
+
+  async markPreparationRetry(execution: ClaimedInstagramComment, error: string, availableAt: Date) {
+    return (await this.client.instagramCommentAction.updateMany({ where: fence(execution, 'CLAIMED'),
+      data: { status: 'RETRY', lastError: error, availableAt, claimToken: null, claimedUntil: null } })).count === 1
   }
 
   async markUnknown(execution: ClaimedInstagramComment, error: string) {
@@ -346,7 +407,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
   }
 
   async expireSendingLeases(now: Date) {
-    return (await this.client.instagramCommentExecution.updateMany({
+    return (await this.client.instagramCommentAction.updateMany({
       where: {
         ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
         status: 'SENDING', claimedUntil: { lte: now }
@@ -357,7 +418,7 @@ export class PrismaInstagramCommentWorkerStore implements InstagramCommentWorker
 
   private async finish(execution: ClaimedInstagramComment, status: 'RETRY' | 'UNKNOWN' | 'FAILED' | 'SKIPPED', data: Record<string, unknown>) {
     const sourceStatus = status === 'SKIPPED' ? 'CLAIMED' : 'SENDING'
-    return (await this.client.instagramCommentExecution.updateMany({
+    return (await this.client.instagramCommentAction.updateMany({
       where: fence(execution, sourceStatus),
       data: { status, ...data }
     })).count === 1
@@ -373,8 +434,19 @@ function fence(execution: ClaimedInstagramComment, status: string) {
   }
 }
 
+function eligibleAction(action: any, execution: ClaimedInstagramComment) {
+  const row = action?.execution
+  if (!row?.receivedAccountId || !row.automation?.enabled ||
+    (row.publication && row.publication.status !== 'PUBLISHED') ||
+    (row.automation.accountId && row.automation.accountId !== row.receivedAccountId) || !action.body?.trim()) return false
+  const isPublic = execution.kind === 'PUBLIC_REPLY'
+  if (isPublic ? !row.automation.publicReplyEnabled : !row.automation.privateReplyEnabled) return false
+  if (isPublic && /\{\{weex_form:|[?&]ref=/i.test(action.body)) return false
+  return matchInstagramKeywords(execution.commentText, row.automation.keywords.map((item: { normalizedValue: string }) => item.normalizedValue)).matched
+}
+
 function isAmbiguousDelivery(error: unknown) {
-  return error instanceof InstagramApiRequestError && error.ambiguous
+  return !(error instanceof InstagramApiRequestError) || error.ambiguous
 }
 
 function isDefinedRetryableDelivery(error: unknown) {

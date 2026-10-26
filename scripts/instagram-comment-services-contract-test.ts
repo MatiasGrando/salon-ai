@@ -90,12 +90,13 @@ class WorkerStore implements InstagramCommentWorkerStore {
   async loadConfiguration() {
     return this.valid ? {
       privateReplyText: 'Te paso la info', accountId: 'ig-account-a', accessToken: 'token',
-      publicationId: 'publication-a', automationId: 'automation-a'
+      publicationId: 'publication-a', automationId: 'automation-a', providerMediaId: 'provider-a'
     } : null
   }
   async markSending() { this.status = 'SENDING'; return true }
   async completeSent(input: unknown) { this.status = 'SENT'; this.sent = input; return true }
   async markRetry() { this.status = 'RETRY'; return true }
+  async markPreparationRetry() { this.status = 'RETRY'; return true }
   async markUnknown() { this.status = 'UNKNOWN'; return true }
   async markFailed() { this.status = 'FAILED'; return true }
   async markSkipped() { this.status = 'SKIPPED'; return true }
@@ -104,6 +105,7 @@ class WorkerStore implements InstagramCommentWorkerStore {
 const deliveredStore = new WorkerStore()
 const apiCalls: unknown[] = []
 const delivered = await new InstagramCommentWorker(deliveredStore, {
+  async getComment() { return { id: 'comment-1', timestamp: '2026-09-12T00:00:00Z', from: { id: 'commenter-1' }, media: { id: 'provider-a' } } },
   async sendPrivateReply(input) { apiCalls.push(input); return { messageId: 'message-1', recipientId: 'commenter-1' } }
 }).processOne(new Date('2026-09-13T00:00:00Z'))
 assert.equal(delivered, 'SENT')
@@ -128,7 +130,7 @@ for (const [error, expected] of [
   [new InstagramApiRequestError({ message: 'bad request', httpStatus: 400, transient: false, ambiguous: false }), 'FAILED']
 ] as const) {
   const store = new WorkerStore()
-  const outcome = await new InstagramCommentWorker(store, { async sendPrivateReply() { throw error } }).processOne()
+  const outcome = await new InstagramCommentWorker(store, { async getComment() { return { id: 'comment-1', timestamp: new Date(Date.now() - 1000).toISOString(), from: { id: 'commenter-1' }, media: { id: 'provider-a' } } }, async sendPrivateReply() { throw error } }).processOne()
   assert.equal(outcome, expected)
   assert.equal(store.status, expected)
   assert.equal(await new InstagramCommentWorker(store, { async sendPrivateReply() { throw new Error('must not resend') } }).processOne(), 'IDLE')
@@ -139,18 +141,20 @@ console.log('Instagram comment services contract: OK')
 const updateCalls: any[] = []
 const messageCreates: any[] = []
 const prismaStore = new PrismaInstagramCommentWorkerStore({
-  instagramCommentExecution: {
+  $queryRaw: async () => [],
+  instagramCommentAction: {
     async findMany() {
       return [{
-        id: 'execution-db', businessId: 'business-db', status: 'READY', claimToken: null,
-        attempts: 0, maxAttempts: 3, providerCommentId: 'comment-db',
-        commenterInstagramUserId: 'user-db', commenterUsername: null, commentText: 'precio'
+        id: 'action-db', executionId: 'execution-db', kind: 'PRIVATE_REPLY', businessId: 'business-db', status: 'READY', claimToken: null,
+        attempts: 0, maxAttempts: 3, execution: { providerCommentId: 'comment-db',
+        commenterInstagramUserId: 'user-db', commenterUsername: null, commentText: 'precio' }
       }]
     },
-    async findFirst() { return null },
+    async findFirst() { return { body: 'Privado', execution: { receivedAccountId: 'professional-db', automation: { enabled: true, privateReplyEnabled: true, keywords: [{ normalizedValue: 'precio' }] } } } },
     async updateMany(input: any) { updateCalls.push(input); return { count: 1 } }
   },
-  businessInstagramConfig: { async findFirst() { return null } },
+  instagramCommentExecution: { async updateMany() { return { count: 1 } } },
+  businessInstagramConfig: { async findFirst() { return { instagramAccountId: 'professional-db' } } },
   instagramLead: { async upsert() { return { id: 'lead-db' } } },
   instagramMessage: { async create(input: any) { messageCreates.push(input) } },
   async $transaction(callback: (tx: any) => Promise<unknown>) { return callback(this) }

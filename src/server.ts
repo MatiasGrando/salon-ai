@@ -36,6 +36,7 @@ import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { instagramWebhookRoutes } from './routes/instagram-webhook.js'
 import { instagramSettingsRoutes } from './routes/instagram-settings.js'
 import { instagramMediaRoutes } from './routes/instagram-media.js'
+import { instagramCommentAutomationRoutes } from './routes/instagram-comment-automations.js'
 import { instagramPublicationRoutes } from './routes/instagram-publications.js'
 import { campaignRoutes } from './routes/campaign.js'
 import { reportRoutes } from './routes/report.js'
@@ -103,7 +104,7 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
   outboxProvider?: OutboxProvider
   cashRegisterConfig?: CashRegisterConfig
-  instagramReelsRuntime?: { ready: boolean; businessIds?: string[]; start?(): void; stop(): Promise<void> }
+  instagramReelsRuntime?: { ready: boolean; commentsReady?: boolean; businessIds?: string[]; start?(): void; stop(): Promise<void> }
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -167,7 +168,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       : {})
   })
   await app.register(instagramWebhookRoutes, {
-    commentsRuntimeReady: instagramReelsRuntime.ready,
+    commentsRuntimeReady: instagramReelsRuntime.commentsReady ?? instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
   })
   await authGuard(app)
@@ -176,6 +177,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
   await app.register(instagramMediaRoutes)
+  await app.register(instagramCommentAutomationRoutes, {
+    runtimeReady: instagramReelsRuntime.commentsReady ?? instagramReelsRuntime.ready,
+    allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
+  })
   await app.register(instagramPublicationRoutes, {
     runtimeReady: instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
