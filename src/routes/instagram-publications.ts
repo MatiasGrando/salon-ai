@@ -16,7 +16,7 @@ import { publishInstagramPublicationChanged } from '../services/crm-realtime-eve
 
 type PublicationServiceContract = Pick<
   InstagramPublicationService,
-  'createDraft' | 'list' | 'get' | 'updateDraft' | 'publish' | 'markVideoDeleted'
+  'createDraft' | 'list' | 'get' | 'updateDraft' | 'publish' | 'markVideoDeleted' | 'schedule' | 'cancel' | 'reserveVideoDeletion'
 >
 
 type ReelStorageContract = {
@@ -153,6 +153,10 @@ export async function instagramPublicationRoutes(
   app.post('/businesses/:businessId/instagram-publications/:publicationId/publish', async (request, reply) => {
     const { businessId, publicationId } = request.params as { businessId: string; publicationId: string }
     try {
+      if (verifyDraftVideos) {
+        const current = await service.get(businessId, publicationId)
+        if (current.status === 'DRAFT') await verifyDraftVideo(storage, current)
+      }
       const publication = await service.publish(businessId, publicationId)
       publishInstagramPublicationChanged({
         businessId,
@@ -166,16 +170,36 @@ export async function instagramPublicationRoutes(
     }
   })
 
+  for (const action of ['schedule', 'cancel'] as const) {
+    app.post('/businesses/:businessId/instagram-publications/:publicationId/' + action, async (request, reply) => {
+      const { businessId, publicationId } = request.params as { businessId: string; publicationId: string }
+      const body = object(request.body)
+      try {
+        if (action === 'schedule' && verifyDraftVideos) await verifyDraftVideo(storage, await service.get(businessId, publicationId))
+        const publication = action === 'schedule'
+          ? await service.schedule(businessId, publicationId, { scheduledAt: body.scheduledAt, expectedRevision: body.expectedRevision })
+          : await service.cancel(businessId, publicationId, body.expectedRevision)
+        publishInstagramPublicationChanged({ businessId, publicationId, status: publication.status, updatedAt: new Date().toISOString() })
+        return publication
+      } catch (error) {
+        if (isUploadValidationError(error)) return sendUploadError(reply, error)
+        if (error instanceof InstagramPublicationValidationError || error instanceof InstagramPublicationConflictError || error instanceof InstagramPublicationNotFoundError) return sendPublicationError(reply, error)
+        return reply.status(503).send({ message: 'No se pudo modificar la programación. Actualizá e intentá nuevamente.' })
+      }
+    })
+  }
+
   app.delete('/businesses/:businessId/instagram-publications/:publicationId/video', async (request, reply) => {
     const { businessId, publicationId } = request.params as { businessId: string; publicationId: string }
     try {
       const current = await service.get(businessId, publicationId)
-      if (current.videoAvailable === false) {
+      if (current.videoDeletedAt) {
         throw new InstagramPublicationConflictError('El video ya fue eliminado del almacenamiento.')
       }
-      if (!['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(current.status)) {
+      if (!['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED'].includes(current.status)) {
         throw new InstagramPublicationConflictError('Esperá a que finalice la publicación antes de borrar el video almacenado.')
       }
+      await service.reserveVideoDeletion(businessId, publicationId)
       try {
         await storage.deleteVideo({ businessId, objectPath: current.videoObjectPath })
       } catch (error) {

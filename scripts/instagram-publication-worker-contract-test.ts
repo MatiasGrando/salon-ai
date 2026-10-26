@@ -38,6 +38,11 @@ class MemoryWorkerRepository implements InstagramPublicationWorkerRepository {
     }
     return true
   }
+
+  async prepareDispatch() {
+    return this.job?.destinationInstagramAccountId && this.job?.destinationApiAccountId
+      ? { instagramAccountId: this.job.destinationApiAccountId, accessToken: this.job.accessToken! } : null
+  }
 }
 
 const baseJob = (status: InstagramPublicationJob['status']): InstagramPublicationJob => ({
@@ -47,7 +52,7 @@ const baseJob = (status: InstagramPublicationJob['status']): InstagramPublicatio
   metaContainerId: status === 'PROCESSING' ? 'container-1' : null,
   attempts: 0, maxAttempts: 5, availableAt: new Date('2026-09-13T12:00:00.000Z'),
   claimToken: null, claimedUntil: null, lastError: null,
-  instagramAccountId: 'ig-a', accessToken: 'secret'
+  instagramAccountId: 'ig-a', accessToken: 'secret', destinationInstagramAccountId: 'professional-a', destinationApiAccountId: 'ig-a'
 })
 
 const clock = { now: () => new Date('2026-09-13T12:00:00.000Z') }

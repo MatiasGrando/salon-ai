@@ -123,7 +123,7 @@ export function isInstagramPublicationWorkspaceRoute(methodValue: string, path: 
     return method === 'GET' || method === 'PATCH'
   }
   return method === 'POST'
-    && /^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/publish$/.test(path)
+    && /^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/(?:publish|schedule|cancel)$/.test(path)
 }
 
 export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {

@@ -1,5 +1,7 @@
 export const instagramPublicationStatuses = [
   'DRAFT',
+  'SCHEDULED',
+  'CANCELLED',
   'READY',
   'CREATING_CONTAINER',
   'PROCESSING',
@@ -25,7 +27,9 @@ export const instagramCommentExecutionStatuses = [
 export type InstagramCommentExecutionStatus = typeof instagramCommentExecutionStatuses[number]
 
 const publicationTransitions: Record<InstagramPublicationStatus, ReadonlySet<InstagramPublicationStatus>> = {
-  DRAFT: new Set(['READY', 'FAILED']),
+  DRAFT: new Set(['READY', 'SCHEDULED', 'FAILED']),
+  SCHEDULED: new Set(['SCHEDULED', 'CANCELLED', 'CREATING_CONTAINER', 'FAILED']),
+  CANCELLED: new Set(['SCHEDULED']),
   READY: new Set(['CREATING_CONTAINER', 'FAILED']),
   CREATING_CONTAINER: new Set(['PROCESSING', 'UNKNOWN', 'FAILED']),
   PROCESSING: new Set(['PUBLISHING', 'FAILED']),

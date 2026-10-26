@@ -219,7 +219,7 @@ for (const type of ['publications', 'media']) {
   const button = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: target } }
   await clickRow(button, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
   n.keywords.value = 'Nueva oferta, turno'
-  const beforeSave = requests.length
+  const beforeSave: number = requests.length
   await pause()
   assert.equal(publication.automation.enabled, false, 'successful pause reconciles the cached publication rather than leaving its row active')
   assert.deepEqual(JSON.parse(JSON.stringify(publication.automation.keywords)), [

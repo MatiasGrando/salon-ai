@@ -19,6 +19,9 @@ const service = {
   async get(businessId: string, id: string) { calls.push({ name: 'get', args: [businessId, id] }); return publication },
   async updateDraft(businessId: string, id: string, patch: unknown) { calls.push({ name: 'update', args: [businessId, id, patch] }); return publication },
   async publish(businessId: string, id: string) { calls.push({ name: 'publish', args: [businessId, id] }); return { ...publication, status: 'READY' } }
+  ,async reserveVideoDeletion() { return publication }
+  ,async schedule() { return publication }
+  ,async cancel() { return publication }
   ,async markVideoDeleted(businessId: string, id: string) { calls.push({ name: 'delete', args: [businessId, id] }); return { ...publication, status: 'PUBLISHED', videoAvailable: false } }
 }
 

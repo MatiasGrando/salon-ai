@@ -707,6 +707,8 @@ enum MessageDirection {
 
 enum InstagramPublicationStatus {
   DRAFT
+  SCHEDULED
+  CANCELLED
   READY
   CREATING_CONTAINER
   PROCESSING
@@ -1462,6 +1464,12 @@ model InstagramPublication {
   attempts        Int                        @default(0)
   maxAttempts     Int                        @default(5)
   availableAt     DateTime                   @default(now())
+  scheduledAt     DateTime?
+  scheduleTimezone String?
+  revision        Int                        @default(0)
+  destinationInstagramAccountId String?
+  destinationApiAccountId String?
+  videoDeleteRequestedAt DateTime?
   claimToken      String?
   claimedUntil    DateTime?
   lastError       String?
@@ -1478,6 +1486,7 @@ model InstagramPublication {
   @@unique([businessId, metaContainerId])
   @@unique([businessId, metaMediaId])
   @@index([status, availableAt])
+  @@index([status, scheduledAt])
   @@index([businessId, createdAt])
   @@index([claimedUntil])
 }

@@ -61,6 +61,11 @@ class MemoryRepository implements InstagramPublicationRepository {
     return record
   }
 
+  async changeSchedule() { return null }
+  async reserveVideoDeletion(input: Parameters<InstagramPublicationRepository['reserveVideoDeletion']>[0]) {
+    return this.findByBusinessAndId(input.businessId, input.id)
+  }
+
   async markVideoDeleted(input: Parameters<InstagramPublicationRepository['markVideoDeleted']>[0]) {
     const record = await this.findByBusinessAndId(input.businessId, input.id)
     if (!record || record.videoDeletedAt || !['PUBLISHED', 'FAILED', 'UNKNOWN'].includes(record.status)) return null
