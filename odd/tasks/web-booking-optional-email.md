@@ -1,7 +1,7 @@
 # Correo opcional en reserva web
 
 ## Objetivo y alcance autorizado
-Agregar correo opcional a la reserva invitada por nombre y teléfono y reutilizar el envío de confirmación existente de Google. Trabajo local en copia separada desde codex/social-platforms (5b40a80); preservar sus cambios pendientes. Sin despliegue, push, PR, migraciones ni acceso remoto.
+Agregar correo opcional a la reserva invitada por nombre y teléfono y reutilizar el envío de confirmación existente de Google. Trabajo inicial local en copia separada desde codex/social-platforms (5b40a80); preservar sus cambios pendientes. La publicación requiere autorización separada, registrada abajo.
 Extensión autorizada el 27/10/2026: el usuario confirmó publicar en Railway tender-fulfillment / salon-ai / production con sesión existente y luego confirmó push a MatiasGrando/salon-ai, rama main, usando acceso Git configurado. No se autoriza publicar Instagram ni alterar variables, datos o migraciones.
 
 ## Evidencia y decisiones
@@ -10,7 +10,7 @@ TDD STRICT: openspec/config.yaml strict_tdd:true. Runner: node node_modules/tsx/
 Ruta delegated-direct: mapping/preparación y writer por dos fuentes no triviales. Forecast 200–350 líneas authored; estrategia ask-on-risk, consultar sólo si se supera presupuesto aproximado 400. Rama codex/web-booking-optional-email.
 
 ## Tareas
-- [ ] E2 — Publicar sólo el correo opcional sobre la versión activa de Railway, con paquete positivo, comprobaciones de compatibilidad y verificación posterior. Ruta delegada: preparación/mapping y writer de paquete. El usuario confirmó destino tender-fulfillment / salon-ai / production y sesión Railway existente el 27/10/2026. No autoriza cambios de configuración, datos, migraciones ni publicación de Instagram.
+- [x] E2 — Publicar sólo el correo opcional sobre la versión activa de Railway, con comprobaciones de compatibilidad y verificación posterior. Ruta delegada: mapping y writer de integración Git. Commit 8c01dab2fdedbed28ab93164259ea246a12a3d6b publicado por push no forzado a main; Railway 90df820f-5ff9-4439-ae0c-6ef11c4643cb SUCCESS y activo. El usuario confirmó destino tender-fulfillment / salon-ai / production, sesión Railway existente y acceso Git configurado el 27/10/2026. Sin cambios de configuración, datos, migraciones ni publicación de Instagram.
 - [x] E1 — Unidad coherente: campo opcional, estado/borrador, validación y payload; backend valida y reutiliza persistencia y confirmación. Pruebas RED/GREEN para vacío/válido/inválido, Google y teléfono existente; regresiones focalizadas, verificación escritorio/móvil, encoding y diff; commit 3020d33 (feat(booking): confirm guest web bookings by optional email). Ruta delegada por writer trigger. Se consolidan implementación y verificación antes de fuentes porque entregan un solo comportamiento pequeño. Typecheck global no aprobado por falta de memoria; detalle abajo.
 
 ## Aceptación y checks
@@ -30,10 +30,12 @@ Implementación local guardada y verificaciones funcionales completadas. Engram 
 
 Primer assess quedó unassessable/high por archivos de comprobación visual sin seguimiento. Preflight STATUS del mismo base/committed-only obtuvo inventario sha256:7f2d7a4840ad2a3dcb28a1d6b4ae2e13eea3351572c37e3c33e1cd7c109aed8c; se excluyeron explícitamente sólo tmp/optional-email-visual.ts y sus cuatro salidas al repetir assess, con resultado medium/under_budget. Un primer STATUS añadió --json no soportado, corregido sin mutaciones. Capturas y fixture permanecen locales, fuera del cambio guardado.
 
-Próximo paso: E2 autorizado expresamente por el usuario: publicar en Railway tender-fulfillment / salon-ai / production usando la sesión existente. Preflight delegado read-only para identificar versión activa y fuente exacta antes del paquete. No hubo push, PR, merge ni despliegue todavía. Typecheck global y espejo Engram quedan pendientes; cualquier siguiente trabajo conserva el boundary RDD de base hasta revisión de slice. Mantener estrategia ask-on-risk y no subir HEAD completo de social-platforms.
+E2 completado mediante Git y autodespliegue Railway. Typecheck global y espejo Engram quedan pendientes; cualquier siguiente trabajo conserva el boundary RDD de base hasta revisión de slice. Mantener estrategia ask-on-risk y no subir HEAD completo de social-platforms.
 
 ### E2 integración Git
 - Fetch origin main con acceso configurado: base fresca 4e9ca1d5c335d9fcc6a46a205f59f221b630317a, coincide con producción Railway 2e7955c6-e4ae-4aa7-b6e2-bc94c87afd13 SUCCESS. Copia de integración tmp/web-booking-email-publish, rama codex/web-booking-email-publish.
 - Cherry-pick selectivo sin commit de 3020d33 aplica limpio. Sólo dos fuentes, sus dos pruebas y este documento. No hay cambios en paquetes, lockfile, Prisma/migraciones, bot ni Instagram.
 - Integración GREEN repetida: UI 31/31; backend 27/27; teléfono 273/273; coordinadas y confirmación OK; señas 22/22. Prisma generado sólo localmente con URL ficticia; sin base real ni .env. Encoding y diff check PASS. La UI es idéntica a la verificada visualmente en E1.
-- Commit de integración y evaluación RDD pendientes; luego push no forzado del candidato exacto a origin main y verificación del autodespliegue. No se ejecuta build local. Typecheck global OOM previo y espejo Engram continúan pendientes, sin afirmar aprobación.
+- Commit de integración 8c01dab2fdedbed28ab93164259ea246a12a3d6b; evaluación RDD exacta contra 4e9ca1d: medium,229 líneas,review_due=false/under_budget. Sin revisión nativa ni consentimiento requeridos ahora; boundary permanece en base. Push no forzado origin HEAD:refs/heads/main observado SUCCESS (4e9ca1d→8c01dab).
+- Autodespliegue Railway 90df820f-5ff9-4439-ae0c-6ef11c4643cb, repo MatiasGrando/salon-ai, branch main, commit exacto 8c01dab, estado SUCCESS; service status mismo deploymentId y stopped=false. Salud pública posterior GET https://weex.com.ar/health HTTP200/statusok, database/whatsapp/openai/crmRealtime todosok. Arranque reporta211migrations y No pending migrations to apply. Sin comandos de base/migración, cambios de variables o datos reales.
+- No se encontró una ruta pública de reserva conocida para verificar marcador HTML sin enumerar negocios; identidad exacta del commit activo y salud comprobadas. No se realizó reserva ni envío real de correo. Build local omitido por política; build de plataforma completado con SUCCESS. Typecheck global OOM previo y espejo Engram continúan pendientes, sin afirmar aprobación. Cierre documental guardado sólo localmente para evitar otro autodespliegue innecesario.
