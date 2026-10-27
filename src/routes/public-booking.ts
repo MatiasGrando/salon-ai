@@ -6,7 +6,7 @@ import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
-import { findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
+import { findOrCreateCustomerByPhone, normalizeCustomerEmail } from '../services/customer-identity-service.js'
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
@@ -261,6 +261,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       time?: string
       customerName?: string
       customerPhone?: string
+      customerEmail?: unknown
       estimateOptionId?: string | null
       validationAccepted?: boolean
     }
@@ -275,6 +276,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
     if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) {
       return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
+    }
+    let customerEmail: string | null
+    try {
+      customerEmail = weexAuth
+        ? (weexAuth.account.emailVerified ? weexAuth.account.email : null)
+        : optionalGuestEmail(body.customerEmail)
+    } catch {
+      return reply.status(400).send({ message: 'Ingresa un correo electronico valido o deja el campo vacio' })
     }
     if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
 
@@ -328,7 +337,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         name: customerName,
         phone: `+${customerPhone}`,
         registerMarketingPreference: Boolean(weexAuth),
-        email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
+        email: customerEmail
       })
     ])
     markConfirmationTiming('professionalAndCustomerMs')
@@ -426,10 +435,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }
     }
 
-    if (!deposit && weexAuth?.account.emailVerified && appointment) {
+    if (!deposit && customerEmail && appointment) {
       void sendBookingConfirmationEmail({
-        recipientEmail: weexAuth.account.email,
-        recipientName: weexAuth.account.name,
+        recipientEmail: customerEmail,
+        recipientName: customerName,
         appointmentId: appointment.id,
         businessName: business.name,
         businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
@@ -481,6 +490,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       itineraryId?: string
       customerName?: string
       customerPhone?: string
+      customerEmail?: unknown
     }
     const [business, weexAuth] = await Promise.all([
       findAvailablePublicBookingBusiness(request, params.slug),
@@ -492,6 +502,14 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
     if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) {
       return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
+    }
+    let customerEmail: string | null
+    try {
+      customerEmail = weexAuth
+        ? (weexAuth.account.emailVerified ? weexAuth.account.email : null)
+        : optionalGuestEmail(body.customerEmail)
+    } catch {
+      return reply.status(400).send({ message: 'Ingresa un correo electronico valido o deja el campo vacio' })
     }
     if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
     const date = body.date?.trim()
@@ -555,7 +573,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       name: customerName,
       phone: `+${customerPhone}`,
       registerMarketingPreference: Boolean(weexAuth),
-      email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
+      email: customerEmail
     })
 
     const coordinationGroupId = randomUUID()
@@ -661,18 +679,18 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       orderBy: { startAt: 'asc' }
     })
     if (guestAccess) setGuestBookingCookie(request, reply, { ...guestAccess, businessId: business.id, slug: params.slug })
-    if (!deposit && weexAuth) {
+    if (!deposit) {
       for (const appointment of appointments) {
-        if (weexGoogleCalendarEnabled()) {
+        if (weexAuth && weexGoogleCalendarEnabled()) {
           void createGoogleCalendarEventForAppointment({
             accountId: weexAuth.account.id,
             appointmentId: appointment.id
           }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo sincronizar Google Calendar'))
         }
-        if (weexAuth.account.emailVerified) {
+        if (customerEmail) {
           void sendBookingConfirmationEmail({
-            recipientEmail: weexAuth.account.email,
-            recipientName: weexAuth.account.name,
+            recipientEmail: customerEmail,
+            recipientName: customerName,
             appointmentId: appointment.id,
             businessName: business.name,
             businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
@@ -978,6 +996,11 @@ type PublicBusinessService = PublicBookingBusiness['services'][number]
 function validGuestContact(name: unknown, phone: unknown) {
   return typeof name === 'string' && Boolean(name.trim()) && name.length <= 100 &&
     !/[\u0000-\u001f]/.test(name) && typeof phone === 'string' && phone.length <= 100
+}
+
+function optionalGuestEmail(value: unknown) {
+  if (value !== undefined && value !== null && typeof value !== 'string') throw new Error('INVALID_GUEST_EMAIL')
+  return normalizeCustomerEmail(value as string | null | undefined) ?? null
 }
 
 type GuestAppointmentSummary = {

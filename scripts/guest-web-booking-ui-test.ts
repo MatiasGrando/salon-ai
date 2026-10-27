@@ -37,7 +37,7 @@ try {
     const service = { id: 'cut', name: 'Corte', duration: 30, price: 100 }
     const state: any = { catalog: { business: { allowGuestWebBooking: on, name: 'Offline' }, services: [service] },
       service, services: [service], professionalId: 'p', date: '2026-10-15', dateLabel: 'jueves', slot: { time: '15:00', professionalId: 'p' },
-      guestName: 'Synthetic', guestPhone: '15-6655-3322', weexAccount: null, submitting: false, guestBooking: false, deposit: null }
+      guestName: 'Synthetic', guestPhone: '15-6655-3322', guestEmail: '', weexAccount: null, submitting: false, guestBooking: false, deposit: null }
     const els: any = new Proxy({}, { get: (t: any, k: string) => t[k] ??= element() })
     const document = { getElementById: (_: string) => element(), querySelector: (_: string) => null }
     return { state, els, calls, messages, gates, document, bookingParameters: new URLSearchParams(), window: { setTimeout() {}, scrollTo() {}, scrollY: 0 },
@@ -71,8 +71,44 @@ try {
     const c = context()
     runInNewContext(withGuest('renderConfirmStep') + '; renderConfirmStep()', c)
     for (const text of ['booking-guest-contact', 'booking-guest-name', 'booking-guest-phone', 'booking-guest-google', 'adulto responsable']) assert.ok(c.els.content.innerHTML.includes(text), text)
-    assert.ok(!c.els.content.innerHTML.includes('type="email"'))
+    assert.match(c.els.content.innerHTML, /Correo electr&oacute;nico \(opcional\)/)
+    assert.match(c.els.content.innerHTML, /id="booking-guest-email"[^>]*type="email"/)
+    assert.ok(!/id="booking-guest-email"[^>]*required/.test(c.els.content.innerHTML))
     assert.ok(!c.els.content.innerHTML.includes('maxlength="10"'))
+  })
+  await check('optional email reaches both payloads and invalid email blocks in place', async () => {
+    for (const multi of [false, true]) for (const email of ['', '  Guest@Example.test  ', 'bad', 'a b@example.test']) {
+      const c = context(); c.state.guestEmail = email
+      if (multi) { c.state.services.push({ id: 'second' }); c.state.itinerary = { id: 'it' } }
+      await runInNewContext(withGuest('confirmBooking') + '; confirmBooking()', c)
+      const request = c.calls.find(x => x.path)
+      if (email === 'bad' || email.includes('a b')) {
+        assert.equal(request, undefined); assert.ok(c.messages.some(x => x[1] === 'error')); assert.equal(c.state.slot.time, '15:00')
+      } else { assert.ok(request); assert.equal(request.body.customerEmail, email.trim().toLowerCase()) }
+    }
+  })
+  await check('email survives draft navigation, new booking and login restore including older drafts', async () => {
+    const c = context(); c.state.guestEmail = 'draft@example.test'
+    runInNewContext(source('bookingDraftSnapshot') + '; state.bookingDraft = bookingDraftSnapshot(); state.guestEmail = "changed@example.test"', c)
+    runInNewContext(source('restoreBookingDraft') + '; restoreBookingDraft()', c)
+    assert.equal(c.state.guestEmail, 'draft@example.test')
+    runInNewContext(source('restoreBookingDraft') + source('beginNewBooking') + '; beginNewBooking()', c)
+    assert.equal(c.state.guestEmail, 'draft@example.test')
+    for (const oldDraft of [false, true]) {
+      const d = context(), storage = new Map<string, string>()
+      d.state.guestEmail = 'draft@example.test'; d.state.serviceDetails = {}
+      Object.assign(d, { slug: 'guest-ui', dates: [], availableProfessionals: () => [], bookingSteps: () => [{ id: 'professional' }],
+        sessionStorage: { getItem: (k: string) => storage.get(k), setItem: (k: string, v: string) => storage.set(k, v), removeItem: (k: string) => storage.delete(k) } })
+      d.window.location = { origin: 'https://offline.test', pathname: '/guest-ui/reservar' }
+      const functions = ['loginDraftKey', 'saveLoginDraft', 'restoreLoginDraft'].map(source).join('\n')
+      runInNewContext(functions + '; saveLoginDraft()', d)
+      const key = [...storage.keys()][0], draft = JSON.parse(storage.get(key)!)
+      assert.equal(draft.guestEmail, 'draft@example.test')
+      if (oldDraft) { delete draft.guestEmail; storage.set(key, JSON.stringify(draft)) }
+      d.state.guestEmail = ''
+      assert.equal(await runInNewContext(functions + '; restoreLoginDraft()', d), true)
+      assert.equal(d.state.guestEmail, oldDraft ? '' : 'draft@example.test')
+    }
   })
   await check('all exact phone formats reach single and coordinated payload without forced prefix or truncation', async () => {
     const phones = ['1566553322', '15-6655-3322', '1166553322', '91566553322', '91166553322', '+541566553322', '+5491566553322', '+5491166553322', '+54911-6655-3322', '+598 99 123 456', '00598 99 123 456', '+1 202 555 0123', '+34 612 345 678']
@@ -107,11 +143,12 @@ try {
     assert.ok(failed.messages.some(x => x[0] === 'Horario ocupado'))
   })
   await check('Google success never submits guest contact or changes authenticated identity', async () => {
-    const c = context(); c.state.weexAccount = { name: 'Google', phone: '4930123456' }
+    const c = context(); c.state.weexAccount = { name: 'Google', phone: '4930123456' }; c.state.guestEmail = 'invalid ignored'
     c.postJson = async (path, body) => { c.calls.push({ path, body }); return { appointment: { id: 'new' } } }
     await runInNewContext(withGuest('confirmBooking') + '; confirmBooking()', c)
     const request = c.calls.find(x => x.path)
     assert.equal(request.body.customerPhone, undefined); assert.equal(request.body.customerName, undefined); assert.equal(c.state.guestBooking, false)
+    assert.equal(request.body.customerEmail, undefined)
   })
   await check('anonymous loader uses scoped guest status, never pending deposit or history by phone', async () => {
     const c = context(); const requests: string[] = []
@@ -136,15 +173,17 @@ try {
     const handler = script.match(/els\.content\.addEventListener\('input', \(event\) => \{([\s\S]*?)\n          \}\)/)![1]
     const click = script.match(/els\.content\.addEventListener\('click', \(event\) => \{([\s\S]*?)\n          \}\)/)![1]
     const c: any = context()
-    for (const [id, value] of [['booking-guest-name', 'A < B'], ['booking-guest-phone', '+54911-6655-3322']]) {
+    for (const [id, value] of [['booking-guest-name', 'A < B'], ['booking-guest-phone', '+54911-6655-3322'], ['booking-guest-email', 'Guest@Example.test']]) {
       c.event = { target: { id, value, removeAttribute() {} } }
       runInNewContext('(function(){' + handler + '})()', c)
     }
     c.event = { target: { closest: (selector: string) => selector === '#booking-guest-google' ? {} : null } }
     runInNewContext('(function(){' + click + '})()', c)
     assert.deepEqual(c.gates, ['login']); assert.equal(c.state.guestName, 'A < B'); assert.equal(c.state.guestPhone, '+54911-6655-3322'); assert.equal(c.state.slot.time, '15:00')
+    assert.equal(c.state.guestEmail, 'Guest@Example.test')
     runInNewContext(withGuest('renderConfirmStep') + '; renderConfirmStep()', c)
     assert.ok(c.els.content.innerHTML.includes('A &lt; B'))
+    assert.ok(c.els.content.innerHTML.includes('value="Guest@Example.test"'))
   })
   await check('cookie-scoped status restores only returned current reservation, including paid group summary', () => {
     for (const status of ['PENDING', 'CONFIRMED', 'CANCELLED']) {
