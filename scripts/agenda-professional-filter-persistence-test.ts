@@ -38,7 +38,7 @@ function context(storage = new Map<string, string>()): any {
     professionals: [{ id: 'p1', name: 'One', businessId: 'business-a' }, { id: 'p2', name: 'Two', businessId: 'business-a' }], agendaProfessionalPreferenceScope: null, agendaProfessionalCatalogScope: null }
   const loads: any[] = []
   const c: any = { state, els, storage, loads, activeProfessionals: () => state.professionals.filter((p: any) => p.isActive !== false), bookableServices: () => [],
-    escapeHtml: (v: string) => v, serviceCatalogLabel: (v: any) => v.name, renderAgendaProfessionalControls() {}, loadAgenda: async () => loads.push(els.agendaProfessional.value),
+    escapeHtml: (v: string) => v, serviceCatalogLabel: (v: any) => v.name, renderAgendaProfessionalControls() {}, instagramMediaObserveAccount() {}, loadAgenda: async () => loads.push(els.agendaProfessional.value),
     localStorage: { getItem: (k: string) => storage.get(k) ?? null, setItem: (k: string, v: string) => storage.set(k, v) } }
   runInNewContext(preferenceSources + source('renderAgendaFilters'), c)
   if (c.agendaProfessionalPreferenceKey) state.agendaProfessionalCatalogScope = c.agendaProfessionalPreferenceKey()

@@ -98,7 +98,7 @@ try {
     ['GET', '/professional-settlements/configuration'],
     ['POST', '/professional-settlements/payments'],
     ['PUT', '/professional-settlements/configuration/professional-1']
-  ]) {
+  ] as const) {
     assert.equal(canStaffAccessRoute(authorizationUser, method, path), false, method + ' ' + path + ' must remain denied')
   }
   assert.equal(canStaffAccessRoute({ ...authorizationUser, canViewProfessionalSettlements: false }, 'GET', '/professional-settlements/summary'), false, 'opt-in stays required')

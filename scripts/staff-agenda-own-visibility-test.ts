@@ -7,8 +7,9 @@ process.env.DATABASE_URL = 'postgresql://offline:offline@127.0.0.1:1/offline_sta
 const { renderCrmHtml } = await import('../src/routes/crm-ui.js')
 const { DISABLED_POLLING_MARKER } = await import('../src/observability/egress-baseline/types.js')
 const html = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })
-const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1] ?? '').find((source) => source.includes('function renderAgendaFilters'))
-assert.ok(script, 'production Agenda script exists')
+const scriptMatch = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1] ?? '').find((source) => source.includes('function renderAgendaFilters'))
+assert.ok(scriptMatch, 'production Agenda script exists')
+const script: string = scriptMatch
 
 function source(name: string) {
   const match = new RegExp('    (?:async )?function ' + name + '\\(').exec(script)
