@@ -137,7 +137,7 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       canRecordAppointmentPayments: cashUser.canRecordAppointmentPayments,
       canApplyDiscounts: cashUser.canApplyDiscounts,
       canManageCashOperations: cashUser.canManageCashOperations,
-      canViewProfessionalSettlements: session.user.role === 'STAFF' ? false : cashUser.canViewProfessionalSettlements,
+      canViewProfessionalSettlements: cashUser.canViewProfessionalSettlements === true,
       canManageProfessionalSettlements: session.user.role === 'STAFF' ? false : cashUser.canManageProfessionalSettlements,
       canViewTodayProfessionalProduction: cashUser.canViewTodayProfessionalProduction,
       canAdjustCash: cashUser.canAdjustCash,
