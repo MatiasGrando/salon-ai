@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { runInNewContext } from 'node:vm'
 import Fastify from 'fastify'
 import sharp from 'sharp'
 import { BusinessService } from '../src/services/business-service.js'
@@ -11,12 +12,43 @@ assert.ok(existsSync('src/routes/la-cochera-site.ts'), 'Falta integrar la landin
 const { laCocheraSiteRoutes, isLaCocheraPublicResource } = await import('../src/routes/la-cochera-site.js')
 const html = readFileSync('sites/la-cochera/published-v13.html')
 assert.equal(createHash('sha256').update(html).digest('hex'), '6c4a8df3575b3469e76e61a8ad5f5d51001af6f0423f921872ae3a1430d6365a')
-function assertSameTabReservationLinks(document: string, file: string) {
-  const links = [...document.matchAll(/<a\b[^>]*href="https:\/\/lacochera\.weex\.com\.ar\/reservar"[^>]*>/gi)].map(([link]) => link)
+function assertSameTabReservationLinks(document: string, file: string, expectedHref = 'https://lacochera.weex.com.ar/reservar', origin = 'https://lacochera.weex.com.ar', expectedPath = '/reservar') {
+  const links = [...document.matchAll(/<a\b[^>]*href="([^"]*\/reservar)"[^>]*>/gi)]
   assert.equal(links.length, 8, `${file} debe incluir los ocho CTA de reserva`)
-  for (const link of links) {
+  for (const [link, href] of links) {
+    assert.equal(href, expectedHref, `${file} debe conservar la entrada pública al reservar`)
+    const destination = new URL(href, origin)
+    assert.equal(destination.origin, origin)
+    assert.equal(destination.pathname, expectedPath)
     assert.doesNotMatch(link, /\btarget\s*=/i, `${file} debe abrir la reserva en la pestaña actual`)
     assert.doesNotMatch(link, /\brel\s*=/i, `${file} no necesita rel para una reserva interna`)
+  }
+}
+function assertLookbookReservationTarget(document: string, expectedHref: string) {
+  const lookbook = document.match(/function initServicesLookbook\(\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(lookbook, 'Ejecutar el lookbook realmente servido')
+  const listeners = new Map<string, () => void>()
+  const element = (id = '') => ({
+    href: '', textContent: '', className: '', classList: { toggle() {} },
+    replaceChildren() {}, appendChild() {}, setAttribute() {},
+    addEventListener(event: string, handler: () => void) { listeners.set(`${id}:${event}`, handler) }
+  })
+  const ids = ['servicios', 'lbCounter', 'lbTitle', 'lbTagline', 'lbDesc', 'lbDuration', 'lbPrice', 'lbCta', 'lbModelLayer', 'lbSceneCurtain', 'lbSceneSweep', 'lbPrevBtn', 'lbNextBtn', 'lbMeta']
+  const elements = new Map(ids.map(id => [id, element(id)]))
+  const tabs = Array.from({ length: 5 }, (_, index) => element(`tab${index}`))
+  runInNewContext(`${lookbook}\ninitServicesLookbook()`, {
+    document: {
+      getElementById: (id: string) => elements.get(id), querySelectorAll: () => tabs,
+      createElement: () => element(), createTextNode: (text: string) => text
+    },
+    window: { matchMedia: () => ({ matches: true }) }, __lcAsset: (key: string) => key
+  })
+  assert.equal(elements.get('lbCta')?.href, expectedHref, 'El lookbook inicial debe conservar la entrada de reserva')
+  for (let index = 1; index < tabs.length; index++) {
+    const click = listeners.get(`tab${index}:click`)
+    assert.ok(click)
+    click()
+    assert.equal(elements.get('lbCta')?.href, expectedHref, 'Cambiar de servicio no debe restablecer otro host de reserva')
   }
 }
 assertSameTabReservationLinks(html.toString('utf8'), 'published-v13.html')
@@ -55,11 +87,20 @@ try {
   await app.register(landingUiRoutes)
   await authGuard(app)
   app.get('/professionals', async () => ({ private: true }))
-  const pages = [{ host: 'weex.com.ar', url: '/lacochera' }, { host: 'lacochera.weex.com.ar', url: '/' }]
+  const pages = [
+    { host: 'weex.com.ar', url: '/lacochera', bookingHref: '/lacochera/reservar', bookingPath: '/lacochera/reservar' },
+    { host: 'lacochera.weex.com.ar', url: '/', bookingHref: 'https://lacochera.weex.com.ar/reservar', bookingPath: '/reservar' },
+  ].flatMap(page => [page, { ...page, url: `${page.url}?next=https%3A%2F%2Fexample.invalid%2Freservar&bookingPath=%2Fotro%2Freservar` }])
   for (const page of pages) {
     const response = await app.inject({ ...page, headers: { host: page.host } })
     assert.equal(response.statusCode, 200)
-    assert.ok(response.rawPayload.equals(html), 'Servir exactamente el HTML V13 aprobado')
+    assertSameTabReservationLinks(response.body, `${page.host}${page.url}`, page.bookingHref, `https://${page.host}`, page.bookingPath)
+    assertLookbookReservationTarget(response.body, page.bookingHref)
+    const unchangedContent = response.body
+      .replaceAll(`href="${page.bookingHref}"`, 'href="https://lacochera.weex.com.ar/reservar"')
+      .replaceAll(`cta.href = '${page.bookingHref}'`, "cta.href = 'https://lacochera.weex.com.ar/reservar'")
+    assert.equal(unchangedContent, html.toString('utf8'), 'Conservar todo el HTML aprobado salvo los destinos de reserva conocidos')
+    if (page.host === 'lacochera.weex.com.ar') assert.ok(response.rawPayload.equals(html), 'Conservar los bytes aprobados en la entrada por subdominio')
     assert.match(response.headers['content-type']!, /text\/html/)
     assert.match(response.headers['cache-control']!, /no-cache/)
     const csp = response.headers['content-security-policy']!
@@ -85,6 +126,12 @@ try {
   const model = await app.inject({ url: '/lacochera?preview=model', headers: { host: 'weex.com.ar' } })
   assert.equal(model.rawPayload.equals(html), false, 'La vista modelo no debe saltarse landingEnabled para servir datos reales')
   landingEnabled = true
+  for (const page of pages) {
+    const response = await app.inject({ url: `${page.url.split('?')[0]}?preview=model`, headers: { host: page.host } })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.body.includes('hero-reserve'), false, 'La vista modelo debe conservar la plantilla genérica')
+    assert.match(response.body, /Plantilla modelo/)
+  }
   for (const page of [
     { host: 'lacochera.weex.com.ar', url: '/reservar' }, { host: 'lacochera.weex.com.ar', url: '/cuenta' },
     { host: 'weex.com.ar', url: '/lacochera/reservar' }, { host: 'weex.com.ar', url: '/lacochera/cuenta' },

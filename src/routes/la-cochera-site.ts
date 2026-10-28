@@ -31,6 +31,9 @@ export function isLaCocheraPublicResource(method: string, host: string | undefin
 export async function sendLaCocheraLanding(reply: FastifyReply) {
   try {
     const html = await readFile(join(siteDir, 'published-v13.html'))
+    const payload = reply.request.url.split('?')[0] === '/lacochera'
+      ? Buffer.from(html.toString('utf8').replaceAll('https://lacochera.weex.com.ar/reservar', '/lacochera/reservar'))
+      : html
     reply.header('Cache-Control', 'no-cache')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')
@@ -39,7 +42,7 @@ export async function sendLaCocheraLanding(reply: FastifyReply) {
       "font-src 'self'", "script-src 'self' 'unsafe-inline'", "connect-src 'none'",
       'frame-src https://www.google.com', "form-action 'self'", "base-uri 'none'", "frame-ancestors 'none'"
     ].join('; '))
-    return reply.type('text/html; charset=utf-8').send(html)
+    return reply.type('text/html; charset=utf-8').send(payload)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return reply.status(503).send({ message: 'Sitio no disponible temporalmente' })
     throw error
