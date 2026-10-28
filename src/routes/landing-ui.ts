@@ -1940,6 +1940,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             weexAccount: null,
             guestName: '',
             guestPhone: '',
+            guestEmail: '',
             guestBooking: false,
             guestAppointments: [],
             guestClosed: false,
@@ -2720,7 +2721,9 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   '<div class="booking-guest-fields">' +
                     '<label for="booking-guest-name">Nombre<input id="booking-guest-name" name="customerName" autocomplete="name" value="' + escapeHtml(state.guestName) + '" required></label>' +
                     '<label for="booking-guest-phone">Tel&eacute;fono de contacto<input id="booking-guest-phone" name="customerPhone" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="booking-guest-help" placeholder="11-6655-3322 o +598 99 123 456" value="' + escapeHtml(state.guestPhone) + '" required></label>' +
+                    '<label for="booking-guest-email">Correo electr&oacute;nico (opcional)<input id="booking-guest-email" name="customerEmail" type="email" inputmode="email" autocomplete="email" maxlength="254" aria-describedby="booking-guest-email-help" value="' + escapeHtml(state.guestEmail) + '"></label>' +
                   '</div>' +
+                  '<p class="booking-guest-help" id="booking-guest-email-help">Si lo complet&aacute;s, te enviaremos la confirmaci&oacute;n de tu turno por correo.</p>' +
                   '<p class="booking-guest-help" id="booking-guest-help">Si sos menor, us&aacute; el tel&eacute;fono de un adulto responsable. Para otro pa&iacute;s, inclu&iacute; + o 00 y el c&oacute;digo de pa&iacute;s.</p>' +
                   '<p class="booking-guest-help">Podr&aacute;s consultar las reservas hechas desde este navegador durante 7 d&iacute;as por reserva, mientras conserve sus cookies. No acced&eacute;s al historial de otros dispositivos.</p>' +
                   '<div class="booking-guest-google-row"><span>&iquest;Ya ten&eacute;s cuenta?</span><button id="booking-guest-google" type="button">Continuar con Google</button></div>' +
@@ -3044,7 +3047,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               selections: services.map((service) => ({ serviceId: service.id, estimateOptionId: draftState.serviceDetails[service.id]?.estimateOption?.id || null })),
               professionalId: draftState.professionalId || null, date: draftState.date || null, time: draftState.slot?.time || null,
               segments: draftState.itinerary?.segments?.map((segment) => ({ serviceId: segment.serviceId, professionalId: segment.professionalId, startTime: segment.startTime })) || null,
-              guestName: String(draftState.guestName || '').slice(0, 100), guestPhone: String(draftState.guestPhone || '').slice(0, 40)
+              guestName: String(draftState.guestName || '').slice(0, 100), guestPhone: String(draftState.guestPhone || '').slice(0, 40),
+              guestEmail: String(draftState.guestEmail || '').slice(0, 254)
             }
             try {
               const serialized = JSON.stringify(draft)
@@ -3074,6 +3078,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 (draft.date !== null && (typeof draft.date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(draft.date))) ||
                 (draft.time !== null && (typeof draft.time !== 'string' || !/^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(draft.time))) ||
                 typeof draft.guestName !== 'string' || draft.guestName.length > 100 || typeof draft.guestPhone !== 'string' || draft.guestPhone.length > 40 ||
+                (draft.guestEmail !== undefined && (typeof draft.guestEmail !== 'string' || draft.guestEmail.length > 254)) ||
                 (draft.segments !== null && (!Array.isArray(draft.segments) || draft.segments.length !== draft.selections.length ||
                   !draft.segments.every((segment) => segment && id(segment.serviceId) && id(segment.professionalId) && typeof segment.startTime === 'string' && /^(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(segment.startTime))))) return false
             } catch {
@@ -3091,6 +3096,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             state.itineraryOptions = []
             state.guestName = draft.guestName
             state.guestPhone = draft.guestPhone
+            state.guestEmail = draft.guestEmail || ''
             state.date = null
             state.dateLabel = null
             const date = dates.find((date) => dateIso(date) === draft.date)
@@ -3134,7 +3140,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           function bookingDraftSnapshot() {
             return Object.fromEntries(['step', 'service', 'services', 'serviceSearch', 'serviceCategory', 'serviceDetails',
               'estimateOption', 'validationAccepted', 'professionalId', 'date', 'dateLabel', 'slot', 'itinerary', 'itineraryOptions',
-              'guestName', 'guestPhone', 'calendarSync'].map((key) => [key, state[key]]))
+              'guestName', 'guestPhone', 'guestEmail', 'calendarSync'].map((key) => [key, state[key]]))
           }
 
           function restoreBookingDraft() {
@@ -3160,7 +3166,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               step: 1, service: null, services: [], serviceSearch: '', serviceCategory: 'all', serviceDetails: {},
               estimateOption: null, validationAccepted: false, professionalId: null, date: null, dateLabel: null,
               slot: null, itinerary: null, itineraryOptions: [], guestName: state.bookingDraft?.guestName ?? state.guestName,
-              guestPhone: state.bookingDraft?.guestPhone ?? state.guestPhone, calendarSync: null
+              guestPhone: state.bookingDraft?.guestPhone ?? state.guestPhone,
+              guestEmail: state.bookingDraft?.guestEmail ?? state.guestEmail, calendarSync: null
             }
             restoreBookingDraft()
             setFeedback('Elegí un turno nuevo. Esto no cancela ni modifica tus reservas anteriores.', 'info')
@@ -3480,13 +3487,19 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             if (state.reschedule) { await confirmReschedule(); return }
             if (state.bookingView || state.submitting || state.confirmed || state.deposit || state.guestClosed) return
             const contact = !state.weexAccount && guestBookingAllowed()
-              ? { customerName: state.guestName.trim(), customerPhone: phoneForSubmit(state.guestPhone) }
+              ? { customerName: state.guestName.trim(), customerPhone: phoneForSubmit(state.guestPhone), customerEmail: (state.guestEmail || '').trim().toLowerCase() }
               : {}
             if (!state.weexAccount && (!guestBookingAllowed() || !contact.customerName || !contact.customerPhone)) {
               setFeedback('Completá el nombre y el teléfono de contacto para reservar.', 'error')
               const field = !contact.customerName ? 'booking-guest-name' : 'booking-guest-phone'
               document.getElementById(field)?.setAttribute('aria-invalid', 'true')
               document.getElementById(field)?.focus()
+              return
+            }
+            if (contact.customerEmail && (contact.customerEmail.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(contact.customerEmail))) {
+              setFeedback('Ingresá un correo electrónico válido o dejá el campo vacío.', 'error')
+              document.getElementById('booking-guest-email')?.setAttribute('aria-invalid', 'true')
+              document.getElementById('booking-guest-email')?.focus()
               return
             }
             state.submitting = true
@@ -3824,8 +3837,8 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           })
 
           els.content.addEventListener('input', (event) => {
-            if (event.target.id === 'booking-guest-name' || event.target.id === 'booking-guest-phone') {
-              state[event.target.id === 'booking-guest-name' ? 'guestName' : 'guestPhone'] = event.target.value
+            if (['booking-guest-name', 'booking-guest-phone', 'booking-guest-email'].includes(event.target.id)) {
+              state[{ 'booking-guest-name': 'guestName', 'booking-guest-phone': 'guestPhone', 'booking-guest-email': 'guestEmail' }[event.target.id]] = event.target.value
               event.target.removeAttribute('aria-invalid')
               setFeedback('', '')
               return
@@ -6616,6 +6629,7 @@ function htmlPage(input: {
     .booking-guest-contact > p { margin: 0 0 20px; line-height: 1.5; color: var(--booking-muted); }
     .booking-guest-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .booking-guest-fields label { display: grid; gap: 8px; min-width: 0; font-size: 14px; font-weight: 700; }
+    .booking-guest-fields label[for="booking-guest-email"] { grid-column: 1 / -1; }
     .booking-guest-fields input {
       width: 100%; min-width: 0; min-height: 48px; padding: 12px;
       border: 1px solid var(--booking-border); border-radius: 8px;

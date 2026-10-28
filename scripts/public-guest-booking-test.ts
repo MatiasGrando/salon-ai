@@ -9,6 +9,13 @@ process.env.NODE_ENV = 'test'
 process.env.WEEX_GOOGLE_CLIENT_ID = ''
 process.env.GOOGLE_CLIENT_ID = ''
 process.env.ENABLE_GOOGLE_CALENDAR_SYNC = 'false'
+process.env.RESEND_API_KEY = 'offline-email-test'
+process.env.BOOKING_EMAIL_FROM = 'offline@example.test'
+const sentEmails: any[] = [], originalFetch = globalThis.fetch
+globalThis.fetch = async (_url, init) => {
+  sentEmails.push(JSON.parse(String(init?.body)))
+  return new Response(JSON.stringify({ id: 'offline-email' }), { status: 200 })
+}
 const [{ prisma }, { publicBookingRoutes }, { businessRoutes }, { BusinessService }, { AppointmentService },
   { BookingAvailabilitySearchEngine }, { bookingDepositService, BookingDepositService }, { PGlite }, { Prisma }] = await Promise.all([
   import('../src/config/prisma.js'), import('../src/routes/public-booking.js'), import('../src/routes/business.js'),
@@ -36,7 +43,9 @@ const business: any = { id: 'business-a', slug: 'guest-test', name: 'Offline', l
   accountStatus: 'ACTIVE', allowGuestWebBooking: false, publicWhatsapp: '+5491140000000', services,
   professionals: [{ id: 'pro-a', name: 'Professional' }],
   paymentSettings: { transferEnabled: true, alias: 'synthetic.test' } }
-const account = { id: 'account-a', name: 'Google synthetic', phone: '5491166553322', emailVerified: false }
+const account = { id: 'account-a', name: 'Google synthetic', phone: '5491166553322', email: 'google@example.test', emailVerified: false }
+let existingCustomerEmail: string | null = null
+const customerUpdates: any[] = []
 let role = 'BUSINESS_ADMIN', customerWrites = 0, marketingWrites = 0, proofCalls = 0, bookings = 0
 let failSecond = false, failGrant = false, businessWrites = 0
 const appointments = new Map<string, any>(), deposits = new Map<string, any>(), grants = new Map<string, any>()
@@ -48,9 +57,9 @@ const payload = { serviceId: 'cut', professionalId: 'pro-a', date: '2026-10-20',
   customerName: 'Submitted name', customerPhone: '15-6655-3322' }
 const requestBooking = (extra: any = {}, headers: any = {}) => app.inject({ method: 'POST',
   url: '/public/booking/guest-test/book', headers, payload: { ...payload, ...extra } })
-const groupBooking = (headers: any = {}) => app.inject({ method: 'POST', url: '/public/booking/guest-test/book-coordinated', headers,
+const groupBooking = (headers: any = {}, extra: any = {}) => app.inject({ method: 'POST', url: '/public/booking/guest-test/book-coordinated', headers,
   payload: { customerName: payload.customerName, customerPhone: payload.customerPhone,
-    date: payload.date, itineraryId: 'itinerary-a', serviceSelections: services.map(s => ({ serviceId: s.id })) } })
+    date: payload.date, itineraryId: 'itinerary-a', serviceSelections: services.map(s => ({ serviceId: s.id })), ...extra } })
 const cookieHeader = (response: any) => String(response.headers['set-cookie'] || '').split(';')[0]
 function fixtureAppointment(input: any) {
   const row = { id: 'appointment-' + (++bookings), businessId: business.id, customerId: 'customer-a',
@@ -72,9 +81,10 @@ try {
   replace(db.weexAccount, 'findUnique', async () => account)
   replace(db.weexCustomerLink, 'upsert', async () => ({}))
   replace(db.customer, 'findMany', async () => [])
+  replace(db.customer, 'updateMany', async () => ({ count: 0 }))
   replace(db.customer, 'findFirst', async () => ({ id: 'customer-a', businessId: business.id,
-    phone: account.phone, normalizedPhone: account.phone, name: 'PRIVATE prior name' }))
-  replace(db.customer, 'update', async ({ data }: any) => { customerWrites++; return { id: 'customer-a', businessId: business.id, ...data, name: 'PRIVATE prior name' } })
+    phone: account.phone, normalizedPhone: account.phone, name: 'PRIVATE prior name', email: existingCustomerEmail }))
+  replace(db.customer, 'update', async ({ data }: any) => { customerWrites++; customerUpdates.push(data); return { id: 'customer-a', businessId: business.id, ...data, name: 'PRIVATE prior name' } })
   replace(db.customerMarketingPreference, 'upsert', async () => { marketingWrites++; return {} })
   replace(db, '$queryRaw', async () => [])
   replace(db, '$transaction', async (run: any) => {
@@ -138,6 +148,57 @@ try {
   replace(db.businessOnboardingStatus, 'upsert', async ({ create }: any) => ({ ...create, updatedAt: new Date() }))
   admin.addHook('preHandler', async request => { request.auth = { user: { id: 'admin-a', role, businessId: business.id, canCreateBusinesses: false } } as any })
   await admin.register(businessRoutes); await app.register(publicBookingRoutes)
+
+  await check('optional email: blank sends nothing; valid guest email uses existing sender for single and group', async () => {
+    business.allowGuestWebBooking = true
+    for (const multi of [false, true]) {
+      const book = (extra: any) => multi ? groupBooking({}, extra) : requestBooking(extra)
+      for (const customerEmail of [undefined, '', '   ']) {
+        const before = sentEmails.length
+        assert.equal((await book({ customerEmail })).statusCode, 200)
+        assert.equal(sentEmails.length, before)
+      }
+      const before = sentEmails.length, writes = customerUpdates.length
+      const response = await book({ customerEmail: '  Guest@Example.test  ' })
+      assert.equal(response.statusCode, 200, response.body)
+      const emails = sentEmails.slice(before)
+      assert.equal(emails.length, multi ? 2 : 1)
+      assert.ok(emails.every(email => email.to[0] === 'guest@example.test'))
+      assert.ok(emails.every(email => email.attachments[0].filename === 'turno-weex.ics'))
+      assert.ok(customerUpdates.slice(writes).some(data => data.email === 'guest@example.test'))
+    }
+  })
+  await check('invalid optional emails fail before customer, reservation or grant effects', async () => {
+    for (const customerEmail of ['bad', 'a@b', 'a b@example.test', 'a@example.test\r\nBcc:x@y.test', 'a'.repeat(250) + '@b.test', 42, {}, []]) {
+      const before = [customerWrites, bookings, marketingWrites, grants.size, sentEmails.length]
+      for (const response of [await requestBooking({ customerEmail }), await groupBooking({}, { customerEmail })]) assert.equal(response.statusCode, 400, response.body)
+      assert.deepEqual([customerWrites, bookings, marketingWrites, grants.size, sentEmails.length], before)
+    }
+  })
+  await check('guest request email is recipient even if matched phone already has a different email', async () => {
+    existingCustomerEmail = 'previous@example.test'
+    try {
+      const writes = customerUpdates.length, before = sentEmails.length
+      assert.equal((await requestBooking({ customerEmail: 'requested@example.test' })).statusCode, 200)
+      assert.equal(sentEmails[before]?.to[0], 'requested@example.test')
+      assert.ok(customerUpdates.slice(writes).every(data => !('email' in data)))
+    } finally { existingCustomerEmail = null }
+  })
+  await check('Google keeps verified recipient and pending deposits do not send confirmation', async () => {
+    account.emailVerified = true
+    try {
+      const before = sentEmails.length
+      assert.equal((await requestBooking({ customerEmail: 'bad' }, { cookie: 'weex_account_session=synthetic' })).statusCode, 200)
+      assert.equal(sentEmails[before]?.to[0], account.email)
+    } finally { account.emailVerified = false }
+    services[0].depositMode = 'FIXED'; services[0].depositValue = 5000
+    try {
+      const before = sentEmails.length
+      assert.equal((await requestBooking({ customerEmail: 'guest@example.test' })).statusCode, 200)
+      assert.equal((await groupBooking({}, { customerEmail: 'guest@example.test' })).statusCode, 200)
+      assert.equal(sentEmails.length, before)
+    } finally { services[0].depositMode = 'NONE'; services[0].depositValue = null; business.allowGuestWebBooking = false }
+  })
 
   await check('SQL defaults false and token hash schema stays separate from financial terms', async () => {
     const sql = readFileSync('prisma/migrations/20261014020000_add_guest_web_booking/migration.sql', 'utf8')
@@ -531,6 +592,7 @@ try {
     }
   })
 } finally {
+  globalThis.fetch = originalFetch
   await app.close(); await admin.close()
   for (const restore of restores.reverse()) restore()
   await prisma.$disconnect()
