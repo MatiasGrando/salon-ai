@@ -30028,6 +30028,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || 'S'
     }
 
+    function workspaceRoleLabel(user) {
+      if (user?.role === 'SUPER_ADMIN') return 'Super admin'
+      if (user?.role === 'ACCOUNT_ADMIN') return 'Administrador de cuentas'
+      if (user?.role === 'STAFF') return user.staffProfile === 'SECRETARY' ? 'Secretaría' : 'Profesional'
+      return 'Administrador'
+    }
+
     function updateBusinessBrand() {
       const name = state.business?.name || 'Weex'
       const logoUrl = state.business?.logoUrl || null
@@ -30039,9 +30046,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (brandName) brandName.textContent = name
       if (adminName) adminName.textContent = state.currentUser?.name || name
-      if (adminRole) adminRole.textContent = state.currentUser?.role === 'SUPER_ADMIN'
-        ? 'Super admin'
-        : state.currentUser?.role === 'ACCOUNT_ADMIN' ? 'Administrador de cuentas' : 'Administrador'
+      if (adminRole) adminRole.textContent = workspaceRoleLabel(state.currentUser)
       if (brandMark) {
         brandMark.innerHTML = logoUrl
           ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
@@ -30733,6 +30738,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
     }
 
+    function isOwnAgendaScope() {
+      return state.currentUser?.role === 'STAFF' && state.currentUser.agendaScope !== 'ALL'
+    }
+
+    function agendaOwnProfessionalId() {
+      if (!isOwnAgendaScope()) return null
+      const professionalId = state.currentUser.professionalId
+      return activeProfessionals().some((professional) => professional.id === professionalId &&
+        (!professional.businessId || professional.businessId === state.businessId)) ? professionalId : ''
+    }
+
+    function agendaVisibleProfessionals() {
+      const ownProfessionalId = agendaOwnProfessionalId()
+      return activeProfessionals().filter((professional) =>
+        (!professional.businessId || professional.businessId === state.businessId) &&
+        (ownProfessionalId === null || professional.id === ownProfessionalId)
+      )
+    }
+
     function agendaProfessionalColor(professionalId, index = 0) {
       const palette = ['#2563eb', '#7c3aed', '#0891b2', '#0f766e', '#4f46e5', '#0284c7']
       const professionals = activeProfessionals()
@@ -31121,13 +31145,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderAgendaFilters() {
       const selectedProfessional = els.agendaProfessional.value || ''
       const selectedService = els.agendaService.value || ''
-      els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
-        .concat(activeProfessionals().map((professional) => {
+      const professionals = agendaVisibleProfessionals()
+      els.agendaProfessional.innerHTML = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
+        .concat(professionals.map((professional) => {
           return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
-      els.agendaProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
+      els.agendaProfessional.value = professionals.some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
       restoreAgendaProfessionalFilter()
+      if (isOwnAgendaScope()) els.agendaProfessional.value = agendaOwnProfessionalId()
 
       const services = bookableServices()
       els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
@@ -31140,13 +31166,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderAgendaProfessionalControls() {
-      const professionals = activeProfessionals()
+      const professionals = agendaVisibleProfessionals()
       const selected = els.agendaProfessional.value || ''
-      const tabs = [
+      const tabs = (isOwnAgendaScope() ? [] : [
         '<button class="agenda-pro-tab' + (!selected ? ' active' : '') + '" type="button" data-agenda-pro-tab="">' +
           'Todos' +
         '</button>'
-      ].concat(professionals.map((professional, index) => {
+      ]).concat(professionals.map((professional, index) => {
         const color = agendaProfessionalColor(professional.id, index)
         return '<button class="agenda-pro-tab' + (selected === professional.id ? ' active' : '') + '" type="button" data-agenda-pro-tab="' + professional.id + '">' +
           '<span class="agenda-dot" style="--agenda-color:' + color + '"></span>' +
@@ -31662,8 +31688,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       syncAgendaDragLockControl()
       const hourHeight = 88
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
-      const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
-      const columnProfessionals = professionalDayView ? activeProfessionals() : []
+      const professionalDayView = viewDays === 1 && (isOwnAgendaScope() || !els.agendaProfessional.value)
+      const columnProfessionals = professionalDayView ? agendaVisibleProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
       const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
@@ -32006,8 +32032,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderAgendaMobileFilterPanel() {
       const selectedProfessional = els.agendaProfessional.value || ''
       const selectedService = els.agendaService.value || ''
-      const professionalOptions = ['<option value="">Todos los profesionales</option>']
-        .concat(activeProfessionals().map((professional) => {
+      const professionalOptions = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
+        .concat(agendaVisibleProfessionals().map((professional) => {
           return '<option value="' + professional.id + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
@@ -33345,7 +33371,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function filteredAgendaAppointmentsForRange(from, to) {
-      const professionalId = els.agendaProfessional?.value || ''
+      const ownProfessionalId = agendaOwnProfessionalId()
+      if (ownProfessionalId === '') return []
+      const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
       const serviceId = els.agendaService?.value || ''
 
       return state.agendaAppointments
@@ -33370,7 +33398,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function filteredAgendaBlocksForRange(from, to) {
-      const professionalId = els.agendaProfessional?.value || ''
+      const ownProfessionalId = agendaOwnProfessionalId()
+      if (ownProfessionalId === '') return []
+      const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
 
       return state.agendaBlocks
         .filter((block) => {

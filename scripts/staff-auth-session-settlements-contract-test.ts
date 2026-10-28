@@ -55,15 +55,15 @@ const staffSessionUser = {
 const originalFindUnique = prisma.userSession.findUnique
 const originalBusinessCount = prisma.business.count
 let currentUser: Omit<typeof staffSessionUser, 'professionalId'> & { professionalId: string | null } = { ...staffSessionUser }
-prisma.userSession.findUnique = async () => ({
+prisma.userSession.findUnique = (async () => ({
   id: 'session-1',
   expiresAt: new Date('2030-01-01T00:00:00.000Z'),
   user: currentUser
-}) as never
-prisma.business.count = async (args: any) => {
+})) as unknown as typeof originalFindUnique
+prisma.business.count = (async (args: any) => {
   assert.deepEqual(args.where.AND[0], { id: 'business-1' }, 'guard must retain the authenticated tenant')
   return args.where.AND[1].id.in.length === 1 && args.where.AND[1].id.in[0] === 'business-1' ? 1 : 0
-}
+}) as unknown as typeof originalBusinessCount
 
 const app = Fastify()
 await authGuard(app)
@@ -89,18 +89,20 @@ try {
 
   assert.ok(auth, 'active staff session must resolve')
   assert.equal(auth.user.canViewProfessionalSettlements, true, 'session must preserve explicit staff settlement consultation')
+  const authorizationUser = { ...auth.user, canViewProducts: auth.user.canViewProducts === true,
+    canManageProducts: auth.user.canManageProducts === true, canSellProducts: auth.user.canSellProducts === true }
   for (const path of ['/professional-settlements/summary', '/professional-settlements/entries']) {
-    assert.equal(canStaffAccessRoute(auth.user, 'GET', path), true, path + ' must remain available to the authenticated professional')
+    assert.equal(canStaffAccessRoute(authorizationUser, 'GET', path), true, path + ' must remain available to the authenticated professional')
   }
   for (const [method, path] of [
     ['GET', '/professional-settlements/configuration'],
     ['POST', '/professional-settlements/payments'],
     ['PUT', '/professional-settlements/configuration/professional-1']
   ]) {
-    assert.equal(canStaffAccessRoute(auth.user, method, path), false, method + ' ' + path + ' must remain denied')
+    assert.equal(canStaffAccessRoute(authorizationUser, method, path), false, method + ' ' + path + ' must remain denied')
   }
-  assert.equal(canStaffAccessRoute({ ...auth.user, canViewProfessionalSettlements: false }, 'GET', '/professional-settlements/summary'), false, 'opt-in stays required')
-  assert.equal(canStaffAccessRoute({ ...auth.user, professionalId: null }, 'GET', '/professional-settlements/summary'), false, 'professional link stays required')
+  assert.equal(canStaffAccessRoute({ ...authorizationUser, canViewProfessionalSettlements: false }, 'GET', '/professional-settlements/summary'), false, 'opt-in stays required')
+  assert.equal(canStaffAccessRoute({ ...authorizationUser, professionalId: null }, 'GET', '/professional-settlements/summary'), false, 'professional link stays required')
   for (const staffProfile of ['PROFESSIONAL', 'SECRETARY']) {
     for (const allowed of [false, true]) {
       currentUser = { ...staffSessionUser, staffProfile, professionalId: staffProfile === 'PROFESSIONAL' ? 'professional-1' : null,

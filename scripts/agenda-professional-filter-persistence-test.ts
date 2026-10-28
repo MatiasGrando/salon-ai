@@ -14,7 +14,7 @@ function source(name: string, optional = false) {
   const tail = script.slice(match.index + 4).search(/\n    (?:(?:async )?function |const |let |els\.)/)
   return script.slice(match.index, tail < 0 ? undefined : match.index + 4 + tail)
 }
-const preferenceSources = ['agendaProfessionalPreferenceKey', 'validAgendaProfessionalFilter', 'restoreAgendaProfessionalFilter', 'rememberAgendaProfessionalFilter'].map(n => source(n, true)).join('\n')
+const preferenceSources = ['isOwnAgendaScope', 'agendaOwnProfessionalId', 'agendaVisibleProfessionals', 'agendaProfessionalPreferenceKey', 'validAgendaProfessionalFilter', 'restoreAgendaProfessionalFilter', 'rememberAgendaProfessionalFilter'].map(n => source(n, true)).join('\n')
 function element() {
   const listeners: Record<string, Function> = {}
   return { value: '', innerHTML: '', dataset: {} as any, listeners, addEventListener(name: string, handler: Function) { listeners[name] = handler }, querySelectorAll: () => [], querySelector: () => null, classList: { toggle() {} } }
@@ -99,7 +99,7 @@ await check('saved inactive, missing or wrong-business professional safely falls
 await check('STAFF OWN cannot restore or explicitly persist another professional after access changes', async () => {
   const first = context(); first.render(); await first.choose('p2')
   first.state.currentUser.agendaScope = 'OWN'; first.state.currentUser.professionalId = 'p1'
-  first.render(); assert.equal(first.els.agendaProfessional.value, '')
+  first.render(); assert.equal(first.els.agendaProfessional.value, 'p1', 'own-scope Agenda selects only the linked professional')
   await first.choose('p2'); assert.equal(first.els.agendaProfessional.value, '')
   await first.choose('p1'); assert.equal(first.els.agendaProfessional.value, 'p1')
   const c = context(first.storage); c.state.currentUser.agendaScope = 'OWN'; c.state.currentUser.professionalId = 'p1'; c.render()
