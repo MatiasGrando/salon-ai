@@ -924,6 +924,7 @@ model Business {
   logoUrl                String?
   landingEnabled         Boolean                       @default(true)
   allowGuestWebBooking   Boolean                       @default(false)
+  webBookingPrioritizeLeastBooked Boolean               @default(false)
   landingTemplate        String                        @default("classic")
   landingSubtitle        String?
   landingFeature         String?

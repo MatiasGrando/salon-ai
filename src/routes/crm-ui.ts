@@ -9172,6 +9172,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     #landing-settings-form #landing-allow-guest-web-booking {
       width: 1em !important; height: 1em; flex: 0 0 1em; margin: 0; font: inherit;
     }
+    #landing-settings-form .landing-professional-priority-settings {
+      min-width: 0; padding: 18px; margin-bottom: 18px;
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    }
+    #landing-settings-form .landing-professional-priority-settings h4 { margin: 0 0 12px; }
+    #landing-settings-form .landing-professional-priority-settings p { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    #landing-settings-form .landing-professional-priority-settings label { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+    #landing-settings-form #landing-professional-priority { width: 1em !important; height: 1em; flex: 0 0 1em; margin: 3px 0 0; font: inherit; }
+    #landing-settings-form #landing-professional-priority:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
     .settings-feedback {
       display: none;
@@ -18539,6 +18548,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </label>
               <p>El cliente completa nombre y tel&eacute;fono en la reserva. Google sigue disponible. El invitado s&oacute;lo puede consultar su reserva actual y enviar su comprobante; no accede al historial.</p>
             </section>
+            <section class="landing-professional-priority-settings" aria-labelledby="landing-professional-priority-title">
+              <h4 id="landing-professional-priority-title">Orden de profesionales</h4>
+              <label for="landing-professional-priority">
+                <input id="landing-professional-priority" type="checkbox" aria-describedby="landing-professional-priority-help">
+                <span>Mostrar primero al profesional con menos turnos</span>
+              </label>
+              <p id="landing-professional-priority-help">Cuenta los turnos de los 5 d&iacute;as anteriores, hoy y los 2 siguientes, seg&uacute;n la zona horaria del comercio. S&oacute;lo ordena las opciones de la web; el cliente sigue eligiendo su profesional.</p>
+            </section>
             <details class="landing-settings-collapsible" open>
               <summary class="landing-settings-collapsible-summary">
                 <div>
@@ -21155,6 +21172,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
       landingAllowGuestWebBooking: document.getElementById('landing-allow-guest-web-booking'),
+      landingProfessionalPriority: document.getElementById('landing-professional-priority'),
       landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
       landingTemplateSelectedName: document.getElementById('landing-template-selected-name'),
       landingTemplateSelectedDescription: document.getElementById('landing-template-selected-description'),
@@ -29319,6 +29337,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.landingEnabled.checked = state.business?.landingEnabled !== false
       els.landingAllowGuestWebBooking.checked = state.business?.allowGuestWebBooking === true
       els.landingAllowGuestWebBooking.disabled = state.currentUser?.role === 'STAFF'
+      els.landingProfessionalPriority.checked = state.business?.webBookingPrioritizeLeastBooked === true
+      els.landingProfessionalPriority.disabled = state.currentUser?.role === 'STAFF'
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
@@ -30432,6 +30452,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
             allowGuestWebBooking: els.landingAllowGuestWebBooking.checked,
+            webBookingPrioritizeLeastBooked: els.landingProfessionalPriority.checked,
             landingTemplate: selectedTemplate,
             bookingTheme: selectedBookingTheme,
             slug,

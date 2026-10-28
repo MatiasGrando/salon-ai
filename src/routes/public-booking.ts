@@ -1,3 +1,5 @@
+import { orderWebBookingProfessionals } from '../services/web-booking-professional-priority.js'
+import { CashDomainError } from '../services/cash-domain.js'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { randomUUID } from 'node:crypto'
@@ -90,6 +92,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const params = request.params as { slug: string }
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    let professionals: typeof business.professionals | readonly (typeof business.professionals)[number][]
+    try {
+      professionals = await orderWebBookingProfessionals(prisma, business, business.professionals)
+    } catch (error) {
+      if (!(error instanceof CashDomainError)) throw error
+      return reply.status(409).send({ message: 'La configuración de reservas necesita una zona horaria válida. Contactá al comercio.' })
+    }
 
     const [serviceLinks, combinationRules] = await Promise.all([
       prisma.professionalService.findMany({
@@ -158,7 +167,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           .filter((link) => link.serviceId === service.id)
           .map((link) => link.professionalId)
       })),
-      professionals: business.professionals.map((professional) => ({
+      professionals: professionals.map((professional) => ({
         id: professional.id,
         name: professional.name,
         avatarUrl: professional.avatarUrl
