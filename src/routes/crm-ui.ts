@@ -34976,10 +34976,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessId: state.businessId, limit: 100 })
         })
-        els.reminderFeedback.textContent = result.total || result.prepared
-          ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
-          : 'No hay recordatorios pendientes en este momento.'
-        els.reminderFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
+        els.reminderFeedback.textContent = result.blocked
+          ? (result.message || 'No se pudieron procesar los recordatorios. Revisá la conexión y los permisos de WhatsApp.')
+          : result.total || result.prepared
+            ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+            : 'No hay recordatorios pendientes en este momento.'
+        els.reminderFeedback.className = result.blocked || result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
         await loadReminderSettings()
       } catch (error) {
         els.reminderFeedback.textContent = error.message

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { processDuePostSales } from './post-sale-service.js'
+import { processDueReminders } from './reminder-service.js'
 
 const DEFAULT_CAMPAIGN_INTERVAL_HOURS = 12
 const DEFAULT_REMINDER_INTERVAL_MINUTES = 15
@@ -141,13 +142,20 @@ export function startMarketingScheduler(app: FastifyInstance) {
         select: { businessId: true }
       })
       for (const business of businesses) {
-        const response = await app.inject({
-          method: 'POST',
-          url: '/reminder-automations/process-due',
-          payload: { businessId: business.businessId, limit: 100 }
-        })
-        if (response.statusCode >= 400) {
-          app.log.error({ businessId: business.businessId, statusCode: response.statusCode, body: response.body }, 'Fallo el procesamiento de recordatorios')
+        try {
+          const result = await processDueReminders({ businessId: business.businessId, limit: 100 })
+          const summary = {
+            businessId: business.businessId,
+            prepared: result.prepared,
+            sent: result.sent,
+            failed: result.failed,
+            skipped: result.skipped,
+            blocked: Boolean(result.blocked)
+          }
+          if (result.blocked) app.log.warn(summary, 'Procesamiento de recordatorios bloqueado')
+          else if (result.sent || result.failed) app.log.info(summary, 'Recordatorios procesados')
+        } catch {
+          app.log.error({ businessId: business.businessId }, 'Fallo el procesamiento de recordatorios')
         }
       }
 

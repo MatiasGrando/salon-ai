@@ -42,6 +42,7 @@
     "test:deposit-security": "tsx scripts/deposit-security-contract-test.ts",
     "test:post-sale": "tsx scripts/post-sale-mode-contract-test.ts",
     "test:reminders": "tsx scripts/reminder-mode-contract-test.ts",
+    "test:reminder-internal-dispatch": "node --import tsx scripts/reminder-internal-dispatch-test.ts && node --import tsx scripts/reminder-process-feedback-test.ts",
     "test:professional-avatar": "tsx scripts/professional-avatar-update-contract-test.ts",
     "test:professional-bot-bookings": "tsx scripts/professional-bot-booking-contract-test.ts",
     "test:tamara-options-bot": "tsx scripts/tamara-options-bot-contract-test.ts",
