@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto'
+import { hasStoryDeclaration } from './instagram-stories-domain.js'
 import { prisma } from '../config/prisma.js'
 import { InstagramApi, InstagramApiRequestError } from '../integrations/instagram-api.js'
 import type { InstagramPublicationStatus } from './instagram-automation-domain.js'
 import { publishInstagramPublicationChanged } from './crm-realtime-events.js'
 
 export type InstagramPublicationJob = {
+  publicationType?: 'REEL' | 'STORY'
+  mediaKind?: 'IMAGE' | 'VIDEO'
+  deliveryMode?: 'AUTO' | 'MANUAL'
   id: string
   businessId: string
   status: InstagramPublicationStatus
@@ -53,6 +57,8 @@ export interface InstagramPublicationVideoUrlProvider {
 }
 
 export interface InstagramPublicationApi {
+  getStoryAccountType?(input: { accountId: string; accessToken: string }): Promise<{ accountType: string }>
+  createStoryContainer?(input: { accountId: string; accessToken: string; mediaUrl: string; mediaKind: 'IMAGE' | 'VIDEO' }): Promise<{ containerId: string }>
   createReelContainer(input: { accountId: string; accessToken: string; videoUrl: string; caption: string; shareToFeed: boolean }): Promise<{ containerId: string }>
   getContainerStatus(input: { containerId: string; accessToken: string }): Promise<{ statusCode: string }>
   publishContainer(input: { accountId: string; accessToken: string; containerId: string }): Promise<{ mediaId: string }>
@@ -73,10 +79,12 @@ export class InstagramPublicationWorker {
   private readonly videoUrls: InstagramPublicationVideoUrlProvider
   private readonly clock: { now(): Date }
   private readonly randomToken: () => string
+  private readonly storiesEnabled: boolean
   private readonly leaseMs: number
   private readonly onStatusChanged: (input: { businessId: string; publicationId: string; status: InstagramPublicationStatus; updatedAt: string }) => void
 
   constructor(input: {
+    storiesEnabled?: boolean
     repository?: InstagramPublicationWorkerRepository
     api?: InstagramPublicationApi
     videoUrls: InstagramPublicationVideoUrlProvider
@@ -85,7 +93,8 @@ export class InstagramPublicationWorker {
     leaseMs?: number
     onStatusChanged?: (input: { businessId: string; publicationId: string; status: InstagramPublicationStatus; updatedAt: string }) => void
   }) {
-    this.repository = input.repository ?? new PrismaInstagramPublicationWorkerRepository(undefined, undefined, () => this.clock.now())
+    this.storiesEnabled = input.storiesEnabled === true
+    this.repository = input.repository ?? new PrismaInstagramPublicationWorkerRepository(undefined, undefined, () => this.clock.now(), this.storiesEnabled)
     this.api = input.api ?? new InstagramApi()
     this.videoUrls = input.videoUrls
     this.clock = input.clock ?? { now: () => new Date() }
@@ -103,7 +112,7 @@ export class InstagramPublicationWorker {
       leaseUntil: new Date(now.getTime() + this.leaseMs),
       claimToken
     })
-    if (!job) return { outcome: 'idle' }
+    if (!job || job.deliveryMode === 'MANUAL' || (job.publicationType === 'STORY' && !this.storiesEnabled)) return { outcome: 'idle' }
     if (!job.destinationInstagramAccountId || !job.destinationApiAccountId || !await this.prepare(job, claimToken)) {
       return this.settle(job, claimToken, job.status, 'FAILED', {
         lastError: 'La cuenta destinataria o el archivo no se puede verificar. Revisión manual requerida.'
@@ -136,10 +145,9 @@ export class InstagramPublicationWorker {
 
     if (!await this.prepare(job, claimToken)) return this.settle(job, claimToken, 'CREATING_CONTAINER', 'FAILED', { lastError: 'La cuenta destinataria cambió antes del envío.' })
     try {
-      const created = await this.api.createReelContainer({
-        accountId: job.instagramAccountId!, accessToken: job.accessToken!, videoUrl,
-        caption: job.caption, shareToFeed: job.shareToFeed
-      })
+      const created = job.publicationType === 'STORY'
+        ? await this.api.createStoryContainer!({ accountId: job.instagramAccountId!, accessToken: job.accessToken!, mediaUrl: videoUrl, mediaKind: job.mediaKind! })
+        : await this.api.createReelContainer({ accountId: job.instagramAccountId!, accessToken: job.accessToken!, videoUrl, caption: job.caption, shareToFeed: job.shareToFeed })
       return this.settle(job, claimToken, 'CREATING_CONTAINER', 'PROCESSING', {
         metaContainerId: created.containerId,
         attempts: 0,
@@ -246,6 +254,14 @@ export class InstagramPublicationWorker {
     if (!credentials) return false
     job.instagramAccountId = credentials.instagramAccountId
     job.accessToken = credentials.accessToken
+    if (job.publicationType === 'STORY') {
+      try {
+        if (!this.api.createStoryContainer || !this.api.getStoryAccountType || (await this.api.getStoryAccountType({ accountId: job.instagramAccountId!, accessToken: job.accessToken! })).accountType !== 'BUSINESS') return false
+        // The read can take time: refresh the lease and identity again before any POST.
+        const fresh = await this.repository.prepareDispatch({ businessId: job.businessId, id: job.id, claimToken, leaseMs: this.leaseMs })
+        if (!fresh || fresh.accessToken !== job.accessToken || fresh.instagramAccountId !== job.instagramAccountId) return false
+      } catch { return false }
+    }
     return true
   }
 
@@ -279,7 +295,8 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
   constructor(
     private readonly client: PrismaLike = prisma as unknown as PrismaLike,
     private readonly businessIds?: readonly string[],
-    private readonly clock: () => Date = () => new Date()
+    private readonly clock: () => Date = () => new Date(),
+    private readonly storiesEnabled = false
   ) {}
 
   async recoverExpiredAmbiguousPhases(now: Date) {
@@ -301,6 +318,8 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
       const candidate = await tx.instagramPublication.findFirst({
         where: {
           ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
+          ...(!this.storiesEnabled ? { publicationType: 'REEL' } : {}),
+          deliveryMode: 'AUTO',
           status: { in: ['SCHEDULED', 'READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING'] },
           availableAt: { lte: input.now },
           videoDeletedAt: null, videoDeleteRequestedAt: null,
@@ -308,13 +327,13 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
             { OR: [{ claimedUntil: null }, { claimedUntil: { lte: input.now } }] }]
         },
         orderBy: [{ availableAt: 'asc' }, { createdAt: 'asc' }],
-        select: { id: true, businessId: true, status: true, revision: true }
+        select: { id: true, businessId: true, publicationType: true, status: true, revision: true }
       })
       if (!candidate) return null
       const now = this.clock()
       const claimed = await tx.instagramPublication.updateMany({
         where: {
-          id: candidate.id, businessId: candidate.businessId, status: candidate.status, revision: candidate.revision,
+          id: candidate.id, businessId: candidate.businessId, status: candidate.status, revision: candidate.revision, deliveryMode: 'AUTO', ...(!this.storiesEnabled ? {publicationType:'REEL'} : {}),
           availableAt: { lte: now }, videoDeletedAt: null, videoDeleteRequestedAt: null,
           AND: [{ OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
             { OR: [{ claimedUntil: null }, { claimedUntil: { lte: now } }] }]
@@ -347,7 +366,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
       const config = await tx.businessInstagramConfig.findUnique({ where: { businessId: input.businessId } })
       const row = await tx.instagramPublication.findFirst({ where: { businessId: input.businessId, id: input.id } })
       const now = this.clock()
-      if (!row || !config?.enabled || !config.accessToken || !row.destinationInstagramAccountId || !row.destinationApiAccountId ||
+      if (!row || (row.publicationType === 'STORY' && !this.storiesEnabled) || row.deliveryMode === 'MANUAL' || (row.publicationType === 'STORY' && !hasStoryDeclaration(config)) || !config?.enabled || !config.accessToken || !row.destinationInstagramAccountId || !row.destinationApiAccountId ||
         row.destinationInstagramAccountId !== config.instagramAccountId || row.destinationApiAccountId !== (config.apiAccountId || config.instagramAccountId) ||
         row.videoDeletedAt || row.videoDeleteRequestedAt || !['SCHEDULED', 'READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING'].includes(row.status)) return null
       const renewed = await tx.instagramPublication.updateMany({
@@ -364,6 +383,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
 function mapJob(row: any): InstagramPublicationJob {
   const config = row.business?.instagramConfig
   return {
+    publicationType: row.publicationType ?? 'REEL', mediaKind: row.mediaKind ?? 'VIDEO', deliveryMode: row.deliveryMode ?? 'AUTO',
     id: row.id,
     businessId: row.businessId,
     status: row.status,

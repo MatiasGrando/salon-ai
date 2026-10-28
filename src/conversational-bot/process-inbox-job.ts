@@ -1,3 +1,5 @@
+import { instagramSubjectFromPayload, lockInstagramConversationSessionTx } from './instagram-runtime-channel.js'
+import { conversationSubjectKey, lockConversationSubjectTx, type RuntimeChannelIdentity } from './conversation-subject.js'
 import { hasEarlierConversationInputTx } from './terminal-inbox-recovery.js'
 import { PendingDepositCancellationError, loadPendingDepositCancellationTx, cancelPendingDepositInTransaction, type PendingDepositCancellationActor } from '../services/pending-deposit-cancellation.js'
 import { summarizeInterpretationAttemptsDiagnostic, summarizeReplyValidationDiagnostic, summarizeValidationDiagnostic } from './ai-diagnostics.js'
@@ -34,7 +36,7 @@ import { createInitialBotOptionsState, parseBotOptionsState } from '../bot-optio
 import { textView } from '../bot-options/domain/views.js'
 import { conversationStepForBotOptionsState } from '../bot-options/domain/conversation-status.js'
 import { issueChoiceQuestion, parseConversationChoiceOperation, type ChoiceQuestion, type ChoiceScope } from './choices.js'
-import { CONVERSATION_CHOICE_ACTION, persistConversationChoiceViewTx, resolveConversationChoicePayload } from './runtime-choice-persistence.js'
+import { CONVERSATION_CHOICE_ACTION, instagramChoiceActorKeyTx, persistConversationChoiceViewTx, resolveConversationChoicePayload } from './runtime-choice-persistence.js'
 import { readConversationDraft } from './session-state.js'
 import { persistConversationTurnTx } from './persist-conversation-turn.js'
 import { applyLazyContextWindowTx } from '../bot-options/application/lazy-context-window.js'
@@ -56,7 +58,7 @@ const defaultFactory: DialogueFactory = (client, businessId, serviceContent) => 
 type Row = PolicyRow & { id: string; actionType: string; expectedRevision: bigint | null; deploymentGeneration: number; fenceEpoch: number; payload: Prisma.JsonValue;
   providerEventId: string; providerMessageId: string | null; providerPhoneNumberId: string | null; status: string; dbNow: Date; businessTimezone: string;
   admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean; projectedConversationId: string | null }
-type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
+type Session = Omit<NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>>,'conversationId'> & {conversationId:string|null;leadAiEnabled?:boolean;leadBotPausedByUserId?:string|null} & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
 
 /** Private PROCESS claim guard: this caller acquires its dispatch with sessionId null.
@@ -111,8 +113,9 @@ export async function processConversationInbox(input: {
   writeView: typeof persistView; projectInbound: typeof projectInboundMessage;
   lockSession: typeof lockExistingInitialSession; isRestart: typeof isConversationRestartCommand
 }): Promise<'PROCESSED' | 'STALE_REVISION' | null> {
-  const policy = await measureAttemptStage('conversation_policy_load', () => loadConversationPolicy(input.client, { businessId: input.job.businessId, deploymentId: input.job.deploymentId, generation: input.job.deploymentGeneration }))
+  const policy = await measureAttemptStage('conversation_policy_load', () => loadConversationPolicy(input.client, { businessId: input.job.businessId, deploymentId: input.job.deploymentId, generation: input.job.deploymentGeneration, channel: input.job.channel??'WHATSAPP' }))
   if (!policy) {
+    if(input.job.channel==='INSTAGRAM')throw new Error('Instagram conversational policy unavailable; legacy fallback forbidden')
     // A once-admitted conversational choice must never enter Booking V2 after policy removal.
     const actions = await input.client.$queryRaw<Array<{actionType:string}>>(Prisma.sql`
       /* conversation-choice-policy-guard */ SELECT "actionType" FROM "BotActionInbox"
@@ -123,8 +126,8 @@ export async function processConversationInbox(input: {
     return null
   }
   const isRestart = (value: unknown) => input.isRestart(value) || isBarberTestReset(value, policy.businessId)
-  const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number; phone: string | null }>>(Prisma.sql`
-    /* conversation-target */ SELECT d."dispatchFenceEpoch" AS "fenceEpoch", e."payload"->>'fromPhone' AS "phone"
+  const targets = await measureAttemptStage('conversation_target_read', () => input.client.$queryRaw<Array<{ fenceEpoch: number; phone: string | null; payload: Prisma.JsonValue }>>(Prisma.sql`
+    /* conversation-target */ SELECT d."dispatchFenceEpoch" AS "fenceEpoch", e."payload"->>'fromPhone' AS "phone"${input.job.channel==='INSTAGRAM'?Prisma.sql`,e.payload`:Prisma.empty}
     FROM "BotChannelDeployment" d
     JOIN "BotActionInbox" i ON i."deploymentId" = d."id" AND i."businessId" = d."businessId" AND i."deploymentGeneration" = d."generation"
     JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
@@ -132,18 +135,24 @@ export async function processConversationInbox(input: {
       AND i."id" = ${input.job.aggregateId} AND e."eventType" = 'MESSAGE'::"BotProviderEventType"
   `))
   const target = targets[0]
-  if (targets.length !== 1 || !target?.phone) throw new Error('conversational target unavailable')
-  const targetPhone = target.phone
+  const channel=policy.channel??'WHATSAPP'
+  if(targets.length!==1||!target)throw new Error('conversational target unavailable')
+  const subject=channel==='INSTAGRAM'?instagramSubjectFromPayload(target.payload):null
+  if(!subject&&!target.phone)throw new Error('conversational target unavailable')
+  const targetPhone=subject?subject.externalUserId:target.phone!
+  const identityFor=(address:string):RuntimeChannelIdentity=>subject?{subject}:{canonicalPhone:address.replace(/[^0-9]/g,'')}
+  const lockSession=(tx:Prisma.TransactionClient,businessId:string,address:string):Promise<Session|null>=>subject?lockInstagramConversationSessionTx(tx,{businessId,deploymentId:policy.deploymentId,subject}):input.lockSession(tx,businessId,address)
+  const writeView:typeof input.writeView=(tx,value)=>input.writeView(tx,{...value,...(subject?{subject}:{})})
   // One durable owner across workers; new inbound messages remain independently admissible.
   const resourceId = 'conversation-compute:' + createHash('sha256')
-    .update(JSON.stringify([policy.businessId, canonicalConversationPhone(targetPhone)])).digest('hex')
+    .update(JSON.stringify(subject?[policy.businessId,'INSTAGRAM',conversationSubjectKey(subject)]:[policy.businessId, canonicalConversationPhone(targetPhone)])).digest('hex')
   const token = await measureAttemptStage('conversation_dispatch_acquire', () => acquireDispatchClaim({ client: input.client, businessId: policy.businessId, sessionId: null,
-    resourceId, generation: policy.generation, fenceEpoch: target.fenceEpoch, kind: 'PROCESS' }))
+    resourceId, channel, generation: policy.generation, fenceEpoch: target.fenceEpoch, kind: 'PROCESS' }))
   if (!token) {
     // An owner can finish between acquisition and this transaction. A still-current gate permits
     // the same safe retry; a closed gate or lost job lease does not silently enter the old engine.
     const deferred = await input.client.$transaction(async tx => {
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:${channel}`}, 0))`)
       return tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         /* conversation-compute-defer */
         WITH owned AS MATERIALIZED (
@@ -152,7 +161,7 @@ export async function processConversationInbox(input: {
             AND j."status" = 'LEASED'::"BotJobStatus" AND j."leaseToken" = ${input.job.claimToken} AND j."leasedUntil" > clock_timestamp()
             AND j."deploymentId" = ${policy.deploymentId} AND j."deploymentGeneration" = ${policy.generation}
             AND d."generation" = j."deploymentGeneration" AND d."dispatchFenceEpoch" = ${target.fenceEpoch}
-            AND d."channel" = 'WHATSAPP'::"BotChannel" AND d."engineKey" = 'deterministic-options'
+            AND d."channel" = ${channel}::"BotChannel" AND d."engineKey" = 'deterministic-options'
             AND d."activeConfigurationId" IS NOT NULL AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
           FOR UPDATE OF j
         )
@@ -190,7 +199,7 @@ export async function processConversationInbox(input: {
         /* conversation-inbox-lock */
         SELECT i."id", i."actionType", i."expectedRevision", i."businessId", i."deploymentId", i."deploymentGeneration", i."payload", i."providerEventId",
           i."providerMessageId", e."phoneNumberId" AS "providerPhoneNumberId", i."status"::text AS "status", clock_timestamp() AS "dbNow", e."admittedAt", e."providerOccurredAt",
-          settings."timezone" AS "businessTimezone", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch", d."engineKey",
+          settings."timezone" AS "businessTimezone",d.channel::text AS channel, d."generation", d."dispatchFenceEpoch" AS "fenceEpoch", d."engineKey",
           cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition", b."customerCode",
           (b."botEnabled" AND COALESCE(f."botEnabled", true)) AS "botEnabled",
           (SELECT projected."id" FROM "Message" message
@@ -217,7 +226,7 @@ export async function processConversationInbox(input: {
     const ordered = async (tx: Prisma.TransactionClient, row: Row, phone: string) =>
       !await measureAttemptStage('conversation_order_read', () => hasEarlierConversationInputTx(tx, {
         businessId: row.businessId, deploymentId: row.deploymentId, generation: row.deploymentGeneration,
-        phone: canonicalConversationPhone(phone), currentClaimToken: token, admittedAt: row.admittedAt, providerEventId: row.providerEventId
+        phone: subject?phone:canonicalConversationPhone(phone),...(subject?{subject}:{}), currentClaimToken: token, admittedAt: row.admittedAt, providerEventId: row.providerEventId
       }))
     const finish = (tx: Prisma.TransactionClient, row: Row, coveredIds: string[] = [row.providerEventId]) => measureAttemptStage('conversation_settlement', async () => {
       const rows = await tx.$queryRaw<Array<{ inboxCount: bigint; dispatchCount: bigint; jobCount: bigint }>>(Prisma.sql`
@@ -273,7 +282,7 @@ export async function processConversationInbox(input: {
       return canResumeExpiredConversationTx(tx, { businessId: policy.businessId, sessionId: session.sessionId,
         deploymentId: policy.deploymentId, generation: policy.generation, configurationId: policy.configurationId,
         revision: String(session.revision), dispatchFenceEpoch: target.fenceEpoch, handoffFenceEpoch: session.handoffFenceEpoch,
-        canonicalPhone: phone.replace(/[^0-9]/g, '') }, draft)
+        ...identityFor(phone) }, draft)
     }
     const resetAllowedTx = async (tx: Prisma.TransactionClient, session: Session, timezone: string, phone: string): Promise<boolean> => {
       if (await expiredRecoveryAllowedTx(tx, session, phone, timezone)) return true
@@ -293,32 +302,39 @@ export async function processConversationInbox(input: {
     }
     const snapshot = await measureAttemptTransaction('conversation_snapshot', body => input.client.$transaction(body, txOptions), async (tx: Prisma.TransactionClient) => {
       // Take the conversation mutex before any job/deployment/event/session row lock.
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
-      const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
-        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone" FROM "BotActionInbox" i
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:${channel}`}, 0))`)
+      const identity = await tx.$queryRaw<Array<{ phone: string;payload:Prisma.JsonValue }>>(Prisma.sql`
+        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone"${input.job.channel==='INSTAGRAM'?Prisma.sql`,e.payload`:Prisma.empty} FROM "BotActionInbox" i
         JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
         WHERE i."id" = ${input.job.aggregateId} AND i."businessId" = ${policy.businessId}
       `)
-      if (!identity[0]?.phone) throw new Error('conversation identity unavailable')
-      await lockConversationPhoneTx(tx, policy.businessId, identity[0].phone)
+      if(subject){
+        const fresh=instagramSubjectFromPayload(identity[0]?.payload)
+        if(conversationSubjectKey(fresh)!==conversationSubjectKey(subject))throw new Error('Instagram computation identity changed')
+        await lockConversationSubjectTx(tx,policy.businessId,subject)
+      }else{
+        if(!identity[0]?.phone)throw new Error('conversation identity unavailable')
+        await lockConversationPhoneTx(tx,policy.businessId,identity[0].phone)
+      }
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
       if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row); return null }
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return null }
       const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; conversationChoice?:unknown }
-      if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('conversation phone unavailable')
-      const phone = payload.fromPhone
-      if (canonicalConversationPhone(phone) !== canonicalConversationPhone(targetPhone)) throw new Error('conversation computation identity changed')
+      if(!subject&&(typeof payload.fromPhone!=='string'||!payload.fromPhone))throw new Error('conversation phone unavailable')
+      const phone=subject?subject.externalUserId:payload.fromPhone as string
+      if(subject?conversationSubjectKey(instagramSubjectFromPayload(payload))!==conversationSubjectKey(subject):canonicalConversationPhone(phone)!==canonicalConversationPhone(targetPhone))throw new Error('conversation computation identity changed')
+      if (subject && ((row.payload as Record<string,unknown>).signedEventTimeValid!==true || !row.providerOccurredAt || row.providerOccurredAt.getTime()>row.admittedAt.getTime() || row.providerOccurredAt.getTime()>row.dbNow.getTime() || row.providerOccurredAt.getTime()<=row.dbNow.getTime()-24*60*60*1000)) {await finish(tx,row);return null}
       const isChoice = row.actionType === CONVERSATION_CHOICE_ACTION
       const eligibleText = !isChoice && payload.messageType === 'text' && !isRestart(payload.textBody)
-      if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
-      let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
+      if ((subject || !eligibleText) && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
+      let session = await measureAttemptStage('conversation_session_lock', () => lockSession(tx, row.businessId, phone)) as Session | null
       if(isChoice && !session) {await finish(tx,row);return null}
       // The provider worker already committed CRM before classification. Reuse only its exact
       // journal/message/tenant/phone identity; synthetic or incomplete projections retain the old path.
       let conversationId = row.projectedConversationId && (!session || session.conversationId === row.projectedConversationId)
         ? row.projectedConversationId : null
-      if (!conversationId) {
+      if (!conversationId && !subject) {
         // Serialize first creation on the existing conversation row, not a new queue.
         const conversations = await measureAttemptStage('conversation_conversation_upsert', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           INSERT INTO "Conversation" ("id", "phone", "businessId", "updatedAt")
@@ -332,6 +348,7 @@ export async function processConversationInbox(input: {
           body: typeof payload.textBody === 'string' && payload.textBody.trim() ? payload.textBody.trim() : `[${String(payload.messageType ?? 'message')}]`, messageType: payload.messageType }, events))
       }
 
+      if (subject&&session?.leadAiEnabled===false&&!(session.leadBotPausedByUserId===null&&session.status==='HUMAN_QUEUED'&&eligibleText&&typeof payload.textBody==='string'&&explicitReferralAction(payload.textBody)==='resume')){await finish(tx,row);return null}
       if (row.botEnabled && session?.status === 'HUMAN_QUEUED' && !session.handoffClaimsPausedAt &&
           eligibleText && isCustomerText(payload.textBody,2000) && explicitReferralAction(payload.textBody) === 'resume') {
         // This cancellation belongs to the currently locked queue, not to an AI
@@ -352,7 +369,7 @@ export async function processConversationInbox(input: {
         `)
         if (queued.length !== 1) throw new Error('ambiguous current handoff target')
         await prismaHandoffEffectExecutor(tx,{businessId:row.businessId,sessionId:session.sessionId,
-          operationKey:'conversation-handoff-cancel:'+row.id,cancelScope:{handoffId:queued[0]!.id,
+          operationKey:'conversation-handoff-cancel:'+row.id,...(subject?{channel:'INSTAGRAM' as const}:{}),cancelScope:{handoffId:queued[0]!.id,
             revision:session.revision,handoffFenceEpoch:session.handoffFenceEpoch,deploymentId:policy.deploymentId,
             generation:policy.generation,configurationId:policy.configurationId,policyHash:canonicalJsonHash(policy),
             evidence:payload.textBody},effects:[{kind:'CANCEL_HUMAN_HANDOFF_BY_CUSTOMER'}],pendingConversationUpdates:updates})
@@ -364,7 +381,7 @@ export async function processConversationInbox(input: {
         const transitionId='transition:'+session.sessionId+':'+revision
         const reply='Cancelé la derivación; tu pedido ya no está en cola. Conservé tu borrador, pero los horarios y propuestas anteriores deben verificarse de nuevo. ¿Cómo querés continuar?'
         const atomicText=input.writeView===persistView
-        const update=await persistConversationTurnTx(tx,{businessId:row.businessId,sessionId:session.sessionId,
+        const update=await persistConversationTurnTx(tx,{...(subject?{subject}:{}),businessId:row.businessId,sessionId:session.sessionId,
           expectedRevision:session.revision,revision,handoffFenceEpoch:session.handoffFenceEpoch,state,transitionId,
           deploymentId:policy.deploymentId,generation:policy.generation,providerEventId:row.providerEventId,
           actionType:'handoff.cancel',step:conversationStepForBotOptionsState(state),
@@ -372,7 +389,7 @@ export async function processConversationInbox(input: {
             dispatchToken:token,jobId:input.job.id,jobToken:input.job.claimToken}}:{})})
         if(update)updates.push(update)
         if(!atomicText) {
-          await input.writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision,transitionId,toPhone:phone,
+          await writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision,transitionId,toPhone:phone,
             dbNow:row.dbNow,view:textView(reply)})
           await finish(tx,row)
         }
@@ -382,13 +399,14 @@ export async function processConversationInbox(input: {
 
       if (!row.botEnabled || (session && (session.status !== 'ACTIVE' || session.handoffClaimsPausedAt))) { await finish(tx, row); return null }
       if (session && (session.deploymentId !== policy.deploymentId || session.deploymentGeneration > policy.generation)) throw new Error('conversation session requires cutover')
-      if (payload.contextWindowEvaluated !== true) {
+      if (subject || payload.contextWindowEvaluated !== true) {
         const window = await measureAttemptStage('conversation_context_window', () => applyLazyContextWindowTx(tx, { businessId: row.businessId, deploymentId: row.deploymentId,
-          generation: row.generation, providerEventId: row.providerEventId, phone, admittedAt: row.admittedAt,
-          providerOccurredAt: row.providerOccurredAt, isMedia: payload.messageType !== 'text', processingInboxId: row.id, currentJobId: input.job.id }, input.writeView))
+          generation: row.generation, providerEventId: row.providerEventId, phone, ...(subject?{subject}:{}), admittedAt: row.admittedAt,
+          providerOccurredAt: row.providerOccurredAt, isMedia: payload.messageType !== 'text', processingInboxId: row.id, currentJobId: input.job.id }, writeView))
         if (window.kind === 'WAIT') { await retry(tx, row); return null }
         if (window.kind === 'EXPIRED' || window.kind === 'REPLAY') { await finish(tx, row); return null }
       }
+      if(!session&&subject)throw new Error('Instagram admitted session unavailable')
       if (!session) {
         const inserted = await measureAttemptStage('conversation_session_create', () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           /* conversation-create-session */
@@ -399,12 +417,12 @@ export async function processConversationInbox(input: {
         if (!inserted[0]) throw new Error('conversation session creation failed')
       }
       // A pre-existing session remains locked; only creation/lazy context can have changed it here.
-      if (!session || payload.contextWindowEvaluated !== true) {
-        session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
+      if (!session || subject || payload.contextWindowEvaluated !== true) {
+        session = await measureAttemptStage('conversation_session_lock', () => lockSession(tx, row.businessId, phone)) as Session | null
       }
       if (!session || session.status !== 'ACTIVE' || session.handoffClaimsPausedAt) throw new Error('conversation session fenced')
       const activeSession = session
-      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:activeSession.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(activeSession.revision)}
+      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:activeSession.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(activeSession.revision),...(subject?{instagramActorKey:await instagramChoiceActorKeyTx(tx,row.businessId,activeSession.sessionId,subject)}:{})}
       let selectedChoice:ReturnType<typeof resolveConversationChoicePayload>|null=null
       if(isChoice) {
         try {
@@ -422,7 +440,7 @@ export async function processConversationInbox(input: {
       const pendingResetChoice = selectedChoice?.operation.kind === 'pending_deposit_reset' ? selectedChoice.operation : null
       if (pendingResetChoice || testReset && !await resetAllowedTx(tx, activeSession, row.businessTimezone, phone)) {
         const notice = async (reply: string) => {
-          await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
+          await writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision: activeSession.revision,
             transitionId: 'test-reset-protected:' + row.id, toPhone: phone, dbNow: row.dbNow, view: textView(reply) })
           await finish(tx, row); recordConsumed(row); return null
         }
@@ -439,7 +457,7 @@ export async function processConversationInbox(input: {
         catch { return notice('No pude verificar la reserva actual. No reinicié la conversación ni modifiqué turnos o pagos.') }
         const reservation = resetDraft.bookingReservation
         const actual = reservation?.receipt?.kind === 'HELD' ? await loadRuntimeDepositReceipt(tx,
-          { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision }, reservation) : null
+          { businessId: row.businessId, sessionId: activeSession.sessionId, ...identityFor(phone), expectedRevision: activeSession.revision }, reservation) : null
         const status = actual?.depositStatus
         if (status === 'PROOF_RECEIVED' || parsed.state.deposit === 'PROOF_RECEIVED') {
           return notice('Tu comprobante está en revisión. No reinicié ni cancelé la reserva; el equipo debe resolver la revisión primero.')
@@ -459,7 +477,7 @@ export async function processConversationInbox(input: {
         }
         if (pendingResetChoice?.confirm === false) return notice('Dale, mantenemos el pedido pendiente de seña. No cancelé la reserva ni reinicié la conversación.')
         const actor: PendingDepositCancellationActor = { kind: 'CUSTOMER', sessionId: activeSession.sessionId,
-          canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision,
+          ...identityFor(phone), expectedRevision: activeSession.revision,
           expectedReceipt: { groupId: actual.coordinationGroupId, operationKey: actual.operationKey,
             proposalNonce: actual.proposalNonce, fingerprint: actual.fingerprint } }
         let cancellation
@@ -475,7 +493,7 @@ export async function processConversationInbox(input: {
             { label: 'Cancelar y reiniciar', operation: { kind: 'pending_deposit_reset', confirm: true, proposalNonce, receiptFingerprint } },
             { label: 'Mantener pedido', operation: { kind: 'pending_deposit_reset', confirm: false, proposalNonce, receiptFingerprint } }
           ] })
-          await persistConversationChoiceViewTx(tx, { scope: choiceScope, draft: resetDraft, question,
+          await persistConversationChoiceViewTx(tx, { ...(subject?{subject}:{}),scope: choiceScope, draft: resetDraft, question,
             reply: 'Tenés una reserva pendiente de seña. Para empezar de cero debemos cancelar todo ese pedido y liberar sus horarios. No reinicié ni cancelé nada todavía. ¿Querés hacerlo?',
             transitionId: 'pending-reset-offer:' + row.id, toPhone: phone, dbNow: row.dbNow })
           await finish(tx, row); recordConsumed(row); return null
@@ -483,12 +501,12 @@ export async function processConversationInbox(input: {
         // No catch after financial writes: cancellation, draft CAS and reply must commit together or all roll back.
         await cancelPendingDepositInTransaction(tx, { snapshot: cancellation, actor, confirmed: true, operationKey: 'pending-reset:' + row.id })
         const state = createInitialBotOptionsState(), revision = activeSession.revision + 1n, transitionId = 'pending-reset:' + row.id
-        const update = await persistConversationTurnTx(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
+        const update = await persistConversationTurnTx(tx, {...(subject?{subject}:{}), businessId: row.businessId, sessionId: activeSession.sessionId,
           expectedRevision: activeSession.revision, revision, handoffFenceEpoch: activeSession.handoffFenceEpoch, state, transitionId,
           deploymentId: policy.deploymentId, generation: policy.generation, providerEventId: row.providerEventId,
           actionType: 'conversation.pending_deposit_reset', step: conversationStepForBotOptionsState(state) })
         if (update) updates.push(update)
-        await input.writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision, transitionId, toPhone: phone, dbNow: row.dbNow,
+        await writeView(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, revision, transitionId, toPhone: phone, dbNow: row.dbNow,
           view: textView('Cancelé el pedido pendiente y liberé sus horarios. Reinicié esta conversación de prueba. No cancelé otros turnos confirmados ni borré el historial. ¿En qué te puedo ayudar?') })
         await finish(tx, row); recordConsumed(row); return null
       }
@@ -503,7 +521,7 @@ export async function processConversationInbox(input: {
           const receipt = reservation?.receipt
           if (receipt?.kind === 'COMMITTED' && parsed.state.booking === 'CONFIRMED' && parsed.state.deposit === 'NONE') confirmedDraft = draft
           else if (receipt?.kind === 'HELD' && reservation) {
-            const actual = await loadRuntimeDepositReceipt(tx, {businessId:row.businessId,sessionId:activeSession.sessionId,canonicalPhone:phone.replace(/[^0-9]/g,''),expectedRevision:activeSession.revision}, reservation)
+            const actual = await loadRuntimeDepositReceipt(tx, {businessId:row.businessId,sessionId:activeSession.sessionId,...identityFor(phone),expectedRevision:activeSession.revision}, reservation)
             if (actual?.depositStatus === 'APPROVED') confirmedDraft = {...draft, ...(draft.bookingReservation
               ? {bookingReservation:{presented:reservation.presented,receipt:actual}}
               : {completedBooking:{presented:reservation.presented,receipt:actual}})}
@@ -525,7 +543,7 @@ export async function processConversationInbox(input: {
         if (ownManagement?.source === 'own_lookup' && ownManagement.action === 'RESCHEDULE') {
           try {
             const own = await loadOwnAppointments(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
-              canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
+              ...identityFor(phone), expectedRevision: activeSession.revision })
             const selectedKey = ownAppointmentKey(ownManagement.snapshot)
             const current = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(ownManagement.snapshot))
             if (current) {
@@ -543,8 +561,8 @@ export async function processConversationInbox(input: {
         if ((draft.bookingReservation ?? draft.completedBooking)?.receipt) {
           try {
             serverManagementSnapshot = await (parsed.state.deposit === 'APPROVED'
-              ? loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
-              : loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision }))
+              ? loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, ...identityFor(phone), expectedRevision: activeSession.revision })
+              : loadOwnConfirmedRuntimeGroupSnapshot(tx, { businessId: row.businessId, sessionId: activeSession.sessionId, ...identityFor(phone), expectedRevision: activeSession.revision }))
             const reservation = draft.bookingReservation ?? draft.completedBooking
             if (parsed.state.deposit === 'NONE' && reservation?.receipt?.kind === 'COMMITTED') {
               const currentSchedule = await loadVerifiedRuntimeManagementSchedule(tx, serverManagementSnapshot, reservation)
@@ -562,13 +580,13 @@ export async function processConversationInbox(input: {
         let protectedDraft: ReturnType<typeof readConversationDraft> | undefined
         try { protectedDraft = readConversationDraft(activeSession.state, policy, row.businessTimezone) } catch { /* Preserve the protected session without trusting malformed sidecars. */ }
         if(protectedDraft?.bookingReservation?.receipt?.kind==='HELD' && parsed.state.handoff==='NONE'){
-          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:activeSession.sessionId,canonicalPhone:phone.replace(/[^0-9]/g,''),expectedRevision:activeSession.revision},protectedDraft.bookingReservation)
+          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:activeSession.sessionId,...identityFor(phone),expectedRevision:activeSession.revision},protectedDraft.bookingReservation)
           if(actual){
             const updated={...protectedDraft,bookingReservation:{presented:protectedDraft.bookingReservation.presented,receipt:actual}}
             protectedReply=runtimeBookingReceiptReply(updated.bookingReservation)
             if(JSON.stringify(actual)!==JSON.stringify(protectedDraft.bookingReservation.receipt)){
               const state=projectConversationDraft(updated,policy);protectedRevision++
-              const update=await persistConversationTurnTx(tx,{businessId:row.businessId,sessionId:activeSession.sessionId,
+              const update=await persistConversationTurnTx(tx,{...(subject?{subject}:{}),businessId:row.businessId,sessionId:activeSession.sessionId,
                   expectedRevision:activeSession.revision,revision:protectedRevision,handoffFenceEpoch:activeSession.handoffFenceEpoch,
                   state,transitionId:`transition:${activeSession.sessionId}:${protectedRevision}:financial:${row.id}`,
                   deploymentId:policy.deploymentId,generation:policy.generation,providerEventId:row.providerEventId,
@@ -618,11 +636,11 @@ export async function processConversationInbox(input: {
       }
       const reset = !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
       if (expiredRecovery && !await ordered(tx, row, phone)) { await retry(tx, row, true); return null }
-      const consolidation = eligibleText && !runtimeManagementAllowed && !expiredRecovery ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
+      const consolidation = eligibleText && !subject && !runtimeManagementAllowed && !expiredRecovery ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation, currentClaimToken: token,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
         phone, currentEventId: row.providerEventId, isRestart })) : null
-      if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
+      if (eligibleText && !subject && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
       const recoveredDraft = expiredRecovery ? expiredConversationDraft(readConversationDraft(session.state, policy, row.businessTimezone)) : null
       const reconciled = recoveredDraft ? { draft: recoveredDraft, reset: false } : reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = confirmedDraft ?? reconciled.draft
@@ -647,7 +665,7 @@ export async function processConversationInbox(input: {
     // Preserve port method receivers. Catalog includes repository pages already traced separately.
     const port: DialoguePort & DialoguePersonalityPort = {
       ownAppointments: () => input.client.$transaction(tx=>loadOwnAppointments(tx,{businessId:policy.businessId,sessionId:snapshot.session.sessionId,
-        canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:snapshot.session.revision})),
+        ...identityFor(snapshot.phone),expectedRevision:snapshot.session.revision})),
       ...(prepared.port.personality ? { personality: () => prepared.port.personality!() } : {}),
       ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
@@ -686,18 +704,25 @@ export async function processConversationInbox(input: {
     let committedTransitionId: string | null = null
     const result = await measureAttemptTransaction('conversation_final', body => observeQueueProducerTransaction(input.queueMilestones, operation => input.client.$transaction(operation, txOptions), body), async (tx: Prisma.TransactionClient) => {
       // Take the conversation mutex before any job/deployment/event/session row lock.
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:WHATSAPP`}, 0))`)
-      const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
-        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone" FROM "BotActionInbox" i
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${policy.businessId}:${channel}`}, 0))`)
+      const identity = await tx.$queryRaw<Array<{ phone: string;payload:Prisma.JsonValue }>>(Prisma.sql`
+        /* consolidation-inbox-identity */ SELECT e."payload"->>'fromPhone' AS "phone",e.payload FROM "BotActionInbox" i
         JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
         WHERE i."id" = ${input.job.aggregateId} AND i."businessId" = ${policy.businessId}
       `)
-      if (!identity[0]?.phone) throw new Error('conversation identity unavailable')
-      await lockConversationPhoneTx(tx, policy.businessId, identity[0].phone)
+      if(subject){
+        const fresh=instagramSubjectFromPayload(identity[0]?.payload)
+        if(conversationSubjectKey(fresh)!==conversationSubjectKey(subject))throw new Error('Instagram computation identity changed')
+        await lockConversationSubjectTx(tx,policy.businessId,subject)
+      }else{
+        if(!identity[0]?.phone)throw new Error('conversation identity unavailable')
+        await lockConversationPhoneTx(tx,policy.businessId,identity[0].phone)
+      }
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return 'PROCESSED' as const }
-      const session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, snapshot.phone)) as Session | null
+      if (subject && ((row.payload as Record<string,unknown>).signedEventTimeValid!==true || !row.providerOccurredAt || row.providerOccurredAt.getTime()>row.admittedAt.getTime() || row.providerOccurredAt.getTime()>row.dbNow.getTime() || row.providerOccurredAt.getTime()<=row.dbNow.getTime()-24*60*60*1000)) {await finish(tx,row);return 'PROCESSED' as const}
+      const session = await measureAttemptStage('conversation_session_lock', () => lockSession(tx, row.businessId, snapshot.phone)) as Session | null
       if (!row.botEnabled || (session && (session.status !== 'ACTIVE' || session.handoffClaimsPausedAt))) { await finish(tx, row); return 'PROCESSED' as const }
       if (!session || JSON.stringify(currentPolicy) !== JSON.stringify(policy) || session.sessionId !== snapshot.session.sessionId ||
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
@@ -706,22 +731,22 @@ export async function processConversationInbox(input: {
       if ('confirmedDraft' in snapshot && snapshot.confirmedDraft) {
         const reservation=snapshot.confirmedDraft.bookingReservation ?? snapshot.confirmedDraft.completedBooking
         if (reservation?.receipt?.kind==='HELD') {
-          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:session.sessionId,canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:session.revision},reservation)
+          const actual=await loadRuntimeDepositReceipt(tx,{businessId:row.businessId,sessionId:session.sessionId,...identityFor(snapshot.phone),expectedRevision:session.revision},reservation)
           if (actual?.depositStatus!=='APPROVED') {
-            await input.writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision:session.revision,transitionId:'confirmed-reconcile-blocked:'+row.id,toPhone:snapshot.phone,dbNow:row.dbNow,
+            await writeView(tx,{businessId:row.businessId,sessionId:session.sessionId,revision:session.revision,transitionId:'confirmed-reconcile-blocked:'+row.id,toPhone:snapshot.phone,dbNow:row.dbNow,
               view:textView('No pude verificar el estado actual de esa reserva. Conservé el pedido y el pago; el equipo debe revisarlo.')})
             await finish(tx,row);return 'PROCESSED' as const
           }
         }
       }
       if ('expiredRecovery' in snapshot && snapshot.expiredRecovery && !await expiredRecoveryAllowedTx(tx, session, snapshot.phone, row.businessTimezone)) {
-        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+        await writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
           transitionId: 'expired-recovery-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
           view: textView('No pude verificar que la reserva anterior siga vencida y sin operaciones pendientes. Conservé la conversación; no inicié otra reserva.') })
         await finish(tx, row); return 'PROCESSED' as const
       }
       if (snapshot.testReset && !await resetAllowedTx(tx, session, row.businessTimezone, snapshot.phone)) {
-        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+        await writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
           transitionId: 'test-reset-blocked:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
           view: textView('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.') })
         await finish(tx, row); return 'PROCESSED' as const
@@ -730,7 +755,7 @@ export async function processConversationInbox(input: {
         try {
           if(row.actionType!==CONVERSATION_CHOICE_ACTION || row.expectedRevision!==session.revision) throw new Error('stale conversation choice')
           const current=resolveConversationChoicePayload((row.payload as {conversationChoice?:unknown}).conversationChoice,
-            {businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(session.revision)},
+            {businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(session.revision),...(subject?{instagramActorKey:await instagramChoiceActorKeyTx(tx,row.businessId,session.sessionId,subject)}:{})},
             readConversationDraft(session.state,policy,row.businessTimezone))
           if(JSON.stringify(current.operation)!==JSON.stringify(snapshot.selectedChoice.operation)) throw new Error('conversation choice changed')
         } catch {await finish(tx,row);return 'PROCESSED' as const}
@@ -746,7 +771,7 @@ export async function processConversationInbox(input: {
       }
       if (attachment?.intent === 'deposit_proof' && snapshot.attachmentProofBinding && snapshot.draft.bookingReservation) {
         const actual = await loadRuntimeDepositReceipt(tx, { businessId: row.businessId, sessionId: session.sessionId,
-          canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }, snapshot.draft.bookingReservation)
+          ...identityFor(snapshot.phone), expectedRevision: session.revision }, snapshot.draft.bookingReservation)
         const financialState = actual ? projectConversationDraft({ ...snapshot.draft,
           bookingReservation: { ...snapshot.draft.bookingReservation, receipt: actual } }, policy) : null
         const current = conversationProofBindingFromState(financialState, { businessId: row.businessId, sessionId: session.sessionId,
@@ -768,7 +793,7 @@ export async function processConversationInbox(input: {
           return 'PROCESSED' as const
         }
         // No receipt or changed obligation: do not download or acknowledge proof.
-        await input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
+        await writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision: session.revision,
           transitionId: 'attachment-target-changed:' + row.id, toPhone: snapshot.phone, dbNow: row.dbNow,
           view: textView('No pude vincular ese archivo a la seña vigente. No registré un pago; el equipo puede ayudarte a revisarlo.') })
         await finish(tx, row)
@@ -790,13 +815,13 @@ export async function processConversationInbox(input: {
       if (ownCancellation) {
         if (command || managementCommand || handoffCommand || confirmedCancellationHandoff) throw new Error('competing own appointment effects')
         const own = await loadOwnAppointments(tx,{businessId:row.businessId,sessionId:session.sessionId,
-          canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),expectedRevision:session.revision})
+          ...identityFor(snapshot.phone),expectedRevision:session.revision})
         if (!own.items.some(item=>cancellationFingerprint(item.snapshot)===cancellationFingerprint(ownCancellation.snapshot))) throw new GroupCancellationError('own cancellation snapshot changed')
       }
       if (confirmedCancellationHandoff && (command || managementCommand || handoffCommand)) throw new Error('competing confirmed cancellation effects')
       if (confirmedCancellationHandoff) {
         const fresh = await loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: row.businessId, sessionId: session.sessionId,
-          canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision })
+          ...identityFor(snapshot.phone), expectedRevision: session.revision })
         if (cancellationFingerprint(fresh) !== cancellationFingerprint(confirmedCancellationHandoff.snapshot)) throw new GroupCancellationError('cancellation handoff snapshot changed')
       }
       let finalResponse=response
@@ -807,7 +832,7 @@ export async function processConversationInbox(input: {
         } else {
           // Revalidate the same server-owned financial authority used at admission.
           // An approved deposit stays sealed while only its appointment assignment changes.
-          const managementScope = { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }
+          const managementScope = { businessId: row.businessId, sessionId: session.sessionId, ...identityFor(snapshot.phone), expectedRevision: session.revision }
           const managementState = parseBotOptionsState(session.state)
           if (!managementState.ok) throw new GroupCancellationError('invalid current management state')
           const fresh = managementCommand.kind === 'RESCHEDULE_APPOINTMENT_GROUP' && managementCommand.source === 'own_lookup'
@@ -835,7 +860,7 @@ export async function processConversationInbox(input: {
           finalResponse={state:deniedState,proposal:null,reply:'No pude verificar ese consentimiento. Conservé tu propuesta; todavía no hay una reserva confirmada.'}
         } else {
           const result=await executePrismaConversationBooking(tx,{origin:{kind:'RUNTIME',businessId:row.businessId,sessionId:session.sessionId,
-            canonicalPhone:snapshot.phone.replace(/[^0-9]/g,''),revision:session.revision,deploymentId:policy.deploymentId,generation:policy.generation,
+            ...identityFor(snapshot.phone),revision:session.revision,deploymentId:policy.deploymentId,generation:policy.generation,
             dispatchFenceEpoch:row.fenceEpoch,handoffFenceEpoch:session.handoffFenceEpoch,configurationId:policy.configurationId,
             operationKey:row.id,newBookingAllowed:true},presented:command.presented,currentDraft:snapshot.draft,
             consent:{confirmed:true,nonce:command.presented.nonce,fingerprint:command.presented.fingerprint}})
@@ -850,7 +875,7 @@ export async function processConversationInbox(input: {
         handoffFenceEpoch:session.handoffFenceEpoch,baseState:state,eventIds:[row.providerEventId],sealed:true,revision:String(revision)
       } : undefined)
       // Preserve injected view writers; the production TEXT path batches only its known renderer.
-      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision)}
+      const choiceScope:ChoiceScope={businessId:row.businessId,conversationKey:session.sessionId,policyKey:policy.configurationId,policyGeneration:policy.generation,revision:String(revision),...(subject?{instagramActorKey:await instagramChoiceActorKeyTx(tx,row.businessId,session.sessionId,subject)}:{})}
       let question:ChoiceQuestion|undefined
       if(!handoffCommand && !confirmedCancellationHandoff && !ownCancellation && !command && !managementCommand && input.writeView===persistView && 'choicePresentation' in response && response.choicePresentation) {
         for(const choice of response.choicePresentation.choices) parseConversationChoiceOperation(choice.operation)
@@ -863,7 +888,7 @@ export async function processConversationInbox(input: {
         : proposedConfirmedCancellation && !confirmedCancellationHandoff ? 'No pude verificar tu pedido de cancelación. Tu turno sigue vigente; podés volver a pedirme que lo envíe al equipo.'
         : confirmedCancellationHandoff ? 'Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'
         : handoffCommand ? 'Tu consulta quedó en cola para el equipo. Conservé tu borrador; todavía no hay una reserva confirmada.' : (snapshot.policyReset ? 'La configuración cambió; empecemos con un borrador nuevo. ' : '') + finalResponse.reply
-      const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
+      const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {...(subject?{subject}:{}),
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
         generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
@@ -893,10 +918,10 @@ export async function processConversationInbox(input: {
       }
       if (question) {
         if (ownCancellation) throw new Error('own cancellation cannot issue competing question')
-        await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))
+        await measureAttemptStage('conversation_view_persist',()=>persistConversationChoiceViewTx(tx,{...(subject?{subject}:{}),scope:choiceScope,draft:response.state,question,reply,transitionId,toPhone:snapshot.phone,dbNow:row.dbNow,consolidation:deliveryEnvelope}))
         await finish(tx,row,snapshot.consolidation?.envelope.eventIds)
       } else if (!atomicText) {
-        await measureAttemptStage('conversation_view_persist', () => input.writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
+        await measureAttemptStage('conversation_view_persist', () => writeView(tx, { businessId: row.businessId, sessionId: session.sessionId, revision, transitionId,
           toPhone: snapshot.phone, consolidation: deliveryEnvelope, view: textView(reply,
             'publicLink' in finalResponse ? finalResponse.publicLink : undefined), dbNow: row.dbNow }))
         await finish(tx, row, snapshot.consolidation?.envelope.eventIds)

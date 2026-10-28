@@ -16,7 +16,7 @@ const select = Reflect.get(domain, 'selectManagementRescheduleOffer') as (contex
 const confirm = Reflect.get(domain, 'confirmAppointmentManagement') as (context: Context, consent: { nonce: string; fingerprint: string }) => GroupCancellationCommand | GroupRescheduleCommand
 const prepare = Reflect.get(adapter, 'prepareGroupRescheduleOffers') as (snapshot: CancellationSnapshot, date: string, reader: Reader) => Promise<readonly Offer[]>
 
-const snapshot: CancellationSnapshot = {
+const snapshot: CancellationSnapshot & {scope:{normalizedPhone:string;subject?:never}} = {
   scope: { businessId: 'business', customerId: 'customer', sessionId: 'session', normalizedPhone: '5491112345678' },
   groupId: 'group', dbNow: '2026-10-07T10:00:00.000Z',
   members: ['a', 'b'].map((id, index) => ({

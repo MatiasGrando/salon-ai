@@ -1,3 +1,4 @@
+import { resolveInstagramSessionSubjectTx } from './conversation-subject.js'
 import { prepareGroupRescheduleOffers } from './prisma-appointment-management.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { loadActiveServiceContent, serviceContentFromPublicSnapshot } from './prisma-service-content.js'
@@ -102,10 +103,10 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           state.professionalNameHint || state.referral || state.serviceRequest || state.editRequest || state.timeMeaningClarification) return null
         const ids=basketServiceIds(state)
         if(!ids.length || ids.length>8 || new Set(ids).size!==ids.length || state.basket?.members.some(m=>m.mode!=='single' || m.serviceIds.length!==1)) return null
-        const scopes=await source.$queryRaw<Array<{phone:string;timezone:string}>>(Prisma.sql`
+        const scopes=await source.$queryRaw<Array<{phone:string|null;timezone:string;channel:string}>>(Prisma.sql`
           /* runtime-booking-presentation-scope */
-          SELECT c."phone",s."businessTimezone" AS timezone FROM "BotSession" s
-          JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+          SELECT c."phone",s.channel::text,s."businessTimezone" AS timezone FROM "BotSession" s
+          LEFT JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
           JOIN "BotChannelDeployment" d ON d.id=s."deploymentId" AND d."businessId"=s."businessId"
           JOIN "BusinessBotConfiguration" cfg ON cfg.id=d."activeConfigurationId" AND cfg."businessId"=d."businessId"
           JOIN "Business" b ON b.id=s."businessId"
@@ -113,11 +114,13 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
             AND s.status='ACTIVE' AND s."handoffClaimsPausedAt" IS NULL AND s."handoffFenceEpoch"=${scope.handoffFenceEpoch}
             AND s."deploymentId"=${scope.deploymentId} AND s."deploymentGeneration"=${scope.generation}
             AND d.generation=${scope.generation} AND d."dispatchFenceEpoch"=${scope.dispatchFenceEpoch} AND d."claimsPausedAt" IS NULL
-            AND d.channel='WHATSAPP' AND d."activeConfigurationId"=${scope.configurationId} AND cfg.status='ACTIVE'
+            AND d.channel=s.channel AND d.channel IN ('WHATSAPP','INSTAGRAM') AND d."activeConfigurationId"=${scope.configurationId} AND cfg.status='ACTIVE'
             AND d."legacyDispatchCoverageVersion">=1 AND b."botEnabled"=true
             AND s.state->>'deposit'='NONE' AND s.state->>'handoff'='NONE' AND s.state->>'booking' IN ('NONE','DRAFT')
         `)
-        if(scopes.length!==1 || scopes[0]!.timezone!==context.timezone || !/^\+?[\d\s().-]+$/.test(scopes[0]!.phone)) return null
+        if(scopes.length!==1 || scopes[0]!.timezone!==context.timezone)return null
+        const actor=scopes[0]!.channel==='INSTAGRAM'?await resolveInstagramSessionSubjectTx(source,{businessId,sessionId:scope.sessionId}):null
+        if(scopes[0]!.channel==='INSTAGRAM'?!actor||!actor.aiEnabled:!scopes[0]!.phone||!/^\+?[\d\s().-]+$/.test(scopes[0]!.phone!))return null
         const rows=await source.$queryRaw<Prisma.ServiceGetPayload<undefined>[]>(Prisma.sql`
           /* runtime-booking-presentation-services */
           SELECT s.* FROM "Service" s JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true
@@ -128,7 +131,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         if(!hasBookingPriorityOrder(ids,ordered))return null
         if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
         const depositRequired=ordered.some(s=>s.depositMode!=='NONE')
-        if(depositRequired && !runtimeDepositsEnabled())return {unavailable:'DEPOSITS_DISABLED'}
+        if(depositRequired && !runtimeDepositsEnabled(actor?{businessId,subject:actor}:undefined))return {unavailable:'DEPOSITS_DISABLED'}
         let slot=structuredClone(state.slot)
         const assigned=slot.coordination?.segments.map(s=>s.professionalId) ?? ids.map(()=>slot.professionalId)
         const professionals=await source.$queryRaw<Array<{serviceId:string;professionalId:string;professionalName:string}>>(Prisma.sql`

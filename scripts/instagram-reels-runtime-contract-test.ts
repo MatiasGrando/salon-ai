@@ -9,6 +9,7 @@ import {
 
 assert.deepEqual(resolveInstagramReelsRuntimeConfig({}), {
   enabled: false,
+  storiesEnabled: false,
   intervalMs: 5000,
   businessIds: []
 })

@@ -1,3 +1,4 @@
+import type { InstagramConversationSubject } from '../../conversational-bot/conversation-subject.js'
 import { resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
 import { textView } from '../domain/views.js'
 import { Prisma } from '../../generated/prisma/client.js'
@@ -11,12 +12,16 @@ type WindowInput = {
   businessId: string; deploymentId: string; generation: number; providerEventId: string
   phone: string; admittedAt: Date; providerOccurredAt: Date | null; isMedia: boolean
   processingInboxId?: string
+  subject?: InstagramConversationSubject
   currentJobId?: string
 }
 type WindowResult = { kind: 'CONTINUE'; evaluated: boolean } | { kind: 'EXPIRED' | 'REPLAY' } | { kind: 'WAIT'; retryAt: Date }
 
 /** Called only for a MESSAGE in the journal worker transaction, before classification. */
 export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, input: WindowInput, writeView: typeof persistView): Promise<WindowResult> {
+  const identityJoin=input.subject?Prisma.sql`JOIN "InstagramLead" lead ON lead.id=s."instagramLeadId" AND lead."businessId"=s."businessId"`:Prisma.sql`JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"`
+  const identityGuard=input.subject?Prisma.sql`s.channel='INSTAGRAM' AND lead.id=${input.subject.instagramLeadId} AND s."instagramAccountId"=${input.subject.instagramAccountId} AND lead."instagramUserId"=${input.subject.externalUserId}`:Prisma.sql`c.phone=${input.phone}`
+  const eventIdentity=input.subject?Prisma.sql`e.payload->>'channel'='INSTAGRAM' AND e.payload->>'instagramLeadId'=${input.subject.instagramLeadId} AND e.payload->>'instagramAccountId'=${input.subject.instagramAccountId} AND e.payload->>'senderId'=${input.subject.externalUserId}`:Prisma.sql`e.payload->>'fromPhone'=${input.phone}`
   const rows = await tx.$queryRaw<Array<{
     id: string; revision: bigint; state: Prisma.JsonValue; status: string; deploymentGeneration: number
     draftTouchedAt: Date | null; draftExpiresAt: Date | null; dbNow: Date
@@ -35,9 +40,9 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
         SELECT 1 FROM "BotHandoff" h WHERE h."businessId" = s."businessId" AND h."sessionId" = s."id"
           AND h."status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
       )) AS "durableProtection"
-    FROM "BotSession" s JOIN "Conversation" c ON c."id" = s."conversationId" AND c."businessId" = s."businessId" JOIN "Business" b ON b."id"=s."businessId"
+    FROM "BotSession" s ${identityJoin} JOIN "Business" b ON b."id"=s."businessId"
     WHERE s."businessId" = ${input.businessId} AND s."deploymentId" = ${input.deploymentId}
-      AND c."phone" = ${input.phone} AND s."status" <> 'CLOSED'::"BotSessionStatus"
+      AND ${identityGuard} AND s."status" <> 'CLOSED'::"BotSessionStatus"
     ORDER BY s."id" FOR UPDATE OF s FOR SHARE OF b
   `)
   if (rows.length === 0) return { kind: 'CONTINUE', evaluated: false }
@@ -77,10 +82,10 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
       OR EXISTS (
         SELECT 1 FROM "BotActionInbox" i JOIN "BotProviderEvent" e ON e."id" = i."providerEventId" AND e."businessId" = i."businessId"
         WHERE i."businessId" = ${input.businessId} AND i."id" = j."aggregateId"
-          AND (i."sessionId" = ${session.id} OR (i."sessionId" IS NULL AND e."payload"->>'fromPhone' = ${input.phone}))
+          AND (i."sessionId" = ${session.id} OR (i."sessionId" IS NULL AND (${eventIdentity})))
       ) OR EXISTS (
         SELECT 1 FROM "BotProviderEvent" e WHERE e."businessId" = ${input.businessId}
-          AND e."id" = j."aggregateId" AND e."payload"->>'fromPhone' = ${input.phone}
+          AND e."id" = j."aggregateId" AND (${eventIdentity})
       ))
   `
   const guards = await tx.$queryRaw<Array<{ busy: boolean; protectedDelivery: boolean }>>(Prisma.sql`
@@ -129,7 +134,7 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     FROM "BotProviderEvent" e
     WHERE e."id" = i."providerEventId" AND e."businessId" = i."businessId" AND i."businessId" = ${input.businessId}
       AND i."id" <> ${input.processingInboxId ?? ''}
-      AND (i."sessionId" = ${session.id} OR (i."sessionId" IS NULL AND e."payload"->>'fromPhone' = ${input.phone}))
+      AND (i."sessionId" = ${session.id} OR (i."sessionId" IS NULL AND (${eventIdentity})))
       AND i."status" IN ('ADMITTED', 'CLAIMED', 'SELECTED', 'CONFLICT')
   `)
   await tx.$executeRaw(Prisma.sql`
@@ -162,7 +167,7 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     VALUES (${transitionId}, ${input.businessId}, ${session.id}, ${input.deploymentId}, ${input.generation},
       ${session.revision}, ${nextRevision}, 'system.context_expired', 'APPLIED', ${input.providerEventId})
   `)
-  const menu = await loadConversationGreetingView(tx, input)
+  const menu = input.subject?textView('Hola. Empecemos de nuevo. ¿Qué servicio necesitás?'):await loadConversationGreetingView(tx, input)
   await writeView(tx, { businessId: input.businessId, sessionId: session.id, revision: nextRevision,
     transitionId, toPhone: input.phone, view: menu, dbNow: session.dbNow })
   await tx.$executeRaw(Prisma.sql`

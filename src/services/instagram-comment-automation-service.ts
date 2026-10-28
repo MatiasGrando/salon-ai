@@ -63,7 +63,7 @@ export async function resolveInstagramAutomationTarget(tx: Client, businessId: s
   if ('publicationId' in target) {
     publication = await tx.instagramPublication.findFirst({ where: { businessId, id: target.publicationId } })
     if (!publication) throw new InstagramAutomationError(404, 'Publicacion no encontrada.')
-    if (publication.status !== 'PUBLISHED') throw new InstagramAutomationError(409, 'La automatizacion de este panel requiere un Reel publicado.')
+    if ((publication.publicationType ?? 'REEL') !== 'REEL' || publication.status !== 'PUBLISHED') throw new InstagramAutomationError(409, 'La automatizacion de este panel requiere un Reel publicado.')
     if (publication.metaMediaId) media = await tx.instagramMedia.findFirst({ where: { businessId, accountId, providerMediaId: publication.metaMediaId } })
   } else {
     media = await tx.instagramMedia.findFirst({ where: { businessId, accountId, id: target.mediaId, mediaProductType: 'REELS' } })

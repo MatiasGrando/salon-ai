@@ -11,6 +11,8 @@ import {
 } from './crm-ui/cash-register.js'
 import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipeline.js'
 import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from './crm-ui/instagram-media.js'
+import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyles } from './crm-ui/instagram-planning.js'
+import { instagramStoriesMarkup, instagramStoriesScript, instagramStoriesStyles } from './crm-ui/instagram-stories.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -3988,6 +3990,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .conversation-channel.instagram { background: #fdf2f8; color: #be185d; }
 
     ${instagramMediaStyles}
+    ${instagramPlanningStyles}
+    ${instagramStoriesStyles}
 
     .instagram-reels-manager {
       display: grid;
@@ -16430,7 +16434,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <button class="icon-button mobile-only" id="mobile-back" type="button" title="Volver a chats">&lt;</button>
           <div class="avatar" id="chat-avatar">--</div>
           <div>
-            <div class="panel-title chat-contact-name"><span id="chat-phone">Selecciona una conversacion</span><span class="whatsapp-chip">WhatsApp</span></div>
+            <div class="panel-title chat-contact-name"><span id="chat-phone">Selecciona una conversacion</span><span id="chat-channel-chip" class="whatsapp-chip">WhatsApp</span></div>
             <div class="hint" id="chat-status">Historial y respuesta manual</div>
           </div>
         </div>
@@ -18191,12 +18195,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <div class="instagram-reels-manager" id="instagram-reels-manager" hidden>
           <section class="instagram-reels-toolbar">
             <div>
-              <h3>Reels de Instagram</h3>
+              <h3>Instagram: Reels e historias</h3>
               <p>Consult&aacute; el alcance de tus publicaciones y prepar&aacute; nuevos Reels.</p>
             </div>
             <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
           ${instagramMediaMarkup}
+          ${instagramPlanningMarkup}
+          ${instagramStoriesMarkup}
           <div class="instagram-media-local-heading"><h4>Creaciones del CRM pendientes de sincronizar</h4><p>Borradores, publicaciones en proceso y Reels publicados que todav&iacute;a no est&aacute;n en el cat&aacute;logo de arriba.</p></div>
           <p class="instagram-reel-feedback" id="instagram-reels-feedback" role="status" aria-live="polite"></p>
           <div class="instagram-reels-table-wrap">
@@ -18229,21 +18235,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
             </section>
             <section class="instagram-reel-section" data-reel-section="automation">
-              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n</h4><p>La respuesta privada se intenta una sola vez por comentario coincidente.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox" checked> Activa</label></div>
+              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n opcional</h4><p>Publicar no requiere respuestas autom&aacute;ticas. Cada acci&oacute;n conserva su propio resultado.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox"> Activa</label></div>
               <label class="instagram-reel-field">Palabras clave
                 <span class="instagram-reel-keyword-entry"><input id="instagram-reel-keyword-input" autocomplete="off" placeholder="Ej: precio"><button class="secondary" id="instagram-reel-keyword-add" type="button">Agregar</button></span>
               </label>
               <div class="instagram-reel-keyword-chips" id="instagram-reel-keyword-chips" aria-live="polite"></div>
-              <label class="instagram-reel-field">Primer mensaje privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+              <label class="instagram-reel-switch"><input id="instagram-reel-public-enabled" type="checkbox"> Responder comentario p&uacute;blico</label>
+              <label class="instagram-reel-field">Texto p&uacute;blico<textarea id="instagram-reel-public-reply" maxlength="1000"></textarea></label>
+              <label class="instagram-reel-switch"><input id="instagram-reel-private-enabled" type="checkbox" checked> Enviar mensaje privado</label>
+              <label class="instagram-reel-field">Texto privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+            </section>
+            <section class="instagram-reel-section" data-reel-section="destination">
+              <div><h4>3. Destino y horario</h4><p>La programaci&oacute;n usa la zona horaria del comercio.</p></div>
+              <div class="instagram-reel-time-grid">
+                <label class="instagram-reel-field" for="instagram-reel-destination">Al guardar<select id="instagram-reel-destination"><option value="draft">Guardar borrador</option><option value="now">Publicar ahora</option><option value="schedule">Programar</option></select></label>
+                <label class="instagram-reel-field" for="instagram-reel-schedule-date">Fecha local<input id="instagram-reel-schedule-date" type="date"></label>
+                <label class="instagram-reel-field" for="instagram-reel-schedule-time">Hora local<input id="instagram-reel-schedule-time" type="time"></label>
+                <button type="button" class="secondary" id="instagram-reel-resolve-time">Verificar horario</button>
+                <label class="instagram-reel-field" for="instagram-reel-time-options">Opci&oacute;n horaria<select id="instagram-reel-time-options"><option value="">Verific&aacute; fecha y hora</option></select></label>
+              </div>
             </section>
             <section class="instagram-reel-section" data-reel-section="review">
-              <div><h4>3. Revisi&oacute;n y estado</h4><p>Revis&aacute; el resumen. Al confirmar, el Reel queda en cola; no significa que ya est&eacute; publicado.</p></div>
+              <div><h4>4. Revisi&oacute;n y estado</h4><p>Guardar confirma el paso elegido; estar en cola no significa que ya est&eacute; publicado.</p></div>
               <div class="instagram-reel-review" id="instagram-reel-review"></div>
               <div class="instagram-reel-progress" id="instagram-reel-progress" aria-label="Progreso de preparaci&oacute;n"><span></span></div>
               <p class="instagram-reel-feedback" id="instagram-reel-feedback" role="status" aria-live="polite"></p>
             </section>
           </div>
-          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cancelar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar y publicar</button></footer>
+          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cerrar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar</button></footer>
         </form>
       </section>
     </div>
@@ -19025,7 +19044,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
             <div class="bot-routing-panel settings-field full" id="bot-routing-control" hidden>
-              <h4>Bot de WhatsApp</h4>
+              <h4>Bot por canal</h4>
+              <label for="bot-routing-channel">Canal</label>
+              <select class="field" id="bot-routing-channel"><option value="WHATSAPP">WhatsApp</option><option value="INSTAGRAM">Instagram</option></select>
               <small id="bot-routing-status" role="status">Consultando el bot actual...</small>
               <label for="bot-routing-selector">Eleg&iacute; el bot del comercio</label>
               <select class="field" id="bot-routing-selector" aria-describedby="bot-routing-help">
@@ -20207,6 +20228,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         assistantPersonalityPreview: ''
       },
       botRouting: null,
+      botRoutingChannel: 'WHATSAPP',
       pendingProfessionalSave: null,
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
@@ -20414,6 +20436,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
       botRoutingControl: document.getElementById('bot-routing-control'),
+      botRoutingChannel: document.getElementById('bot-routing-channel'),
       botRoutingSelector: document.getElementById('bot-routing-selector'),
       botRoutingStatus: document.getElementById('bot-routing-status'),
       botRoutingTimezone: document.getElementById('bot-routing-timezone'),
@@ -20539,6 +20562,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
+      chatChannelChip: document.getElementById('chat-channel-chip'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
       resolveHandoff: document.getElementById('resolve-handoff'),
@@ -22053,6 +22077,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
         const error = new Error(body.message || 'Error de servidor')
         error.body = body
+        error.status = response.status
         throw error
       }
       return response.json()
@@ -23973,7 +23998,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!isStaff) {
         state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
         state.botRouting = state.businessId
-          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId)+'&channel='+encodeURIComponent(state.botRoutingChannel||'WHATSAPP'))
           : null
       }
       const professionals = await getJson('/professionals' + lightweightCatalogQuery)
@@ -26044,6 +26069,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       state.selectedDeposit = null
+      els.chatChannelChip.textContent = 'WhatsApp'
       els.replyForm.hidden = false
 
       const name = conversationDisplayName(selected)
@@ -26131,6 +26157,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderExternalChannelSelected(selected, options = {}) {
+      els.chatChannelChip.textContent = conversationChannelLabel(selected.channel)
       state.selectedDeposit = null
       const name = conversationDisplayName(selected)
       const customer = customerForConversation(selected)
@@ -26139,13 +26166,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.chatAvatar.textContent = avatar
       els.chatPhone.textContent = name
       els.chatStatus.textContent = conversationChannelLabel(selected.channel) + (channelAddress ? ' · ' + channelAddress : '')
-      els.stepChip.textContent = conversationChannelLabel(selected.channel)
+      els.stepChip.textContent = conversationStepLabel(selected.currentStep,selected.aiEnabled,selected)
       els.stepChip.className = 'chip step-progress'
       els.depositApprove.hidden = true
       els.depositReject.hidden = true
       els.advisorQuote.hidden = true
-      els.resolveHandoff.hidden = true
-      els.conversationAiToggle.hidden = true
+      const canReplyConversation=state.currentUser?.role!=='STAFF'||state.currentUser?.canReplyConversations===true
+      const human=conversationHandoffUiStage(selected)!=='NONE'
+      els.resolveHandoff.hidden=!canReplyConversation||!human
+      els.resolveHandoff.disabled=!human
+      els.conversationAiToggle.hidden=!canReplyConversation
+      els.conversationAiToggle.disabled=false
+      els.conversationAiToggle.textContent='Atender manualmente'
+      els.resolveHandoff.textContent='Marcar como resuelto'
       els.replyForm.hidden = false
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
@@ -26157,7 +26190,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.detailEmail.hidden = !customer?.email
       els.detailWhatsapp.href = customer?.phone ? whatsappAppUrl(customer.phone) : '#'
       els.detailWhatsapp.hidden = !customer?.phone
-      els.detailStep.textContent = conversationChannelLabel(selected.channel)
+      els.detailStep.textContent = conversationStepLabel(selected.currentStep,selected.aiEnabled,selected)
       els.detailStep.className = 'chip step-progress'
       els.detailMarketingStatus.textContent = customer ? 'Cliente vinculado' : 'Sin ficha de cliente'
       els.detailMarketingStatus.className = 'chip'
@@ -27865,7 +27898,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+
+    async function changeBotRoutingChannel(){
+      if(state.botRoutingBusy||!state.businessId)return
+      const businessId=state.businessId,channel=els.botRoutingChannel.value
+      if(!['WHATSAPP','INSTAGRAM'].includes(channel))return
+      state.botRoutingChannel=channel
+      state.botRoutingBusy=true
+      els.botRoutingChannel.disabled=true
+      try{
+        const value=await getJson('/crm/bot-routing?businessId='+encodeURIComponent(businessId)+'&channel='+encodeURIComponent(channel))
+        if(state.businessId!==businessId||state.botRoutingChannel!==channel)return
+        state.botRouting=value;state.botRoutingSelectionBusinessId=null
+        els.botRoutingEvidence.textContent=''
+      }catch(error){els.botRoutingEvidence.textContent=error.message;els.botRoutingEvidence.className='settings-feedback visible error'}
+      finally{state.botRoutingBusy=false;renderBotRoutingControl()}
+    }
+
     function routingConfigurationForVariant(routing, variant) {
+      if(routing.channel==='INSTAGRAM')return (routing.configurations||[]).find(configuration=>configuration.id===variant)||null
       const candidates = (routing.configurations || []).filter(configuration => configuration.variant === variant)
       return candidates.find(configuration => configuration.id === routing.activeConfigurationId) || candidates[0] || null
     }
@@ -27875,11 +27926,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.botRoutingControl.hidden = !routing || state.currentUser?.role === 'STAFF'
       if (!routing || state.currentUser?.role === 'STAFF') return
       if (els.globalAiToggle) els.globalAiToggle.closest('.automation-control').hidden = routing.activeVariant === 'conversational'
-      const selected = state.botRoutingSelectionBusinessId === state.businessId
-        ? els.botRoutingSelector.value || routing.activeVariant || 'options' : routing.activeVariant || 'options'
-      state.botRoutingSelectionBusinessId = state.businessId
+      const instagram=routing.channel==='INSTAGRAM'
+      els.botRoutingChannel.value=instagram?'INSTAGRAM':'WHATSAPP'
+      const key=state.businessId+':'+(routing.channel||'WHATSAPP')
+      const selected=state.botRoutingSelectionBusinessId===key?els.botRoutingSelector.value||(instagram?routing.activeConfigurationId||routing.configurations?.[0]?.id:routing.activeVariant)||'options':(instagram?routing.activeConfigurationId||routing.configurations?.[0]?.id:routing.activeVariant)||'options'
+      state.botRoutingSelectionBusinessId=key
       els.botRoutingSelector.replaceChildren()
-      for (const choice of [{ variant: 'options', label: 'Bot de opciones' }, { variant: 'conversational', label: 'Nuevo bot' }]) {
+      for (const choice of (instagram?(routing.configurations||[]).map(configuration=>({variant:configuration.id,label:configuration.name+' · '+configuration.version})):[{ variant: 'options', label: 'Bot de opciones' }, { variant: 'conversational', label: 'Nuevo bot' }])) {
         const option = document.createElement('option')
         option.value = choice.variant
         option.textContent = choice.label
@@ -27905,21 +27958,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const variant = els.botRoutingSelector.value
       const preparation = routing.preparation || {}
       const configuration = routingConfigurationForVariant(routing, variant)
-      const conversational = variant === 'conversational'
+      const conversational = routing.channel==='INSTAGRAM'||variant === 'conversational'
       const aiReady = !conversational || preparation.conversationalAiReady === true
-      document.getElementById('bot-routing-help').textContent = conversational
+      document.getElementById('bot-routing-help').textContent = routing.channel==='INSTAGRAM'?'Elegí una versión publicada del mismo Nuevo bot. La versión y las capacidades son compartidas con WhatsApp; la activación de cada canal se confirma por separado.':conversational
         ? 'El Nuevo bot interpreta las consultas y redacta con IA. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
         : 'El Bot de opciones guía al cliente con menús y botones. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
-      els.botRoutingReadiness.textContent = !aiReady ? 'Falta habilitar y configurar la IA de WhatsApp en el servidor. No se puede activar el Nuevo bot todavía.'
+      els.botRoutingReadiness.textContent = routing.channel==='INSTAGRAM'?(!preparation.rolloutReady?'Falta habilitar Instagram para este comercio en el servidor.':!aiReady?'Falta habilitar y configurar la IA de Instagram en el servidor.':!preparation.hasAppSecret?'Falta la clave privada de la aplicación de Instagram.':!preparation.instagramReady?'Instagram todavía no está conectado y habilitado.':!preparation.hasTimezone?'Falta la zona horaria del comercio.':configuration?'Versión publicada lista. Revisá y confirmá para asignarla a Instagram.':'Publicá primero una versión del Nuevo bot para este comercio.') : !aiReady ? 'Falta habilitar y configurar la IA de WhatsApp en el servidor. No se puede activar el Nuevo bot todavía.'
         : !preparation.hasAppSecret ? 'Falta guardar el App Secret en Meta y WhatsApp.'
         : !preparation.whatsappReady ? 'WhatsApp todavía no cumple todos los requisitos.'
         : !preparation.hasTimezone ? 'Falta preparar la zona horaria del bot.'
         : configuration ? 'Configuración preparada. Revisá el cambio antes de activarlo.' : 'Prepará el bot elegido para poder revisar su activación.'
       const disabled = routing.paused === true || state.botRoutingBusy === true
+      els.botRoutingChannel.disabled=disabled
       els.botRoutingSelector.disabled = disabled
-      els.botRoutingTimezone.disabled = disabled
+      els.botRoutingTimezone.disabled = disabled||routing.channel==='INSTAGRAM'
       els.botRoutingPrepare.disabled = disabled
-      els.botRoutingPrepare.textContent = 'Preparar ' + (conversational ? 'Nuevo bot' : 'Bot de opciones')
+      els.botRoutingPrepare.textContent = routing.channel==='INSTAGRAM'?'Actualizar versiones publicadas':'Preparar ' + (conversational ? 'Nuevo bot' : 'Bot de opciones')
       els.botRoutingPreflight.disabled = disabled || !configuration || !preparation.ready || !aiReady || configuration.id === routing.activeConfigurationId
     }
 
@@ -27943,10 +27997,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       try {
         await getJson('/crm/bot-routing/configurations/default', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId, timezone, variant })
+          body: JSON.stringify({ businessId, timezone, variant:routing.channel==='INSTAGRAM'?'conversational':variant,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
         })
         if (!isCurrent()) return
-        const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId))
+        const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId)+'&channel='+encodeURIComponent(routing.channel||'WHATSAPP'))
         if (!isCurrent()) return
         state.botRouting = refreshed
         renderBotRoutingControl()
@@ -27971,7 +28025,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function abortBotRoutingPreflight(businessId, handle) {
       return getJson('/crm/bot-routing/abort', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessId, handle })
+        body: JSON.stringify({ businessId, handle,...(handle.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
       })
     }
 
@@ -27997,7 +28051,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       try {
         preflight = await getJson('/crm/bot-routing/preflight', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId, expectedGeneration: routing.generation, target })
+          body: JSON.stringify({ businessId, expectedGeneration: routing.generation, target,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
         })
         if (!isCurrent()) {
           await abortBotRoutingPreflight(businessId, preflight.handle)
@@ -28024,7 +28078,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
         await getJson('/crm/bot-routing/commit', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId, target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
+          body: JSON.stringify({ businessId,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}), target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
         })
         if (isCurrent()) {
           els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
@@ -28040,7 +28094,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
       } finally {
         try {
-          const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId))
+          const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId)+'&channel='+encodeURIComponent(routing.channel||'WHATSAPP'))
           if (isCurrent()) {
             state.botRouting = refreshed
             renderBotRoutingControl()
@@ -34359,10 +34413,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
 
     ${instagramMediaScript}
+    ${instagramPlanningScript}
+    ${instagramStoriesScript}
 
     function instagramReelStatusMeta(status) {
       const statuses = {
         DRAFT: { label: 'Borrador', tone: 'draft' },
+        SCHEDULED: { label: 'Programado', tone: 'processing' },
+        CANCELLED: { label: 'Cancelado', tone: 'draft' },
         READY: { label: 'En cola', tone: 'processing' },
         CREATING_CONTAINER: { label: 'Preparando', tone: 'processing' },
         PROCESSING: { label: 'Procesando', tone: 'processing' },
@@ -34496,7 +34554,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramReelProgress.style.width = Math.max(0, Math.min(100, percent)) + '%'
     }
 
-    function uploadInstagramReelFile(upload, file) {
+    function uploadInstagramReelFile(upload, file, signal, feedback = {}) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest()
         request.open('PUT', upload.uploadUrl)
@@ -34504,13 +34562,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         request.upload.addEventListener('progress', (event) => {
           if (!event.lengthComputable) return
           const uploadedPercent = Math.round((event.loaded / event.total) * 100)
-          setInstagramReelProgress(15 + Math.round(uploadedPercent * 0.4))
-          setInstagramReelFeedback('Subiendo el video... ' + uploadedPercent + '%')
+          ;(feedback.progress || setInstagramReelProgress)(15 + Math.round(uploadedPercent * 0.4))
+          ;(feedback.feedback || setInstagramReelFeedback)('Subiendo archivo... ' + uploadedPercent + '%')
         })
         request.addEventListener('load', () => request.status >= 200 && request.status < 300
           ? resolve()
           : reject(new Error('No pudimos subir el video al almacenamiento.')))
         request.addEventListener('error', () => reject(new Error('Se interrumpió la carga del video.')))
+        request.addEventListener('abort', () => reject(new Error('Carga cancelada.')))
+        signal?.addEventListener('abort', () => request.abort(), { once:true })
+        if (signal?.aborted) return reject(new Error('Carga cancelada.'))
         request.send(file)
       })
     }
@@ -34521,13 +34582,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.instagramReelKeywords = []
       els.instagramReelForm.reset()
       els.instagramReelShareToFeed.checked = true
-      els.instagramReelAutomationEnabled.checked = true
+      els.instagramReelAutomationEnabled.checked = false
+      for (const field of [els.instagramReelVideo,els.instagramReelCaption,els.instagramReelShareToFeed,els.instagramReelAutomationEnabled,els.instagramReelPrivateReply,els.instagramReelKeywordInput,els.instagramReelKeywordAdd,document.getElementById('instagram-reel-public-reply'),document.getElementById('instagram-reel-public-enabled'),document.getElementById('instagram-reel-private-enabled')]) field.disabled = false
       els.instagramReelVideoPreview.removeAttribute('src')
       els.instagramReelVideoPreview.hidden = true
       els.instagramReelVideoEmpty.hidden = false
       els.instagramReelCancel.textContent = 'Cancelar'
       els.instagramReelSubmit.disabled = false
-      els.instagramReelSubmit.textContent = 'Guardar y publicar'
+      els.instagramReelSubmit.textContent = 'Guardar'
       setInstagramReelProgress(0)
       setInstagramReelFeedback('')
       renderInstagramReelKeywords()
@@ -34536,15 +34598,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function openInstagramReelDialog() {
       resetInstagramReelForm()
+      instagramMediaPlanNew()
       els.instagramReelDialog.hidden = false
       requestAnimationFrame(() => els.instagramReelVideo.focus())
     }
 
     function closeInstagramReelDialog() {
-      if (els.instagramReelSubmit.dataset.loading === 'true') return
+      const editor = state.instagramPlanning?.editor
+      editor?.controller.abort()
+      if (state.instagramPlanning) state.instagramPlanning.editor = null
       els.instagramReelDialog.hidden = true
       if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
       state.instagramReelPreviewUrl = null
+      if (editor?.origin?.isConnected) editor.origin.focus()
     }
 
     function addInstagramReelKeyword() {
@@ -34586,88 +34652,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function submitInstagramReel(event) {
-      event.preventDefault()
-      const file = els.instagramReelVideo.files?.[0]
-      const mimeType = instagramReelMimeType(file)
-      const privateReplyText = els.instagramReelPrivateReply.value.trim()
-      if (!state.businessId) return setInstagramReelFeedback('No encontramos el comercio activo.', 'error')
-      if (!file || !mimeType) {
-        setInstagramReelFeedback('Elegí un video MP4 o MOV.', 'error')
-        els.instagramReelVideo.focus()
-        return
-      }
-      if (!state.instagramReelKeywords.length) {
-        setInstagramReelFeedback('Agregá al menos una palabra clave.', 'error')
-        els.instagramReelKeywordInput.focus()
-        return
-      }
-      if (!privateReplyText) {
-        setInstagramReelFeedback('Escribí el primer mensaje privado.', 'error')
-        els.instagramReelPrivateReply.focus()
-        return
-      }
-      if (!setButtonLoading(els.instagramReelSubmit, true, 'Preparando...')) return
-      els.instagramReelCancel.disabled = true
-      let queued = false
-      try {
-        setInstagramReelFeedback('Preparando una carga segura...')
-        setInstagramReelProgress(10)
-        const basePath = '/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications'
-        const upload = await getJson(basePath + '/uploads', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mimeType, sizeBytes: file.size })
-        })
-        if (!upload?.uploadUrl || !upload?.objectPath || !upload?.uploadHeaders) throw new Error('El servidor no devolvió una carga válida.')
-        setInstagramReelFeedback('Subiendo el video...')
-        setInstagramReelProgress(15)
-        await uploadInstagramReelFile(upload, file)
-        setInstagramReelFeedback('Verificando el archivo...')
-        setInstagramReelProgress(60)
-        const verified = await getJson(basePath + '/uploads/verify', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ objectPath: upload.objectPath, mimeType, sizeBytes: file.size })
-        })
-        if (!verified?.verified) throw new Error('No pudimos verificar el video subido.')
-        setInstagramReelFeedback('Guardando el borrador...')
-        setInstagramReelProgress(80)
-        const publication = await getJson(basePath, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoObjectPath: verified.objectPath,
-            videoMimeType: verified.mimeType,
-            videoSizeBytes: verified.sizeBytes,
-            caption: els.instagramReelCaption.value.trim(),
-            shareToFeed: els.instagramReelShareToFeed.checked,
-            automation: {
-              enabled: els.instagramReelAutomationEnabled.checked,
-              privateReplyText,
-              keywords: state.instagramReelKeywords
-            }
-          })
-        })
-        await getJson(basePath + '/' + publication.id + '/publish', { method: 'POST' })
-        queued = true
-        setInstagramReelProgress(100)
-        els.instagramReelFeedback.innerHTML = '<strong>Publicaci&oacute;n en cola.</strong> Instagram la procesar&aacute; en segundo plano.'
-        els.instagramReelFeedback.className = 'instagram-reel-feedback visible success'
-        els.instagramReelsFeedback.innerHTML = '<strong>Reel en cola.</strong> El estado se actualizar&aacute; autom&aacute;ticamente.'
-        els.instagramReelsFeedback.className = 'instagram-reel-feedback visible success'
-        await loadInstagramReels()
-      } catch (error) {
-        setInstagramReelFeedback(error.message, 'error')
-      } finally {
-        setButtonLoading(els.instagramReelSubmit, false)
-        els.instagramReelCancel.disabled = false
-        if (queued) {
-          els.instagramReelSubmit.disabled = true
-          els.instagramReelSubmit.textContent = 'En cola'
-          els.instagramReelCancel.textContent = 'Cerrar'
-        }
-      }
+      return instagramMediaPlanSubmit(event)
     }
 
     function setMarketingView(view) {
       if (view !== 'instagram-reels') instagramMediaAutomationClose(false)
+      if (view !== 'instagram-reels') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
       if (view !== 'instagram-reels' && state.instagramMedia?.syncing) pauseInstagramMediaSync()
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
@@ -34690,6 +34680,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.campaignSearch.hidden = true
         els.campaignNew.hidden = true
         if (!state.instagramReelsLoaded || !state.instagramMedia?.loaded) loadInstagramReels()
+        if (!state.instagramPlanning?.data) instagramMediaPlanLoad()
+        if(typeof instagramStoriesLoad==='function')instagramStoriesLoad()
       } else if (view === 'reminders') {
         els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'
@@ -36754,6 +36746,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       els.appShell.dataset.section = section
+      if (section !== 'campaigns') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
       if (section !== 'campaigns') instagramMediaAutomationClose(false)
       document.body.dataset.currentSection = section
       const mobileTitle = document.getElementById('mobile-current-section-title')
@@ -37769,6 +37762,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationHandoffUiStage(conversation) {
+      if(conversation.botHandoffStatus==='QUEUED'||conversation.botHandoffStatus==='TAKEN')return conversation.botHandoffStatus
       if (conversation.aiEnabled === false) return 'TAKEN'
       if (conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt) return 'QUEUED'
       return 'NONE'
@@ -37870,7 +37864,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationStepLabel(step, aiEnabled, conversation = null) {
-      if (conversation?.channel && conversation.channel !== 'WHATSAPP') return conversationChannelLabel(conversation.channel)
+      if(conversation?.channel&&conversation.channel!=='WHATSAPP'){const stage=conversationHandoffUiStage(conversation);return conversationChannelLabel(conversation.channel)+(stage==='QUEUED'?' · En cola':stage==='TAKEN'?' · Atención manual':'')}
       if (conversation?.bookingV2State?.advisorQuote?.status === 'awaiting_acceptance') {
         return 'Esperando aceptaci\u00f3n'
       }
@@ -38157,6 +38151,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.instagramReelForm.addEventListener('submit', submitInstagramReel)
     bindInstagramMediaControls()
+    bindInstagramPlanningControls()
+    if(typeof bindInstagramStoriesControls==='function')bindInstagramStoriesControls()
     els.instagramReelVideo.addEventListener('change', readInstagramReelVideo)
     els.instagramReelKeywordAdd.addEventListener('click', addInstagramReelKeyword)
     els.instagramReelKeywordInput.addEventListener('keydown', (event) => {
@@ -38728,6 +38724,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
     els.botRoutingPreflight.addEventListener('click', changeBotRouting)
+    els.botRoutingChannel.addEventListener('change',changeBotRoutingChannel)
     els.botRoutingSelector.addEventListener('change', updateBotRoutingSelection)
     els.botRoutingPrepare.addEventListener('click', prepareDefaultBotRouting)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)

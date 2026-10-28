@@ -1,4 +1,7 @@
-import { resolveWhatsAppConversationAi } from './conversational-bot/whatsapp-ai.js'
+import { resolveInstagramBotConfig, instagramBotWorkerScope, type InstagramBotConfig } from './config/instagram-bot.js'
+import { PrismaInstagramBotAdmission } from './services/instagram-bot-admission.js'
+import { InstagramOutboxProvider } from './bot-options/infrastructure/instagram-outbox-provider.js'
+import { resolveWhatsAppConversationAi,resolveInstagramConversationAi } from './conversational-bot/whatsapp-ai.js'
 import Fastify from 'fastify'
 import { pathToFileURL } from 'node:url'
 import { healthRoutes } from './routes/health.js'
@@ -36,6 +39,8 @@ import { whatsappWebhookRoutes } from './routes/whatsapp-webhook.js'
 import { instagramWebhookRoutes } from './routes/instagram-webhook.js'
 import { instagramSettingsRoutes } from './routes/instagram-settings.js'
 import { instagramMediaRoutes } from './routes/instagram-media.js'
+import { instagramCalendarRoutes } from './routes/instagram-calendar.js'
+import { instagramStoriesRoutes } from './routes/instagram-stories.js'
 import { instagramCommentAutomationRoutes } from './routes/instagram-comment-automations.js'
 import { instagramPublicationRoutes } from './routes/instagram-publications.js'
 import { campaignRoutes } from './routes/campaign.js'
@@ -102,9 +107,10 @@ export type BuildAppOptions = AuthorizationBuildAppOptions & {
   shadowAdmission?: ProviderEventAdmission
   authoritativeAdmission?: AuthoritativeWebhookAdmission
   legacyWhatsappWebhookService?: WhatsAppWebhookServiceContract
+  instagramBotConfig?: InstagramBotConfig
   outboxProvider?: OutboxProvider
   cashRegisterConfig?: CashRegisterConfig
-  instagramReelsRuntime?: { ready: boolean; commentsReady?: boolean; businessIds?: string[]; start?(): void; stop(): Promise<void> }
+  instagramReelsRuntime?: { ready: boolean; storiesReady?: boolean; commentsReady?: boolean; businessIds?: string[]; start?(): void; stop(): Promise<void> }
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -116,6 +122,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
   const workerScope = botWorkerScopeFromEnv(process.env)
+  const instagramBotConfig=options.instagramBotConfig??resolveInstagramBotConfig(process.env)
+  const instagramWorkerScope=instagramBotWorkerScope(instagramBotConfig,workerScope)
+  const instagramReadyBusinesses=instagramWorkerScope?.businessIds??[]
   const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
   const instagramReelsRuntime = options.instagramReelsRuntime ?? await createInstagramReelsRuntime({
     config: resolveInstagramReelsRuntimeConfig(process.env),
@@ -168,6 +177,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       : {})
   })
   await app.register(instagramWebhookRoutes, {
+    conversationalAdmission:new PrismaInstagramBotAdmission(prisma,instagramBotConfig,instagramReadyBusinesses),
     commentsRuntimeReady: instagramReelsRuntime.commentsReady ?? instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
   })
@@ -177,6 +187,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
   await app.register(instagramMediaRoutes)
+  await app.register(instagramStoriesRoutes, { runtimeReady: instagramReelsRuntime.storiesReady === true, allowedBusinessIds: instagramReelsRuntime.businessIds ?? [] })
+  await app.register(instagramCalendarRoutes, {
+    runtimeReady: instagramReelsRuntime.ready,
+    allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
+  })
   await app.register(instagramCommentAutomationRoutes, {
     runtimeReady: instagramReelsRuntime.commentsReady ?? instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
@@ -212,8 +227,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(weexLeadAdminRoutes)
 
   const loops: WorkerLoop[] = []
-  if (botOptionsConfig.workersEnabled) {
+  if (botOptionsConfig.workersEnabled||instagramWorkerScope) {
     const conversationalAi = resolveWhatsAppConversationAi(process.env)
+    const instagramAi=resolveInstagramConversationAi(process.env)
     if (conversationalAi) conversationalAi.onDiagnostic = value => {
       console.info('[conversational-bot-latency]', JSON.stringify(value))
     }
@@ -241,7 +257,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           await processDepositProofJob({
             client: prisma,
             job,
-            capabilityEnabled: botOptionsConfig.depositsCapabilityEnabled,
+            capabilityEnabled: job.channel==='INSTAGRAM'?instagramReadyBusinesses.includes(job.businessId):botOptionsConfig.depositsCapabilityEnabled,
             onDiagnostic: value => { console.info('[bot-options-deposit-proof]', JSON.stringify(value)) }
           })
           return
@@ -250,7 +266,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           await bridgeDepositNotificationJob(prisma, job)
           return
         }
-        await processSessionJob({ client: prisma, job, conversationalAi })
+        await processSessionJob({ client: prisma, job, conversationalAi:job.channel==='INSTAGRAM'?instagramAi:conversationalAi })
       } catch (error) {
         outcome = 'error'
         throw error
@@ -278,26 +294,31 @@ export async function buildApp(options: BuildAppOptions = {}) {
     // Every successful branch above settles its own lease in the same business
     // transaction (DONE, READY after reschedule, or POISON). Exceptions are the
     // only branches intentionally left leased for the loop's fenced retry.
+    for(const scope of [...(botOptionsConfig.workersEnabled?[{...workerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
     loops.push(startPostgresWorkerLoop({
-      client: prisma, handle: handler, handlerSettlesJob: true, scope: workerScope,
+      client: prisma, handle: handler, handlerSettlesJob: true, scope,
       onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
     }))
     loops.push(startPostgresWorkerLoop({
-      client: prisma, handle: handler, handlerSettlesJob: true, scope: workerScope, maintenanceEnabled: false,
+      client: prisma, handle: handler, handlerSettlesJob: true, scope, maintenanceEnabled: false,
       onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
     }))
   }
-  if (botOptionsConfig.senderEnabled) {
-    const provider = options.outboxProvider ?? new MetaOutboxProvider()
+  }
+  if (botOptionsConfig.senderEnabled||instagramWorkerScope) {
+    const whatsappProvider=new MetaOutboxProvider(),instagramProvider=new InstagramOutboxProvider({client:prisma})
+    const provider:OutboxProvider=options.outboxProvider??{send:(value,signal,diagnostic)=>(value.payload as {channel?:unknown})?.channel==='INSTAGRAM'?instagramProvider.send(value,signal):whatsappProvider.send(value,signal,diagnostic)}
+    for(const scope of [...(botOptionsConfig.senderEnabled?[{...workerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
     loops.push(startOutboxSenderLoop({
       client: prisma,
       provider,
-      scope: workerScope,
+      scope,
       onError: (error) => app.log.error(error),
       onDiagnostic: (diagnostic) => {
         console.info('[bot-options-phase-latency]', JSON.stringify({ ...diagnostic, durationMs: diagnostic.durationMs === null ? null : Math.round(diagnostic.durationMs) }))
       }
     }))
+  }
   }
   if (loops.length > 0) {
     app.addHook('onClose', async () => { await Promise.all(loops.map((loop) => loop.stop())) })

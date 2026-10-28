@@ -1,7 +1,8 @@
 import { parseDefinitionServiceContent, type ServiceContentConfiguration } from '../bot-options/domain/service-content.js'
 import { Prisma } from '../generated/prisma/client.js'
 
-export type ConversationPolicy = { businessId: string; deploymentId: string; generation: number; configurationId: string; serviceContent?: ServiceContentConfiguration }
+export type ConversationChannel = 'WHATSAPP' | 'INSTAGRAM'
+export type ConversationPolicy = { channel?: ConversationChannel; businessId: string; deploymentId: string; generation: number; configurationId: string; serviceContent?: ServiceContentConfiguration }
 export type PolicyRow = ConversationPolicy & { customerCode: string; configurationBusinessId: string; configurationStatus: string; engineKey: string; definition: unknown }
 /** Absence opts out; a claimed but invalid marker must never fall through to legacy. */
 export function resolveConversationPolicy(row: PolicyRow): ConversationPolicy | null {
@@ -17,17 +18,17 @@ export function resolveConversationPolicy(row: PolicyRow): ConversationPolicy | 
     throw new Error('invalid conversational runtime policy')
   }
   const serviceContent = parseDefinitionServiceContent(definition, row.businessId)
-  return { ...(serviceContent ? { serviceContent } : {}), businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation, configurationId: row.configurationId }
+  return { ...(row.channel === 'INSTAGRAM' ? { channel: 'INSTAGRAM' as const } : {}), ...(serviceContent ? { serviceContent } : {}), businessId: row.businessId, deploymentId: row.deploymentId, generation: row.generation, configurationId: row.configurationId }
 }
 export async function loadConversationPolicy(client: Pick<Prisma.TransactionClient, '$queryRaw'>,
-  input: { businessId: string; deploymentId?: string; generation?: number }): Promise<ConversationPolicy | null> {
+  input: { businessId: string; deploymentId?: string; generation?: number; channel?: ConversationChannel }): Promise<ConversationPolicy | null> {
   const rows = await client.$queryRaw<PolicyRow[]>(Prisma.sql`
     /* conversation-policy */
-    SELECT d."businessId", d."id" AS "deploymentId", d."generation", d."engineKey", b."customerCode",
+    SELECT d."channel"::text AS "channel", d."businessId", d."id" AS "deploymentId", d."generation", d."engineKey", b."customerCode",
       cfg."id" AS "configurationId", cfg."businessId" AS "configurationBusinessId", cfg."status" AS "configurationStatus", cfg."definition"
     FROM "BotChannelDeployment" d JOIN "Business" b ON b."id" = d."businessId"
     JOIN "BusinessBotConfiguration" cfg ON cfg."id" = d."activeConfigurationId" AND cfg."businessId" = d."businessId"
-    WHERE d."businessId" = ${input.businessId} AND d."channel" = 'WHATSAPP'::"BotChannel"
+    WHERE d."businessId" = ${input.businessId} AND d."channel" = ${input.channel ?? 'WHATSAPP'}::"BotChannel"
       AND (${input.deploymentId ?? null}::text IS NULL OR d."id" = ${input.deploymentId ?? null})
       AND (${input.generation ?? null}::integer IS NULL OR d."generation" = ${input.generation ?? null})
       AND d."claimsPausedAt" IS NULL

@@ -58,6 +58,11 @@ export const instagramMediaMarkup = `
 export const instagramMediaScript = String.raw`
     ${instagramAutomationScript}
     function resetInstagramMediaState() {
+      if(typeof instagramStoriesReset==='function')instagramStoriesReset()
+      state.instagramPlanning?.controller.abort()
+      state.instagramPlanning?.editor?.controller.abort()
+      state.instagramPlanning = null
+      document.getElementById('instagram-reel-dialog')?.setAttribute('hidden', '')
       state.instagramMedia?.automation?.controller.abort()
       document.getElementById('instagram-automation-panel')?.setAttribute('hidden', '')
       state.instagramMedia = null

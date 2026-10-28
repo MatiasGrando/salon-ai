@@ -1,3 +1,4 @@
+import { lockInstagramRuntimeActorTx, runtimeIdentityFromManagement, managementChannelIdentityRecord, validRuntimeChannelIdentity, managementIdentityFromRuntime, runtimeChannelIdentityRecord, type RuntimeChannelIdentity } from './conversation-subject.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { canonicalJsonHash } from './canonical-json.js'
@@ -27,11 +28,12 @@ const iso = (value: Date | string) => new Date(value).toISOString()
 
 async function readSnapshot(tx: Tx, scope: ManagementScope, appointmentId: string): Promise<CancellationSnapshot> {
   assertManagementScope(scope); managementIdentifier(appointmentId)
-  const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
+  const instagramActor = scope.subject ? await lockInstagramRuntimeActorTx(tx,{businessId:scope.businessId,sessionId:scope.sessionId,subject:scope.subject}) : null
+  const identity = scope.subject ? [] : await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
     SELECT co.phone FROM "BotSession" bs JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
     JOIN "Customer" c ON c.id=${scope.customerId} AND c."businessId"=bs."businessId" AND c."normalizedPhone"=${scope.normalizedPhone}
     WHERE bs.id=${scope.sessionId} AND bs."businessId"=${scope.businessId} AND bs.status='ACTIVE'`)
-  if (identity.length !== 1 || normalizePhone(identity[0]!.phone) !== scope.normalizedPhone) throw new GroupCancellationError('management ownership unavailable')
+  if (scope.subject ? instagramActor?.customerId !== scope.customerId : identity.length !== 1 || normalizePhone(identity[0]!.phone) !== scope.normalizedPhone) throw new GroupCancellationError('management ownership unavailable')
   const anchor = await tx.$queryRaw<Array<{ groupId: string | null }>>(Prisma.sql`
     SELECT "coordinationGroupId" AS "groupId" FROM "Appointment" WHERE id=${appointmentId} AND "businessId"=${scope.businessId} AND "customerId"=${scope.customerId}`)
   if (anchor.length !== 1) throw new GroupCancellationError('management ownership unavailable')
@@ -90,6 +92,7 @@ export async function cancelGroupInTransaction(tx: Tx, command: GroupCancellatio
   // Financial uncertainty blocks the group before any child; F9 remains the final policy authority.
   if(locked.members.some(m=>m.manualDepositPaid || m.manualDepositAmount!==null || m.depositId!==null)) throw new GroupCancellationError('HANDOFF: group financial review required')
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","updatedAt") VALUES (${randomUUID()},${key},'CANCEL_APPOINTMENT_GROUP',${scope.businessId},${scope.sessionId},'STARTED',${hash},clock_timestamp())`)
+  if(scope.subject)throw new GroupCancellationError('HANDOFF: Instagram cancellation requires human attention')
   for(const c of receipt.children) {
     const result=await child(tx,{businessId:scope.businessId,normalizedPhone:scope.normalizedPhone,sessionId:scope.sessionId,appointmentId:c.id,operationKey:c.key,confirmed:true,requestHash:c.hash})
     if(result.outcome!=='CANCELLED' || result.replayed) throw new GroupCancellationError('group child '+result.outcome+'; rollback required')
@@ -129,11 +132,11 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
   const auditChain=locked.groupId===null?[]:await tx.$queryRaw<Array<{operationKey:string}>>(Prisma.sql`
     SELECT "operationKey" FROM "BotOperation" WHERE "businessId"=${scope.businessId} AND type='RESCHEDULE_APPOINTMENT_GROUP'
       AND "resultRef" LIKE ${'{"version":1,"groupId":"'+locked.groupId+'"%'} FOR UPDATE`)
-  if(command.moves.some(move=>move.newProfessionalId!==undefined) || auditChain.length)
+  if(scope.subject || command.moves.some(move=>move.newProfessionalId!==undefined) || auditChain.length)
     return rescheduleApprovedGroupInTransaction(tx,command,locked,key,hash)
   const children=members.map(member=>{
     const move=command.moves.find(m=>m.appointmentId===member.appointmentId)!
-    const input={businessId:scope.businessId,normalizedPhone:scope.normalizedPhone,sessionId:scope.sessionId,appointmentId:member.appointmentId,
+    const input={businessId:scope.businessId,...managementChannelIdentityRecord(scope),sessionId:scope.sessionId,appointmentId:member.appointmentId,
       operationKey:key+':'+member.appointmentId,actor:'bot-session:'+scope.sessionId,confirmed:true as const,newStartAt:move.newStartAt}
     return {input,hash:digest({action:'RESCHEDULE_APPOINTMENT',...input})}
   })
@@ -180,14 +183,14 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
 /** Singleton holds have the same immutable proposal/child hashes as their
  * initial booking, but no coordinated manifest. The scoped receipt reader
  * validates that original seal and every operational amendment. */
-type RescheduleAuthorityGroup = {groupId:string;originalSessionId:string|null;customerId:string;canonicalPhone:string;anchorDepositId:string|null;
+type RescheduleAuthorityGroup = {groupId:string;originalSessionId:string|null;customerId:string;anchorDepositId:string|null;
   members:Array<{appointmentId:string;visitId:string;depositId:string|null}>}
 type RuntimeRescheduleAuthority = {group:RescheduleAuthorityGroup;depositStatus:string;currentAssignments:Array<{appointmentId:string;startAt:string;professionalId:string}>;financialSeal:unknown}
 async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked:CancellationSnapshot,source?:GroupRescheduleCommand['source']):Promise<RuntimeRescheduleAuthority> {
   if(locked.members.length>1 && locked.members.some(member=>member.depositId!==null)) {
     const state=await lockCoordinatedDepositGroupState(tx,{businessId:scope.businessId,groupId:locked.groupId!})
     return {group:{groupId:state.group.groupId,originalSessionId:state.group.proposal.scope.sessionId,customerId:state.group.customerId,
-      canonicalPhone:state.group.canonicalPhone,anchorDepositId:state.group.anchorDepositId,members:state.group.members.map(({appointmentId,visitId,depositId})=>({appointmentId,visitId,depositId}))},
+      anchorDepositId:state.group.anchorDepositId,members:state.group.members.map(({appointmentId,visitId,depositId})=>({appointmentId,visitId,depositId}))},
       depositStatus:state.depositStatus,currentAssignments:state.currentAssignments,financialSeal:state.group}
   }
   if(source==='own_lookup') {
@@ -196,11 +199,11 @@ async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked
       if(locked.members.length!==1 || !locked.groupId) throw new GroupCancellationError('own lookup singular deposit scope mismatch')
       const seal=await lockRuntimeSingularApprovedDeposit(tx,{businessId:scope.businessId,appointmentId:locked.members[0]!.appointmentId})
       if(seal.groupId!==locked.groupId || seal.customerId!==scope.customerId) throw new GroupCancellationError('own lookup singular deposit ownership mismatch')
-      return {group:{groupId:seal.groupId,originalSessionId:seal.originalSessionId,customerId:seal.customerId,canonicalPhone:scope.normalizedPhone,
+      return {group:{groupId:seal.groupId,originalSessionId:seal.originalSessionId,customerId:seal.customerId,
         anchorDepositId:seal.depositId,members:[{appointmentId:seal.appointmentId,visitId:seal.visitId,depositId:seal.depositId}]},
         depositStatus:'APPROVED',currentAssignments:locked.members.map(member=>({appointmentId:member.appointmentId,startAt:member.startAt,professionalId:member.professionalId})),financialSeal:seal}
     }
-    return {group:{groupId:locked.groupId!,originalSessionId:null,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,anchorDepositId:null,
+    return {group:{groupId:locked.groupId!,originalSessionId:null,customerId:scope.customerId,anchorDepositId:null,
       members:locked.members.map(({appointmentId,visitId})=>({appointmentId,visitId,depositId:null}))},depositStatus:'NONE',
       currentAssignments:locked.members.map(member=>({appointmentId:member.appointmentId,startAt:member.startAt,professionalId:member.professionalId})),financialSeal:null}
   }
@@ -215,27 +218,27 @@ async function lockRuntimeRescheduleAuthority(tx:Tx,scope:ManagementScope,locked
   if(session.state.deposit==='NONE') {
     const receipt=reservation.receipt
     const actual=await loadOwnConfirmedRuntimeGroupSnapshot(tx,{businessId:scope.businessId,sessionId:scope.sessionId,
-      canonicalPhone:scope.normalizedPhone,expectedRevision:BigInt(session.revision)})
+      ...runtimeIdentityFromManagement(scope),expectedRevision:BigInt(session.revision)})
     if(receipt?.kind!=='COMMITTED' || actual.groupId!==locked.groupId || actual.members.length!==locked.members.length ||
       actual.members.some(member=>member.depositId!==null || member.manualDepositPaid || member.manualDepositAmount!==null))
       throw new GroupCancellationError('no-deposit reschedule authority mismatch')
-    const group={groupId:locked.groupId!,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,proposal:reservation.presented,
+    const group={groupId:locked.groupId!,customerId:scope.customerId,proposal:reservation.presented,
       anchorDepositId:null,members:receipt.appointments.map(entry=>({appointmentId:entry.appointmentId,visitId:entry.visitId,depositId:null}))}
-    return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,canonicalPhone:group.canonicalPhone,
+    return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,
       anchorDepositId:null,members:group.members},depositStatus:'NONE',financialSeal:reservation,currentAssignments:group.members.map(member=>{
       const current=actual.members.find(m=>m.appointmentId===member.appointmentId)!
       return {appointmentId:member.appointmentId,startAt:current.startAt,professionalId:current.professionalId}
     })}
   }
-  const receipt=await loadRuntimeDepositReceipt(tx,{businessId:scope.businessId,sessionId:scope.sessionId,canonicalPhone:scope.normalizedPhone,
+  const receipt=await loadRuntimeDepositReceipt(tx,{businessId:scope.businessId,sessionId:scope.sessionId,...runtimeIdentityFromManagement(scope),
     expectedRevision:BigInt(session.revision)},reservation)
   if(!receipt || receipt.depositStatus!=='APPROVED' || receipt.coordinationGroupId!==locked.groupId || !receipt.currentSchedule ||
     receipt.appointments.length!==1 || receipt.appointments[0]!.appointmentId!==locked.members[0]!.appointmentId ||
     receipt.depositId!==locked.members[0]!.depositId || receipt.appointments[0]!.visitId!==locked.members[0]!.visitId)
     throw new GroupCancellationError('single approved reschedule financial authority mismatch')
-  const group={groupId:locked.groupId!,customerId:scope.customerId,canonicalPhone:scope.normalizedPhone,proposal:reservation.presented,
+  const group={groupId:locked.groupId!,customerId:scope.customerId,proposal:reservation.presented,
     anchorDepositId:receipt.depositId,members:[{appointmentId:receipt.appointments[0]!.appointmentId,visitId:receipt.appointments[0]!.visitId,depositId:receipt.depositId}]}
-  return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,canonicalPhone:group.canonicalPhone,
+  return {group:{groupId:group.groupId,originalSessionId:group.proposal.scope.sessionId,customerId:group.customerId,
     anchorDepositId:group.anchorDepositId,members:group.members},depositStatus:receipt.depositStatus,financialSeal:reservation,
     currentAssignments:receipt.currentSchedule.map(({professionalName,...assignment})=>assignment)}
 }
@@ -249,7 +252,7 @@ async function rescheduleApprovedGroupInTransaction(tx:Tx,command:GroupReschedul
   const scope=command.snapshot.scope, groupId=locked.groupId!
   const sealed=await lockRuntimeRescheduleAuthority(tx,scope,locked,command.source)
   if(!['APPROVED','NONE'].includes(sealed.depositStatus) || command.source!=='own_lookup' && sealed.group.originalSessionId!==scope.sessionId ||
-    sealed.group.customerId!==scope.customerId || sealed.group.canonicalPhone!==scope.normalizedPhone ||
+    sealed.group.customerId!==scope.customerId ||
     sealed.group.members.length!==locked.members.length ||
     sealed.group.members.some(m=>!locked.members.some(member=>member.appointmentId===m.appointmentId && member.visitId===m.visitId && member.depositId===m.depositId)))
     throw new GroupCancellationError('approved group financial authority mismatch')
@@ -335,7 +338,7 @@ async function rescheduleApprovedGroupInTransaction(tx:Tx,command:GroupReschedul
     !isDeepStrictEqual(after.financialSeal,sealed.financialSeal)) throw new GroupCancellationError('paid financial seal changed; rollback required')
   return {appointmentIds:locked.members.map(m=>m.appointmentId),moves:command.moves,replayed:false}
 }
-export type RuntimeManagementContext = { businessId: string; sessionId: string; canonicalPhone: string; expectedRevision: bigint }
+export type RuntimeManagementContext = { businessId: string; sessionId: string; expectedRevision: bigint } & RuntimeChannelIdentity
 const managementRecord = (value: unknown): value is Record<string,unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const exactManagementKeys = (value: Record<string,unknown>, expected: readonly string[]) => Object.keys(value).sort().join(',') === [...expected].sort().join(',')
 
@@ -344,17 +347,18 @@ const exactManagementKeys = (value: Record<string,unknown>, expected: readonly s
  * The caller owns this transaction and its current runtime/CAS guards. No effects or consent here.
  */
 export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: RuntimeManagementContext): Promise<CancellationSnapshot> {
-  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId','canonicalPhone','expectedRevision']) ||
-      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !/^[0-9]{10,15}$/.test(context.canonicalPhone)) throw new GroupCancellationError('invalid current management scope')
+  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId',context.subject?'subject':'canonicalPhone','expectedRevision']) ||
+      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !validRuntimeChannelIdentity(context)) throw new GroupCancellationError('invalid current management scope')
   managementIdentifier(context.businessId); managementIdentifier(context.sessionId)
-  const sessions = await tx.$queryRaw<Array<{phone:string;customerId:string;state:unknown}>>(Prisma.sql`
+  const instagramActor=context.subject?await lockInstagramRuntimeActorTx(tx,{businessId:context.businessId,sessionId:context.sessionId,subject:context.subject,revision:context.expectedRevision}):null
+  const sessions = context.subject?(instagramActor?.customerId?[{...instagramActor,phone:null}]:[]):await tx.$queryRaw<Array<{phone:string|null;customerId:string;state:unknown}>>(Prisma.sql`
     SELECT co.phone,c.id AS "customerId",bs.state FROM "BotSession" bs
     JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
     JOIN "Customer" c ON c."businessId"=bs."businessId" AND c."normalizedPhone"=${context.canonicalPhone}
     WHERE bs.id=${context.sessionId} AND bs."businessId"=${context.businessId} AND bs.revision=${context.expectedRevision} AND bs.status='ACTIVE'
     FOR UPDATE OF bs,co FOR SHARE OF c`)
   const session=sessions[0]
-  if (sessions.length!==1 || !session || !/^\+?[\d\s().-]+$/.test(session.phone) || normalizePhone(session.phone)!==context.canonicalPhone ||
+  if (sessions.length!==1 || !session || (!context.subject&&(!session.phone||!/^\+?[\d\s().-]+$/.test(session.phone)||normalizePhone(session.phone)!==context.canonicalPhone)) ||
       !managementRecord(session.state) || session.state.booking!=='CONFIRMED' || session.state.deposit!=='NONE' || session.state.handoff!=='NONE' ||
       !managementRecord(session.state.conversationDraft) || !managementRecord(session.state.conversationDraft.dialogue) || session.state.conversationDraft.dialogue.businessId!==context.businessId) throw new GroupCancellationError('current management ownership unavailable')
   let reservation: ReturnType<typeof parseRuntimeBookingReservation>
@@ -368,7 +372,7 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
     managementIdentifier(member.appointmentId); managementIdentifier(member.visitId)
     appointmentIds.add(member.appointmentId); visitIds.add(member.visitId)
   }
-  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId,normalizedPhone:context.canonicalPhone}
+  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId!,...managementIdentityFromRuntime(context)}
   const snapshot=await lockManagedGroup(tx,scope,receipt.appointments[0]!.appointmentId)
   assertCancellationSnapshot(snapshot)
   if (snapshot.groupId!==receipt.coordinationGroupId || snapshot.members.length!==receipt.appointments.length || snapshot.members.some(m=>!appointmentIds.has(m.appointmentId))) throw new GroupCancellationError('runtime receipt group membership mismatch')
@@ -376,7 +380,7 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
     SELECT "operationKey","businessId","sessionId",type,status,"requestHash" FROM "BotOperation"
     WHERE "resultRef"=${receipt.coordinationGroupId} AND type='CONFIRM_VISIT' ORDER BY "operationKey" FOR UPDATE`)
   const parent=parents[0], prefix='conversation-booking:',suffix=':'+presented.nonce, original=presented.scope
-  const requestHash=runtimeBookingRequestHash({ ...original,kind:'RUNTIME',canonicalPhone:context.canonicalPhone,
+  const requestHash=runtimeBookingRequestHash({ ...original,kind:'RUNTIME',...runtimeChannelIdentityRecord(context),
     revision:BigInt(original.revision),operationKey:parent?.operationKey ?? '',newBookingAllowed:false },presented)
   if (parents.length!==1 || !parent || parent.businessId!==context.businessId || parent.sessionId!==context.sessionId || parent.type!=='CONFIRM_VISIT' ||
       parent.status!=='COMPLETED' || parent.requestHash!==requestHash || !parent.operationKey.startsWith(prefix) || !parent.operationKey.endsWith(suffix)) throw new GroupCancellationError('runtime parent receipt mismatch')
@@ -387,7 +391,7 @@ export async function loadOwnConfirmedRuntimeGroupSnapshot(tx: Tx, context: Runt
     WHERE left("operationKey",length(${childPrefix}))=${childPrefix} ORDER BY "operationKey" FOR UPDATE`)
   if (children.length!==receipt.appointments.length) throw new GroupCancellationError('runtime child receipt membership mismatch')
   const assignments=await amendedPaidAssignments(tx,context.businessId,{groupId:receipt.coordinationGroupId,proposal:presented,
-    customerId:session.customerId,canonicalPhone:context.canonicalPhone,
+    customerId:session.customerId!,...runtimeChannelIdentityRecord(context),
     members:receipt.appointments.map(entry=>({appointmentId:entry.appointmentId,visitId:entry.visitId,depositId:null}))})
   for (const [index,entry] of receipt.appointments.entries()) {
     const segment=presented.terms.segments[index]!, member=snapshot.members.find(m=>m.appointmentId===entry.appointmentId)
@@ -429,17 +433,18 @@ export async function loadVerifiedRuntimeManagementSchedule(tx:Tx,snapshot:Cance
 
 /** Cancellation handoff only: approved deposits are read, never canceled or edited. */
 export async function loadOwnConfirmedCancellationHandoffSnapshot(tx: Tx, context: RuntimeManagementContext): Promise<CancellationSnapshot> {
-  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId','canonicalPhone','expectedRevision']) ||
-      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !/^[0-9]{10,15}$/.test(context.canonicalPhone)) throw new GroupCancellationError('invalid current handoff scope')
+  if (!managementRecord(context) || !exactManagementKeys(context,['businessId','sessionId',context.subject?'subject':'canonicalPhone','expectedRevision']) ||
+      typeof context.expectedRevision !== 'bigint' || context.expectedRevision < 0n || !validRuntimeChannelIdentity(context)) throw new GroupCancellationError('invalid current handoff scope')
   managementIdentifier(context.businessId); managementIdentifier(context.sessionId)
-  const sessions=await tx.$queryRaw<Array<{phone:string;customerId:string;state:unknown}>>(Prisma.sql`
+  const instagramActor=context.subject?await lockInstagramRuntimeActorTx(tx,{businessId:context.businessId,sessionId:context.sessionId,subject:context.subject,revision:context.expectedRevision}):null
+  const sessions=context.subject?(instagramActor?.customerId?[{...instagramActor,phone:null}]:[]):await tx.$queryRaw<Array<{phone:string|null;customerId:string;state:unknown}>>(Prisma.sql`
     SELECT co.phone,c.id AS "customerId",bs.state FROM "BotSession" bs
     JOIN "Conversation" co ON co.id=bs."conversationId" AND co."businessId"=bs."businessId"
     JOIN "Customer" c ON c."businessId"=bs."businessId" AND c."normalizedPhone"=${context.canonicalPhone}
     WHERE bs.id=${context.sessionId} AND bs."businessId"=${context.businessId} AND bs.revision=${context.expectedRevision} AND bs.status='ACTIVE'
     FOR UPDATE OF bs,co FOR SHARE OF c`)
   const session=sessions[0]
-  if (sessions.length!==1 || !session || normalizePhone(session.phone)!==context.canonicalPhone ||
+  if (sessions.length!==1 || !session || (!context.subject&&(!session.phone||normalizePhone(session.phone)!==context.canonicalPhone)) ||
       !managementRecord(session.state) || session.state.booking!=='CONFIRMED' || session.state.handoff!=='NONE') throw new GroupCancellationError('current handoff ownership unavailable')
   if (session.state.deposit==='NONE') return loadOwnConfirmedRuntimeGroupSnapshot(tx,context)
   if (session.state.deposit!=='APPROVED' || !managementRecord(session.state.conversationDraft) ||
@@ -450,9 +455,9 @@ export async function loadOwnConfirmedCancellationHandoffSnapshot(tx: Tx, contex
   const receipt=reservation.receipt
   if (receipt?.kind!=='HELD' || receipt.depositStatus!=='APPROVED' || reservation.presented.scope.sessionId!==context.sessionId) throw new GroupCancellationError('approved receipt mismatch')
   const actual=await loadRuntimeDepositReceipt(tx,{businessId:context.businessId,sessionId:context.sessionId,
-    canonicalPhone:context.canonicalPhone,expectedRevision:context.expectedRevision},reservation)
+    ...runtimeChannelIdentityRecord(context),expectedRevision:context.expectedRevision},reservation)
   if (actual?.depositStatus!=='APPROVED' || actual.coordinationGroupId!==receipt.coordinationGroupId) throw new GroupCancellationError('approved deposit not verified')
-  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId,normalizedPhone:context.canonicalPhone}
+  const scope:ManagementScope={businessId:context.businessId,sessionId:context.sessionId,customerId:session.customerId!,...managementIdentityFromRuntime(context)}
   const snapshot=await lockManagedGroup(tx,scope,receipt.appointments[0]!.appointmentId)
   assertCancellationSnapshot(snapshot)
   if (snapshot.groupId!==receipt.coordinationGroupId || snapshot.members.length!==receipt.appointments.length ||

@@ -1,3 +1,4 @@
+import { setInstagramConversationAi } from '../services/instagram-inbox-actions.js'
 import type { FastifyInstance } from 'fastify'
 import { reconcileManualMessageReceipts } from '../bot-options/infrastructure/prisma-admission.js'
 import type { FunctionalSseSession, SseOpenResult, SseRecorderFacade } from '../observability/egress-baseline/types.js'
@@ -114,6 +115,20 @@ async function authorizedChannelBusinessId(user: BusinessAuthorizationUser, reso
       }))?.lead.businessId
   if (!businessId) return null
   return await loadAuthorizedBusiness(prisma, user, businessId) ? businessId : null
+}
+
+
+async function instagramHumanTarget(user:BusinessAuthorizationUser,id:string){
+  const parsed=parseChannelResourceId(id)
+  if(!parsed||parsed.channel!=='INSTAGRAM'||parsed.resourceType!=='conversation')return null
+  const businessId=await authorizedChannelBusinessId(user,id)
+  if(!businessId||!await prisma.instagramLead.findFirst({where:{id:parsed.resourceId,businessId},select:{id:true}}))throw new Error('NOT_FOUND')
+  return {businessId,instagramLeadId:parsed.resourceId}
+}
+async function publishInstagramHumanProjection(target:{businessId:string;instagramLeadId:string}){
+  const projection=await loadChannelConversation({businessId:target.businessId,id:'instagram:'+target.instagramLeadId})
+  if(projection)publishConversationUpdated({businessId:target.businessId,conversationId:projection.id,updatedAt:new Date(projection.updatedAt).toISOString()})
+  return projection
 }
 
 // Las listas del CRM sólo necesitan el estado de la seña. El archivo binario
@@ -722,12 +737,13 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
       return latestConversationActivityAt(right) - latestConversationActivityAt(left)
     })
     const itemsWithReplyWindow = await attachConversationReplyWindow(items)
-    const channelConversations = channelBusinessId && archiveView !== 'archived' && query.filter !== 'handoff' && !query.cursor
+    const channelConversations = channelBusinessId && archiveView !== 'archived' && !query.cursor
       ? await listChannelConversations({
           businessId: channelBusinessId,
           take,
           since,
-          search: query.phone,
+          ...(query.phone===undefined?{}:{search:query.phone}),
+          ...(query.filter===undefined?{}:{filter:query.filter}),
           linkedInstagramUserIds: linkedSearch.instagramUserIds,
           client: prisma
         })
@@ -750,7 +766,7 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     return {
       items: combinedItems,
       nextCursor: since ? null : hasMore ? itemsWithReplyWindow[itemsWithReplyWindow.length - 1]?.id ?? null : null,
-      counts: { ...counts, active: counts.active + channelCount },
+      counts: { ...counts, active: counts.active + channelCount, handoff:counts.handoff+(channelBusinessId?await countChannelConversations(channelBusinessId,prisma,'handoff'):0) },
       latestActivityAt: newestDateValue(latestActivityAt, channelLatestActivityAt)
     }
   })
@@ -1600,6 +1616,16 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+
+    if(parseChannelResourceId(params.id)){
+      if(authUser.role==='STAFF'&&!authUser.canReplyConversations)return sendAuthorizationFailure(reply,'forbidden')
+      try{
+        const target=await instagramHumanTarget(authUser,params.id)
+        if(!target)return sendAuthorizationFailure(reply,'notFound')
+        await setInstagramConversationAi({client:prisma,businessId:target.businessId,leadId:target.instagramLeadId,actorUserId:authUser.id,aiEnabled:body.aiEnabled})
+        return await publishInstagramHumanProjection(target)
+      }catch(error){return reply.status(error instanceof Error&&error.message==='NOT_FOUND'?404:409).send({message:error instanceof Error?error.message:'No pude actualizar la atención de Instagram.'})}
+    }
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
 
     if (!conversation) {
@@ -1676,6 +1702,16 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     if (typeof body.operationKey !== 'string' || !body.operationKey.trim()) return sendAuthorizationFailure(reply, 'malformed')
+
+    if(parseChannelResourceId(params.id)){
+      if(authUser.role==='STAFF'&&!authUser.canReplyConversations)return sendAuthorizationFailure(reply,'forbidden')
+      try{
+        const target=await instagramHumanTarget(authUser,params.id)
+        if(!target)return sendAuthorizationFailure(reply,'notFound')
+        const taken=await takeConversationForManualAttention({client:prisma,...target,actorUserId:authUser.id,operationKey:body.operationKey});if(taken.kind==='NO_DETERMINISTIC_SESSION')await setInstagramConversationAi({client:prisma,businessId:target.businessId,leadId:target.instagramLeadId,actorUserId:authUser.id,aiEnabled:false})
+        return await publishInstagramHumanProjection(target)
+      }catch(error){return reply.status(error instanceof Error&&error.message==='NOT_FOUND'?404:409).send({message:error instanceof Error?error.message:'No pude actualizar la atención de Instagram.'})}
+    }
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
     try {
@@ -1694,6 +1730,22 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
     if (typeof body.operationKey !== 'string' || !body.operationKey.trim() || (body.resolution !== 'HOME' && body.resolution !== 'RESUME')) return sendAuthorizationFailure(reply, 'malformed')
+
+    if(parseChannelResourceId(params.id)){
+      if(authUser.role==='STAFF'&&!authUser.canReplyConversations)return sendAuthorizationFailure(reply,'forbidden')
+      try{
+        const target=await instagramHumanTarget(authUser,params.id)
+        if(!target)return sendAuthorizationFailure(reply,'notFound')
+
+const handoffs=await prisma.$queryRaw<Array<{status:string}>>(Prisma.sql`SELECT h.status::text FROM "BotHandoff" h JOIN "BotSession" s ON s.id=h."sessionId" AND s."businessId"=h."businessId" WHERE s."businessId"=${target.businessId} AND s."instagramLeadId"=${target.instagramLeadId} AND s.channel='INSTAGRAM' AND h.status IN ('QUEUED','TAKEN')`)
+        if(handoffs.length>1)throw Error('Derivación ambigua')
+        if(handoffs[0]?.status==='QUEUED')await takeConversationForManualAttention({client:prisma,...target,actorUserId:authUser.id,operationKey:body.operationKey+':resolve-without-take'})
+        if(handoffs.length)await resolveBotHandoff({client:prisma,...target,actorUserId:authUser.id,operationKey:body.operationKey,resolution:body.resolution})
+        else await setInstagramConversationAi({client:prisma,businessId:target.businessId,leadId:target.instagramLeadId,actorUserId:authUser.id,aiEnabled:true})
+
+        return await publishInstagramHumanProjection(target)
+      }catch(error){return reply.status(error instanceof Error&&error.message==='NOT_FOUND'?404:409).send({message:error instanceof Error?error.message:'No pude actualizar la atención de Instagram.'})}
+    }
     const conversation = await loadAuthorizedConversation(prisma, authUser, params.id)
     if (!conversation?.businessId) return sendAuthorizationFailure(reply, 'notFound')
     const deterministic = await prisma.$queryRaw<Array<{ id: string; status: 'QUEUED' | 'TAKEN' }>>(Prisma.sql`SELECT h."id",h."status"::text AS "status" FROM "BotHandoff" h JOIN "BotSession" s ON s."id"=h."sessionId" AND s."businessId"=h."businessId" WHERE h."businessId"=${conversation.businessId} AND s."conversationId"=${conversation.id} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus") ORDER BY h."queuedAt" DESC LIMIT 1`)

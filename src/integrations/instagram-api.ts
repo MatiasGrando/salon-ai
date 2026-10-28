@@ -78,6 +78,23 @@ export class InstagramApi {
     return { id: body.id, username: body.username ?? null, name: body.name ?? null }
   }
 
+  async getStoryAccountType(input: { accountId: string; accessToken: string }) {
+    const url = this.resourceUrl(input.accountId)
+    url.searchParams.set('fields', 'id,account_type')
+    const body = await this.request<MetaErrorBody & { id?: string; account_type?: string }>(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudo comprobar el tipo de cuenta para historias.')
+    if (!body.id || !body.account_type) throw this.invalidResponse('Instagram no devolvió el tipo de cuenta.')
+    return { accountType: body.account_type }
+  }
+
+  async createStoryContainer(input: { accountId: string; accessToken: string; mediaUrl: string; mediaKind: 'IMAGE' | 'VIDEO' }) {
+    this.assertHttpsVideoUrl(input.mediaUrl)
+    const body = await this.request<MetaErrorBody & { id?: string }>(this.resourceUrl(input.accountId, 'media'), this.postJson(input.accessToken, {
+      media_type: 'STORIES', ...(input.mediaKind === 'IMAGE' ? { image_url: input.mediaUrl } : { video_url: input.mediaUrl })
+    }), 'Instagram rechazó la creación de la historia.')
+    if (!body.id) throw this.invalidResponse('Instagram no devolvió el contenedor de la historia.', true)
+    return { containerId: body.id }
+  }
+
   async createReelContainer(input: {
     accountId: string
     accessToken: string
@@ -178,12 +195,14 @@ export class InstagramApi {
     accessToken: string
     recipientId: string
     text: string
+    signal?: AbortSignal
   }) {
     const delivery = await this.sendMessage({
       accountId: input.instagramAccountId,
       accessToken: input.accessToken,
       recipient: { id: input.recipientId },
       text: input.text,
+      ...(input.signal?{signal:input.signal}:{}),
       fallbackRecipientId: input.recipientId
     })
     // Preserve the established non-null recipient contract for direct DMs.
@@ -196,13 +215,14 @@ export class InstagramApi {
     recipient: { id: string } | { comment_id: string }
     text: string
     fallbackRecipientId?: string
+    signal?: AbortSignal
   }) {
     const body = await this.request<MetaErrorBody & { message_id?: string; recipient_id?: string }>(
       this.resourceUrl(input.accountId, 'messages'),
-      this.postJson(input.accessToken, {
+      {...this.postJson(input.accessToken, {
         recipient: input.recipient,
         message: { text: input.text }
-      }),
+      }),...(input.signal?{signal:input.signal}:{})},
       'Instagram rechazo el mensaje.'
     )
     if (!body.message_id) {

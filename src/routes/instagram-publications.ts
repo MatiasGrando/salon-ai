@@ -155,9 +155,9 @@ export async function instagramPublicationRoutes(
     try {
       if (verifyDraftVideos) {
         const current = await service.get(businessId, publicationId)
-        if (current.status === 'DRAFT') await verifyDraftVideo(storage, current)
+        if (['DRAFT', 'CANCELLED'].includes(current.status)) await verifyDraftVideo(storage, current)
       }
-      const publication = await service.publish(businessId, publicationId)
+      const publication = await service.publish(businessId, publicationId, object(request.body).expectedRevision)
       publishInstagramPublicationChanged({
         businessId,
         publicationId,
@@ -231,8 +231,11 @@ function createInput(businessId: string, raw: unknown): CreateInstagramPublicati
     caption: string(body.caption),
     shareToFeed: boolean(body.shareToFeed, true),
     automation: {
-      enabled: boolean(automation.enabled, true),
+      enabled: boolean(automation.enabled, false),
       privateReplyText: string(automation.privateReplyText),
+      privateReplyEnabled: boolean(automation.privateReplyEnabled, true),
+      publicReplyEnabled: boolean(automation.publicReplyEnabled, false),
+      publicReplyText: string(automation.publicReplyText),
       keywords: Array.isArray(automation.keywords) ? automation.keywords.filter((value): value is string => typeof value === 'string') : []
     }
   }
@@ -241,6 +244,7 @@ function createInput(businessId: string, raw: unknown): CreateInstagramPublicati
 function updateInput(raw: unknown): UpdateInstagramPublicationDraft {
   const body = object(raw)
   const patch: UpdateInstagramPublicationDraft = {}
+  if ('expectedRevision' in body) patch.expectedRevision = body.expectedRevision as number
   if ('videoObjectPath' in body) patch.videoObjectPath = string(body.videoObjectPath)
   if ('videoMimeType' in body) patch.videoMimeType = string(body.videoMimeType)
   if ('videoSizeBytes' in body) patch.videoSizeBytes = number(body.videoSizeBytes)
@@ -251,6 +255,9 @@ function updateInput(raw: unknown): UpdateInstagramPublicationDraft {
     patch.automation = {}
     if ('enabled' in automation) patch.automation.enabled = boolean(automation.enabled, true)
     if ('privateReplyText' in automation) patch.automation.privateReplyText = string(automation.privateReplyText)
+    if ('privateReplyEnabled' in automation) patch.automation.privateReplyEnabled = boolean(automation.privateReplyEnabled, true)
+    if ('publicReplyEnabled' in automation) patch.automation.publicReplyEnabled = boolean(automation.publicReplyEnabled, false)
+    if ('publicReplyText' in automation) patch.automation.publicReplyText = string(automation.publicReplyText)
     if ('keywords' in automation) {
       patch.automation.keywords = Array.isArray(automation.keywords)
         ? automation.keywords.filter((value): value is string => typeof value === 'string')

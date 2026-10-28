@@ -46,11 +46,12 @@ function validDate(value: unknown): value is string {
 }
 function parseScope(value: unknown): ChoiceScope {
   if (!object(value)) return fail('scope')
-  keys(value, ['businessId', 'conversationKey', 'policyKey', 'policyGeneration', 'revision'])
+  keys(value, ['businessId', 'conversationKey', 'policyKey', 'policyGeneration', 'revision'],['instagramActorKey'])
   if (!text(value.businessId, 128) || !text(value.conversationKey, 256) || !text(value.policyKey, 128) ||
       !Number.isSafeInteger(value.policyGeneration) || Number(value.policyGeneration) < 0 ||
       typeof value.revision !== 'string' || !/^(?:0|[1-9]\d{0,18})$/.test(value.revision) || BigInt(value.revision) > 9223372036854775807n) fail('scope')
-  return { businessId: value.businessId as string, conversationKey: value.conversationKey as string,
+  if(value.instagramActorKey!==undefined && (typeof value.instagramActorKey!=='string'||!/^[a-f0-9]{64}$/.test(value.instagramActorKey)))fail('instagram actor')
+  return { ...(value.instagramActorKey?{instagramActorKey:value.instagramActorKey as string}:{}),businessId: value.businessId as string, conversationKey: value.conversationKey as string,
     policyKey: value.policyKey as string, policyGeneration: value.policyGeneration as number, revision: value.revision as string }
 }
 export function parseConversationChoiceOperation(value: unknown): ConversationChoiceOperation {

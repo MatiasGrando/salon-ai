@@ -1,4 +1,5 @@
 export const instagramPublicationStatuses = [
+  'MANUALLY_COMPLETED',
   'DRAFT',
   'SCHEDULED',
   'CANCELLED',
@@ -27,6 +28,7 @@ export const instagramCommentExecutionStatuses = [
 export type InstagramCommentExecutionStatus = typeof instagramCommentExecutionStatuses[number]
 
 const publicationTransitions: Record<InstagramPublicationStatus, ReadonlySet<InstagramPublicationStatus>> = {
+  MANUALLY_COMPLETED: new Set(),
   DRAFT: new Set(['READY', 'SCHEDULED', 'FAILED']),
   SCHEDULED: new Set(['SCHEDULED', 'CANCELLED', 'CREATING_CONTAINER', 'FAILED']),
   CANCELLED: new Set(['SCHEDULED']),
@@ -73,6 +75,9 @@ export function matchInstagramKeywords(text: string, keywords: readonly string[]
 }
 
 export type InstagramReelDraftInput = {
+  publicationType?: 'REEL' | 'STORY'
+  mediaKind?: 'IMAGE' | 'VIDEO'
+  deliveryMode?: 'AUTO' | 'MANUAL'
   businessId: string
   videoObjectPath: string
   videoMimeType: string
@@ -80,6 +85,8 @@ export type InstagramReelDraftInput = {
   caption: string
   privateReplyText: string
   keywords: readonly string[]
+  automationEnabled?: boolean
+  privateReplyEnabled?: boolean
 }
 
 export type ValidatedInstagramKeyword = { value: string; normalizedValue: string }
@@ -90,9 +97,15 @@ export function validateInstagramReelDraft(input: InstagramReelDraftInput):
   const errors: string[] = []
   if (!input.businessId.trim()) errors.push('businessId es obligatorio.')
   if (!input.videoObjectPath.trim()) errors.push('videoObjectPath es obligatorio.')
-  if (!/^video\/[a-z0-9.+-]+$/i.test(input.videoMimeType.trim())) errors.push('videoMimeType debe ser un tipo de video.')
+  const story = input.publicationType === 'STORY'
+  if (story && input.automationEnabled) errors.push('Las historias no admiten automatización de comentarios.')
+  if (story && input.mediaKind === 'IMAGE') {
+    if (input.videoMimeType !== 'image/jpeg' || input.videoSizeBytes > 8 * 1024 * 1024) errors.push('Las fotos deben ser JPEG de hasta 8 MB (límite del CRM).')
+  } else if (!/^video\/[a-z0-9.+-]+$/i.test(input.videoMimeType.trim())) errors.push('videoMimeType debe ser un tipo de video.')
+  if (story && !['IMAGE','VIDEO'].includes(input.mediaKind || '')) errors.push('Indicá imagen o video.')
+  if (story && !['AUTO','MANUAL'].includes(input.deliveryMode || '')) errors.push('Elegí publicación automática o manual.')
   if (!Number.isSafeInteger(input.videoSizeBytes) || input.videoSizeBytes <= 0) errors.push('videoSizeBytes debe ser un entero positivo.')
-  if (!input.privateReplyText.trim()) errors.push('privateReplyText es obligatorio.')
+  if (input.automationEnabled !== false && input.privateReplyEnabled !== false && !input.privateReplyText.trim()) errors.push('privateReplyText es obligatorio.')
 
   const normalizedKeywords: ValidatedInstagramKeyword[] = []
   const seen = new Set<string>()
@@ -103,7 +116,7 @@ export function validateInstagramReelDraft(input: InstagramReelDraftInput):
     seen.add(normalizedValue)
     normalizedKeywords.push({ value, normalizedValue })
   }
-  if (normalizedKeywords.length === 0) errors.push('Debe existir al menos una palabra clave valida.')
+  if (input.automationEnabled !== false && normalizedKeywords.length === 0) errors.push('Debe existir al menos una palabra clave valida.')
   return errors.length ? { ok: false, errors } : { ok: true, normalizedKeywords }
 }
 

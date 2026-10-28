@@ -1,3 +1,6 @@
+import { resolveInstagramSessionSubjectTx } from '../conversational-bot/conversation-subject.js'
+import { persistView } from '../bot-options/application/process-session-job.js'
+import { textView } from '../bot-options/domain/views.js'
 import { randomUUID } from 'node:crypto'
 import { parseRuntimeBookingReservation, runtimeApprovedBookingReply, type RuntimePresentedBooking } from '../conversational-bot/prisma-conversational-booking.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -34,6 +37,32 @@ export async function enqueueDepositNotificationTx(
     const canonical=await canonicalGroupNotification(tx,input,groupState)
     if(!canonical) return 'REPLAYED' // A recovery event superseded by a later ALL transition must not send stale claims.
     input={...input,depositId:groupState.group.anchorDepositId,sourceId:canonical}
+  }
+
+  const origin=await tx.$queryRaw<Array<{source:string}>>(Prisma.sql`SELECT source::text FROM "BookingDeposit" WHERE id=${input.depositId} AND "businessId"=${input.businessId}`)
+  if(origin[0]?.source==='INSTAGRAM'){
+    const routes=await tx.$queryRaw<Array<{sessionId:string;revision:bigint;originState:unknown;originSessionId:string;visitId:string;appointmentId:string;businessAddress:string|null;dbNow:Date}>>(Prisma.sql`
+      SELECT session.id AS "sessionId",session.revision,session.state AS "originState",session.id AS "originSessionId",visit.id AS "visitId",appointment.id AS "appointmentId",business."publicAddress" AS "businessAddress",clock_timestamp() AS "dbNow"
+      FROM "BookingDeposit" deposit JOIN "BookingVisit" visit ON visit.id=deposit."visitId" AND visit."businessId"=deposit."businessId"
+      JOIN "Appointment" appointment ON appointment.id=deposit."appointmentId" AND appointment."visitId"=visit.id AND appointment."businessId"=deposit."businessId"
+      JOIN "BotSession" session ON session.id=visit."sessionId" AND session."businessId"=deposit."businessId" AND session.channel='INSTAGRAM'
+      JOIN "BotChannelDeployment" deployment ON deployment.id=session."deploymentId" AND deployment."businessId"=session."businessId" AND deployment.channel='INSTAGRAM'
+      JOIN "Business" business ON business.id=session."businessId"
+      WHERE deposit.id=${input.depositId} AND deposit."businessId"=${input.businessId} AND deployment.generation=session."deploymentGeneration" AND deployment."claimsPausedAt" IS NULL
+        AND deployment."activeConfigurationId" IS NOT NULL AND session.status='ACTIVE' AND session."handoffClaimsPausedAt" IS NULL
+    `)
+    if(routes.length!==1)return 'ROUTE_UNAVAILABLE'
+    const route=routes[0]!,subject=await resolveInstagramSessionSubjectTx(tx,{businessId:input.businessId,sessionId:route.sessionId})
+    if(!subject||!subject.aiEnabled)return 'ROUTE_UNAVAILABLE'
+    const key=groupState?'deposit-notification:'+input.depositId+':'+input.kind+':'+input.sourceId:'deposit-notification:'+input.kind+':'+input.sourceId
+    const existing=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotOutbox" WHERE "businessId"=${input.businessId} AND "sessionId"=${route.sessionId} AND "transitionId"=${key}`)
+    if(existing.length)return 'REPLAYED'
+    const approved=input.kind==='APPROVED'?groupState?.group.proposal??singleApprovalProposal(route,input):null
+    const item=renderDepositNotification(input.kind)
+    const body=approved?runtimeApprovedBookingReply(approved,route.businessAddress??undefined):groupState?item.body+'\n'+groupNotificationSummary(groupState):item.body
+    const {channel,instagramLeadId,instagramAccountId,externalUserId}=subject
+    await persistView(tx,{businessId:input.businessId,sessionId:route.sessionId,revision:route.revision,subject:{channel,instagramLeadId,instagramAccountId,externalUserId},toPhone:externalUserId,transitionId:key,dbNow:input.dbNow??route.dbNow,view:textView(body)})
+    return 'ENQUEUED'
   }
   if (input.kind === 'APPROVED') {
     // CRM completion is separate from BotSession ACTIVE. Do not touch a later draft.

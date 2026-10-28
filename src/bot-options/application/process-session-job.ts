@@ -1,3 +1,6 @@
+import { splitInstagramReply } from '../../services/instagram-message-text.js'
+import { validLocationAction } from '../../conversational-bot/maps-link.js'
+import type { InstagramConversationSubject } from '../../conversational-bot/conversation-subject.js'
 import { recordProducedOutbox, type QueueMilestoneTracker } from '../observability/queue-milestones.js'
 import type { WhatsAppConversationAi } from '../../conversational-bot/whatsapp-ai.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
@@ -1652,6 +1655,7 @@ async function scheduleCurrentRecovery(client: RuntimeClient, job: ClaimedBotJob
 }
 
 export function planPersistedView(input: {
+  subject?: InstagramConversationSubject
   view: BotOptionsViewModel
   transitionId: string
   toPhone: string
@@ -1659,6 +1663,15 @@ export function planPersistedView(input: {
   idFactory: () => string
 }) {
   const id = input.idFactory ?? randomUUID
+  if(input.subject){
+    if(input.view.choices.length)throw new Error('Instagram choices require the bound conversational question renderer')
+    if(input.view.publicLink&&!validLocationAction(input.view.publicLink))throw new Error('invalid Instagram public link')
+    const body=[...input.view.informativeTexts,input.view.interactiveBody??'',...(input.view.publicLink?[input.view.publicLink.label+': '+input.view.publicLink.url]:[])].filter(Boolean).join('\n\n')
+    const deliveryGroupId=id()
+    const outboxRows=splitInstagramReply(body).map((body,sequence)=>({id:id(),deliveryGroupId,sequence,kind:'informative_text' as const,item:{type:'informative_text' as const,body},idempotencyKey:input.transitionId+':'+sequence,dependsOnSequence:sequence>0?sequence-1:null}))
+    if(!outboxRows.length)throw new Error('empty Instagram view')
+    return {promptId:null,choiceRows:[],outboxRows,interactiveOutboxId:null}
+  }
   const rendered = renderWhatsAppScreen(input.view, { promptToken: input.promptToken })
   const promptId = rendered.choiceMappings.length > 0 ? id() : null
   const choiceRows = promptId ? rendered.choiceMappings.map((choice) => ({
@@ -1687,6 +1700,7 @@ export function planPersistedView(input: {
 export async function persistView(
   tx: Prisma.TransactionClient,
   input: {
+    subject?: InstagramConversationSubject
     businessId: string; sessionId: string; revision: bigint; transitionId: string; toPhone: string | null; view: BotOptionsViewModel; dbNow: Date
     promptToken?: string; idFactory?: () => string; consolidation?: import('../../conversational-bot/inbound-consolidation.js').ConsolidationEnvelope | undefined
   }
@@ -1694,7 +1708,7 @@ export async function persistView(
   if (!input.toPhone) throw new Error('cannot render outbox without destination phone')
   const promptToken = input.promptToken ?? generatePromptToken()
   const plan = planPersistedView({
-    view: input.view, transitionId: input.transitionId, toPhone: input.toPhone, promptToken, idFactory: input.idFactory ?? randomUUID
+    view: input.view, transitionId: input.transitionId, toPhone: input.toPhone,...(input.subject?{subject:input.subject}:{}), promptToken, idFactory: input.idFactory ?? randomUUID
   })
   if (plan.promptId) {
     // Keep these as ordered statements: a sibling data-modifying CTE would not
@@ -1733,7 +1747,7 @@ export async function persistView(
           "idempotencyKey", "status", "dependsOnSequence", "availableAt", "updatedAt")
         VALUES ${Prisma.join(plan.outboxRows.map((row) => Prisma.sql`(
           ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}, ${row.kind},
-          ${JSON.stringify({ to: input.toPhone, item: row.item, ...(input.consolidation ? { consolidation: input.consolidation } : {}) })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
+          ${JSON.stringify({ to: input.toPhone, ...(input.subject?{channel:'INSTAGRAM',subject:input.subject,revision:String(input.revision)}:{}), item: row.item, ...(input.consolidation ? { consolidation: input.consolidation } : {}) })}::jsonb, ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus",
           ${row.dependsOnSequence}, ${input.dbNow}, clock_timestamp()
         )`))}
         RETURNING "id"

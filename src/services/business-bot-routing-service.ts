@@ -1,3 +1,4 @@
+import { PrismaInstagramBotRouting } from './instagram-bot-routing.js'
 import { prisma } from '../config/prisma.js'
 import {
   assertActivatableConfiguration,
@@ -47,7 +48,8 @@ async function assertCommercialTarget(businessId: string, target: string) {
 }
 
 export const businessBotRoutingService = {
-  async state(input: { businessId: string }) {
+  async state(input: { businessId: string;channel?:'INSTAGRAM' }) {
+    if(input.channel==='INSTAGRAM')return new PrismaInstagramBotRouting(prisma).state(input)
     const [pointer, configurations, audits, whatsapp, settings] = await Promise.all([
       prisma.botChannelDeployment.findUnique({
         where: { businessId_channel: { businessId: input.businessId, channel: 'WHATSAPP' } },
@@ -89,7 +91,8 @@ export const businessBotRoutingService = {
     }
   },
 
-  async prepare(input: { businessId: string; timezone: string; actorId: string; variant?: BusinessBotVariant }) {
+  async prepare(input: { businessId: string; timezone: string; actorId: string; variant?: BusinessBotVariant;channel?:'INSTAGRAM' }) {
+    if(input.channel==='INSTAGRAM')return new PrismaInstagramBotRouting(prisma).prepare(input)
     const variant = input.variant ?? 'options'
     if (variant !== 'options' && variant !== 'conversational') throw new Error('Variante de bot inválida')
     assertIanaTimezone(input.timezone)
@@ -129,7 +132,8 @@ export const businessBotRoutingService = {
     })
   },
 
-  async preflight(input: { businessId: string; expectedGeneration: number; target: BusinessBotRoutingTarget; actorId: string }) {
+  async preflight(input: { businessId: string; expectedGeneration: number; target: BusinessBotRoutingTarget; actorId: string;channel?:'INSTAGRAM' }) {
+    if(input.channel==='INSTAGRAM')return new PrismaInstagramBotRouting(prisma).preflight(input)
     await assertCommercialTarget(input.businessId, input.target)
     await assertActivatableConfiguration({ client: prisma, businessId: input.businessId, configurationId: input.target })
     await attestLegacyDispatchCoverage({ client: prisma, businessId: input.businessId, actorId: input.actorId, protocolVersion: 1 })
@@ -137,14 +141,16 @@ export const businessBotRoutingService = {
     return { ...result, targetConfigurationId: input.target }
   },
 
-  async commit(input: { businessId: string; target: BusinessBotRoutingTarget; handle: DispatchPauseHandle; actorId: string }) {
+  async commit(input: { businessId: string; target: BusinessBotRoutingTarget; handle: DispatchPauseHandle; actorId: string;channel?:'INSTAGRAM' }) {
+    if(input.channel==='INSTAGRAM')return new PrismaInstagramBotRouting(prisma).commit(input)
     if (input.handle.businessId !== input.businessId) throw new Error('routing handle belongs to another business')
     await assertCommercialTarget(input.businessId, input.target)
     await assertActivatableConfiguration({ client: prisma, businessId: input.businessId, configurationId: input.target })
     return switchPausedRouting({ client: prisma, handle: input.handle, actorId: input.actorId, action: 'ACTIVATE', targetConfigurationId: input.target })
   },
 
-  async abort(input: { businessId: string; handle: DispatchPauseHandle; actorId: string }) {
+  async abort(input: { businessId: string; handle: DispatchPauseHandle; actorId: string;channel?:'INSTAGRAM' }) {
+    if(input.channel==='INSTAGRAM')return new PrismaInstagramBotRouting(prisma).abort(input)
     if (input.handle.businessId !== input.businessId) throw new Error('routing handle belongs to another business')
     await resumeDispatchScope({ client: prisma, handle: input.handle, actorId: input.actorId })
   }

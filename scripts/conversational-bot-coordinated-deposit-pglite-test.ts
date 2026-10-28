@@ -26,7 +26,7 @@ import { presentGroupReschedule, confirmGroupReschedule, rescheduleFingerprint }
 // Entirely in-process PostgreSQL. No environment, Prisma connection, network or real business.
 const db = new PGlite({parsers:{1114:(value:string)=>new Date(value+'Z')}})
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','AppointmentChangeHistory','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation','BusinessWhatsAppConfig','BotOutbox','StaffAuditLog','User','BotProviderEvent','BotActionInbox']
+const models = ['BotPrompt','BotPromptChoice','InstagramLead','BusinessInstagramConfig','CustomerChannelIdentity','Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','AppointmentChangeHistory','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositExpiryAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation','BusinessWhatsAppConfig','BotOutbox','StaffAuditLog','User','BotProviderEvent','BotActionInbox']
 const enums = [...schema.matchAll(/^enum (\w+) \{/gm)].map(m=>m[1]!)
 for (const name of enums) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
@@ -115,6 +115,7 @@ function orm(pg: QuerySource): Prisma.TransactionClient {
     const sql=testClock?q.text.replace(/clock_timestamp\(\)/g,"'"+testClock.toISOString()+"'::timestamptz"):q.text
     const result = await pg.query(sql,q.values.map(v=>v instanceof Date?v.toISOString():Buffer.isBuffer(v)?v:v!==null&&typeof v==='object'?JSON.stringify(v):v))
     affectedRows=result.affectedRows??result.rows.length
+    for(const field of result.fields??[])if(field.dataTypeID===20)for(const row of result.rows as Record<string,unknown>[])if(row[field.name]!=null)row[field.name]=BigInt(String(row[field.name]))
     for (const row of result.rows as Record<string,unknown>[]) for (const key of ['startAt','endAt','dbNow','scheduledStartAt','expiresAt','holdExpiresAt']) if(row[key]!=null && !(row[key] instanceof Date))row[key]=new Date(String(row[key]))
     return result.rows
   }
@@ -372,12 +373,14 @@ try {
   const singularOrigin={...singularBase.origin,operationKey:'singular-runtime'}
   const singularKey='conversation-booking:'+singularOrigin.operationKey+':'+singularPresented.nonce
   const singularGroup='ffb01eab-a968-411a-80f9-32c9825e1377'
-  async function singularRuntimeFixture(tx:Prisma.TransactionClient, selected=singularPresented) {
+  async function singularRuntimeFixture(tx:Prisma.TransactionClient, selected=singularPresented, subject?:import('../src/conversational-bot/conversation-subject.js').InstagramConversationSubject) {
+    const {canonicalPhone,...originWithoutPhone}=singularOrigin
+    const currentOrigin=subject?{...originWithoutPhone,...selected.scope,revision:BigInt(selected.scope.revision),subject}:singularOrigin
     const singularPresented=selected, singularTerms=selected.terms
     const singularKey='conversation-booking:'+singularOrigin.operationKey+':'+selected.nonce
     await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","resultRef","updatedAt")
-      VALUES ('single-parent',${singularKey},'HOLD_VISIT_WITH_DEPOSIT','b','session','STARTED',${runtimeBookingRequestHash(singularOrigin,singularPresented)},${singularGroup},clock_timestamp())`)
-    const r=await booking.holdBookingWithDeposit(tx,runtimeBookingChildInput(singularPresented,singularKey,0,true))
+      VALUES ('single-parent',${singularKey},'HOLD_VISIT_WITH_DEPOSIT','b',${selected.scope.sessionId},'STARTED',${runtimeBookingRequestHash(currentOrigin,singularPresented)},${singularGroup},clock_timestamp())`)
+    const r=await booking.holdBookingWithDeposit(tx,{...runtimeBookingChildInput(singularPresented,singularKey,0,true),...(subject?{subject}:{})})
     assert.equal(r.kind,'HELD')
     if(r.kind!=='HELD') throw Error('singular fixture must hold')
     await tx.$executeRaw(Prisma.sql`UPDATE "Appointment" SET "coordinationGroupId"=${singularGroup} WHERE id=${r.appointmentId}`)
@@ -385,10 +388,29 @@ try {
     const receipt:RuntimeHeldReceipt={kind:'HELD',operationKey:singularKey,coordinationGroupId:singularGroup,proposalNonce:singularPresented.nonce,fingerprint:singularPresented.fingerprint,
       appointments:[{segmentIndex:0,appointmentId:r.appointmentId,visitId:r.visitId}],depositId:r.depositId,amount:r.amount,expiresAt:r.expiresAt.toISOString(),depositStatus:'PENDING_PROOF'}
     const draft={...singularBase.currentDraft,basket:{members:[singularBase.currentDraft.basket.members[0]!]},bookingReservation:{presented:singularPresented,receipt},slot:{startAt:singularTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa'}}
-    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({booking:'HELD',deposit:'PENDING_PROOF',handoff:'NONE',conversationDraft:{dialogue:draft}})}::jsonb WHERE id='session'`)
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotSession" SET state=${JSON.stringify({booking:'HELD',deposit:'PENDING_PROOF',handoff:'NONE',conversationDraft:{dialogue:draft}})}::jsonb WHERE id=${selected.scope.sessionId}`)
     return r
   }
 
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    const subject={channel:'INSTAGRAM' as const,instagramLeadId:'single-ig-lead',instagramAccountId:'ig-account',externalUserId:'single-ig-user'}
+    await raw.exec(`INSERT INTO "InstagramLead" (id,"businessId","instagramUserId","aiEnabled") VALUES ('single-ig-lead','b','single-ig-user',true);
+      INSERT INTO "BusinessInstagramConfig" (id,"businessId","instagramAccountId",enabled) VALUES ('single-ig-config','b','ig-account',true);
+      INSERT INTO "CustomerChannelIdentity" (id,"businessId",channel,"externalUserId","customerId") VALUES ('single-ig-identity','b','INSTAGRAM','single-ig-user','customer');
+      INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion","engineKey") VALUES ('single-ig-dep','b','INSTAGRAM',2,3,'cfg',1,'deterministic-options');
+      INSERT INTO "BotSession" (id,"businessId",channel,"instagramLeadId","instagramAccountId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch","businessTimezone") VALUES ('single-ig-session','b','INSTAGRAM','single-ig-lead','ig-account','single-ig-dep',2,'ACTIVE',4,5,'America/Argentina/Buenos_Aires');`)
+    const shown={...singularPresented,scope:{...singularPresented.scope,sessionId:'single-ig-session',deploymentId:'single-ig-dep'}}
+    const held=await singularRuntimeFixture(tx,shown,subject)
+    await writeValidatedDepositProofInTransaction(tx,{businessId:'b',depositId:held.depositId,operationKey:'single-ig-proof',providerEventId:'single-ig-proof',evidence:fixtureEvidence})
+    await approveCurrentDepositProofInTransaction(tx,{...reviewer,depositId:held.depositId,operationKey:'single-ig-approved'})
+    assert.equal((await raw.query<{source:string}>('SELECT source FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows[0]!.source,'INSTAGRAM')
+    const authority=await group.lockRuntimeSingularApprovedDeposit(tx,{businessId:'b',appointmentId:held.appointmentId})
+    assert.equal(authority.originalSessionId,'single-ig-session','The approved singular seal preserves the real IG financial origin')
+    assert.equal(authority.customerId,'customer')
+    console.log('IG singular hold → validated proof → actual approval → original financial authority: PASS')
+    throw Error('rollback singular IG approval fixture')
+  }),/rollback singular IG approval fixture/)
   await assert.rejects(db.transaction(async raw=>{
     const tx=orm(raw),held=await singularRuntimeFixture(tx)
     await tx.$executeRaw(Prisma.sql`UPDATE "Business" SET "publicAddress"='Calle ficticia 123' WHERE id='b'`)
@@ -900,6 +922,36 @@ try {
     assert.equal((await projectApprovedDepositPaymentInTransaction(tx,{businessId:'b',bookingDepositId:estimateReceipt.anchorDepositId,origin:'BOT_DEPOSIT'})).created,false)
     throw Error('rollback own lookup coordinated fixture')
   }),/rollback own lookup coordinated fixture/)
+  await assert.rejects(db.transaction(async raw=>{
+    const tx=orm(raw)
+    await raw.exec(`INSERT INTO "InstagramLead" (id,"businessId","instagramUserId","aiEnabled") VALUES ('linked-ig-lead','b','ig-linked-actor',true);
+      INSERT INTO "BusinessInstagramConfig" (id,"businessId","instagramAccountId",enabled) VALUES ('linked-ig-config','b','ig-account',true);
+      INSERT INTO "CustomerChannelIdentity" (id,"businessId",channel,"externalUserId","customerId") VALUES ('linked-identity','b','INSTAGRAM','ig-linked-actor','customer');
+      INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion","engineKey") VALUES ('linked-ig-dep','b','INSTAGRAM',2,3,'cfg',1,'deterministic-options');
+      INSERT INTO "BotSession" (id,"businessId",channel,"instagramLeadId","instagramAccountId","deploymentId","deploymentGeneration",status,revision,state,"handoffFenceEpoch","businessTimezone") VALUES ('linked-ig-session','b','INSTAGRAM','linked-ig-lead','ig-account','linked-ig-dep',2,'ACTIVE',0,'{"booking":"NONE","deposit":"NONE","handoff":"NONE"}'::jsonb,5,'America/Argentina/Buenos_Aires');`)
+    const ownScope={businessId:'b',customerId:managementScope.customerId,sessionId:'linked-ig-session',subject:{channel:'INSTAGRAM' as const,instagramLeadId:'linked-ig-lead',instagramAccountId:'ig-account',externalUserId:'ig-linked-actor'}}
+    const ownBefore=await loadCancellationGroupSnapshot(tx,ownScope,estimateReceipt.members[0]!.appointmentId)
+    const moves=ownBefore.members.map(m=>({appointmentId:m.appointmentId,newStartAt:new Date(Date.parse(m.startAt)+7*86400000).toISOString()}))
+    const offer={...presentGroupReschedule(ownBefore,moves),source:'own_lookup' as const,fingerprint:rescheduleFingerprint(ownBefore,moves,'own_lookup')}
+    const command=confirmGroupReschedule(offer,{nonce:offer.nonce,fingerprint:offer.fingerprint})
+    const originalManifest=(await raw.query('SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=$1',[estimateReceipt.operationKey])).rows
+    const originalFinancial=(await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows
+    const originalCash=(await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows
+    await rescheduleGroupInTransaction(tx,command)
+    assert.equal((await rescheduleGroupInTransaction(tx,command)).replayed,true)
+    const changed=await group.lockCoordinatedDepositGroupState(tx,{businessId:'b',groupId:estimateReceipt.groupId})
+    assert.equal(changed.depositStatus,'APPROVED'); assert.deepEqual(changed.group,estimateReceipt)
+    assert.equal(changed.group.proposal.scope.sessionId,'session','the original financial identity must never be rebound')
+    assert.deepEqual(Object.fromEntries(changed.currentAssignments.map(m=>[m.appointmentId,m.startAt])),Object.fromEntries(moves.map(m=>[m.appointmentId,m.newStartAt])))
+    assert.deepEqual((await raw.query('SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=$1',[estimateReceipt.operationKey])).rows,originalManifest)
+    assert.deepEqual((await raw.query('SELECT * FROM "BookingDeposit" ORDER BY id')).rows,originalFinancial)
+    assert.deepEqual((await raw.query('SELECT * FROM "CashEntry" ORDER BY id')).rows,originalCash)
+    const oldReceipt=await loadRuntimeDepositReceipt(tx,{businessId:'b',sessionId:'session',canonicalPhone:'5491112345678',expectedRevision:4n},{presented:estimated.proposal,receipt:paidReceipt})
+    assert.ok(oldReceipt,'the original receipt reader accepts a separately authenticated new management actor')
+    assert.equal((await projectApprovedDepositPaymentInTransaction(tx,{businessId:'b',bookingDepositId:estimateReceipt.anchorDepositId,origin:'BOT_DEPOSIT'})).created,false)
+    console.log('IG explicitly linked actor → historical WA paid group → move/replay → unchanged WA manifest/receipt/payment: PASS')
+    throw Error('rollback linked IG historical WA fixture')
+  }),/rollback linked IG historical WA fixture/)
   await assert.rejects(db.transaction(async raw=>{
     const tx=orm(raw)
     const rawOne=estimated.proposal.terms.segments[1]!, e=rawOne.estimate!

@@ -23,6 +23,7 @@ class MemoryRepository implements InstagramPublicationRepository {
       caption: input.caption,
       shareToFeed: input.shareToFeed,
       status: 'DRAFT',
+      revision: 0,
       metaContainerId: null,
       metaMediaId: null,
       lastError: null,
@@ -48,8 +49,9 @@ class MemoryRepository implements InstagramPublicationRepository {
 
   async updateDraft(input: Parameters<InstagramPublicationRepository['updateDraft']>[0]) {
     const record = await this.findByBusinessAndId(input.businessId, input.id)
-    if (!record || record.status !== 'DRAFT') return null
+    if (!record || record.status !== 'DRAFT' || record.revision !== input.expectedRevision) return null
     Object.assign(record, input.patch)
+    record.revision = record.revision! + 1
     if (input.automation) record.automation = input.automation
     return record
   }
@@ -110,26 +112,27 @@ assert.deepEqual((await service.list('business-a')).map((item) => item.id), [dra
 await assert.rejects(() => service.get('business-b', draft.id), InstagramPublicationNotFoundError)
 
 const edited = await service.updateDraft('business-a', draft.id, {
+  expectedRevision: 0,
   caption: 'Promo editada',
   automation: { enabled: true, privateReplyText: 'Nuevo mensaje', keywords: ['Reserva', 'RESÉRVA'] }
 })
 assert.equal(edited.caption, 'Promo editada')
 assert.deepEqual(edited.automation.keywords, [{ value: 'Reserva', normalizedValue: 'reserva' }])
 const partiallyEdited = await service.updateDraft('business-a', draft.id, {
+  expectedRevision: 1,
   automation: { enabled: false }
 })
 assert.equal(partiallyEdited.automation.enabled, false)
 assert.equal(partiallyEdited.automation.privateReplyText, 'Nuevo mensaje')
 assert.deepEqual(partiallyEdited.automation.keywords, [{ value: 'Reserva', normalizedValue: 'reserva' }])
 
-const firstPublish = await service.publish('business-a', draft.id)
-const secondPublish = await service.publish('business-a', draft.id)
+const firstPublish = await service.publish('business-a', draft.id, 2)
+await assert.rejects(() => service.publish('business-a', draft.id, 2), InstagramPublicationConflictError)
 assert.equal(firstPublish.status, 'READY')
-assert.equal(secondPublish.status, 'READY')
 await assert.rejects(() => service.updateDraft('business-a', draft.id, { caption: 'tarde' }), InstagramPublicationConflictError)
 
 repository.records[0]!.status = 'UNKNOWN'
-await assert.rejects(() => service.publish('business-a', draft.id), InstagramPublicationConflictError)
+await assert.rejects(() => service.publish('business-a', draft.id, 2), InstagramPublicationConflictError)
 const released = await service.markVideoDeleted('business-a', draft.id)
 assert.equal(released.videoAvailable, false)
 await assert.rejects(() => service.markVideoDeleted('business-a', draft.id), InstagramPublicationConflictError)

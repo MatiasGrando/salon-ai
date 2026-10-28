@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { presentGroupReschedule, confirmGroupReschedule, assertGroupMoves, presentGroupCancellation, confirmGroupCancellation, cancellationFingerprint, assertCancellationSnapshot, type CancellationSnapshot } from '../src/conversational-bot/appointment-management.js'
 
-const original: CancellationSnapshot = { scope: { businessId: 'business', customerId: 'customer', sessionId: 'session', normalizedPhone: '5491112345678' },
+const original: CancellationSnapshot & {scope:{normalizedPhone:string;subject?:never}} = { scope: { businessId: 'business', customerId: 'customer', sessionId: 'session', normalizedPhone: '5491112345678' },
   groupId: 'group', dbNow: '2026-10-06T10:00:00.000Z', members: ['a','b'].map((id,index) => ({
     appointmentId: id, version: 3, status: 'CONFIRMED', visitId: 'v-'+id, visitVersion: 2, visitStatus: 'CONFIRMED',
     professionalId: 'p-'+index, serviceIds: ['s-'+index], startAt: '2026-10-07T15:00:00.000Z', durationMinutes: 30,

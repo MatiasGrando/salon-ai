@@ -1,4 +1,6 @@
-import { randomUUID } from 'node:crypto'
+import { resolveInstagramSessionSubjectTx,conversationSubjectKey,type InstagramConversationSubject } from './conversation-subject.js'
+import { splitInstagramReply } from '../services/instagram-message-text.js'
+import { createHash,randomUUID } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.js'
 import { renderWhatsAppScreen, truncateLabelWordSafe } from '../bot-options/infrastructure/whatsapp-renderer.js'
 import { generatePromptToken } from '../bot-options/domain/prompt-tokens.js'
@@ -7,6 +9,11 @@ import { parseChoiceQuestion, preferredChoiceMode, publicChoiceQuestion, resolve
 import type { ConsolidationEnvelope } from './inbound-consolidation.js'
 export const CONVERSATION_CHOICE_ACTION = 'conversation.choice' as const
 export type ConversationChoicePayload = { question: ChoiceQuestion; choiceId: string }
+export async function instagramChoiceActorKeyTx(tx:Pick<Prisma.TransactionClient,'$queryRaw'>,businessId:string,sessionId:string,subject:InstagramConversationSubject) {
+  const actor=await resolveInstagramSessionSubjectTx(tx,{businessId,sessionId,expected:subject})
+  if(!actor)throw new Error('Instagram choice actor unavailable')
+  return createHash('sha256').update(JSON.stringify([businessId,conversationSubjectKey(subject),actor.customerId])).digest('hex')
+}
 /** Resolve only the stored finite operation; transport text and labels are never compiled into actions. */
 export function resolveConversationChoicePayload(value: unknown, scope: ChoiceScope, draft: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== 'choiceId,question') throw new Error('invalid conversation choice payload')
@@ -15,9 +22,16 @@ export function resolveConversationChoicePayload(value: unknown, scope: ChoiceSc
   return resolveChoice(parseChoiceQuestion(payload.question), scope, draft, payload.choiceId)
 }
 /** The neutral renderer action exists only in memory for layout. EVERY persisted row is explicitly remapped. */
-export function planConversationChoiceView(input: { question: ChoiceQuestion; reply: string; transitionId: string; promptToken?: string; idFactory?: () => string }) {
+export function planConversationChoiceView(input: { question: ChoiceQuestion; reply: string; transitionId: string; promptToken?: string; idFactory?: () => string; subject?:InstagramConversationSubject }) {
   const question = parseChoiceQuestion(input.question)
   const id = input.idFactory ?? randomUUID, promptToken = input.promptToken ?? generatePromptToken()
+  if(input.subject) {
+    const promptId=id(),deliveryGroupId=id(),publicChoices=publicChoiceQuestion(question).choices
+    const choiceRows=question.choices.map((choice,index)=>({id:id(),promptId,choiceToken:choice.token,actionType:CONVERSATION_CHOICE_ACTION,entityType:null,entityId:null,payload:{question,choiceId:publicChoices[index]!.id},labelSnapshot:choice.label,sortOrder:index}))
+    const body=input.reply+'\n\n'+question.choices.map((choice,index)=>(index+1)+'. '+choice.label).join('\n')+'\nRespondé con el número o el texto de la opción.'
+    const outboxRows=splitInstagramReply(body).map((body,index)=>({id:id(),deliveryGroupId,sequence:index,kind:'informative_text',item:{type:'informative_text' as const,body},idempotencyKey:input.transitionId+':'+index,dependsOnSequence:index?index-1:null}))
+    return {promptId,promptToken,choiceRows,outboxRows,interactiveOutboxId:outboxRows.at(-1)!.id}
+  }
   // Only surface separators are equivalent here. Missing service/professional/time text still requires the full fallback.
   const coverageText = (value: string) => value.replace(/\ba las (?=\d{2}:\d{2})/g, 'a ').replace(/\s*→\s*|\s+/g, ' ').trim()
   // The existing explicit confirmation question is the textual alternative to the one actual confirm button.
@@ -58,6 +72,7 @@ export function planConversationChoiceView(input: { question: ChoiceQuestion; re
 /** Ordered statements reuse the current prompt tables inside the caller's already guarded final transaction. */
 export async function persistConversationChoiceViewTx(tx: Pick<Prisma.TransactionClient,'$executeRaw'|'$queryRaw'>, input: {
   scope: ChoiceScope; draft: unknown; question: ChoiceQuestion; reply: string; transitionId: string; toPhone: string; dbNow: Date
+  subject?:InstagramConversationSubject
   consolidation?: ConsolidationEnvelope | undefined
 }) {
   if (!input.toPhone || !Number.isFinite(input.dbNow.getTime())) throw new Error('invalid conversation choice destination')
@@ -65,7 +80,7 @@ export async function persistConversationChoiceViewTx(tx: Pick<Prisma.Transactio
   const firstId = publicChoiceQuestion(question).choices[0]!.id
   resolveChoice(question,input.scope,input.draft,firstId)
   const revision = BigInt(input.scope.revision), scope = input.scope
-  const plan = planConversationChoiceView({question,reply:input.reply,transitionId:input.transitionId})
+  const plan = planConversationChoiceView({question,reply:input.reply,transitionId:input.transitionId,...(input.subject?{subject:input.subject}:{})})
   await tx.$executeRaw(Prisma.sql`
     /* conversation-choice-invalidate */
     UPDATE "BotPrompt" p SET "status"='INVALIDATED'::"BotPromptStatus", "resolvedAt"=clock_timestamp()
@@ -90,7 +105,7 @@ export async function persistConversationChoiceViewTx(tx: Pick<Prisma.Transactio
       RETURNING "id"
     ), outbox AS (
       INSERT INTO "BotOutbox" ("id","businessId","sessionId","transitionId","deliveryGroupId","sequence","kind","payload","idempotencyKey","status","dependsOnSequence","availableAt","updatedAt")
-      SELECT planned.*,clock_timestamp() FROM (VALUES ${Prisma.join(plan.outboxRows.map(row => Prisma.sql`(${row.id},${scope.businessId},${scope.conversationKey},${input.transitionId},${row.deliveryGroupId},${row.sequence}::integer,${row.kind},${JSON.stringify({to:input.toPhone,item:row.item,...(input.consolidation?{consolidation:input.consolidation}:{})})}::jsonb,${row.idempotencyKey},'PENDING'::"BotOutboxStatus",${row.dependsOnSequence}::integer,${input.dbNow}::timestamptz)`))}) planned
+      SELECT planned.*,clock_timestamp() FROM (VALUES ${Prisma.join(plan.outboxRows.map(row => Prisma.sql`(${row.id},${scope.businessId},${scope.conversationKey},${input.transitionId},${row.deliveryGroupId},${row.sequence}::integer,${row.kind},${JSON.stringify({to:input.toPhone,item:row.item,...(input.subject?{channel:'INSTAGRAM',subject:input.subject,revision:scope.revision}:{}),...(input.consolidation?{consolidation:input.consolidation}:{})})}::jsonb,${row.idempotencyKey},'PENDING'::"BotOutboxStatus",${row.dependsOnSequence}::integer,${input.dbNow}::timestamptz)`))}) planned
       WHERE (SELECT count(*) FROM choices)=${plan.choiceRows.length} RETURNING "id"
     ) SELECT (SELECT count(*) FROM choices)::bigint AS "choiceCount",(SELECT count(*) FROM outbox)::bigint AS "outboxCount"
   `)

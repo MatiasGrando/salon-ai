@@ -19,6 +19,7 @@ datasource db {
 
 enum BotChannel {
   WHATSAPP
+  INSTAGRAM
 }
 
 enum BotProviderEventType {
@@ -174,6 +175,9 @@ model BotSession {
   id                    String               @id @default(cuid())
   businessId            String
   conversationId        String?
+  instagramLeadId       String?
+  instagramAccountId    String?
+  instagramLead         InstagramLead? @relation("InstagramBotSessions", fields: [businessId, instagramLeadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   deploymentId          String
   deployment            BotChannelDeployment @relation("BotSessionDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   deploymentGeneration  Int
@@ -204,6 +208,7 @@ model BotSession {
   @@unique([businessId, deploymentId, id])
   @@index([businessId, status])
   @@index([conversationId])
+  @@index([instagramLeadId])
 }
 
 model BotHandoff {
@@ -672,6 +677,7 @@ enum BookingDepositStatus {
 }
 
 enum BookingDepositSource {
+  INSTAGRAM
   WHATSAPP
   WEB
 }
@@ -706,6 +712,7 @@ enum MessageDirection {
 }
 
 enum InstagramPublicationStatus {
+  MANUALLY_COMPLETED
   DRAFT
   SCHEDULED
   CANCELLED
@@ -1382,6 +1389,9 @@ model BusinessWhatsAppConfig {
 }
 
 model BusinessInstagramConfig {
+  storiesDeclarationFingerprint String?
+  storiesDeclaredAt DateTime?
+  storiesDeclaredBy String?
   id String @id @default(cuid())
 
   businessId String   @unique
@@ -1436,6 +1446,10 @@ model InstagramLead {
   whatsappConversation   Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
   whatsappLinkedAt       DateTime?
 
+  aiEnabled         Boolean @default(true)
+  botPausedAt       DateTime?
+  botPausedByUserId String?
+  botSessions       BotSession[] @relation("InstagramBotSessions")
   messages          InstagramMessage[]
   commentExecutions InstagramCommentExecution[]
 
@@ -1448,6 +1462,10 @@ model InstagramLead {
 }
 
 model InstagramPublication {
+  publicationType String @default("REEL")
+  mediaKind String @default("VIDEO")
+  deliveryMode String @default("AUTO")
+  manuallyCompletedAt DateTime?
   id String @id @default(cuid())
 
   businessId String

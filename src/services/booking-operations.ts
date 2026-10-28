@@ -1,6 +1,7 @@
+import { resolveInstagramSessionSubjectTx, lockInstagramRuntimeActorTx, runtimeChannelIdentityRecord, type InstagramConversationSubject } from '../conversational-bot/conversation-subject.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { coordinatedDepositOperationKey, coordinatedDepositRequestHash, coordinatedServiceConfigurationHash, lockCoordinatedDepositOrigin, lockCoordinatedDepositGroup, revalidateCoordinatedDepositFinancial, type CoordinatedDepositInput, type CoordinatedDepositGroup } from './coordinated-deposit-group.js'
+import { coordinatedDepositOperationKey, coordinatedDepositRequestHash, coordinatedServiceConfigurationHash, matchesCoordinatedServiceConfiguration, lockCoordinatedDepositOrigin, lockCoordinatedDepositGroup, revalidateCoordinatedDepositFinancial, type CoordinatedDepositInput, type CoordinatedDepositGroup } from './coordinated-deposit-group.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { reservationDurationLimits } from './service-duration.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from './agenda-locks.js'
@@ -44,6 +45,7 @@ export type HoldBookingWithDepositResult =
   | { kind: 'SLOT_CONFLICT' }
 
 export type ConfirmBookingWithoutDepositInput = {
+  subject?: InstagramConversationSubject
   businessId: string
   sessionId: string
   operationKey: string
@@ -253,7 +255,7 @@ export async function holdCoordinatedBookingWithDeposit(tx: Prisma.TransactionCl
         validation.professionalDuration!==segment.durationMinutes || validation.customerDuration!==segment.customerDurationMinutes ||
         service.name!==segment.serviceName || service.duration!==segment.durationMinutes || (estimate?.priceMin??service.price)!==segment.priceMinor ||
         (estimate?'STARTING_AT':service.priceMode)!==segment.priceMode || !isDeepStrictEqual(estimate??undefined,segment.estimate) ||
-        coordinatedServiceConfigurationHash(service)!==segment.configurationHash ||
+        !matchesCoordinatedServiceConfiguration(service,segment.configurationHash) ||
         p.terms.preference.kind==='specific' && p.terms.preference.id!==segment.professionalId) throw new Error('coordinated deposit current service or slot changed')
     canonical.push(service)
   }
@@ -264,7 +266,7 @@ export async function holdCoordinatedBookingWithDeposit(tx: Prisma.TransactionCl
     VALUES (${randomUUID()},${operationKey},'HOLD_COORDINATED_DEPOSIT_GROUP',${o.businessId},${o.sessionId},'STARTED',${requestHash},${dbNow})`)
   const members:CoordinatedDepositGroup['members'] = []
   for (const [segmentIndex,s] of p.terms.segments.entries()) {
-    const child:ConfirmBookingWithoutDepositInput = {businessId:o.businessId,sessionId:o.sessionId,operationKey:operationKey+':segment:'+segmentIndex,newBookingAllowed:true,
+    const child:ConfirmBookingWithoutDepositInput = {...(o.subject?{subject:o.subject}:{}),businessId:o.businessId,sessionId:o.sessionId,operationKey:operationKey+':segment:'+segmentIndex,newBookingAllowed:true,
       services:[{serviceId:s.serviceId,name:s.serviceName,durationMinutes:s.durationMinutes,priceMinor:s.priceMinor,priceMode:s.priceMode,...(s.estimate?{estimate:s.estimate}:{})}],
       professional:{professionalId:s.professionalId,name:s.professionalName,assignedByBalancer:false},date:p.terms.date,slotStartAt:s.startAt,totalDurationMinutes:s.durationMinutes,
       totalPriceMinor:s.priceMode==='FIXED'?s.priceMinor:null}
@@ -280,7 +282,7 @@ export async function holdCoordinatedBookingWithDeposit(tx: Prisma.TransactionCl
   }
   const anchorDepositId = members.find(m=>m.depositId!==null)?.depositId
   if (!anchorDepositId) throw new Error('coordinated deposit financial anchor missing')
-  const group:CoordinatedDepositGroup = {version:1,groupId,operationKey,requestHash,customerId,canonicalPhone:o.canonicalPhone,proposal:structuredClone(p),
+  const group:CoordinatedDepositGroup = {version:1,groupId,operationKey,requestHash,customerId,...runtimeChannelIdentityRecord(o),proposal:structuredClone(p),
     expiresAt:expiresAt.toISOString(),amount:financial.amount,anchorDepositId,members}
   const completed = await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"resultRef"=${JSON.stringify(group)},"updatedAt"=clock_timestamp()
     WHERE "operationKey"=${operationKey} AND "requestHash"=${requestHash} AND status='STARTED'`)
@@ -456,7 +458,10 @@ async function createBookingVisit(
     left.id.localeCompare(right.id)
   )[0]!
 
-  const identity = await tx.$queryRaw<Array<{ customerId: string }>>(Prisma.sql`
+  const instagramSubject = input.subject ? await resolveInstagramSessionSubjectTx(tx,{businessId:input.businessId,sessionId:input.sessionId,expected:input.subject}) : null
+  if(input.subject&&!instagramSubject)throw new Error('Instagram booking identity unavailable in tenant')
+  const instagramActor = instagramSubject ? await lockInstagramRuntimeActorTx(tx,{businessId:input.businessId,sessionId:input.sessionId,subject:instagramSubject}) : null
+  const identity = instagramSubject ? (instagramActor?.customerId ? [{customerId:instagramActor.customerId}] : []) : await tx.$queryRaw<Array<{ customerId: string }>>(Prisma.sql`
     SELECT customer."id" AS "customerId"
     FROM "BotSession" session
     JOIN "Conversation" conversation
@@ -467,6 +472,7 @@ async function createBookingVisit(
      AND regexp_replace(customer."phone", '[^0-9]', '', 'g') = regexp_replace(conversation."phone", '[^0-9]', '', 'g')
     WHERE session."id" = ${input.sessionId}
       AND session."businessId" = ${input.businessId}
+      AND session."channel" IS DISTINCT FROM 'INSTAGRAM'
     ORDER BY
       CASE WHEN customer."normalizedPhone" = regexp_replace(conversation."phone", '[^0-9]', '', 'g') THEN 0 ELSE 1 END,
       customer."createdAt", customer."id"
@@ -536,7 +542,7 @@ async function createBookingVisit(
       ) VALUES (
         ${depositId}, ${input.businessId}, ${appointmentId},
         (SELECT "conversationId" FROM "BotSession" WHERE "id" = ${input.sessionId} AND "businessId" = ${input.businessId}),
-        ${visitId}, 'WHATSAPP'::"BookingDepositSource", 'FIXED'::"ServiceDepositMode", ${depositTerms.amount},
+        ${visitId}, ${instagramSubject?'INSTAGRAM':'WHATSAPP'}::"BookingDepositSource", 'FIXED'::"ServiceDepositMode", ${depositTerms.amount},
         NULL, ${depositTerms.amount}, 'PENDING_PROOF'::"BookingDepositStatus", ${expiresAt},
         ${depositTerms.ttlMinutes}, ${depositTerms.ttlProvenance}::"BookingDepositTtlProvenance", clock_timestamp()
       )

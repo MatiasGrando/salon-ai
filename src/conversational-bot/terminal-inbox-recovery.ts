@@ -1,14 +1,19 @@
+import {conversationSubjectKey,type InstagramConversationSubject} from './conversation-subject.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { createHash } from 'node:crypto'
 
-type Scope = { businessId: string; deploymentId: string; generation: number; phone: string; currentClaimToken?: string }
+type Scope = { businessId: string; deploymentId: string; generation: number; phone: string; subject?:InstagramConversationSubject; currentClaimToken?: string }
 type Reader = Pick<Prisma.TransactionClient, '$queryRaw'>
+function eventIdentity(scope:Scope) {
+  return scope.subject?Prisma.sql`e.provider='INSTAGRAM' AND e.payload->>'channel'='INSTAGRAM' AND e.payload->>'instagramLeadId'=${scope.subject.instagramLeadId} AND e.payload->>'instagramAccountId'=${scope.subject.instagramAccountId} AND e.payload->>'senderId'=${scope.subject.externalUserId}`:Prisma.sql`COALESCE(NULLIF(regexp_replace(e."payload"->>'fromPhone','[^0-9]','','g'),''),btrim(e."payload"->>'fromPhone'))=${scope.phone}`
+}
+
 /** Under the conversation phone mutex: retire only demonstrably uncommitted exhausted input.
  * The original inbox/event/payload and POISON job/error remain durable audit; no replay or effect repair.
  * SELECTED/CONFLICT, uncertain effects and leases deliberately remain barriers.
  */
 export async function reconcileExhaustedConversationInboxTx(tx: Reader, scope: Scope): Promise<void> {
-  const resourceId = 'conversation-compute:' + createHash('sha256').update(JSON.stringify([scope.businessId, scope.phone])).digest('hex')
+  const resourceId = 'conversation-compute:' + createHash('sha256').update(JSON.stringify(scope.subject?[scope.businessId,'INSTAGRAM',conversationSubjectKey(scope.subject)]:[scope.businessId,scope.phone])).digest('hex')
   await tx.$queryRaw(Prisma.sql`
     /* conversation-terminal-inbox-reconcile */
     WITH terminal AS MATERIALIZED (
@@ -17,7 +22,7 @@ export async function reconcileExhaustedConversationInboxTx(tx: Reader, scope: S
       JOIN "BotJob" j ON j."aggregateId"=i."id" AND j."businessId"=i."businessId"
         AND j."kind"='PROCESS_INBOX' AND j."deploymentId"=i."deploymentId" AND j."deploymentGeneration"=i."deploymentGeneration"
       WHERE i."businessId"=${scope.businessId} AND i."deploymentId"=${scope.deploymentId} AND i."deploymentGeneration"=${scope.generation}
-        AND COALESCE(NULLIF(regexp_replace(e."payload"->>'fromPhone','[^0-9]','','g'),''),btrim(e."payload"->>'fromPhone'))=${scope.phone}
+        AND ${eventIdentity(scope)}
         AND e."eventType"::text='MESSAGE' AND e."status"::text='ADMITTED'
         AND e."payload"->>'messageType'='text' AND COALESCE(e."payload"->>'interactiveReplyId','')=''
         AND i."actionType" IN ('input.initial','conversation.message') AND i."status"::text='ADMITTED'
@@ -36,7 +41,7 @@ export async function reconcileExhaustedConversationInboxTx(tx: Reader, scope: S
         AND NOT EXISTS (
           SELECT 1 FROM "BotSession" s LEFT JOIN "Conversation" c ON c."id"=s."conversationId" AND c."businessId"=s."businessId"
           WHERE s."businessId"=i."businessId" AND (s."id"=i."sessionId" OR
-            COALESCE(NULLIF(regexp_replace(c."phone",'[^0-9]','','g'),''),btrim(c."phone"))=${scope.phone})
+            ${scope.subject?Prisma.sql`s.channel='INSTAGRAM' AND s."instagramLeadId"=${scope.subject.instagramLeadId} AND s."instagramAccountId"=${scope.subject.instagramAccountId}`:Prisma.sql`COALESCE(NULLIF(regexp_replace(c."phone",'[^0-9]','','g'),''),btrim(c."phone"))=${scope.phone}`})
             AND (EXISTS (SELECT 1 FROM "BotOperation" op WHERE op."businessId"=s."businessId" AND op."sessionId"=s."id"
                 AND op."status" IS DISTINCT FROM 'COMPLETED'
                 -- Handoff TAKE abort atomically reopens its gate and appends this audit. Its
@@ -68,7 +73,7 @@ export async function hasEarlierConversationInputTx(tx: Reader, scope: Scope & {
     /* conversation-order */ SELECT EXISTS (
       SELECT 1 FROM "BotProviderEvent" e WHERE e."businessId"=${scope.businessId}
         AND e."eventType"::text='MESSAGE'
-        AND COALESCE(NULLIF(regexp_replace(e."payload"->>'fromPhone','[^0-9]','','g'),''),btrim(e."payload"->>'fromPhone'))=${scope.phone}
+        AND ${eventIdentity(scope)}
         AND (e."admittedAt",e."id")<(${scope.admittedAt},${scope.providerEventId})
         AND (EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."providerEventId"=e."id" AND i."businessId"=e."businessId"
           AND i."status"::text IN ('ADMITTED','CLAIMED','SELECTED','CONFLICT')) OR

@@ -20,7 +20,7 @@ function matches(row: any, where: any): boolean {
   })
 }
 for (const race of ['reprogram', 'cancel']) {
-  const row: any = { id: 'p', businessId: 'a', status: 'READY', revision: 1, availableAt: now,
+  const row: any = { publicationType: 'REEL', deliveryMode: 'AUTO', mediaKind: 'VIDEO', id: 'p', businessId: 'a', status: 'READY', revision: 1, availableAt: now,
     scheduledAt: now, claimToken: null, claimedUntil: null, videoDeletedAt: null }
   const client: any = { $transaction: (fn: Function) => fn(client), instagramPublication: {
     findFirst: async () => {
@@ -45,7 +45,7 @@ console.log('OK: actual publication claim rejects stale reprogram/cancel selecti
 
 function fixture() {
   let time = +now
-  const row: any = { id: 'p', businessId: 'a', status: 'DRAFT', revision: 0, availableAt: now, scheduledAt: null,
+  const row: any = { publicationType: 'REEL', deliveryMode: 'AUTO', mediaKind: 'VIDEO', id: 'p', businessId: 'a', status: 'DRAFT', revision: 0, availableAt: now, scheduledAt: null,
     scheduleTimezone: null, claimToken: null, claimedUntil: null, videoDeletedAt: null, videoDeleteRequestedAt: null,
     videoObjectPath: 'a/reels/a.mp4', videoMimeType: 'video/mp4', videoSizeBytes: 100, caption: 'Reel', shareToFeed: true,
     attempts: 0, maxAttempts: 5, metaContainerId: null, metaMediaId: null,

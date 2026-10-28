@@ -105,7 +105,12 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-settings\/test$/.test(path))
     || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-media(?:\/[^/]+\/history)?$/.test(path))
     || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-media\/sync$/.test(path))
+    || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-calendar(?:\/time-options)?$/.test(path))
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-(?:media|publications)\/[^/]+\/duplicate$/.test(path))
     || (['GET', 'PATCH'].includes(method) && /^\/businesses\/[^/]+\/instagram-(?:media|publications)\/[^/]+\/automation$/.test(path))
+    || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-stories(?:\/(?:capability|[^/]+(?:\/download)?))?$/.test(path))
+    || (method === 'PATCH' && /^\/businesses\/[^/]+\/instagram-stories\/[^/]+$/.test(path))
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-stories(?:\/(?:capability|uploads(?:\/verify)?|[^/]+\/(?:publish|schedule|cancel|complete-manual|prepare-manual|duplicate)))?$/.test(path))
     || isInstagramPublicationWorkspaceRoute(method, path)
 }
 

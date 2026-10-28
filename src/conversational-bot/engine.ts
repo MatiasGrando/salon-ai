@@ -1,3 +1,4 @@
+import {runtimeIdentityFromManagement,validRuntimeChannelIdentity} from './conversation-subject.js'
 import { parseAppointmentManagement, beginAppointmentManagement, attachManagementRescheduleOffers, selectManagementRescheduleOffer, confirmAppointmentManagement, cancellationFingerprint, type AppointmentManagementContext, type CancellationSnapshot, type GroupCancellationCommand, type GroupRescheduleCommand, type ManagementRescheduleOffer } from './appointment-management.js'
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
@@ -1820,7 +1821,7 @@ async function respondOwnAppointment(context: DialogueContext, previous: Dialogu
   if (!own && port.ownAppointments) { try { own = await port.ownAppointments() } catch { return reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') } }
   if (!own || !scope || own.businessId!==context.businessId || own.sessionId!==scope.sessionId || String(BigInt(scope.revision)-1n)!==own.revision)
     return operation ? reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') : null
-  if (!own.items.length) { delete state.ownAppointmentInquiry; return reply('No encontré turnos futuros confirmados asociados a tu número en este local. No inicié otra reserva.') }
+  if (!own.items.length) { delete state.ownAppointmentInquiry; return reply('No encontré turnos futuros confirmados asociados a tu cuenta en este local. No inicié otra reserva.') }
   const key = operation?.kind==='own_appointment' ? operation.optionKey : null
   const options = ownAppointmentOptions(own.items), prior = state.ownAppointmentInquiry
   const currentOption = key ? options.find(option => option.key === key) : undefined
@@ -1843,7 +1844,7 @@ async function respondOwnAppointment(context: DialogueContext, previous: Dialogu
       const revision = scope && /^\d+$/.test(scope.revision) ? BigInt(scope.revision) : 0n
       if (!scope || own.businessId !== context.businessId || own.sessionId !== scope.sessionId || revision < 1n || String(revision - 1n) !== own.revision ||
         selected.snapshot.scope.businessId !== context.businessId || selected.snapshot.scope.sessionId !== scope.sessionId ||
-        !selected.snapshot.scope.customerId || !/^[0-9]{10,15}$/.test(selected.snapshot.scope.normalizedPhone))
+        !selected.snapshot.scope.customerId || !validRuntimeChannelIdentity(runtimeIdentityFromManagement(selected.snapshot.scope)))
         return reply('No pude verificar que el turno siga asociado a esta conversación. No cambié tu turno ni el pago; podés volver a consultarlo.')
       state.appointmentManagement = { context: beginAppointmentManagement('RESCHEDULE', selected.snapshot, 'own_lookup') }
       const turnPlan: TurnPlan = { version: 1, operations: (decision?.turnPlan?.operations ?? []).map(op => op.kind === 'own_appointment'

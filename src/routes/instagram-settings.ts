@@ -59,6 +59,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
     const settings = await prisma.businessInstagramConfig.upsert({
       where: { businessId: params.id },
       update: {
+        ...((body.enabled === false || body.accessToken || instagramAccountId !== business.instagramConfig?.instagramAccountId || account.id !== business.instagramConfig?.apiAccountId) ? { storiesDeclarationFingerprint:null,storiesDeclaredAt:null,storiesDeclaredBy:null } : {}),
         instagramAccountId,
         apiAccountId: account.id,
         username,

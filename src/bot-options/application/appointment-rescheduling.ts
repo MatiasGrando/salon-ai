@@ -1,3 +1,4 @@
+import { lockInstagramRuntimeActorTx, managementChannelIdentityRecord, type ManagementChannelIdentity } from '../../conversational-bot/conversation-subject.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { acquireAgendaHierarchy, lockAppointmentRows } from '../../services/agenda-locks.js'
@@ -10,14 +11,13 @@ type RescheduleTx = Prisma.TransactionClient
 
 export type RescheduleManageableAppointmentInput = {
   businessId: string
-  normalizedPhone: string
   sessionId: string
   appointmentId: string
   operationKey: string
   actor: string
   confirmed: true
   newStartAt: string
-}
+} & ManagementChannelIdentity
 
 export type RescheduleManageableAppointmentResult =
   | { outcome: 'RESCHEDULED'; replayed: boolean; appointmentId: string; newStartAt: string; depositPreserved: boolean }
@@ -137,7 +137,14 @@ export async function rescheduleManageableAppointmentInTransaction(tx: Reschedul
   // Scope-only lookup: it supplies the professional lock key and raw provider
   // identity. Canonical comparison is intentionally outside SQL so formatted
   // Conversation.phone values authorize the same Customer.normalizedPhone.
-  const targets = await tx.$queryRaw<Array<{ professionalId: string; conversationPhone: string }>>(Prisma.sql`
+  const actor=input.subject ? await lockInstagramRuntimeActorTx(tx,{businessId:input.businessId,sessionId:input.sessionId,subject:input.subject}) : null
+  const targets = input.subject ? actor?.customerId ? await tx.$queryRaw<Array<{professionalId:string;conversationPhone?:string}>>(Prisma.sql`
+    SELECT a."professionalId" FROM "Appointment" a
+    JOIN "Customer" c ON c.id=a."customerId" AND c."businessId"=a."businessId"
+    JOIN "Professional" p ON p.id=a."professionalId" AND p."businessId"=a."businessId"
+    JOIN "Service" s ON s.id=a."serviceId" AND s."businessId"=a."businessId"
+    WHERE a.id=${input.appointmentId} AND a."businessId"=${input.businessId} AND a."customerId"=${actor.customerId}
+  `) : [] : await tx.$queryRaw<Array<{ professionalId: string; conversationPhone: string }>>(Prisma.sql`
     SELECT a."professionalId", co."phone" AS "conversationPhone"
     FROM "Appointment" a
     JOIN "Customer" c ON c."id" = a."customerId" AND c."businessId" = ${input.businessId} AND c."normalizedPhone" = ${input.normalizedPhone}
@@ -148,7 +155,7 @@ export async function rescheduleManageableAppointmentInTransaction(tx: Reschedul
     WHERE a."id" = ${input.appointmentId}
     LIMIT 1
   `)
-  if (targets.length !== 1 || normalizePhone(targets[0]!.conversationPhone) !== input.normalizedPhone) return { outcome: 'INELIGIBLE', replayed: false }
+  if (targets.length !== 1 || (!input.subject && normalizePhone(targets[0]!.conversationPhone??'') !== input.normalizedPhone)) return { outcome: 'INELIGIBLE', replayed: false }
   const professionalId = targets[0]!.professionalId
   await acquireAgendaHierarchy(tx, { businessId: input.businessId, professionalIds: [professionalId] })
   await lockAppointmentRows(tx, { businessId: input.businessId, appointmentIds: [input.appointmentId] })
@@ -177,7 +184,7 @@ export async function rescheduleManageableAppointmentInTransaction(tx: Reschedul
        d."holdTtlMinutes", d."holdTtlProvenance"::text AS "holdTtlProvenance", d."reviewedAt", d."reviewedByUserId", d."rejectionReason",
       (SELECT count(*) FROM "BookingDepositProof" proof WHERE proof."businessId" = d."businessId" AND proof."depositId" = d."id")::bigint AS "proofCount"
     FROM "Appointment" a
-    JOIN "Customer" c ON c."id" = a."customerId" AND c."businessId" = ${input.businessId} AND c."normalizedPhone" = ${input.normalizedPhone}
+    JOIN "Customer" c ON c."id" = a."customerId" AND c."businessId" = ${input.businessId} AND ${input.subject ? Prisma.sql`c.id=${actor?.customerId??null}` : Prisma.sql`c."normalizedPhone"=${input.normalizedPhone}`}
     JOIN "Professional" p ON p."id" = a."professionalId" AND p."businessId" = ${input.businessId}
      JOIN "Service" s ON s."id" = a."serviceId" AND s."businessId" = ${input.businessId}
     LEFT JOIN LATERAL (SELECT * FROM "BookingVisit" WHERE "id" = a."visitId" FOR UPDATE) v ON true
@@ -372,9 +379,10 @@ async function loadRescheduleReplay(tx: RescheduleTx, input: RescheduleManageabl
 }
 
 export function validateRescheduleInput(input: RescheduleManageableAppointmentInput): Date {
-  for (const [label, value] of Object.entries({ businessId: input.businessId, normalizedPhone: input.normalizedPhone, sessionId: input.sessionId, appointmentId: input.appointmentId, operationKey: input.operationKey })) {
+  for (const [label, value] of Object.entries({ businessId: input.businessId, sessionId: input.sessionId, appointmentId: input.appointmentId, operationKey: input.operationKey })) {
     if (typeof value !== 'string' || value.length === 0 || value.trim() !== value || value.length > 512) throw new AppointmentReschedulingError(`${label} must be a nonblank normalized identifier`)
   }
+  try { managementChannelIdentityRecord(input) } catch { throw new AppointmentReschedulingError('invalid reschedule channel identity') }
   if (typeof input.actor !== 'string' || input.actor.trim().length === 0 || input.actor.trim() !== input.actor || input.actor.length > 512) {
     throw new AppointmentReschedulingError('actor must be a nonblank textual principal')
   }
@@ -387,7 +395,7 @@ export function validateRescheduleInput(input: RescheduleManageableAppointmentIn
 
 function rescheduleRequestHash(input: RescheduleManageableAppointmentInput) {
   return createHash('sha256').update(JSON.stringify({
-    action: 'RESCHEDULE_APPOINTMENT', businessId: input.businessId, normalizedPhone: input.normalizedPhone,
+    action: 'RESCHEDULE_APPOINTMENT', businessId: input.businessId, ...managementChannelIdentityRecord(input),
     sessionId: input.sessionId, appointmentId: input.appointmentId, operationKey: input.operationKey,
     actor: input.actor, confirmed: input.confirmed, newStartAt: input.newStartAt
   }), 'utf8').digest('hex')

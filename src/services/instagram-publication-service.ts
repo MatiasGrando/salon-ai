@@ -1,5 +1,7 @@
 import { prisma } from '../config/prisma.js'
+import { hasStoryDeclaration } from './instagram-stories-domain.js'
 import { assertIanaTimezone } from './cash-domain.js'
+import { validateAutomation } from './instagram-comment-automation-service.js'
 import {
   validateInstagramReelDraft,
   type InstagramPublicationStatus,
@@ -10,9 +12,16 @@ export type InstagramPublicationAutomation = {
   enabled: boolean
   privateReplyText: string
   keywords: ValidatedInstagramKeyword[]
+  privateReplyEnabled?: boolean
+  publicReplyEnabled?: boolean
+  publicReplyText?: string
 }
 
 export type InstagramPublicationRecord = {
+  publicationType?: 'REEL' | 'STORY'
+  mediaKind?: 'IMAGE' | 'VIDEO'
+  deliveryMode?: 'AUTO' | 'MANUAL'
+  manuallyCompletedAt?: Date | null
   id: string
   businessId: string
   videoObjectPath: string
@@ -37,19 +46,22 @@ export type InstagramPublicationRecord = {
 }
 
 export type CreateInstagramPublicationDraft = {
+  publicationType?: 'REEL' | 'STORY'
+  mediaKind?: 'IMAGE' | 'VIDEO'
+  deliveryMode?: 'AUTO' | 'MANUAL'
   businessId: string
   videoObjectPath: string
   videoMimeType: string
   videoSizeBytes: number
   caption: string
   shareToFeed: boolean
-  automation: { enabled: boolean; privateReplyText: string; keywords: readonly string[] }
+  automation?: { enabled: boolean; privateReplyText: string; keywords: readonly string[]; privateReplyEnabled?: boolean; publicReplyEnabled?: boolean; publicReplyText?: string }
 }
 
 export type UpdateInstagramPublicationDraft = Partial<Pick<
   CreateInstagramPublicationDraft,
-  'videoObjectPath' | 'videoMimeType' | 'videoSizeBytes' | 'caption' | 'shareToFeed'
->> & { automation?: Partial<CreateInstagramPublicationDraft['automation']> }
+  'videoObjectPath' | 'videoMimeType' | 'videoSizeBytes' | 'caption' | 'shareToFeed' | 'deliveryMode'
+>> & { automation?: Partial<NonNullable<CreateInstagramPublicationDraft['automation']>>; expectedRevision?: number }
 
 export interface InstagramPublicationRepository {
   createDraft(input: Omit<CreateInstagramPublicationDraft, 'automation'> & { automation: InstagramPublicationAutomation }): Promise<InstagramPublicationRecord>
@@ -58,10 +70,11 @@ export interface InstagramPublicationRepository {
   updateDraft(input: {
     businessId: string
     id: string
+    expectedRevision: number
     patch: UpdateInstagramPublicationDraft
     automation?: InstagramPublicationAutomation
   }): Promise<InstagramPublicationRecord | null>
-  enqueue(input: { businessId: string; id: string; availableAt: Date }): Promise<InstagramPublicationRecord | null>
+  enqueue(input: { businessId: string; id: string; availableAt: Date; expectedRevision: number }): Promise<InstagramPublicationRecord | null>
   changeSchedule(input: { businessId: string; id: string; expectedRevision: number; scheduledAt: Date | null }): Promise<InstagramPublicationRecord | null>
   reserveVideoDeletion(input: { businessId: string; id: string }): Promise<InstagramPublicationRecord | null>
   markVideoDeleted(input: { businessId: string; id: string; deletedAt: Date }): Promise<InstagramPublicationRecord | null>
@@ -95,14 +108,18 @@ export class InstagramPublicationService {
   ) {}
 
   async createDraft(input: CreateInstagramPublicationDraft) {
+    const automation = normalizedAutomation(input.automation)
     const validated = validateInstagramReelDraft({
+      publicationType: input.publicationType ?? 'REEL', mediaKind: input.mediaKind ?? 'VIDEO', deliveryMode: input.deliveryMode ?? 'AUTO',
       businessId: input.businessId,
       videoObjectPath: input.videoObjectPath,
       videoMimeType: input.videoMimeType,
       videoSizeBytes: input.videoSizeBytes,
       caption: input.caption,
-      privateReplyText: input.automation.privateReplyText,
-      keywords: input.automation.keywords
+      privateReplyText: automation.privateReplyText,
+      keywords: automation.keywords,
+      automationEnabled: automation.enabled,
+      privateReplyEnabled: automation.privateReplyEnabled
     })
     if (!validated.ok) throw new InstagramPublicationValidationError(validated.errors)
     return this.repository.createDraft({
@@ -112,8 +129,7 @@ export class InstagramPublicationService {
       videoMimeType: input.videoMimeType.trim().toLowerCase(),
       caption: input.caption.trim(),
       automation: {
-        enabled: input.automation.enabled,
-        privateReplyText: input.automation.privateReplyText.trim(),
+        ...automation,
         keywords: validated.normalizedKeywords
       }
     })
@@ -131,39 +147,41 @@ export class InstagramPublicationService {
 
   async updateDraft(businessId: string, id: string, patch: UpdateInstagramPublicationDraft) {
     const current = await this.get(businessId, id)
-    if (current.status !== 'DRAFT') throw new InstagramPublicationConflictError()
+    if (!['DRAFT', 'CANCELLED'].includes(current.status)) throw new InstagramPublicationConflictError()
+    requireRevision(patch.expectedRevision)
+    const automation = normalizedAutomation({ ...current.automation, ...patch.automation,
+      keywords: patch.automation?.keywords ?? current.automation.keywords.map((keyword) => keyword.value) })
     const merged: CreateInstagramPublicationDraft = {
+      publicationType: current.publicationType ?? 'REEL', mediaKind: current.mediaKind ?? 'VIDEO', deliveryMode: patch.deliveryMode ?? current.deliveryMode ?? 'AUTO',
       businessId,
       videoObjectPath: patch.videoObjectPath ?? current.videoObjectPath,
       videoMimeType: patch.videoMimeType ?? current.videoMimeType,
       videoSizeBytes: patch.videoSizeBytes ?? current.videoSizeBytes,
       caption: patch.caption ?? current.caption,
       shareToFeed: patch.shareToFeed ?? current.shareToFeed,
-      automation: {
-        enabled: patch.automation?.enabled ?? current.automation.enabled,
-        privateReplyText: patch.automation?.privateReplyText ?? current.automation.privateReplyText,
-        keywords: patch.automation?.keywords ?? current.automation.keywords.map((keyword) => keyword.value)
-      }
+      automation
     }
     const validated = validateInstagramReelDraft({
       ...merged,
-      privateReplyText: merged.automation.privateReplyText,
-      keywords: merged.automation.keywords
+      privateReplyText: automation.privateReplyText,
+      keywords: automation.keywords,
+      automationEnabled: automation.enabled,
+      privateReplyEnabled: automation.privateReplyEnabled
     })
     if (!validated.ok) throw new InstagramPublicationValidationError(validated.errors)
     const updated = await this.repository.updateDraft({
       businessId,
       id,
+      expectedRevision: patch.expectedRevision!,
       patch: {
         videoObjectPath: merged.videoObjectPath.trim(),
         videoMimeType: merged.videoMimeType.trim().toLowerCase(),
         videoSizeBytes: merged.videoSizeBytes,
         caption: merged.caption.trim(),
-        shareToFeed: merged.shareToFeed
+        shareToFeed: merged.shareToFeed, ...(current.publicationType === 'STORY' ? { deliveryMode: merged.deliveryMode } : {})
       },
       automation: {
-        enabled: merged.automation.enabled,
-        privateReplyText: merged.automation.privateReplyText.trim(),
+        ...automation,
         keywords: validated.normalizedKeywords
       }
     })
@@ -171,13 +189,14 @@ export class InstagramPublicationService {
     return updated
   }
 
-  async publish(businessId: string, id: string) {
+  async publish(businessId: string, id: string, expectedRevision: unknown) {
     const current = await this.get(businessId, id)
-    if (!['DRAFT', 'READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING', 'PUBLISHED'].includes(current.status)) {
+    requireRevision(expectedRevision)
+    if (!['DRAFT', 'CANCELLED'].includes(current.status)) {
       throw new InstagramPublicationConflictError('La publicación requiere revisión manual antes de volver a intentarse.')
     }
-    const queued = await this.repository.enqueue({ businessId, id, availableAt: this.now() })
-    if (!queued) throw new InstagramPublicationNotFoundError()
+    const queued = await this.repository.enqueue({ businessId, id, availableAt: this.now(), expectedRevision })
+    if (!queued) throw new InstagramPublicationConflictError()
     return queued
   }
 
@@ -186,7 +205,7 @@ export class InstagramPublicationService {
     if (current.videoDeletedAt) {
       throw new InstagramPublicationConflictError('El video ya fue eliminado del almacenamiento.')
     }
-    if (!['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED'].includes(current.status)) {
+    if (!['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED', 'MANUALLY_COMPLETED'].includes(current.status)) {
       throw new InstagramPublicationConflictError('Esperá a que finalice la publicación antes de borrar el video almacenado.')
     }
     const updated = await this.repository.markVideoDeleted({ businessId, id, deletedAt: this.now() })
@@ -226,11 +245,12 @@ type PrismaLike = Record<string, any>
 const publicationInclude = { automation: { include: { keywords: { orderBy: { createdAt: 'asc' } } } } } as const
 
 export class PrismaInstagramPublicationRepository implements InstagramPublicationRepository {
-  constructor(private readonly client: PrismaLike = prisma as unknown as PrismaLike, private readonly clock: () => Date = () => new Date()) {}
+  constructor(private readonly client: PrismaLike = prisma as unknown as PrismaLike, private readonly clock: () => Date = () => new Date(), private readonly publicationType: 'REEL' | 'STORY' = 'REEL') {}
 
   async createDraft(input: Parameters<InstagramPublicationRepository['createDraft']>[0]) {
     const row = await this.client.instagramPublication.create({
       data: {
+        publicationType: input.publicationType ?? this.publicationType, mediaKind: input.mediaKind ?? 'VIDEO', deliveryMode: input.deliveryMode ?? 'AUTO',
         businessId: input.businessId,
         videoObjectPath: input.videoObjectPath,
         videoMimeType: input.videoMimeType,
@@ -239,8 +259,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
         shareToFeed: input.shareToFeed,
         automation: {
           create: {
-            enabled: input.automation.enabled,
-            privateReplyText: input.automation.privateReplyText,
+            ...automationFields(input.automation),
             keywords: { create: input.automation.keywords }
           }
         }
@@ -252,20 +271,20 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
 
   async listByBusiness(businessId: string) {
     const rows = await this.client.instagramPublication.findMany({
-      where: { businessId }, include: publicationInclude, orderBy: { createdAt: 'desc' }
+      where: { businessId, publicationType: this.publicationType }, include: publicationInclude, orderBy: { createdAt: 'desc' }
     })
     return rows.map(mapPublication)
   }
 
   async findByBusinessAndId(businessId: string, id: string) {
-    const row = await this.client.instagramPublication.findFirst({ where: { businessId, id }, include: publicationInclude })
+    const row = await this.client.instagramPublication.findFirst({ where: { businessId, id, publicationType: this.publicationType }, include: publicationInclude })
     return row ? mapPublication(row) : null
   }
 
   async updateDraft(input: Parameters<InstagramPublicationRepository['updateDraft']>[0]) {
     return this.client.$transaction(async (tx: PrismaLike) => {
       const guarded = await tx.instagramPublication.updateMany({
-        where: { businessId: input.businessId, id: input.id, status: 'DRAFT' },
+        where: { ...editablePublicationWhere(input.businessId, input.id, input.expectedRevision), publicationType: this.publicationType },
         data: { ...input.patch, revision: { increment: 1 } }
       })
       if (guarded.count !== 1) return null
@@ -276,7 +295,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
         if (!automation) throw new Error('La automatización de la publicación no existe.')
         await tx.instagramCommentAutomation.update({
           where: { businessId_publicationId: { businessId: input.businessId, publicationId: input.id } },
-          data: { enabled: input.automation.enabled, privateReplyText: input.automation.privateReplyText }
+          data: automationFields(input.automation)
         })
         await tx.instagramAutomationKeyword.deleteMany({ where: { businessId: input.businessId, automationId: automation.id } })
         await tx.instagramAutomationKeyword.createMany({
@@ -293,11 +312,11 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
     return this.client.$transaction(async (tx: PrismaLike) => {
       const context = await this.lockContext(tx, input.businessId, input.id)
       if (!context.row) return null
-      if (context.row.status !== 'DRAFT') return mapPublication(context.row)
-      const destination = this.destination(context.config)
+      if (!['DRAFT', 'CANCELLED'].includes(context.row.status) || context.row.revision !== input.expectedRevision) return null
+      const destination = this.destination(context.config, context.row)
       const changed = await tx.instagramPublication.updateMany({
-        where: { businessId: input.businessId, id: input.id, status: 'DRAFT', videoDeletedAt: null, videoDeleteRequestedAt: null, claimToken: null },
-        data: { status: 'READY', availableAt: this.clock(), ...destination, revision: { increment: 1 }, lastError: null }
+        where: editablePublicationWhere(input.businessId, input.id, input.expectedRevision!),
+        data: { status: 'READY', availableAt: this.clock(), scheduledAt: null, scheduleTimezone: null, ...destination, revision: { increment: 1 }, lastError: null }
       })
       if (changed.count !== 1) throw new InstagramPublicationConflictError()
       return mapPublication(await tx.instagramPublication.findFirstOrThrow({ where: { businessId: input.businessId, id: input.id }, include: publicationInclude }))
@@ -309,10 +328,12 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
     await tx.$queryRawUnsafe('SELECT "id" FROM "InstagramPublication" WHERE "businessId"=$1 AND "id"=$2 FOR UPDATE', businessId, id)
     const business = await tx.business.findUnique({ where: { id: businessId }, select: { timezone: true, instagramConfig: true } })
     const row = await tx.instagramPublication.findFirst({ where: { businessId, id }, include: publicationInclude })
-    return { business, config: business?.instagramConfig, row }
+    return { business, config: business?.instagramConfig, row: row && (row.publicationType ?? 'REEL') === this.publicationType ? row : null }
   }
 
-  private destination(config: any) {
+  private destination(config: any, row: any) {
+    if (row.publicationType === 'STORY' && row.deliveryMode === 'MANUAL') return { destinationInstagramAccountId: config?.instagramAccountId ?? null, destinationApiAccountId: config?.apiAccountId || config?.instagramAccountId || null }
+    if (row.publicationType === 'STORY' && !hasStoryDeclaration(config)) throw new InstagramPublicationConflictError('El administrador debe habilitar las historias automáticas para esta cuenta y credencial.')
     if (!config?.enabled || !config.accessToken || !config.instagramAccountId) throw new InstagramPublicationConflictError('Instagram no está conectado y habilitado para publicar.')
     return { destinationInstagramAccountId: config.instagramAccountId, destinationApiAccountId: config.apiAccountId || config.instagramAccountId }
   }
@@ -330,7 +351,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
         let timezone: string
         try { timezone = assertIanaTimezone(business?.timezone) } catch { throw new InstagramPublicationConflictError('Configurá una zona horaria válida para el comercio.') }
         data = { ...data, status: 'SCHEDULED', scheduledAt: input.scheduledAt, scheduleTimezone: timezone,
-          availableAt: input.scheduledAt, ...this.destination(config) }
+          availableAt: input.scheduledAt, ...this.destination(config, row) }
       }
       const changed = await tx.instagramPublication.updateMany({
         where: { businessId: input.businessId, id: input.id, status: row.status, revision: input.expectedRevision,
@@ -345,7 +366,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
 
   async reserveVideoDeletion(input: Parameters<InstagramPublicationRepository['reserveVideoDeletion']>[0]) {
     const changed = await this.client.instagramPublication.updateMany({
-      where: { ...input, id: input.id, videoDeletedAt: null, status: { in: ['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED'] },
+      where: { ...input, id: input.id, videoDeletedAt: null, status: { in: ['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED', 'MANUALLY_COMPLETED'] },
         OR: [{ claimToken: null }, { claimedUntil: { lte: this.clock() } }] },
       data: { videoDeleteRequestedAt: this.clock(), revision: { increment: 1 } }
     })
@@ -359,7 +380,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
         businessId: input.businessId,
         id: input.id,
         videoDeletedAt: null,
-        status: { in: ['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED'] }
+        status: { in: ['PUBLISHED', 'FAILED', 'UNKNOWN', 'CANCELLED', 'MANUALLY_COMPLETED'] }
       },
       data: { videoDeletedAt: input.deletedAt }
     })
@@ -372,6 +393,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
 
 function mapPublication(row: any): InstagramPublicationRecord {
   return {
+    publicationType: row.publicationType ?? 'REEL', mediaKind: row.mediaKind ?? 'VIDEO', deliveryMode: row.deliveryMode ?? 'AUTO', manuallyCompletedAt: row.manuallyCompletedAt ?? null,
     id: row.id,
     businessId: row.businessId,
     videoObjectPath: row.videoObjectPath,
@@ -394,13 +416,38 @@ function mapPublication(row: any): InstagramPublicationRecord {
     publishedAt: row.publishedAt ?? null,
     automation: {
       enabled: row.automation.enabled,
+      privateReplyEnabled: row.automation.privateReplyEnabled ?? true,
+      publicReplyEnabled: row.automation.publicReplyEnabled ?? false,
+      publicReplyText: row.automation.publicReplyText ?? '',
       privateReplyText: row.automation.privateReplyText,
       keywords: row.automation.keywords.map((keyword: any) => ({ value: keyword.value, normalizedValue: keyword.normalizedValue }))
     }
   }
 }
 
-function parseScheduleInstant(value: unknown) {
+export function editablePublicationWhere(businessId: string, id: string, revision: number) {
+  return { businessId, id, revision, status: { in: ['DRAFT', 'CANCELLED'] }, claimToken: null, claimedUntil: null,
+    metaContainerId: null, metaMediaId: null, videoDeletedAt: null, videoDeleteRequestedAt: null }
+}
+
+function requireRevision(revision: unknown): asserts revision is number {
+  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) throw new InstagramPublicationValidationError(['La revisión esperada es obligatoria.'])
+}
+
+function normalizedAutomation(raw: CreateInstagramPublicationDraft['automation']) {
+  try {
+    const validated = validateAutomation({ enabled: false, privateReplyEnabled: true, privateReplyText: '', publicReplyEnabled: false, publicReplyText: '', keywords: [], ...raw })
+    return { ...validated, keywords: [...(raw?.keywords ?? [])] }
+  }
+  catch { throw new InstagramPublicationValidationError(['Revisá las palabras clave y los textos de las acciones activas.']) }
+}
+
+function automationFields(automation: InstagramPublicationAutomation) {
+  return { enabled: automation.enabled, privateReplyText: automation.privateReplyText, privateReplyEnabled: automation.privateReplyEnabled ?? true,
+    publicReplyEnabled: automation.publicReplyEnabled ?? false, publicReplyText: automation.publicReplyText ?? '' }
+}
+
+export function parseScheduleInstant(value: unknown) {
   if (typeof value !== 'string') return null
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.exec(value)
   if (!match) return null

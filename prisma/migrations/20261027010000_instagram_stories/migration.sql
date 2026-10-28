@@ -1,0 +1,8 @@
+ALTER TYPE "InstagramPublicationStatus" ADD VALUE IF NOT EXISTS 'MANUALLY_COMPLETED';
+ALTER TABLE "InstagramPublication" ADD COLUMN "publicationType" TEXT NOT NULL DEFAULT 'REEL', ADD COLUMN "mediaKind" TEXT NOT NULL DEFAULT 'VIDEO', ADD COLUMN "deliveryMode" TEXT NOT NULL DEFAULT 'AUTO', ADD COLUMN "manuallyCompletedAt" TIMESTAMP(3);
+ALTER TABLE "BusinessInstagramConfig" ADD COLUMN "storiesDeclarationFingerprint" TEXT, ADD COLUMN "storiesDeclaredAt" TIMESTAMP(3), ADD COLUMN "storiesDeclaredBy" TEXT;
+ALTER TABLE "InstagramPublication" ADD CONSTRAINT "InstagramPublication_content_kind_check" CHECK (("publicationType"='REEL' AND "mediaKind"='VIDEO' AND "deliveryMode"='AUTO') OR ("publicationType"='STORY' AND "mediaKind" IN ('IMAGE','VIDEO') AND "deliveryMode" IN ('AUTO','MANUAL')));
+ALTER TABLE "InstagramPublication" ADD CONSTRAINT "InstagramPublication_manual_date_check" CHECK ("manuallyCompletedAt" IS NULL OR ("publicationType"='STORY' AND "deliveryMode"='MANUAL' AND "publishedAt" IS NULL AND "metaMediaId" IS NULL));
+CREATE INDEX "InstagramPublication_kind_business_idx" ON "InstagramPublication"("businessId","publicationType","createdAt");
+ALTER TABLE "InstagramPublication" DROP CONSTRAINT "InstagramPublication_scheduled_target";
+ALTER TABLE "InstagramPublication" ADD CONSTRAINT "InstagramPublication_scheduled_target" CHECK ("status"::text <> 'SCHEDULED' OR ("scheduledAt" IS NOT NULL AND "scheduleTimezone" IS NOT NULL AND "scheduleTimezone" <> '' AND ("deliveryMode"='MANUAL' OR ("destinationInstagramAccountId" IS NOT NULL AND "destinationInstagramAccountId" <> '' AND "destinationApiAccountId" IS NOT NULL AND "destinationApiAccountId" <> ''))));

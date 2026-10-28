@@ -1,8 +1,9 @@
+import { managementChannelIdentityRecord, type ManagementChannelIdentity } from './conversation-subject.js'
 import { randomUUID } from 'node:crypto'
 import { canonicalJsonHash } from './canonical-json.js'
 
 /** Trusted runtime identity only. Simulator identities do not satisfy this contract. */
-export type ManagementScope = { businessId: string; customerId: string; sessionId: string; normalizedPhone: string }
+export type ManagementScope = { businessId: string; customerId: string; sessionId: string } & ManagementChannelIdentity
 export type CancellationMember = {
   appointmentId: string; version: number; status: string; visitId: string | null; visitVersion: number | null; visitStatus: string | null
   professionalId: string; serviceIds: readonly string[]; startAt: string; durationMinutes: number; customerDurationMinutes?: number; quotedPrice: number | null
@@ -21,7 +22,7 @@ export function managementIdentifier(value: unknown): asserts value is string {
 }
 export function assertManagementScope(scope: ManagementScope) {
   for (const value of [scope.businessId, scope.customerId, scope.sessionId]) managementIdentifier(value)
-  if (!/^[0-9]{8,15}$/.test(scope.normalizedPhone)) throw new GroupCancellationError('management requires a real normalized phone')
+  try { managementChannelIdentityRecord(scope) } catch { throw new GroupCancellationError(scope.subject?'management requires a real channel identity':'management requires a real normalized phone') }
 }
 function instant(value: string) {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) throw new GroupCancellationError('invalid management instant')
@@ -144,7 +145,7 @@ export function assertManagementDate(date: string) {
 }
 function exactSnapshot(value: unknown): asserts value is CancellationSnapshot {
   managementRecord(value); managementKeys(value, ['scope', 'groupId', 'dbNow', 'members'])
-  managementRecord(value.scope); managementKeys(value.scope, ['businessId', 'customerId', 'sessionId', 'normalizedPhone'])
+  managementRecord(value.scope); managementKeys(value.scope, ['businessId', 'customerId', 'sessionId', value.scope.subject?'subject':'normalizedPhone'])
   if (!Array.isArray(value.members)) throw new GroupCancellationError('invalid group members')
   for (const member of value.members) {
     managementRecord(member)

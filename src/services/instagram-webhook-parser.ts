@@ -1,5 +1,9 @@
+export type InstagramInboundAttachment={type:string;url:string|null}
 export type InstagramMessagingWebhookEvent = {
   kind: 'messaging'
+  attachments?:readonly InstagramInboundAttachment[]
+  choicePayload?:string
+  unsupported?:boolean
   instagramAccountIds: string[]
   senderId: string
   messageId?: string
@@ -47,8 +51,12 @@ export function parseInstagramWebhookPayload(payload: unknown): ParsedInstagramW
       const recipient = record(event?.recipient)
       const message = record(event?.message)
       const senderId = text(sender?.id)
-      const body = text(message?.text)?.trim()
-      if (!senderId || !body || message?.is_echo === true || message?.is_deleted === true) continue
+      const postback=record(event?.postback)
+      const body=text(message?.text)?.trim()??text(postback?.title)?.trim()??''
+      const attachments=array(message?.attachments).slice(0,16).flatMap(raw=>{const item=record(raw),type=text(item?.type);return type?[{type,url:text(record(item?.payload)?.url)}]:[]})
+      const choicePayload=text(record(message?.quick_reply)?.payload)??text(postback?.payload)
+      const unsupported=message?.is_unsupported===true||array(message?.attachments).length>16
+      if(!senderId||(!body&&!attachments.length&&!choicePayload&&!unsupported)||message?.is_echo===true||message?.is_self===true||message?.is_deleted===true)continue
       const instagramAccountIds = unique([text(recipient?.id), entryId])
       if (!instagramAccountIds.length) continue
       result.messaging.push({
@@ -56,7 +64,10 @@ export function parseInstagramWebhookPayload(payload: unknown): ParsedInstagramW
         instagramAccountIds,
         senderId,
         text: body,
-        ...(text(message?.mid) ? { messageId: text(message?.mid)! } : {}),
+        ...(attachments.length?{attachments}:{}),
+        ...(choicePayload?{choicePayload}:{}),
+        ...(unsupported?{unsupported:true}:{}),
+        ...(text(message?.mid)??text(postback?.mid)?{messageId:(text(message?.mid)??text(postback?.mid))!}:{}),
         ...(number(event?.timestamp) !== null ? { timestamp: number(event?.timestamp)! } : {})
       })
     }
