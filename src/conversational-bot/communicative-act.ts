@@ -3,7 +3,7 @@ import { validCurrentServiceReadOrigin, validCurrentServiceRead, validCurrentSer
 import { dateExpressionCoversCurrentEvidence } from './date-preference.js'
 import { choiceDraftFingerprint } from './choices.js'
 import { currentProfessionalOption } from './dialogue-context.js'
-import { preferenceOptionId } from './dialogue-choice-presentation.js'
+import { preferenceOptionId, informationBookingService } from './dialogue-choice-presentation.js'
 import { serviceGuidance } from './service-guidance.js'
 import { isCustomerText } from './customer-text.js'
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
@@ -362,10 +362,12 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     // Preserve already selected exact identities before generic grounding can widen them.
     if (repeatedAdd(operation, state)) return false
 
-    if (operation.kind === 'service_reference' && (owners.length !== 1 || act?.kind !== 'answer' || act.field !== 'service' ||
+    const informationalSelection = operation.kind === 'service_reference' && operation.action === 'select' &&
+      act && (act.kind === 'answer' || act.kind === 'request') && informationBookingService(state, services, act.kind)?.id === operation.serviceId
+    if (operation.kind === 'service_reference' && (owners.length !== 1 || (!informationalSelection && act?.kind !== 'answer') || act?.field !== 'service' ||
         act.confidence < .85 || operation.confidence < .85 || !contains(act.evidence, operation.evidence) ||
         (operation.action === 'confirm' ? !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)
-          : state.serviceRequest?.serviceIds.length !== 1 || !validServiceCandidateContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)))) {
+          : !informationalSelection && (state.serviceRequest?.serviceIds.length !== 1 || !validServiceCandidateContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext))))) {
       blocked.add('service'); return false
     }
     if (operation.kind === 'professional' && operation.mode === 'option' && (owners.length !== 1 || act?.kind !== 'answer' ||

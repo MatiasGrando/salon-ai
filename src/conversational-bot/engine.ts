@@ -18,7 +18,7 @@ import { parseAvailabilityExplanation, parseRequestedStartExplanation, type Requ
 import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
-import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation, priceBookingChoice } from './dialogue-choice-presentation.js'
+import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation, priceBookingChoice, informationBookingService } from './dialogue-choice-presentation.js'
 import { introduceDialogue, type DialogueIdentity } from './dialogue-identity.js'
 import { presentAvailability, presentProfessionals, presentVerifiedDates, presentDateTimeQuestion, type ChoicePresentation, type PresentationChoice } from './availability-presentation.js'
 import { parseConversationChoiceOperation, type ConversationChoiceOperation, type ConversationChoicePresentation } from './choices.js'
@@ -494,6 +494,24 @@ function validBookableService(service: DialogueService, allowDual = false): bool
     (service.customerDurationMinutes === undefined || Number.isSafeInteger(service.customerDurationMinutes) && Number(service.customerDurationMinutes) > 0 && (allowDual || Number(service.customerDurationMinutes) <= Number(service.durationMinutes))) &&
     (service.price === null || Number.isSafeInteger(service.price) && service.price >= 0) &&
     (service.priceMode === undefined || ['FIXED', 'STARTING_AT'].includes(service.priceMode))
+}
+/** Shared additive effect for a native invitation or a separately admitted current semantic choice. */
+function acquireInformationService(state: DialogueState, service: DialogueService, evidence: string, confidence: number): ServiceRequestContext | undefined {
+  if (state.pending === 'proposal' && (state.sandboxReservation || state.bookingReservation)) {
+    state.slot = null; state.requestedTime = null; delete state.requestedTimeMode
+    delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext
+  }
+  mutateStateBasket(state, { kind: 'basket', mutation: 'add', scope: 'all', targetMemberIds: [],
+    members: [{ mode: 'single', serviceIds: [service.id], evidence, confidence }], evidence, confidence })
+  delete state.informationFocus
+  delete state.questionContext
+  delete state.sandboxReservation
+  const inquiry = state.serviceRequest
+  if (inquiry?.purpose === 'inquiry' && inquiry.businessId === state.businessId && inquiry.serviceIds.length === 1 &&
+      inquiry.serviceIds[0] === service.id && (inquiry.candidateName === undefined || inquiry.candidateName === service.name)) {
+    delete state.serviceRequest
+    return inquiry
+  }
 }
 function validateBasketAvailability(result: Extract<DialogueBasketAvailability, { ok: true }>, ids: readonly string[], selections: ServiceEstimates = {}): ReturnType<typeof resolveGuidance> {
   if (!Array.isArray(result.services) || JSON.stringify(result.services.map(s => s.id)) !== JSON.stringify(ids) ||
@@ -1140,16 +1158,23 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const previousProcedureRequest = state.serviceRequest
   const referenceAnswer = referenceAdmitted && serviceReferenceOp.action === 'confirm' &&
     validServiceReferenceContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
-  const candidateSelection = referenceAdmitted && serviceReferenceOp.action === 'select' &&
+  const procedureCandidateSelection = referenceAdmitted && serviceReferenceOp.action === 'select' &&
     state.serviceRequest?.serviceIds.length === 1 &&
     validServiceCandidateContext(state.serviceRequest, serviceReferenceOp.serviceId, context.businessId, services, state.questionContext)
+  const informationalSelection = referenceAdmitted && serviceReferenceOp.action === 'select'
+    ? informationBookingService(state, services, 'request') : null
+  const informationSelection = informationalSelection && informationalSelection.id === serviceReferenceOp?.serviceId && validBookableService(informationalSelection, true)
+  const candidateSelection = procedureCandidateSelection || Boolean(informationSelection)
   if (referenceAnswer && previousProcedureRequest?.purpose === 'inquiry' && raw.operations.length === 1) {
     return readServiceCandidate(context, state, previousProcedureRequest, serviceReferenceOp.serviceId, port, services)
   }
   if (referenceAnswer && state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, referenceConfirmed: true }
   // Selection has separate semantic authority; confirm alone never mutates the booking draft.
   raw = { ...raw, operations: raw.operations.filter(operation => operation.kind !== 'service_reference') }
-  if (candidateSelection && previousProcedureRequest) {
+  if (informationSelection && informationalSelection && serviceReferenceOp?.kind === 'service_reference') {
+    acquireInformationService(state, informationalSelection, serviceReferenceOp.evidence, serviceReferenceOp.confidence)
+  }
+  if (procedureCandidateSelection && previousProcedureRequest) {
     mutateStateBasket(state, serviceCandidateMutation(state, previousProcedureRequest, serviceReferenceOp.serviceId,
       serviceReferenceOp.evidence, serviceReferenceOp.confidence))
     delete state.serviceRequest
@@ -1521,7 +1546,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     ? serviceOp.serviceIds : basketOp?.kind === 'basket'
       ? basketOp.members.filter(member => member.mode === 'single' && member.confidence >= .85).flatMap(member => member.serviceIds) : []
   const chosenRelated = previousProcedureRequest?.businessId === context.businessId &&
-    previousProcedureRequest.purpose === 'booking' && previousProcedureRequest.basis === 'related_category' &&
+    (previousProcedureRequest.purpose === 'booking' || informationSelection) && previousProcedureRequest.basis === 'related_category' &&
     !state.serviceRequest
     ? services.filter(service => previousProcedureRequest.serviceIds.includes(service.id) &&
         selectedCandidateIds.includes(service.id) && basketServiceIds(state).includes(service.id)) : []
@@ -1897,8 +1922,9 @@ async function respondRuntimeBookingEnvelope(context:DialogueContext,state:Dialo
     reply: 'Para agregar ese servicio al pedido, elegí Reservar.\n' + state.questionContext!.question, ...informationChoiceFields(state) }
   if(prior && port.prepareRuntimeBooking && runtimeCurrentScope(context,prior.presented) && state.questionContext?.role==='confirmation' && !state.questionContext.matchCandidateIds && runtimeProposalMatchesState(prior.presented,state) && (semantic||literal))
     return {state,proposal:null,reply:'Voy a verificar y confirmar el turno.',bookingCommand:{kind:'CONFIRM_BOOKING',presented:structuredClone(prior.presented)}}
-  delete state.bookingReservation
-  if(state.questionContext?.role==='confirmation')delete state.questionContext
+  const keepInformationChoice = priceBookingChoice(state) && plan?.operations.some(operation => operation.kind === 'service_reference' && operation.action === 'select')
+  if (!keepInformationChoice) delete state.bookingReservation
+  if(state.questionContext?.role==='confirmation' && !keepInformationChoice)delete state.questionContext
   const nextDecision=plan?.operations.some(op=>op.kind==='confirm_proposal')?{...decision!,turnPlan:{...plan,operations:plan.operations.filter(op=>op.kind!=='confirm_proposal')}}:decision
   const response=await respondCore(context,state,message,port,nextDecision)
   const invitation = priceBookingChoice(response.state)
@@ -1981,8 +2007,9 @@ async function respondBookingEnvelope(context: DialogueContext, previous: unknow
   // A semantic confirmation cannot manufacture a proposal or authorize effects before it was shown.
   const nextDecision = plan?.operations.some(operation => operation.kind === 'confirm_proposal')
     ? { ...decision!, turnPlan: { ...plan, operations: plan.operations.filter(operation => operation.kind !== 'confirm_proposal') } } : decision
-  delete state.sandboxReservation
-  if (state.questionContext?.role === 'confirmation') delete state.questionContext
+  const keepInformationChoice = priceBookingChoice(state) && plan?.operations.some(operation => operation.kind === 'service_reference' && operation.action === 'select')
+  if (!keepInformationChoice) delete state.sandboxReservation
+  if (state.questionContext?.role === 'confirmation' && !keepInformationChoice) delete state.questionContext
   let catalog: DialogueService[] = []
   const observedPort: DialoguePort = { ...port, catalog: async () => { catalog = await port.catalog(); return catalog } }
   const response = await respondCore(context, state, message, observedPort, nextDecision)
@@ -2124,21 +2151,12 @@ export async function respondConversationChoice(context: DialogueContext, previo
     const services = await port.catalog()
     const service = services.find(service => service.id === invitation.id && service.name === invitation.label)
     if (!service || services.filter(item => item.id === invitation.id).length !== 1 || !validBookableService(service, true)) return reject()
-    // Adding a service is not renewed consent to the previously proposed slot, even when deduplicated.
-    if (state.pending === 'proposal' && (state.sandboxReservation || state.bookingReservation)) {
-      state.slot = null; state.requestedTime = null; delete state.requestedTimeMode
-      delete state.sandboxReservation; delete state.bookingReservation; delete state.dialogueContext
-    }
-    // The published click alone authorizes add; use the same cart reducer and its stable deduplication.
-    mutateStateBasket(state, { kind: 'basket', mutation: 'add', scope: 'all', targetMemberIds: [],
-      members: [{ mode: 'single', serviceIds: [service.id], evidence: 'stored choice', confidence: 1 }], evidence: 'stored choice', confidence: 1 })
-    delete state.informationFocus
-    delete state.questionContext
-    delete state.sandboxReservation
+    const inquiry = acquireInformationService(state, service, 'stored choice', 1)
     state.pending = state.editRequest?.fields[0] ?? resolveDialogueRoute(state, services).pending
     const response = state.serviceRequest || state.referral
       ? await respondTurnPlan(context, state, 'stored choice', { ...port, catalog: async () => services }, { version: 1, operations: [] }, 'booking')
       : state.editRequest ? draftEditResponse(state, services) : await respondBooking(context, state, 'stored choice', port, undefined, services)
+    if (inquiry) response.reply = [serviceRequestCaveat(inquiry, services), response.reply].filter(Boolean).join('\n')
     return finish(response)
   }
   if (operation.kind === 'service' && state.informationFocus?.awaitingChoice) {

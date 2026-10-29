@@ -66,6 +66,24 @@ export function priceBookingChoice(state: DialogueState): { id: string; label: s
     question.options[0]!.id === service.id && question.options[0]!.label === service.label &&
     question.question === '¿Querés agendar ' + service.label + '?' ? service : null;
 }
+/** Current scoped factual focus can ground a request; only a booking invitation grounds an answer. */
+export function informationBookingService(state: DialogueState, services: readonly DialogueService[], ownership: 'request' | 'answer'): DialogueService | null {
+  const focus = state.informationFocus
+  if (!focus || focus.businessId !== state.businessId || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1 ||
+      focus.options[0]!.id !== focus.serviceId || state.professionalReference || state.timeMeaningClarification) return null
+  const invitation = priceBookingChoice(state)
+  if (!invitation) {
+    const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
+    if (ownership !== 'request' || focus.aspect !== 'description' || !question?.complete) return null
+    const descriptiveQuestion = question.options.length === 0 && question.question === '¿Qué más querés saber sobre este servicio?'
+    const candidateReadQuestion = question.options.length === 1 && question.options[0]!.id === focus.serviceId &&
+      question.options[0]!.label === focus.options[0]!.label && question.question === '¿Querés agendar ' + focus.options[0]!.label + '?'
+    if (!descriptiveQuestion && !candidateReadQuestion) return null
+  }
+  const matches = services.filter(service => service.id === focus.serviceId)
+  const service = matches[0]
+  return matches.length === 1 && service?.name === focus.options[0]!.label && serviceGuidance(service).kind !== 'blocked' ? service : null
+}
 /** Informational choices read facts; only a separately published Reservar invitation acquires a service. */
 export function choicePresentationForInformation(state: DialogueState): ConversationChoicePresentation | undefined {
   const focus = state.informationFocus
