@@ -135,6 +135,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
     const context = catalogInformation(target, described, sourcedExplanation, state.businessId)
     // Retain what was explained, without manufacturing a choice or basket selection.
     const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id)
+      : target.aspect === 'price' && described.length > 1 ? focusFor(state, described, target.aspect, null)
       : ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1
         ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null), awaitingChoice: false }, state.businessId) : undefined
     return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) || context.services.some(service => service.publicDetails?.length) ? 'found' : 'missing',
@@ -208,7 +209,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   } else {
     lines = [...(target.aspect === 'overview' && item.description ? [item.description] : []),
       ...(variants.length ? variants : price ? [price] : ['Precio a consultar']),
-      ...(target.aspect === 'overview' && duration ? [duration] : []), ...choiceContent.filter(fragment => fragment.source === 'disclaimer').map(fragment => fragment.text)]
+      ...(['overview', 'price'].includes(target.aspect) && duration ? [duration] : []), ...choiceContent.filter(fragment => fragment.source === 'disclaimer').map(fragment => fragment.text)]
   }
   const reply = informationBody({ kind: 'service_details', name: item.name, lines })
   const uncovered = target.aspect === 'overview' ? [...(item.description ? [item.description] : []), ...(duration ? [duration] : [])] : []
@@ -294,7 +295,9 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 /** One contextual next step: inquiry is not permission to mutate a booking draft. */
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
-  if (read.catalogInformation?.aspect === 'overview' && read.catalogInformation.services.length === 1 && read.outcome === 'found') return '¿Querés agendar ' + read.catalogInformation.services[0]!.name + '?'
+  const catalog = read.catalogInformation
+  if (catalog?.aspect === 'price' && (state.serviceRequest || state.referral)) return pendingQuestion(state)
+  if (catalog && ['overview', 'description', 'price'].includes(catalog.aspect) && catalog.services.length === 1 && read.outcome === 'found') return '¿Querés agendar ' + catalog.services[0]!.name + '?'
   if (read.catalogInformation) return !read.catalogInformation.services.length ? '¿Qué más querés saber sobre este tema?' : read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
   const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'

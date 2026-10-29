@@ -144,7 +144,8 @@ export function socialContinuationQuestion(state: DialogueState): string {
 }
 /** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
-  const localOverview = read.outcome === 'found' && read.focus?.aspect === 'overview' &&
+  const localOverview = read.outcome === 'found' && read.focus &&
+    (read.focus.aspect === 'overview' || read.catalogInformation && ['description', 'price'].includes(read.focus.aspect)) &&
     read.focus.serviceId !== null && read.focus.options.length === 1 && read.focus.options[0]!.id === read.focus.serviceId
   if (read.catalogInformation && !localOverview) { rememberDialogueQuestion(state, next, [], null); return }
   const retained = hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral
@@ -1542,7 +1543,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!basketIsResolved(state) ? '\n' + pendingQuestion(state) : ''))
   }
   if (!matched.matching && !bookingUpdates.length && nameOp && !hasActiveBooking(state) && standaloneIdentityMessage(message,nameOp.value)) return finishWithoutAgenda('¿En qué te puedo ayudar con el local?')
-  const selectedCandidateIds = candidateSelection ? [serviceReferenceOp.serviceId] : serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
+  const selectedCandidateIds = candidateSelection && serviceReferenceOp?.kind === 'service_reference' ? [serviceReferenceOp.serviceId] : serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
     ? serviceOp.serviceIds : basketOp?.kind === 'basket'
       ? basketOp.members.filter(member => member.mode === 'single' && member.confidence >= .85).flatMap(member => member.serviceIds) : []
   const chosenRelated = previousProcedureRequest?.businessId === context.businessId &&
@@ -2159,7 +2160,8 @@ export async function respondConversationChoice(context: DialogueContext, previo
     if (inquiry) response.reply = [serviceRequestCaveat(inquiry, services), response.reply].filter(Boolean).join('\n')
     return finish(response)
   }
-  if (operation.kind === 'service' && state.informationFocus?.awaitingChoice) {
+  if (operation.kind === 'service' && (state.informationFocus?.awaitingChoice ||
+      state.informationFocus?.aspect === 'recommendation' && !state.informationFocus.serviceId && state.informationFocus.options.length > 1)) {
     const focus = state.informationFocus
     if (operation.targetMemberId || !focus.options.some(option => option.id === operation.serviceId)) return reject()
     const services = await port.catalog()
@@ -2169,7 +2171,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
     delete state.informationFocus
     // Selecting one service from a comparative pool asks about that service,
     // not automatically about its configured product/length variants.
-    const aspect = focus.aspect === 'comparison' && focus.options.length > 1 ? 'overview' : focus.aspect
+    const aspect = ['comparison', 'recommendation'].includes(focus.aspect) && focus.options.length > 1 ? 'overview' : focus.aspect
     const read = await readInformation(context, state, 'stored choice', port, { kind: 'service', actions: [], serviceIds: [operation.serviceId], aspect }, services)
     if (read.focus) state.informationFocus = read.focus
     return finalizeDialogueIntroduction(context, { state, proposal: null, reply: renderInformationContinuation(read, state),

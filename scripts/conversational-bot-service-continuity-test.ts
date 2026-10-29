@@ -67,10 +67,13 @@ async function descriptiveRead() {
   const result = await say(initialDialogueState(context.businessId), body, [{ kind: 'information',
     target: { kind: 'service', serviceIds: ['roots'], actions: [], aspect: 'description' }, ...evidence(body) }], 'inquiry', catalog, 'information')
   assert.equal(result.state.informationFocus?.serviceId, 'roots')
-  assert.equal(result.choicePresentation, undefined)
-  assert.match(result.reply, /Qué más querés saber sobre este servicio/)
+  assert.equal(result.choicePresentation?.choices[0]?.label, 'Reservar')
   assert.deepEqual(ids(result.state), [])
-  return result
+  // E2 publishes an invitation for a fresh description. Retain the older
+  // recoverable generic question to protect the no-consent negative cases.
+  const state = structuredClone(result.state)
+  state.questionContext = { ...state.questionContext!, question: '¿Qué más querés saber sobre este servicio?', options: [] }
+  return { ...result, state, choicePresentation: undefined, reply: '¿Qué más querés saber sobre este servicio?' }
 }
 async function needInquiry() {
   const body = '¿Hacen coloración sin amoníaco?'
@@ -84,7 +87,7 @@ await check('need inquiry then candidate read consumes its request before textua
   const read = await respondConversationChoice(context, inquiry.state, inquiry.choicePresentation!.choices[0]!.operation, makePort())
   assert.equal(read.state.serviceRequest, undefined)
   assert.equal(read.state.informationFocus?.aspect, 'description')
-  assert.equal(read.choicePresentation, undefined)
+  assert.equal(read.choicePresentation?.choices[0]?.label, 'Reservar')
   const result = await say(read.state, 'quiero reservar', [select('quiero reservar')], 'request')
   assert.deepEqual(ids(result.state), ['roots'], JSON.stringify({ read: read.state, reply: read.reply, result: result.reply }))
   assert.equal(result.state.serviceRequest, undefined)

@@ -152,7 +152,8 @@ try {
     assert.equal(result.interpretation.replyRoute, 'first_call')
     assert.equal(result.interpretation.aiCalls, 1)
     assert.equal(calls, 1)
-    assert.equal(result.choicePresentation, undefined)
+    assert.equal(result.choicePresentation?.choices[0]?.label, 'Reservar')
+    assert.deepEqual(selectionBasket(result.state), selectionBasket(first.state))
   })
   await check('a genuinely renamed focus option cannot authorize the answer scope', async () => {
     const changed = catalog.map(service => service.id === 'straight' ? { ...service, name: 'Alisado nuevo' } : service)
@@ -210,7 +211,7 @@ try {
     assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'unverified_value')
     assert.notEqual(result.interpretation.replyRoute, 'first_call')
   })
-  await check('genuine comparison then a specific current answer explains without a booking menu', async () => {
+  await check('genuine comparison then a specific current answer explains with a separate booking invitation', async () => {
     const first = await compose(initial, comparisonBody, comparison(), null)
     assert.ok(first.result.reply.includes(generalExplanation))
     assert.ok(first.result.reply.includes(catalog[0]!.description!))
@@ -229,7 +230,8 @@ try {
     assert.equal(followup.result.interpretation.replyRoute, 'first_call')
     assert.equal(followup.result.interpretation.aiCalls, 1)
     assert.equal(followup.compositions, 0)
-    assert.equal(followup.result.choicePresentation, undefined)
+    assert.equal(followup.result.choicePresentation?.choices[0]?.label, 'Reservar')
+    assert.deepEqual(selectionBasket(followup.result.state), selectionBasket(first.result.state))
     assert.equal(followup.result.state.informationFocus?.serviceId, 'straight')
     assert.equal(followup.result.state.informationFocus?.awaitingChoice, false)
   })
