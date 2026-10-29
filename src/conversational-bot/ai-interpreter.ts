@@ -682,10 +682,14 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
+  // Recover rejected identity framing once without repeating the accepted partial plan.
+  // The final server facts and every material safety check still govern the new draft.
+  const partialFrameRecovery = partialAcquisition && replyValidation.firstCall.status === 'rejected' &&
+    replyValidation.firstCall.reason === 'identity_in_frame'
   // A proved explanatory read also needs composition when the interpretation did not
   // include a body. Its current catalog scope is authority for prose, never acquisition.
-  if (!authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible) &&
-      (!response.replyPrepared || catalogCopyEligible) && !partialAcquisition) {
+  if (!authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible || partialFrameRecovery) &&
+      (!response.replyPrepared || catalogCopyEligible || partialFrameRecovery) && (!partialAcquisition || partialFrameRecovery)) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++

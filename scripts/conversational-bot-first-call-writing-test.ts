@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
-import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider } from '../src/conversational-bot/ai-interpreter.js'
+import { respondWithAiInterpreter, type AiInterpretationInput, type AiInterpretationProvider, type AiResponseInput } from '../src/conversational-bot/ai-interpreter.js'
 import { replyContract, validateReplyDraft, REPLY_CONTRACT_INSTRUCTIONS } from '../src/conversational-bot/reply-contract.js'
 
 const context = { businessId: 'writing', timezone: 'America/Argentina/Buenos_Aires', dbNow: new Date('2026-10-03T12:00:00Z') }
@@ -158,8 +158,8 @@ for(const introduced of [false,true])for(const withTime of [false,true]) {
     assert.equal(partial.interpretation.copyMode,'ai');assert.equal(partial.proposal,null)
   }catch(error){boundaryFailures++;console.error('FAIL partial acquisition '+introduced+'/'+withTime+': '+String(error))}
 }
-// Unsafe framing must remain canonical, not trigger a replacement style request.
-for(const opening of ['Soy Otra','Cuesta $100','Corte']) {
+// Unsafe material framing stays canonical; identity-only partial recovery is tested below.
+for(const opening of ['Cuesta $100','Corte','Reservado']) {
   let unsafeCalls=0
   const unsafeProvider=Object.assign(async(input:AiInterpretationInput)=>{
     unsafeCalls++
@@ -266,4 +266,92 @@ const notice = await respondWithAiInterpreter(context, { ...state, introduced: t
 assert.equal(noticeCalls, 1); assert.equal(notice.interpretation.aiCalls, 1)
 assert.equal((notice.reply.match(/Gracias por avisar/g) ?? []).length, 1, 'captured notice acknowledgment appears exactly once')
 assert.equal(notice.state.serviceId, null); assert.equal(notice.proposal, null); assert.equal(notice.bookingCommand, undefined)
+// Controlled identity-rejection recovery; no model or business data is accessed.
+type RecoveryMode = 'valid' | 'value' | 'action' | 'identity' | 'error' | 'timeout'
+async function partialRecovery(introduced: boolean, withName: boolean, around: boolean, mode: RecoveryMode = 'valid', safeFirst = false) {
+  let interpretationCalls = 0, compositionCalls = 0
+  const timeEvidence = around ? 'alrededor de las 16' : 'a las 16:00'
+  const message = (withName ? 'soy Matías, ' : '') + 'quería un turno para mañana ' + timeEvidence
+  const operations = [
+    { kind: 'date', expression: 'mañana', value: '2026-10-04', evidence: 'mañana', confidence: 1 },
+    around ? { kind: 'time_preference', preference: { kind: 'around', time: '16:00' }, evidence: timeEvidence, confidence: 1 }
+      : { kind: 'time', value: '16:00', evidence: timeEvidence, confidence: 1 },
+    ...(withName ? [{ kind: 'name', value: 'Matías', evidence: 'soy Matías', confidence: 1 }] : [])
+  ]
+  const provider = Object.assign(async (input: AiInterpretationInput) => {
+    interpretationCalls++
+    return { ...base, turnPlan: { version: 1, operations }, communicativeActs: { version: 1, acts: [
+      { kind: 'request', field: 'date', evidence: 'mañana', confidence: 1, mention: null, operationIndexes: [0] },
+      { kind: 'request', field: 'time', evidence: timeEvidence, confidence: 1, mention: null, operationIndexes: [1] },
+      ...(withName ? [{ kind: 'request', field: 'name', evidence: 'soy Matías', confidence: 1, mention: 'Matías', operationIndexes: [2] }] : [])
+    ] }, firstReply: { salutation: introduced ? null : 'greeting',
+      opening: safeFirst ? 'Dale, te ayudo a buscar un turno.' : '¡Holaa! Soy Otra.',
+      factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null, variantChoices: null } }
+  }, { respond: async (input: AiResponseInput) => {
+    compositionCalls++
+    assert.equal(input.state.customerName, withName ? 'Matías' : null)
+    assert.equal(input.state.date, '2026-10-04')
+    assert.equal(input.state.serviceId, null)
+    assert.deepEqual(input.facts.map(fact => fact.id), ['next'])
+    assert.match(input.facts[0]!.text, /¿Qué servicio necesitás/)
+    assert.equal(input.replyContract?.role, 'continuation')
+    if (mode === 'error') throw new Error('PRIVATE_RECOVERY_PROVIDER_TEXT')
+    if (mode === 'timeout') return new Promise<never>(() => {})
+    const opening = mode === 'value' ? 'Cuesta $999.' : mode === 'action' ? 'Tenemos disponibilidad mañana.'
+      : mode === 'identity' ? 'Soy Otra.' : 'Dale, te ayudo a buscar un turno.'
+    return { salutation: null, opening, factIds: null, closing: null, variantChoices: null }
+  } }) as AiInterpretationProvider
+  const previous = { ...state, introduced }
+  const before = structuredClone(previous)
+  const result = await respondWithAiInterpreter(context, previous, message, port, provider, { timeoutMs: mode === 'timeout' ? 20 : 1000 })
+  assert.deepEqual(previous, before, 'recovery cannot mutate the supplied previous state')
+  assert.equal(interpretationCalls, 1, 'a rejected frame must not repeat interpretation')
+  assert.equal(result.interpretation.mode, 'ai')
+  assert.equal(result.state.customerName, withName ? 'Matías' : null)
+  assert.equal(result.state.date, '2026-10-04')
+  assert.deepEqual(result.state.timePreference ?? null, around ? { kind: 'around', time: '16:00' } : null)
+  assert.equal(result.state.requestedTime, around ? null : '16:00')
+  assert.equal(result.state.pending, 'service'); assert.equal(result.state.serviceId, null)
+  assert.equal(result.state.basket?.members.length ?? 0, 0)
+  assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+  assert.equal(result.state.sandboxReservation, undefined); assert.equal(agenda, 0)
+  assert.match(result.reply, /¿Qué servicio necesitás/)
+  return { result, interpretationCalls, compositionCalls }
+}
+let recoveryFailures = 0
+async function checkRecovery(label: string, check: () => Promise<void>) {
+  try { await check(); console.log('PASS partial reply recovery ' + label) }
+  catch (error) { recoveryFailures++; console.error('RED partial reply recovery ' + label + ': ' + String(error)) }
+}
+for (const introduced of [false, true]) for (const withName of [false, true]) for (const around of [false, true]) {
+  await checkRecovery([introduced, withName, around].join('/'), async () => {
+    const { result, compositionCalls } = await partialRecovery(introduced, withName, around)
+    assert.equal(compositionCalls, 1, 'one composition must recover rejected identity framing')
+    assert.equal(result.interpretation.aiCalls, 2); assert.equal(result.interpretation.replyRoute, 'second_call')
+    assert.equal(result.interpretation.copyMode, 'ai')
+    assert.equal(result.interpretation.replyValidation?.firstCall.reason, 'identity_in_frame')
+    assert.equal(result.interpretation.replyValidation?.secondCall.status, 'accepted')
+    assert.match(result.reply, /Dale, te ayudo a buscar un turno/)
+    assert.doesNotMatch(result.reply, /Otra/)
+    assert.equal(result.reply.match(/Soy Ada, de Local/g)?.length ?? 0, introduced ? 0 : 1)
+  })
+}
+for (const withName of [false, true]) await checkRecovery('valid first frame/' + withName, async () => {
+  const { result, compositionCalls } = await partialRecovery(true, withName, true, 'valid', true)
+  assert.equal(compositionCalls, 0); assert.equal(result.interpretation.aiCalls, 1)
+  assert.equal(result.interpretation.replyRoute, 'first_call'); assert.equal(result.interpretation.copyMode, 'ai')
+})
+for (const mode of ['value', 'action', 'identity', 'error', 'timeout'] as const) await checkRecovery('safe fallback/' + mode, async () => {
+  const { result, compositionCalls } = await partialRecovery(true, true, true, mode)
+  assert.equal(compositionCalls, 1, 'failed composition cannot trigger a third call')
+  assert.equal(result.interpretation.aiCalls, 2); assert.equal(result.interpretation.copyMode, 'fallback')
+  assert.equal(result.interpretation.replyValidation?.secondCall.status, 'rejected')
+  assert.equal(result.interpretation.replyValidation?.secondCall.reason,
+    mode === 'value' || mode === 'action' ? (mode === 'value' ? 'unverified_value' : 'unverified_action')
+      : mode === 'identity' ? 'identity_in_frame' : mode === 'error' ? 'provider_error' : 'timeout')
+  assert.doesNotMatch(result.reply, /999|disponibilidad|Otra|PRIVATE_RECOVERY/)
+  assert.doesNotMatch(JSON.stringify(result.interpretation.replyValidation), /PRIVATE_RECOVERY/)
+})
+assert.equal(recoveryFailures, 0, 'partial reply recovery regressions')
+
 console.log('first-call writing guide: PASS (contract and offline delivery; model quality not evaluated)')
