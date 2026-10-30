@@ -1131,8 +1131,9 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const catalogOverview = raw.operations.length === 1 ? raw.operations[0] : null
   // An owned request to see the catalog reuses the current browse surface. It
   // presents real options without acquiring services or resetting the draft.
-  if (catalogOverview?.kind === 'information' && catalogOverview.confidence >= .85 &&
-      catalogOverview.target.kind === 'business' && catalogOverview.target.actions.length === 1 && catalogOverview.target.actions[0] === 'SERVICES' &&
+  if ((catalogOverview?.kind === 'information' && catalogOverview.confidence >= .85 &&
+      catalogOverview.target.kind === 'business' && catalogOverview.target.actions.length === 1 && catalogOverview.target.actions[0] === 'SERVICES' ||
+      raw.operations.length === 0 && state.questionContext?.role === 'service' && state.questionContext.complete) &&
       state.pending === 'service' && !hasBasketSelection(state) && !state.serviceRequest && !state.referral &&
       !state.bookingReservation && !state.sandboxReservation && !state.appointmentManagement && !state.professionalReference &&
       !state.timeClarification && !state.timeMeaningClarification && !communicative?.blockedFields.length) {

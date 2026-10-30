@@ -533,6 +533,21 @@ for (const config of liveModes) await liveIntakeCheck('period answer persists re
   for(const choice of question.choices) assert.ok(outbox[0].item.body.includes(choice.label),'same outbound body names every real choice')
   assert.equal(outbox.length,1);assert.equal(outbox[0].item.type,'interactive');assert.equal(fixture.agenda,0)
 })
+for(const semantic of [false,true]) await liveIntakeCheck('legacy waiting-service session upgrades to native list; semantic='+semantic,async()=>{
+  const fixture=livePort(),navigation=fixture.port.catalogNavigation
+  delete fixture.port.catalogNavigation
+  const runtime=runtimeFixture({bookingPort:fixture.port,timezone:liveTimezone,now:liveNow})
+  runtime.next('Quiero un turno');await runtime.run('PROCESS_INBOX',{provider:async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:null}),timeoutMs:15000})
+  fixture.port.catalogNavigation=navigation!
+  runtime.next('Cuales hay?')
+  await runtime.run('PROCESS_INBOX',{provider:async()=>semantic?{intent:'information',serviceId:null,serviceEvidence:null,professionalMention:null,
+    turnPlan:{version:1,operations:[{kind:'information',target:{kind:'business',actions:['SERVICES']},evidence:'Cuales hay?',confidence:.99}]},
+    communicativeActs:{version:1,acts:[{kind:'inquiry',field:'general',evidence:'Cuales hay?',confidence:.99,mention:null,operationIndexes:[0]}]}}:livePlan([]),timeoutMs:15000})
+  const payloads=liveChoicePayloads(runtime),outbox=payloads.filter(value=>value.item)
+  assert.equal(payloads.filter(value=>value.question).length,4)
+  assert.equal(outbox.length,1);assert.equal(outbox[0].item.type,'interactive');assert.equal(outbox[0].item.rows.length,4)
+  assert.equal(fixture.agenda,0)
+})
 for(const config of liveModes) for(const semantic of [false,true]) await liveIntakeCheck('catalog followup actual menu '+config.mode+'/'+config.count+'; semantic='+semantic,async()=>{
   const fixture=livePort(config.count,config.mode),runtime=runtimeFixture({bookingPort:fixture.port,timezone:liveTimezone,now:liveNow})
   runtime.next('Quiero un turno');await runtime.run('PROCESS_INBOX',{provider:async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:null}),timeoutMs:15000})
