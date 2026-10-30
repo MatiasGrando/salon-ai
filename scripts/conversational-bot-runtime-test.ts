@@ -20,6 +20,7 @@ import * as aiDiagnostics from '../src/conversational-bot/ai-diagnostics.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
 import { createOpenAiResponseProvider } from '../src/conversational-bot/openai-response-provider.js'
 import { resolveGuidance } from '../src/conversational-bot/service-guidance.js'
+import { projectBusinessHoursContext, projectBusinessTimeContext } from '../src/conversational-bot/business-time-context.js'
 import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../src/bot-options/domain/state.js'
 
@@ -103,8 +104,9 @@ type ResetFinancialTransport = { members: Record<string, unknown>[]; operations:
   proofJobs: Array<{ id: string; status: string; depositId: string; groupId: string }>; proofs: Array<{ id: string }>;
   failResetCas?: boolean }
 type FinancialReadFixture = { rows: Record<string,unknown>[]; lines: unknown[]; items: unknown[]; cancellation?: ResetFinancialTransport }
-function runtimeFixture(options: { financialRead?: FinancialReadFixture; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onInboundConsumed?: (contexts: ReadonlyArray<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }>) => void; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string; signal?: AbortSignal }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
+function runtimeFixture(options: { timezone?: string; financialRead?: FinancialReadFixture; pendingEffect?: string; personality?: () => Promise<DialoguePersonality>; bookingDb?:PGlite;bookingPort?:DialoguePort;bookingFault?:{secondChild:boolean};publicPorts?:boolean; availabilityReason?: 'COMBINATION_REVIEW'; basketCatalog?: boolean; guidedCatalog?: boolean; sessionDb?: PGlite; computeDb?: PGlite; handoffDb?: PGlite; jobPrefix?: string; businessId?: string; phone?: string; now?: Date; failAfterSessionCreate?: boolean; failSnapshotCommit?: boolean; onInboundConsumed?: (contexts: ReadonlyArray<{ businessId: string; providerPhoneNumberId: string; providerMessageId: string }>) => void; onPreparingReply?: (context: { businessId: string; providerPhoneNumberId: string; providerMessageId: string; signal?: AbortSignal }) => void | Promise<void>; queueMilestones?: QueueMilestoneTracker } = {}) {
   const now = options.now ?? new Date('2026-10-01T12:00:00Z')
+  const timezone = options.timezone ?? 'UTC'
   let sessionSql: Transaction | undefined
   let computeSql: Transaction | undefined
   let handoffSql: Transaction | undefined
@@ -112,7 +114,7 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
   const businessId = options.businessId ?? 'biz'
   let inTransaction = false
   let row = { ...config, businessId, configurationBusinessId: businessId, id: 'inbox', actionType:'input.initial',expectedRevision:null as bigint|null, deploymentGeneration: 1, fenceEpoch: 1, payload: { fromPhone: options.phone ?? 'phone', textBody: 'Corte', messageType: 'text', contextWindowEvaluated: true, conversationChoice:undefined as unknown },
-    providerEventId: 'event', providerMessageId: 'msg', providerPhoneNumberId: 'channel', status: 'ADMITTED', dbNow: now, businessTimezone: 'UTC', admittedAt: now, providerOccurredAt: now, botEnabled: true }
+    providerEventId: 'event', providerMessageId: 'msg', providerPhoneNumberId: 'channel', status: 'ADMITTED', dbNow: now, businessTimezone: timezone, admittedAt: now, providerOccurredAt: now, botEnabled: true }
   let session: { sessionId: string; conversationId: string; revision: bigint; status: string; state: unknown; businessTimezone: string; handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number } | null = null
   let replies: string[] = []
   let settled = 0
@@ -280,7 +282,7 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
         // Execute the parameterized production statement, not a copy of its SQL.
         const inserted = sessionSql ? (await sessionSql.query<{ id: string }>(q.text, q.values)).rows : [{ id: 'session' }]
         if (options.failAfterSessionCreate) throw new Error('session creation interrupted')
-        session = { sessionId: inserted[0]!.id, conversationId: 'conversation', revision: 0n, status: 'ACTIVE', state: createInitialBotOptionsState(), businessTimezone: 'UTC', handoffFenceEpoch: 0, handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
+        session = { sessionId: inserted[0]!.id, conversationId: 'conversation', revision: 0n, status: 'ACTIVE', state: createInitialBotOptionsState(), businessTimezone: timezone, handoffFenceEpoch: 0, handoffClaimsPausedAt: null, deploymentId: 'dep', deploymentGeneration: 1 }
         return inserted
       }
       if (q.sql.includes('UPDATE "Conversation" conversation')) return []
@@ -408,7 +410,7 @@ function runtimeFixture(options: { financialRead?: FinancialReadFixture; pending
       port.verifiedDateChoices=async function(services){assert.equal(this,port);outside();return {ok:true,services,durationMinutes:services.reduce((total,service)=>total+service.durationMinutes!,0),totalPrice:1000,
         professionals:[{id:'ana',name:'Ana',priority:0}],slots:[{date:'2026-10-02',time:'14:00',startAt:'2026-10-02T14:00:00Z',professionalId:'ana',professionalName:'Ana',band:'AFTERNOON',occupiedMinutes:0}]}}
     }
-    return { context: { businessId, timezone: 'UTC', dbNow: now }, port:options.bookingPort??port }
+    return { context: { businessId, timezone, dbNow: now }, port:options.bookingPort??port }
   }
   let number = 0
   const run = (kind = 'PROCESS_INBOX', conversationalAi?: { provider: AiInterpretationProvider; timeoutMs: number; onDiagnostic?: (value: unknown) => void }) => processSessionJob({ client: client as never, dialogueFactory, ...(conversationalAi?{conversationalAi}:{}), ...(options.queueMilestones?{queueMilestones:options.queueMilestones}:{}), ...(options.onPreparingReply?{onPreparingReply:options.onPreparingReply}:{}), ...(options.onInboundConsumed?{onInboundConsumed:options.onInboundConsumed}:{}), job: { id: `${options.jobPrefix ?? 'job'}-${number}`, kind, businessId, deploymentId: 'dep', deploymentGeneration: 1, aggregateId: row.id, attempts: 1, claimToken: 'job-token', expectedRevision: null } as never })
@@ -478,6 +480,77 @@ let commercialInput:unknown
 await clockRuntime.run('PROCESS_INBOX',{provider:async input=>{commercialInput=input.businessTimeContext;return {intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:{version:1,operations:[]}}},timeoutMs:15000})
 assert.deepEqual((commercialInput as {candidates:unknown})?.candidates,[{time:'05:00',status:'closed'},{time:'17:00',status:'open'}],'WhatsApp wrapper forwards commercial meaning without querying occupied slots')
 console.log('P12 WhatsApp commercial clock receiver/proof: PASS')
+// Live-feedback regressions traverse the actual worker, projection and prompt/outbox bridge.
+const liveIntakeFailures: string[] = []
+async function liveIntakeCheck(name: string, run: () => Promise<void>) {
+  try { await run(); console.log('PASS live intake ' + name) }
+  catch (error) { liveIntakeFailures.push(name); console.error('RED live intake ' + name + ': ' + String(error)) }
+}
+const liveTimezone = 'America/Argentina/Buenos_Aires'
+const liveNow = new Date('2026-10-30T03:54:00Z')
+const liveDate = '2026-10-31'
+const liveCatalog = Array.from({length:14}, (_, index) => ({id:'live-service-' + index, name:'Servicio ' + index,
+  categoryId:'live-category-' + index % 4, categoryName:'Categoria ' + index % 4,
+  price:1000, durationMinutes:30, requiresConsultation:false}))
+const liveCategories = Array.from({length:4}, (_, index) => ({id:'live-category-' + index, name:'Categoria ' + index}))
+const liveHours = {businessId:'biz',timezone:liveTimezone,stamp:'offline-live-repro',from:new Date('2026-10-30T03:00:00Z'),to:new Date('2026-11-02T03:00:00Z'),
+  weeklyHours:[{dayOfWeek:6,startTime:'09:00',endTime:'14:00'}],globalBlocks:[]}
+function livePort(count=14, displayMode: 'CATEGORIES_FIRST' | 'ALL_SERVICES'='CATEGORIES_FIRST') {
+  let agenda = 0
+  const port: DialoguePort = {
+    catalog:async function(){assert.equal(this,port);return liveCatalog.slice(0,count)},
+    catalogNavigation:async function(){assert.equal(this,port,'production wrapper preserves catalog receiver');return {businessId:'biz',displayMode,categories:liveCategories}},
+    businessTimeContext:function(date,times){assert.equal(this,port);return projectBusinessTimeContext(liveHours,date,times)},
+    businessHoursContext:function(date){assert.equal(this,port);return projectBusinessHoursContext(liveHours,date)},
+    availability:async()=>{agenda++;throw new Error('intake must not query availability')}
+  }
+  return {port,get agenda(){return agenda}}
+}
+const livePlan = (operations: object[], intent='booking') => ({intent,serviceId:null,serviceEvidence:null,professionalMention:null,
+  turnPlan:{version:1,operations},communicativeActs:{version:1,acts:operations.map((operation:any,index)=>({kind:'request',field:operation.kind==='name'?'name':operation.kind==='date'?'date':'time',
+    evidence:operation.evidence,confidence:.99,mention:null,operationIndexes:[index]}))}})
+const liveChoicePayloads = (runtime: ReturnType<typeof runtimeFixture>) => runtime.statements.filter(query=>query.sql.includes('conversation-choice-persist')).at(-1)?.values
+  .filter(value=>typeof value==='string'&&value.startsWith('{')).map(value=>JSON.parse(value as string)) ?? []
+const liveModes = [{count:14,mode:'CATEGORIES_FIRST' as const,kind:'category',size:4},{count:6,mode:'ALL_SERVICES' as const,kind:'service',size:6},{count:14,mode:'ALL_SERVICES' as const,kind:'category',size:4}]
+for (const config of liveModes) await liveIntakeCheck('period answer persists real menu ' + config.mode + '/' + config.count,async()=>{
+  const fixture=livePort(config.count,config.mode),runtime=runtimeFixture({bookingPort:fixture.port,timezone:liveTimezone,now:liveNow})
+  runtime.next('Hola');await runtime.run()
+  runtime.session.state=projectConversationDraft({...initialDialogueState('biz'),customerName:'Matias',date:liveDate,
+    timeClarification:{candidateTimes:['03:00','15:00']}},policy)
+  let receivedNavigation:unknown
+  runtime.next('De la tarde')
+  await runtime.run('PROCESS_INBOX',{provider:async input=>{receivedNavigation=input.catalogNavigation;return livePlan([{kind:'time',value:'15:00',evidence:'De la tarde',confidence:.99}])},timeoutMs:15000})
+  assert.ok(receivedNavigation,'navigation reaches the real interpreter input')
+  const saved=readConversationDraft(runtime.session.state,policy,liveTimezone)
+  assert.equal(saved.date,liveDate);assert.equal(saved.customerName,'Matias');assert.equal(saved.serviceId,null)
+  assert.equal(saved.catalogNavigation?.view,config.kind==='category'?'categories':'services')
+  const payloads=liveChoicePayloads(runtime),choices=payloads.filter(value=>value.question),outbox=payloads.filter(value=>value.item)
+  assert.equal(choices.length,config.size)
+  const question=choices[0].question
+  assert.equal(question.kind,config.kind)
+  assert.deepEqual(question.choices.map((value:any)=>config.kind==='category'?value.operation.categoryId:value.operation.serviceId).sort(),(config.kind==='category'?liveCategories:liveCatalog.slice(0,config.count)).map(value=>value.id).sort())
+  assert.equal(outbox[0].item.rows.length,config.size)
+  for(const choice of question.choices) assert.ok(outbox[0].item.body.includes(choice.label),'same outbound body names every real choice')
+  assert.equal(outbox.length,1);assert.equal(outbox[0].item.type,'interactive');assert.equal(fixture.agenda,0)
+})
+for(const config of liveModes) for(const semantic of [false,true]) await liveIntakeCheck('catalog followup actual menu '+config.mode+'/'+config.count+'; semantic='+semantic,async()=>{
+  const fixture=livePort(config.count,config.mode),runtime=runtimeFixture({bookingPort:fixture.port,timezone:liveTimezone,now:liveNow})
+  runtime.next('Quiero un turno');await runtime.run('PROCESS_INBOX',{provider:async()=>({intent:'booking',serviceId:null,serviceEvidence:null,professionalMention:null,turnPlan:null}),timeoutMs:15000})
+  const before=runtime.statements.length
+  runtime.next('Cuales hay?')
+  await runtime.run('PROCESS_INBOX',{provider:async()=>semantic?{intent:'information',serviceId:null,serviceEvidence:null,professionalMention:null,
+    turnPlan:{version:1,operations:[{kind:'information',target:{kind:'business',actions:['SERVICES']},evidence:'Cuales hay?',confidence:.99}]},
+    communicativeActs:{version:1,acts:[{kind:'inquiry',field:'general',evidence:'Cuales hay?',confidence:.99,mention:null,operationIndexes:[0]}]}}:livePlan([]),timeoutMs:15000})
+  assert.ok(runtime.statements.slice(before).some(query=>query.sql.includes('conversation-choice-persist')),'followup produces a fresh concrete menu')
+  const payloads=liveChoicePayloads(runtime)
+  assert.equal(payloads.filter(value=>value.question).length,config.size)
+  const outbox=payloads.filter(value=>value.item)
+  assert.equal(outbox.length,1);assert.equal(outbox[0].item.type,'interactive');assert.equal(outbox[0].item.rows.length,config.size)
+  assert.equal(payloads.find(value=>value.question).question.kind,config.kind)
+  assert.equal(fixture.agenda,0)
+})
+assert.deepEqual(liveIntakeFailures,[],'live feedback regressions must pass')
+
 // Focal mode does not change or waive the default suite's original assertions.
 if (!process.argv.includes('--handoff-only')) {
 // Full basket runs through the public worker, real interpreter/motor and production state projection.

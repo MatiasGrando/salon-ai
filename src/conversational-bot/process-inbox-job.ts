@@ -644,6 +644,7 @@ export async function processConversationInbox(input: {
       ...(prepared.port.personality ? { personality: () => prepared.port.personality!() } : {}),
       ...(prepared.port.managementRescheduleOffers ? { managementRescheduleOffers: (...args: Parameters<NonNullable<DialoguePort['managementRescheduleOffers']>>) => prepared.port.managementRescheduleOffers!(...args) } : {}),
       catalog: () => measureAttemptStage('conversation_catalog_load', () => prepared.port.catalog()),
+      ...(prepared.port.catalogNavigation ? { catalogNavigation: () => prepared.port.catalogNavigation!() } : {}),
       availability: (...args) => prepared.port.availability(...args),
       ...(prepared.port.businessTimeContext ? {businessTimeContext:(...args:Parameters<NonNullable<DialoguePort['businessTimeContext']>>)=>prepared.port.businessTimeContext!(...args)} : {}),
       ...(prepared.port.businessHoursContext ? {businessHoursContext:(...args:Parameters<NonNullable<DialoguePort['businessHoursContext']>>)=>prepared.port.businessHoursContext!(...args)} : {}),

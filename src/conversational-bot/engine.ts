@@ -1128,6 +1128,17 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   raw = parseTurnPlan(normalizeInformativeEstimates(raw, state, services), message, services.map(service => service.id))
+  const catalogOverview = raw.operations.length === 1 ? raw.operations[0] : null
+  // An owned request to see the catalog reuses the current browse surface. It
+  // presents real options without acquiring services or resetting the draft.
+  if (catalogOverview?.kind === 'information' && catalogOverview.confidence >= .85 &&
+      catalogOverview.target.kind === 'business' && catalogOverview.target.actions.length === 1 && catalogOverview.target.actions[0] === 'SERVICES' &&
+      state.pending === 'service' && !hasBasketSelection(state) && !state.serviceRequest && !state.referral &&
+      !state.bookingReservation && !state.sandboxReservation && !state.appointmentManagement && !state.professionalReference &&
+      !state.timeClarification && !state.timeMeaningClarification && !communicative?.blockedFields.length) {
+    const intake = await catalogIntakeResponse(state, services, port)
+    if (intake) return intake
+  }
   const navigation = raw.operations.find(operation => operation.kind === 'catalog_navigation')
   if (navigation?.kind === 'catalog_navigation') {
     const companions = raw.operations.filter(operation => operation.kind !== 'catalog_navigation')
