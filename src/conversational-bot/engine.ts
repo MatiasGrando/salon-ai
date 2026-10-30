@@ -15,7 +15,7 @@ import { memoBusinessTimeContext, type BusinessTimeContextReader, type BusinessH
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
 import { professionalIdentities, professionalFailureMessage, type ProfessionalEligibilityFailure } from './professional-preference.js'
 import { parseAvailabilityExplanation, parseRequestedStartExplanation, type RequestedStartEvidence, type RequestedStartExplanation, type AvailabilityCause, type AvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
-import { acknowledgmentContent, appliedChangeAcknowledgment } from './draft-delivery.js'
+import { acknowledgmentContent, appliedChangeAcknowledgment, requestedAppointmentFacts } from './draft-delivery.js'
 import { guidanceDelivery } from './service-guidance.js'
 import type { ReplyFact } from './reply-contract.js'
 import { ANY_PROFESSIONAL_OPTION, adaptChoicePresentation, choiceOptionId, choicePresentationForQuestion, choicePresentationForInformation, priceBookingChoice, informationBookingService } from './dialogue-choice-presentation.js'
@@ -2113,6 +2113,11 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   if (acknowledgment) {
     response.reply = acknowledgment + '\n\n' + response.reply
     if (response.replyFacts) response.replyFacts = [{ id: 'acknowledgment', text: acknowledgment }, ...response.replyFacts]
+  }
+  const requestedAppointment = requestedAppointmentFacts(before, response.state, deliveryServices, response.turnOutcome)
+  if (requestedAppointment && !response.proposal && !response.bookingCommand && !response.managementCommand && !response.handoffCommand) {
+    response.reply = requestedAppointment + '\n\n' + response.reply
+    if (response.replyFacts) response.replyFacts = [{ id: 'requested_appointment', text: requestedAppointment }, ...response.replyFacts]
   }
   if ((before.referral || response.state.referral) && !deliveryServices.length) deliveryServices = await deliveryPort.catalog()
   const resumedReferral = decision?.turnPlan?.operations.some(operation => operation.kind === 'referral' && operation.action === 'resume' && operation.confidence >= 0.85) ||

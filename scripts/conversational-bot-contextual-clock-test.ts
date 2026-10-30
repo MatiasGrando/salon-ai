@@ -3,6 +3,7 @@ import { respondWithAiInterpreter, type AiInterpretationProvider } from '../src/
 import { initialDialogueState, type DialoguePort } from '../src/conversational-bot/engine.js'
 import { projectBusinessHoursContext, projectBusinessTimeContext, scopedBusinessHoursContext } from '../src/conversational-bot/business-time-context.js'
 import { createOpenAiInterpretationProvider } from '../src/conversational-bot/openai-interpretation-provider.js'
+import { requestedAppointmentFacts } from '../src/conversational-bot/draft-delivery.js'
 
 const context = { businessId: 'clock-qa', timezone: 'UTC', dbNow: new Date('2026-10-12T12:00:00Z') }
 const snapshot = { ...context, stamp: 'fixture', from: new Date('2026-10-12T00:00:00Z'), to: new Date('2026-10-15T00:00:00Z'), weeklyHours: [{ dayOfWeek: 1, startTime: '09:00', endTime: '20:00' }], globalBlocks: [] }
@@ -32,6 +33,72 @@ function unbooked(result: Awaited<ReturnType<typeof respondWithAiInterpreter>>) 
 const originalFetch = globalThis.fetch
 globalThis.fetch = async () => { throw new Error('Network forbidden') }
 try {
+  for (const clock of ['4', '16hs']) for (const composition of ['ai', 'invalid', 'error']) await check('E11 tomorrow ' + clock + ' preserves verified request with composition ' + composition, async () => {
+    const tomorrowContext = { ...context, dbNow: new Date('2026-10-29T12:00:00Z') }
+    const date = '2026-10-30', message = 'mañana a las ' + clock
+    const tomorrowSnapshot = { ...snapshot, from: new Date('2026-10-29T00:00:00Z'), to: new Date('2026-11-02T00:00:00Z'), weeklyHours: [{ dayOfWeek: 5, startTime: '09:00', endTime: '20:00' }] }
+    let compositions = 0
+    const provider = Object.assign(async (input: Parameters<AiInterpretationProvider>[0]) => {
+      assert.equal(input.businessHoursContext?.date, date)
+      assert.deepEqual(input.businessHoursContext?.openIntervals, [{ from: '09:00', to: '20:00' }])
+      return { ...proposal(message, time('a las ' + clock, '16:00')), turnPlan: { version: 1, operations: [
+        { kind: 'date', expression: 'mañana', value: date, evidence: 'mañana', confidence: .99 }, time('a las ' + clock, '16:00')
+      ] }, communicativeActs: { version: 1, acts: [
+        { kind: 'request', field: 'date', evidence: 'mañana', confidence: .99, mention: null, operationIndexes: [0] },
+        { kind: 'request', field: 'time', evidence: 'a las ' + clock, confidence: .99, mention: null, operationIndexes: [1] }
+      ] } }
+    }, { respond: async (input: { facts: readonly { id: string; text: string }[] }) => {
+      compositions++
+      const body = input.facts.map(fact => fact.text).join('\n')
+      assert.match(body, /Corte/); assert.match(body, /viernes.*30.*octubre.*2026/); assert.match(body, /16:00/)
+      assert.match(body, /solicitad/i); assert.doesNotMatch(body, /confirmad|reservado|16:00.*disponible/i)
+      if (composition === 'error') throw new Error('offline composition failure')
+      if (composition === 'invalid') return { opening: 'Reservado a las 17:00.', closing: null, factIds: null }
+      return { opening: 'Te ayudo a encontrar tu turno.', closing: null, factIds: null }
+    } }) as AiInterpretationProvider
+    const result = await respondWithAiInterpreter(tomorrowContext, { ...state, date: null, professional: null, pending: 'date' }, message, {
+      ...port,
+      businessHoursContext: day => projectBusinessHoursContext(tomorrowSnapshot, day),
+      businessTimeContext: (day, times) => projectBusinessTimeContext(tomorrowSnapshot, day, times)
+    }, provider)
+    assert.equal(result.interpretation.mode, 'ai'); assert.equal(result.interpretation.copyMode, composition === 'ai' ? 'ai' : 'fallback'); assert.equal(compositions, 1)
+    if (composition === 'ai') assert.match(result.reply, /Te ayudo a encontrar/)
+    assert.match(result.reply, /Corte/); assert.doesNotMatch(result.reply, /Reservado|17:00/)
+    assert.match(result.reply, /viernes.*30.*octubre.*2026/); assert.match(result.reply, /16:00/)
+    assert.equal(result.state.date, date); assert.equal(result.state.requestedTime, '16:00'); assert.equal(result.state.pending, 'professional')
+    assert.equal(result.choicePresentation?.kind, 'professional'); assert.ok(result.choicePresentation?.choices.some(choice => choice.operation.kind === 'any_professional'))
+    unbooked(result)
+  })
+  await check('request facts exclude unchanged, incomplete, foreign and confirmation contexts', () => {
+    const before = { ...state, date: null, professional: null, pending: 'date' as const }
+    const after = { ...before, date: '2026-10-30', requestedTime: '03:00', pending: 'professional' as const }
+    const outcome = { changedFields: ['date', 'time'] as ('date' | 'time')[], appliedFields: ['date', 'time'] as ('date' | 'time')[], requestedChanges: [], rejectedProfessionalPreference: false }
+    const fact = requestedAppointmentFacts(before, after, services, outcome)
+    assert.match(fact, /03:00/); assert.doesNotMatch(fact, /15:00|disponible|confirmad/)
+    assert.equal(requestedAppointmentFacts(before, after, services, { ...outcome, appliedFields: [] }), '')
+    assert.equal(requestedAppointmentFacts(before, after, services), '')
+    for (const changed of [
+      { ...after, businessId: 'foreign' }, { ...after, date: null }, { ...after, requestedTime: null },
+      { ...after, serviceId: null }, { ...after, pending: 'proposal' as const },
+      { ...after, timeClarification: { candidateTimes: ['03:00', '15:00'] } }
+    ]) assert.equal(requestedAppointmentFacts(before, changed, services, outcome), '')
+    assert.equal(requestedAppointmentFacts(before, after, [], outcome), '')
+    assert.deepEqual(before.date, null); assert.equal(after.requestedTime, '03:00')
+  })
+  await check('E10 a combined request without a service retains both entities without agenda reads', async () => {
+    const message = 'hoy a las 3 tenés lugar?', beforeReads = agendaReads
+    const original = { ...state, serviceId: null, date: null, professional: null, pending: 'service' as const }
+    const result = await respondWithAiInterpreter(context, original, message, port, async input => {
+      assert.equal(input.businessHoursContext?.date, '2026-10-12')
+      return todayProposal(message)
+    })
+    assert.equal(result.interpretation.mode, 'ai'); assert.equal(result.state.date, '2026-10-12')
+    assert.equal(result.state.requestedTime, '15:00'); assert.equal(result.state.serviceId, null)
+    assert.equal(result.state.pending, 'service'); assert.equal(agendaReads, beforeReads)
+    assert.doesNotMatch(result.reply, /Solicitud:|Corte|confirmad|reservado/)
+    assert.equal(result.state.slot, null); assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    assert.equal(original.date, null); assert.equal(original.requestedTime, null)
+  })
   await check('B10 exact omitted-day replay repairs both date and clock through the IA', async () => {
     const message = 'hoy a las 3 tenés lugar?'; let calls = 0
     const result = await respondWithAiInterpreter(context, { ...state, date: null, professional: null, pending: 'date' }, message, port, async input => {
@@ -47,7 +114,7 @@ try {
     const message = 'hoy a las 3 tenés lugar?'; let calls = 0; const beforeReads = agendaReads
     const original = { ...state, date: null, professional: null, pending: 'date' as const }
     const result = await respondWithAiInterpreter(context, original, message, port, async () => { calls++; return omittedDayProposal(message) })
-    assert.equal(calls, 2); assert.equal(result.interpretation.mode, 'fallback'); assert.equal(result.state.date, null); assert.equal(result.state.requestedTime, null); assert.equal(result.state.pending, 'date'); assert.equal(agendaReads, beforeReads); unbooked(result)
+    assert.equal(calls, 2); assert.equal(result.interpretation.mode, 'fallback'); assert.equal(result.state.date, null); assert.equal(result.state.requestedTime, null); assert.equal(result.state.pending, 'date'); assert.equal(agendaReads, beforeReads); assert.doesNotMatch(result.reply, /Solicitud:/); unbooked(result)
   })
   await check('Tuesday and its clock are repaired before asking the missing service', async () => {
     const message = 'el martes a las 3 tenés lugar?'; let calls = 0

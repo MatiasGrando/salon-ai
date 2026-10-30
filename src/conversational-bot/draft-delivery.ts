@@ -1,5 +1,19 @@
 import { basketServiceIds } from './service-basket.js'
 import type { DialogueService, DialogueState, DialogueTurnOutcome } from './engine.js'
+
+/** Accepted search parameters are public facts, not a free slot or a reservation. */
+export function requestedAppointmentFacts(before: DialogueState, after: DialogueState,
+  services: readonly DialogueService[], outcome?: DialogueTurnOutcome): string {
+  if (!outcome || before.businessId !== after.businessId || after.pending !== 'professional' ||
+      after.slot || after.bookingReservation || after.sandboxReservation || after.timeClarification ||
+      !after.date || !after.requestedTime || !outcome.appliedFields.some(field => field === 'date' || field === 'time')) return ''
+  const ids = basketServiceIds(after)
+  const selected = ids.map(id => services.find(service => service.id === id))
+  if (!ids.length || selected.some(service => !service)) return ''
+  const date = new Intl.DateTimeFormat('es-AR', { timeZone: 'UTC', dateStyle: 'full' })
+    .format(new Date(after.date + 'T12:00:00Z'))
+  return 'Solicitud: ' + selected.map(service => service!.name).join(' + ') + ' · ' + date + ' · Hora solicitada: ' + after.requestedTime + '.'
+}
 /** Narrate only explicitly applied, independently verified draft changes, never dependent invalidations. */
 export function appliedChangeAcknowledgment(before: DialogueState, after: DialogueState,
   services: readonly DialogueService[], outcome?: DialogueTurnOutcome): string {
