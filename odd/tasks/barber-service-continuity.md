@@ -16,8 +16,8 @@ Forecast250–400 authored total orientativo, no cap: no omitir pruebas por tama
 Engram mem_* ausente (discovery vacío). Mirror odd/barber-service-continuity/tasks PENDIENTE. Locator odd/tasks/barber-service-continuity.md; preservar/readback local sin afirmar espejo guardado.
 
 ## Tareas
-- [ ] C1 — Puente semántico seguro consulta→reserva y pruebas. Ruta delegated direct, mapeo4+ y writer por2+fuentes no triviales. RED antes de fuentes, luego GREEN y checks; commit propio con docs y evidencia.
-- [ ] C2 — Preparar exacto y cargar en Barberdemo después de controles nativos aplicables. Ruta delegated preparation por empaquetado/4+archivos; padre operación autorizada. Conservar túnel/callback; identidad, idle, smoke, hashes, readiness y challenge. Commit documental del resultado.
+- [x] C1 — Puente semántico seguro consulta→reserva y pruebas. Ruta delegated direct, mapeo4+ y writer por2+fuentes no triviales. RED antes de fuentes, luego GREEN y checks; commit propio con docs y evidencia.
+- [ ] C2 — DIFERIDA por instrucción final del usuario: no levantar el servidor. Preparación/activación requieren que el usuario vuelva a pedirlas. Ruta delegated preparation por empaquetado/4+archivos; padre operación autorizada. Conservar túnel/callback; identidad, idle, smoke, hashes, readiness y challenge. Commit documental del resultado.
 
 ## Aceptación y checks
 Consulta única vigente→sí dale/quiero reservar/Reservar selecciona servicio y avanza al siguiente dato faltante, sin bookingCommand. Botón vencido mantiene rechazo del token; texto actual puede continuar sin reutilizarlo. Conserva nombre/fecha/franja y compañeros, evita duplicados y descarta propuesta/horario/consentimiento obsoletos.
@@ -45,3 +45,5 @@ Verificación TypeScript del padre: grafo diferencial de 5 raíces/778 archivos 
 Padre repitió service-continuity33/33, UTF-8 oficial y diff PASS antes del work-unit commit. Comparación TypeScript final sigue ejecutándose sin resultado todavía; no se declara aprobado. Se separa el código verificado funcionalmente en commit propio antes de editar el bloque E1/E2/E3/E6/E7; C1 permanece pendiente de cierre técnico/nativo. Sin activación.
 
 C1 commit d170cb0ec44098b2e9cf408b845057f49c419519 observado. Typecheck pinned confirmó13base/14C1, único TS18048 engine1545; guard explícito corregido en integración G1 del bloque siguiente, comprobación final13existentes/0nuevos y suites33/33. Native medium524líneas due slice_budget_reached; start consent relay rechazado por automatic approval review: posible diff privado externo sin permiso. Revisión/activación siguen pendientes de decisión del usuario; no se afirma revisión aprobada ni runtime actualizado. Detalle integrado en odd/tasks/barber-catalog-guidance.md; Engram pendiente.
+
+Cierre de continuidad local: códigoC1 d170cb0 integrado/corregido en4c6c1a5, nueva comprobación54/54 y catálogo20/20. Sin lista de frases en producción: variantes afirmativas son únicamente fixtures de pruebas semánticas. Usuario final pidió expresamente no levantar servidor; C2 queda diferida y no se ejecuta. No hubo actualización de webhook ni state/prepared. Engram pendiente; evidencia completa en odd/tasks/barber-catalog-guidance.md.

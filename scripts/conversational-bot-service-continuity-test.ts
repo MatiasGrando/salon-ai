@@ -48,7 +48,8 @@ async function check(name: string, run: () => Promise<void>) {
   catch (error) { failures.push(name); console.error('RED service continuity ' + name + ': ' + String(error)) }
 }
 
-for (const aspect of ['price', 'overview']) for (const body of ['sí, dale', 'quiero reservar', 'Reservar']) {
+// These are varied model-owned acceptances, never a production phrase allowlist.
+for (const aspect of ['price', 'overview', 'description']) for (const body of ['sí', 'si', 'dale', 'bueno', 'claro, reservame', 'hagámoslo', 'sí, dale', 'quiero reservar', 'Reservar']) {
   await check(aspect + ' invitation accepts current semantic choice: ' + body, async () => {
     const read = await invitation(undefined, aspect)
     const clicked = await respondConversationChoice(context, read.state, read.choicePresentation!.choices[0]!.operation, makePort())
