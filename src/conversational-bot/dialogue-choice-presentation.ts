@@ -27,6 +27,7 @@ export function adaptChoicePresentation(presentation: ChoicePresentation, questi
   return { kind: presentation.kind === 'slots' ? 'slot' : presentation.kind === 'dates' ? 'date' : presentation.kind === 'professionals' ? 'professional' : 'preference', title: presentation.kind === 'slots' ? 'Horarios disponibles' : presentation.kind === 'dates' ? 'Días disponibles' : presentation.kind === 'professionals' ? 'Profesionales disponibles' : 'Preferencia horaria', choices }
 }
 export function choiceOptionId(operation: ConversationChoiceOperation): string {
+  if (operation.kind === 'category') return 'category:' + operation.categoryId
   return operation.kind === 'slot' ? operation.startAt + '/' + operation.professionalId + (operation.coordinationKey ? '/' + operation.coordinationKey : '') : operation.kind === 'date' ? operation.date
     : operation.kind === 'professional' ? operation.professionalId : operation.kind === 'any_professional' ? ANY_PROFESSIONAL_OPTION
     : operation.kind === 'preference' ? preferenceOptionId(operation) : operation.kind === 'service' ? operation.serviceId

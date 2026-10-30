@@ -4,17 +4,17 @@ import type { CommercialHoursSnapshot } from './business-time-context.js'
 import type { DialogueContext } from './engine.js'
 
 export class PublicSourceIntegrityError extends Error {}
-export type PublicSourceSnapshot = CommercialHoursSnapshot & { serviceContentRows?: unknown }
+export type PublicSourceSnapshot = CommercialHoursSnapshot & { serviceContentRows?: unknown; catalogDisplayMode?: unknown; catalogCategories?: unknown }
 type StampClient = { $queryRaw<T>(query: Prisma.Sql): Promise<T> }
 /** One database snapshot covers only inputs to the current public loaders, never appointments or secrets. */
 export async function readPublicSourceSnapshot(client: StampClient, context: DialogueContext): Promise<PublicSourceSnapshot> {
   const { from, to } = computeExceptionWindow(context.dbNow, context.timezone)
-  const rows = await client.$queryRaw<Array<{ businessId: string; timezone: string; stamp: string; weeklyHours?: unknown; globalBlocks?: unknown; serviceContentRows?: unknown }>>(Prisma.sql`
+  const rows = await client.$queryRaw<Array<{ businessId: string; timezone: string; stamp: string; weeklyHours?: unknown; globalBlocks?: unknown; serviceContentRows?: unknown; catalogDisplayMode?: unknown; catalogCategories?: unknown }>>(Prisma.sql`
     /* conversational-public-source-stamp */
     SELECT b."id" AS "businessId", settings."timezone", encode(sha256(convert_to(jsonb_build_array(
       jsonb_build_array(b."id", b."name", b."publicAddress", b."publicAddressArea", b."publicMapsUrl", b."publicWhatsapp",
         b."contactEmail", b."workshopPublicSiteUrl", b."instagramUrl", b."facebookUrl", b."tiktokUrl", b."landingDescription", personality."assistantPersonality"->>'commercialName'),
-      settings."timezone", ${context.timezone}::text, ${from}::timestamp, ${to}::timestamp,
+      settings."timezone", ${context.timezone}::text, ${from}::timestamp, ${to}::timestamp, to_jsonb(personality)->>'serviceCatalogDisplayMode',
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(c."id", c."name", c."sortOrder", c."isActive") ORDER BY c."id"), '[]'::jsonb)
         FROM "ServiceCategory" c WHERE c."businessId" = b."id"),
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(s."id", s."catalogCategoryId", s."parentServiceId", s."name", s."description",
@@ -36,7 +36,10 @@ export async function readPublicSourceSnapshot(client: StampClient, context: Dia
         WHERE pe."businessId" = b."id" AND pe."startAt" < ${to} AND pe."endAt" > ${from}),
       commercial."fingerprint", exceptions."fingerprint", content."rows"
     )::text, 'UTF8')), 'hex') AS "stamp",
-      commercial."weeklyHours", exceptions."globalBlocks", content."rows" AS "serviceContentRows"
+      commercial."weeklyHours", exceptions."globalBlocks", content."rows" AS "serviceContentRows",
+      to_jsonb(personality)->>'serviceCatalogDisplayMode' AS "catalogDisplayMode",
+      (SELECT COALESCE(jsonb_agg(jsonb_build_object('id', c."id", 'name', c."name") ORDER BY c."sortOrder", c."name", c."id"), '[]'::jsonb)
+        FROM "ServiceCategory" c WHERE c."businessId" = b."id" AND c."isActive" = true) AS "catalogCategories"
     FROM "Business" b JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = b."id"
     LEFT JOIN "BusinessFeatureSettings" personality ON personality."businessId" = b."id"
     LEFT JOIN LATERAL (
@@ -67,7 +70,7 @@ export async function readPublicSourceSnapshot(client: StampClient, context: Dia
   const row = rows[0]
   if (rows.length !== 1 || row?.businessId !== context.businessId || typeof row.stamp !== 'string' || !/^[a-f0-9]{64}$/.test(row.stamp)) throw new PublicSourceIntegrityError('invalid public source scope')
   if (row.timezone !== context.timezone) throw new PublicSourceIntegrityError('public source timezone changed')
-  return {businessId:row.businessId,timezone:row.timezone,stamp:row.stamp,from,to,weeklyHours:row.weeklyHours,globalBlocks:row.globalBlocks,serviceContentRows:row.serviceContentRows}
+  return {businessId:row.businessId,timezone:row.timezone,stamp:row.stamp,from,to,weeklyHours:row.weeklyHours,globalBlocks:row.globalBlocks,serviceContentRows:row.serviceContentRows,catalogDisplayMode:row.catalogDisplayMode,catalogCategories:row.catalogCategories}
 }
 /** Compatibility wrapper retains the durable fingerprint contract. */
 export async function readPublicSourceStamp(client: StampClient, context: DialogueContext): Promise<string> {

@@ -3,6 +3,7 @@ import { parseTimePreference, type TimePreference } from './time-preference.js'
 
 /** Server-owned operations. A label or a token supplied by a client is never an operation. */
 export type ConversationChoiceOperation =
+  | { kind: 'category'; categoryId: string }
   | { kind: 'service'; serviceId: string; targetMemberId?: string }
   | { kind: 'professional'; professionalId: string }
   | { kind: 'any_professional' }
@@ -12,8 +13,8 @@ export type ConversationChoiceOperation =
   | { kind: 'estimate'; serviceId: string; optionId: string; configurationKey: string }
   | { kind: 'confirm'; nonce: string }
   | { kind: 'pending_deposit_reset'; confirm: boolean; proposalNonce: string; receiptFingerprint: string }
-  | { kind: 'page'; questionKind: 'slots' | 'professionals' | 'dates'; cursor: number }
-export type ConversationChoiceKind = 'service' | 'date' | 'professional' | 'slot' | 'preference' | 'estimate' | 'proposal'
+  | { kind: 'page'; questionKind: 'slots' | 'professionals' | 'dates' | 'categories' | 'catalog_services'; cursor: number }
+export type ConversationChoiceKind = 'category' | 'service' | 'date' | 'professional' | 'slot' | 'preference' | 'estimate' | 'proposal'
 export type ConversationChoicePresentation = {
   kind: ConversationChoiceKind; title: string
   choices: readonly { label: string; operation: ConversationChoiceOperation }[]
@@ -30,7 +31,7 @@ export type PublicChoiceQuestion = {
   kind: ConversationChoiceKind; title: string; mode: 'buttons' | 'list'; choices: { id: string; title: string }[]
 }
 export const CHOICE_LIMITS = { choices: 10, serializedBytes: 16384, draftBytes: 16384, token: 48, actionId: 110 } as const
-const kinds: readonly string[] = ['service', 'date', 'professional', 'slot', 'preference', 'estimate', 'proposal']
+const kinds: readonly string[] = ['category', 'service', 'date', 'professional', 'slot', 'preference', 'estimate', 'proposal']
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u001f\u007f]/.test(value)
 const token = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{16,48}$/.test(value)
@@ -56,6 +57,10 @@ function parseScope(value: unknown): ChoiceScope {
 export function parseConversationChoiceOperation(value: unknown): ConversationChoiceOperation {
   if (!object(value)) return fail('operation')
   switch (value.kind) {
+    case 'category':
+      keys(value, ['kind', 'categoryId'])
+      if (!text(value.categoryId, 128)) fail('category')
+      break
     case 'service':
       keys(value, ['kind', 'serviceId'], ['targetMemberId'])
       if (!text(value.serviceId, 128) || value.targetMemberId !== undefined && (typeof value.targetMemberId !== 'string' || !/^m[1-9]\d*$/.test(value.targetMemberId) || value.targetMemberId.length > 32)) fail('service')
@@ -92,7 +97,7 @@ export function parseConversationChoiceOperation(value: unknown): ConversationCh
       break
     case 'page':
       keys(value, ['kind', 'questionKind', 'cursor'])
-      if (!['slots', 'professionals', 'dates'].includes(String(value.questionKind)) || !Number.isSafeInteger(value.cursor) || Number(value.cursor) < 0 || Number(value.cursor) > 10000) fail('page')
+      if (!['slots', 'professionals', 'dates', 'categories', 'catalog_services'].includes(String(value.questionKind)) || !Number.isSafeInteger(value.cursor) || Number(value.cursor) < 0 || Number(value.cursor) > 10000) fail('page')
       break
     default: return fail('unknown operation')
   }

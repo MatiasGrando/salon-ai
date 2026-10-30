@@ -1,4 +1,5 @@
 import { prepareGroupRescheduleOffers } from './prisma-appointment-management.js'
+import { validateCatalogNavigation, type CatalogNavigation } from './catalog-navigation.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { loadActiveServiceContent, serviceContentFromPublicSnapshot } from './prisma-service-content.js'
 import { explanationForDate, parseAvailabilityExplanation } from '../bot-options/application/availability-evidence.js'
@@ -12,7 +13,7 @@ import { publicCacheFor, type PublicCacheDiagnostics } from './public-data-cache
 import { projectBusinessTimeContext, projectBusinessHoursContext } from './business-time-context.js'
 import { readPublicSourceSnapshot, loadReadonlyPublicSnapshot, PublicSourceIntegrityError, type PublicSnapshotClient, type PublicSourceSnapshot } from './public-source-stamp.js'
 import { loadBusinessFacts, type FactsClient } from './prisma-business-facts.js'
-import { PrismaCatalogRepository } from '../bot-options/infrastructure/prisma-catalog.js'
+import { PrismaCatalogRepository, UNCATEGORIZED_CATEGORY_ID } from '../bot-options/infrastructure/prisma-catalog.js'
 import { PrismaAvailabilityRepository } from '../bot-options/infrastructure/prisma-availability.js'
 import { localDateKey } from '../bot-options/application/availability-queries.js'
 import { parseDialogueState, type DialogueContext, type DialoguePort, type DialogueService, type DialogueState } from './engine.js'
@@ -88,6 +89,29 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     const content = hasContentSource ? publicSnapshot ? serviceContentFromPublicSnapshot(publicSnapshot.serviceContentRows, businessId, contentOptions) : await currentContent(source) : serviceContent
     return services.map(projectDialogueService).map(service => service.bookingPolicy ? { ...service, bookingPolicy: attachServiceContent(service.bookingPolicy, businessId, content) } : service)
   }
+  const loadCatalogDescriptor = async (source: DialogueClient, publicSnapshot?: PublicSourceSnapshot) => {
+    const projected = await loadCatalog(source, publicSnapshot)
+    // Public snapshot stamp and descriptor are loaded in the same read-only transaction.
+    // The bypass path uses that same transaction when snapshot caching is unavailable.
+    const settingsModel = (source as unknown as { businessFeatureSettings?: { findUnique(input: unknown): Promise<{ serviceCatalogDisplayMode?: string } | null> } }).businessFeatureSettings
+    const [feature, categories] = publicSnapshot
+      ? [{ serviceCatalogDisplayMode: publicSnapshot.catalogDisplayMode }, publicSnapshot.catalogCategories ?? []]
+      : await Promise.all([settingsModel?.findUnique({ where: { businessId }, select: { serviceCatalogDisplayMode: true } }) ?? Promise.resolve(null),
+        source.serviceCategory.findMany({ where: { businessId, isActive: true }, select: { id: true, name: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }] })])
+    const actualCategories = categories as CatalogNavigation['categories']
+    // Reuse the repository's existing Otros group only for actual uncategorized
+    // members. Without real category metadata, the agreed fallback is services.
+    const withUncategorized = actualCategories.length && projected.some(service => service.categoryId === UNCATEGORIZED_CATEGORY_ID) &&
+      !actualCategories.some(category => category.id === UNCATEGORIZED_CATEGORY_ID)
+      ? [...actualCategories, { id: UNCATEGORIZED_CATEGORY_ID, name: 'Otros' }] : actualCategories
+    const navigation = validateCatalogNavigation({ businessId, displayMode: feature?.serviceCatalogDisplayMode === 'CATEGORIES_FIRST' ? 'CATEGORIES_FIRST' : 'ALL_SERVICES',
+      categories: withUncategorized }, businessId, projected)
+    return { services: projected, navigation }
+  }
+  // Each catalog read revalidates the public stamp. Its navigation companion
+  // shares that exact descriptor rather than mixing a second snapshot.
+  let catalogRead: ReturnType<typeof loadCatalogDescriptor> | undefined
+  const readCatalog = () => catalogRead = cached(catalogKind, loadCatalogDescriptor)
   let publicBusiness: { businessId: string; businessName: string } | undefined
   // Each interpretation requests a fresh profile; its introduction reuses that same scoped read.
   let assistantSnapshot: ReturnType<typeof loadDialogueAssistantProfile> | undefined
@@ -194,7 +218,8 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
     },
     professionalInformation: async target => queryPublicProfessionalFacts(await cached('professionals',source => loadPublicProfessionalFacts(source,context)),target),
     verifiedDateChoices: (services,professionalId,estimates,temporal) => snapshot(async source => loadPrismaVerifiedDateChoices(source,context,settings,services,professionalId,estimates,temporal,await currentContent(source))),
-    catalog: () => cached(catalogKind, loadCatalog),
+    catalog: async () => (await readCatalog()).services,
+    catalogNavigation: async () => (await (catalogRead ?? readCatalog())).navigation,
     managementRescheduleOffers: (group, date, professionalChange) => snapshot(async source => {
       if (group.scope.businessId !== businessId) throw new Error('foreign management availability scope')
       return prepareGroupRescheduleOffers(group, date, async (member, _date, targetProfessionalId) => {

@@ -38,6 +38,7 @@ try {
   const publicSnapshot = await readPublicSourceSnapshot(client,context)
   assert.equal(publicSnapshot.stamp,before,'structured snapshot preserves stamp contract')
   assert.deepEqual(publicSnapshot.weeklyHours,[{dayOfWeek:1,startTime:'09:00',endTime:'18:00'}])
+  assert.deepEqual(publicSnapshot.catalogCategories, [{ id: 'ca', name: 'Services' }], 'same source snapshot projects actual tenant category names')
   assert.deepEqual(publicSnapshot.globalBlocks,[{startAt:'2026-09-30T03:00:00.000Z',endAt:'2026-10-01T03:00:00.000Z'}])
   assert.doesNotMatch(JSON.stringify(publicSnapshot.globalBlocks),/note|reason|title|Closed/,'private exception text not in temporal projection')
   assert.equal(await stamp(), before)
@@ -47,7 +48,15 @@ try {
   assert.equal(await stamp(), before, 'foreign alias must not invalidate local cache')
   await db.exec(`UPDATE "BusinessFeatureSettings" SET "assistantPersonality"='{"commercialName":"Glow"}'::jsonb WHERE "businessId"='a'`)
   assert.notEqual(await stamp(), before, 'local alias edit invalidates public cache')
+  const modeBefore = await stamp()
+  await db.exec(`UPDATE "BusinessFeatureSettings" SET "serviceCatalogDisplayMode"='CATEGORIES_FIRST' WHERE "businessId"='b'`)
+  assert.equal(await stamp(), modeBefore, 'foreign catalog display mode does not invalidate local cache')
+  await db.exec(`UPDATE "BusinessFeatureSettings" SET "serviceCatalogDisplayMode"='CATEGORIES_FIRST' WHERE "businessId"='a'`)
+  const categoriesSnapshot = await readPublicSourceSnapshot(client, context)
+  assert.notEqual(categoriesSnapshot.stamp, modeBefore, 'local catalog display mode invalidates warm public cache')
+  assert.equal(categoriesSnapshot.catalogDisplayMode, 'CATEGORIES_FIRST', 'stamp and category display setting come from the same query')
   for (const [table, id, field, value] of [
+    ['BusinessFeatureSettings','settings-a','serviceCatalogDisplayMode',"'ALL_SERVICES'"],
     ['Business','a','publicAddress',"'Second'"], ['Business','a','contactEmail',"'public@example.test'"],
     ['Business','a','name',"'Updated'"], ['Business','a','publicMapsUrl',"'https://maps.example'"],
     ['Business','a','landingDescription',"'Updated description'"], ['Business','a','publicWhatsapp',"'123'"],

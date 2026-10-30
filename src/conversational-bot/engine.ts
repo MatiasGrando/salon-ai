@@ -1,6 +1,7 @@
 import { parseAppointmentManagement, beginAppointmentManagement, attachManagementRescheduleOffers, selectManagementRescheduleOffer, confirmAppointmentManagement, cancellationFingerprint, type AppointmentManagementContext, type CancellationSnapshot, type GroupCancellationCommand, type GroupRescheduleCommand, type ManagementRescheduleOffer } from './appointment-management.js'
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
+import { catalogNavigationPage, catalogNavigationKey, parseCatalogNavigationState, validateCatalogNavigation, type CatalogNavigation, type CatalogNavigationState } from './catalog-navigation.js'
 import type { PublicLocationAction } from './maps-link.js'
 import { ownAppointmentOptions, parseOwnAppointmentInquiry, type OwnAppointments, type OwnAppointmentInquiry } from './own-appointments.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
@@ -39,7 +40,7 @@ import { resolveDialogueDate } from './dialogue-date.js'
 import { DRAFT_EDIT_FIELDS, parseTurnPlan, type DraftEditField, type TurnOperation, type TurnPlan } from './turn-plan.js'
 import { applyBasketMutation, basketIsResolved, basketServiceIds, hasBasketSelection, parseServiceBasket, selectionBasket, selectionSummary, type ServiceBasket, type BasketMutation } from './service-basket.js'
 
-export type DialogueService = { id: string; name: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingOrderPriority?: number | null; bookingPolicy?: ServiceBookingPolicy }
+export type DialogueService = { id: string; name: string; categoryId?: string; aliases?: readonly string[]; description?: string | null; durationMinMinutes?: number | null; durationMaxMinutes?: number | null; durationMinutes: number | null; requiresConsultation: boolean; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT'; professionalDurationMinutes?: number | null; customerDurationMinutes?: number | null; bookingOrderPriority?: number | null; bookingPolicy?: ServiceBookingPolicy }
 export type DialogueContext = { businessId: string; timezone: string; dbNow: Date; sandboxBooking?: boolean; humanHandoff?: true; serverRuntimeBookingScope?: RuntimeShownScope; serverManagementSnapshot?: CancellationSnapshot; serverOwnAppointments?: OwnAppointments }
 export type DialogueBasketAvailability =
   | { ok: false; reason: 'SERVICE_UNAVAILABLE' | GuidanceBlock | 'INVALID_DURATION' | 'COMBINATION_BLOCKED' | 'COMBINATION_REVIEW' | 'NO_COMMON_PROFESSIONAL' | 'UNSUPPORTED_OCCUPANCY' }
@@ -48,6 +49,7 @@ export type DialogueBasketAvailability =
   | { ok: true; services: readonly DialogueService[]; durationMinutes: number; totalPrice: number | null; professionals: DialogueProfessional[]; slots: AvailabilitySlot[]; customerDurationMinutes?: number; explanation?: AvailabilityExplanation; requestedStartEvidence?: RequestedStartEvidence }
 export type DialogueProfessional = AvailabilityProfessional & { aliases?: readonly string[] }
 export type DialoguePort = {
+  catalogNavigation?(): Promise<CatalogNavigation>
   ownAppointments?(): Promise<OwnAppointments>
   managementRescheduleOffers?(snapshot: CancellationSnapshot, date: string, professionalChange?: { appointmentId: string; professionalId: string }): Promise<readonly ManagementRescheduleOffer[]>
   businessTimeContext?: BusinessTimeContextReader
@@ -63,6 +65,7 @@ export type DialoguePort = {
 }
 export type PresentedOffer = { businessId: string; serviceId: string | null; serviceIds?: string[]; durationMinutes?: number; date: string; professionalId: string | null }
 export type DialogueState = {
+  catalogNavigation?: CatalogNavigationState
   schemaVersion: 1; engine: 'conversational-booking-v1'; businessId: string
   introduced?: boolean
   /** Unverified procedure inquiry; independent of the booking draft. */
@@ -284,6 +287,7 @@ export function parseDialogueState(value: unknown, businessId: string, timezone?
     if (!completed.receipt || completed.receipt.kind === 'HELD' && completed.receipt.depositStatus !== 'APPROVED' || timezone && completed.presented.terms.timezone !== timezone) throw new Error('invalid completed booking')
   }
   if (s.ownAppointmentInquiry !== undefined) parseOwnAppointmentInquiry(s.ownAppointmentInquiry)
+  if (s.catalogNavigation !== undefined) parseCatalogNavigationState(s.catalogNavigation, businessId)
   if (s.sandboxReservation !== undefined) parseSandboxReservation(s.sandboxReservation, s)
   if (s.professionalReference !== undefined) parseProfessionalReference(s.professionalReference, s)
   if (s.questionContext !== undefined) parseDialogueQuestion(s.questionContext, s)
@@ -800,9 +804,12 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
   }
   if (!service) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
+    const intake = await catalogIntakeResponse(state, services, port)
+    if (intake) return intake
     questionOptions = services.map(item => ({ id: item.id, label: item.name }))
     return { ...finish(`${prefix}¿Qué servicio necesitás?\n${serviceList(services) || 'No tengo servicios disponibles para consultar.'}`), ...(decision?.intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
+  delete state.catalogNavigation
   let guidance = resolveGuidance(selectedServices as DialogueService[], state.serviceEstimates)
   if (guidance.pending && (matching?.category === 'estimate' || !preparedCatalog && (previous as DialogueState).pending === 'estimate' && !socialMessage(message))) {
     const target = guidance.pending, guide = serviceGuidance(target)
@@ -1093,6 +1100,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // inference here would recreate a field that was rejected as historical/uncertain.
   // Direct and deterministic callers have no admission and retain their grounding.
   let raw = parseTurnPlan(communicative ? rawPlan : groundTemporalPlan(rawPlan, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port.businessTimeContext ? {read:port.businessTimeContext} : {})}), message)
+  // An admitted owned read or service action leaves browsing. Its next question
+  // must not inherit category identity or intercept a new information invitation.
+  if (state.catalogNavigation && raw.operations.some(operation => ['information', 'service', 'basket', 'service_request', 'service_reference', 'referral'].includes(operation.kind))) {
+    delete state.catalogNavigation; delete state.questionContext; delete state.dialogueContext
+  }
   if (communicative?.timeMeaningRejected) {
     state.requestedTime = null; state.slot = null; delete state.requestedTimeMode
     delete state.timePreference; delete state.timeClarification
@@ -1112,10 +1124,31 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   }
   const semanticPending = Boolean(communicative?.blockedFields.length || communicative?.reference || state.professionalReference)
   const possibleMatch = !semanticPending && !socialMessage(message) && (state.pending === 'professional' || state.pending === 'estimate' || state.pending === 'service') && !raw.operations.some(op => op.kind === 'information')
-  const needsCatalog = Boolean(state.serviceRequest || state.referral || state.informationFocus) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && (op.target.serviceIds.length > 0 || op.target.aspect === 'availability') || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
+  const needsCatalog = Boolean(state.catalogNavigation || state.serviceRequest || state.referral || state.informationFocus) || possibleMatch || raw.operations.some(op => !['information', 'unsupported_action'].includes(op.kind) || op.kind === 'information' && (op.target.kind === 'service' || op.target.kind === 'professional' && (op.target.serviceIds.length > 0 || op.target.aspect === 'availability') || op.target.kind === 'business' && op.target.actions.some(action => ['SERVICES', 'PRICES', 'SERVICE_DETAILS'].includes(action))))
   const services = needsCatalog ? await port.catalog() : []
   if (services.length > 200 || services.some(s => !bounded(s.id, 128) || !bounded(s.name, 200) || s.price !== null && (!Number.isFinite(s.price) || s.price < 0)) || new Set(services.map(s => s.id)).size !== services.length) throw new Error('invalid dialogue catalog')
   raw = parseTurnPlan(normalizeInformativeEstimates(raw, state, services), message, services.map(service => service.id))
+  const navigation = raw.operations.find(operation => operation.kind === 'catalog_navigation')
+  if (navigation?.kind === 'catalog_navigation') {
+    const companions = raw.operations.filter(operation => operation.kind !== 'catalog_navigation')
+    if (navigation.confidence < .85 || !state.catalogNavigation || !port.catalogNavigation || companions.some(operation => !['name', 'date', 'time', 'time_preference'].includes(operation.kind)) ||
+        companions.length > 0 && (selectionBasket(state).members.length > 0 || state.bookingReservation || state.sandboxReservation || state.appointmentManagement)) throw new Error('invalid catalog navigation proposal')
+    const current = validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services)
+    if (state.catalogNavigation.view !== 'categories' || state.catalogNavigation.configurationKey !== catalogNavigationKey(current, services) ||
+        !current.categories.some(category => category.id === navigation.categoryId) || !state.questionContext?.options.some(option => option.id === 'category:' + navigation.categoryId)) throw new Error('catalog category no longer available')
+    if (companions.length) {
+      // Admission already established each independent owner. The existing flow
+      // applies its field validators; removing navigation prevents recursion.
+      const independent = await respondTurnPlan(context, state, message, port, { version: 1, operations: companions }, intent, informationOnly, communicative, catalogInquiries)
+      return { ...independent, ...(await catalogIntakeResponse(independent.state, services, port, { view: 'services', categoryId: navigation.categoryId, page: 0 }, current))! }
+    }
+    return (await catalogIntakeResponse(state, services, port, { view: 'services', categoryId: navigation.categoryId, page: 0 }, current))!
+  }
+  if (state.catalogNavigation && !raw.operations.length && port.catalogNavigation) {
+    const current = validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services)
+    const target = state.catalogNavigation.configurationKey === catalogNavigationKey(current, services) ? state.catalogNavigation : undefined
+    return (await catalogIntakeResponse(state, services, port, target, current))!
+  }
   const availabilityInquiry = raw.operations.length === 1 && raw.operations[0]?.kind === 'information' && raw.operations[0].target.kind === 'professional' && raw.operations[0].target.aspect === 'availability'
     ? raw.operations[0].target : null
   if (availabilityInquiry) return readProfessionalAvailability(context, state, availabilityInquiry, port, services)
@@ -2138,6 +2171,17 @@ export async function respond(context: DialogueContext, previous: unknown, messa
   return options.deferIntroduction ? response : finalizeDialogueIntroduction(context, response, port)
 }
 /** Typed choices are internal stored operations, never interpreted labels or direct client commands. */
+async function catalogIntakeResponse(state: DialogueState, services: readonly DialogueService[], port: DialoguePort,
+  target?: { view: 'categories' | 'services'; categoryId: string | null; page: number }, current?: CatalogNavigation): Promise<DialogueResponse | undefined> {
+  if (!port.catalogNavigation) return undefined
+  const navigation = current ?? validateCatalogNavigation(await port.catalogNavigation(), state.businessId, services)
+  const page = catalogNavigationPage(state, services, navigation, target)
+  state.pending = 'service'
+  rememberDialogueQuestion(state, page.question, page.options)
+  state.dialogueContext = { lastQuestion: page.question, presentedOffer: null }
+  return { state, proposal: null, reply: page.question + (page.options.length ? '' : '\nNo tengo servicios disponibles para consultar.'),
+    replyPrepared: true, ...(page.presentation ? { choicePresentation: page.presentation } : {}) }
+}
 export async function respondConversationChoice(context: DialogueContext, previous: unknown, value: unknown, port: DialoguePort): Promise<DialogueResponse> {
   const operation = parseConversationChoiceOperation(value)
   const state = parseDialogueState(previous, context.businessId, context.timezone)
@@ -2150,6 +2194,18 @@ export async function respondConversationChoice(context: DialogueContext, previo
     return finalizeDialogueIntroduction(context,prepared,port)
   }
   if (!Number.isFinite(context.dbNow.getTime()) || state.professionalReference || state.timeMeaningClarification) return reject()
+  const catalogPage = operation.kind === 'page' && ['categories', 'catalog_services'].includes(operation.questionKind)
+  if (operation.kind === 'category' || catalogPage || state.catalogNavigation && operation.kind === 'service') {
+    const stored = state.catalogNavigation
+    if (!stored || !question?.complete || !port.catalogNavigation || !question.options.some(option => option.id === choiceOptionId(operation))) return reject()
+    const services = await port.catalog(), navigation = validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services)
+    if (stored.configurationKey !== catalogNavigationKey(navigation, services)) return reject()
+    const fresh = catalogNavigationPage(structuredClone(state), services, navigation, stored)
+    if (!fresh.presentation?.choices.some(choice => JSON.stringify(choice.operation) === JSON.stringify(operation))) return reject()
+    if (operation.kind === 'category') return finish((await catalogIntakeResponse(state, services, port, { view: 'services', categoryId: operation.categoryId, page: 0 }, navigation))!)
+    if (operation.kind === 'page') return finish((await catalogIntakeResponse(state, services, port, { view: stored.view, categoryId: stored.categoryId, page: operation.cursor }, navigation))!)
+    delete state.catalogNavigation
+  }
   const invitation = priceBookingChoice(state)
   if (invitation && operation.kind !== 'service') return reject()
   if (operation.kind === 'service' && invitation) {
@@ -2286,7 +2342,8 @@ export async function respondConversationChoice(context: DialogueContext, previo
   }
   if (state.editRequest) return finalizeDialogueIntroduction(context, draftEditResponse(state, services), port)
   const response = await respondBooking(context,state,'stored choice',port,undefined,services,undefined,
-    operation.kind === 'page' ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
+    operation.kind === 'page' && (operation.questionKind === 'slots' || operation.questionKind === 'professionals' || operation.questionKind === 'dates')
+      ? { kind: operation.questionKind, cursor: operation.cursor } : undefined)
   if (candidateRequest && operation.kind === 'service') {
     response.reply = [serviceSelectionNote(candidateRequest, [services.find(service => service.id === operation.serviceId)!.name], response.reply, services), response.reply].filter(Boolean).join('\n')
     response.replyPrepared = true

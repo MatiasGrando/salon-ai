@@ -14,6 +14,7 @@ export type DraftEditField = typeof DRAFT_EDIT_FIELDS[number]
 type Evidence = { evidence: string; confidence: number }
 export type UnsupportedTurnAction = 'CANCEL' | 'RESCHEDULE' | 'HUMAN_HANDOFF'
 export type TurnOperation = Evidence & (
+  | { kind: 'catalog_navigation'; categoryId: string }
   | BasketMutation
   | ({ kind: 'service_request' } & ServiceRequest)
   | { kind: 'service_reference'; action: 'confirm' | 'select'; serviceId: string }
@@ -51,6 +52,7 @@ const operationSchema = (kind: string, properties: Record<string, unknown>, opti
 export const TURN_PLAN_JSON_SCHEMA = objectSchema({
   version: { type: 'integer', enum: [1] },
   operations: { type: 'array', maxItems: TURN_PLAN_LIMITS.operations, items: { anyOf: [
+    operationSchema('catalog_navigation', { categoryId: stringSchema(128) }),
     ...(['clear', 'alternatives', 'needs_detail', 'unverified_variant'] as const).map(disposition => operationSchema('service_request', {
       purpose: { type: 'string', enum: ['inquiry', 'booking'] },
       disposition: { type: 'string', enum: [disposition] },
@@ -142,7 +144,10 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
     if (!evidence || !contains(message, raw.evidence)) fail('ungrounded evidence')
     const common = ['kind', 'evidence', 'confidence']
     let identity = String(raw.kind)
-    if (raw.kind === 'basket') {
+    if (raw.kind === 'catalog_navigation') {
+      exactKeys(raw, [...common, 'categoryId'])
+      if (!bounded(raw.categoryId, 128)) fail('catalog category')
+    } else if (raw.kind === 'basket') {
       exactKeys(raw, [...common, 'mutation', 'scope', 'targetMemberIds', 'members'])
       if (!['set','add','remove','replace'].includes(String(raw.mutation)) || !['all','members'].includes(String(raw.scope)) ||
           !Array.isArray(raw.targetMemberIds) || raw.targetMemberIds.length > BASKET_LIMITS.members || new Set(raw.targetMemberIds).size !== raw.targetMemberIds.length ||

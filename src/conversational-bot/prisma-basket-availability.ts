@@ -29,7 +29,7 @@ function validateDate(date: string) {
 export function projectDialogueService(row: CatalogServiceItem): DialogueService {
   const duration = row.durationMinutes === null ? null : reservationDurationLimits({ duration: row.durationMinutes,
     customerDurationMin: row.durationMinMinutes, customerDurationMax: row.durationMaxMinutes })
-  return { id: row.id, name: row.name, description: row.description ?? null, durationMinutes: row.durationMinutes,
+  return { id: row.id, name: row.name, categoryId: row.categoryId, description: row.description ?? null, durationMinutes: row.durationMinutes,
     bookingOrderPriority: row.bookingOrderPriority,
     durationMinMinutes: row.durationMinMinutes ?? null, durationMaxMinutes: row.durationMaxMinutes ?? null, price: row.price, priceMode: row.priceMode,
     requiresConsultation: row.requiresConsultation, professionalDurationMinutes: duration?.professional ?? null,

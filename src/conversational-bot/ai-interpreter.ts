@@ -1,4 +1,5 @@
 import { deriveCatalogInquiry, type CatalogInformationContext } from './catalog-information-answer.js'
+import { catalogNavigationKey, validateCatalogNavigation, type CatalogNavigation } from './catalog-navigation.js'
 import type { AttachmentMetadata, AttachmentIntent } from './attachment-intent.js'
 import { validateDialoguePersonality, type DialoguePersonality, type DialoguePersonalityPort } from './dialogue-identity.js'
 import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
@@ -29,7 +30,7 @@ import { informationAspect, focusedInformationService, normalizeInformativeEstim
 import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogueState, continueCompletedBooking, respond, socialQuestion, socialContinuationQuestion, hasActiveBooking, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueService, type DialogueState, type DialogueDecision, type InformationTarget } from './engine.js'
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
-export type AiInterpretationInput = { repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; ownAppointments?: { key:string; label:string }[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
+export type AiInterpretationInput = { catalogNavigation?: CatalogNavigation; repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; ownAppointments?: { key:string; label:string }[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
 export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
@@ -338,6 +339,10 @@ export async function respondWithAiInterpreter(
   const temporalState: DialogueState = state.appointmentManagement ? { ...state, date: state.appointmentManagement.date ?? null, requestedTime: state.appointmentManagement.selectedTime ?? null, slot: null, pending: state.appointmentManagement.date ? 'time' : 'date' } : state
   if (state.appointmentManagement) delete temporalState.bookingReservation
   const services = await port.catalog()
+  const catalogNavigation = port.catalogNavigation ? validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services) : undefined
+  if (state.catalogNavigation && (!catalogNavigation || state.catalogNavigation.configurationKey !== catalogNavigationKey(catalogNavigation, services))) {
+    delete state.catalogNavigation; delete state.questionContext
+  }
   const personality = port.personality ? validateDialoguePersonality(await port.personality(), context.businessId) : undefined
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
@@ -358,6 +363,7 @@ export async function respondWithAiInterpreter(
   let availabilityCalls = 0
   const commercialRead = memoBusinessTimeContext(port.businessTimeContext)
   const cachedPort: DialoguePort = { ...port,
+    ...(catalogNavigation ? { catalogNavigation: async () => catalogNavigation } : {}),
     ...(personality && port.identity ? { identity: async () => {
       const current = await port.identity!()
       const profile = personality.profile
@@ -404,6 +410,7 @@ export async function respondWithAiInterpreter(
   try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
+    ...(catalogNavigation ? { catalogNavigation: structuredClone(catalogNavigation) } : {}),
     ...(context.serverOwnAppointments ? { ownAppointments: context.serverOwnAppointments.items.map(({key,label})=>({key,label})) } : {}),
     ...(!context.serverOwnAppointments && state.ownAppointmentInquiry ? {ownAppointments:state.ownAppointmentInquiry.options.map(({key,label})=>({key,label}))} : {}),
     ...(personality ? { personality } : {}), ...(commercialProof ? { businessTimeContext: commercialProof } : {}),

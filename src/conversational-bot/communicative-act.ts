@@ -351,6 +351,14 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     const field = fieldOf(original ?? operation)
     const owners = metadata?.acts.filter(item => item.operationIndexes.includes(index)) ?? []
     const act = owners[0]
+    if (operation.kind === 'catalog_navigation') {
+      const current = state.catalogNavigation?.view === 'categories' && state.questionContext?.role === 'category' &&
+        state.questionContext.complete && state.questionContext.options.some(option => option.id === 'category:' + operation.categoryId)
+      const admitted = current && owners.length === 1 && act && ['request', 'inquiry', 'answer'].includes(act.kind) &&
+        ['general', 'service'].includes(act.field) && act.confidence >= .85 && operation.confidence >= .85 && contains(act.evidence, operation.evidence)
+      if (!admitted) blocked.add('general')
+      return Boolean(admitted)
+    }
     if (serverBlockedFields.includes(field)) {
       blocked.add(field)
       if (field === 'time' && act?.field === field && ['request', 'change', 'answer'].includes(act.kind) &&
