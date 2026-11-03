@@ -32,7 +32,7 @@ const greeting = await respondWithAiInterpreter(context, initialDialogueState('q
   async () => { calls++; return empty }, { responseProvider: async (input, signal) => { calls++; return writer(input, signal) } })
 assert.equal(calls, 1, 'missing social copy uses server facts, not another call for style')
 assert.equal(greeting.interpretation.copyMode, 'fallback')
-assert.equal(greeting.reply, '¿En qué te puedo ayudar con el local?')
+assert.equal(greeting.reply, '¿En qué te puedo ayudar?')
 assert.doesNotMatch(greeting.reply, /27\.000|Iluminación|¿Qué servicio necesitás/)
 assert.ok(greeting.interpretation.engineMs! >= 0 && greeting.interpretation.responseMs! >= 0)
 assert.deepEqual(greeting.interpretation.decision, { proposedIntent: 'other', acceptedAction: 'no_service_change', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'unchanged', reason: 'no_service_decision' })

@@ -1786,7 +1786,7 @@ singleCallProvider.respond = async () => { throw new Error('one-call greeting mu
 await singleCallRuntime.run('PROCESS_INBOX', { provider: singleCallProvider, timeoutMs: 4500,
   onDiagnostic: value => singleCallDiagnostics.push(value) })
 assert.equal(singleCallCount, 1)
-assert.equal(singleCallRuntime.replies[0], 'Hola\n¿En qué te puedo ayudar con el local?')
+assert.equal(singleCallRuntime.replies[0], 'Hola\n¿En qué te puedo ayudar?')
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).aiCalls, 1)
 assert.equal((singleCallDiagnostics[0] as Record<string, unknown>).replyRoute, 'first_call')
 const singleReplyValidation = (singleCallDiagnostics[0] as { replyValidation?: { firstCall: { status: string }; secondCall: { status: string } } }).replyValidation

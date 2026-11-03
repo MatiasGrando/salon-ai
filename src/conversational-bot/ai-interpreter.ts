@@ -288,7 +288,7 @@ function suggestedService(evidence: string, services: readonly DialogueService[]
 }
 function responseFacts(reply: string, state: DialogueState, intent: Candidate['intent'] | null, message: string): { id: string; text: string }[] {
   if (intent === 'other' && state.pending === 'service' && !state.serviceId &&
-      reply === '¿En qué te puedo ayudar con el local?') return [{ id: 'next', text: reply }]
+      reply === '¿En qué te puedo ayudar?') return [{ id: 'next', text: reply }]
   // Build material labels and their exact delivery chunks together: whitespace-only rows
   // belong to the preceding chunk, never an extra fact that shifts later material IDs.
   const lines: string[] = [], chunks: string[] = []
@@ -617,7 +617,7 @@ export async function respondWithAiInterpreter(
   const managementConversation=managementActive || Boolean(response.state.appointmentManagement && !response.state.appointmentManagement.outcome) || response.managementRead===true
   const replyIntent = managementConversation ? planHasInformation?'information':'other' : planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
-  const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
+  const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar?'
     : defaultServiceMenu ? '¿Qué servicio necesitás?' : response.reply
   // Scope derivation has validated every independent informative owner. Technical
   // inquiry metadata changes are not booking effects, and their facts stay server-owned.

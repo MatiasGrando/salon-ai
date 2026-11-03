@@ -112,7 +112,7 @@ await social.use(async () => {
   assert.equal(signals.length, 1, 'stable greeting never starts the composer just for missing style')
   assert.equal(response.interpretation.aiCalls, 1)
   assert.equal(response.interpretation.copyMode, 'fallback')
-  assert.equal(response.reply, '¿En qué te puedo ayudar con el local?')
+  assert.equal(response.reply, '¿En qué te puedo ayudar?')
   assert.equal(signals[0]?.aborted, false)
 })
 

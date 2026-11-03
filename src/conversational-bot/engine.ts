@@ -141,13 +141,13 @@ export function socialQuestion(state: DialogueState): string {
 }
 /** Stored prompts may include statements; social copy needs one recoverable question. */
 export function socialContinuationQuestion(state: DialogueState): string {
-  if (!hasActiveBooking(state)) return '¿En qué te puedo ayudar con el local?'
+  if (!hasActiveBooking(state)) return '¿En qué te puedo ayudar?'
   const valid = (value: string | undefined): value is string => Boolean(value?.trim() && value.length <= 1000 && value.endsWith('?'))
   const remembered = state.questionContext?.question
   if (valid(remembered)) return remembered
   const pending = socialQuestion(state)
   if (valid(pending)) return pending
-  return state.pending === 'proposal' ? '¿Querés confirmar la propuesta o cambiar algún dato?' : '¿En qué te puedo ayudar con el local?'
+  return state.pending === 'proposal' ? '¿Querés confirmar la propuesta o cambiar algún dato?' : '¿En qué te puedo ayudar?'
 }
 /** Bind the actual invitation without replacing an existing draft's pending field. */
 function rememberInformationContinuation(state: DialogueState, read: InformationRead, next: string): void {
@@ -900,7 +900,7 @@ async function respondBooking(context: DialogueContext, previous: unknown, messa
       else { delete state.timePreference; state.requestedTime = temporal.time }
     }
     preserveTemporal()
-    if (name && !hasActiveBooking(state) && standaloneIdentityMessage(message,name)) return finish('¿En qué te puedo ayudar con el local?')
+    if (name && !hasActiveBooking(state) && standaloneIdentityMessage(message,name)) return finish('¿En qué te puedo ayudar?')
     const catalogQuestion = /(?:que|cuales|mostrame|mostrar).*servicios/.test(text)
     if (decision?.correction) { state.serviceId = null; delete state.basket; service = undefined; state.professional = null; clearSlot(state) }
     const serviceMatch = catalogQuestion || decision ? null : matchNamedItems({ businessId: context.businessId, category: 'service' }, message, services)
@@ -1478,7 +1478,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // operations and information routes retain authority over this social route.
   const route = routeActions(message)
   if (!candidateSelection && !suppressMatching && !state.referral && !procedureQuestion && intent === 'other' && raw.operations.length === 0 && !route.information.length && !route.pendingAction) {
-    return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar con el local?' }
+    return { state, proposal: null, reply: hasActiveBooking(state) ? socialQuestion(state) : '¿En qué te puedo ayudar?' }
   }
   // A validated booking no-op requests progression, not a search for the whole utterance.
   // Stored clarification/correction scopes still own their answers; explicit operations run below.
@@ -1767,7 +1767,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     }
     return { ...finishWithoutAgenda(socialQuestion(state)), ...(intent === 'booking' ? { replyPrepared: true as const } : {}) }
   }
-  if (!candidateSelection && !matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar con el local?')
+  if (!candidateSelection && !matched.matching && !updates.length) return finishWithoutAgenda(hasActiveBooking(state) ? pendingQuestion(state) : answers.length ? '' : '¿En qué te puedo ayudar?')
   const clarification = basketQuestion(state, services)
   if (!matched.matching && (clarification || serviceOp?.kind === 'service' && serviceOp.mode === 'unresolved')) {
     state.pending = resolveDialogueRoute(state, [], 'service').pending
@@ -1782,7 +1782,7 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     state.pending = basketIsResolved(state) ? 'date' : 'service'
     return finishWithoutAgenda('No pude determinar una fecha válida y única. ¿Qué día querés consultar?' + (!basketIsResolved(state) ? '\n' + pendingQuestion(state) : ''))
   }
-  if (!matched.matching && !bookingUpdates.length && nameOp && !hasActiveBooking(state) && standaloneIdentityMessage(message,nameOp.value)) return finishWithoutAgenda('¿En qué te puedo ayudar con el local?')
+  if (!matched.matching && !bookingUpdates.length && nameOp && !hasActiveBooking(state) && standaloneIdentityMessage(message,nameOp.value)) return finishWithoutAgenda('¿En qué te puedo ayudar?')
   const selectedCandidateIds = candidateSelection && serviceReferenceOp?.kind === 'service_reference' ? [serviceReferenceOp.serviceId] : serviceOp?.kind === 'service' && serviceOp.mode === 'single' && serviceOp.confidence >= .85
     ? serviceOp.serviceIds : basketOp?.kind === 'basket'
       ? basketOp.members.filter(member => member.mode === 'single' && member.confidence >= .85).flatMap(member => member.serviceIds) : []
@@ -1849,10 +1849,10 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   if (target?.kind === 'professional' && target.aspect === 'availability')
     return readProfessionalAvailability(context, state, target, port)
   if (!lexicalRoute.information.length && !hasActiveBooking(state)) {
-    if (socialMessage(message)) return delivered('¿En qué te puedo ayudar con el local?')
+    if (socialMessage(message)) return delivered('¿En qué te puedo ayudar?')
     if (/^(?:(?:hola|buenas|buen dia|buenos dias|buenas tardes|buenas noches) )?(?:soy|me llamo|mi nombre es) /.test(normalizeAnswer(message))) {
       const identity = fallbackIdentity(message,state,await port.catalog())
-      if (identity && explicitIdentity(message,identity) && standaloneIdentityMessage(message,identity)) { state.customerName = identity; return delivered('¿En qué te puedo ayudar con el local?') }
+      if (identity && explicitIdentity(message,identity) && standaloneIdentityMessage(message,identity)) { state.customerName = identity; return delivered('¿En qué te puedo ayudar?') }
     }
   }
   const focusTarget = !target && state.informationFocus ? inferInformationTarget(state, message, await port.catalog()) : null
@@ -1901,7 +1901,7 @@ async function respondCore(context: DialogueContext, previous: unknown, message:
   if (route.pendingAction && ACTION_REGISTRY[route.pendingAction].status === 'pending') return { state, proposal: null, reply: 'Esa operación todavía no está disponible en este motor. Necesitás solicitarla al equipo.' }
   if (!route.information.length && decision?.intent === 'other' && !decision.serviceId && !decision.candidateIds.length && !decision.professionalMention &&
       !/^(reset|volver a empezar|empezar de nuevo|no quiero nada|nada gracias)$/.test(normalize(message))) return { state, proposal: null,
-    reply: !hasActiveBooking(state) ? '¿En qué te puedo ayudar con el local?' : socialQuestion(state) }
+    reply: !hasActiveBooking(state) ? '¿En qué te puedo ayudar?' : socialQuestion(state) }
   if (!route.information.length && !decision && hasActiveBooking(state) && /^(hola|buenas|buenos dias|buenas tardes|buenas noches|como estas)$/.test(normalize(message))) return delivered(socialQuestion(state))
   if (!route.information.length && state.questionContext?.matchCandidateIds && affirmativeMatchAnswer(message) && !extractDate(normalize(message), context) && !extractProfessionalHint(normalize(message))) return respondTurnPlan(context, state, message, port, { version: 1, operations: [] })
   if (!route.information.length) return respondBooking(context, state, message, port, decision)
@@ -2475,7 +2475,7 @@ export async function finalizeDialogueIntroduction<T extends DialogueResponse>(c
   if (identity.businessId !== context.businessId) throw new Error('invalid identity scope')
   // Only the exact canonical help body may use the identity's treatment-specific question.
   // A composed social answer is concrete content and must not be replaced.
-  const social = !hasActiveBooking(response.state) && response.reply === '¿En qué te puedo ayudar con el local?'
+  const social = !hasActiveBooking(response.state) && response.reply === '¿En qué te puedo ayudar?'
   const intro = introduceDialogue({ identity, introduced: false, customerName: response.state.customerName,
     ...(social ? { kind: 'social' as const } : { kind: 'concrete' as const, reply: response.reply }) })
   response.state.introduced = intro.introduced
