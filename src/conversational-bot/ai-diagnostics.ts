@@ -5,9 +5,11 @@ import { AVAILABILITY_CAUSES } from '../bot-options/application/availability-evi
 import type { AvailabilityDiagnostic, DialogueState } from './engine.js'
 import { TURN_PLAN_LIMITS, TURN_PLAN_EVIDENCE_DETAILS, TurnPlanValidationError, type TurnPlanEvidenceDetail, type TurnPlanValidationCause, type TurnOperation } from './turn-plan.js'
 import { BASKET_LIMITS, basketIsResolved } from './service-basket.js'
+import { COMMUNICATIVE_FIELDS, COMMUNICATIVE_REJECTION_REASONS, type CommunicativeRejection } from './communicative-act.js'
 
 type RequestKind = TurnOperation['kind']
-const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'time', 'time_preference', 'time_clarification', 'name', 'information', 'unsupported_action']
+const requestKinds: readonly RequestKind[] = ['confirm_proposal', 'request_change', 'service', 'basket', 'estimate', 'professional', 'date', 'date_preferences', 'time', 'time_preference', 'time_clarification', 'name', 'information', 'unsupported_action', 'catalog_navigation', 'service_request', 'service_reference', 'professional_reference', 'referral', 'own_appointment']
+export type AdmissionDiagnostic = { outcome: 'admitted' | 'partial' | 'clarification'; admittedKinds: RequestKind[]; rejections: CommunicativeRejection[] }
 type BasketSummary = { mutation: 'set' | 'add' | 'remove' | 'replace' | 'unknown'; memberCount: number; targetCount: number; singleCount: number; alternativeCount: number; unresolvedCount: number }
 export type TurnPlanSummary = { operationCount: number; kinds: RequestKind[]; basket?: BasketSummary; estimateCount?: number }
 
@@ -33,6 +35,7 @@ export type ValidationSummary = {
   professional: 'accepted' | 'rejected' | 'absent'
   candidates: 'accepted' | 'rejected' | 'absent'
   correction: 'accepted' | 'rejected' | 'absent'
+  admission?: AdmissionDiagnostic
   /** Contract acceptance only; motor outcomes remain stateBefore/stateAfter and server facts. */
   turnPlan?: { outcome: ValidationSummary['outcome']; validationAcceptedKinds: RequestKind[]; reason: 'turn_plan' | 'not_run' | null; cause?: TurnPlanValidationCause; detail?: TurnPlanEvidenceDetail }
 }
@@ -123,7 +126,7 @@ export function summarizeValidation(proposal: ProposalSummary, accepted: boolean
     ...(proposal.turnPlan ? { turnPlan: { outcome, validationAcceptedKinds: accepted && ran ? proposal.turnPlan.kinds : [], reason: !ran ? 'not_run' as const : accepted ? null : 'turn_plan' as const, ...(!accepted && ran && error instanceof TurnPlanValidationError ? { cause: error.validationCause, ...(error.validationDetail ? { detail: error.validationDetail } : {}) } : {}) } } : {})
   }
 }
-export type InterpretationRepairFeedback = { reason: ValidationReason; cause?: TurnPlanValidationCause; detail?: TurnPlanEvidenceDetail }
+export type InterpretationRepairFeedback = { reason: ValidationReason; cause?: TurnPlanValidationCause; detail?: TurnPlanEvidenceDetail; admission?: AdmissionDiagnostic }
 export type InterpretationAttemptDiagnostic = {
   reason: 'invalid_output' | 'timeout' | 'provider_error' | null
   providerMs: number; validationMs: number; validation: ValidationSummary
@@ -131,12 +134,38 @@ export type InterpretationAttemptDiagnostic = {
 /** Model repair receives validator codes only, never a rejected model body or arbitrary exception. */
 export function summarizeInterpretationRepairFeedback(value: unknown): InterpretationRepairFeedback | undefined {
   const reason = dataField(value, 'reason'), cause = dataField(value, 'cause'), detail = dataField(value, 'detail')
+  const admission = dataField(value, 'admission') === undefined ? undefined : summarizeAdmissionDiagnostic(dataField(value, 'admission'))
+  if (dataField(value, 'admission') !== undefined && (!admission || reason !== 'turn_plan')) return undefined
   if (!Object.values(reasonByMessage).includes(reason as ValidationReason)) return undefined
   if (cause !== undefined && (reason !== 'turn_plan' || !['evidence','shape','catalog','conflict','estimate'].includes(cause as string))) return undefined
   if (value && typeof value === 'object' && Object.hasOwn(value, 'detail') &&
       (cause !== 'evidence' || !TURN_PLAN_EVIDENCE_DETAILS.includes(detail as TurnPlanEvidenceDetail))) return undefined
   return { reason: reason as ValidationReason, ...(cause === undefined ? {} : { cause: cause as TurnPlanValidationCause }),
-    ...(detail === undefined ? {} : { detail: detail as TurnPlanEvidenceDetail }) }
+    ...(detail === undefined ? {} : { detail: detail as TurnPlanEvidenceDetail }), ...(admission ? { admission } : {}) }
+}
+/** Only bounded enums cross the diagnostic/repair boundary, never rejected operations. */
+export function summarizeAdmissionDiagnostic(value: unknown): AdmissionDiagnostic | undefined {
+  try {
+    if (nodeTypes.isProxy(value)) return undefined
+    const outcome = dataField(value, 'outcome'), kinds = dataField(value, 'admittedKinds'), rejected = dataField(value, 'rejections')
+    if (!['admitted', 'partial', 'clarification'].includes(outcome as string) || nodeTypes.isProxy(kinds) || nodeTypes.isProxy(rejected) ||
+        !Array.isArray(kinds) || kinds.length > TURN_PLAN_LIMITS.operations || !Array.isArray(rejected) || rejected.length > TURN_PLAN_LIMITS.operations) return undefined
+    const admittedKinds: RequestKind[] = [], rejections: CommunicativeRejection[] = []
+    for (let index = 0; index < kinds.length; index++) {
+      const kind = Object.getOwnPropertyDescriptor(kinds, String(index))?.value
+      if (!requestKinds.includes(kind as RequestKind)) return undefined
+      admittedKinds.push(kind as RequestKind)
+    }
+    for (let index = 0; index < rejected.length; index++) {
+      const item = Object.getOwnPropertyDescriptor(rejected, String(index))?.value
+      if (nodeTypes.isProxy(item)) return undefined
+      const kind = dataField(item, 'kind'), field = dataField(item, 'field'), reason = dataField(item, 'reason')
+      if (!requestKinds.includes(kind as RequestKind) || !COMMUNICATIVE_FIELDS.includes(field as never) || !COMMUNICATIVE_REJECTION_REASONS.includes(reason as never)) return undefined
+      rejections.push({ kind, field, reason } as CommunicativeRejection)
+    }
+    if (outcome !== (rejections.length ? admittedKinds.length ? 'partial' : 'clarification' : 'admitted')) return undefined
+    return { outcome: outcome as AdmissionDiagnostic['outcome'], admittedKinds, rejections }
+  } catch { return undefined }
 }
 /** Bounded own-data projection for at most two actual interpretations. */
 export function summarizeInterpretationAttemptsDiagnostic(value: unknown): InterpretationAttemptDiagnostic[] | undefined {
@@ -168,6 +197,11 @@ export function summarizeValidationDiagnostic(value: unknown): ValidationSummary
     const fields = Object.fromEntries(['service', 'professional', 'candidates', 'correction'].map(key => [key, dataField(value, key)]))
     if (Object.values(fields).some(field => !['accepted', 'rejected', 'absent'].includes(field as string))) return undefined
     const result = { outcome, reason, ...fields } as ValidationSummary
+    if (Object.hasOwn(value, 'admission')) {
+      const admission = summarizeAdmissionDiagnostic(dataField(value, 'admission'))
+      if (!admission) return undefined
+      result.admission = admission
+    }
     if (Object.hasOwn(value, 'turnPlan')) {
       const rawPlan = dataField(value, 'turnPlan')
       const planOutcome = dataField(rawPlan, 'outcome'), planReason = dataField(rawPlan, 'reason')

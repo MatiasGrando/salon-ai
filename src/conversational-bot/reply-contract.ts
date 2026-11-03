@@ -1,4 +1,5 @@
 import { CATALOG_ANSWER_SCHEMA, CATALOG_ANSWER_INSTRUCTIONS, validateCatalogAnswer, type CatalogInformationContext } from './catalog-information-answer.js'
+import type { CommunicativeField } from './communicative-act.js'
 
 /** Shared server-owned reply policy. Diagnostics contain no chat text, catalog IDs or names. */
 export type ReplyFact = { id: string; text: string; variants?: readonly { id: string; text: string }[] }
@@ -11,6 +12,8 @@ export type ReplyContract = {
   neutral: boolean
   /** Current public candidates for a question, never commercial or booking authority. */
   serviceClarification?: { serviceNames: readonly string[] }
+  /** A question only: no acquisition, unsupported business fact or effect authority. */
+  semanticClarification?: { field: CommunicativeField; serviceNames: readonly string[] }
   /** Qualitative acknowledgment of an accepted partial request; no new booking facts. */
   bookingAcknowledgment?: true
 }
@@ -55,6 +58,7 @@ export const REPLY_DRAFT_SCHEMA = {
 } as const
 /** Shared writing guide: the model owns framing choices, not identity, facts or effects. */
 export const REPLY_COMPOSITION_GUIDE = [
+  'Aclaración semántica: si replyContract.semanticClarification está presente, clarificationQuestion es una única pregunta natural sobre su field, ligada al mensaje actual. Puede mencionar servicios de semanticClarification.serviceNames como posibilidades actuales, nunca adquirirlos ni afirmar equivalencias, resultados, precios, agenda, inclusiones o acciones. procedure y next son respaldo, no frases obligatorias: la pregunta válida los reemplaza. No repitas la pregunta en opening/closing; catalogAnswer es null. Si no puedes formularla con seguridad, conserva la continuación de respaldo. La presentación configurada del servidor sigue siendo única.',
   'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
   'Reconocimiento cualitativo: en opening respondé la cortesía y reconocé que vas a ayudar con el pedido sin repetir sus valores concretos. Fecha, hora, cifras, nombres de prestaciones y otros datos solicitados pertenecen a las operaciones y al cuerpo verificado por el servidor, no al encuadre libre, aunque provengan del cliente. No anticipes disponibilidad ni resumas esos valores en opening/closing; una transición breve basta antes de la pregunta pertinente.',
@@ -62,7 +66,7 @@ export const REPLY_COMPOSITION_GUIDE = [
   'Cuerpo material: devolvé factIds:null para indicar cuerpo completo del servidor. No enumeres, selecciones ni copies los IDs obligatorios: el servidor inserta siempre TODOS los hechos recibidos exactamente una vez, en su orden, incluidos precios, condiciones y next, con sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables, excepto el cuerpo descriptivo catalog que puede recibir catalogAnswer con origen general orientativo o procedencia publicada vigente validados por separado; los demás hechos, condiciones y next no se reemplazan. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
   'Continuación pertinente: si hay next debe ir al final y closing es null. No agregues otra pregunta operativa en opening; next ya es la única continuación. Podés preguntar ¿Vos? como cortesía, sin sumar otra adquisición, consulta o confirmación. No afirmes ni prometas consultar, contactar, enviar o derivar al equipo desde el encuadre. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. Si no necesitás encuadre, salutation/opening/closing son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
 ] as const
-export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ') + ' ' + CATALOG_ANSWER_INSTRUCTIONS + ' Excepción acotada: si replyContract.serviceClarification existe, redactá clarificationQuestion como una aclaración natural breve con una pregunta para confirmar el servicio o precisar el resultado. Podés presentar antes los candidatos publicados sin añadir atributos no documentados. Usá todos sus serviceNames exactos como candidatos, sin declarar desconocido el pedido por diferencias de palabras. No hay frase obligatoria: procedure y next son fallback, no texto a copiar; la pregunta válida los reemplaza. No afirmes oferta de variantes, composición, productos, precios, duración, agenda, acciones ni reservas. Conservá salutation/opening sólo para trato social sin repetir la pregunta; closing y catalogAnswer son null. Fuera de ese scope clarificationQuestion es null.'
+export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ') + ' ' + CATALOG_ANSWER_INSTRUCTIONS + ' Excepción acotada: si replyContract.serviceClarification existe, redactá clarificationQuestion como una aclaración natural breve con una pregunta para confirmar el servicio o precisar el resultado. Podés presentar antes los candidatos publicados sin añadir atributos no documentados. Usá todos sus serviceNames exactos como candidatos, sin declarar desconocido el pedido por diferencias de palabras. No hay frase obligatoria: procedure y next son fallback, no texto a copiar; la pregunta válida los reemplaza. No afirmes oferta de variantes, composición, productos, precios, duración, agenda, acciones ni reservas. Conservá salutation/opening sólo para trato social sin repetir la pregunta; closing y catalogAnswer son null. Si sólo existe semanticClarification, aplicá su regla de aclaración contextual sin exigir mencionar todos los servicios. Sin ninguno de esos scopes, clarificationQuestion es null.'
 
 /** A social turn always carries one server-owned help or recoverable next. */
 export function socialContinuationFacts(next: string): ReplyFact[] {
@@ -206,18 +210,19 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   }
   if (value.clarificationQuestion != null) {
     const scope = contract.serviceClarification
+    const semantic = contract.semanticClarification
     const question = value.clarificationQuestion
-    if (!scope || !facts.some(fact => fact.id === 'procedure') || !facts.some(fact => fact.id === 'next') ||
+    if ((!scope && !semantic) || !facts.some(fact => fact.id === 'procedure') || !facts.some(fact => fact.id === 'next') ||
         value.catalogAnswer != null ||
         typeof question !== 'string' || question.length > 240 || /[\u0000-\u001f]/.test(question) ||
         !question.trim().endsWith('?') || (question.match(/\?/g) ?? []).length !== 1) return result('continuation_conflict')
     let material = normalized(question)
-    for (const name of scope.serviceNames) {
-      if (!material.includes(normalized(name))) return result('fact_membership')
+    for (const name of scope?.serviceNames ?? semantic!.serviceNames) {
+      if (scope && !material.includes(normalized(name))) return result('fact_membership')
       material = material.replaceAll(normalized(name), '')
     }
     if (protectedReplyClaim(material) || /\b(?:soy|me llamo|mi nombre)\b/.test(material) ||
-        catalogNames.some(name => !scope.serviceNames.includes(name) && words(material).includes(words(name)))) return result('unverified_value')
+        catalogNames.some(name => !(scope?.serviceNames ?? semantic!.serviceNames).includes(name) && words(material).includes(words(name)))) return result('unverified_value')
     clarificationQuestion = question.trim()
   }
   const framing = [value.opening, value.closing]
@@ -233,12 +238,14 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return rejectFrame('catalog_in_frame')
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return rejectFrame('unverified_action')
   if (framing.some(part => typeof part === 'string' && claimsTeamAction(part))) return rejectFrame('unverified_action')
-  const identityInFrame = (contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part))) ||
-    (contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))
-  if (identityInFrame) {
-    // Drop the entire optional frame, never fragments. The body and material frame
-    // checks above already passed; continue validating its final continuation below.
-    opening = null; closing = null; salutation = null
+  const identityInComponent = (part: unknown) => typeof part === 'string' && (
+    (contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)) ||
+    (contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && hasSalutationAct(part))
+  if (identityInComponent(opening) || identityInComponent(closing)) {
+    // Independent components have already passed every material fence. Discard
+    // an affected component whole; never salvage substrings of rejected prose.
+    if (identityInComponent(opening)) opening = null
+    if (identityInComponent(closing)) closing = null
     discardedFramingReason = 'identity_in_frame'
   }
   if (contract.continuation && (factIds.at(-1) !== 'next' || closing !== null)) return result('continuation_conflict')

@@ -7,7 +7,7 @@ import type { PublicLocationAction } from './maps-link.js'
 import { ownAppointmentOptions, parseOwnAppointmentInquiry, type OwnAppointments, type OwnAppointmentInquiry } from './own-appointments.js'
 import { validateCoordinatedSlot, coordinationLabel, type CoordinatedSegment, type DialogueAvailabilitySlot as AvailabilitySlot } from './coordinated-booking.js'
 import { orderServiceIdsByBookingPriority, hasBookingPriorityOrder } from './booking-priority.js'
-import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type ProfessionalReference } from './communicative-act.js'
+import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBindings, conversationalContinuityReply, communicativeClarification, createProfessionalReference, parseProfessionalReference, professionalReferenceScope, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeField, type ProfessionalReference } from './communicative-act.js'
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
@@ -114,7 +114,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; serviceClarification?: { serviceIds: readonly string[] }; managementRead?: true; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; ownAppointmentHandoff?: { snapshot: CancellationSnapshot; action: 'cancel'; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; serviceClarification?: { serviceIds: readonly string[] }; semanticClarification?: { field: CommunicativeField }; managementRead?: true; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; ownAppointmentHandoff?: { snapshot: CancellationSnapshot; action: 'cancel'; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -1290,11 +1290,17 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   const navigation = raw.operations.find(operation => operation.kind === 'catalog_navigation')
   if (navigation?.kind === 'catalog_navigation') {
     const companions = raw.operations.filter(operation => operation.kind !== 'catalog_navigation')
-    if (navigation.confidence < .85 || !state.catalogNavigation || !port.catalogNavigation || companions.some(operation => !['name', 'date', 'time', 'time_preference'].includes(operation.kind)) ||
+    const initialRead = state.pending === 'service' && selectionBasket(state).members.length === 0 &&
+      !state.bookingReservation && !state.sandboxReservation && !state.appointmentManagement
+    const presentedRead = state.catalogNavigation?.view === 'categories' && state.questionContext?.role === 'category' &&
+      state.questionContext.complete && state.questionContext.options.some(option => option.id === 'category:' + navigation.categoryId)
+    if (navigation.confidence < .85 || !port.catalogNavigation || !initialRead && !presentedRead || companions.some(operation => !['name', 'date', 'time', 'time_preference'].includes(operation.kind)) ||
         companions.length > 0 && (selectionBasket(state).members.length > 0 || state.bookingReservation || state.sandboxReservation || state.appointmentManagement)) throw new Error('invalid catalog navigation proposal')
     const current = validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services)
-    if (state.catalogNavigation.view !== 'categories' || state.catalogNavigation.configurationKey !== catalogNavigationKey(current, services) ||
-        !current.categories.some(category => category.id === navigation.categoryId) || !state.questionContext?.options.some(option => option.id === 'category:' + navigation.categoryId)) throw new Error('catalog category no longer available')
+    // Text can request a current category before any menu has been displayed.
+    // This read uses fresh business/category authority, never stale choice tokens.
+    if (!current.categories.some(category => category.id === navigation.categoryId))
+      return (await catalogIntakeResponse(state, services, port, undefined, current))!
     if (companions.length) {
       // Admission already established each independent owner. The existing flow
       // applies its field validators; removing navigation prevents recursion.
@@ -1651,7 +1657,13 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     return { state, reply: [...answers, state.professionalReference.question].filter(Boolean).join('\n'), proposal: null, replyPrepared: true }
   }
   if (communicative?.blockedFields.length) {
-    return { state, reply: [...answers, communicativeClarification(communicative)].filter(Boolean).join('\n'), proposal: null, replyPrepared: true }
+    const next = communicativeClarification(communicative)
+    const facts: ReplyFact[] = [
+      ...answers.map((text, index) => ({ id: 'answer_' + index, text })),
+      { id: 'procedure', text: 'Necesito precisar tu pedido antes de continuar.' }, { id: 'next', text: next }
+    ]
+    return { state, reply: facts.map(fact => fact.text).join('\n'), proposal: null, replyPrepared: true,
+      replyFacts: facts, semanticClarification: { field: communicative.blockedFields[0]! } }
   }
   reconcileConversationalReferral(state, services)
   const referralOperation = plan.operations.find(operation => operation.kind === 'referral')

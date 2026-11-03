@@ -21,8 +21,14 @@ export type CommunicativeAct = {
 export type CommunicativeActs = { version: 1; acts: CommunicativeAct[] }
 export type ProfessionalReference = { businessId: string; mention: string; evidence: string; scope: string; question: string }
 export type InquiryBinding = { requestOperationIndex: number; informationOperationIndex: number }
+export const COMMUNICATIVE_REJECTION_REASONS = ['catalog_owner', 'catalog_context', 'server_field', 'service_reference', 'professional_option',
+  'management_owner', 'multiple_owners', 'act_owner', 'act_field', 'act_kind', 'act_confidence', 'act_evidence',
+  'date_evidence', 'professional_reference', 'professional_mention', 'basket_conflict'] as const
+export type CommunicativeRejection = { kind: TurnOperation['kind']; field: CommunicativeField; reason: typeof COMMUNICATIVE_REJECTION_REASONS[number] }
 export type CommunicativeAdmission = {
   plan: TurnPlan; blockedFields: CommunicativeField[]
+  /** Closed server diagnostic codes only; never rejected evidence or model content. */
+  rejections?: readonly CommunicativeRejection[]
   /** Server-only links between two reads admitted from the same current inquiry. */
   inquiryBindings?: readonly InquiryBinding[]
   /** Server-only proof of the identity span of one current factual inquiry. */
@@ -357,6 +363,10 @@ function sharedBasketAuthority(owners: readonly CommunicativeAct[], operation: T
 export function admitCommunicativePlan(metadata: CommunicativeActs | null, source: TurnPlan, plan: TurnPlan,
   message: string, state: DialogueState, services: readonly DialogueService[], businessDate?: string, serverBlockedFields: readonly CommunicativeField[] = []): CommunicativeAdmission {
   const blocked = new Set<CommunicativeField>()
+  const rejections: CommunicativeRejection[] = []
+  const reject = (operation: TurnOperation, field: CommunicativeField, reason: CommunicativeRejection['reason']) => {
+    blocked.add(field); rejections.push({ kind: operation.kind, field, reason }); return false
+  }
   let timeMeaningRejected = false
   let temporalInquiry = false
   let currentTimeAnswer = false
@@ -386,18 +396,21 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     const owners = metadata?.acts.filter(item => item.operationIndexes.includes(index)) ?? []
     const act = owners[0]
     if (operation.kind === 'catalog_navigation') {
-      const current = state.catalogNavigation?.view === 'categories' && state.questionContext?.role === 'category' &&
+      // Reading a category is not choosing a service or replaying a native option.
+      // The motor independently verifies this ID against the current scoped catalog.
+      const initialRead = state.pending === 'service' && selectionBasket(state).members.length === 0 &&
+        !state.bookingReservation && !state.sandboxReservation && !state.appointmentManagement
+      const presentedRead = state.catalogNavigation?.view === 'categories' && state.questionContext?.role === 'category' &&
         state.questionContext.complete && state.questionContext.options.some(option => option.id === 'category:' + operation.categoryId)
-      const admitted = current && owners.length === 1 && act && ['request', 'inquiry', 'answer'].includes(act.kind) &&
+      if (!initialRead && !presentedRead) return reject(operation, 'general', 'catalog_context')
+      const admitted = owners.length === 1 && act && ['request', 'inquiry', 'answer'].includes(act.kind) &&
         ['general', 'service'].includes(act.field) && act.confidence >= .85 && operation.confidence >= .85 && contains(act.evidence, operation.evidence)
-      if (!admitted) blocked.add('general')
-      return Boolean(admitted)
+      return admitted ? true : reject(operation, 'general', 'catalog_owner')
     }
     if (serverBlockedFields.includes(field)) {
-      blocked.add(field)
       if (field === 'time' && act?.field === field && ['request', 'change', 'answer'].includes(act.kind) &&
           act.confidence >= .85 && operation.confidence >= .85 && contains(act.evidence, operation.evidence)) timeMeaningRejected = true
-      return false
+      return reject(operation, field, 'server_field')
     }
     // An orphan cannot authorize effects or reopen a field under sole validated continuity.
     if (continuityCandidate && owners.length === 0) return false
@@ -410,23 +423,23 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
         act.confidence < .85 || operation.confidence < .85 || !contains(act.evidence, operation.evidence) ||
         (operation.action === 'confirm' ? !validServiceReferenceContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext)
           : !informationalSelection && (state.serviceRequest?.serviceIds.length !== 1 || !validServiceCandidateContext(state.serviceRequest, operation.serviceId, state.businessId, services, state.questionContext))))) {
-      blocked.add('service'); return false
+      return reject(operation, 'service', 'service_reference')
     }
     if (operation.kind === 'professional' && operation.mode === 'option' && (owners.length !== 1 || act?.kind !== 'answer' ||
         act.field !== 'professional' || act.confidence < .85 || act.mention !== null || !contains(act.evidence, operation.evidence) ||
         !currentProfessionalOption(state, operation, source.operations))) {
-      blocked.add('professional'); return false
+      return reject(operation, 'professional', 'professional_option')
     }
     if (operation.kind==='own_appointment' && operation.action!=='read' &&
       (!act || owners.length!==1 || !['request','change','answer'].includes(act.kind))) {
-      blocked.add('general'); return false
+      return reject(operation, 'general', 'management_owner')
     }
     if (!metadata) {
-      if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) { blocked.add(field); return false }
+      if (changesExisting(operation, state) && !closedAnswer(operation, message, state, services)) return reject(operation, field, 'act_owner')
       return true
     }
     if (owners.length > 1) {
-      if (!sharedBasketAuthority(owners, original, message, state, services)) { blocked.add(field); return false }
+      if (!sharedBasketAuthority(owners, original, message, state, services)) return reject(operation, field, 'multiple_owners')
       return true
     }
     // The act map is secondary metadata, not a second semantic parser. A single
@@ -436,33 +449,25 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
         groupedProspectiveRequestOwner(owners, operation)) return true
     const read = original?.kind === 'information' || original?.kind === 'unsupported_action' || original?.kind === 'own_appointment' ||
       original?.kind === 'service_request' && original.purpose === 'inquiry'
-    // SERVICES is a catalog read. A shared current comparison inquiry may own
-    // that read as service, without reclassifying unrelated business information.
-    const compared = source.operations.filter(item => item.kind === 'information' && item.target.kind === 'service' &&
-      ['description', 'comparison', 'recommendation'].includes(item.target.aspect))
-    const comparison = compared.length === 1 ? compared[0] : undefined
+    // Catalog exploration may be expressed as a service inquiry/request. Its field
+    // metadata cannot turn the read into basket, selection or booking authority.
     const sharedServicesRead = original?.kind === 'information' && original.target.kind === 'business' &&
-      original.target.actions.length === 1 && original.target.actions[0] === 'SERVICES' &&
-      act?.kind === 'inquiry' && act.field === 'service' && act.confidence >= .85 && original.confidence >= .85 &&
-      comparison?.kind === 'information' && comparison.confidence >= .85 &&
-      act.operationIndexes.includes(source.operations.indexOf(comparison)) &&
-      !!uniqueLiteralSpan(message, act.evidence) && !!uniqueLiteralSpan(act.evidence, original.evidence) &&
-      !!uniqueLiteralSpan(act.evidence, comparison.evidence) &&
-      source.operations.every(item => item.kind === 'information' && (item === comparison ||
-        item.target.kind === 'business' && item.target.actions.length === 1 && item.target.actions[0] === 'SERVICES'))
+      original.target.actions.length === 1 && original.target.actions[0] === 'SERVICES' && act?.field === 'service'
     const sameField = act?.field === field || sharedServicesRead
     const current = act && ['request', 'change', 'answer'].includes(act.kind)
     const temporalRead = act?.kind === 'inquiry' && ['date', 'time', 'time_preference', 'time_clarification'].includes(operation.kind)
     const appropriate = read ? act && ['request', 'change', 'answer', 'inquiry'].includes(act.kind) : current || temporalRead
-    if (!act || !sameField || !appropriate || act.confidence < .85 || !contains(act.evidence, operation.evidence)) {
-      blocked.add(field); return false
-    }
+    if (!act) return reject(operation, field, 'act_owner')
+    if (!sameField) return reject(operation, field, 'act_field')
+    if (!appropriate) return reject(operation, field, 'act_kind')
+    if (act.confidence < .85) return reject(operation, field, 'act_confidence')
+    if (!contains(act.evidence, operation.evidence)) return reject(operation, field, 'act_evidence')
     if (operation.kind === 'date' && businessDate && !dateExpressionCoversCurrentEvidence(operation.expression, act.evidence, businessDate)) {
-      blocked.add('date'); return false
+      return reject(operation, 'date', 'date_evidence')
     }
     if (operation.kind === 'professional_reference' && (act.kind !== 'answer' || !state.professionalReference ||
-        act.evidence !== message || operation.evidence !== message)) { blocked.add(field); return false }
-    if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) { blocked.add(field); return false }
+        act.evidence !== message || operation.evidence !== message)) return reject(operation, field, 'professional_reference')
+    if (operation.kind === 'professional' && operation.mode === 'specific' && act.mention !== operation.mention) return reject(operation, field, 'professional_mention')
     if (temporalRead && field === 'time' && operation.confidence >= .85) temporalInquiry = true
     if (operation.kind === 'time' && operation.confidence >= .85 && act.kind === 'answer' &&
         plan.operations.filter(item => item.kind === 'time').length === 1) currentTimeAnswer = true
@@ -470,6 +475,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   })
   const continuity = admitted.length === 0 && blocked.size === 0 ? continuityCandidate : undefined
   return { plan: { ...plan, operations: admitted }, blockedFields: [...blocked],
+    ...(rejections.length ? { rejections } : {}),
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(temporalInquiry ? { temporalInquiry: true as const } : {}),
     ...(currentTimeAnswer ? { currentTimeAnswer: true as const } : {}),
@@ -488,7 +494,8 @@ export function protectProspectiveBasket(admission: CommunicativeAdmission, stat
   catch (error) {
     if (!duplicateError(error)) throw error
     return { ...admission, plan: { ...admission.plan, operations: admission.plan.operations.filter(item => item !== operation) },
-      blockedFields: [...new Set([...admission.blockedFields, 'service' as const])] }
+      blockedFields: [...new Set([...admission.blockedFields, 'service' as const])],
+      rejections: [...admission.rejections ?? [], { kind: 'basket', field: 'service', reason: 'basket_conflict' }] }
   }
 }
 export function professionalReferenceScope(state: DialogueState): string {
@@ -510,12 +517,12 @@ export function parseProfessionalReference(value: unknown, state: DialogueState)
   return structuredClone(value) as unknown as ProfessionalReference
 }
 export function communicativeClarification(admission: CommunicativeAdmission): string {
-  if (admission.blockedFields.includes('service')) return 'Mantengo los servicios del pedido. ¿Qué servicio querés elegir o cambiar?'
+  if (admission.blockedFields.includes('service')) return '¿Qué te gustaría hacerte?'
   const questions: Partial<Record<CommunicativeField, string>> = {
     name: '¿Ese nombre corresponde al cliente o al profesional?', professional: '¿Con qué profesional querés atenderte?',
     date: '¿Para qué día querés el turno?', time: '¿Qué horario o franja preferís?', estimate: '¿Qué opción del presupuesto querés elegir?'
   }
-  return 'Mantengo los datos del pedido. ' + (questions[admission.blockedFields[0]!] ?? '¿Qué dato querés elegir o cambiar?')
+  return questions[admission.blockedFields[0]!] ?? '¿Qué te gustaría hacerte o consultar del local?'
 }
 
 /** Reply to a validated nonoperative act without inventing a real-world capability. */
