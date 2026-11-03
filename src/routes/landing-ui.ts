@@ -1809,7 +1809,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             <a class="booking-navigation-close" href="${escapeAttribute(landingReturnPath)}" aria-label="Cerrar reserva"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></a>
           </div>
         </div>
-        ${business.coverImageUrl ? `<div class="booking-cover" id="booking-cover"><img src="${escapeAttribute(business.coverImageUrl)}" alt="Portada de ${escapeAttribute(business.name)}"></div>` : ''}
         <section class="fresha-modal">
           <header class="fresha-header booking-navigation" data-booking-navigation>
             <button class="booking-navigation-control booking-navigation-back" id="booking-back" type="button">
@@ -3651,8 +3650,6 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           }
 
           function render() {
-            const cover = document.getElementById('booking-cover')
-            if (cover) cover.hidden = Boolean(state.reschedule || state.bookingView) || currentStepId() !== 'service'
             document.getElementById('booking-mobile-detail').hidden = true
             document.getElementById('booking-summary-toggle').setAttribute('aria-expanded', 'false')
             // Keep the current detail's actual DOM while its list is shown; never persist permissions.
@@ -8776,9 +8773,6 @@ function htmlPage(input: {
     .booking-brand-logo { width:54px; height:54px; flex:0 0 54px; display:grid; place-items:center; overflow:hidden; border-radius:14px; color:var(--booking-accent); background:var(--booking-surface); border:1px solid var(--booking-border); font-weight:800; }
     .booking-brand-logo img { width:100%; height:100%; object-fit:contain; }
     .booking-my-appointments { flex-shrink:0; padding:11px 14px; border:1px solid var(--booking-border); border-radius:12px; color:var(--booking-accent); background:var(--booking-surface); font-size:13px; font-weight:700; text-decoration:none; }
-    .booking-cover { max-width:1080px; width:100%; aspect-ratio:8/3; max-height:280px; margin:0 auto 14px; overflow:hidden; border-radius:18px; background:var(--booking-accent-soft); }
-    .booking-cover img { width:100%; height:100%; display:block; object-fit:cover; }
-    .booking-cover[hidden] { display:none; }
     body[class*="booking-theme-"] .fresha-body { align-items:start; }
     body[class*="booking-theme-"] .fresha-main { min-width:0; }
     body[class*="booking-theme-"] .fresha-heading { font-size:clamp(25px,2.6vw,34px); margin:0 0 10px; }
