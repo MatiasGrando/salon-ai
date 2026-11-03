@@ -4,6 +4,7 @@ import type { CommunicativeField } from './communicative-act.js'
 /** Shared server-owned reply policy. Diagnostics contain no chat text, catalog IDs or names. */
 export type ReplyFact = { id: string; text: string; variants?: readonly { id: string; text: string }[] }
 export type ReplyRole = 'social' | 'information' | 'clarification' | 'continuation' | 'confirmation'
+export const CONVERSATIONAL_REPLY_LIMIT = 1600
 export type ReplyContract = {
   version: 1
   role: ReplyRole
@@ -16,6 +17,8 @@ export type ReplyContract = {
   semanticClarification?: { field: CommunicativeField; serviceNames: readonly string[]; categoryNames?: readonly string[] }
   /** Qualitative acknowledgment of an accepted partial request; no new booking facts. */
   bookingAcknowledgment?: true
+  /** Server-granted prose only; the final invitation carries no action authority. */
+  conversational?: { maxCharacters: number; continuation: 'help_or_booking' | 'pending'; body: 'generated' | 'server' }
 }
 export type ReplyRejection =
   | 'missing_draft' | 'invalid_shape' | 'fact_membership' | 'fact_order' | 'continuation_conflict'
@@ -25,7 +28,8 @@ export type ReplyRejection =
 export const REPLY_SHAPE_PATHS = {
   draft_structure: 'draft', salutation_shape: 'draft.salutation', variants_structure: 'draft.variantChoices',
   variant_structure: 'draft.variantChoices[]', variant_fields: 'draft.variantChoices[]',
-  catalog_context_missing: 'context.catalogInformation', catalog_fact_missing: 'facts.catalog'
+  catalog_context_missing: 'context.catalogInformation', catalog_fact_missing: 'facts.catalog',
+  conversational_body_missing: 'draft.conversationalAnswer'
 } as const
 export type ReplyShapeDetail = { [K in keyof typeof REPLY_SHAPE_PATHS]: { cause: K; path: typeof REPLY_SHAPE_PATHS[K] } }[keyof typeof REPLY_SHAPE_PATHS]
 export type ReplyRejectionDiagnostic = {
@@ -42,11 +46,14 @@ export type ReplyValidation = {
   discardedFramingReason?: ReplyRejection
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation; rejections?: ReplyRejectionDiagnostic[] }
-export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; clarificationQuestion?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
+export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; clarificationQuestion?: string; conversationalBody?: true; conversationalQuestion?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
-  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer', 'clarificationQuestion'],
+  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer', 'clarificationQuestion', 'conversationalAnswer'],
   properties: {
+    conversationalAnswer: { type: ['object', 'null'], additionalProperties: false, required: ['kind', 'text', 'returnQuestion'],
+      properties: { kind: { type: 'string', enum: ['creative', 'general'] },
+        text: { type: ['string', 'null'], minLength: 1, maxLength: CONVERSATIONAL_REPLY_LIMIT }, returnQuestion: { type: 'string', minLength: 1, maxLength: 240 } } },
     catalogAnswer: CATALOG_ANSWER_SCHEMA,
     clarificationQuestion: { type: ['string', 'null'], maxLength: 240 },
     salutation: { type: ['string', 'null'], enum: ['greeting', null] },
@@ -58,6 +65,8 @@ export const REPLY_DRAFT_SCHEMA = {
 } as const
 /** Shared writing guide: the model owns framing choices, not identity, facts or effects. */
 export const REPLY_COMPOSITION_GUIDE = [
+  'Contenido y regreso son piezas independientes: con conversational.body generated escribe el contenido completo solicitado en text; una aceptación vacía no responde al pedido. Con conversational.body server, conserva el cálculo verificado en facts, usa kind general y text null, sin copiar ni recalcular el resultado; redacta igualmente returnQuestion para volver al local. En saludos o cortesía, salutation sigue siendo el saludo del servidor y text aporta la respuesta humana sin repetir la identidad. En ambos casos la invitación final la redactas según continuation, no copiando una frase fija.',
+  'Conversación independiente: sólo con replyContract.conversational, responde el pedido concreto en conversationalAnswer (kind creative o general, text completo y returnQuestion); no te limites a decir Claro. text admite saltos de línea y conocimiento general o creatividad, hasta maxCharacters. No atribuyas al local servicios, condiciones, precios, horarios, resultados, contacto al equipo ni acciones ejecutadas; esas consultas siguen su ruta comercial verificada. Siempre escribe al final una única returnQuestion natural para volver a ayudar con el local o una reserva, sin frase fija ni copiar next. Con continuation pending retoma el mismo dato que pregunta next/expectedAnswer, sin cambiar el objetivo ni pedir confirmación o datos ya aceptados; con help_or_booking ofrece ayuda pertinente. No incluyas cifras, nombres propios, URLs, precios ni afirmaciones de disponibilidad en esa invitación. No repitas presentación, saludo ni invitación dentro de text, opening o closing. factIds null, closing null, catalogAnswer y clarificationQuestion null. Fuera de este permiso, conversationalAnswer es null. Nunca emitas operaciones ni deduzcas consentimiento por este contenido.',
   'Aclaración semántica: si replyContract.semanticClarification está presente, clarificationQuestion es una única pregunta natural sobre su field, ligada al mensaje actual. Puede guiar mediante sus categoryNames vigentes o sus serviceNames, sin exigir nombrarlos todos. El catálogo limita lo que ofrece el local: no prometas un servicio integral, una prestación ausente ni resultados, precios, agenda, inclusiones o acciones. Con categorías presentadas invita a explorar una de ellas; las opciones son navegación, no una adquisición. procedure y next son respaldo, no frases obligatorias: la pregunta válida los reemplaza. No repitas la pregunta en opening/closing; catalogAnswer es null. Si no puedes formularla con seguridad, conserva la continuación de respaldo. La presentación configurada del servidor sigue siendo única.',
   'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
@@ -78,7 +87,7 @@ export function socialContinuationFacts(next: string): ReplyFact[] {
 export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
   'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. La respuesta a cortesía explícita no se omite por una reserva, una consulta lateral o un cambio de datos; después va la pregunta pertinente del servidor. ' +
   'Usá factIds:null y closing null cuando hay next; el servidor conserva todos los hechos originales en orden. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null salvo una explicación descriptiva catalogAnswer con bloques general orientativos y published sustentados en el catálogo actual; el servidor valida el objeto y añade su next vigente sin otra llamada. ' +
-  'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante charla conservá la pregunta pendiente; pedidos ajenos se encauzan brevemente a ayuda del local. '
+  'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante conversación independiente usa conversationalAnswer sólo si su permiso está presente; entrega el contenido pedido y una invitación contextual de regreso al local. Con borrador retoma el mismo dato pendiente con redacción natural. '
 
 export function replyContract(role: ReplyRole, identityAvailable: boolean, introduced: boolean,
   facts: readonly ReplyFact[], neutral = false): ReplyContract {
@@ -142,6 +151,27 @@ function protectedReplyClaim(text: string): boolean {
   return /[\d$€]|https?:|www\./i.test(text) ||
     /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis|garantiza|garantizado|garantizar|cura|curar|precio|precios|cuesta|costo|coste|gratis|hoy|manana|agenda|cupo|cupos|propuesta|reserva|reservas|pendiente|sena)\b/.test(normalized(text)) || claimsTeamAction(text)
 }
+/** Outbound business-claim fences; these do not classify the customer's intent. */
+function protectedConversationalClaim(text: string, catalogNames: readonly string[]): boolean {
+  const value = normalized(text)
+  const operational = /\b(?:turno|turnos|reserva|reservas|cita|citas|agenda)\b/.test(value)
+  const commercial = /\b(?:precio|precios|costo|cuesta|tarifa|sena|deposito|pago|disponibilidad|cupos|horario|duracion)\b/.test(value)
+  const local = /\b(?:nuestro|nuestra|local|salon|peluqueria|barberia)\b/.test(value)
+  const namedService = catalogNames.some(name => words(text).includes(words(name)))
+  return claimsTeamAction(text) ||
+    /\b(?:ofrecemos|cobramos|atendemos|reservamos|agendamos|cancelamos|reprogramamos)\b/.test(value) ||
+    operational && /\b(?:reserve|agende|confirme|cancele|reprograme|modifique|reservado|agendado|confirmado|cancelado|reprogramado)\b/.test(value) ||
+    (local && (commercial || operational || /\d|https?:|www\.|\b(?:garantiza|garantizado|cura)\b/i.test(value)) || namedService && (commercial || operational || /[$€]|\b(?:pesos|ars|usd)\b/i.test(text))) ||
+    /\b(?:abrimos|cerramos|abierto|cerrado)\b/.test(value) && /\d|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(value)
+}
+function usableConversationalReturn(value: unknown, catalogNames: readonly string[]): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 240 &&
+    !/[\u0000-\u001f\d$€]|https?:|www\./i.test(value) && value.trim().endsWith('?') && (value.match(/\?/g) ?? []).length === 1 &&
+    !/\b(?:confirm\w*|cancel\w*|reprogram\w*|soy|me llamo|mi nombre)\b/.test(normalized(value)) &&
+    !/\b(?:consultar|contactar|enviar|derivar|avisar)\b[^?]*\b(?:equipo|persona|profesional|operador)\b/.test(normalized(value)) &&
+    !/\b(?:tenemos|ofrecemos|cobramos|abrimos|cerramos|disponible|disponibilidad|cupos|gratis|garantizado|reservado|agendado)\b/.test(normalized(value)) &&
+    !/\bya\b[^?]*\b(?:reserve|agende|modifique)\b/.test(normalized(value)) && !catalogNames.some(name => words(value).includes(words(name)))
+}
 
 /** Model frames are optional. Fact membership, order and material fragments always belong to the server. */
 export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], contract: ReplyContract,
@@ -153,6 +183,9 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   let closing = value?.closing
   let catalogText: string | null = null
   let clarificationQuestion: string | undefined
+  let conversationalText: string | null = null
+  let conversationalAccepted = false
+  let conversationalQuestion: string | undefined
   let discardedFramingReason: ReplyRejection | undefined
   let detail: ReplyShapeDetail | undefined
   // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
@@ -160,23 +193,24 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
     ...(!reason && clarificationQuestion ? { clarificationQuestion } : {}),
+    ...(!reason && conversationalAccepted ? { conversationalBody: true as const, ...(conversationalQuestion ? { conversationalQuestion } : {}) } : {}),
     ...(!reason && (!discardedFramingReason || discardedFramingReason === 'identity_in_frame') ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
       validatedFraming: { salutation, opening: typeof opening === 'string' ? opening : null } } : {}),
     modelFraming: Boolean(text && [opening, closing]
-      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText || clarificationQuestion)),
+      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText || clarificationQuestion || conversationalText || conversationalQuestion)),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount,
       ...(detail ? { detail } : {}), ...(!reason && discardedFramingReason ? { discardedFramingReason } : {}) }
   })
   const assembled = (): ReplyValidationResult => {
     const body = facts.flatMap(fact => clarificationQuestion && fact.id === 'procedure' ? []
-      : [clarificationQuestion && fact.id === 'next' ? clarificationQuestion
+      : [conversationalQuestion && fact.id === 'next' ? conversationalQuestion : clarificationQuestion && fact.id === 'next' ? clarificationQuestion
         : fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text])
-    const text = [salutation, opening, ...body, closing]
+    const text = [salutation, opening, conversationalText, ...body, closing]
       .filter(part => typeof part === 'string' && part.trim()).join('\n')
     return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
   }
   const rejectFrame = (reason: ReplyRejection): ReplyValidationResult => {
-    if (!catalogText) return result(reason)
+    if (!catalogText && !conversationalAccepted) return result(reason)
     // No fragment of the rejected original frame becomes accepted or projectable.
     opening = null; closing = null; salutation = null
     discardedFramingReason = reason
@@ -187,8 +221,9 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     return result('invalid_shape')
   }
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer' && key !== 'clarificationQuestion').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer' && key !== 'clarificationQuestion' && key !== 'conversationalAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return rejectShape('salutation_shape')
+  if (contract.conversational && value.conversationalAnswer == null) return rejectShape('conversational_body_missing')
   // Explicit null assigns the complete material body to the server. Legacy lists
   // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
   // providedCount above stays zero for null; these IDs were not supplied by the model.
@@ -196,6 +231,25 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (factIds.length !== facts.length || new Set(factIds).size !== facts.length ||
       factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
   if (JSON.stringify(factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
+  if (value.conversationalAnswer != null) {
+    const answer = value.conversationalAnswer as Record<string, unknown>, permission = contract.conversational
+    if (!permission || !Number.isInteger(permission.maxCharacters) || permission.maxCharacters < 1 || permission.maxCharacters > CONVERSATIONAL_REPLY_LIMIT ||
+        contract.continuation !== 'next' || facts.at(-1)?.id !== 'next' || value.catalogAnswer != null || value.clarificationQuestion != null ||
+        value.variantChoices != null && (!Array.isArray(value.variantChoices) || value.variantChoices.length)) return result('unverified_action')
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer) || Object.keys(answer).sort().join(',') !== 'kind,returnQuestion,text' ||
+        !['creative', 'general'].includes(String(answer.kind))) return result('unverified_value')
+    if (permission.body === 'server') {
+      if (!facts.some(fact => fact.id === 'calculation') || answer.kind !== 'general' || answer.text !== null) return result('unverified_value')
+    } else {
+      if (permission.body !== 'generated' || typeof answer.text !== 'string' || !answer.text.trim() || answer.text.length > permission.maxCharacters ||
+          /[\u0000-\u0008\u000b-\u001f]/.test(answer.text.replace(/\r\n/g, '\n')) || protectedConversationalClaim(answer.text, catalogNames) ||
+          answer.kind === 'general' && /\b(?:soy|me llamo|mi nombre es)\b/.test(normalized(answer.text))) return result('unverified_value')
+      conversationalText = answer.text.replace(/\r\n/g, '\n').trim()
+    }
+    conversationalAccepted = true
+    if (usableConversationalReturn(answer.returnQuestion, catalogNames)) conversationalQuestion = answer.returnQuestion.trim()
+    else discardedFramingReason = 'continuation_conflict'
+  }
   if (value.variantChoices !== undefined && value.variantChoices !== null) {
     if (!Array.isArray(value.variantChoices) || value.variantChoices.length > facts.length) return rejectShape('variants_structure')
     for (const rawChoice of value.variantChoices) {
@@ -226,7 +280,8 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     clarificationQuestion = question.trim()
   }
   const framing = [value.opening, value.closing]
-  if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')
+  if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part))))
+    return conversationalAccepted ? rejectFrame('frame_bounds') : result('frame_bounds')
   // Validate the complete explanatory body independently before optional frame rejection.
   if (value.catalogAnswer != null) {
     if (!catalog) return rejectShape('catalog_context_missing')
@@ -248,13 +303,16 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     if (identityInComponent(closing)) closing = null
     discardedFramingReason = 'identity_in_frame'
   }
-  if (contract.continuation && (factIds.at(-1) !== 'next' || closing !== null)) return result('continuation_conflict')
-  if (contract.neutral && opening !== null) return result('neutral_frame')
+  if (contract.continuation && (factIds.at(-1) !== 'next' || closing !== null)) {
+    if (!conversationalAccepted || factIds.at(-1) !== 'next') return result('continuation_conflict')
+    closing = null; discardedFramingReason = 'continuation_conflict'
+  }
+  if (contract.neutral && opening !== null) return conversationalAccepted ? rejectFrame('neutral_frame') : result('neutral_frame')
   // Shape, membership, order and every original safety fence above remain decisive.
   // A copied business value or action is never cleaned first to rescue unsafe framing.
   const next = contract.continuation ? facts.find(fact => fact.id === contract.continuation) : undefined
   if (next && typeof opening === 'string') {
-    const adjusted = uniqueContinuationOpening(opening, clarificationQuestion ?? selectedVariants.get(next.id) ?? next.text)
+    const adjusted = uniqueContinuationOpening(opening, conversationalQuestion ?? clarificationQuestion ?? selectedVariants.get(next.id) ?? next.text)
     if (adjusted === null) return rejectFrame('continuation_conflict')
     opening = adjusted
     if (typeof opening === 'string' && extraOperationalQuestion(opening)) return rejectFrame('continuation_conflict')

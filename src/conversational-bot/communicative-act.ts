@@ -13,7 +13,7 @@ import type { DialogueService, DialogueState } from './engine.js'
 
 export const COMMUNICATIVE_FIELDS = ['service', 'professional', 'date', 'time', 'name', 'estimate', 'general'] as const
 export type CommunicativeField = typeof COMMUNICATIVE_FIELDS[number]
-const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair', 'social', 'decline'] as const
+const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair', 'social', 'decline', 'conversation'] as const
 export type CommunicativeAct = {
   kind: typeof kinds[number]; field: CommunicativeField; evidence: string; confidence: number
   mention: string | null; operationIndexes: number[]
@@ -51,6 +51,13 @@ export type CommunicativeAdmission = {
   continuity?: 'notice' | 'pause' | 'repair'
   /** A validated social act carries no booking authority. */
   social?: true
+  /** Independent conversation owns prose only, never entities or operational commands. */
+  conversation?: true
+}
+export function allowsConversationalContent(state: DialogueState): boolean {
+  return state.pending !== 'proposal' && !state.bookingReservation && !state.sandboxReservation &&
+    !state.appointmentManagement && !state.ownAppointmentInquiry && !state.referral && !state.professionalReference &&
+    state.pending !== 'estimate' && !state.timeMeaningClarification && !state.timeClarification && !state.questionContext?.matchCandidateIds
 }
 const fieldsSchema = {
   kind: { type: 'string', enum: kinds }, field: { type: 'string', enum: COMMUNICATIVE_FIELDS },
@@ -402,6 +409,11 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     metadata.acts.every(act => act.kind === 'social' ||
       (act.kind === 'decline' && act.field === 'service' || act.kind === 'inquiry' && ['service', 'general'].includes(act.field)) &&
       act.confidence >= .85 && uniqueLiteralSpan(message, act.evidence) && act.mention === null && act.operationIndexes.length === 0))
+  const conversation = Boolean(allowsConversationalContent(state) && source.operations.length === 0 &&
+    metadata?.acts.some(act => ['conversation', 'social'].includes(act.kind) && act.field === 'general' && act.confidence >= .85 &&
+      act.mention === null && act.operationIndexes.length === 0 && uniqueLiteralSpan(message, act.evidence)) &&
+    metadata.acts.every(act => ['social', 'conversation'].includes(act.kind) && act.field === 'general' &&
+      act.confidence >= .85 && act.mention === null && act.operationIndexes.length === 0 && uniqueLiteralSpan(message, act.evidence)))
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
@@ -495,6 +507,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     ...(managementDeclined ? { managementDeclined: true as const } : {}),
     ...(serviceCandidatesDeclined ? { serviceCandidatesDeclined: true as const } : {}),
     ...(managementConfirmed ? { managementConfirmed: true as const } : {}),
+    ...(conversation ? { conversation: true as const, social: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&
       !metadata.acts.some(act => ['notice', 'pause', 'repair'].includes(act.kind)) ? { social: true as const } : {}),

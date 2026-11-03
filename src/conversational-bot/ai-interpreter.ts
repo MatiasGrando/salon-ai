@@ -4,12 +4,12 @@ import type { AttachmentMetadata, AttachmentIntent } from './attachment-intent.j
 import { validateDialoguePersonality, type DialoguePersonality, type DialoguePersonalityPort } from './dialogue-identity.js'
 import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqueLiteralSpan } from './service-information-scope.js'
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
-import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, communicativeClarification, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
-import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
+import { allowsConversationalContent, deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, communicativeClarification, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
+import { assessServiceIdentity, requiresServiceVerification, serviceRequestQuestion, serviceRequestReply } from './service-request.js'
 import { memoBusinessTimeContext, scopedBusinessTimeContext, scopedBusinessHoursContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessHoursContext } from './business-time-context.js'
 import { approximateTimeRequest, classifyTemporalRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
-import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace, type ReplyValidation, type ReplyRejectionDiagnostic } from './reply-contract.js'
+import { CONVERSATIONAL_REPLY_LIMIT, replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace, type ReplyValidation, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
 import { expectedDialogueAnswer, rememberDialogueQuestion } from './dialogue-context.js'
@@ -403,6 +403,10 @@ export async function respondWithAiInterpreter(
   let commercialHours: BusinessHoursContext | undefined
   try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
+  const conversationalPossible = allowsConversationalContent(state) && !preparedInformation &&
+    !pureInformation && !route.information.length && !route.pendingAction && !route.bookingMessage
+  const conversationalContinuation = hasActiveBooking(state) || state.serviceRequest || state.catalogNavigation || state.informationFocus
+    ? 'pending' as const : 'help_or_booking' as const
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
     ...(catalogNavigation ? { catalogNavigation: structuredClone(catalogNavigation) } : {}),
     ...(context.serverOwnAppointments ? { ownAppointments: context.serverOwnAppointments.items.map(({key,label})=>({key,label})) } : {}),
@@ -412,6 +416,9 @@ export async function respondWithAiInterpreter(
     expectedAnswer: expectedDialogueAnswer(state,context.timezone), businessDate, timezone: context.timezone,
     replyContract: replyContract(managementActive?'continuation':preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
     intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }
+  if (conversationalPossible && firstReplyFacts?.some(fact => fact.id === 'next')) interpretationInput.replyContract!.conversational = {
+    maxCharacters: CONVERSATIONAL_REPLY_LIMIT, continuation: conversationalContinuation, body: arithmetic ? 'server' : 'generated'
+  }
   let raw: unknown, validationError: unknown, candidate: Candidate | null = null
   let reason: InterpretationDiagnostics['reason'] = null
   let interpretationProviderError: ProviderFailure | null = null
@@ -633,10 +640,16 @@ export async function respondWithAiInterpreter(
     Boolean(response.replyFacts?.some(fact=>['current_appointment','management_preserved'].includes(fact.id)) && response.replyFacts.some(fact=>fact.id==='next'))
   const canonicalOnly = !managementReadOnly && Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !explanatoryReadOnly && !managementReadOnly && !hasActiveBooking(response.state) &&
     !hasServiceClarification && !hasSemanticClarification && !partialAcquisition) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
+  const conversationalEligible = Boolean(conversationalPossible && !reason && candidate?.intent === 'other' &&
+    (candidate.communicative?.conversation || arithmetic) && candidate.attachmentIntent == null && turnPlan?.operations.length === 0 && !candidate.informationTarget &&
+    !response.proposal && !response.bookingCommand && !response.managementCommand && !response.handoffCommand &&
+    !response.confirmedCancellationHandoff && !response.ownAppointmentHandoff && availabilityCalls === 0 &&
+    !response.catalogInformation && JSON.stringify(response.state) === JSON.stringify(state))
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let modelFraming = false
   let authoredClarification: string | undefined
+  let authoredConversationalQuestion: string | undefined
   let intakeValidation: ReplyValidationResult['validation'] | undefined
   const rejections: ReplyRejectionDiagnostic[] = []
   const recordReplyValidation = (stage: ReplyRejectionDiagnostic['stage'], validation: ReplyValidation) => {
@@ -674,6 +687,9 @@ export async function respondWithAiInterpreter(
       !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
       !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
   const finalContract = replyContract(managementActive || managementReadOnly ? 'continuation' : replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
+  if (conversationalEligible && finalFacts.at(-1)?.id === 'next') finalContract.conversational = {
+    maxCharacters: CONVERSATIONAL_REPLY_LIMIT, continuation: conversationalContinuation, body: arithmetic ? 'server' : 'generated'
+  }
   const bookingAcknowledgmentEligible = partialAcquisition && !finalContract.neutral && !reason && !canonicalOnly &&
     !response.proposal && !response.bookingCommand && !response.managementCommand && !response.handoffCommand &&
     !response.state.sandboxReservation
@@ -698,23 +714,25 @@ export async function respondWithAiInterpreter(
     !Array.isArray(raw) && (raw as Record<string, unknown>).catalogAnswer != null &&
     (!response.catalogInformation?.answerGoal ||
       ((raw as Record<string, unknown>).catalogAnswer as { assessment?: { sufficient?: unknown } }).assessment?.sufficient === true)
-  if (!authored && (eligibleFirstReply || catalogCopyEligible || serviceClarificationEligible)) {
+  if (!authored && (conversationalEligible || eligibleFirstReply || catalogCopyEligible || serviceClarificationEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
     recordReplyValidation('first_reply', validated.validation)
     // Accepted framing alone is not an explanatory body. Keep its original trace,
     // but compose the missing explanation from the proved scope rather than a menu.
-    authored = serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
+    authored = conversationalEligible ? validated.conversationalBody ? validated.text : null
+      : serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
       : !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
     if (validated.validation.discardedFramingReason === 'identity_in_frame' && !validated.modelFraming) authored = null
     authoredClarification = authored ? validated.clarificationQuestion : undefined
+    authoredConversationalQuestion = authored ? validated.conversationalQuestion : undefined
     modelFraming = validated.modelFraming
     if (authored) replyRoute = 'first_call'
   }
   // Prepared body ownership never transfers to the model. Validate the whole draft
   // against its original facts, then reuse only a factual-free opening.
   // Final neutral facts remain immutable; they are not the model's frame contract.
-  if (!managementActive && !response.state.appointmentManagement && !authored && !intakeValidation && !reason && !catalogCopyEligible && !serviceClarificationEligible && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
+  if (!conversationalEligible && !managementActive && !response.state.appointmentManagement && !authored && !intakeValidation && !reason && !catalogCopyEligible && !serviceClarificationEligible && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
       !response.proposal && !response.bookingCommand && !response.state.sandboxReservation && !uncertain && !typoService && !response.state.questionContext?.matchCandidateIds) {
     const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
@@ -746,8 +764,8 @@ export async function respondWithAiInterpreter(
     replyValidation.firstCall.discardedFramingReason === 'identity_in_frame'
   // A proved explanatory read also needs composition when the interpretation did not
   // include a body. Its current catalog scope is authority for prose, never acquisition.
-  if ((!admissionRepairUsed && !identityFrameRecovery || aiCalls < 2) && !authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) &&
-      (!response.replyPrepared || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) && (!partialAcquisition || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible)) {
+  if ((!admissionRepairUsed && !identityFrameRecovery && !conversationalEligible || aiCalls < 2) && !authored && !reason && (!canonicalOnly || conversationalEligible) && responseProvider && (conversationalEligible || newVerifiedFacts || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) &&
+      (!response.replyPrepared || conversationalEligible || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) && (!partialAcquisition || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible)) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++
@@ -764,9 +782,11 @@ export async function respondWithAiInterpreter(
       const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
       recordReplyValidation('second_reply', validated.validation)
-      authored = serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
+      authored = conversationalEligible ? validated.conversationalBody ? validated.text : null
+        : serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
         : !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
       authoredClarification = authored ? validated.clarificationQuestion : undefined
+      authoredConversationalQuestion = authored ? validated.conversationalQuestion : undefined
       modelFraming = validated.modelFraming
       copyReason = authored ? modelFraming ? null : 'canonical_only' : 'invalid_response'
     } catch (error) {
@@ -810,6 +830,15 @@ export async function respondWithAiInterpreter(
       response.state.catalogNavigation ? response.state.questionContext?.options ?? []
         : services.filter(service => serviceClarificationIds?.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
     if (response.state.catalogNavigation) response.state.dialogueContext = { lastQuestion: authoredClarification, presentedOffer: null }
+  }
+  if (authored && authoredConversationalQuestion) {
+    const question = response.state.questionContext
+    if (response.state.serviceRequest && question?.question === serviceRequestQuestion(response.state.serviceRequest))
+      response.state.serviceRequest.clarificationQuestion = authoredConversationalQuestion
+    rememberDialogueQuestion(response.state, authoredConversationalQuestion, question?.options ?? [], question?.targetServiceId ?? null,
+      question?.matchCandidateIds ? { candidateIds: question.matchCandidateIds, ...(question.matchConfigurationKey ? { configurationKey: question.matchConfigurationKey } : {}),
+        ...(question.matchTargetMemberId ? { targetMemberId: question.matchTargetMemberId } : {}) } : null)
+    if (response.state.dialogueContext) response.state.dialogueContext.lastQuestion = authoredConversationalQuestion
   }
   const availability = summarizeAvailability(response.availability)
   return finalizeDialogueIntroduction(context, { ...response, reply: authored ?? (!newVerifiedFacts && finalFacts.length ? finalFacts.map(fact => fact.text).join('\n') : safeReply), interpretation: {
