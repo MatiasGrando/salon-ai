@@ -55,7 +55,7 @@ export async function createOrLinkCustomerFromConversation(input: CustomerFromCo
 }
 
 async function createOrLinkInstagramCustomer(
-  input: CustomerFromConversationInput,
+  input: Pick<CustomerFromConversationInput,'requestedName'|'requestedPhone'|'email'|'client'|'phoneCustomerCreator'>,
   leadId: string,
   businessId: string
 ) {
@@ -174,6 +174,12 @@ async function createOrLinkInstagramCustomer(
       nameConflict: null
     }
   }
+}
+
+/** Server bot identity path: no operator principal and no unverified phone input.
+ * The caller already owns the exact signed session/lead transaction. */
+export async function createOrLinkInstagramBotCustomer(input:{businessId:string;leadId:string;name:string;client:PrismaLike}) {
+  return createOrLinkInstagramCustomer({client:input.client,requestedName:input.name},input.leadId,input.businessId)
 }
 
 function findInstagramIdentity(client: PrismaLike, businessId: string, instagramUserId: string) {

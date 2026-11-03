@@ -130,8 +130,9 @@ export function calculateAccountTotals(input: {
   const paidAmount = input.entries.reduce((total, entry) => {
     const appliesToPayment = entry.type === 'PAYMENT'
       || entry.type === 'LEGACY_PAYMENT'
+      || entry.type === 'REFUND'
       || (entry.type === 'REVERSAL'
-        && (entry.reversedEntryType === 'PAYMENT' || entry.reversedEntryType === 'LEGACY_PAYMENT'))
+        && (entry.reversedEntryType === 'PAYMENT' || entry.reversedEntryType === 'LEGACY_PAYMENT' || entry.reversedEntryType === 'REFUND'))
     return appliesToPayment ? total + signedAmount(entry) : total
   }, 0)
 

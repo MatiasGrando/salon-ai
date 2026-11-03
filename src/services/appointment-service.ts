@@ -12,6 +12,7 @@ import {
   PendingDepositCancellationError
 } from './pending-deposit-cancellation.js'
 import { ensureDefaultMarketingPreference } from './marketing-preference-service.js'
+import { CustomerPhoneValidationError, findExistingCustomersByPhone } from './customer-identity-service.js'
 import {
   reservationDurationLimits
 } from './service-duration.js'
@@ -39,8 +40,20 @@ import { ensureProfessionalEarningForCompletedAppointment } from './professional
 
 const availabilitySlotInterval = 30
 
+function completedAppointmentImmutable() {
+  return { ok: false as const, statusCode: 409, code: 'COMPLETED_APPOINTMENT_IMMUTABLE' as const, message: 'Para corregir un turno realizado, usá la corrección administrativa de servicio' }
+}
+
+async function isCompletedAppointmentLocked(transaction: Prisma.TransactionClient, businessId: string, appointmentId: string) {
+  const rows = await transaction.$queryRaw<Array<{ status: string }>>(Prisma.sql`
+    SELECT "status"::text AS "status" FROM "Appointment" WHERE "businessId" = ${businessId} AND "id" = ${appointmentId} FOR UPDATE
+  `)
+  return rows[0]?.status === 'COMPLETED'
+}
+
 type CreateAppointmentInput = {
   customerId: string
+  customerPhone?: string
   professionalId: string
   serviceId: string
   serviceIds?: string[]
@@ -81,7 +94,7 @@ type AppointmentMutationResult =
       ok: false
       statusCode: number
       message: string
-      code?: 'PROFESSIONAL_SERVICE_MISMATCH' | 'APPOINTMENT_AVAILABILITY_CONFLICT'
+      code?: 'PROFESSIONAL_SERVICE_MISMATCH' | 'APPOINTMENT_AVAILABILITY_CONFLICT' | 'COMPLETED_APPOINTMENT_IMMUTABLE'
       forceable?: boolean
       conflicts?: AppointmentAvailabilityConflict[]
     }
@@ -132,6 +145,7 @@ type FindAvailabilityInput = {
 
 type FindAppointmentsInput = {
   businessId?: string
+  appointmentId?: string
   customerId?: string
   customerPhone?: string
   from?: string
@@ -278,6 +292,31 @@ export class AppointmentService {
       }
     }
 
+    const existingPhoneCustomer = input.customerPhone !== undefined
+    if (existingPhoneCustomer) {
+      if (input.customerId) {
+        return { ok: false, statusCode: 400, message: 'Elegí un cliente o ingresá su teléfono, no ambos' }
+      }
+      if (!authorizationUser) return appointmentForbidden()
+      const professional = await loadAuthorizedProfessional(prisma, authorizationUser, input.professionalId)
+      if (!professional) return appointmentNotFound()
+      if (!staffCanUseProfessional(authorizationUser, professional.id)) return appointmentForbidden()
+      let matches
+      try {
+        matches = await findExistingCustomersByPhone({ businessId: professional.businessId, phone: input.customerPhone! })
+      } catch (error) {
+        if (!(error instanceof CustomerPhoneValidationError)) throw error
+        return { ok: false, statusCode: 400, message: error.message }
+      }
+      if (!matches.length) {
+        return { ok: false, statusCode: 404, message: 'No encontramos un cliente registrado con ese número. Revisalo o pedí al equipo que lo registre.' }
+      }
+      if (matches.length !== 1) {
+        return { ok: false, statusCode: 409, message: 'Ese número coincide con más de una ficha. Pedí al equipo que revise el cliente antes de cargar el turno.' }
+      }
+      input = { ...input, customerId: matches[0]!.id }
+    }
+
     const serviceIds = normalizedServiceIds(input.serviceId, input.serviceIds)
     const { professional, services, customer, complete } = authorizationUser
       ? await loadAuthorizedAppointmentResources(prisma, authorizationUser, input, serviceIds)
@@ -422,10 +461,12 @@ export class AppointmentService {
         return 'AVAILABILITY_CONFLICT' as const
       }
 
-      if (!options.skipDefaultMarketingPreference) await ensureDefaultMarketingPreference({
-        businessId: professional.businessId,
-        customerId: input.customerId
-      }, transaction)
+      if (!existingPhoneCustomer && !options.skipDefaultMarketingPreference) {
+        await ensureDefaultMarketingPreference({
+          businessId: professional.businessId,
+          customerId: input.customerId
+        }, transaction)
+      }
 
       const createdAppointment = await createAppointmentRecord(transaction, {
         data: {
@@ -770,6 +811,7 @@ export class AppointmentService {
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, existing.professionalId)) {
       return appointmentForbidden()
     }
+    if (existing.status === 'COMPLETED') return completedAppointmentImmutable()
     const updatesManualDeposit = input.manualDepositPaid !== undefined ||
       input.manualDepositAmount !== undefined
     const manualDeposit = updatesManualDeposit
@@ -978,6 +1020,7 @@ export class AppointmentService {
         startAt,
         excludeAppointmentId: input.id
       })
+      if (await isCompletedAppointmentLocked(transaction, professional.businessId, input.id)) return 'COMPLETED_IMMUTABLE' as const
       if (authorizationUser) {
         const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, input.id)
         const scopedResources = await loadAuthorizedAppointmentResources(
@@ -1066,6 +1109,7 @@ export class AppointmentService {
     })
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
+    if (appointment === 'COMPLETED_IMMUTABLE') return completedAppointmentImmutable()
     if (appointment === 'DEPOSIT_CONFLICT') {
       return {
         ok: false,
@@ -1134,11 +1178,13 @@ export class AppointmentService {
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
       return appointmentForbidden()
     }
+    if (appointment.status === 'COMPLETED') return completedAppointmentImmutable()
     let cancelledAppointment: Awaited<ReturnType<typeof prisma.appointment.update>> | null
     let cancelledAppointmentIds = [appointmentId]
     try {
       cancelledAppointment = await prisma.$transaction(async (transaction) => {
         await acquireBusinessAgendaLock(transaction, appointment.professional.businessId)
+        if (await isCompletedAppointmentLocked(transaction, appointment.professional.businessId, appointmentId)) return null
         const currentAppointment = await transaction.appointment.findFirst({
           where: { id: appointmentId, professional: { businessId: appointment.professional.businessId } },
           select: { id: true, professionalId: true, coordinationGroupId: true }
@@ -1265,6 +1311,7 @@ export class AppointmentService {
     if (authorizationUser && !staffCanUseProfessional(authorizationUser, appointment.professionalId)) {
       return appointmentForbidden()
     }
+    if (appointment.status === 'COMPLETED') return completedAppointmentImmutable()
     if (status === 'COMPLETED' && appointment.startAt.getTime() > Date.now()) {
       return {
         ok: false as const,
@@ -1283,6 +1330,7 @@ export class AppointmentService {
             startAt: appointment.startAt,
             excludeAppointmentId: appointment.id
           })
+          if (await isCompletedAppointmentLocked(transaction, appointment.professional.businessId, appointmentId)) return 'COMPLETED_IMMUTABLE' as const
           if (authorizationUser) {
             const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
             if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
@@ -1325,6 +1373,7 @@ export class AppointmentService {
             businessId: appointment.professional.businessId,
             appointmentIds: [appointmentId]
           })
+          if (await isCompletedAppointmentLocked(transaction, appointment.professional.businessId, appointmentId)) return 'COMPLETED_IMMUTABLE' as const
           if (authorizationUser) {
             const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, appointmentId)
             if (!scopedAppointment || !staffCanUseProfessional(authorizationUser, scopedAppointment.professionalId)) {
@@ -1382,6 +1431,7 @@ export class AppointmentService {
           return updated
         })
     if (updatedAppointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
+    if (updatedAppointment === 'COMPLETED_IMMUTABLE') return completedAppointmentImmutable()
     if (updatedAppointment === 'DEPOSIT_CONFLICT') {
       return {
         ok: false as const,
@@ -1470,6 +1520,7 @@ export class AppointmentService {
 
     return prisma.appointment.findMany({
       where: {
+        ...(input.appointmentId ? { id: input.appointmentId, ...(input.businessId ? { businessId: input.businessId } : {}) } : {}),
         ...(input.businessId || input.professionalId
           ? {
               professional: {

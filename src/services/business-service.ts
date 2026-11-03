@@ -134,6 +134,7 @@ export class BusinessService {
     logoUrl?: string | null
     landingEnabled?: boolean
     allowGuestWebBooking?: boolean
+    webBookingPrioritizeLeastBooked?: boolean
     landingTemplate?: string
     landingSubtitle?: string | null
     landingFeature?: string | null

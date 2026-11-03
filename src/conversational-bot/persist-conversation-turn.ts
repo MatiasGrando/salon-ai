@@ -1,3 +1,4 @@
+import type { InstagramConversationSubject } from './conversation-subject.js'
 import type { ConsolidationEnvelope } from './inbound-consolidation.js'
 import { Prisma } from '../generated/prisma/client.js'
 import type { BotOptionsConversationStep } from '../bot-options/domain/conversation-status.js'
@@ -10,6 +11,7 @@ import { recordProducedOutbox } from '../bot-options/observability/queue-milesto
 
 /** Internal conversational write unit; callers retain all fresh read/lock guards and commit ownership. */
 export async function persistConversationTurnTx(tx: Prisma.TransactionClient, input: {
+  subject?: InstagramConversationSubject
   businessId: string; sessionId: string; expectedRevision: bigint; revision: bigint; handoffFenceEpoch: number
   state: unknown; transitionId: string; deploymentId: string; generation: number
   consolidation?: ConsolidationEnvelope | undefined; admittedAt?: Date | undefined; providerEventId: string; actionType: string; step: BotOptionsConversationStep | null
@@ -18,7 +20,7 @@ export async function persistConversationTurnTx(tx: Prisma.TransactionClient, in
 }): Promise<Omit<ConversationUpdatedEvent, 'type'> | null> {
   const final = input.finalizeText
   const plan = final ? planPersistedView({ view: textView(final.reply, final.publicLink), transitionId: input.transitionId,
-    toPhone: final.toPhone, promptToken: '', idFactory: randomUUID }) : null
+    toPhone: final.toPhone,...(input.subject?{subject:input.subject}:{}), promptToken: '', idFactory: randomUUID }) : null
   if (final && (!final.toPhone || !final.coveredIds.length)) throw new Error('text finalization destination or coverage unavailable')
   if (plan && (plan.promptId || plan.choiceRows.length || plan.outboxRows.some(row => row.kind !== 'informative_text' &&
       !(row.item.type === 'interactive' && row.item.mode === 'cta_url' && final?.publicLink)))) {
@@ -64,7 +66,7 @@ export async function persistConversationTurnTx(tx: Prisma.TransactionClient, in
         SELECT planned.*, clock_timestamp()
         FROM (VALUES ${Prisma.join(plan.outboxRows.map(row => Prisma.sql`(
           ${row.id}, ${input.businessId}, ${input.sessionId}, ${input.transitionId}, ${row.deliveryGroupId}, ${row.sequence}::integer, ${row.kind},
-          ${JSON.stringify({ to: final.toPhone, item: row.item, ...(input.consolidation ? { consolidation: input.consolidation } : {}) })}::jsonb,
+          ${JSON.stringify({ to: final.toPhone, ...(input.subject?{channel:'INSTAGRAM',subject:input.subject,revision:String(input.revision)}:{}), item: row.item, ...(input.consolidation ? { consolidation: input.consolidation } : {}) })}::jsonb,
           ${row.idempotencyKey}, 'PENDING'::"BotOutboxStatus", ${row.dependsOnSequence}::integer, ${final.dbNow}::timestamptz
         )`))}) planned
         CROSS JOIN prompt_done

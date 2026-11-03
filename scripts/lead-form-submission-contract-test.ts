@@ -26,6 +26,7 @@ function createHarness(options: {
   sourceMapping?: boolean
   conservativeSharedPeer?: boolean
   includePhone?: boolean
+  importedExecution?: boolean
 } = {}) {
   const now = new Date('2026-09-15T18:00:00.000Z')
   const state = {
@@ -103,7 +104,9 @@ function createHarness(options: {
     instagramCommentExecution: {
       findFirst: async ({ where }: { where: Record<string, unknown> }) =>
         where.id === 'execution-a' && where.businessId === 'business-a'
-          ? { id: 'execution-a', matchedKeyword: 'INFO', publicationId: 'publication-a', commenterInstagramUserId: 'instagram-user-a', commenterUsername: 'ana.instagram' }
+          ? { id: 'execution-a', matchedKeyword: 'INFO', publicationId: options.importedExecution ? null : 'publication-a',
+            providerMediaId: options.importedExecution ? 'provider-media-a' : null, receivedAccountId: options.importedExecution ? 'professional-a' : null,
+            commenterInstagramUserId: 'instagram-user-a', commenterUsername: 'ana.instagram' }
           : null
     },
     customer: {
@@ -508,8 +511,8 @@ for (const attribution of [
   assert.equal(state.leads[0]?.source, 'FORM')
 }
 
-{
-  const { client, state, valid } = createHarness({ includePhone: true })
+for (const importedExecution of [false, true]) {
+  const { client, state, valid } = createHarness({ includePhone: true, importedExecution })
   const secret = 'instagram-form-ref-secret-32-characters-minimum'
   const service = new LeadFormSubmissionService(client as never, {
     rateLimitSecret: '0123456789abcdef0123456789abcdef',
@@ -533,7 +536,8 @@ for (const attribution of [
   assert.deepEqual(state.submissions[0]?.attribution, {
     utmSource: 'instagram', utmCampaign: 'reel-septiembre',
     source: 'INSTAGRAM_COMMENT', campaign: 'INFO', instagramExecutionId: 'execution-a',
-    instagramPublicationId: 'publication-a', instagramUserId: 'instagram-user-a'
+    ...(importedExecution ? { instagramMediaId: 'provider-media-a', instagramAccountId: 'professional-a' } : { instagramPublicationId: 'publication-a' }),
+    instagramUserId: 'instagram-user-a'
   })
   const replay = await service.submit({ ...input, instagramRef: ref })
   assert.equal(replay.replayed, true)

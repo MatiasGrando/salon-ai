@@ -1,0 +1,45 @@
+LA COCHERA — Versión corregida de la landing
+
+Archivos principales: index.html, app.js y styles.css.
+
+Qué se modificó:
+- 6 PNG de servicios sustituidos por las versiones transparentes sin manchas blancas (se conservan los nombres de archivo).
+- Dos ángulos superpuestos en Corte, con borde lateral inferior suavizado.
+- Composición visual más grande y sin rectángulos ni gradiente blanco sobre las imágenes.
+- Selector inferior con 5 miniaturas, sincronizado con navegación y desplazamiento.
+- Recorrido por scroll de cinco servicios en escritorio, con sección temporalmente fija mediante CSS sticky; luego continúa la página.
+- Transición suave si se carga GSAP; si no hay conexión a la biblioteca, el cambio de servicios sigue funcionando sin animación.
+- Móvil: selector táctil, sin scroll fijado, composiciones adaptadas a pantalla pequeña.
+- WhatsApp flotante se oculta solo mientras los servicios son visibles para no tapar las miniaturas.
+
+Cómo usarlo:
+1. Guardá una copia de tu carpeta original.
+2. Extraé la carpeta de este ZIP y reemplazá la versión anterior de la landing.
+3. Abrí index.html en el navegador. En escritorio, desplazate por toda la sección de servicios.
+4. También podés elegir servicios con las miniaturas y las flechas. En móvil usá el selector y el gesto horizontal sobre las imágenes.
+5. Probá la web con conexión a Internet para cargar GSAP y las fuentes externas.
+
+IMPORTANTE ANTES DE PUBLICAR:
+- El proyecto original utiliza el enlace de ejemplo https://wa.me/5491155554321 (conservado en todos los lugares; reemplazalo por el WhatsApp real de la barbería).
+- Confirmá precios, servicios y duraciones, que se conservaron de los valores del código original.
+- Las imágenes ilustrativas generadas no deben presentarse como trabajos reales del salón.
+
+La carpeta original_assets_backup contiene los seis PNG defectuosos del archivo recibido, solo por respaldo.
+
+VERSIÓN 3 — 2026-10-13
+- PNG con bordes laterales e inferiores suavizados en el canal alfa, sin máscaras CSS rectangulares.
+- Dos fotos de Corte verdaderamente superpuestas, manteniendo los rostros visibles.
+- Transición visible con barrido dorado, salida/entrada con desenfoque y desplazamiento usando Web Animations API (funciona sin depender de GSAP).
+- Scroll con cinco etapas y selector de miniaturas sincronizado en escritorio.
+- Color Global y Reflejos ya NO dicen «+ Corte». El precio del lookbook se cambió a «Consultar», porque el usuario aclaró que estos servicios ya no incluyen corte. Revisar la duración (180 min) y fijar el precio final real antes de publicar. Los precios del modal antiguo siguen heredados del proyecto original y deben revisarse si se reutiliza ese modal.
+- Foto adicional para Corte + Barba: reemplazar assets/servicios/corte-barba.png por el PNG transparente de la imagen nueva; el mensaje mostró una referencia visual pero el archivo de foto original no estaba disponible como archivo independiente para incrustarlo.
+- Número WhatsApp y dirección del footer heredados del proyecto; comprobar antes de publicar.
+
+VERSIÓN 5 — EQUIPO + CORTE Y BARBA
+- Ahora la imagen principal y la miniatura de Corte + Barba utilizan la NUEVA imagen aportada por el usuario (assets/servicios/corte-barba.png).
+- Se amplió la altura de las áreas fotográficas del equipo (296px escritorio, 325px móvil).
+- Se incorporaron cuatro fotografías MOCK de modelos ilustrativos en assets/equipo/, rotuladas “Foto de ejemplo”. No son los profesionales reales: REEMPLAZAR antes de publicar.
+- Las fotos del equipo quedan listas para sustituirse en HTML cambiando solamente el src de cada img.team-mock-photo.
+- No se modificó la animación del lookbook ni el resto de la landing en esta revisión.
+- El PNG de Corte + Barba incorpora una caída suave de transparencia en ropa y lateral, para integrarse sobre el fondo marfil sin cortes rectos.
+- Las fotos de demostración del equipo son retratos ilustrativos, no representan a los profesionales reales y no deben publicarse como si lo fueran.

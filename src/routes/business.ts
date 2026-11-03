@@ -312,6 +312,8 @@ export async function businessRoutes(app: FastifyInstance) {
       slug?: string | null
       logoUrl?: string | null
       landingEnabled?: boolean
+      allowGuestWebBooking?: boolean
+      webBookingPrioritizeLeastBooked?: boolean
       landingTemplate?: string
       landingSubtitle?: string | null
       landingFeature?: string | null
@@ -351,6 +353,23 @@ export async function businessRoutes(app: FastifyInstance) {
     const landingOpeningYear = normalizeOpeningYear(body.landingOpeningYear)
     const landingDescription = normalizeOptionalText(body.landingDescription)
     const landingTemplateContent = normalizeLandingTemplateContent(body.landingTemplateContent)
+    if (body.allowGuestWebBooking !== undefined && typeof body.allowGuestWebBooking !== 'boolean') {
+      return reply.status(400).send({ message: 'La reserva sin cuenta debe estar activada o desactivada' })
+    }
+    if (body.webBookingPrioritizeLeastBooked !== undefined && typeof body.webBookingPrioritizeLeastBooked !== 'boolean') {
+      return reply.status(400).send({ message: 'La prioridad de profesionales debe estar activada o desactivada' })
+    }
+    if (body.webBookingPrioritizeLeastBooked === true) {
+      const current = timezone === undefined
+        ? await prisma.business.findUnique({ where: { id: params.id }, select: { timezone: true } })
+        : null
+      try {
+        assertIanaTimezone(timezone ?? current?.timezone)
+      } catch (error) {
+        if (!(error instanceof CashDomainError)) throw error
+        return reply.status(400).send({ message: 'Configurá una zona horaria válida del comercio antes de activar esta prioridad' })
+      }
+    }
     const bookingTheme = normalizeBookingTheme(body.bookingTheme)
     let landingGalleryImages = normalizeGalleryImages(body.landingGalleryImages)
     const publicWhatsapp = normalizeOptionalText(body.publicWhatsapp)
@@ -458,6 +477,8 @@ export async function businessRoutes(app: FastifyInstance) {
       slug === undefined &&
       logoUrl === undefined &&
       body.landingEnabled === undefined &&
+      body.allowGuestWebBooking === undefined &&
+      body.webBookingPrioritizeLeastBooked === undefined &&
       landingTemplate === undefined &&
       landingSubtitle === undefined &&
       landingFeature === undefined &&
@@ -532,6 +553,8 @@ export async function businessRoutes(app: FastifyInstance) {
         ...(slug !== undefined ? { slug } : {}),
         ...(logoUrl !== undefined ? { logoUrl } : {}),
         ...(body.landingEnabled !== undefined ? { landingEnabled: Boolean(body.landingEnabled) } : {}),
+        ...(body.allowGuestWebBooking !== undefined ? { allowGuestWebBooking: body.allowGuestWebBooking } : {}),
+        ...(body.webBookingPrioritizeLeastBooked !== undefined ? { webBookingPrioritizeLeastBooked: body.webBookingPrioritizeLeastBooked } : {}),
         ...(landingTemplate !== undefined ? { landingTemplate } : {}),
         ...(landingSubtitle !== undefined ? { landingSubtitle } : {}),
         ...(landingFeature !== undefined ? { landingFeature } : {}),

@@ -39,3 +39,10 @@ export function resolveWhatsAppConversationAi(
   provider.respond = createOpenAiResponseProvider(options)
   return { provider, timeoutMs }
 }
+/** Same interpretation/response providers and model defaults; channel opt-in is independent. */
+export function resolveInstagramConversationAi(env:Record<string,string|undefined>,fetchImpl?:typeof fetch):WhatsAppConversationAi|undefined {
+  if(env.CONVERSATIONAL_INSTAGRAM_AI_ENABLED!=='true')return undefined
+  return resolveWhatsAppConversationAi({...env,CONVERSATIONAL_WHATSAPP_AI_ENABLED:'true',
+    ...(env.CONVERSATIONAL_INSTAGRAM_AI_TIMEOUT_MS?{CONVERSATIONAL_WHATSAPP_AI_TIMEOUT_MS:env.CONVERSATIONAL_INSTAGRAM_AI_TIMEOUT_MS}:{}),
+    ...(env.CONVERSATIONAL_INSTAGRAM_AI_MODEL?{CONVERSATIONAL_WHATSAPP_AI_MODEL:env.CONVERSATIONAL_INSTAGRAM_AI_MODEL}:{})},fetchImpl)
+}

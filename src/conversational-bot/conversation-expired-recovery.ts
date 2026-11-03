@@ -1,8 +1,9 @@
+import {runtimeChannelIdentityRecord,type RuntimeChannelIdentity} from './conversation-subject.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { initialDialogueState, type DialogueState } from './engine.js'
 import { loadRuntimeDepositReceipt, parseRuntimeBookingReservation, type RuntimeShownScope } from './prisma-conversational-booking.js'
 
-type RecoveryScope = RuntimeShownScope & { canonicalPhone: string }
+type RecoveryScope = RuntimeShownScope & RuntimeChannelIdentity
 type Reader = Pick<Prisma.TransactionClient, '$queryRaw'>
 
 /** Completed historical effects are not pending; uncertain deliveries always are. */
@@ -33,7 +34,7 @@ export async function canResumeExpiredConversationTx(tx: Reader, scope: Recovery
       presented.scope.dispatchFenceEpoch !== scope.dispatchFenceEpoch || presented.scope.handoffFenceEpoch !== scope.handoffFenceEpoch ||
       !/^\d+$/.test(scope.revision) || BigInt(presented.scope.revision) > BigInt(scope.revision)) return false
   const actual = await loadRuntimeDepositReceipt(tx, { businessId: scope.businessId, sessionId: scope.sessionId,
-    canonicalPhone: scope.canonicalPhone, expectedRevision: BigInt(scope.revision) }, reservation)
+    ...runtimeChannelIdentityRecord(scope), expectedRevision: BigInt(scope.revision) }, reservation)
   const terminal = actual?.depositStatus === 'EXPIRED' || actual?.depositStatus === 'REJECTED' &&
     (actual.cancellationReason === 'CUSTOMER' || actual.cancellationReason === 'STAFF')
   return terminal && !await hasPendingConversationEffectsTx(tx, scope)

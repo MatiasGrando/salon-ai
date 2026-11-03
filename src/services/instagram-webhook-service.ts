@@ -1,4 +1,7 @@
+import { splitInstagramReply } from './instagram-message-text.js'
+export { splitInstagramReply } from './instagram-message-text.js'
 import { randomBytes } from 'node:crypto'
+import { PrismaInstagramBotAdmission } from './instagram-bot-admission.js'
 import { instagramConfig } from '../config/instagram.js'
 import { prisma } from '../config/prisma.js'
 import { InstagramApi } from '../integrations/instagram-api.js'
@@ -46,9 +49,9 @@ type InstagramWebhookPayload = {
 const instagramApi = new InstagramApi()
 const conversationRouter = new ConversationRouter()
 const businessKnowledgeService = new BusinessKnowledgeService()
-const INSTAGRAM_MESSAGE_MAX_LENGTH = 900
 
 export class InstagramWebhookService {
+  constructor(private readonly conversationalAdmission: Pick<PrismaInstagramBotAdmission,'admit'> = new PrismaInstagramBotAdmission(prisma)) {}
   verifyWebhook(input: VerifyWebhookInput) {
     if (input.mode === 'subscribe' && input.token === instagramConfig.verifyToken && input.challenge) {
       return { verified: true, challenge: input.challenge }
@@ -56,7 +59,7 @@ export class InstagramWebhookService {
     return { verified: false }
   }
 
-  async handleWebhook(payload: InstagramWebhookPayload = {}) {
+  async handleWebhook(payload: InstagramWebhookPayload = {}, authentication: { signatureVerified: boolean } = { signatureVerified: false }) {
     if (payload.object && payload.object !== 'instagram') return { received: true, processed: 0 }
     const events = parseInstagramWebhookPayload(payload).messaging
     const results = []
@@ -125,6 +128,13 @@ export class InstagramWebhookService {
         continue
       }
 
+      const conversational = await this.conversationalAdmission.admit({ businessId: config.businessId, accountId: config.instagramAccountId, event, signatureVerified: authentication.signatureVerified })
+      if (conversational.route === 'new') {
+        if (conversational.messageId) publishIncomingConversationMessage({ businessId: config.businessId, conversationId: channelConversationId('INSTAGRAM', conversational.leadId), messageId: channelMessageId('INSTAGRAM', conversational.messageId), receivedAt: new Date().toISOString() })
+        results.push({ messageId: event.messageId, saved: true, engine: 'conversational-booking-v1', status: conversational.status })
+        continue
+      }
+
       if (event.messageId) {
         const duplicate = await prisma.instagramMessage.findUnique({ where: { providerMessageId: event.messageId } })
         if (duplicate) {
@@ -186,7 +196,7 @@ export class InstagramWebhookService {
         receivedAt: new Date().toISOString()
       })
 
-      if (!config.enabled || !config.accessToken) {
+      if (!config.enabled || !config.accessToken || lead.aiEnabled === false) {
         results.push({ messageId: event.messageId, saved: true, replied: false })
         continue
       }
@@ -451,36 +461,6 @@ export function composeInstagramReply(input: {
   return `No estoy segura de haber entendido 😊\n\nPuedo ayudarte con servicios, precios, horarios, ubicación y profesionales. Para reservar o pedir un presupuesto, también puedo pasarte a WhatsApp.`
 }
 
-export function splitInstagramReply(
-  reply: string,
-  maxLength = INSTAGRAM_MESSAGE_MAX_LENGTH
-) {
-  const paragraphs = reply.trim().split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
-  const messages: string[] = []
-  let current = ''
-  const push = () => {
-    if (current) messages.push(current)
-    current = ''
-  }
-  for (const paragraph of paragraphs) {
-    const candidate = current ? `${current}\n\n${paragraph}` : paragraph
-    if (candidate.length <= maxLength) {
-      current = candidate
-      continue
-    }
-    push()
-    let remaining = paragraph
-    while (remaining.length > maxLength) {
-      let splitAt = remaining.lastIndexOf(' ', maxLength)
-      if (splitAt < Math.floor(maxLength * 0.6)) splitAt = maxLength
-      messages.push(remaining.slice(0, splitAt).trim())
-      remaining = remaining.slice(splitAt).trim()
-    }
-    current = remaining
-  }
-  push()
-  return messages
-}
 
 export function buildWhatsappUrl(
   phone: string | null,

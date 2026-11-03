@@ -36,7 +36,9 @@ for (const path of [
 }
 
 const depositService = readFileSync(new URL('../src/services/booking-deposit-service.ts', import.meta.url), 'utf8')
-assert.equal(depositService.includes("'application/pdf'"), false, 'legacy web proof parsing must not admit PDFs')
+assert.match(depositService, /await validateDepositProofPdf\(/, 'WEB admits PDFs only through the existing passive-document validator')
+assert.match(depositService, /WEB_PROOF_MAX_BYTES = 3 \* 1024 \* 1024/, 'WEB retains the 3 MB limit')
+assert.match(depositService, /visitId: null/, 'WEB cannot mutate an F8 financial deposit')
 
 const runbook = readFileSync(new URL('../docs/nuevo-bot/runbook-seguridad-privacidad.md', import.meta.url), 'utf8')
 // Repository evidence is not approval of infrastructure this test cannot inspect.
@@ -46,7 +48,7 @@ assert.match(runbook, /canManageDeposits/i)
 assert.match(runbook, /12 meses/i)
 assert.match(runbook, /retención efectiva[^\n]*no (?:está )?certificada/i)
 assert.match(runbook, /legacy[^\n]*visitId[^\n]*null/i)
-assert.match(runbook, /PDF rechazado en el parser WEB legacy/i)
+assert.match(runbook, /PDF WEB[^\n]*validador[^\n]*existente/i)
 assert.match(runbook, /PDF clásico/i)
 assert.match(runbook, /ObjStm\/XRef/i)
 assert.match(runbook, /legal hold[^\n]*pendiente/i)

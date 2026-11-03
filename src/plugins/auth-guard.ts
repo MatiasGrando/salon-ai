@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { isGlowSitePublicResource } from '../routes/glow-site.js'
+import { isLaCocheraPublicResource } from '../routes/la-cochera-site.js'
 import { getAuthFromRequest, type AuthContext } from '../services/auth-service.js'
 import { prisma } from '../config/prisma.js'
 import { canStaffAccessRoute, staffAuditAction } from '../services/staff-permission-service.js'
@@ -101,6 +102,15 @@ function isAccountAdminBusinessWorkspaceRoute(method: string, path: string) {
     || /^\/appointments\/[^/]+\/(?:finance|estimated-total|discount|payments)$/.test(path)
     || /^\/businesses\/[^/]+$/.test(path)
     || /^\/businesses\/[^/]+\/(?:payment-settings|whatsapp-settings|instagram-settings)$/.test(path)
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-settings\/test$/.test(path))
+    || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-media(?:\/[^/]+\/history)?$/.test(path))
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-media\/sync$/.test(path))
+    || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-calendar(?:\/time-options)?$/.test(path))
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-(?:media|publications)\/[^/]+\/duplicate$/.test(path))
+    || (['GET', 'PATCH'].includes(method) && /^\/businesses\/[^/]+\/instagram-(?:media|publications)\/[^/]+\/automation$/.test(path))
+    || (method === 'GET' && /^\/businesses\/[^/]+\/instagram-stories(?:\/(?:capability|[^/]+(?:\/download)?))?$/.test(path))
+    || (method === 'PATCH' && /^\/businesses\/[^/]+\/instagram-stories\/[^/]+$/.test(path))
+    || (method === 'POST' && /^\/businesses\/[^/]+\/instagram-stories(?:\/(?:capability|uploads(?:\/verify)?|[^/]+\/(?:publish|schedule|cancel|complete-manual|prepare-manual|duplicate)))?$/.test(path))
     || isInstagramPublicationWorkspaceRoute(method, path)
 }
 
@@ -118,7 +128,7 @@ export function isInstagramPublicationWorkspaceRoute(methodValue: string, path: 
     return method === 'GET' || method === 'PATCH'
   }
   return method === 'POST'
-    && /^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/publish$/.test(path)
+    && /^\/businesses\/[^/]+\/instagram-publications\/(?!uploads(?:\/|$))[^/]+\/(?:publish|schedule|cancel)$/.test(path)
 }
 
 export function requireSuperAdmin(request: FastifyRequest, reply: FastifyReply) {
@@ -278,6 +288,7 @@ function isPublicRoute(request: FastifyRequest) {
       && (path === '/styles.css' || path === '/main.js' || /^\/images\/[a-zA-Z0-9_-]+\.(jpg|png)$/.test(path)))
     || isLubricentroSitePublicRoute(request, path)
     || isGlowSitePublicResource(request.method, request.headers.host, path)
+    || isLaCocheraPublicResource(request.method, request.headers.host, path)
     || path.startsWith('/public/booking/')
     || (['GET', 'HEAD'].includes(request.method) && /^\/public\/glow\/branches\/(urquiza|canitas)\/catalog$/.test(path))
     || (request.method === 'GET' && /^\/f\/[a-z0-9-]{1,120}$/.test(path))

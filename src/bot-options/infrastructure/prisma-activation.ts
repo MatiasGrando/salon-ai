@@ -5,6 +5,7 @@ import { botOptionsMetrics } from '../observability/metrics.js'
 type ActivationClient = Pick<PrismaClient, '$transaction'>
 
 export type DispatchPauseHandle = {
+  channel?: 'INSTAGRAM'
   businessId: string
   deploymentId: string
   generation: number
@@ -52,6 +53,28 @@ export type ActivationPreflightResult =
 
 function lockKey(businessId: string): string {
   return `bot-cutover:${businessId}:WHATSAPP`
+}
+
+/** Exclude only positively bound Instagram work; missing ownership still blocks cutover. */
+function whatsappWorkScope(
+  table: 'BotSession' | 'BotActionInbox' | 'BotJob' | 'BotOutbox' | 'BotHandoff' | 'BotDispatchClaim',
+  deploymentId: string,
+  alias: string = table
+): Prisma.Sql {
+  const row = Prisma.raw(`"${alias}"`)
+  if (table === 'BotDispatchClaim') return Prisma.sql`${row}."channel"='WHATSAPP'::"BotChannel"`
+  if (table === 'BotSession') return Prisma.sql`${row}."channel"='WHATSAPP'::"BotChannel" AND ${row}."deploymentId"=${deploymentId}`
+  if (table === 'BotActionInbox' || table === 'BotJob') return Prisma.sql`(
+    ${row}."deploymentId"=${deploymentId} OR NOT EXISTS (
+      SELECT 1 FROM "BotChannelDeployment" ig WHERE ig."id"=${row}."deploymentId"
+        AND ig."businessId"=${row}."businessId" AND ig."channel"='INSTAGRAM'::"BotChannel"
+    )
+  )`
+  return Prisma.sql`NOT EXISTS (
+    SELECT 1 FROM "BotSession" ig JOIN "BotChannelDeployment" d
+      ON d."id"=ig."deploymentId" AND d."businessId"=ig."businessId" AND d."channel"='INSTAGRAM'::"BotChannel"
+    WHERE ig."id"=${row}."sessionId" AND ig."businessId"=${row}."businessId" AND ig."channel"='INSTAGRAM'::"BotChannel"
+  )`
 }
 
 export async function attestLegacyDispatchCoverage(input: {
@@ -166,6 +189,7 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
     const scopes = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT "id" FROM "BotChannelDeployment"
       WHERE "id" = ${handle.deploymentId} AND "businessId" = ${handle.businessId}
+        AND "channel"='WHATSAPP'::"BotChannel"
         AND "generation" = ${handle.generation} AND "dispatchFenceEpoch" = ${handle.fenceEpoch}
         AND "claimsPausedAt" = ${handle.pausedAt}
       FOR UPDATE
@@ -177,15 +201,19 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
         UPDATE "BotOutbox" SET "status" = 'UNKNOWN'::"BotOutboxStatus", "leaseToken" = NULL,
           "leasedUntil" = NULL, "errorCode" = COALESCE("errorCode", 'stale_sending'), "updatedAt" = clock_timestamp()
         WHERE "businessId" = ${handle.businessId} AND "status" = 'SENDING'::"BotOutboxStatus"
+          AND ${whatsappWorkScope('BotOutbox', handle.deploymentId)}
           AND "leasedUntil" < clock_timestamp() RETURNING "id"
       )
       UPDATE "BotDispatchClaim" c SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
       FROM stale_outbox o WHERE c."kind" = 'SEND'::"BotDispatchKind" AND c."resourceId" = o."id"
+        AND c."businessId"=${handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId, 'c')}
         AND c."status" = 'SENDING'::"BotDispatchStatus"
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotDispatchClaim" c SET "status" = 'DONE'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
       FROM "BotOutbox" o WHERE c."businessId" = ${handle.businessId} AND c."kind" = 'SEND'::"BotDispatchKind"
+        AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId, 'c')}
+        AND o."businessId"=${handle.businessId} AND ${whatsappWorkScope('BotOutbox', handle.deploymentId, 'o')}
         AND c."resourceId" = o."id" AND c."status" IN ('CLAIMED'::"BotDispatchStatus", 'SENDING'::"BotDispatchStatus")
         AND o."status" IN ('ACCEPTED'::"BotOutboxStatus", 'DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus",
           'RETRY'::"BotOutboxStatus", 'FAILED'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
@@ -194,22 +222,26 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
       WITH stale_claims AS (
         UPDATE "BotDispatchClaim" SET "status" = 'DONE'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
         WHERE "businessId" = ${handle.businessId} AND "status" = 'CLAIMED'::"BotDispatchStatus"
+          AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)}
           AND "claimedUntil" < clock_timestamp() RETURNING "kind", "resourceId"
       )
       UPDATE "BotOutbox" o SET "status" = 'PENDING'::"BotOutboxStatus", "leaseToken" = NULL,
         "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
       FROM stale_claims c WHERE c."kind" = 'SEND'::"BotDispatchKind" AND c."resourceId" = o."id"
+        AND o."businessId"=${handle.businessId} AND ${whatsappWorkScope('BotOutbox', handle.deploymentId, 'o')}
         AND o."status" = 'CLAIMED'::"BotOutboxStatus"
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
       WHERE "businessId" = ${handle.businessId} AND "kind" <> 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'SENDING'::"BotDispatchStatus"
+        AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)}
         AND "claimedUntil" < clock_timestamp()
     `)
     await tx.$executeRaw(Prisma.sql`
       WITH expired AS (
         UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
         WHERE "businessId" = ${handle.businessId} AND "kind"='LEGACY_PROCESS'::"BotDispatchKind"
+          AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)}
           AND "status"='SENDING'::"BotDispatchStatus" AND "claimedUntil" < clock_timestamp()
         RETURNING "claimToken"
       )
@@ -220,6 +252,7 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
       WITH expired AS (
         UPDATE "BotDispatchClaim" SET "status" = 'UNKNOWN'::"BotDispatchStatus", "updatedAt" = clock_timestamp()
         WHERE "businessId" = ${handle.businessId} AND "kind" = 'LEGACY_PROCESS'::"BotDispatchKind"
+          AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)}
           AND "status" = 'CLAIMED'::"BotDispatchStatus" AND "claimedUntil" < clock_timestamp()
         RETURNING "claimToken"
       )
@@ -231,18 +264,19 @@ async function reconcilePausedScope(client: ActivationClient, handle: DispatchPa
         "availableAt" = clock_timestamp(), "lastError" = COALESCE("lastError", 'lease expired during dispatch pause'),
         "updatedAt" = clock_timestamp()
       WHERE "businessId" = ${handle.businessId} AND "status" = 'LEASED'::"BotJobStatus"
+        AND ${whatsappWorkScope('BotJob', handle.deploymentId)}
         AND "leasedUntil" < clock_timestamp()
     `)
 
     const rows = await tx.$queryRaw<DispatchBlockers[]>(Prisma.sql`
       SELECT
-        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND "status" = 'CLAIMED'::"BotDispatchStatus")
-          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND "status" = 'CLAIMED'::"BotOutboxStatus")
-          + (SELECT count(*) FROM "BotJob" WHERE "businessId" = ${handle.businessId} AND "status" = 'LEASED'::"BotJobStatus") AS "claimed",
-        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND "status" = 'SENDING'::"BotDispatchStatus")
-          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND "status" = 'SENDING'::"BotOutboxStatus") AS "sending",
-        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND "status" = 'UNKNOWN'::"BotDispatchStatus")
-          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND "status" = 'UNKNOWN'::"BotOutboxStatus") AS "unknown"
+        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)} AND "status" = 'CLAIMED'::"BotDispatchStatus")
+          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotOutbox', handle.deploymentId)} AND "status" = 'CLAIMED'::"BotOutboxStatus")
+          + (SELECT count(*) FROM "BotJob" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotJob', handle.deploymentId)} AND "status" = 'LEASED'::"BotJobStatus") AS "claimed",
+        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)} AND "status" = 'SENDING'::"BotDispatchStatus")
+          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotOutbox', handle.deploymentId)} AND "status" = 'SENDING'::"BotOutboxStatus") AS "sending",
+        (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', handle.deploymentId)} AND "status" = 'UNKNOWN'::"BotDispatchStatus")
+          + (SELECT count(*) FROM "BotOutbox" WHERE "businessId" = ${handle.businessId} AND ${whatsappWorkScope('BotOutbox', handle.deploymentId)} AND "status" = 'UNKNOWN'::"BotOutboxStatus") AS "unknown"
     `)
     return rows[0] ?? { claimed: 0n, sending: 0n, unknown: 0n }
   })
@@ -295,6 +329,7 @@ export async function collectActivationPreflight(input: {
     const scope = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT "id" FROM "BotChannelDeployment"
       WHERE "id" = ${input.handle.deploymentId} AND "businessId" = ${input.handle.businessId}
+        AND "channel"='WHATSAPP'::"BotChannel"
         AND "generation" = ${input.handle.generation} AND "dispatchFenceEpoch" = ${input.handle.fenceEpoch}
         AND "claimsPausedAt" = ${input.handle.pausedAt}
       FOR UPDATE
@@ -304,6 +339,7 @@ export async function collectActivationPreflight(input: {
     const [drafts, legacyDrafts, legacyProtected, inbox, jobs, outbox, holds, deposits, handoffs, unknown, countRows] = await Promise.all([
       entries(Prisma.sql`SELECT "id", COALESCE("state"->>'booking', 'UNKNOWN_STATE') AS "status" FROM "BotSession"
         WHERE "businessId" = ${input.handle.businessId} AND "status" = 'ACTIVE'::"BotSessionStatus"
+          AND ${whatsappWorkScope('BotSession', input.handle.deploymentId)}
           AND "state"->>'booking' = 'DRAFT' ORDER BY "updatedAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "currentStep"::text AS "status" FROM "Conversation"
         WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL
@@ -318,12 +354,15 @@ export async function collectActivationPreflight(input: {
         ORDER BY "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotActionInbox"
         WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus", 'CLAIMED'::"BotInboxStatus", 'SELECTED'::"BotInboxStatus")
+          AND ${whatsappWorkScope('BotActionInbox', input.handle.deploymentId)}
         ORDER BY "receivedAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotJob"
         WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus", 'LEASED'::"BotJobStatus", 'RETRY'::"BotJobStatus", 'POISON'::"BotJobStatus")
+          AND ${whatsappWorkScope('BotJob', input.handle.deploymentId)}
         ORDER BY "createdAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotOutbox"
         WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus", 'CLAIMED'::"BotOutboxStatus", 'SENDING'::"BotOutboxStatus", 'RETRY'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus")
+          AND ${whatsappWorkScope('BotOutbox', input.handle.deploymentId)}
         ORDER BY "createdAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BookingVisit"
         WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus", 'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus")
@@ -333,28 +372,32 @@ export async function collectActivationPreflight(input: {
         ORDER BY "updatedAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", "status"::text AS "status" FROM "BotHandoff"
         WHERE "businessId" = ${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus", 'TAKEN'::"BotHandoffStatus")
+          AND ${whatsappWorkScope('BotHandoff', input.handle.deploymentId)}
         ORDER BY "queuedAt", "id" LIMIT ${limit}`),
       entries(Prisma.sql`SELECT "id", 'OUTBOX_UNKNOWN'::text AS "status" FROM "BotOutbox"
         WHERE "businessId" = ${input.handle.businessId} AND "status" = 'UNKNOWN'::"BotOutboxStatus"
+          AND ${whatsappWorkScope('BotOutbox', input.handle.deploymentId)}
         UNION ALL
          SELECT "id", 'DISPATCH_UNKNOWN'::text AS "status" FROM "BotDispatchClaim"
          WHERE "businessId" = ${input.handle.businessId} AND "kind" <> 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'UNKNOWN'::"BotDispatchStatus"
+           AND ${whatsappWorkScope('BotDispatchClaim', input.handle.deploymentId)}
          UNION ALL
          SELECT "id", 'LEGACY_PROCESS_UNKNOWN'::text AS "status" FROM "BotDispatchClaim"
          WHERE "businessId" = ${input.handle.businessId} AND "kind" = 'LEGACY_PROCESS'::"BotDispatchKind" AND "status" = 'UNKNOWN'::"BotDispatchStatus"
+           AND ${whatsappWorkScope('BotDispatchClaim', input.handle.deploymentId)}
          LIMIT ${limit}`),
       tx.$queryRaw<Array<Record<keyof ActivationPreflightSnapshot['counts'], bigint>>>(Prisma.sql`
         SELECT
-          (SELECT count(*) FROM "BotSession" WHERE "businessId"=${input.handle.businessId} AND "status"='ACTIVE'::"BotSessionStatus" AND "state"->>'booking'='DRAFT') AS "drafts",
+          (SELECT count(*) FROM "BotSession" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotSession', input.handle.deploymentId)} AND "status"='ACTIVE'::"BotSessionStatus" AND "state"->>'booking'='DRAFT') AS "drafts",
           (SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" NOT IN ('START'::"ConversationStep",'COMPLETED'::"ConversationStep",'AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep")) AS "legacyDrafts",
            ((SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" IN ('AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep")) + (SELECT count(*) FROM "LegacyWhatsAppCutoverInbound" WHERE "businessId"=${input.handle.businessId} AND "status"='PAUSED_ADMITTED'::"LegacyWhatsAppCutoverInboundStatus")) AS "legacyProtected",
-          (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus")) AS "inbox",
-          (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus")) AS "jobs",
-          (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus")) AS "outbox",
+          (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotActionInbox', input.handle.deploymentId)} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus")) AS "inbox",
+          (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotJob', input.handle.deploymentId)} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus")) AS "jobs",
+          (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotOutbox', input.handle.deploymentId)} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus")) AS "outbox",
           (SELECT count(*) FROM "BookingVisit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus",'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus")) AS "holds",
           (SELECT count(*) FROM "BookingDeposit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING_PROOF'::"BookingDepositStatus",'PENDING_RESUBMISSION'::"BookingDepositStatus",'PROOF_RECEIVED'::"BookingDepositStatus")) AS "deposits",
-          (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")) AS "handoffs",
-           ((SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status"='UNKNOWN'::"BotOutboxStatus") + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND "status"='UNKNOWN'::"BotDispatchStatus")) AS "unknown"
+          (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotHandoff', input.handle.deploymentId)} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")) AS "handoffs",
+           ((SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotOutbox', input.handle.deploymentId)} AND "status"='UNKNOWN'::"BotOutboxStatus") + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', input.handle.deploymentId)} AND "status"='UNKNOWN'::"BotDispatchStatus")) AS "unknown"
       `)
     ])
     const counts = countRows[0]
@@ -368,6 +411,7 @@ async function auditActivationPreflight(client: ActivationClient, handle: Dispat
   await client.$transaction(async (tx) => {
     const scope = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT "id" FROM "BotChannelDeployment" WHERE "id"=${handle.deploymentId} AND "businessId"=${handle.businessId}
+        AND "channel"='WHATSAPP'::"BotChannel"
         AND "generation"=${handle.generation} AND "dispatchFenceEpoch"=${handle.fenceEpoch} AND "claimsPausedAt"=${handle.pausedAt} FOR UPDATE
     `)
     if (scope.length !== 1) throw new Error('stale dispatch pause handle')
@@ -435,6 +479,7 @@ export async function resumeDispatchScope(input: {
     const count = await tx.$executeRaw(Prisma.sql`
       UPDATE "BotChannelDeployment" SET "claimsPausedAt" = NULL, "updatedAt" = clock_timestamp()
       WHERE "id" = ${input.handle.deploymentId} AND "businessId" = ${input.handle.businessId}
+        AND "channel"='WHATSAPP'::"BotChannel"
         AND "generation" = ${input.handle.generation} AND "dispatchFenceEpoch" = ${input.handle.fenceEpoch}
         AND "claimsPausedAt" = ${input.handle.pausedAt}
     `)
@@ -520,13 +565,13 @@ export async function switchPausedRouting(input: {
     const protectedRows = await tx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
       SELECT (
         (SELECT count(*) FROM "LegacyWhatsAppCutoverInbound" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PAUSED_ADMITTED'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_CLAIMED'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_SENDING'::"LegacyWhatsAppCutoverInboundStatus",'NORMAL_UNKNOWN'::"LegacyWhatsAppCutoverInboundStatus"))
-        + (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus"))
-        + (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus"))
-        + (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'UNKNOWN'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus"))
-        + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('CLAIMED'::"BotDispatchStatus",'SENDING'::"BotDispatchStatus",'UNKNOWN'::"BotDispatchStatus"))
+        + (SELECT count(*) FROM "BotActionInbox" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotActionInbox', input.handle.deploymentId)} AND "status" IN ('ADMITTED'::"BotInboxStatus",'CLAIMED'::"BotInboxStatus",'SELECTED'::"BotInboxStatus"))
+        + (SELECT count(*) FROM "BotJob" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotJob', input.handle.deploymentId)} AND "status" IN ('READY'::"BotJobStatus",'LEASED'::"BotJobStatus",'RETRY'::"BotJobStatus",'POISON'::"BotJobStatus"))
+        + (SELECT count(*) FROM "BotOutbox" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotOutbox', input.handle.deploymentId)} AND "status" IN ('PENDING'::"BotOutboxStatus",'CLAIMED'::"BotOutboxStatus",'SENDING'::"BotOutboxStatus",'UNKNOWN'::"BotOutboxStatus",'RETRY'::"BotOutboxStatus",'POISON'::"BotOutboxStatus"))
+        + (SELECT count(*) FROM "BotDispatchClaim" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotDispatchClaim', input.handle.deploymentId)} AND "status" IN ('CLAIMED'::"BotDispatchStatus",'SENDING'::"BotDispatchStatus",'UNKNOWN'::"BotDispatchStatus"))
         + (SELECT count(*) FROM "BookingVisit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('HELD'::"BookingVisitStatus",'PENDING_PAYMENT_REVIEW'::"BookingVisitStatus"))
         + (SELECT count(*) FROM "BookingDeposit" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('PENDING_PROOF'::"BookingDepositStatus",'PENDING_RESUBMISSION'::"BookingDepositStatus",'PROOF_RECEIVED'::"BookingDepositStatus"))
-        + (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus"))
+        + (SELECT count(*) FROM "BotHandoff" WHERE "businessId"=${input.handle.businessId} AND ${whatsappWorkScope('BotHandoff', input.handle.deploymentId)} AND "status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus"))
         + (SELECT count(*) FROM "Conversation" WHERE "businessId"=${input.handle.businessId} AND "archivedAt" IS NULL AND "currentStep" IN ('AWAITING_DEPOSIT'::"ConversationStep",'HUMAN_HANDOFF'::"ConversationStep"))
       ) AS "count"
     `)
@@ -536,11 +581,13 @@ export async function switchPausedRouting(input: {
       UPDATE "BotPrompt" p SET "status"='INVALIDATED'::"BotPromptStatus", "resolvedAt"=clock_timestamp()
       FROM "BotSession" s
       WHERE p."sessionId"=s."id" AND s."businessId"=${input.handle.businessId}
+        AND ${whatsappWorkScope('BotSession', input.handle.deploymentId, 's')}
         AND p."status" IN ('OPEN'::"BotPromptStatus",'STABILIZING'::"BotPromptStatus")
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "BotSession" SET "status"='CLOSED'::"BotSessionStatus", "updatedAt"=clock_timestamp()
       WHERE "businessId"=${input.handle.businessId} AND "status"='ACTIVE'::"BotSessionStatus"
+        AND ${whatsappWorkScope('BotSession', input.handle.deploymentId)}
     `)
     await tx.$executeRaw(Prisma.sql`
       UPDATE "Conversation" SET "currentStep"='START'::"ConversationStep",
@@ -565,6 +612,7 @@ export async function switchPausedRouting(input: {
         "claimsPausedAt"=NULL,
         "updatedAt"=clock_timestamp()
       WHERE "id"=${input.handle.deploymentId} AND "generation"=${input.handle.generation}
+        AND "businessId"=${input.handle.businessId} AND "channel"='WHATSAPP'::"BotChannel"
         AND "dispatchFenceEpoch"=${input.handle.fenceEpoch} AND "claimsPausedAt"=${input.handle.pausedAt}
       RETURNING "generation"
     `)

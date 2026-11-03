@@ -1,3 +1,4 @@
+import {lockInstagramRuntimeActorTx,validRuntimeChannelIdentity,type RuntimeChannelIdentity} from '../conversational-bot/conversation-subject.js'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
@@ -8,8 +9,8 @@ import { resolveBusinessScope, type BusinessAuthorizationUser } from './business
 import { staffCanUseProfessional, type StaffAuthorizationUser } from './staff-permission-service.js'
 
 export type PendingDepositCancellationActor =
-  | { kind: 'CUSTOMER'; sessionId: string; canonicalPhone: string; expectedRevision: bigint;
-      expectedReceipt: { groupId: string; operationKey: string; proposalNonce: string; fingerprint: string } }
+  | ({ kind: 'CUSTOMER'; sessionId: string; expectedRevision: bigint;
+      expectedReceipt: { groupId: string; operationKey: string; proposalNonce: string; fingerprint: string } } & RuntimeChannelIdentity)
   | { kind: 'STAFF'; user: BusinessAuthorizationUser & StaffAuthorizationUser }
 export type PendingDepositCancellationMember = {
   appointmentId: string; visitId: string; professionalId: string; appointmentVersion: number; visitVersion: number;
@@ -76,20 +77,21 @@ async function memberRows(tx: Prisma.TransactionClient, businessId: string, appo
 }
 async function currentCustomerReceipt(tx: Prisma.TransactionClient, businessId: string, rows: MemberRow[], actor: PendingDepositCancellationActor) {
   if (actor.kind !== 'CUSTOMER') return null
-  if (!text(actor.sessionId) || !/^\d{10,15}$/.test(actor.canonicalPhone) || typeof actor.expectedRevision !== 'bigint' || actor.expectedRevision < 0n) fail('OWNERSHIP')
+  if (!text(actor.sessionId) || !validRuntimeChannelIdentity(actor) || typeof actor.expectedRevision !== 'bigint' || actor.expectedRevision < 0n) fail('OWNERSHIP')
+  const instagramActor=actor.subject?await lockInstagramRuntimeActorTx(tx,{businessId,sessionId:actor.sessionId,subject:actor.subject,revision:actor.expectedRevision}):null
   const found = await tx.$queryRaw<Array<{ state: unknown; generation: number; configurationId: string; deploymentId: string; dispatchFenceEpoch: number; handoffFenceEpoch: number }>>(Prisma.sql`
     /* pending-cancel-session */ SELECT s.state,d.generation,d."activeConfigurationId" AS "configurationId",s."deploymentId",d."dispatchFenceEpoch",s."handoffFenceEpoch"
-    FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+    FROM "BotSession" s ${actor.subject?Prisma.empty:Prisma.sql`JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"`}
     JOIN "Customer" customer ON customer.id=${rows[0]!.customerId} AND customer."businessId"=s."businessId"
     JOIN "BotChannelDeployment" d ON d.id=s."deploymentId" AND d."businessId"=s."businessId"
     JOIN "BusinessBotConfiguration" cfg ON cfg.id=d."activeConfigurationId" AND cfg."businessId"=s."businessId"
     JOIN "Business" b ON b.id=s."businessId"
     WHERE s.id=${actor.sessionId} AND s.id=${rows[0]!.sessionId} AND s."businessId"=${businessId} AND s.revision=${actor.expectedRevision}
       AND s.status='ACTIVE' AND s."handoffClaimsPausedAt" IS NULL AND d."claimsPausedAt" IS NULL AND cfg.status='ACTIVE'
-      AND s."deploymentGeneration"=d.generation AND d.channel='WHATSAPP' AND d."legacyDispatchCoverageVersion">=1 AND b."botEnabled"=true
+      AND s."deploymentGeneration"=d.generation AND d.channel=${actor.subject?'INSTAGRAM':'WHATSAPP'}::"BotChannel" AND d."legacyDispatchCoverageVersion">=1 AND b."botEnabled"=true
       AND d."engineKey"='deterministic-options' AND cfg.definition->'conversation'='{"engine":"conversational-booking-v1","schemaVersion":1}'::jsonb
-      AND customer."normalizedPhone"=${actor.canonicalPhone} AND regexp_replace(c.phone,'[^0-9]','','g')=${actor.canonicalPhone}
-    FOR UPDATE OF s FOR SHARE OF c,customer,d,cfg,b`)
+      AND ${actor.subject?Prisma.sql`${instagramActor?.customerId===rows[0]!.customerId}`:Prisma.sql`customer."normalizedPhone"=${actor.canonicalPhone} AND regexp_replace(c.phone,'[^0-9]','','g')=${actor.canonicalPhone}`}
+    FOR UPDATE OF s FOR SHARE OF ${actor.subject?Prisma.sql`customer,d,cfg,b`:Prisma.sql`c,customer,d,cfg,b`}`)
   const row = found[0], state = row?.state
   if (found.length !== 1 || !row || !object(state) || state.booking !== 'HELD' || state.deposit !== 'PENDING_PROOF' || state.handoff !== 'NONE') fail('OWNERSHIP')
   const container = state.conversationDraft

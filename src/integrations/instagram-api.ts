@@ -1,4 +1,5 @@
 import { instagramConfig } from '../config/instagram.js'
+import { INSTAGRAM_INSIGHT_METRICS, INSTAGRAM_MEDIA_PAGE_SIZE, parseInsights, parseMediaPage } from '../services/instagram-media-domain.js'
 
 type MetaErrorBody = {
   error?: {
@@ -40,6 +41,26 @@ export class InstagramApiRequestError extends Error {
 export class InstagramApi {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
+  async listMedia(input: { accountId: string; accessToken: string; after?: string | null }) {
+    this.assertMediaResourceId(input.accountId)
+    const url = this.resourceUrl(input.accountId, 'media')
+    url.searchParams.set('fields', 'id,caption,media_type,media_product_type,permalink,thumbnail_url,timestamp')
+    url.searchParams.set('limit', String(INSTAGRAM_MEDIA_PAGE_SIZE))
+    if (input.after) url.searchParams.set('after', input.after)
+    const body = await this.request(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudo consultar el contenido de Instagram.')
+    return parseMediaPage(body, input.accessToken)
+  }
+
+  async getReelInsights(input: { mediaId: string; accessToken: string }) {
+    this.assertMediaResourceId(input.mediaId)
+    // views replaced legacy play metrics from v22; do not silently upgrade the configured API.
+    if (Number(instagramConfig.apiVersion.match(/^v(\d+)\./)?.[1] ?? 0) < 22) throw new Error('unsupported_api_version')
+    const url = this.resourceUrl(input.mediaId, 'insights')
+    url.searchParams.set('metric', INSTAGRAM_INSIGHT_METRICS.join(','))
+    const body = await this.request(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudieron consultar las metricas de Instagram.')
+    return parseInsights(body)
+  }
+
   async getAccount(input: { accessToken: string }) {
     return this.getAccountById({ accountId: 'me', accessToken: input.accessToken })
   }
@@ -55,6 +76,23 @@ export class InstagramApi {
       throw this.invalidResponse('Instagram no pudo validar el token.')
     }
     return { id: body.id, username: body.username ?? null, name: body.name ?? null }
+  }
+
+  async getStoryAccountType(input: { accountId: string; accessToken: string }) {
+    const url = this.resourceUrl(input.accountId)
+    url.searchParams.set('fields', 'id,account_type')
+    const body = await this.request<MetaErrorBody & { id?: string; account_type?: string }>(url, { method: 'GET', headers: this.authorization(input.accessToken), signal: AbortSignal.timeout(5000) }, 'No se pudo comprobar el tipo de cuenta para historias.')
+    if (!body.id || !body.account_type) throw this.invalidResponse('Instagram no devolvió el tipo de cuenta.')
+    return { accountType: body.account_type }
+  }
+
+  async createStoryContainer(input: { accountId: string; accessToken: string; mediaUrl: string; mediaKind: 'IMAGE' | 'VIDEO' }) {
+    this.assertHttpsVideoUrl(input.mediaUrl)
+    const body = await this.request<MetaErrorBody & { id?: string }>(this.resourceUrl(input.accountId, 'media'), this.postJson(input.accessToken, {
+      media_type: 'STORIES', ...(input.mediaKind === 'IMAGE' ? { image_url: input.mediaUrl } : { video_url: input.mediaUrl })
+    }), 'Instagram rechazó la creación de la historia.')
+    if (!body.id) throw this.invalidResponse('Instagram no devolvió el contenedor de la historia.', true)
+    return { containerId: body.id }
   }
 
   async createReelContainer(input: {
@@ -136,17 +174,35 @@ export class InstagramApi {
     })
   }
 
+  async getComment(input: { commentId: string; accessToken: string }) {
+    this.assertMediaResourceId(input.commentId)
+    const url = this.resourceUrl(input.commentId)
+    url.searchParams.set('fields', 'id,timestamp,parent_id,from,media')
+    return this.request<MetaErrorBody & { id?: string; timestamp?: string; parent_id?: string; from?: { id?: string }; media?: { id?: string } }>(url,
+      { method: 'GET', headers: this.authorization(input.accessToken) }, 'No se pudo verificar la fecha del comentario.')
+  }
+
+  async replyToComment(input: { commentId: string; accessToken: string; text: string }) {
+    this.assertMediaResourceId(input.commentId)
+    const body = await this.request<MetaErrorBody & { id?: string }>(this.resourceUrl(input.commentId, 'replies'),
+      this.postJson(input.accessToken, { message: input.text }), 'Instagram rechazo la respuesta publica.')
+    if (!body.id) throw this.invalidResponse('Instagram no devolvio el identificador de la respuesta publica.', true)
+    return { replyId: body.id }
+  }
+
   async sendTextMessage(input: {
     instagramAccountId: string
     accessToken: string
     recipientId: string
     text: string
+    signal?: AbortSignal
   }) {
     const delivery = await this.sendMessage({
       accountId: input.instagramAccountId,
       accessToken: input.accessToken,
       recipient: { id: input.recipientId },
       text: input.text,
+      ...(input.signal?{signal:input.signal}:{}),
       fallbackRecipientId: input.recipientId
     })
     // Preserve the established non-null recipient contract for direct DMs.
@@ -159,13 +215,14 @@ export class InstagramApi {
     recipient: { id: string } | { comment_id: string }
     text: string
     fallbackRecipientId?: string
+    signal?: AbortSignal
   }) {
     const body = await this.request<MetaErrorBody & { message_id?: string; recipient_id?: string }>(
       this.resourceUrl(input.accountId, 'messages'),
-      this.postJson(input.accessToken, {
+      {...this.postJson(input.accessToken, {
         recipient: input.recipient,
         message: { text: input.text }
-      }),
+      }),...(input.signal?{signal:input.signal}:{})},
       'Instagram rechazo el mensaje.'
     )
     if (!body.message_id) {
@@ -182,6 +239,10 @@ export class InstagramApi {
     return new URL(
       `https://graph.instagram.com/${instagramConfig.apiVersion}/${encodeURIComponent(id)}${suffix}`
     )
+  }
+
+  private assertMediaResourceId(id: string) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new TypeError('Identificador de Instagram no valido.')
   }
 
   private authorization(accessToken: string) {

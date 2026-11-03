@@ -1,3 +1,5 @@
+import { createOrLinkInstagramBotCustomer } from '../../services/conversation-customer-link-service.js'
+import { resolveInstagramSessionSubjectTx, lockInstagramRuntimeActorTx, lockConversationSubjectTx, type InstagramConversationSubject } from '../../conversational-bot/conversation-subject.js'
 import { resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
 import { canonicalJsonHash } from '../../conversational-bot/canonical-json.js'
 import { explicitReferralAction } from '../../conversational-bot/conversational-referral.js'
@@ -18,6 +20,8 @@ type CurrentCancellationScope = {
 }
 
 type HandoffEffectInput = {
+  subject?: InstagramConversationSubject
+  channel?: 'WHATSAPP'|'INSTAGRAM'
   /** Server-only; absent keeps the legacy hash and semantics unchanged. */
   cancelScope?: CurrentCancellationScope
   businessId: string
@@ -270,7 +274,7 @@ async function cancelHandoffByCustomer(
     generation:number;configurationId:string;claimsPausedAt:Date|null}>>(Prisma.sql`
     /* conversational-handoff-cancel-scope */
     SELECT s."revision"::text AS "revision",s."state",s."handoffFenceEpoch",s."handoffClaimsPausedAt",
-      s."deploymentId",s."deploymentGeneration",d."generation",d."activeConfigurationId" AS "configurationId",d."claimsPausedAt",d."businessId",d."engineKey",b."customerCode",
+      s."deploymentId",s."deploymentGeneration",${input.channel==='INSTAGRAM'?Prisma.sql`d.channel::text AS channel,`:Prisma.empty}d."generation",d."activeConfigurationId" AS "configurationId",d."claimsPausedAt",d."businessId",d."engineKey",b."customerCode",
       cfg."businessId" AS "configurationBusinessId",cfg."status"::text AS "configurationStatus",cfg."definition"
     FROM "BotSession" s JOIN "BotChannelDeployment" d ON d."id"=s."deploymentId" AND d."businessId"=s."businessId"
     JOIN "Business" b ON b."id"=d."businessId"
@@ -324,6 +328,16 @@ async function projectQueuedHandoff(
   input: HandoffEffectInput,
   existingQueue?: { handoffId: string; queuedAt: Date }
 ): Promise<QueuedCrmProjection | null> {
+  const instagram = input.channel==='INSTAGRAM'?await tx.$queryRaw<Array<{id:string;updatedAt:Date}>>(Prisma.sql`
+    UPDATE "InstagramLead" lead SET "aiEnabled"=false,"botPausedAt"=COALESCE(lead."botPausedAt",clock_timestamp()),"updatedAt"=clock_timestamp()
+    FROM "BotSession" session WHERE session.id=${input.sessionId} AND session."businessId"=${input.businessId}
+      AND session.channel='INSTAGRAM' AND session."instagramLeadId"=lead.id AND lead."businessId"=session."businessId"
+    RETURNING lead.id,lead."updatedAt"
+  `):[]
+  if(instagram.length){
+    input.pendingConversationUpdates?.push({businessId:input.businessId,conversationId:'instagram:'+instagram[0]!.id,updatedAt:instagram[0]!.updatedAt.toISOString()})
+    return null
+  }
   const rows = await tx.$queryRaw<Array<{
     id: string; currentStep: string; aiEnabled: boolean; humanHandoffAtText: string | null
     humanHandoffResolvedAtText: string | null; dbNow: Date
@@ -366,6 +380,17 @@ async function restoreQueuedHandoffProjection(
   handoffId: string,
   context: Prisma.JsonValue | null
 ) {
+  if(input.channel==='INSTAGRAM') {
+    const restored=await tx.$queryRaw<Array<{id:string;updatedAt:Date}>>(Prisma.sql`
+      UPDATE "InstagramLead" lead SET "aiEnabled"=true,"botPausedAt"=NULL,"updatedAt"=clock_timestamp()
+      FROM "BotSession" session WHERE session.id=${input.sessionId} AND session."businessId"=${input.businessId}
+        AND session.channel='INSTAGRAM' AND session.status='ACTIVE' AND session."handoffClaimsPausedAt" IS NULL
+        AND lead.id=session."instagramLeadId" AND lead."businessId"=session."businessId" AND lead."botPausedByUserId" IS NULL
+      RETURNING lead.id,lead."updatedAt"`)
+    if(restored.length!==1)throw new Error('Instagram customer resume cannot override human pause')
+    input.pendingConversationUpdates?.push({businessId:input.businessId,conversationId:'instagram:'+restored[0]!.id,updatedAt:restored[0]!.updatedAt.toISOString()})
+    return
+  }
   if (!context || typeof context !== 'object' || Array.isArray(context)) return
   const value = context._crmQueuedProjection
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
@@ -401,11 +426,31 @@ async function restoreQueuedHandoffProjection(
 
 async function persistCustomerName(
   tx: Prisma.TransactionClient,
-  input: { businessId: string; sessionId: string; operationKey: string },
+  input: HandoffEffectInput,
   effect: Extract<BotOptionsEffect, { kind: 'PERSIST_CUSTOMER_NAME' }>
 ): Promise<void> {
   const validated = validateCustomerName(effect.name)
   if (!validated.ok) throw new Error('refusing invalid customer name effect')
+  const instagram=input.subject?await resolveInstagramSessionSubjectTx(tx,{businessId:input.businessId,sessionId:input.sessionId,expected:input.subject}):null
+  if(instagram){
+    const actor=await lockInstagramRuntimeActorTx(tx,{businessId:input.businessId,sessionId:input.sessionId,subject:instagram})
+    if(!actor)throw new Error('Instagram customer name authority unavailable')
+    await lockConversationSubjectTx(tx,input.businessId,instagram)
+    const key=input.operationKey+':'+effect.kind
+    const hash=createHash('sha256').update(JSON.stringify({name:validated.normalized,subject:{channel:instagram.channel,instagramLeadId:instagram.instagramLeadId,instagramAccountId:instagram.instagramAccountId,externalUserId:instagram.externalUserId}}),'utf8').digest('hex')
+    const inserted=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","updatedAt") VALUES (${randomUUID()},${key},${effect.kind},${input.businessId},${input.sessionId},'STARTED',${hash},clock_timestamp()) ON CONFLICT ("operationKey") DO NOTHING RETURNING id`)
+    if(!inserted.length){
+      const replay=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotOperation" WHERE "operationKey"=${key} AND "businessId"=${input.businessId} AND "sessionId"=${input.sessionId} AND type=${effect.kind} AND "requestHash"=${hash} AND status='COMPLETED' AND "resultRef"=${actor.customerId} FOR UPDATE`)
+      if(replay.length!==1)throw new Error('Instagram customer name replay mismatch')
+      return
+    }
+    const linked=await createOrLinkInstagramBotCustomer({businessId:input.businessId,leadId:instagram.instagramLeadId,name:validated.normalized,client:tx})
+    const changed=await tx.$executeRaw(Prisma.sql`UPDATE "Customer" SET name=${validated.normalized} WHERE id=${linked.customer.id} AND "businessId"=${input.businessId}`)
+    if(changed!==1)throw new Error('Instagram customer name lost ownership')
+    await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"resultRef"=${linked.customer.id},"updatedAt"=clock_timestamp() WHERE "operationKey"=${key} AND status='STARTED' AND "requestHash"=${hash}`)
+    return
+  }
+
   const identity = await tx.$queryRaw<Array<{ phone: string }>>(Prisma.sql`
     SELECT c."phone" FROM "BotSession" s JOIN "Conversation" c
       ON c."id" = s."conversationId" AND c."businessId" = s."businessId"

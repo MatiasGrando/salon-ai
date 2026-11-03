@@ -1,0 +1,160 @@
+{
+  "status": "prepared_local_verified_not_published",
+  "sourceCommit": "ed31572e2304b210d9ae1c86d9c56f6d71d7f423",
+  "scope": "Account reservation links and same-tab Google entry with minimal draft restoration; both existing URL formats retained",
+  "baseline": {
+    "descriptor": "odd/releases/weex-browser-reservations-20261015.json",
+    "manifestSha256": "a4e5db5b552d93fbd15da9541c94acba14ab140dc703f7e7de512818ab27f5b5",
+    "liveStatus": "Historical local G10 baseline only; remote deployment/configuration not queried. Fresh reconciliation needed before any authorized future publication."
+  },
+  "artifact": {
+    "upload": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/upload",
+    "files": 820,
+    "manifestSha256": "dd5be3f7214e18f2295501d32acb720c00c9f0d6e6e9d878b6805475ad1c4ba0",
+    "changedPaths": [
+      "src/routes/landing-ui.ts"
+    ],
+    "unchangedFiles": 819,
+    "botFilesByteIdentical": 75,
+    "sqlMigrationsByteIdentical": 209,
+    "positiveAllowlist": true,
+    "newMigrations": []
+  },
+  "authorization": {
+    "localOnly": true,
+    "noPublication": true,
+    "remoteReads": false,
+    "credentials": false,
+    "newMigrations": false,
+    "botChanges": false,
+    "variables": false,
+    "barberChanges": false
+  },
+  "checks": {
+    "functionalSuites": 21,
+    "allFunctionalExitCodesZero": true,
+    "prismaValidateGenerateExitCodesZero": true,
+    "fixedFixtureCommit": "ed31572e2304b210d9ae1c86d9c56f6d71d7f423",
+    "runtimeAndFixtureHashesCheckedBeforeAfterEveryTest": true,
+    "staticClosure": {
+      "modules": 395,
+      "relativeEdges": 1436,
+      "generatedPrismaEdges": 102,
+      "auditedLazyLoader": 1,
+      "missing": 0,
+      "unknown": 0
+    },
+    "browser": {
+      "origin": 24,
+      "priorGuest": 32,
+      "calendarCodeMode": 1,
+      "totalPassed": 57,
+      "totalFailed": 0,
+      "viewports": [
+        1366,
+        390,
+        320
+      ],
+      "sourceSha256": "60ec8a46fd37551e855d2e67913a203cf421b05c1ae935e3d50e782919b25725",
+      "allCandidateAndUploadPathsCheckedBeforeAfter": true,
+      "syntheticGoogleAndApis": true,
+      "realGoogleOrPhysicalIPad": false
+    },
+    "staticSiteBuilds": "Not rerun: site sources and locks byte-identical to prepared G10 / historically published G6",
+    "parentRepeat": [
+      "origin19/19",
+      "guestUI28/28"
+    ]
+  },
+  "limitations": [
+    "Global typecheck not approved",
+    "Pre-existing staff-secretary label assertion expects15/found20 not approved",
+    "No Google real, browser real session, database or network",
+    "No new static-site build; site sources and locks are byte-identical to G10/G6",
+    "Browser agent hit usage limit after persisted successful runs; parent read all results and screenshots and verified candidate hashes independently."
+  ],
+  "evidence": {
+    "manifest.json": {
+      "sha256": "dd5be3f7214e18f2295501d32acb720c00c9f0d6e6e9d878b6805475ad1c4ba0"
+    },
+    "preparation-proof.json": {
+      "sha256": "1e64954cfce648a46a60e7ddcd40542d641ac3353d4654c1954522ca574f284b"
+    },
+    "closure-proof.json": {
+      "sha256": "425449c4b432b9814c32585cfafb6061dc1f6ab4e60f912b0e258948a65eb991"
+    },
+    "verification/functional-results.json": {
+      "sha256": "6c19ab60e7f09b280383c2fb8259b909091f59ba74e56a5f311bb77e3c333ab3"
+    },
+    "verification/parent-proof.json": {
+      "path": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/verification/parent-proof.json",
+      "sha256": "da9c21980ff8e1c53a6d7bc240a3bf90424b1b779ae323884bd197c3f2047aaf"
+    },
+    "verification/browser/run-results.json": {
+      "path": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/verification/browser/run-results.json",
+      "sha256": "5fb26096c2c0e4416790abfda69feef398719057e9a3bc9cdafe64d31f6c4388"
+    },
+    "verification/browser/results.json": {
+      "path": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/verification/browser/results.json",
+      "sha256": "50dc8d6a2ba3193c1769db86f32dd7f4640e1bcd1ece7e25212fb9d6176cd6a6"
+    },
+    "verification/browser/guest-regression/results.json": {
+      "path": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/verification/browser/guest-regression/results.json",
+      "sha256": "d55e019a2c1369939003f487390c8a09bc76b26b310a7fd9049a0e95d0c8ad6c"
+    },
+    "verification/browser/calendar-results.json": {
+      "path": ".codex-deploy/weex-account-booking-origin-20261017-ed31572/verification/browser/calendar-results.json",
+      "sha256": "faac3de498662a475cccdffd5881dfcfabb45b94856916600fd6fb446a9a2b67"
+    }
+  },
+  "authority": {
+    "localPreparationOnly": true,
+    "noRealDatabase": true,
+    "noCredentials": true,
+    "noNetwork": true,
+    "noUpload": true,
+    "noPublication": true,
+    "noSourceAdapters": true,
+    "noMainTrackedWrites": true,
+    "noNewMigrations": true,
+    "noBotOrBarberOrVariableChanges": true
+  },
+  "review": {
+    "mode": "enabled",
+    "decisions": {
+      "8993954": "human declined only this source block review",
+      "ed31572": "human declined only this mobile-summary adjustment review"
+    },
+    "technicalApproval": false,
+    "receipt": null,
+    "codeSharedExternally": false,
+    "subsequentControlsUnchanged": true
+  },
+  "finalPreparationProofSha256": "710bb3c477c3ce76181571c3b1a6f86a216312472d86b0f6ae85ed4d66a23f04",
+  "preparationDate": "2026-10-17",
+  "closureDate": "2026-10-18",
+  "sourceCommits": {
+    "accountLinksAndGoogleReturn": "899395489cc8b1d93f086a65c11085350c4d0588",
+    "mobileSummary": "ed31572e2304b210d9ae1c86d9c56f6d71d7f423"
+  },
+  "behavior": {
+    "supportedRoutes": [
+      "https://<business>.weex.com.ar/cuenta",
+      "https://weex.com.ar/<business>/cuenta"
+    ],
+    "reservePreservesMerchantAndHost": true,
+    "noForcedOriginMigration": true,
+    "googleEntry": "Same Weex tab on central registration, only Google SDK interaction remains; previous popup mode compatible",
+    "draft": {
+      "storage": "sessionStorage per origin/tab/business/path",
+      "ttlMinutes": 15,
+      "limitCharacters": 8192,
+      "revalidatesCatalogAndAvailability": true,
+      "neverRestoresConsentOrFinancialAuthority": true,
+      "noAutomaticBooking": true
+    },
+    "mobile": "Current service/professional/date/time/price summary visible before explicit confirmation",
+    "newAppointmentCancelOrRescheduleActionsIncluded": false
+  },
+  "nextStep": "Separate authorization and fresh remote version/configuration/migration/health preflight before publishing; new 18 October account appointment-action request is not included."
+}

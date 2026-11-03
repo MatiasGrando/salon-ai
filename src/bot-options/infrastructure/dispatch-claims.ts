@@ -8,6 +8,7 @@ export type DispatchKind = 'PROCESS' | 'SEND'
 export const DISPATCH_CLAIM_TRANSACTION_OPTIONS = { maxWait: 2_000, timeout: 8_000 } as const
 
 type DispatchClaimInput = {
+  channel?: 'WHATSAPP'|'INSTAGRAM'
   businessId: string
   sessionId: string | null
   resourceId?: string | null
@@ -26,7 +27,7 @@ export async function acquireDispatchClaim(input: DispatchClaimInput & { client:
 export async function acquireDispatchClaimTx(tx: Prisma.TransactionClient, input: DispatchClaimInput): Promise<string | null> {
   const token = input.claimToken ?? randomUUID()
   await tx.$executeRaw(Prisma.sql`
-    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))
+    SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${input.businessId}:${input.channel??'WHATSAPP'}`}, 0))
   `)
   if (input.resourceId) {
     await tx.$executeRaw(Prisma.sql`
@@ -50,7 +51,7 @@ export async function acquireDispatchClaimTx(tx: Prisma.TransactionClient, input
       clock_timestamp() + (${input.leaseMs ?? 30_000} * interval '1 millisecond'), clock_timestamp()
     FROM "BotChannelDeployment" d
     LEFT JOIN "BotSession" s ON s."id" = ${input.sessionId} AND s."businessId" = d."businessId"
-    WHERE d."businessId" = ${input.businessId} AND d."channel" = 'WHATSAPP'::"BotChannel"
+    WHERE d."businessId" = ${input.businessId} AND d."channel" = ${input.channel??'WHATSAPP'}::"BotChannel"
       AND d."engineKey" = 'deterministic-options' AND d."activeConfigurationId" IS NOT NULL
       AND d."legacyDispatchCoverageVersion" >= 1
       AND d."claimsPausedAt" IS NULL AND d."generation" = ${input.generation}
@@ -71,6 +72,7 @@ export async function assertDispatchClaimTx(input: {
   tx: Prisma.TransactionClient
   businessId: string
   claimToken: string
+  channel?: 'WHATSAPP'|'INSTAGRAM'
   expectedStatus?: 'CLAIMED' | 'SENDING'
 }): Promise<void> {
   await input.tx.$executeRaw(Prisma.sql`

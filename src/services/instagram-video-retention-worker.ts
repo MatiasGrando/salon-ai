@@ -6,6 +6,7 @@ export const INSTAGRAM_REEL_VIDEO_RETENTION_MS = 24 * 60 * 60 * 1000
 const DEFAULT_LEASE_MS = 60_000
 
 export type InstagramVideoRetentionJob = {
+  status?: 'PUBLISHED' | 'MANUALLY_COMPLETED'
   id: string
   businessId: string
   objectPath: string
@@ -34,7 +35,7 @@ export class InstagramVideoRetentionWorker {
   private readonly clock: { now(): Date }
   private readonly randomToken: () => string
   private readonly leaseMs: number
-  private readonly onVideoDeleted: (input: { businessId: string; publicationId: string; status: 'PUBLISHED'; updatedAt: string }) => void
+  private readonly onVideoDeleted: (input: { businessId: string; publicationId: string; status: 'PUBLISHED' | 'MANUALLY_COMPLETED'; updatedAt: string }) => void
 
   constructor(private readonly input: {
     repository: InstagramVideoRetentionRepository
@@ -42,7 +43,7 @@ export class InstagramVideoRetentionWorker {
     clock?: { now(): Date }
     randomToken?: () => string
     leaseMs?: number
-    onVideoDeleted?: (input: { businessId: string; publicationId: string; status: 'PUBLISHED'; updatedAt: string }) => void
+    onVideoDeleted?: (input: { businessId: string; publicationId: string; status: 'PUBLISHED' | 'MANUALLY_COMPLETED'; updatedAt: string }) => void
   }) {
     this.clock = input.clock ?? { now: () => new Date() }
     this.randomToken = input.randomToken ?? randomUUID
@@ -80,7 +81,7 @@ export class InstagramVideoRetentionWorker {
     this.onVideoDeleted({
       businessId: job.businessId,
       publicationId: job.id,
-      status: 'PUBLISHED',
+      status: job.status ?? 'PUBLISHED',
       updatedAt: deletedAt.toISOString()
     })
     return { outcome: 'deleted', publicationId: job.id }
@@ -97,54 +98,19 @@ export class PrismaInstagramVideoRetentionRepository implements InstagramVideoRe
 
   async claimNext(input: Parameters<InstagramVideoRetentionRepository['claimNext']>[0]) {
     return this.client.$transaction(async (tx: PrismaLike) => {
-      const row = await tx.instagramPublication.findFirst({
-        where: {
-          businessId: { in: [...this.businessIds] },
-          status: 'PUBLISHED',
-          publishedAt: { lte: input.cutoff },
-          videoDeletedAt: null,
-          OR: [
-            { claimToken: null },
-            { claimedUntil: { lte: input.now } }
-          ]
-        },
-        orderBy: [{ publishedAt: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          businessId: true,
-          videoObjectPath: true,
-          publishedAt: true,
-          videoDeletedAt: true,
-          claimToken: true,
-          claimedUntil: true
-        }
-      })
-      if (!row?.publishedAt) return null
-
-      const claimed = await tx.instagramPublication.updateMany({
-        where: {
-          id: row.id,
-          businessId: row.businessId,
-          status: 'PUBLISHED',
-          publishedAt: { lte: input.cutoff },
-          videoDeletedAt: null,
-          OR: [
-            { claimToken: null },
-            { claimedUntil: { lte: input.now } }
-          ]
-        },
-        data: { claimToken: input.claimToken, claimedUntil: input.leaseUntil }
-      })
-      if (claimed.count !== 1) return null
-      return {
-        id: row.id,
-        businessId: row.businessId,
-        objectPath: row.videoObjectPath,
-        publishedAt: row.publishedAt,
-        videoDeletedAt: row.videoDeletedAt ?? null,
-        claimToken: input.claimToken,
-        claimedUntil: input.leaseUntil
+      for (const status of ['PUBLISHED','MANUALLY_COMPLETED'] as const) {
+        const field = status === 'PUBLISHED' ? 'publishedAt' : 'manuallyCompletedAt'
+        const where = { businessId: { in: [...this.businessIds] }, status, [field]: { lte: input.cutoff }, videoDeletedAt: null,
+          OR: [{claimToken:null},{claimedUntil:{lte:input.now}}] }
+        const row = await tx.instagramPublication.findFirst({ where, orderBy:[{[field]:'asc'},{id:'asc'}],
+          select:{id:true,businessId:true,videoObjectPath:true,[field]:true,videoDeletedAt:true,claimToken:true,claimedUntil:true} })
+        if (!row?.[field]) continue
+        const claimed = await tx.instagramPublication.updateMany({where:{...where,id:row.id,businessId:row.businessId},data:{claimToken:input.claimToken,claimedUntil:input.leaseUntil}})
+        if(claimed.count!==1)continue
+        return { id:row.id,businessId:row.businessId,objectPath:row.videoObjectPath,publishedAt:row[field],status,
+          videoDeletedAt:row.videoDeletedAt??null,claimToken:input.claimToken,claimedUntil:input.leaseUntil }
       }
+      return null
     })
   }
 
@@ -153,7 +119,7 @@ export class PrismaInstagramVideoRetentionRepository implements InstagramVideoRe
       where: {
         id: input.id,
         businessId: input.businessId,
-        status: 'PUBLISHED',
+        status: { in: ['PUBLISHED','MANUALLY_COMPLETED'] },
         videoDeletedAt: null,
         claimToken: input.claimToken
       },

@@ -474,7 +474,7 @@ export async function campaignRoutes(app: FastifyInstance) {
       reply.status(400).send({ message: 'Selecciona un modo de recordatorio valido' })
       return null
     }
-    if (![60, 120, 1440, 2880].includes(sendBeforeMinutes)) {
+    if (![60, 120, 240, 360, 480, 720, 1440, 2880].includes(sendBeforeMinutes)) {
       reply.status(400).send({ message: 'Elegi un tiempo de recordatorio valido' })
       return null
     }

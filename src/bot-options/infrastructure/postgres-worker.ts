@@ -8,6 +8,7 @@ import { recoverStaleTakeOperations } from '../application/handoff-operations.js
 import { tenantScopeSql, type BotWorkerScope } from './tenant-scope.js'
 
 export type ClaimedBotJob = {
+  channel?: 'WHATSAPP'|'INSTAGRAM'
   id: string
   kind: string
   aggregateId: string
@@ -109,7 +110,7 @@ export async function claimBotJob(
   const claimed = await client.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<ClaimedBotJob[]>(Prisma.sql`
       WITH candidate AS MATERIALIZED (
-        SELECT j."id", j."businessId" FROM "BotJob" j
+        SELECT j."id", j."businessId", d.channel FROM "BotJob" j
         JOIN "BotChannelDeployment" d ON d."id" = j."deploymentId" AND d."businessId" = j."businessId"
         WHERE ((j."status" IN ('READY'::"BotJobStatus", 'RETRY'::"BotJobStatus") AND j."availableAt" <= clock_timestamp())
             OR (j."status" = 'LEASED'::"BotJobStatus" AND j."leasedUntil" < clock_timestamp()))
@@ -127,8 +128,8 @@ export async function claimBotJob(
           )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
         ORDER BY j."availableAt", j."createdAt", j."id" FOR UPDATE OF j SKIP LOCKED LIMIT 1
       ), cutover_lock AS MATERIALIZED (
-        SELECT c."id", c."businessId",
-          pg_advisory_xact_lock_shared(hashtextextended('bot-cutover:' || c."businessId" || ':WHATSAPP', 0)) AS locked
+        SELECT c."id", c."businessId", c.channel,
+          pg_advisory_xact_lock_shared(hashtextextended('bot-cutover:' || c."businessId" || ':' || c.channel::text, 0)) AS locked
         FROM candidate c
       )
       UPDATE "BotJob" j SET "status" = 'LEASED'::"BotJobStatus", "attempts" = j."attempts" + 1,
@@ -151,7 +152,7 @@ export async function claimBotJob(
             AND d."legacyDispatchCoverageVersion" >= 1 AND d."claimsPausedAt" IS NULL
           )) AND (j."kind" = 'PROCESS_PROVIDER_EVENT' OR NOT (${humanTakenSessionJobSql('j')}))
       )
-      RETURNING j."id", j."kind", j."aggregateId", j."businessId", j."deploymentId",
+      RETURNING j."id", j."kind", j."aggregateId", j."businessId", j."deploymentId", c.channel::text AS channel,
         j."deploymentGeneration", j."expectedRevision", j."attempts", j."maxAttempts",
         j."leaseToken" AS "claimToken", j."leasedUntil" AS "claimedUntil",
         (EXTRACT(EPOCH FROM (clock_timestamp() - j."createdAt")) * 1000)::double precision AS "queueWaitMs"

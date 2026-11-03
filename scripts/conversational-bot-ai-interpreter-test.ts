@@ -23,6 +23,10 @@ const empty = { intent: 'other', serviceId: null, serviceEvidence: null, profess
 const writer: AiResponseProvider = async ({ facts }) => ({
   opening: '¡Hola! ¿Cómo estás?', factIds: facts.map(fact => fact.id), closing: facts.length ? null : '¿En qué te ayudo con el local?'
 })
+const semanticPlan = (operations: object[], acts: object[]) => ({ ...empty, intent: 'booking',
+  turnPlan: { version: 1, operations }, communicativeActs: { version: 1, acts } })
+const act = (kind: string, field: string, evidence: string, index: number, mention: string | null = null) =>
+  ({ kind, field, evidence, confidence: 1, mention, operationIndexes: [index] })
 let calls = 0
 const greeting = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola', port,
   async () => { calls++; return empty }, { responseProvider: async (input, signal) => { calls++; return writer(input, signal) } })
@@ -89,16 +93,32 @@ assert.equal(selectedCut.state.pending, 'date')
 assert.equal(selectedCut.interpretation.decision.acceptedAction, 'select_service')
 assert.equal(selectedCut.interpretation.decision.outcome, 'selected')
 const earlyFields = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola quería un corte con Ramiro mañana', port,
-  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], professionalMention: 'Ramiro' }), { responseProvider: writer })
+  async () => semanticPlan([
+    { kind: 'service', mode: 'alternatives', serviceIds: ['cut', 'woman', 'beard'], correction: false, evidence: 'corte', confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Ramiro', evidence: 'Ramiro', confidence: 1 },
+    { kind: 'date', expression: 'mañana', value: '2026-09-29', evidence: 'mañana', confidence: 1 }
+  ], [act('request', 'service', 'un corte', 0), act('request', 'professional', 'con Ramiro', 1, 'Ramiro'), act('request', 'date', 'mañana', 2)]), { responseProvider: writer })
 assert.equal(earlyFields.state.date, '2026-09-29')
 assert.equal(earlyFields.state.professionalNameHint, 'ramiro')
+assert.equal(earlyFields.interpretation.reason, null)
+assert.equal(earlyFields.proposal, null, 'independent interpreted fields do not choose an ambiguous service')
+// An omitted semantic date is not permission to recover one by parsing the full message.
+const omittedDate = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'hola quería un corte con Ramiro mañana', port,
+  async () => semanticPlan([
+    { kind: 'service', mode: 'alternatives', serviceIds: ['cut', 'woman', 'beard'], correction: false, evidence: 'corte', confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Ramiro', evidence: 'Ramiro', confidence: 1 }
+  ], [act('request', 'service', 'un corte', 0), act('request', 'professional', 'con Ramiro', 1, 'Ramiro')]), { responseProvider: writer })
+assert.equal(omittedDate.state.date, null)
+assert.equal(omittedDate.state.professionalNameHint, 'ramiro')
+assert.equal(omittedDate.proposal, null)
 const consultation = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', publishedPort,
   async () => ({ ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }), { responseProvider: writer })
 assert.equal(consultation.state.serviceId, 'lights')
 const correction = await respondWithAiInterpreter(context, consultation.state, 'no mejor un corte', port,
-  async () => ({ ...empty, intent: 'booking', serviceId: null, serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceCorrection: true }), { responseProvider: writer })
+  async () => semanticPlan([{ kind: 'service', mode: 'alternatives', serviceIds: ['cut', 'woman', 'beard'], correction: true, evidence: 'corte', confidence: 1 }],
+    [act('change', 'service', 'no mejor un corte', 0)]), { responseProvider: writer })
 assert.equal(correction.state.serviceId, null)
-assert.equal(correction.interpretation.decision.acceptedAction, 'clarify_service')
+assert.equal(correction.interpretation.decision.acceptedAction, 'turn_plan_routed')
 assert.equal(correction.interpretation.decision.outcome, 'corrected')
 assert.match(correction.reply, /Corte Hombre/)
 assert.doesNotMatch(correction.reply, /requiere una consulta/)
@@ -108,11 +128,18 @@ assert.equal(uncertain.state.serviceId, null)
 const foreign = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'claritos', port,
   async () => ({ ...empty, serviceId: 'foreign', serviceEvidence: 'claritos' }), { responseProvider: writer })
 assert.equal(foreign.interpretation.mode, 'fallback')
-const fabricatedCandidates = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'un corte', port,
-  async () => ({ ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'not-in-catalog'] }), { responseProvider: writer })
+const fabricatedBefore = initialDialogueState('qa')
+let fabricatedCalls = 0, fabricatedWrites = 0
+const fabricatedCandidates = await respondWithAiInterpreter(context, fabricatedBefore, 'un corte', port,
+  async input => { fabricatedCalls++; assert.equal(Boolean(input.repairFeedback), fabricatedCalls === 2); return { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'not-in-catalog'] } },
+  { responseProvider: async (input, signal) => { fabricatedWrites++; return writer(input, signal) } })
 assert.equal(fabricatedCandidates.interpretation.reason, 'invalid_output')
 assert.equal(fabricatedCandidates.state.serviceId, null)
-assert.deepEqual(fabricatedCandidates.interpretation.decision, { proposedIntent: 'unknown', acceptedAction: 'deterministic_fallback', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'fallback', reason: 'invalid_output' })
+assert.deepEqual(fabricatedCandidates.interpretation.decision, { proposedIntent: 'unknown', acceptedAction: 'preserve_after_failure', candidateCount: 0, pendingBefore: 'service', pendingAfter: 'service', outcome: 'unchanged', reason: 'invalid_output' })
+assert.deepEqual(fabricatedCandidates.state, fabricatedBefore)
+assert.equal(fabricatedCalls, 2, 'a rejected interpretation gets one bounded repair, not an unbounded retry')
+assert.equal(fabricatedWrites, 0, 'rejected model data cannot authorize another composition call')
+assert.equal(fabricatedCandidates.proposal, null); assert.equal(fabricatedCandidates.bookingCommand, undefined)
 
 const inventedPrice = await respondWithAiInterpreter(context, initialDialogueState('qa'), 'cuanto sale iluminación', port,
   async input => ({ ...empty, intent: 'information', firstReply: { opening: 'Cuesta $ 1', factIds: input.firstReplyFacts!.map(fact => fact.id), closing: null } }))
@@ -173,8 +200,12 @@ assert.ok(requests[1]!.body.text.format.schema.required.includes('factIds'))
 let consecutive = initialDialogueState('qa')
 const turns = [
   ['hola', { ...empty }],
-  ['quiero un corte hombre mañana con Ramiro', { ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre', serviceConfidence: 'certain', professionalMention: 'Ramiro' }],
-  ['17:00', { ...empty, intent: 'booking' }]
+  ['quiero un corte hombre mañana con Ramiro', semanticPlan([
+    { kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, evidence: 'corte hombre', confidence: 1 },
+    { kind: 'date', expression: 'mañana', value: '2026-09-29', evidence: 'mañana', confidence: 1 },
+    { kind: 'professional', mode: 'specific', mention: 'Ramiro', evidence: 'Ramiro', confidence: 1 }
+  ], [act('request', 'service', 'un corte hombre', 0), act('request', 'date', 'mañana', 1), act('request', 'professional', 'con Ramiro', 2, 'Ramiro')])],
+  ['17:00', semanticPlan([{ kind: 'time', value: '17:00', evidence: '17:00', confidence: 1 }], [act('answer', 'time', '17:00', 0)])]
 ] as const
 for (const [message, interpretation] of turns) {
   const turn = await respondWithAiInterpreter(context, consecutive, message, port, async () => interpretation, { responseProvider: writer })
@@ -202,16 +233,20 @@ const syntheticScenarios: Array<{ label: string; turns: Array<{
   ] },
   { label: 'correction leaves consultation', turns: [
     { message: 'claritos', candidate: { ...empty, intent: 'booking', serviceId: 'lights', serviceEvidence: 'claritos', serviceConfidence: 'certain' }, expectedAction: 'select_service', expectedOutcome: 'selected', candidateCount: 1, pending: 'date', service: true },
-    { message: 'no mejor un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'], serviceCorrection: true }, expectedAction: 'clarify_service', expectedOutcome: 'corrected', candidateCount: 3, pending: 'service', service: false }
+    { message: 'no mejor un corte', candidate: semanticPlan([{ kind: 'service', mode: 'alternatives', serviceIds: ['cut', 'woman', 'beard'], correction: true, evidence: 'corte', confidence: 1 }],
+      [act('change', 'service', 'no mejor un corte', 0)]), expectedAction: 'turn_plan_routed', expectedOutcome: 'corrected', candidateCount: 3, pending: 'service', service: false }
   ] },
   { label: 'fragmented professional and date', turns: [
     { message: 'hola quería un corte', candidate: { ...empty, intent: 'booking', serviceEvidence: 'corte', serviceCandidateIds: ['cut', 'beard'] }, expectedAction: 'clarify_service', expectedOutcome: 'ambiguous', candidateCount: 3, pending: 'service', service: false },
-    { message: 'con Ramiro', candidate: { ...empty, intent: 'booking', professionalMention: 'Ramiro' }, expectedAction: 'no_service_change', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false },
-    { message: 'mañana', candidate: { ...empty, intent: 'booking' }, expectedAction: 'no_service_change', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false, date: true },
-    { message: 'corte hombre', candidate: { ...empty, intent: 'booking', serviceId: 'cut', serviceEvidence: 'corte hombre', serviceConfidence: 'certain' }, expectedAction: 'select_service', expectedOutcome: 'selected', candidateCount: 1, pending: 'time', service: true, date: true, professional: true }
+    { message: 'con Ramiro', candidate: semanticPlan([{ kind: 'professional', mode: 'specific', mention: 'Ramiro', evidence: 'Ramiro', confidence: 1 }],
+      [act('request', 'professional', 'con Ramiro', 0, 'Ramiro')]), expectedAction: 'turn_plan_routed', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false },
+    { message: 'mañana', candidate: semanticPlan([{ kind: 'date', expression: 'mañana', value: '2026-09-29', evidence: 'mañana', confidence: 1 }],
+      [act('request', 'date', 'mañana', 0)]), expectedAction: 'turn_plan_routed', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false, date: true },
+    { message: 'corte hombre', candidate: semanticPlan([{ kind: 'service', mode: 'single', serviceIds: ['cut'], correction: false, evidence: 'corte hombre', confidence: 1 }],
+      [act('answer', 'service', 'corte hombre', 0)]), expectedAction: 'turn_plan_routed', expectedOutcome: 'unchanged', candidateCount: 1, pending: 'time', service: true, date: true, professional: true }
   ] },
-  { label: 'invalid model output falls back', turns: [
-    { message: 'hola', candidate: { ...empty, serviceId: 'not-in-catalog', serviceEvidence: 'hola' }, expectedAction: 'deterministic_fallback', expectedOutcome: 'fallback', candidateCount: 0, pending: 'service', service: false }
+  { label: 'invalid model output preserves state', turns: [
+    { message: 'hola', candidate: { ...empty, serviceId: 'not-in-catalog', serviceEvidence: 'hola' }, expectedAction: 'preserve_after_failure', expectedOutcome: 'unchanged', candidateCount: 0, pending: 'service', service: false }
   ] }
 ]
 let evaluated = 0
@@ -220,6 +255,17 @@ for (const scenario of syntheticScenarios) {
   for (const item of scenario.turns) {
     const result = await respondWithAiInterpreter(context, state, item.message, scenario.label === 'correction leaves consultation' ? publishedPort : port, async () => item.candidate, { responseProvider: writer })
     const trace = result.interpretation.decision
+    if (scenario.label === 'invalid model output preserves state') {
+      assert.deepEqual(result.state, state)
+      assert.equal(result.interpretation.interpretationAttempts?.length, 2)
+      assert.equal(result.proposal, null); assert.equal(result.bookingCommand, undefined)
+    }
+    // The compatibility trace outcome describes legacy service decisions; verify the semantic transition itself.
+    if (scenario.label === 'fragmented professional and date' && item.message === 'corte hombre') {
+      assert.equal(result.state.serviceId, 'cut')
+      assert.equal(result.state.date, '2026-09-29')
+      assert.deepEqual(result.state.professional, { kind: 'specific', id: 'ramiro' })
+    }
     assert.equal(trace.acceptedAction, item.expectedAction, scenario.label)
     assert.equal(trace.outcome, item.expectedOutcome, scenario.label)
     assert.equal(trace.candidateCount, item.candidateCount, scenario.label)

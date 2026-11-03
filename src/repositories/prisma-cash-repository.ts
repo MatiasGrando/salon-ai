@@ -1,6 +1,9 @@
 import { Prisma } from '../generated/prisma/client.js'
 import { lockCoordinatedDepositGroupForDeposit, lockCoordinatedDepositGroupForAppointment } from '../services/coordinated-deposit-group.js'
-import { ensureProfessionalEarningForCompletedAppointment } from '../services/professional-compensation.js'
+import {
+  ensureProfessionalEarningForCompletedAppointment,
+  replaceProfessionalEarningForCompletedAppointment as replaceProfessionalEarning
+} from '../services/professional-compensation.js'
 
 export type CashBusinessContext = {
   businessId: string
@@ -99,6 +102,35 @@ export type AppointmentTotalAdjustmentRecord = {
   createdAt: Date
 }
 
+export type CompletedServiceCorrectionAppointment = {
+  id: string
+  businessId: string
+  professionalId: string
+  serviceId: string
+  quotedPrice: number | null
+  servicePrice: number | null
+  serviceItemCount: number
+  serviceItemPrice: number | null
+  accountAppointmentCount: number
+}
+
+export type CorrectableProfessionalService = {
+  id: string
+  name: string
+  duration: number
+  price: number | null
+  priceMode: string
+}
+
+export type ServiceCorrectionRecord = {
+  id: string; appointmentId: string; requestId: string; requestFingerprint: string
+  previousServiceId: string; newServiceId: string; previousServiceName: string; newServiceName: string
+  previousServicePrice: number | null; newServicePrice: number
+  previousAmount: number; newAmount: number; refundAmount: number; refundCashEntryId: string | null
+  previousCompensation: Record<string, unknown> | null; newCompensation: Record<string, unknown> & { amount: number }
+  actorUserId: string; actorName: string; reason: string; createdAt: Date
+}
+
 export type AppointmentFinanceSummaryRow = AppointmentAccountRecord & {
   appointmentId: string
   accountId: string
@@ -123,11 +155,13 @@ export type CashEntryRecord = AppointmentAccountEntryRecord & {
   observation: string | null
   reversesEntryId: string | null
   reversedById?: string | null
+  serviceCorrectionRefund?: boolean
   correctionSourceId?: string | null
   correctionReason?: string | null
   dateCorrected?: boolean
   effectiveAt: Date | null
   customerNames?: string[]
+  serviceCorrectionAppointmentId?: string | null
   expenseCategoryId?: string | null
   expenseCategoryName?: string | null
   expenseSubcategoryId?: string | null
@@ -243,6 +277,45 @@ export interface CashTransactionRepository {
   updateAdjustedTotal(businessId: string, accountId: string, agreedAmount: number): Promise<AppointmentAccountRecord>
   listTotalAdjustments(businessId: string, accountId: string): Promise<AppointmentTotalAdjustmentRecord[]>
   updateDiscount(businessId: string, accountId: string, discountAmount: number): Promise<AppointmentAccountRecord>
+  lockCompletedAppointmentForServiceCorrection(businessId: string, appointmentId: string): Promise<CompletedServiceCorrectionAppointment | null>
+  isServiceCorrectionAdministrator(businessId: string, userId: string): Promise<boolean>
+  listServiceCorrections(businessId: string, accountId: string): Promise<ServiceCorrectionRecord[]>
+  findServiceCorrectionRequest(businessId: string, requestId: string): Promise<ServiceCorrectionRecord | null>
+  findCorrectableServiceForProfessional(input: { businessId: string; professionalId: string; serviceId: string }): Promise<CorrectableProfessionalService | null>
+  updateCompletedAppointmentService(input: { businessId: string; appointmentId: string; serviceId: string; servicePrice: number; durationMinutes: number }): Promise<void>
+  createAppointmentServiceCorrection(input: {
+    id: string
+    businessId: string
+    appointmentId: string
+    previousServiceId: string
+    newServiceId: string
+    previousServicePrice: number | null
+    newServicePrice: number
+    previousAmount: number
+    newAmount: number
+    refundAmount: number
+    actorUserId: string
+    actorName: string
+    reason: string
+    requestId: string
+    requestFingerprint: string
+    refundCashEntryId: string | null
+    previousCompensation: Record<string, unknown> | null
+    newCompensation: Record<string, unknown>
+  }): Promise<void>
+  createServiceCorrectionRefund(input: {
+    id: string
+    businessId: string
+    accountId: string
+    registerDayId: string
+    cashSessionId: string
+    amount: number
+    method: ManualPaymentMethod
+    paymentMethodId: string
+    reason: string
+    effectiveAt: Date
+  }): Promise<{ id: string }>
+  replaceProfessionalEarningForCompletedAppointment(input: { businessId: string; appointmentId: string; actorUserId: string; actorName: string; baseAmount: number; effectiveAt: Date }): Promise<{ previousAmount: number | null; amount: number; previous: Record<string, unknown> | null; current: Record<string, unknown> } | null>
   findBusinessPaymentMethod(businessId: string, paymentMethodId: string): Promise<{ id: string; kind: ManualPaymentMethod; isActive: boolean } | null>
   insertManualPayments(input: {
     ids: string[]
@@ -644,9 +717,9 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         account."pricingMode"::text AS "pricingMode", account."agreedAmount", account."originalAmount", account."minimumAmount", account."discountAmount",
         coalesce(sum(
           CASE
-            WHEN entry."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType")
+            WHEN entry."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType", 'REFUND'::"CashEntryType")
               OR (entry."type" = 'REVERSAL'::"CashEntryType"
-                AND original."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType"))
+                AND original."type" IN ('PAYMENT'::"CashEntryType", 'LEGACY_PAYMENT'::"CashEntryType", 'REFUND'::"CashEntryType"))
             THEN CASE WHEN entry."direction" = 'INFLOW'::"CashDirection" THEN entry."amount" ELSE -entry."amount" END
             ELSE 0
           END
@@ -757,6 +830,155 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     `)
     if (!rows[0]) throw new Error('appointment account disappeared while locked')
     return rows[0]
+  }
+
+  async lockCompletedAppointmentForServiceCorrection(businessId: string, appointmentId: string) {
+    const rows = await this.transaction.$queryRaw<CompletedServiceCorrectionAppointment[]>(Prisma.sql`
+      SELECT appointment."id", appointment."businessId", appointment."professionalId", appointment."serviceId", appointment."quotedPrice",
+        service."price" AS "servicePrice",
+        (SELECT count(*)::integer FROM "AppointmentServiceItem" item WHERE item."appointmentId" = appointment."id") AS "serviceItemCount",
+        (SELECT item."price" FROM "AppointmentServiceItem" item
+          WHERE item."appointmentId" = appointment."id" AND item."serviceId" = appointment."serviceId" LIMIT 1) AS "serviceItemPrice",
+        (SELECT count(*)::integer FROM "AppointmentAccountLink" membership
+          WHERE membership."businessId" = appointment."businessId" AND membership."accountId" =
+            (SELECT own_link."accountId" FROM "AppointmentAccountLink" own_link WHERE own_link."businessId" = appointment."businessId" AND own_link."appointmentId" = appointment."id")) AS "accountAppointmentCount"
+      FROM "Appointment" appointment
+      JOIN "Service" service ON service."id" = appointment."serviceId" AND service."businessId" = appointment."businessId"
+      WHERE appointment."businessId" = ${businessId} AND appointment."id" = ${appointmentId}
+        AND appointment."status" = 'COMPLETED'::"AppointmentStatus"
+      FOR UPDATE OF appointment
+    `)
+    return rows[0] ?? null
+  }
+
+  async isServiceCorrectionAdministrator(businessId: string, userId: string) {
+    const rows = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT administrator."id" FROM "User" administrator
+      WHERE administrator."id" = ${userId} AND administrator."isActive" = true
+        AND (administrator."role" = 'SUPER_ADMIN'
+          OR (administrator."role" = 'BUSINESS_ADMIN' AND administrator."businessId" = ${businessId})
+          OR (administrator."role" = 'ACCOUNT_ADMIN' AND EXISTS (
+            SELECT 1 FROM "Business" business WHERE business."id" = ${businessId} AND business."accountAdminId" = administrator."id"
+          )))
+      FOR SHARE OF administrator
+    `)
+    return rows.length === 1
+  }
+
+  async listServiceCorrections(businessId: string, accountId: string) {
+    return this.transaction.$queryRaw<ServiceCorrectionRecord[]>(Prisma.sql`
+      SELECT correction.*, old_service."name" AS "previousServiceName", new_service."name" AS "newServiceName"
+      FROM "AppointmentServiceCorrection" correction
+      JOIN "AppointmentAccountLink" link ON link."businessId" = correction."businessId" AND link."appointmentId" = correction."appointmentId"
+      JOIN "Service" old_service ON old_service."businessId" = correction."businessId" AND old_service."id" = correction."previousServiceId"
+      JOIN "Service" new_service ON new_service."businessId" = correction."businessId" AND new_service."id" = correction."newServiceId"
+      WHERE correction."businessId" = ${businessId} AND link."accountId" = ${accountId}
+      ORDER BY correction."createdAt" DESC, correction."id" DESC
+    `)
+  }
+
+  async findServiceCorrectionRequest(businessId: string, requestId: string) {
+    const rows = await this.transaction.$queryRaw<ServiceCorrectionRecord[]>(Prisma.sql`
+      SELECT * FROM "AppointmentServiceCorrection" WHERE "businessId" = ${businessId} AND "requestId" = ${requestId}
+    `)
+    return rows[0] ?? null
+  }
+
+  async findCorrectableServiceForProfessional(input: { businessId: string; professionalId: string; serviceId: string }) {
+    const rows = await this.transaction.$queryRaw<CorrectableProfessionalService[]>(Prisma.sql`
+      SELECT service."id", service."name", service."duration", service."price", service."priceMode"::text AS "priceMode"
+      FROM "Service" service
+      JOIN "ProfessionalService" professional_service
+        ON professional_service."serviceId" = service."id" AND professional_service."professionalId" = ${input.professionalId}
+      JOIN "Professional" professional
+        ON professional."id" = professional_service."professionalId" AND professional."businessId" = ${input.businessId}
+      WHERE service."businessId" = ${input.businessId} AND service."id" = ${input.serviceId}
+        AND service."isActive" = true AND service."archivedAt" IS NULL
+      FOR SHARE OF service, professional_service, professional
+    `)
+    return rows[0] ?? null
+  }
+
+  async updateCompletedAppointmentService(input: { businessId: string; appointmentId: string; serviceId: string; servicePrice: number; durationMinutes: number }) {
+    await this.transaction.$executeRaw(Prisma.sql`
+      UPDATE "Appointment"
+      SET "serviceId" = ${input.serviceId}, "quotedPrice" = ${input.servicePrice}, "totalDurationMinutes" = ${input.durationMinutes}
+      WHERE "businessId" = ${input.businessId} AND "id" = ${input.appointmentId}
+        AND "status" = 'COMPLETED'::"AppointmentStatus"
+    `)
+    await this.transaction.appointmentServiceItem.deleteMany({ where: { appointmentId: input.appointmentId } })
+    await this.transaction.appointmentServiceItem.create({
+      data: {
+        appointmentId: input.appointmentId,
+        serviceId: input.serviceId,
+        sortOrder: 0,
+        durationMinutes: input.durationMinutes,
+        price: input.servicePrice
+      }
+    })
+  }
+
+  async createAppointmentServiceCorrection(input: {
+    id: string
+    businessId: string
+    appointmentId: string
+    previousServiceId: string
+    newServiceId: string
+    previousServicePrice: number | null
+    newServicePrice: number
+    previousAmount: number
+    newAmount: number
+    refundAmount: number
+    actorUserId: string
+    actorName: string
+    reason: string
+    requestId: string
+    requestFingerprint: string
+    refundCashEntryId: string | null
+    previousCompensation: Record<string, unknown> | null
+    newCompensation: Record<string, unknown>
+  }) {
+    await this.transaction.$executeRaw(Prisma.sql`
+      INSERT INTO "AppointmentServiceCorrection" (
+        "id", "businessId", "appointmentId", "previousServiceId", "newServiceId", "previousServicePrice", "newServicePrice",
+        "previousAmount", "newAmount", "refundAmount", "actorUserId", "actorName", "reason", "createdAt",
+        "requestId", "requestFingerprint", "refundCashEntryId", "previousCompensation", "newCompensation"
+      ) VALUES (
+        ${input.id}, ${input.businessId}, ${input.appointmentId}, ${input.previousServiceId}, ${input.newServiceId}, ${input.previousServicePrice}, ${input.newServicePrice},
+        ${input.previousAmount}, ${input.newAmount}, ${input.refundAmount}, ${input.actorUserId}, ${input.actorName}, ${input.reason}, clock_timestamp(),
+        ${input.requestId}, ${input.requestFingerprint}, ${input.refundCashEntryId},
+        ${input.previousCompensation === null ? null : JSON.stringify(input.previousCompensation)}::jsonb, ${JSON.stringify(input.newCompensation)}::jsonb
+      )
+    `)
+  }
+
+  async createServiceCorrectionRefund(input: {
+    id: string
+    businessId: string
+    accountId: string
+    registerDayId: string
+    cashSessionId: string
+    amount: number
+    method: ManualPaymentMethod
+    paymentMethodId: string
+    reason: string
+    effectiveAt: Date
+  }) {
+    const rows = await this.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      INSERT INTO "CashEntry" (
+        "id", "businessId", "accountId", "registerDayId", "cashSessionId", "type", "direction", "amount",
+        "paymentMethod", "businessPaymentMethodId", "origin", "description", "observation", "effectiveAt"
+      ) VALUES (
+        ${input.id}, ${input.businessId}, ${input.accountId}, ${input.registerDayId}, ${input.cashSessionId}, 'REFUND'::"CashEntryType", 'OUTFLOW'::"CashDirection", ${input.amount},
+        ${input.method}::"CashPaymentMethod", ${input.paymentMethodId}, 'AGENDA'::"CashEntryOrigin", 'Devolución por corrección de servicio realizado', ${input.reason}, ${input.effectiveAt}
+      ) RETURNING "id"
+    `)
+    if (!rows[0]) throw new Error('service correction refund was not created')
+    return rows[0]
+  }
+
+  async replaceProfessionalEarningForCompletedAppointment(input: { businessId: string; appointmentId: string; actorUserId: string; actorName: string; baseAmount: number; effectiveAt: Date }) {
+    return replaceProfessionalEarning(this.transaction, input)
   }
 
   async findBusinessPaymentMethod(businessId: string, paymentMethodId: string) {
@@ -911,7 +1133,7 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
     }
     const prior = await this.listAccountEntries(input.businessId, target[0].accountId)
     const paid = prior.reduce((total, entry) => {
-      if (!['PAYMENT', 'LEGACY_PAYMENT'].includes(entry.type) && !(entry.type==='REVERSAL' && ['PAYMENT','LEGACY_PAYMENT'].includes(entry.reversedEntryType??''))) return total
+      if (!['PAYMENT', 'LEGACY_PAYMENT', 'REFUND'].includes(entry.type) && !(entry.type==='REVERSAL' && ['PAYMENT','LEGACY_PAYMENT','REFUND'].includes(entry.reversedEntryType??''))) return total
       return total + (entry.direction === 'INFLOW' ? entry.amount : -entry.amount)
     }, 0)
     const knownLimit=target[0].agreedAmount??coordinated!.group.amount
@@ -1117,7 +1339,9 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         entry."type"::text AS "type", entry."direction"::text AS "direction", entry."amount",
         entry."paymentMethod"::text AS "method", entry."businessPaymentMethodId", entry."origin"::text AS "origin", entry."description",
         entry."counterparty", entry."observation", entry."reversesEntryId", entry."effectiveAt",
-        reversal."id" AS "reversedById"
+        reversal."id" AS "reversedById",
+        EXISTS (SELECT 1 FROM "AppointmentServiceCorrection" correction
+          WHERE correction."businessId" = entry."businessId" AND correction."refundCashEntryId" = entry."id") AS "serviceCorrectionRefund"
       FROM "CashEntry" AS entry
       LEFT JOIN "CashEntry" AS reversal
         ON reversal."businessId" = entry."businessId" AND reversal."reversesEntryId" = entry."id"
@@ -1221,7 +1445,10 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
         COALESCE(subcategory."name", original_subcategory."name") AS "expenseSubcategoryName", entry."reversesEntryId", reversed."id" AS "reversedById",
         entry."correctionSourceId", entry."correctionReason", entry."effectiveAt", entry."createdAt",
         EXISTS (SELECT 1 FROM "CashEntry" correction WHERE correction."businessId" = entry."businessId" AND correction."correctionSourceId" = entry."id") AS "dateCorrected",
-        coalesce(customers.names, ARRAY[]::text[]) AS "customerNames"
+        coalesce(customers.names, ARRAY[]::text[]) AS "customerNames",
+        CASE WHEN entry."type" = 'PAYMENT' AND entry."direction" = 'INFLOW'
+          AND entry."reversesEntryId" IS NULL AND reversed."id" IS NULL
+          THEN correctable."appointmentId" ELSE NULL END AS "serviceCorrectionAppointmentId"
       FROM "CashEntry" entry
       LEFT JOIN "CashEntry" original ON original."businessId" = entry."businessId" AND original."id" = entry."reversesEntryId"
       LEFT JOIN "CashEntry" reversed ON reversed."businessId" = entry."businessId" AND reversed."reversesEntryId" = entry."id"
@@ -1242,6 +1469,19 @@ class PrismaCashTransactionRepository implements CashTransactionRepository {
           ON customer."businessId" = appointment."businessId" AND customer."id" = appointment."customerId"
         WHERE account_link."businessId" = entry."businessId" AND account_link."accountId" = entry."accountId"
       ) customers ON true
+      LEFT JOIN LATERAL (
+        SELECT appointment."id" AS "appointmentId"
+        FROM "AppointmentAccountLink" account_link
+        JOIN "AppointmentAccount" account
+          ON account."businessId" = account_link."businessId" AND account."id" = account_link."accountId"
+        JOIN "Appointment" appointment
+          ON appointment."businessId" = account_link."businessId" AND appointment."id" = account_link."appointmentId"
+        WHERE account_link."businessId" = entry."businessId" AND account_link."accountId" = entry."accountId"
+          AND account."pricingMode" = 'FIXED' AND appointment."status" = 'COMPLETED'
+          AND (SELECT count(*) FROM "AppointmentAccountLink" member
+            WHERE member."businessId" = account_link."businessId" AND member."accountId" = account_link."accountId") = 1
+          AND (SELECT count(*) FROM "AppointmentServiceItem" item WHERE item."appointmentId" = appointment."id") <= 1
+      ) correctable ON true
       WHERE entry."businessId" = ${input.businessId} AND entry."registerDayId" = ${input.registerDayId}
         ${cursor} ${type} ${method} ${category} ${subcategory} ${session} ${query}
       ORDER BY entry."effectiveAt" DESC, entry."id" DESC

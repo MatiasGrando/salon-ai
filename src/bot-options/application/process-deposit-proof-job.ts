@@ -1,3 +1,7 @@
+import { instagramSubjectFromPayload,lockInstagramConversationSessionTx } from '../../conversational-bot/instagram-runtime-channel.js'
+import { loadRuntimeDepositReceipt,parseRuntimeBookingReservation } from '../../conversational-bot/prisma-conversational-booking.js'
+import { downloadInstagramDepositProof,type InstagramMediaHttp } from '../infrastructure/instagram-deposit-proof-media.js'
+import { acquireAgendaHierarchy } from '../../services/agenda-locks.js'
 import { conversationProofBindingFromState, parseConversationProofBinding, sameConversationProofBinding, CONVERSATION_PROOF_ACTION } from '../../conversational-bot/attachment-intent.js'
 import { lockCoordinatedDepositGroupForDeposit } from '../../services/coordinated-deposit-group.js'
 import { randomUUID } from 'node:crypto'
@@ -99,6 +103,7 @@ export async function processDepositProofJob(input: {
   client: DepositProofClient
   job: ClaimedBotJob
   capabilityEnabled: boolean
+  instagramFetch?: InstagramMediaHttp
   fetch?: MetaMediaHttp
   onDiagnostic?: (value: DepositProofPhaseDiagnostic) => void
   resolveAccessToken?: (businessId: string, expectedProviderPhoneNumberId: string) => Promise<string>
@@ -136,7 +141,8 @@ export async function processDepositProofJob(input: {
   if (target.kind !== 'FOUND') return observe('fallback', () => fallbackToInitialInbox(client, job, event))
   const expectedDepositId = target.depositId
   const payload = messagePayload(event.payload)
-  const mediaId = stringField(payload?.mediaId)
+  const instagram=payload?.channel==='INSTAGRAM'
+  const mediaId = instagram?event.providerMessageId:stringField(payload?.mediaId)
   if (!payload || !['image', 'document'].includes(String(payload.messageType)) || !mediaId || isDeclaredUnsupported(payload.mediaMimeType)) {
     return observe('terminal', () => finishTerminal(client, job, event, expectedDepositId, 'INVALID_PROOF'))
   }
@@ -147,6 +153,13 @@ export async function processDepositProofJob(input: {
     // credential resolution, provider I/O or image validation.
     downloaded = await observe('media', async () => {
       await client.$transaction((tx) => assertClaimedBotJobTx(tx, job))
+      if(instagram){
+        const subject=instagramSubjectFromPayload(payload)
+        const attachment=payload?.instagramAttachment as {type?:unknown;url?:unknown}|undefined
+        if(!event.providerMessageId||!attachment||!['image','file'].includes(String(attachment.type))||typeof attachment.url!=='string')throw new MetaDepositMediaError('METADATA_UNAVAILABLE')
+        const scope={businessId:event.businessId,...subject,providerMessageId:event.providerMessageId}
+        return downloadInstagramDepositProof({scope,descriptor:{...scope,type:attachment.type as 'image'|'file',url:attachment.url},fetch:input.instagramFetch??fetchInstagramMedia})
+      }
       if (!event.phoneNumberId) throw new MetaDepositMediaError('METADATA_UNAVAILABLE')
       const accessToken = await (input.resolveAccessToken ?? defaultAccessToken)(event.businessId, event.phoneNumberId)
       return downloadMetaDepositProof({
@@ -207,6 +220,15 @@ async function silenceProofForHumanTaken(client: DepositProofClient, job: Claime
 async function silenceProofForHumanTakenTx(tx: Prisma.TransactionClient, job: ClaimedBotJob, event: ProofEvent): Promise<boolean> {
   await assertClaimedBotJobTx(tx, job)
   const payload = messagePayload(event.payload)
+  if(payload?.channel==='INSTAGRAM'){
+    const subject=instagramSubjectFromPayload(payload)
+    const session=await lockInstagramConversationSessionTx(tx,{businessId:event.businessId,deploymentId:job.deploymentId,subject})
+    if(session&&(session.leadAiEnabled===false||session.status!=='ACTIVE'||session.handoffClaimsPausedAt)){
+      await tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET status='PROCESSED' WHERE id=${event.id} AND "businessId"=${event.businessId}`)
+      await completeClaimedBotJobTx(tx,job);return true
+    }
+    return false
+  }
   const fromPhone = stringField(payload?.fromPhone)
   if (!fromPhone) return false
   const candidates = await tx.$queryRaw<Array<{ sessionId: string; conversationId: string; handoffId: string }>>(Prisma.sql`
@@ -276,6 +298,28 @@ export async function resolveProofTarget(
 ): Promise<ProofTargetResolution> {
   const payload = messagePayload(event.payload)
   if (!payload) return { kind: 'NONE' }
+  if(payload.channel==='INSTAGRAM'){
+    const subject=instagramSubjectFromPayload(payload)
+    await acquireAgendaHierarchy(client,{businessId:event.businessId,professionalIds:[]})
+    const session=await lockInstagramConversationSessionTx(client,{businessId:event.businessId,deploymentId,subject})
+    if(!session||!session.leadAiEnabled||session.status!=='ACTIVE'||session.handoffClaimsPausedAt)return {kind:'NONE'}
+    const bindingRows=await client.$queryRaw<Array<{entityRef:unknown;configurationId:string;generation:number}>>(Prisma.sql`
+      SELECT inbox."entityRef",deployment."activeConfigurationId" AS "configurationId",deployment.generation FROM "BotActionInbox" inbox
+      JOIN "BotChannelDeployment" deployment ON deployment.id=inbox."deploymentId" AND deployment."businessId"=inbox."businessId"
+      WHERE inbox."businessId"=${event.businessId} AND inbox."providerEventId"=${event.id} AND inbox."sessionId"=${session.sessionId}
+        AND inbox."deploymentId"=${deploymentId} AND inbox."deploymentGeneration"=deployment.generation AND deployment.channel='INSTAGRAM'
+        AND inbox."actionType"=${CONVERSATION_PROOF_ACTION} AND inbox.status='PROCESSED' AND deployment."claimsPausedAt" IS NULL
+    `)
+    if(bindingRows.length!==1)return {kind:'NONE'}
+    const row=bindingRows[0]!,bound=parseConversationProofBinding(row.entityRef)
+    const current=conversationProofBindingFromState(session.state,{businessId:event.businessId,sessionId:session.sessionId,deploymentId,generation:row.generation,configurationId:row.configurationId,revision:String(session.revision),timezone:session.businessTimezone})
+    if(!bound||!current||!sameConversationProofBinding(current,bound))return {kind:'NONE'}
+    let reservation:ReturnType<typeof parseRuntimeBookingReservation>
+    try{reservation=parseRuntimeBookingReservation((session.state as {conversationDraft?:{dialogue?:{bookingReservation?:unknown}}}).conversationDraft?.dialogue?.bookingReservation,event.businessId)}catch{return {kind:'NONE'}}
+    const actual=await loadRuntimeDepositReceipt(client,{businessId:event.businessId,sessionId:session.sessionId,subject,expectedRevision:session.revision},reservation)
+    if(!actual||actual.depositId!==bound.depositId||actual.coordinationGroupId!==bound.coordinationGroupId||!['PENDING_PROOF','PENDING_RESUBMISSION','EXPIRED'].includes(actual.depositStatus))return {kind:'NONE'}
+    return {kind:'FOUND',depositId:actual.depositId}
+  }
   const fromPhone = stringField(payload.fromPhone)
   if (!fromPhone) return { kind: 'NONE' }
   // Resolve the event's canonical obligation before collecting financial rows.
@@ -425,7 +469,7 @@ async function retargetProofJobToCurrentDeployment(client: DepositProofClient, j
       SELECT d."id" AS "deploymentId", d."generation"
       FROM "BotChannelDeployment" d
       WHERE d."id" = ${job.deploymentId} AND d."businessId" = ${job.businessId}
-        AND d."channel" = 'WHATSAPP'::"BotChannel"
+        AND d."channel" = ${job.channel??'WHATSAPP'}::"BotChannel"
         AND d."engineKey" = 'deterministic-options'
         AND d."activeConfigurationId" IS NOT NULL
         AND d."legacyDispatchCoverageVersion" >= 1
@@ -461,7 +505,7 @@ async function fallbackToInitialInboxTx(tx: Prisma.TransactionClient, job: Claim
   const payload = messagePayload(event.payload)
   const safeFallbackPayload = {
     kind: 'message',
-    fromPhone: stringField(payload?.fromPhone),
+    ...(payload?.channel==='INSTAGRAM'?{channel:'INSTAGRAM',instagramLeadId:payload.instagramLeadId,instagramAccountId:payload.instagramAccountId,senderId:payload.senderId,contextWindowEvaluated:true}:{fromPhone:stringField(payload?.fromPhone)}),
     messageType: 'unsupported',
     textBody: null,
     interactiveReplyId: null,
@@ -522,3 +566,5 @@ const nodeFetch: MetaMediaHttp = async (url, init) => {
     json: () => response.json()
   }
 }
+
+const fetchInstagramMedia:InstagramMediaHttp=async(url,init)=>{const response=await fetch(url,init);return {ok:response.ok,redirected:response.redirected,headers:response.headers,body:response.body}}

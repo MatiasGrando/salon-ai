@@ -33,6 +33,7 @@ export async function listChannelConversations(input: {
   take?: number
   since?: Date | null
   search?: string | null
+  filter?:string
   linkedInstagramUserIds?: string[]
   client?: PrismaLike
 }) {
@@ -41,10 +42,11 @@ export async function listChannelConversations(input: {
   const search = input.search?.trim()
   const baseWhere = {
     businessId: input.businessId,
+    ...(input.filter==='handoff'?{AND:[{OR:[{aiEnabled:false},{botSessions:{some:{status:{in:['HUMAN_QUEUED','HUMAN_TAKEN']}}}}]}]}:{}),
     ...(input.since ? { updatedAt: { gt: input.since } } : {})
   }
   const linkedInstagramUserIds = [...new Set(input.linkedInstagramUserIds || [])]
-  const include = { messages: { orderBy: { createdAt: 'desc' }, take: 1 } }
+  const include = { messages: { orderBy: { createdAt: 'desc' }, take: 1 },botSessions:{where:{status:{not:'CLOSED'}},orderBy:{updatedAt:'desc'},take:1,include:{handoffs:{where:{status:{in:['QUEUED','TAKEN']}},orderBy:{queuedAt:'desc'},take:1}}} }
   const directSearch = client.instagramLead.findMany({
     where: {
       ...baseWhere,
@@ -127,8 +129,8 @@ export async function resolveLinkedCustomerConversationSearch(input: {
   }
 }
 
-export async function countChannelConversations(businessId: string, client: PrismaLike = prisma as unknown as PrismaLike) {
-  return client.instagramLead.count({ where: { businessId } }) as Promise<number>
+export async function countChannelConversations(businessId: string, client: PrismaLike = prisma as unknown as PrismaLike,filter?:string) {
+  return client.instagramLead.count({ where: { businessId,...(filter==='handoff'?{OR:[{aiEnabled:false},{botSessions:{some:{status:{in:['HUMAN_QUEUED','HUMAN_TAKEN']}}}}]}:{}) } }) as Promise<number>
 }
 
 export async function latestChannelConversationActivityAt(businessId: string, client: PrismaLike = prisma as unknown as PrismaLike) {
@@ -148,7 +150,7 @@ export async function loadChannelConversation(input: {
   const client = input.client ?? prisma as unknown as PrismaLike
   const lead = await client.instagramLead.findFirst({
     where: { id: parsed.resourceId, businessId: input.businessId },
-    include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } }
+    include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 },botSessions:{where:{status:{not:'CLOSED'}},orderBy:{updatedAt:'desc'},take:1,include:{handoffs:{where:{status:{in:['QUEUED','TAKEN']}},orderBy:{queuedAt:'desc'},take:1}}} }
   })
   return lead ? projectInstagramConversation(lead) : null
 }
@@ -250,6 +252,8 @@ export async function sendChannelConversationReply(input: {
 }
 
 function projectInstagramConversation(lead: any) {
+  const session=lead.botSessions?.[0],handoff=session?.handoffs?.[0]
+  const handoffStatus=handoff?.status??(session?.status==='HUMAN_TAKEN'?'TAKEN':session?.status==='HUMAN_QUEUED'?'QUEUED':null)
   const latestMessage = lead.messages?.[0] ? projectInstagramMessage(lead.messages[0]) : null
   const label = lead.displayName || (lead.username ? `@${lead.username.replace(/^@/, '')}` : `Instagram ${String(lead.instagramUserId).slice(-6)}`)
   return {
@@ -263,8 +267,11 @@ function projectInstagramConversation(lead: any) {
     channelAddress: lead.username ? `@${lead.username.replace(/^@/, '')}` : label,
     instagramUserId: lead.instagramUserId,
     instagramUsername: lead.username?.replace(/^@/, '') || null,
-    currentStep: 'START',
-    aiEnabled: true,
+    currentStep: handoffStatus||lead.aiEnabled===false?'HUMAN_HANDOFF':'START',
+    aiEnabled: lead.aiEnabled!==false,
+    botHandoffStatus:handoffStatus,
+    humanHandoffAt:handoff?.queuedAt??lead.botPausedAt??null,
+    humanHandoffResolvedAt:handoff?.resolvedAt??null,
     lastMessage: lead.lastMessage,
     messages: latestMessage ? [latestMessage] : [],
     latestInboundMessage: latestMessage?.direction === 'INBOUND' ? latestMessage : null,

@@ -1,3 +1,5 @@
+import { resolveInstagramSendTargetTx } from '../../conversational-bot/instagram-runtime-channel.js'
+import { isInstagramSubject, lockConversationSubjectTx } from '../../conversational-bot/conversation-subject.js'
 import { guardConsolidatedOutboxTx, lockConversationInputTx, readConsolidationEnvelope } from '../../conversational-bot/inbound-consolidation.js'
 import { monotonicInterval, type MonotonicInterval, outboxQueueKey, type QueueMilestoneTracker, type QueueClaimWindow } from '../observability/queue-milestones.js'
 import { randomUUID } from 'node:crypto'
@@ -40,6 +42,7 @@ export function admissionToAcceptanceDurationMs(admittedAt: Date | null | undefi
   return end - start
 }
 export type ClaimedOutbox = {
+  channel?: 'WHATSAPP'|'INSTAGRAM'
   id: string; businessId: string; sessionId: string; payload: Prisma.JsonValue
   attempts: number; maxAttempts: number; claimToken: string; generation: number; fenceEpoch: number
   queueWaitMs: number
@@ -75,8 +78,8 @@ export async function claimOutbox(
     const diagnosticsConfigured = whatsappConfig.latencyDiagnosticBusinessCodes.size > 0
     const candidateBusinessCode = diagnosticsConfigured ? Prisma.sql`, b."customerCode"` : Prisma.sql`, NULL::text AS "customerCode"`
     const businessJoin = diagnosticsConfigured ? Prisma.sql`JOIN "Business" b ON b."id" = o."businessId"` : Prisma.empty
-    const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string; sessionId: string; transitionId: string; customerCode: string | null }>>(Prisma.sql`
-      SELECT o."id", o."businessId", o."sessionId", o."transitionId" ${candidateBusinessCode} FROM "BotOutbox" o
+    const candidates = await tx.$queryRaw<Array<{ id: string; businessId: string; sessionId: string; transitionId: string; channel?:'WHATSAPP'|'INSTAGRAM'; customerCode: string | null }>>(Prisma.sql`
+      SELECT o."id", o."businessId", o."sessionId", o."transitionId",d.channel::text AS channel ${candidateBusinessCode} FROM "BotOutbox" o
       ${businessJoin}
       JOIN "BotSession" s ON s."id" = o."sessionId"
       JOIN "BotChannelDeployment" d ON d."id" = s."deploymentId" AND d."businessId" = o."businessId"
@@ -115,7 +118,7 @@ export async function claimOutbox(
         : Prisma.sql`SELECT ${candidate.customerCode}::text AS "customerCode", NULL::text AS "providerEventId", NULL::timestamptz AS "admittedAt"`
       : Prisma.sql`SELECT NULL::text AS "customerCode", NULL::text AS "providerEventId", NULL::timestamptz AS "admittedAt"`
     await tx.$executeRaw(Prisma.sql`
-      SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${candidate.businessId}:WHATSAPP`}, 0))
+      SELECT pg_advisory_xact_lock_shared(hashtextextended(${`bot-cutover:${candidate.businessId}:${candidate.channel??'WHATSAPP'}`}, 0))
     `)
     const rows = await tx.$queryRaw<ClaimedOutbox[]>(Prisma.sql`
       WITH telemetry AS (${telemetry})
@@ -138,7 +141,7 @@ export async function claimOutbox(
             AND predecessor."status" IN ('ACCEPTED'::"BotOutboxStatus", 'DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
         ))
       RETURNING o."id", o."businessId", o."sessionId", o."payload", o."attempts", o."maxAttempts",
-        o."leaseToken" AS "claimToken", d."generation", d."dispatchFenceEpoch" AS "fenceEpoch",
+        o."leaseToken" AS "claimToken",d.channel::text AS channel, d."generation", d."dispatchFenceEpoch" AS "fenceEpoch",
         (EXTRACT(EPOCH FROM (clock_timestamp() - o."createdAt")) * 1000)::double precision AS "queueWaitMs",
         telemetry."customerCode" AS "diagnosticCustomerCode",
         telemetry."providerEventId" AS "sourceProviderEventId",
@@ -188,13 +191,16 @@ export type OutboxProviderDiagnostic = {
 }
 
 export type OutboxProvider = {
-  send(input: { businessId: string; payload: Prisma.JsonValue }, signal: AbortSignal, onDiagnostic?: (diagnostic: OutboxProviderDiagnostic) => void): Promise<
+  send(input: { businessId: string; payload: Prisma.JsonValue;context?:{sessionId:string;generation:number;fenceEpoch:number} }, signal: AbortSignal, onDiagnostic?: (diagnostic: OutboxProviderDiagnostic) => void): Promise<
     | { kind: 'accepted'; providerMessageId: string }
     | { kind: 'clear_failure'; code: string; retryable: boolean; retryAfterMs?: number }
   >
 }
 
 type OutboundPayload = {
+  channel?: unknown
+  subject?: unknown
+  revision?: unknown
   to?: unknown
   item?: {
     type?: unknown
@@ -264,6 +270,22 @@ async function projectOutboundMessageTx(
     ? payload.item.body.trim()
     : `[${typeof payload.item?.type === 'string' ? payload.item.type : 'message'}]`
   if (typeof payload.to !== 'string' || !payload.to) return null
+  if(input.item.channel==='INSTAGRAM'){
+    if(payload.channel!=='INSTAGRAM'||!isInstagramSubject(payload.subject)||payload.to!==payload.subject.externalUserId)throw new Error('Instagram projection identity mismatch')
+    const subject=payload.subject
+    const projected=await tx.$queryRaw<Array<{id:string;leadId:string}>>(Prisma.sql`
+      INSERT INTO "InstagramMessage" (id,"leadId","providerMessageId",direction,body,status,metadata,"createdAt")
+      SELECT ${input.item.id},lead.id,${input.providerMessageId},'OUTBOUND'::"MessageDirection",${body},${input.status},${JSON.stringify({provider:'instagram',source:'conversational-bot',accountId:subject.instagramAccountId,kind:'text',delivery:{status:input.status,errorCode:input.errorCode}})}::jsonb,clock_timestamp()
+      FROM "BotSession" session JOIN "InstagramLead" lead ON lead.id=session."instagramLeadId" AND lead."businessId"=session."businessId"
+      WHERE session.id=${input.item.sessionId} AND session."businessId"=${input.item.businessId} AND session.channel='INSTAGRAM'
+        AND lead.id=${subject.instagramLeadId} AND session."instagramAccountId"=${subject.instagramAccountId} AND lead."instagramUserId"=${subject.externalUserId}
+      ON CONFLICT (id) DO UPDATE SET "providerMessageId"=EXCLUDED."providerMessageId",status=EXCLUDED.status,metadata=EXCLUDED.metadata WHERE "InstagramMessage"."leadId"=EXCLUDED."leadId"
+      RETURNING id,"leadId"
+    `)
+    if(projected.length!==1)throw new Error('Instagram accepted message projection lost identity')
+    await tx.$executeRaw(Prisma.sql`UPDATE "InstagramLead" SET "lastMessage"=${body},"updatedAt"=clock_timestamp() WHERE id=${subject.instagramLeadId} AND "businessId"=${input.item.businessId}`)
+    return {businessId:input.item.businessId,conversationId:'instagram:'+subject.instagramLeadId,messageId:'instagram-message:'+projected[0]!.id}
+  }
   const metadata = {
     ...outboundMessageMetadata(payload),
     delivery: {
@@ -332,7 +354,18 @@ export async function sendClaimedOutbox(input: {
   try {
     await input.client.$transaction(async (tx) => {
       const payload = input.item.payload as { to?: unknown; consolidation?: unknown } | null
-      if (readConsolidationEnvelope(payload?.consolidation)) {
+      if(input.item.channel==='INSTAGRAM'){
+        const instagram=input.item.payload as unknown as OutboundPayload
+        if(instagram.channel!=='INSTAGRAM'||!isInstagramSubject(instagram.subject)||instagram.to!==instagram.subject.externalUserId||typeof instagram.revision!=='string'||!/^\d+$/.test(instagram.revision))throw new Error('invalid Instagram outbox identity')
+        await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${'bot-cutover:'+input.item.businessId+':INSTAGRAM'},0))`)
+        await lockConversationSubjectTx(tx,input.item.businessId,instagram.subject)
+        const ready=await resolveInstagramSendTargetTx(tx,{businessId:input.item.businessId,sessionId:input.item.sessionId,generation:input.item.generation,fenceEpoch:input.item.fenceEpoch,expectedRevision:BigInt(instagram.revision),subject:instagram.subject})
+        if(!ready){
+          await tx.$executeRaw(Prisma.sql`UPDATE "BotOutbox" SET status='SKIPPED'::"BotOutboxStatus","errorCode"='INSTAGRAM_WINDOW_OR_SCOPE_CLOSED',"leaseToken"=NULL,"leasedUntil"=NULL,"updatedAt"=clock_timestamp() WHERE id=${input.item.id} AND "businessId"=${input.item.businessId} AND status='CLAIMED' AND "leaseToken"=${input.item.claimToken}`)
+          return
+        }
+      }
+      if (input.item.channel!=='INSTAGRAM'&&readConsolidationEnvelope(payload?.consolidation)) {
         if (typeof payload?.to !== 'string' || !payload.to.trim()) throw new Error('consolidation recipient unavailable')
         // Same admission fence, taken before any dispatch/deployment/outbox row lock.
         await lockConversationInputTx(tx, input.item.businessId, payload.to)
@@ -353,7 +386,7 @@ export async function sendClaimedOutbox(input: {
         }
       }
       dispatchToken = await acquireDispatchClaimTx(tx, {
-        businessId: input.item.businessId, sessionId: input.item.sessionId,
+        businessId: input.item.businessId, sessionId: input.item.sessionId, ...(input.item.channel?{channel:input.item.channel}:{}),
         resourceId: input.item.id, generation: input.item.generation, fenceEpoch: input.item.fenceEpoch,
         kind: 'SEND', claimToken: token
       })
@@ -417,7 +450,7 @@ export async function sendClaimedOutbox(input: {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => { controller.abort(); reject(new Error('meta_timeout_unknown')) }, timeoutMs)
     })
-    const result = await Promise.race([input.provider.send({ businessId: input.item.businessId, payload: input.item.payload }, controller.signal,
+    const result = await Promise.race([input.provider.send({ businessId: input.item.businessId, payload: input.item.payload,...(input.item.channel==='INSTAGRAM'?{context:{sessionId:input.item.sessionId,generation:input.item.generation,fenceEpoch:input.item.fenceEpoch}}:{}) }, controller.signal,
       isWhatsAppLatencyDiagnosticsEnabledForBusiness(input.item.diagnosticCustomerCode) && input.onDiagnostic
         ? (diagnostic) => emit({ resource: 'outbox', resourceId: input.item.id, ...diagnostic })
         : undefined), timeout])

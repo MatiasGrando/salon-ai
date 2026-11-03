@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import sharp from 'sharp'
 import {
   INSTAGRAM_REEL_MIME_TYPES,
   INSTAGRAM_REEL_UPLOAD_TTL_SECONDS,
@@ -8,17 +9,19 @@ import {
 type ReelMimeType = (typeof INSTAGRAM_REEL_MIME_TYPES)[number]
 
 export async function createInstagramReelUpload(input: {
+  publicationType?: 'REEL' | 'STORY'
   businessId: string
   mimeType: string
   sizeBytes: number
 }) {
   const config = requiredConfig()
   const businessId = validateBusinessId(input.businessId)
-  const mimeType = validateMimeType(input.mimeType)
-  validateSize(input.sizeBytes, config.maxBytes)
+  const story = input.publicationType === 'STORY'
+  const mimeType = story && input.mimeType === 'image/jpeg' ? 'image/jpeg' : validateMimeType(input.mimeType)
+  validateSize(input.sizeBytes, mimeType === 'image/jpeg' ? 8 * 1024 * 1024 : config.maxBytes)
 
-  const extension = mimeType === 'video/quicktime' ? 'mov' : 'mp4'
-  const objectPath = `${businessId}/instagram/reels/${randomUUID()}.${extension}`
+  const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType === 'video/quicktime' ? 'mov' : 'mp4'
+  const objectPath = `${businessId}/instagram/${story ? 'stories' : 'reels'}/${randomUUID()}.${extension}`
   const endpoint = storageUrl(config.supabaseUrl, 'object/upload/sign', config.bucket, objectPath)
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -49,11 +52,13 @@ export async function verifyAndSignInstagramReelVideo(input: {
   objectPath: string
   expectedMimeType: string
   expectedSizeBytes: number
+  readOnly?: boolean
 }) {
   const config = requiredConfig()
   assertTenantObjectPath(input.businessId, input.objectPath)
-  const expectedMimeType = validateMimeType(input.expectedMimeType)
-  validateSize(input.expectedSizeBytes, config.maxBytes)
+  const image = input.objectPath.includes('/instagram/stories/') && input.expectedMimeType === 'image/jpeg'
+  const expectedMimeType = image ? 'image/jpeg' : validateMimeType(input.expectedMimeType)
+  validateSize(input.expectedSizeBytes, image ? 8 * 1024 * 1024 : config.maxBytes)
 
   const infoEndpoint = storageUrl(config.supabaseUrl, 'object/info', config.bucket, input.objectPath)
   const infoResponse = await fetch(infoEndpoint, { headers: serviceHeaders(config.serviceRoleKey) })
@@ -62,7 +67,7 @@ export async function verifyAndSignInstagramReelVideo(input: {
   const mimeType = metadataMimeType(info)
 
   if (sizeBytes !== input.expectedSizeBytes || mimeType !== expectedMimeType) {
-    await deleteInstagramReelVideo({ businessId: input.businessId, objectPath: input.objectPath }).catch(() => undefined)
+    if (!input.readOnly) await deleteInstagramReelVideo({ businessId: input.businessId, objectPath: input.objectPath }).catch(() => undefined)
     throw new Error('El video subido no coincide con el tipo o tamaño declarado y fue descartado.')
   }
 
@@ -85,6 +90,22 @@ export async function verifyAndSignInstagramReelVideo(input: {
     throw new Error('La URL temporal del video devolvió metadata inconsistente.')
   }
 
+  if (image) {
+    const response = await fetch(signedUrl, { signal: AbortSignal.timeout(10000) })
+    if (!response.ok || !response.body) throw new Error('No se pudo leer la foto para verificarla.')
+    const reader = response.body.getReader(), chunks: Uint8Array[] = []
+    let total = 0
+    try {
+      for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.byteLength; if (total > 8 * 1024 * 1024 || total > sizeBytes) throw new Error('La foto supera el tamaño declarado.'); chunks.push(value) }
+    } finally { await reader.cancel().catch(() => undefined) }
+    if (total !== sizeBytes) throw new Error('La foto no coincide con el tamaño declarado.')
+    const bytes = Buffer.concat(chunks)
+    try {
+      const metadata = await sharp(bytes, { limitInputPixels: 20000000, failOn: 'error' }).metadata()
+      if (metadata.format !== 'jpeg' || !metadata.width || !metadata.height) throw new Error('invalid')
+      await sharp(bytes, { limitInputPixels: 20000000, failOn: 'error' }).raw().toBuffer()
+    } catch { throw new Error('La foto debe ser un JPEG válido de hasta 20 megapíxeles (política del CRM).') }
+  }
   return {
     signedUrl,
     expiresInSeconds: config.signedReadTtlSeconds,
@@ -104,6 +125,35 @@ export async function deleteInstagramReelVideo(input: { businessId: string; obje
     body: JSON.stringify({ prefixes: [input.objectPath] })
   })
   await parseStorageResponse<unknown>(response, 'eliminar el video')
+}
+
+export async function copyInstagramReelVideo(input: {
+  businessId: string; sourceObjectPath: string; destinationObjectPath: string; expectedMimeType: string; expectedSizeBytes: number
+}) {
+  const config = requiredConfig()
+  assertTenantObjectPath(input.businessId, input.sourceObjectPath)
+  assertTenantObjectPath(input.businessId, input.destinationObjectPath)
+  if (input.sourceObjectPath === input.destinationObjectPath) throw new Error('La copia requiere un archivo independiente.')
+  const image = input.sourceObjectPath.includes('/instagram/stories/') && input.expectedMimeType === 'image/jpeg'
+  const mimeType = image ? 'image/jpeg' : validateMimeType(input.expectedMimeType)
+  validateSize(input.expectedSizeBytes, image ? 8 * 1024 * 1024 : config.maxBytes)
+  // Read-only validation: the upload verifier intentionally deletes bad inputs.
+  const response = await fetch(storageUrl(config.supabaseUrl, 'object/info', config.bucket, input.sourceObjectPath), { headers: serviceHeaders(config.serviceRoleKey) })
+  const metadata = await parseStorageResponse<StorageObjectInfo>(response, 'leer el archivo original')
+  if (metadataSize(metadata) !== input.expectedSizeBytes || metadataMimeType(metadata) !== mimeType) throw new Error('El archivo original no coincide con su metadata.')
+  await parseStorageResponse(await fetch(config.supabaseUrl + '/storage/v1/object/copy', {
+    method: 'POST', headers: { ...serviceHeaders(config.serviceRoleKey, true), 'x-upsert': 'false' },
+    body: JSON.stringify({ bucketId: config.bucket, sourceKey: input.sourceObjectPath, destinationKey: input.destinationObjectPath, copyMetadata: true })
+  }), 'copiar el video')
+  // Only the new object may be discarded by destructive upload validation.
+  try {
+    await verifyAndSignInstagramReelVideo({ businessId: input.businessId, objectPath: input.destinationObjectPath,
+      expectedMimeType: mimeType, expectedSizeBytes: input.expectedSizeBytes })
+  } catch (error) {
+    // A successful no-overwrite copy establishes ownership; a failed POST does not.
+    await deleteInstagramReelVideo({ businessId: input.businessId, objectPath: input.destinationObjectPath }).catch(() => undefined)
+    throw error
+  }
 }
 
 type StorageObjectInfo = {
@@ -135,10 +185,10 @@ function validateBusinessId(value: string) {
 
 function assertTenantObjectPath(businessIdValue: string, objectPath: string) {
   const businessId = validateBusinessId(businessIdValue)
-  if (!objectPath.startsWith(`${businessId}/instagram/reels/`)) {
+  if (!objectPath.startsWith(`${businessId}/instagram/reels/`) && !objectPath.startsWith(`${businessId}/instagram/stories/`)) {
     throw new Error('El video no pertenece al comercio indicado.')
   }
-  if (!/^[-a-z0-9_]+\/instagram\/reels\/[0-9a-f-]{36}\.(?:mp4|mov)$/i.test(objectPath)) {
+  if (!/^[-a-z0-9_]+\/instagram\/(?:reels\/[0-9a-f-]{36}\.(?:mp4|mov)|stories\/[0-9a-f-]{36}\.(?:jpg|mp4|mov))$/i.test(objectPath)) {
     throw new Error('La ruta del video de Instagram no es válida.')
   }
 }

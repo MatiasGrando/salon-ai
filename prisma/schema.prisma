@@ -19,6 +19,7 @@ datasource db {
 
 enum BotChannel {
   WHATSAPP
+  INSTAGRAM
 }
 
 enum BotProviderEventType {
@@ -174,6 +175,9 @@ model BotSession {
   id                    String               @id @default(cuid())
   businessId            String
   conversationId        String?
+  instagramLeadId       String?
+  instagramAccountId    String?
+  instagramLead         InstagramLead? @relation("InstagramBotSessions", fields: [businessId, instagramLeadId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   deploymentId          String
   deployment            BotChannelDeployment @relation("BotSessionDeployment", fields: [businessId, deploymentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
   deploymentGeneration  Int
@@ -204,6 +208,7 @@ model BotSession {
   @@unique([businessId, deploymentId, id])
   @@index([businessId, status])
   @@index([conversationId])
+  @@index([instagramLeadId])
 }
 
 model BotHandoff {
@@ -672,6 +677,7 @@ enum BookingDepositStatus {
 }
 
 enum BookingDepositSource {
+  INSTAGRAM
   WHATSAPP
   WEB
 }
@@ -706,7 +712,10 @@ enum MessageDirection {
 }
 
 enum InstagramPublicationStatus {
+  MANUALLY_COMPLETED
   DRAFT
+  SCHEDULED
+  CANCELLED
   READY
   CREATING_CONTAINER
   PROCESSING
@@ -915,6 +924,7 @@ model Business {
   logoUrl                String?
   landingEnabled         Boolean                       @default(true)
   allowGuestWebBooking   Boolean                       @default(false)
+  webBookingPrioritizeLeastBooked Boolean               @default(false)
   landingTemplate        String                        @default("classic")
   landingSubtitle        String?
   landingFeature         String?
@@ -941,6 +951,8 @@ model Business {
   whatsappConfig         BusinessWhatsAppConfig?
   instagramConfig        BusinessInstagramConfig?
   instagramPublications  InstagramPublication[]
+  instagramMedia         InstagramMedia[]
+  instagramMediaSyncs    InstagramMediaSync[]
   instagramAutomations   InstagramCommentAutomation[]
   instagramExecutions    InstagramCommentExecution[]
   featureSettings        BusinessFeatureSettings?
@@ -990,6 +1002,7 @@ model Business {
   legacyCutoverInbounds       LegacyWhatsAppCutoverInbound[]
   appointmentAccounts         AppointmentAccount[]
   appointmentTotalAdjustments AppointmentTotalAdjustment[]
+  appointmentServiceCorrections AppointmentServiceCorrection[]
   appointmentAccountLinks     AppointmentAccountLink[]
   appointments                Appointment[]
   professionalAccountEntries  ProfessionalAccountEntry[]
@@ -1300,6 +1313,7 @@ model User {
   cashSessions                     CashSession[] @relation("CashSessionLocalResponsible")
   administratorCashSessions        CashSession[] @relation("CashSessionAdministrator")
   appointmentTotalAdjustments      AppointmentTotalAdjustment[] @relation("AppointmentTotalAdjustmentActor")
+  appointmentServiceCorrections    AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionActor")
   productSales                     ProductSale[]                @relation("ProductSaleActor")
   productSaleAudits                ProductSaleAudit[]           @relation("ProductSaleAuditActor")
   assignedPipelineLeads            PipelineLead[]               @relation("PipelineLeadAssignee")
@@ -1376,6 +1390,9 @@ model BusinessWhatsAppConfig {
 }
 
 model BusinessInstagramConfig {
+  storiesDeclarationFingerprint String?
+  storiesDeclaredAt DateTime?
+  storiesDeclaredBy String?
   id String @id @default(cuid())
 
   businessId String   @unique
@@ -1430,6 +1447,10 @@ model InstagramLead {
   whatsappConversation   Conversation? @relation(fields: [whatsappConversationId], references: [id], onDelete: SetNull)
   whatsappLinkedAt       DateTime?
 
+  aiEnabled         Boolean @default(true)
+  botPausedAt       DateTime?
+  botPausedByUserId String?
+  botSessions       BotSession[] @relation("InstagramBotSessions")
   messages          InstagramMessage[]
   commentExecutions InstagramCommentExecution[]
 
@@ -1442,6 +1463,10 @@ model InstagramLead {
 }
 
 model InstagramPublication {
+  publicationType String @default("REEL")
+  mediaKind String @default("VIDEO")
+  deliveryMode String @default("AUTO")
+  manuallyCompletedAt DateTime?
   id String @id @default(cuid())
 
   businessId String
@@ -1458,6 +1483,12 @@ model InstagramPublication {
   attempts        Int                        @default(0)
   maxAttempts     Int                        @default(5)
   availableAt     DateTime                   @default(now())
+  scheduledAt     DateTime?
+  scheduleTimezone String?
+  revision        Int                        @default(0)
+  destinationInstagramAccountId String?
+  destinationApiAccountId String?
+  videoDeleteRequestedAt DateTime?
   claimToken      String?
   claimedUntil    DateTime?
   lastError       String?
@@ -1474,8 +1505,77 @@ model InstagramPublication {
   @@unique([businessId, metaContainerId])
   @@unique([businessId, metaMediaId])
   @@index([status, availableAt])
+  @@index([status, scheduledAt])
   @@index([businessId, createdAt])
   @@index([claimedUntil])
+}
+
+model InstagramMedia {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, map: "InstagramMedia_business_fkey")
+  accountId String
+  providerMediaId String
+  caption String?
+  mediaType String?
+  mediaProductType String?
+  permalink String?
+  thumbnailUrl String?
+  publishedAt DateTime?
+  cataloguedAt DateTime @default(now())
+  lastSyncedAt DateTime
+  lastInsightAttemptAt DateTime?
+  insightsStatus String @default("not_applicable")
+  insightsErrorCode String?
+  views Float?
+  reach Float?
+  likes Float?
+  comments Float?
+  shares Float?
+  saved Float?
+  total_interactions Float?
+  metricObservedAt Json @default("{}")
+  snapshots InstagramMediaInsight[]
+  automation InstagramCommentAutomation?
+  @@unique([businessId, accountId, providerMediaId])
+  @@unique([businessId, accountId, id])
+  @@index([businessId, accountId, publishedAt])
+}
+
+model InstagramMediaInsight {
+  id String @id @default(cuid())
+  businessId String
+  accountId String
+  mediaId String
+  media InstagramMedia @relation(fields: [businessId, accountId, mediaId], references: [businessId, accountId, id], onDelete: Cascade, map: "InstagramMediaInsight_scope_fkey")
+  observedAt DateTime
+  apiVersion String
+  status String
+  errorCode String?
+  periods Json @default("{}")
+  views Float?
+  reach Float?
+  likes Float?
+  comments Float?
+  shares Float?
+  saved Float?
+  total_interactions Float?
+  @@index([businessId, accountId, mediaId, observedAt], map: "InstagramMediaInsight_scope_observedAt_idx")
+}
+
+// Short-lived, explicit page continuation. No worker, source video or provider URL.
+model InstagramMediaSync {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade, map: "InstagramMediaSync_business_fkey")
+  accountId String
+  credentialHash String
+  after String?
+  seenCursors String[] @default([])
+  expiresAt DateTime
+  claimToken String?
+  claimUntil DateTime?
+  @@index([businessId, expiresAt])
 }
 
 model InstagramCommentAutomation {
@@ -1483,11 +1583,17 @@ model InstagramCommentAutomation {
 
   businessId    String
   business      Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  publicationId String
-  publication   InstagramPublication @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  publicationId String?
+  publication   InstagramPublication? @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  accountId String?
+  mediaId String?
+  media InstagramMedia? @relation(fields: [businessId, accountId, mediaId], references: [businessId, accountId, id], onDelete: Cascade, map: "IgAutomation_media_fkey")
 
   enabled          Boolean @default(true)
   privateReplyText String
+  privateReplyEnabled Boolean @default(true)
+  publicReplyEnabled Boolean @default(false)
+  publicReplyText String @default("")
 
   keywords   InstagramAutomationKeyword[]
   executions InstagramCommentExecution[]
@@ -1496,6 +1602,7 @@ model InstagramCommentAutomation {
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, publicationId])
+  @@unique([businessId, accountId, mediaId], map: "IgAutomation_media_key")
   @@unique([businessId, id])
   @@unique([businessId, publicationId, id])
   @@index([businessId, enabled])
@@ -1522,10 +1629,13 @@ model InstagramCommentExecution {
 
   businessId    String
   business      Business                   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  publicationId String
-  publication   InstagramPublication       @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
+  publicationId String?
+  publication   InstagramPublication?       @relation(fields: [businessId, publicationId], references: [businessId, id], onDelete: Cascade)
   automationId  String
-  automation    InstagramCommentAutomation @relation(fields: [businessId, publicationId, automationId], references: [businessId, publicationId, id], onDelete: Cascade, map: "IgCommentExecution_scope_automation_fkey")
+  automation    InstagramCommentAutomation @relation(fields: [businessId, automationId], references: [businessId, id], onDelete: Cascade, map: "IgExecution_automation_fkey")
+  receivedAccountId String?
+  providerMediaId String?
+  actions InstagramCommentAction[]
   leadId        String?
   lead          InstagramLead?             @relation(fields: [businessId, leadId], references: [businessId, id], onDelete: Restrict)
 
@@ -1550,11 +1660,35 @@ model InstagramCommentExecution {
   updatedAt DateTime @updatedAt
 
   @@unique([businessId, providerCommentId])
+  @@unique([businessId, id])
   @@unique([businessId, providerMessageId])
   @@index([status, availableAt])
   @@index([businessId, publicationId, receivedAt], map: "IgCommentExecution_publication_received_idx")
   @@index([businessId, commenterInstagramUserId, receivedAt], map: "IgCommentExecution_commenter_received_idx")
   @@index([claimedUntil])
+}
+
+model InstagramCommentAction {
+  id String @id @default(cuid())
+  businessId String
+  executionId String
+  execution InstagramCommentExecution @relation(fields: [businessId, executionId], references: [businessId, id], onDelete: Cascade, map: "IgAction_execution_fkey")
+  kind String
+  body String
+  status InstagramCommentExecutionStatus @default(READY)
+  providerMessageId String?
+  recipientId String?
+  attempts Int @default(0)
+  maxAttempts Int @default(5)
+  availableAt DateTime @default(now())
+  claimToken String?
+  claimedUntil DateTime?
+  lastError String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([businessId, executionId, kind], map: "IgAction_execution_kind_key")
+  @@index([status, availableAt], map: "IgAction_status_available_idx")
 }
 
 model WeexLead {
@@ -1701,6 +1835,7 @@ model Service {
   archivedAt            DateTime?
   sortOrder             Int                  @default(0)
   bookingOrderPriority  Int                  @default(20)
+  agendaFavorite        Boolean              @default(false)
   attentionMode         ServiceAttentionMode @default(DIRECT_BOOKING)
   requiresPhoto         Boolean              @default(false)
   estimateExplanation   String?
@@ -1735,6 +1870,8 @@ model Service {
   combinationRulesA   ServiceCombinationRule[] @relation("ServiceCombinationA")
   combinationRulesB   ServiceCombinationRule[] @relation("ServiceCombinationB")
   bookingDepositLines BookingDepositLine[]
+  previousServiceCorrections AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionPreviousService")
+  newServiceCorrections AppointmentServiceCorrection[] @relation("AppointmentServiceCorrectionNewService")
 
   createdAt DateTime @default(now())
 
@@ -2017,6 +2154,7 @@ model WeexAccount {
 
   sessions      WeexAccountSession[]
   customerLinks WeexCustomerLink[]
+  createdAppointments Appointment[] @relation("WebAppointmentCreator")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2132,6 +2270,9 @@ model Appointment {
   totalDurationMinutes Int
   coordinationGroupId  String?
   version              Int                       @default(0)
+  /// Authority is captured from the creating session, never inferred from contact data.
+  createdByWeexAccountId String?
+  createdByWeexAccount WeexAccount? @relation("WebAppointmentCreator", fields: [createdByWeexAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   visitId String?       @unique
   visit   BookingVisit? @relation(fields: [visitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -2147,6 +2288,7 @@ model Appointment {
   bookingDeposit           BookingDeposit?
   changeHistory            AppointmentChangeHistory[]
   serviceItems             AppointmentServiceItem[]
+  serviceCorrections       AppointmentServiceCorrection[]
   accountLink              AppointmentAccountLink?
   productSale              ProductSale?
   professionalAccountEntry ProfessionalAccountEntry?
@@ -2157,6 +2299,7 @@ model Appointment {
 
   @@unique([businessId, id])
   @@index([coordinationGroupId])
+  @@index([createdByWeexAccountId, businessId])
   @@index([businessId, startAt])
   @@index([professionalId, startAt])
 }
@@ -2181,6 +2324,22 @@ model AppointmentAccount {
   @@index([businessId, createdAt])
 }
 
+/// Append-only idempotency and audit for customer-initiated web changes.
+model WebAppointmentAction {
+  operationId    String   @id
+  businessId     String
+  appointmentIds String[]
+  actorType      String
+  actorId        String
+  action         String
+  requestHash    String
+  before         Json
+  after          Json
+  createdAt      DateTime @default(dbgenerated("clock_timestamp()"))
+
+  @@index([businessId, createdAt])
+}
+
 model AppointmentTotalAdjustment {
   id             String             @id @default(cuid())
   businessId     String
@@ -2197,6 +2356,40 @@ model AppointmentTotalAdjustment {
   appliedAt      DateTime?
 
   @@index([businessId, accountId, createdAt, id])
+  @@index([businessId, actorUserId, createdAt])
+}
+
+model AppointmentServiceCorrection {
+  id                   String      @id @default(cuid())
+  businessId           String
+  business             Business    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  appointmentId        String
+  appointment          Appointment @relation(fields: [businessId, appointmentId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousServiceId    String
+  previousService      Service     @relation("AppointmentServiceCorrectionPreviousService", fields: [businessId, previousServiceId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  newServiceId         String
+  newService           Service     @relation("AppointmentServiceCorrectionNewService", fields: [businessId, newServiceId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  requestId            String
+  requestFingerprint   String
+  previousServicePrice Int?
+  newServicePrice      Int?
+  previousAmount       Int
+  newAmount            Int
+  refundAmount         Int         @default(0)
+  refundCashEntryId    String?     @unique
+  refundCashEntry      CashEntry?  @relation("AppointmentServiceCorrectionRefund", fields: [businessId, refundCashEntryId], references: [businessId, id], onDelete: Restrict, onUpdate: Cascade)
+  previousCompensation Json?
+  newCompensation      Json
+  actorUserId          String?
+  actor                User?       @relation("AppointmentServiceCorrectionActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  actorName            String
+  reason               String
+  createdAt            DateTime    @default(dbgenerated("clock_timestamp()"))
+
+  @@unique([businessId, id])
+  @@unique([businessId, requestId])
+  @@unique([businessId, refundCashEntryId])
+  @@index([businessId, appointmentId, createdAt, id])
   @@index([businessId, actorUserId, createdAt])
 }
 
@@ -2425,6 +2618,7 @@ model CashEntry {
   correctionSourceId       String?
   correctionSource         CashEntry?                @relation("CashEntryDateCorrections", fields: [businessId, correctionSourceId], references: [businessId, id], onDelete: NoAction, onUpdate: Cascade)
   dateCorrections          CashEntry[]               @relation("CashEntryDateCorrections")
+  serviceCorrectionRefund  AppointmentServiceCorrection? @relation("AppointmentServiceCorrectionRefund")
   correctionReason         String?
   effectiveAt              DateTime?                 @default(dbgenerated("clock_timestamp()"))
   createdAt                DateTime                  @default(now())

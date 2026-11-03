@@ -32,16 +32,14 @@ assert.match(ui, /payload\.appSecret = appSecret/)
 assert.match(ui, /function saveInstagramSettings[\s\S]*?!appSecret && !state\.instagramSettings\?\.connection\?\.hasAppSecret[\s\S]*?setButtonLoading\(els\.instagramTechnicalSubmit/)
 assert.doesNotMatch(ui, /function renderInstagramReels\(\)[\s\S]{0,500}!appSecret/)
 
-assert.match(ui, /const basePath = '\/businesses\/' \+ encodeURIComponent\(state\.businessId\) \+ '\/instagram-publications'/)
-for (const endpoint of ["basePath + '/uploads'", "basePath + '/uploads/verify'", "getJson(basePath,", "basePath + '/' + publication.id + '/publish'"]) {
-  assert.ok(ui.includes(endpoint), `missing endpoint flow: ${endpoint}`)
-}
+// Request sequencing and retained-draft retries are exercised by the shipped-function
+// planning UI contract; the editor now delegates those stages to its scoped module.
+assert.match(ui, /return instagramMediaPlanSubmit\(event\)/)
 
-assert.match(ui, /function uploadInstagramReelFile\(upload, file\)[\s\S]*?new XMLHttpRequest\(\)/)
+assert.match(ui, /function uploadInstagramReelFile\(upload, file, signal, feedback = \{\}\)[\s\S]*?new XMLHttpRequest\(\)/)
 assert.match(ui, /request\.upload\.addEventListener\('progress'/)
 assert.match(ui, /Object\.entries\(upload\.uploadHeaders \|\| \{\}\)/)
 assert.doesNotMatch(ui, /uploadInstagramReelFile[\s\S]{0,900}(?:credentials|Authorization|SUPABASE_SERVICE_ROLE_KEY)/)
-assert.match(ui, /Publicaci&oacute;n en cola|Publicacion en cola/)
 assert.doesNotMatch(ui, /Reel publicado con [ée]xito/)
 
 assert.doesNotMatch(ui, /\b(?:alert|confirm|prompt)\s*\(/)

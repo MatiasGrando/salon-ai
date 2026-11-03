@@ -48,6 +48,28 @@ export function customerHasContactIdentity(phone?: string | null) {
   return Boolean(phone?.trim())
 }
 
+/** Exact, read-only identity lookup for an already-authorized appointment business. */
+export async function findExistingCustomersByPhone(input: { businessId: string; phone: string }) {
+  const businessId = requireBusinessId(input.businessId)
+  if (typeof input.phone !== 'string' || input.phone.length > 100) {
+    throw new CustomerPhoneValidationError('Ingresá el número completo de un cliente registrado')
+  }
+  const defaultAreaCode = await defaultAreaCodeForBusiness(businessId)
+  const normalized = normalizeCustomerPhone(input.phone, { defaultAreaCode })
+  if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
+  const exactVariants = [...new Set([normalized.phone, ...phoneSearchVariants(input.phone, { defaultAreaCode }).filter(value => {
+    const candidate = normalizeCustomerPhone(value, { defaultAreaCode })
+    return candidate.ok && candidate.phone === normalized.phone
+  })])]
+  return prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "Customer"
+    WHERE "businessId" = ${businessId}
+      AND ("normalizedPhone" = ${normalized.phone}
+        OR regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(exactVariants)}))
+    LIMIT 2
+  `
+}
+
 export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInput) {
   const name = input.name.trim()
   const businessId = requireBusinessId(input.businessId)
@@ -58,13 +80,13 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
   if (!normalized.ok) throw new CustomerPhoneValidationError(normalized.message)
 
   const canonicalPhone = normalized.phone
+  const internationalPhone = normalized.local.startsWith('+')
   const digitVariants = phoneSearchVariants(input.phone, { defaultAreaCode })
   const literalVariants = [...new Set([
     input.phone.trim(),
-    canonicalPhone,
+    ...(internationalPhone ? [`00${canonicalPhone}`] : [canonicalPhone, ...digitVariants]),
     `+${canonicalPhone}`,
-    normalized.display,
-    ...digitVariants
+    normalized.display
   ].filter(Boolean))]
   const lockKey = `${businessId}:${canonicalPhone}`
 
@@ -79,7 +101,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         businessId,
         OR: [
           { normalizedPhone: canonicalPhone },
-          { phone: { in: literalVariants } }
+          { phone: { in: literalVariants }, ...(internationalPhone ? { normalizedPhone: null } : {}) }
         ]
       },
       orderBy: { createdAt: 'asc' }
@@ -91,6 +113,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
         FROM "Customer"
         WHERE "businessId" = ${businessId}
           AND regexp_replace("phone", '[^0-9]', '', 'g') IN (${Prisma.join(digitVariants)})
+          ${internationalPhone ? Prisma.sql`AND "normalizedPhone" IS NULL AND (ltrim("phone") LIKE '+%' OR ltrim("phone") LIKE '00%')` : Prisma.empty}
         ORDER BY "createdAt" ASC
         LIMIT 1
       `

@@ -1,3 +1,4 @@
+import { runtimeIdentityFromManagement } from './conversation-subject.js'
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { Prisma } from '../generated/prisma/client.js'
@@ -91,7 +92,7 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
     // The existing executor validates tenant/session/type/hash/status/exact resultRef,
     // even if the referenced queue is now historical. Never project the old state again.
     await prismaHandoffEffectExecutor(tx, { businessId: input.businessId, sessionId: input.sessionId,
-      operationKey: input.operationKey, effects: [effect] })
+      operationKey: input.operationKey, ...(policy.channel?{channel:policy.channel}:{}), effects: [effect] })
     if (operations.length !== 1 || !operations[0]?.resultRef) throw new Error('invalid handoff replay reference')
     return { handoffId: operations[0].resultRef, revision: input.expectedRevision + 1n, replayed: true }
   }
@@ -110,21 +111,21 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
   const draft = readConversationDraft(session.state, policy, session.businessTimezone)
   if (ownAppointment) {
     const own = await loadOwnAppointments(tx,{businessId:input.businessId,sessionId:input.sessionId,
-      canonicalPhone:ownAppointment.snapshot.scope.normalizedPhone,expectedRevision:input.expectedRevision})
+      ...runtimeIdentityFromManagement(ownAppointment.snapshot.scope),expectedRevision:input.expectedRevision})
     if (!own.items.some(item=>cancellationFingerprint(item.snapshot)===cancellationProof)) throw new Error('own cancellation snapshot changed')
   } else if (confirmedCancellation) {
     const booking = draft.bookingReservation ?? draft.completedBooking
     if (!booking?.receipt || booking.receipt.coordinationGroupId !== confirmedCancellation.groupId ||
         booking.receipt.appointments.length !== confirmedCancellation.members.length) throw new Error('confirmed cancellation booking changed')
     const current = await loadOwnConfirmedCancellationHandoffSnapshot(tx, { businessId: input.businessId, sessionId: input.sessionId,
-      canonicalPhone: confirmedCancellation.scope.normalizedPhone, expectedRevision: input.expectedRevision })
+      ...runtimeIdentityFromManagement(confirmedCancellation.scope), expectedRevision: input.expectedRevision })
     if (cancellationFingerprint(current) !== cancellationProof) throw new Error('confirmed cancellation snapshot changed')
   } else if (!isDeepStrictEqual(draft.referral, referral)) throw new Error('conversational handoff referral changed')
   const requested = transition(parsed.state, { actionType: 'handoff.request', entityRef: null, payload: null },
     { dbNowIso: session.dbNow.toISOString() })
   if (requested.outcome !== 'HANDOFF') throw new Error('conversational handoff transition rejected')
   await prismaHandoffEffectExecutor(tx, { businessId: input.businessId, sessionId: input.sessionId,
-    operationKey: input.operationKey, effects: [effect],
+    operationKey: input.operationKey, ...(policy.channel?{channel:policy.channel}:{}), effects: [effect],
     ...(input.pendingConversationUpdates ? { pendingConversationUpdates: input.pendingConversationUpdates } : {}) })
   const revision = input.expectedRevision + 1n
   const updated = await tx.$executeRaw(Prisma.sql`
@@ -134,6 +135,15 @@ Promise<{ handoffId: string; revision: bigint; replayed: boolean }> {
       AND "handoffClaimsPausedAt" IS NULL
   `)
   if (updated !== 1) throw new Error('conversational handoff revision lost')
+  if(policy.channel==='INSTAGRAM')await tx.$executeRaw(Prisma.sql`
+    UPDATE "BotOutbox" outbox SET payload=jsonb_set(outbox.payload,'{revision}',to_jsonb(${String(revision)}::text))
+    FROM "BotTransitionLog" transition
+    WHERE outbox."businessId"=${input.businessId} AND outbox."sessionId"=${input.sessionId}
+      AND transition.id=outbox."transitionId" AND transition."businessId"=outbox."businessId" AND transition."sessionId"=outbox."sessionId"
+      AND transition."revisionTo"=${input.expectedRevision} AND outbox.status='PENDING'
+      AND outbox.payload->>'channel'='INSTAGRAM' AND outbox.payload->>'revision'=${String(input.expectedRevision)}
+  `)
+
   const completed = await tx.$queryRaw<Array<{ resultRef: string | null }>>(Prisma.sql`
     SELECT "resultRef" FROM "BotOperation" WHERE "operationKey"=${key} AND "businessId"=${input.businessId}
       AND "sessionId"=${input.sessionId} AND "status"='COMPLETED'

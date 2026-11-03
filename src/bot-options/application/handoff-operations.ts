@@ -1,9 +1,21 @@
+import { tenantScopeSql,type BotWorkerScope } from '../infrastructure/tenant-scope.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { normalizePhone } from '../../services/phone-normalization-service.js'
 import { parseBotOptionsState, type BotOptionsState } from '../domain/state.js'
 import { transition } from '../domain/transition.js'
 import { prismaHandoffEffectExecutor } from '../infrastructure/prisma-handoff-effect-executor.js'
+
+
+export type HandoffConversationTarget={conversationId:string;instagramLeadId?:never}|{instagramLeadId:string;conversationId?:never}
+function targetRecord(input:HandoffConversationTarget):HandoffConversationTarget {
+  if(input.instagramLeadId!==undefined)return {instagramLeadId:input.instagramLeadId}
+  return {conversationId:input.conversationId}
+}
+function sessionTarget(input:HandoffConversationTarget,alias='s'){
+  const owner=Prisma.raw(alias)
+  return input.instagramLeadId?Prisma.sql`${owner}.channel='INSTAGRAM' AND ${owner}."instagramLeadId"=${input.instagramLeadId} AND ${owner}."conversationId" IS NULL`:Prisma.sql`${owner}."conversationId"=${input.conversationId}`
+}
 
 type Client = Pick<PrismaClient, '$transaction' | '$queryRaw' | '$executeRaw'>
 type Tx = Prisma.TransactionClient
@@ -36,11 +48,10 @@ type ManualAttentionPhase =
 export async function takeConversationForManualAttention(input: {
   client: Client
   businessId: string
-  conversationId: string
   actorUserId: string
   operationKey: string
   drainMs?: number
-}): Promise<ManualAttentionResult> {
+} & HandoffConversationTarget): Promise<ManualAttentionResult> {
   if (!input.actorUserId.trim() || !input.operationKey.trim()) {
     throw new Error('manual attention requires authenticated actor and operation key')
   }
@@ -49,7 +60,7 @@ export async function takeConversationForManualAttention(input: {
     FROM "BotSession" s
     JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
       AND h."status"='TAKEN'::"BotHandoffStatus"
-    WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId}
+    WHERE s."businessId"=${input.businessId} AND ${sessionTarget(input)}
       AND s."status"='HUMAN_TAKEN'::"BotSessionStatus"
     ORDER BY s."updatedAt" DESC
     LIMIT 2
@@ -74,7 +85,7 @@ export async function takeConversationForManualAttention(input: {
       FROM "BotSession" s
       LEFT JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
         AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")
-      WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId}
+      WHERE s."businessId"=${input.businessId} AND ${sessionTarget(input)}
         AND s."status" IN ('ACTIVE'::"BotSessionStatus",'HUMAN_QUEUED'::"BotSessionStatus",'HUMAN_TAKEN'::"BotSessionStatus")
       ORDER BY CASE s."status" WHEN 'HUMAN_TAKEN'::"BotSessionStatus" THEN 0 WHEN 'HUMAN_QUEUED'::"BotSessionStatus" THEN 1 ELSE 2 END,
         s."updatedAt" DESC
@@ -110,6 +121,7 @@ export async function takeConversationForManualAttention(input: {
       businessId: input.businessId,
       sessionId: row.sessionId,
       operationKey: queueOperationKey,
+      ...(input.instagramLeadId?{channel:'INSTAGRAM' as const}:{}),
       effects
     })
     const nextRevision = row.revision + 1n
@@ -131,10 +143,10 @@ export async function takeConversationForManualAttention(input: {
   const taken = await takeBotHandoff({
     client: input.client,
     businessId: input.businessId,
-    conversationId: input.conversationId,
+    ...targetRecord(input),
     actorUserId: input.actorUserId,
     operationKey: `${input.operationKey}:take`,
-    drainMs: input.drainMs
+    ...(input.drainMs===undefined?{}:{drainMs:input.drainMs})
   })
   return { kind: 'TAKEN', handoffId: taken.handoffId, alreadyTaken: false }
 }
@@ -167,12 +179,12 @@ export function canonicalResolveOperation(input: {
 
 /** Closes a per-session fence in a short transaction, then drains outside it. */
 export async function takeBotHandoff(input: {
-  client: Client; businessId: string; conversationId: string; actorUserId: string; operationKey: string; drainMs?: number
-}): Promise<HandoffOperationResult> {
+  client: Client; businessId: string; actorUserId: string; operationKey: string; drainMs?: number
+} & HandoffConversationTarget): Promise<HandoffOperationResult> {
   if (!input.actorUserId.trim() || !input.operationKey.trim()) throw new Error('handoff take requires authenticated actor and operation key')
-  const requestHash = hash({ action: 'TAKE', actorUserId: input.actorUserId, conversationId: input.conversationId })
+  const requestHash = hash({ action: 'TAKE', actorUserId: input.actorUserId, ...targetRecord(input) })
   const phase = await input.client.$transaction(async (tx): Promise<TakePhase> => {
-    const replay = await lockOperationTarget(tx, input.operationKey, input.businessId, input.conversationId)
+    const replay = await lockOperationTarget(tx, input.operationKey, input.businessId, input)
     if (replay) {
       const row = replay
       assertOperationReplay(row, 'HANDOFF_TAKE', input.businessId, row.sessionId, requestHash, row.handoffId)
@@ -192,7 +204,7 @@ export async function takeBotHandoff(input: {
     const rows = await tx.$queryRaw<Array<OperationRow>>(Prisma.sql`
       SELECT s."id" AS "sessionId",s."handoffFenceEpoch" AS "epoch",h."id" AS "handoffId",h."status"::text AS "handoffStatus"
       FROM "BotSession" s JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
-      WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")
+      WHERE s."businessId"=${input.businessId} AND ${sessionTarget(input)} AND h."status" IN ('QUEUED'::"BotHandoffStatus",'TAKEN'::"BotHandoffStatus")
       FOR UPDATE OF s,h`)
     const row = rows[0]
     if (!row) throw new Error('active deterministic handoff not found in authorized conversation')
@@ -268,14 +280,14 @@ export async function takeBotHandoff(input: {
     }
     if (row.handoffStatus === 'TAKEN') return { handoffId: phase.handoffId, status: 'TAKEN' }
     const transitioned = await persistTransition(tx, row, input.businessId, phase.sessionId, phase.epoch, 'handoff.take', 'HUMAN_TAKEN')
-    await lockAndTakeConversation(tx, input.businessId, input.conversationId)
+    await lockAndTakeConversation(tx,input.businessId,input,input.actorUserId)
     const aggregates = await lockBookingAggregates(tx, input.businessId, phase.sessionId)
     // Suppression can materialize a pre-TAKE provider inbound in Message. Its
     // database-side CRM projection may touch Conversation, so capture the
     // baseline only after that intentional ownership write while retaining the
     // Conversation lock acquired above.
     const suppressedJobs = await suppressPreTake(tx, input.businessId, phase.sessionId)
-    const conversation = await lockConversation(tx, input.businessId, input.conversationId, 'taken conversation lost row ownership')
+    const conversation = await lockConversation(tx,input.businessId,input, 'taken conversation lost row ownership')
     const snapshot: ResumeSnapshot = { v: 1, sessionRevision: transitioned.revision.toString(), stateDigest: hashJson(transitioned.state), conversationUpdatedAt: conversation.updatedAt.toISOString(), conversationStep: conversation.currentStep, conversationAiEnabled: conversation.aiEnabled, conversationStateDigest: hashJson(conversation.snapshotState), aggregates: aggregates.map(snapshotAggregate) }
     // The trigger permits this one atomic QUEUED -> TAKEN baseline capture only.
     // Conversation and booking aggregates are already locked and represented in
@@ -290,13 +302,13 @@ export async function takeBotHandoff(input: {
   return final
 }
 
-export async function resolveBotHandoff(input: { client: Client; businessId: string; conversationId: string; actorUserId: string; operationKey: string; resolution: HandoffResolution }): Promise<HandoffOperationResult> {
+export async function resolveBotHandoff(input: { client: Client; businessId: string; actorUserId: string; operationKey: string; resolution: HandoffResolution } & HandoffConversationTarget): Promise<HandoffOperationResult> {
   if (!input.actorUserId.trim() || !input.operationKey.trim()) throw new Error('handoff resolve requires authenticated actor and operation key')
-  const requestHash = hash({ action: 'RESOLVE', actorUserId: input.actorUserId, conversationId: input.conversationId, resolution: input.resolution })
+  const requestHash = hash({ action: 'RESOLVE', actorUserId: input.actorUserId, ...targetRecord(input), resolution: input.resolution })
   const result = await input.client.$transaction(async (tx): Promise<HandoffOperationResult | { failure: string }> => {
     let effectiveOperationKey = input.operationKey
     let operationExists = false
-    const replay = await lockOperationTarget(tx, input.operationKey, input.businessId, input.conversationId)
+    const replay = await lockOperationTarget(tx, input.operationKey, input.businessId, input)
     let row: (OperationRow & LockedSession) | undefined
     if (replay) {
       assertOperationReplay(replay, 'HANDOFF_RESOLVE', input.businessId, replay.sessionId, requestHash, replay.handoffId)
@@ -317,7 +329,7 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
       SELECT s."id" AS "sessionId",s."state",s."revision",s."deploymentId",s."deploymentGeneration",s."handoffFenceEpoch" AS "epoch",s."handoffClaimsPausedAt" AS "paused",
         h."id" AS "handoffId",h."status"::text AS "handoffStatus",h."ownerUserId" AS "owner",h."resumePolicy",h."resumeSnapshot"
       FROM "BotSession" s JOIN "BotHandoff" h ON h."businessId"=s."businessId" AND h."sessionId"=s."id"
-      WHERE s."businessId"=${input.businessId} AND s."conversationId"=${input.conversationId} AND h."status"='TAKEN'::"BotHandoffStatus" FOR UPDATE OF s,h
+      WHERE s."businessId"=${input.businessId} AND ${sessionTarget(input)} AND h."status"='TAKEN'::"BotHandoffStatus" FOR UPDATE OF s,h
     `)
       row = rows[0]
     }
@@ -364,13 +376,14 @@ export async function resolveBotHandoff(input: { client: Client; businessId: str
     if (!operationExists) {
       await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" ("id","operationKey","type","businessId","sessionId","status","requestHash","resultRef","updatedAt") VALUES (${randomUUID()},${effectiveOperationKey},'HANDOFF_RESOLVE',${input.businessId},${row.sessionId},'STARTED',${requestHash},${row.handoffId},clock_timestamp())`)
     }
-    await lockConversation(tx, input.businessId, input.conversationId)
+    await lockConversation(tx,input.businessId,input)
     // Una intervención humana resuelve la consulta que originó la derivación.
     // Nunca reanudamos contexto previo: la devolución siempre empieza de cero.
     const applied: HandoffResolution = 'HOME'
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotHandoff" SET "status"='RESOLVED'::"BotHandoffStatus","resolvedAt"=clock_timestamp(),"resumePolicy"=${applied},"updatedAt"=clock_timestamp() WHERE "id"=${row.handoffId} AND "businessId"=${input.businessId} AND "status"='TAKEN'::"BotHandoffStatus"`), 'handoff resolution')
     await persistTransition(tx, row, input.businessId, row.sessionId, row.epoch, 'handoff.resolve_home', 'ACTIVE')
-    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='COMPLETED',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"lastAvailability"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`), 'resolved conversation')
+    if(input.instagramLeadId)expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "InstagramLead" SET "aiEnabled"=true,"botPausedAt"=NULL,"botPausedByUserId"=NULL,"updatedAt"=clock_timestamp() WHERE id=${input.instagramLeadId} AND "businessId"=${input.businessId}`),'resolved Instagram lead')
+    else expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "Conversation" SET "currentStep"='COMPLETED',"aiEnabled"=true,"humanHandoffResolvedAt"=clock_timestamp(),"lastAvailability"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp() WHERE "id"=${input.conversationId} AND "businessId"=${input.businessId}`), 'resolved conversation')
     const suppressedJobs = await suppressPreTake(tx, input.businessId, row.sessionId)
     expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET "status"='COMPLETED',"updatedAt"=clock_timestamp() WHERE "operationKey"=${effectiveOperationKey} AND "status"='STARTED'`), 'resolve completion')
     await audit(tx, input.businessId, row.sessionId, row.handoffId, 'RESOLVE_COMPLETED', input.actorUserId, effectiveOperationKey, { requested: input.resolution, applied, epoch: row.epoch, suppressedJobs })
@@ -385,7 +398,8 @@ export type StaleTakeCandidate = {
   businessId: string
   sessionId: string
   handoffId: string
-  conversationId: string
+  conversationId: string|null
+  instagramLeadId?:string|null
   actorUserId: string
   epoch: number
 }
@@ -397,7 +411,7 @@ export type StaleTakeCandidate = {
  */
 export async function recoverStaleTakeOperations(input: {
   client: Client
-  scope?: { mode?: 'include' | 'exclude'; businessId: string } | undefined
+  scope?: BotWorkerScope | undefined
   staleMs?: number
   limit?: number
   /** Deterministic seam for focused recovery contracts; production omits it. */
@@ -409,14 +423,10 @@ export async function recoverStaleTakeOperations(input: {
 }): Promise<{ completed: number; waiting: number; blockedUnknown: number; aborted: number }> {
   const staleMs = input.staleMs ?? STALE_HANDOFF_TAKE_MS
   if (!Number.isFinite(staleMs) || staleMs < STALE_HANDOFF_TAKE_MS) throw new Error('stale take threshold is below the safe window')
-  const recoveryScope = input.scope
-    ? input.scope.mode !== 'exclude'
-      ? Prisma.sql`AND op."businessId" = ${input.scope.businessId}`
-      : Prisma.sql`AND op."businessId" <> ${input.scope.businessId}`
-    : Prisma.empty
+  const recoveryScope = tenantScopeSql(input.scope,'op')
   const candidates = await input.client.$queryRaw<StaleTakeCandidate[]>(Prisma.sql`
     SELECT op."operationKey",op."businessId",op."sessionId",op."resultRef" AS "handoffId",
-      s."conversationId",a."actorUserId",s."handoffFenceEpoch" AS "epoch"
+      s."conversationId",s."instagramLeadId",a."actorUserId",s."handoffFenceEpoch" AS "epoch"
     FROM "BotOperation" op
     JOIN "BotSession" s ON s."id"=op."sessionId" AND s."businessId"=op."businessId"
     JOIN "BotHandoff" h ON h."id"=op."resultRef" AND h."sessionId"=s."id" AND h."businessId"=s."businessId"
@@ -426,7 +436,7 @@ export async function recoverStaleTakeOperations(input: {
       ${recoveryScope}
       AND op."updatedAt" < clock_timestamp() - (${staleMs} * interval '1 millisecond')
       AND s."handoffClaimsPausedAt" IS NOT NULL AND s."status"='HUMAN_QUEUED'::"BotSessionStatus"
-      AND s."conversationId" IS NOT NULL
+      AND (s."conversationId" IS NOT NULL OR s.channel='INSTAGRAM' AND s."instagramLeadId" IS NOT NULL)
       AND h."status"='QUEUED'::"BotHandoffStatus" AND a."actorUserId" IS NOT NULL
     ORDER BY op."updatedAt",op."operationKey" LIMIT ${Math.max(1, Math.min(input.limit ?? 10, 100))}
   `)
@@ -436,7 +446,7 @@ export async function recoverStaleTakeOperations(input: {
     resume: async (candidate: StaleTakeCandidate) => {
       try {
         await takeBotHandoff({
-          client: input.client, businessId: candidate.businessId, conversationId: candidate.conversationId,
+          client: input.client, businessId: candidate.businessId, ...(candidate.instagramLeadId?{instagramLeadId:candidate.instagramLeadId}:{conversationId:candidate.conversationId!}),
           actorUserId: candidate.actorUserId, operationKey: candidate.operationKey, drainMs: 0
         })
         return 'COMPLETED' as const
@@ -497,7 +507,7 @@ function assertOperationReplay(row: OperationRow, type: string, businessId: stri
   if (row.operationType !== type || row.operationBusinessId !== businessId || row.operationSessionId !== sessionId || row.operationHash !== requestHash || row.resultRef !== handoffId) throw new Error('handoff idempotency conflict')
 }
 /** Operation keys bind to one tenant/session/handoff forever; never infer a historical target from status. */
-async function lockOperationTarget(tx: Tx, operationKey: string, businessId: string, conversationId: string): Promise<(OperationRow & LockedSession) | null> {
+async function lockOperationTarget(tx: Tx, operationKey: string, businessId: string, target: HandoffConversationTarget): Promise<(OperationRow & LockedSession) | null> {
   // Canonical hierarchy is session -> handoff -> operation.  This initial read
   // deliberately has no row lock: it only discovers the immutable target.
   const operations = await tx.$queryRaw<Array<{ operationBusinessId: string; operationSessionId: string; resultRef: string | null }>>(Prisma.sql`
@@ -508,7 +518,7 @@ async function lockOperationTarget(tx: Tx, operationKey: string, businessId: str
   if (operation.operationBusinessId !== businessId || !operation.resultRef) throw new Error('handoff idempotency conflict')
   const sessions = await tx.$queryRaw<Array<LockedSession & { sessionId: string }>>(Prisma.sql`
     SELECT "id" AS "sessionId","state","revision","deploymentId","deploymentGeneration","handoffFenceEpoch" AS "epoch","handoffClaimsPausedAt" AS "paused"
-    FROM "BotSession" WHERE "id"=${operation.operationSessionId} AND "businessId"=${businessId} AND "conversationId"=${conversationId} FOR UPDATE`)
+    FROM "BotSession" WHERE "id"=${operation.operationSessionId} AND "businessId"=${businessId} AND ${sessionTarget(target,'"BotSession"')} FOR UPDATE`)
   const session = sessions[0]
   if (!session) throw new Error('handoff idempotency conflict')
   const handoffs = await tx.$queryRaw<Array<{ handoffId: string; handoffStatus: string; owner: string | null; resumePolicy: string | null }>>(Prisma.sql`
@@ -524,20 +534,32 @@ async function lockOperationTarget(tx: Tx, operationKey: string, businessId: str
   return { ...session, ...handoff, ...locked }
 }
 function expectOne(count: number, operation: string) { if (count !== 1) throw new Error(`${operation} lost row ownership`) }
-type LockedConversation = { phone: string; currentStep: string; aiEnabled: boolean; bookingV2State: Prisma.JsonValue | null; updatedAt: Date; snapshotState: Prisma.JsonValue }
+type LockedConversation = { phone: string|null; currentStep: string; aiEnabled: boolean; bookingV2State: Prisma.JsonValue | null; updatedAt: Date; snapshotState: Prisma.JsonValue }
 type AggregateRow = { visitId: string; visitVersion: number; visitStatus: string; holdExpiresAt: Date | null; professionalId: string; appointmentId: string | null; appointmentVersion: number | null; appointmentStatus: string | null; appointmentStartAt: Date | null; serviceId: string | null; depositId: string | null; depositStatus: string | null; depositExpiresAt: Date | null; depositVisitId: string | null; dbNow: Date }
 const hashJson = (value: unknown) => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')
 
-async function lockConversation(tx: Tx, businessId: string, conversationId: string, missingRowError = 'handoff conversation disappeared'): Promise<LockedConversation> {
+async function lockConversation(tx: Tx, businessId: string, target: HandoffConversationTarget, missingRowError = 'handoff conversation disappeared'): Promise<LockedConversation> {
+  if(target.instagramLeadId){
+    const rows=await tx.$queryRaw<Array<LockedConversation>>(Prisma.sql`SELECT NULL::text AS phone,'HUMAN_HANDOFF'::text AS "currentStep","aiEnabled",NULL::jsonb AS "bookingV2State","updatedAt",to_jsonb("InstagramLead") AS "snapshotState" FROM "InstagramLead" WHERE id=${target.instagramLeadId} AND "businessId"=${businessId} FOR UPDATE`)
+    if(rows.length!==1)throw new Error(missingRowError)
+    return rows[0]!
+  }
+  const conversationId=target.conversationId
   const rows = await tx.$queryRaw<Array<LockedConversation>>(Prisma.sql`SELECT "phone","currentStep"::text AS "currentStep","aiEnabled","bookingV2State","updatedAt",to_jsonb("Conversation") AS "snapshotState" FROM "Conversation" WHERE "id"=${conversationId} AND "businessId"=${businessId} FOR UPDATE`)
   if (rows.length !== 1) throw new Error(missingRowError)
   return rows[0]!
 }
-async function lockAndTakeConversation(tx: Tx, businessId: string, conversationId: string): Promise<LockedConversation> {
+async function lockAndTakeConversation(tx: Tx, businessId: string, target: HandoffConversationTarget, actorUserId:string): Promise<LockedConversation> {
   // Preserve the canonical session/handoff -> conversation lock order before
   // mutating. UPDATE RETURNING is the exact ownership proof; the final resume
   // snapshot is read later, after intentional pre-TAKE suppression writes.
-  await lockConversation(tx, businessId, conversationId, 'taken conversation lost row ownership')
+  if(target.instagramLeadId){
+    await lockConversation(tx,businessId,target,'taken Instagram lead lost row ownership')
+    expectOne(await tx.$executeRaw(Prisma.sql`UPDATE "InstagramLead" SET "aiEnabled"=false,"botPausedAt"=COALESCE("botPausedAt",clock_timestamp()),"botPausedByUserId"=${actorUserId},"updatedAt"=clock_timestamp() WHERE id=${target.instagramLeadId} AND "businessId"=${businessId}`),'taken Instagram lead')
+    return lockConversation(tx,businessId,target)
+  }
+  const conversationId=target.conversationId
+  await lockConversation(tx, businessId, target, 'taken conversation lost row ownership')
   const rows = await tx.$queryRaw<Array<LockedConversation>>(Prisma.sql`
     UPDATE "Conversation"
     SET "currentStep"='HUMAN_HANDOFF',"aiEnabled"=false,"humanHandoffResolvedAt"=NULL,"misunderstandingCount"=0,"updatedAt"=clock_timestamp()
@@ -648,7 +670,7 @@ async function stateReferencesAreActive(tx: Tx, businessId: string, conversation
         AND a."status" IN ('PENDING'::"AppointmentStatus",'CONFIRMED'::"AppointmentStatus")
         AND a."startAt">clock_timestamp()
       FOR UPDATE OF a,c`)
-    if (appointments.length !== 1 || !appointments[0]!.normalizedPhone || normalizePhone(conversation.phone) !== appointments[0]!.normalizedPhone) return false
+    if (appointments.length !== 1 || !appointments[0]!.normalizedPhone || normalizePhone(conversation.phone??'') !== appointments[0]!.normalizedPhone) return false
   }
   return true
 }

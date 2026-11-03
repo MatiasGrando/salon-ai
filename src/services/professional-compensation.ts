@@ -64,3 +64,60 @@ export async function ensureProfessionalEarningForCompletedAppointment(transacti
   `)
   return inserted[0] ?? null
 }
+
+export async function replaceProfessionalEarningForCompletedAppointment(
+  transaction: Prisma.TransactionClient,
+  input: { businessId: string; appointmentId: string; actorUserId: string | null; actorName: string; baseAmount: number; effectiveAt?: Date }
+) {
+  const rows = await transaction.$queryRaw<CompensationSource[]>(Prisma.sql`
+    SELECT appointment."businessId", appointment."id" AS "appointmentId", appointment."professionalId", appointment."serviceId",
+      product_sale."serviceSubtotal", account."agreedAmount", appointment."quotedPrice", service."price" AS "servicePrice",
+      professional."commissionMode"::text AS "commissionMode", professional."commissionPercentage", professional."commissionFixedAmount"
+    FROM "Appointment" appointment
+    JOIN "Professional" professional ON professional."id" = appointment."professionalId"
+    JOIN "Service" service ON service."id" = appointment."serviceId"
+    LEFT JOIN "AppointmentAccountLink" link ON link."businessId" = appointment."businessId" AND link."appointmentId" = appointment."id"
+    LEFT JOIN "AppointmentAccount" account ON account."businessId" = link."businessId" AND account."id" = link."accountId"
+    LEFT JOIN "ProductSale" product_sale ON product_sale."businessId" = appointment."businessId" AND product_sale."appointmentId" = appointment."id"
+    WHERE appointment."businessId" = ${input.businessId} AND appointment."id" = ${input.appointmentId}
+      AND appointment."status" = 'COMPLETED'::"AppointmentStatus" LIMIT 1
+  `)
+  const source = rows[0]
+  if (!source) return null
+  const overrides = await transaction.$queryRaw<Array<{ commissionMode: ProfessionalCompensationRule['mode'] | null; commissionPercentage: Prisma.Decimal | number | null; commissionFixedAmount: number | null }>>(Prisma.sql`
+    SELECT "commissionMode"::text AS "commissionMode", "commissionPercentage", "commissionFixedAmount"
+    FROM "ProfessionalService" WHERE "professionalId" = ${source.professionalId} AND "serviceId" = ${source.serviceId} LIMIT 1
+  `)
+  const override = overrides[0]
+  const rule = normalizeProfessionalCompensationRule({
+    mode: override?.commissionMode ?? source.commissionMode,
+    percentage: override?.commissionMode ? Number(override.commissionPercentage) : Number(source.commissionPercentage),
+    fixedAmount: override?.commissionMode ? override.commissionFixedAmount : source.commissionFixedAmount
+  })
+  // The correction supplies the new service snapshot; a completed ProductSale
+  // intentionally keeps the original sale receipt and cannot supply this base.
+  const baseAmount = input.baseAmount
+  const amount = calculateProfessionalCompensation({ baseAmount, rule })
+  const existing = await transaction.$queryRaw<Array<Record<string, unknown> & { id: string; amount: number }>>(Prisma.sql`
+    SELECT * FROM "ProfessionalAccountEntry"
+    WHERE "businessId" = ${input.businessId} AND "appointmentId" = ${input.appointmentId}
+      AND "type" = 'EARNING'::"ProfessionalAccountEntryType"
+    FOR UPDATE
+  `)
+  if (!existing[0]) {
+    const inserted = await transaction.$queryRaw<Array<Record<string, unknown> & { id: string }>>(Prisma.sql`
+      INSERT INTO "ProfessionalAccountEntry" ("id", "businessId", "professionalId", "appointmentId", "type", "direction", "amount", "baseAmount", "ruleMode", "rulePercentage", "ruleFixedAmount", "description", "actorUserId", "actorName", "effectiveAt")
+      VALUES (${randomUUID()}, ${input.businessId}, ${source.professionalId}, ${source.appointmentId}, 'EARNING'::"ProfessionalAccountEntryType", 'CREDIT'::"ProfessionalAccountDirection", ${amount}, ${baseAmount}, ${rule.mode}::"ProfessionalCompensationMode", ${rule.percentage}, ${rule.fixedAmount}, 'Servicio realizado corregido', ${input.actorUserId}, ${input.actorName}, ${input.effectiveAt ?? new Date()})
+      RETURNING *
+    `)
+    return { previousAmount: null, amount, previous: null, current: inserted[0]! }
+  }
+  const updated = await transaction.$queryRaw<Array<Record<string, unknown> & { id: string }>>(Prisma.sql`
+    UPDATE "ProfessionalAccountEntry"
+    SET "amount" = ${amount}, "baseAmount" = ${baseAmount}, "ruleMode" = ${rule.mode}::"ProfessionalCompensationMode",
+      "rulePercentage" = ${rule.percentage}, "ruleFixedAmount" = ${rule.fixedAmount}
+    WHERE "id" = ${existing[0].id}
+    RETURNING *
+  `)
+  return { previousAmount: existing[0].amount, amount, previous: existing[0], current: updated[0]! }
+}

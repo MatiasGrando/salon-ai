@@ -10,6 +10,9 @@ import {
   cashRegisterStyles
 } from './crm-ui/cash-register.js'
 import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipeline.js'
+import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from './crm-ui/instagram-media.js'
+import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyles } from './crm-ui/instagram-planning.js'
+import { instagramStoriesMarkup, instagramStoriesScript, instagramStoriesStyles } from './crm-ui/instagram-stories.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -3986,6 +3989,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .conversation-channel.instagram { background: #fdf2f8; color: #be185d; }
 
+    ${instagramMediaStyles}
+    ${instagramPlanningStyles}
+    ${instagramStoriesStyles}
+
     .instagram-reels-manager {
       display: grid;
       gap: 18px;
@@ -7213,6 +7220,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       margin-top: 2px;
     }
 
+    #service-form #service-agenda-favorite {
+      /* The mobile field rule uses !important; only this checkbox stays compact. */
+      width: 1em !important;
+      height: 1em;
+      flex: 0 0 1em;
+      margin: 0;
+      font: inherit;
+    }
+
     .service-estimate-editor,
     .service-final-clarification-editor,
     .service-validation-editor,
@@ -8149,6 +8165,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       color: #64748b;
       background: #fff;
       font-size: 13px;
+    }
+
+    .instagram-connection-panel { min-width: 0; padding: 4px; }
+    .instagram-connection-status { display: grid; gap: 7px; padding: 16px; border: 1px solid #dce3ef; border-radius: 12px; background: #f8faff; color: #42526c; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .instagram-connection-status p { margin: 0; }
+    .instagram-capabilities-wrap { min-width: 0; overflow-x: auto; border: 1px solid #dce3ef; border-radius: 12px; }
+    .instagram-capabilities { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+    .instagram-capabilities caption { padding: 14px 16px; text-align: left; font-weight: 750; color: #25344e; background: #f8faff; }
+    .instagram-capabilities th, .instagram-capabilities td { padding: 11px 16px; border-top: 1px solid #e2e8f0; overflow-wrap: anywhere; }
+    .instagram-capabilities th { color: #52617b; font-weight: 650; }
+    .instagram-connection-form { min-width: 0; padding: 18px; border: 1px solid #dce3ef; border-radius: 12px; }
+    .instagram-connection-form .whatsapp-technical-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .instagram-connection-form .settings-field { min-width: 0; }
+    .instagram-connection-form .field { box-sizing: border-box; width: 100%; min-width: 0; }
+    .instagram-connection-form .field:focus { outline: 3px solid #dbeafe; border-color: #2563eb; }
+    .instagram-connection-form .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    @media (max-width: 720px) {
+      .instagram-connection-panel .whatsapp-status-card { grid-template-columns: minmax(0, 1fr); }
+      .instagram-connection-panel .whatsapp-status-badge { justify-self: start; min-width: 0; }
+      .instagram-connection-form { padding: 14px; }
+      .instagram-connection-form .whatsapp-technical-grid { grid-template-columns: minmax(0, 1fr); }
+      .instagram-capabilities th, .instagram-capabilities td { padding: 10px; }
     }
 
     .whatsapp-settings-grid {
@@ -9125,6 +9163,24 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       cursor: wait;
       opacity: .72;
     }
+    #landing-settings-form .landing-web-booking-settings {
+      min-width: 0; padding: 18px; margin-bottom: 18px;
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    }
+    #landing-settings-form .landing-web-booking-settings h4 { margin: 0 0 12px; }
+    #landing-settings-form .landing-web-booking-settings p { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    #landing-settings-form #landing-allow-guest-web-booking {
+      width: 1em !important; height: 1em; flex: 0 0 1em; margin: 0; font: inherit;
+    }
+    #landing-settings-form .landing-professional-priority-settings {
+      min-width: 0; padding: 18px; margin-bottom: 18px;
+      border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    }
+    #landing-settings-form .landing-professional-priority-settings h4 { margin: 0 0 12px; }
+    #landing-settings-form .landing-professional-priority-settings p { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    #landing-settings-form .landing-professional-priority-settings label { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+    #landing-settings-form #landing-professional-priority { width: 1em !important; height: 1em; flex: 0 0 1em; margin: 3px 0 0; font: inherit; }
+    #landing-settings-form #landing-professional-priority:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
     .settings-feedback {
       display: none;
@@ -9157,6 +9213,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       gap: 18px;
       margin-top: 18px;
     }
+
+    .bot-routing-panel {
+      display: grid; gap: 12px; min-width: 0; padding: clamp(14px, 2vw, 22px);
+      border: 1px solid var(--line); border-radius: 14px; background: var(--surface-soft); color: var(--text);
+    }
+    .bot-routing-panel[hidden], .settings-automation-list .automation-control[hidden] { display: none; }
+    .bot-routing-panel h4, .bot-routing-panel p { margin: 0; }
+    .bot-routing-panel .settings-field, .bot-routing-panel select, .bot-routing-panel input { min-width: 0; width: 100%; }
+    .bot-routing-panel small, .bot-routing-panel p { overflow-wrap: anywhere; line-height: 1.5; }
+    .bot-routing-panel small, .bot-routing-panel .settings-field > label { color: var(--text); }
+    .bot-routing-panel select, .bot-routing-panel input, .bot-routing-panel button { min-height: 44px; }
+    .bot-routing-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .bot-routing-actions button { flex: 1 1 190px; white-space: normal; }
+    .bot-routing-panel :is(select, input, button):focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 
     .assistant-personality-grid {
       display: grid;
@@ -15166,6 +15236,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     .agenda-gcal-actions {
       margin-left: auto;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .agenda-gcal-actions > * {
+      flex-shrink: 0;
+    }
+
+    .agenda-gcal-drag-lock {
+      flex: 0 0 auto;
+      min-height: 38px;
+      margin: 0;
+      padding: 0 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      color: #334155;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .agenda-gcal-drag-lock input {
+      flex: 0 0 17px;
+      width: 17px;
+      height: 17px;
+      margin: 0;
+      padding: 0;
+      accent-color: #2563eb;
+    }
+
+    .agenda-gcal-drag-lock:focus-within {
+      outline: 2px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    .agenda-drag-locked .agenda-gcal-event,
+    .agenda-drag-locked .agenda-event {
+      touch-action: pan-x pan-y pinch-zoom;
+      cursor: pointer;
+    }
+
+    .agenda-drag-locked .agenda-gcal-scroll,
+    .agenda-drag-locked .agenda-gcal-professional-frame .agenda-gcal-columns-viewport {
+      touch-action: pan-x pan-y pinch-zoom;
     }
 
     .agenda-gcal-icon,
@@ -15224,6 +15343,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     .agenda-gcal-view-select {
+      flex: 0 0 auto;
+      width: auto;
       min-width: 94px;
       padding: 0 10px;
     }
@@ -16130,7 +16251,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       [data-agenda-mobile-menu] { order: 1; }
       .agenda-gcal-title { order: 2; flex: 1 1 120px; min-width: 0; padding: 0 4px; font-size: 20px; }
       .agenda-gcal-nav { order: 3; }
-      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; overflow-x: auto; }
+      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; flex-wrap: wrap; justify-content: flex-start; padding: 3px; }
+      .agenda-gcal-drag-lock { flex-basis: 100%; }
       .agenda-gcal-control, .agenda-gcal-filter { padding: 0 10px; }
       .agenda-gcal-view-select { min-width: 82px; }
       .agenda-gcal-frame { --agenda-time-width: 54px; }
@@ -16302,7 +16424,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button class="active" type="button" data-mobile-section="conversations">Chats</button>
       <button type="button" data-mobile-section="agenda">Agenda</button>
       <button type="button" data-mobile-section="pipeline" hidden>Pipeline</button>
-      ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button>' : ''}
+      ${cashRegisterEnabled ? '<button type="button" data-mobile-section="cash">Caja</button><button type="button" data-mobile-section="settlements" hidden>Liquidaciones</button>' : ''}
       <button type="button" data-mobile-section="customers">Clientes</button>
       <button type="button" data-mobile-section="professionals">Profesionales</button>
       <button type="button" data-mobile-section="services">Servicios</button>
@@ -16405,7 +16527,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <button class="icon-button mobile-only" id="mobile-back" type="button" title="Volver a chats">&lt;</button>
           <div class="avatar" id="chat-avatar">--</div>
           <div>
-            <div class="panel-title chat-contact-name"><span id="chat-phone">Selecciona una conversacion</span><span class="whatsapp-chip">WhatsApp</span></div>
+            <div class="panel-title chat-contact-name"><span id="chat-phone">Selecciona una conversacion</span><span id="chat-channel-chip" class="whatsapp-chip">WhatsApp</span></div>
             <div class="hint" id="chat-status">Historial y respuesta manual</div>
           </div>
         </div>
@@ -17689,6 +17811,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 </select>
               </div>
               <div class="service-form-group">
+                <label class="service-photo-option" for="service-agenda-favorite">
+                  <input id="service-agenda-favorite" type="checkbox">
+                  <span>&#11088; Favorito para Agenda</span>
+                </label>
+                <div class="service-form-help">Aparece primero al cargar turnos para todo el negocio. No cambia el orden de realizaci&oacute;n de los servicios.</div>
+              </div>
+              <div class="service-form-group">
                 <label for="service-booking-order-priority">Orden cuando reservan varios servicios</label>
                 <input class="field" id="service-booking-order-priority" type="number" min="0" step="1" value="20">
                 <div class="service-form-help">Us&aacute; un n&uacute;mero menor para realizarlo antes y uno mayor para realizarlo despu&eacute;s. El valor normal es 20.</div>
@@ -18097,6 +18226,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <select id="reminder-before">
                     <option value="60">1 hora antes</option>
                     <option value="120">2 horas antes</option>
+                    <option value="240">4 horas antes</option>
+                    <option value="360">6 horas antes</option>
+                    <option value="480">8 horas antes</option>
+                    <option value="720">12 horas antes</option>
                     <option value="1440" selected>24 horas antes</option>
                     <option value="2880">48 horas antes</option>
                   </select>
@@ -18155,11 +18288,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <div class="instagram-reels-manager" id="instagram-reels-manager" hidden>
           <section class="instagram-reels-toolbar">
             <div>
-              <h3>Reels de Instagram</h3>
-              <p>Prepar&aacute; el Reel y activ&aacute; una respuesta privada cuando un comentario incluya tus palabras clave.</p>
+              <h3>Instagram: Reels e historias</h3>
+              <p>Consult&aacute; el alcance de tus publicaciones y prepar&aacute; nuevos Reels.</p>
             </div>
             <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
+          ${instagramMediaMarkup}
+          ${instagramPlanningMarkup}
+          ${instagramStoriesMarkup}
+          <div class="instagram-media-local-heading"><h4>Creaciones del CRM pendientes de sincronizar</h4><p>Borradores, publicaciones en proceso y Reels publicados que todav&iacute;a no est&aacute;n en el cat&aacute;logo de arriba.</p></div>
           <p class="instagram-reel-feedback" id="instagram-reels-feedback" role="status" aria-live="polite"></p>
           <div class="instagram-reels-table-wrap">
             <table class="instagram-reels-table">
@@ -18191,21 +18328,34 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
             </section>
             <section class="instagram-reel-section" data-reel-section="automation">
-              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n</h4><p>La respuesta privada se intenta una sola vez por comentario coincidente.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox" checked> Activa</label></div>
+              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n opcional</h4><p>Publicar no requiere respuestas autom&aacute;ticas. Cada acci&oacute;n conserva su propio resultado.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox"> Activa</label></div>
               <label class="instagram-reel-field">Palabras clave
                 <span class="instagram-reel-keyword-entry"><input id="instagram-reel-keyword-input" autocomplete="off" placeholder="Ej: precio"><button class="secondary" id="instagram-reel-keyword-add" type="button">Agregar</button></span>
               </label>
               <div class="instagram-reel-keyword-chips" id="instagram-reel-keyword-chips" aria-live="polite"></div>
-              <label class="instagram-reel-field">Primer mensaje privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+              <label class="instagram-reel-switch"><input id="instagram-reel-public-enabled" type="checkbox"> Responder comentario p&uacute;blico</label>
+              <label class="instagram-reel-field">Texto p&uacute;blico<textarea id="instagram-reel-public-reply" maxlength="1000"></textarea></label>
+              <label class="instagram-reel-switch"><input id="instagram-reel-private-enabled" type="checkbox" checked> Enviar mensaje privado</label>
+              <label class="instagram-reel-field">Texto privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+            </section>
+            <section class="instagram-reel-section" data-reel-section="destination">
+              <div><h4>3. Destino y horario</h4><p>La programaci&oacute;n usa la zona horaria del comercio.</p></div>
+              <div class="instagram-reel-time-grid">
+                <label class="instagram-reel-field" for="instagram-reel-destination">Al guardar<select id="instagram-reel-destination"><option value="draft">Guardar borrador</option><option value="now">Publicar ahora</option><option value="schedule">Programar</option></select></label>
+                <label class="instagram-reel-field" for="instagram-reel-schedule-date">Fecha local<input id="instagram-reel-schedule-date" type="date"></label>
+                <label class="instagram-reel-field" for="instagram-reel-schedule-time">Hora local<input id="instagram-reel-schedule-time" type="time"></label>
+                <button type="button" class="secondary" id="instagram-reel-resolve-time">Verificar horario</button>
+                <label class="instagram-reel-field" for="instagram-reel-time-options">Opci&oacute;n horaria<select id="instagram-reel-time-options"><option value="">Verific&aacute; fecha y hora</option></select></label>
+              </div>
             </section>
             <section class="instagram-reel-section" data-reel-section="review">
-              <div><h4>3. Revisi&oacute;n y estado</h4><p>Revis&aacute; el resumen. Al confirmar, el Reel queda en cola; no significa que ya est&eacute; publicado.</p></div>
+              <div><h4>4. Revisi&oacute;n y estado</h4><p>Guardar confirma el paso elegido; estar en cola no significa que ya est&eacute; publicado.</p></div>
               <div class="instagram-reel-review" id="instagram-reel-review"></div>
               <div class="instagram-reel-progress" id="instagram-reel-progress" aria-label="Progreso de preparaci&oacute;n"><span></span></div>
               <p class="instagram-reel-feedback" id="instagram-reel-feedback" role="status" aria-live="polite"></p>
             </section>
           </div>
-          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cancelar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar y publicar</button></footer>
+          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cerrar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar</button></footer>
         </form>
       </section>
     </div>
@@ -18474,6 +18624,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <h3>Landing p&uacute;blica</h3>
           <p>Configur&aacute; la p&aacute;gina de reservas que van a ver tus clientes.</p>
           <form class="settings-form" id="landing-settings-form">
+            <section class="landing-web-booking-settings" id="landing-web-booking-settings" aria-labelledby="landing-web-booking-title">
+              <h4 id="landing-web-booking-title">Reservas web</h4>
+              <label class="settings-toggle-row" for="landing-allow-guest-web-booking">
+                <input id="landing-allow-guest-web-booking" type="checkbox">
+                <span>Permitir reservas sin cuenta</span>
+              </label>
+              <p>El cliente completa nombre y tel&eacute;fono en la reserva. Google sigue disponible. El invitado s&oacute;lo puede consultar su reserva actual y enviar su comprobante; no accede al historial.</p>
+            </section>
+            <section class="landing-professional-priority-settings" aria-labelledby="landing-professional-priority-title">
+              <h4 id="landing-professional-priority-title">Orden de profesionales</h4>
+              <label for="landing-professional-priority">
+                <input id="landing-professional-priority" type="checkbox" aria-describedby="landing-professional-priority-help">
+                <span>Mostrar primero al profesional con menos turnos</span>
+              </label>
+              <p id="landing-professional-priority-help">Cuenta los turnos de los 5 d&iacute;as anteriores, hoy y los 2 siguientes, seg&uacute;n la zona horaria del comercio. S&oacute;lo ordena las opciones de la web; el cliente sigue eligiendo su profesional.</p>
+            </section>
             <details class="landing-settings-collapsible" open>
               <summary class="landing-settings-collapsible-summary">
                 <div>
@@ -18919,6 +19085,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"> Abrir, cerrar y cambiar responsable de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
+                  <label><input id="staff-can-view-professional-settlements" type="checkbox"> <span id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</span></label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
@@ -18977,29 +19144,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="global-ai-toggle" type="checkbox" checked>
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-            <label class="automation-control">
-              <div class="automation-copy">
-                <strong>Nuevo flujo de reservas</strong>
-                <span>Usa Booking V2 para pedir nombre, servicio, profesional, d&iacute;a, horario y confirmaci&oacute;n.</span>
-                <small id="booking-v2-status">Bot actual</small>
-              </div>
-              <input id="booking-v2-toggle" type="checkbox">
-              <span class="automation-switch" aria-hidden="true"></span>
-            </label>
-            <div class="settings-field full" id="bot-routing-control" hidden>
-              <label for="bot-routing-selector">Motor exclusivo de WhatsApp</label>
-              <select class="field" id="bot-routing-selector">
-                <option value="legacy-whatsapp">Bot actual (legacy)</option>
+            <div class="bot-routing-panel settings-field full" id="bot-routing-control" hidden>
+              <h4>Bot por canal</h4>
+              <label for="bot-routing-channel">Canal</label>
+              <select class="field" id="bot-routing-channel"><option value="WHATSAPP">WhatsApp</option><option value="INSTAGRAM">Instagram</option></select>
+              <small id="bot-routing-status" role="status">Consultando el bot actual...</small>
+              <label for="bot-routing-selector">Eleg&iacute; el bot del comercio</label>
+              <select class="field" id="bot-routing-selector" aria-describedby="bot-routing-help">
+                <option value="options">Bot de opciones</option>
+                <option value="conversational">Nuevo bot</option>
               </select>
-              <small id="bot-routing-status">Routing actual: bot legacy</small>
-              <div class="settings-field full">
+              <p id="bot-routing-help">Preparar una opci&oacute;n no activa el bot. El cambio requiere revisar y confirmar.</p>
+              <div class="settings-field">
                 <label for="bot-routing-timezone">Zona horaria del bot</label>
                 <input class="field" id="bot-routing-timezone" autocomplete="off" value="America/Argentina/Buenos_Aires">
-                <small id="bot-routing-readiness">Prepar&aacute; la configuraci&oacute;n antes de cambiar el routing.</small>
+                <small id="bot-routing-readiness">Comprobando los requisitos de WhatsApp...</small>
               </div>
-              <button class="secondary" id="bot-routing-prepare" type="button">Preparar Bot de opciones F11</button>
-              <button class="secondary" id="bot-routing-preflight" type="button">Revisar y cambiar routing</button>
-              <p class="settings-feedback" id="bot-routing-evidence" role="status"></p>
+              <div class="bot-routing-actions">
+                <button class="secondary" id="bot-routing-prepare" type="button">Preparar el bot elegido</button>
+                <button class="secondary" id="bot-routing-preflight" type="button">Revisar y activar</button>
+              </div>
+              <p class="settings-feedback" id="bot-routing-evidence" role="status" aria-live="polite"></p>
             </div>
             </div>
             <div class="assistant-personality-grid">
@@ -19214,18 +19379,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <summary class="settings-collapsible-summary">
               <div>
                 <h3>Instagram del comercio</h3>
-                <p>Conect&aacute; la cuenta profesional para recibir mensajes y derivar las reservas al WhatsApp p&uacute;blico del comercio.</p>
+                <p>Guard&aacute; la conexi&oacute;n de la cuenta profesional y comprob&aacute; su consulta de perfil. Los permisos de cada funci&oacute;n se verifican por separado.</p>
               </div>
               <span class="settings-collapse-icon" aria-hidden="true"></span>
             </summary>
             <div class="settings-collapsible-content">
-          <div class="whatsapp-settings-grid">
+          <div class="whatsapp-settings-grid instagram-connection-panel">
             <div class="whatsapp-status-card">
               <div>
-                <strong id="instagram-settings-title">Instagram no conectado</strong>
+                <strong id="instagram-settings-title">Instagram sin conectar</strong>
                 <span id="instagram-settings-copy">Carg&aacute; el Instagram Account ID y el token generado en Meta.</span>
               </div>
               <div class="whatsapp-status-badge" id="instagram-settings-badge">Pendiente</div>
+            </div>
+            <div class="instagram-connection-status" aria-live="polite">
+              <p id="instagram-connection-verification">Sin comprobar en esta pantalla.</p>
+              <p id="instagram-connection-expiry">Vencimiento declarado: desconocido.</p>
+              <p>Una consulta de perfil no confirma permisos, webhooks ni disponibilidad para publicar o responder.</p>
+            </div>
+            <div class="instagram-capabilities-wrap">
+              <table class="instagram-capabilities" id="instagram-capabilities">
+                <caption>Permisos de Instagram</caption>
+                <thead><tr><th scope="col">Funci&oacute;n</th><th scope="col">Estado</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">M&eacute;tricas y alcance</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Publicaciones e historias</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Comentarios</th><td>Permisos sin verificar</td></tr>
+                  <tr><th scope="row">Mensajes privados</th><td>Permisos sin verificar</td></tr>
+                </tbody>
+              </table>
             </div>
             <label class="automation-control">
               <div class="automation-copy">
@@ -19236,7 +19418,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <input id="instagram-enabled-toggle" type="checkbox">
               <span class="automation-switch" aria-hidden="true"></span>
             </label>
-            <form class="whatsapp-technical-form" id="instagram-technical-form">
+            <form class="whatsapp-technical-form instagram-connection-form" id="instagram-technical-form">
               <h4>Datos manuales de conexi&oacute;n</h4>
               <div class="whatsapp-technical-grid">
                 <div class="settings-field">
@@ -19248,7 +19430,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <input class="field" id="instagram-username" autocomplete="off" placeholder="usuario sin @">
                 </div>
                 <div class="settings-field">
-                  <label for="instagram-token-expires">Vencimiento del token</label>
+                  <label for="instagram-token-expires">Vencimiento declarado del token</label>
                   <input class="field" id="instagram-token-expires" type="datetime-local">
                 </div>
                 <div class="settings-field full">
@@ -19271,7 +19453,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </div>
               <div class="settings-actions">
                 <button class="secondary" id="instagram-technical-submit" type="submit">Guardar conexi&oacute;n</button>
-                <button class="secondary" id="instagram-test-button" type="button">Probar token</button>
+                <button class="secondary" id="instagram-test-button" type="button">Comprobar cuenta</button>
               </div>
             </form>
             <p class="settings-feedback" id="instagram-settings-feedback" role="status" aria-live="polite"></p>
@@ -20108,6 +20290,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaMobilePaging: false,
       agendaMobileScrollMinute: null,
       agendaProfessionalResizeObserver: null,
+      agendaProfessionalCatalogScope: null,
+      agendaProfessionalCatalogGeneration: 0,
+      agendaProfessionalPreferenceScope: null,
+      agendaDragLocked: true,
+      agendaDragLockScope: null,
+      agendaDragLockRevision: 0,
       agendaLoadedRangeStart: null,
       agendaLoadedRangeEnd: null,
       agendaDraggingAppointmentId: null,
@@ -20141,6 +20329,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         assistantPersonalityPreview: ''
       },
       botRouting: null,
+      botRoutingChannel: 'WHATSAPP',
       pendingProfessionalSave: null,
       professionalStatusFilter: 'all',
       professionalViewMode: 'cards',
@@ -20205,6 +20394,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       marketingView: 'templates',
       instagramReels: [],
       instagramReelsLoaded: false,
+      instagramMedia: null,
+      instagramMediaGeneration: 0,
       instagramReelKeywords: [],
       instagramReelPreviewUrl: null,
       settingsView: 'commerce',
@@ -20345,8 +20536,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       topHandoffTotal: document.getElementById('top-handoff-total'),
       globalBotToggle: document.getElementById('global-bot-toggle'),
       globalAiToggle: document.getElementById('global-ai-toggle'),
-      bookingV2Toggle: document.getElementById('booking-v2-toggle'),
       botRoutingControl: document.getElementById('bot-routing-control'),
+      botRoutingChannel: document.getElementById('bot-routing-channel'),
       botRoutingSelector: document.getElementById('bot-routing-selector'),
       botRoutingStatus: document.getElementById('bot-routing-status'),
       botRoutingTimezone: document.getElementById('bot-routing-timezone'),
@@ -20356,7 +20547,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       botRoutingEvidence: document.getElementById('bot-routing-evidence'),
       globalBotStatus: document.getElementById('global-bot-status'),
       globalAiStatus: document.getElementById('global-ai-status'),
-      bookingV2Status: document.getElementById('booking-v2-status'),
       automationSettingsForm: document.getElementById('automation-settings-form'),
       serviceCatalogDisplayMode: document.getElementById('service-catalog-display-mode'),
       bookingFlowOrder: document.getElementById('booking-flow-order'),
@@ -20406,6 +20596,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       instagramSettingsTitle: document.getElementById('instagram-settings-title'),
       instagramSettingsCopy: document.getElementById('instagram-settings-copy'),
       instagramSettingsBadge: document.getElementById('instagram-settings-badge'),
+      instagramConnectionVerification: document.getElementById('instagram-connection-verification'),
+      instagramConnectionExpiry: document.getElementById('instagram-connection-expiry'),
       instagramEnabledToggle: document.getElementById('instagram-enabled-toggle'),
       instagramEnabledStatus: document.getElementById('instagram-enabled-status'),
       instagramTechnicalForm: document.getElementById('instagram-technical-form'),
@@ -20455,6 +20647,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffCanAdjustCash: document.getElementById('staff-can-adjust-cash'),
       staffCanManageCashSessions: document.getElementById('staff-can-manage-cash-sessions'),
       staffCanViewTodayProfessionalProduction: document.getElementById('staff-can-view-today-professional-production'),
+      staffCanViewProfessionalSettlements: document.getElementById('staff-can-view-professional-settlements'),
+      staffSettlementsPermissionLabel: document.getElementById('staff-settlements-permission-label'),
       staffCanViewProducts: document.getElementById('staff-can-view-products'),
       staffCanSellProducts: document.getElementById('staff-can-sell-products'),
       staffCanManageProducts: document.getElementById('staff-can-manage-products'),
@@ -20469,6 +20663,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       messages: document.getElementById('messages'),
       chatAvatar: document.getElementById('chat-avatar'),
       chatPhone: document.getElementById('chat-phone'),
+      chatChannelChip: document.getElementById('chat-channel-chip'),
       chatStatus: document.getElementById('chat-status'),
       stepChip: document.getElementById('step-chip'),
       resolveHandoff: document.getElementById('resolve-handoff'),
@@ -20628,6 +20823,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       servicePriceMode: document.getElementById('service-price-mode'),
       servicePriceModeHelp: document.getElementById('service-price-mode-help'),
       serviceBookingOrderPriority: document.getElementById('service-booking-order-priority'),
+      serviceAgendaFavorite: document.getElementById('service-agenda-favorite'),
       serviceCategory: document.getElementById('service-category'),
       serviceItemType: document.getElementById('service-item-type'),
       serviceItemTypeHelp: document.getElementById('service-item-type-help'),
@@ -21059,6 +21255,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       settingsAdminTab: document.getElementById('settings-admin-tab'),
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
+      landingAllowGuestWebBooking: document.getElementById('landing-allow-guest-web-booking'),
+      landingProfessionalPriority: document.getElementById('landing-professional-priority'),
       landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
       landingTemplateSelectedName: document.getElementById('landing-template-selected-name'),
       landingTemplateSelectedDescription: document.getElementById('landing-template-selected-description'),
@@ -21289,6 +21487,32 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return 'Hola ' + name + ', te recordamos tu turno de ' + service + ' para el ' + date + ' a las ' + time + '.'
     }
 
+    function buildAgendaAppointmentWhatsappMessage(appointment, fallbackName = 'cliente') {
+      const name = String(appointment?.customer?.name || fallbackName || 'cliente').trim() || 'cliente'
+      const service = String(appointment?.service?.name || 'servicio').trim() || 'servicio'
+      const startAt = appointment?.startAt || els.appointmentStart?.value
+      const local = String(startAt || '').match(/^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})$/)
+      let when = 'Fecha y horario a confirmar'
+      if (local) {
+        when = local[3] + '/' + local[2] + '/' + local[1] + ' ' + local[4] + ':' + local[5] + 'hs'
+      } else if (startAt && !Number.isNaN(new Date(startAt).getTime())) {
+        const parts = new Intl.DateTimeFormat('es-AR', {
+          timeZone: state.business?.timezone || undefined,
+          day: '2-digit', month: '2-digit', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+        }).formatToParts(new Date(startAt))
+        const part = (type) => parts.find((item) => item.type === type)?.value || ''
+        when = part('day') + '/' + part('month') + '/' + part('year') + ' ' + part('hour') + ':' + part('minute') + 'hs'
+      }
+      const lines = ['Hola ' + name + '!', 'Te queremos recordar tu cita de ' + service, '', '⏰ ¿Cuándo?: ' + when]
+      const address = String(state.business?.publicAddress || '').trim()
+      const professional = String(appointment?.professional?.name || '').trim()
+      if (address) lines.push('📍 ¿Dónde?: ' + address)
+      if (professional) lines.push('👤 ¿Con quién?: ' + professional)
+      lines.push('', '¡Te esperamos!')
+      return lines.join('\\n')
+    }
+
     const iconPaths = {
       'arrow-left': '<path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path>',
       'arrow-right': '<path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path>',
@@ -21357,6 +21581,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         { section: 'agenda', label: 'Agenda', icon: 'calendar' },
         { section: 'pipeline', label: 'Pipeline', icon: 'briefcase' },
         ${cashRegisterEnabled ? "{ section: 'cash', label: 'Caja', icon: 'briefcase' }," : ''}
+        ${cashRegisterEnabled ? "{ section: 'settlements', label: staffSettlementsLabel(), icon: 'chart' }," : ''}
         { section: 'customers', label: 'Clientes', icon: 'users' },
         { section: 'professionals', label: 'Profesionales', icon: 'professional' },
         { section: 'services', label: 'Servicios', icon: 'scissors' },
@@ -21901,6 +22126,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return state.business?.businessType === 'WORKSHOP'
     }
 
+    function staffSettlementsLabel() {
+      return state.currentUser?.role === 'STAFF' && state.currentUser.staffProfile !== 'SECRETARY' ? 'Mis liquidaciones' : 'Ver liquidaciones'
+    }
+
     function staffVisibleSections() {
       if (!state.currentUser) return []
       const pipelineSection = state.currentUser.role !== 'STAFF' && state.business?.featureSettings?.pipelineEnabled === true ? 'pipeline' : null
@@ -21923,6 +22152,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         'agenda',
         ...pipelineSections,
         ${cashRegisterEnabled ? "(state.currentUser.canViewCashRegister || state.currentUser.canViewTodayProfessionalProduction) ? 'cash' : null," : ''}
+        ${cashRegisterEnabled ? "state.currentUser.canViewProfessionalSettlements === true ? 'settlements' : null," : ''}
         state.currentUser.canViewCustomers ? 'customers' : null,
         state.currentUser.canViewOperationalReports ? 'reports' : null
       ].filter(Boolean)
@@ -21949,6 +22179,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (response.status === 401 && !url.startsWith('/auth/')) showLogin()
         const error = new Error(body.message || 'Error de servidor')
         error.body = body
+        error.status = response.status
         throw error
       }
       return response.json()
@@ -22105,6 +22336,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       document.querySelectorAll('[data-mobile-section]').forEach((button) => {
         button.hidden = !staffVisibleSections().includes(button.dataset.mobileSection)
+        if (button.dataset.mobileSection === 'settlements') button.textContent = staffSettlementsLabel()
       })
       if (els.accountAdminManagement) els.accountAdminManagement.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
       if (els.adminBusinessOwnerField) els.adminBusinessOwnerField.hidden = state.currentUser?.role !== 'SUPER_ADMIN'
@@ -22255,6 +22487,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.businessId = profile.id
         state.instagramReels = []
         state.instagramReelsLoaded = false
+        resetInstagramMediaState()
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
         renderLandingSettings()
@@ -22275,6 +22508,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessId = null
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       hydrateWorkspaceNav()
       state.settingsView = 'admin'
       setSection('settings')
@@ -22288,6 +22522,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessId = state.currentSessionBusiness.id
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       try {
         await loadBusinessScopedBasics()
         hydrateWorkspaceNav()
@@ -22784,10 +23019,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function applyAgendaPermissions() {
+      const completedReadOnly = editingAgendaAppointment()?.status === 'COMPLETED'
       if (els.agendaNewAppointment) els.agendaNewAppointment.disabled = !canCreateAppointments()
       if (els.quickSchedule) els.quickSchedule.disabled = !canCreateAppointments()
       if (els.quickChange) els.quickChange.disabled = !canEditAppointments()
       if (els.appointmentSubmit) els.appointmentSubmit.disabled = state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()
+      els.appointmentSubmit.hidden = completedReadOnly
+      els.appointmentService.disabled = completedReadOnly || !appointmentServicesForProfessional(els.appointmentProfessional.value).length
+      els.appointmentProfessional.disabled = completedReadOnly
+      for (const control of [els.appointmentStart, els.appointmentCustomerSearch, els.appointmentCustomerName, els.appointmentCustomerPhone, els.appointmentNotes, els.appointmentDepositPaid]) control.disabled = completedReadOnly
+      els.appointmentDepositAmount.disabled = completedReadOnly || !els.appointmentDepositPaid.checked
+      if (completedReadOnly) els.appointmentDelete.hidden = true
       if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
       if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
@@ -23492,6 +23734,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         canAdjustCash: els.staffCanAdjustCash,
         canManageCashSessions: els.staffCanManageCashSessions,
         canViewTodayProfessionalProduction: els.staffCanViewTodayProfessionalProduction,
+        canViewProfessionalSettlements: els.staffCanViewProfessionalSettlements,
         canViewProducts: els.staffCanViewProducts,
         canSellProducts: els.staffCanSellProducts,
         canManageProducts: els.staffCanManageProducts
@@ -23529,10 +23772,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
         field.hidden = !isSecretary
       }
-      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos de agenda'
+      els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos del profesional'
+      els.staffSettlementsPermissionLabel.textContent = isSecretary
+        ? 'Ver liquidaciones de profesionales (solo consulta)'
+        : 'Ver liquidaciones propias (solo consulta)'
       els.staffPermissionsHelp.textContent = isSecretary
         ? 'Secretaría siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
-        : 'El profesional solo accede a su propia agenda y no ve clientes, conversaciones, señas ni reportes.'
+        : 'El profesional accede a su propia agenda. Si habilitás liquidaciones, puede consultar sus trabajos, comisiones, pagos recibidos y saldo. No administra pagos ni porcentajes.'
     }
 
     function markStaffPermissionsCustom() {
@@ -23604,6 +23850,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (user.canAdjustCash) labels.push('Ajustes de Caja')
       if (user.canManageCashSessions) labels.push('Abre y cierra Caja')
       if (user.canViewTodayProfessionalProduction) labels.push('Actividad profesionales de hoy')
+      if (user.canViewProfessionalSettlements) labels.push(user.staffProfile === 'PROFESSIONAL' ? 'Liquidaciones propias' : 'Liquidaciones de profesionales')
       if (user.canViewProducts) labels.push('Productos')
       if (user.canSellProducts) labels.push('Venta de productos')
       if (user.canManageProducts) labels.push('Administra catálogo')
@@ -23812,6 +24059,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function loadBusinessScopedBasics() {
       if (isWorkshopBusiness()) return
+      const professionalCatalogScope = agendaProfessionalPreferenceKey()
+      const professionalCatalogGeneration = (state.agendaProfessionalCatalogGeneration || 0) + 1
+      state.agendaProfessionalCatalogGeneration = professionalCatalogGeneration
+      state.agendaProfessionalCatalogScope = null
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
       const lightweightCatalogQuery = businessQuery
         ? businessQuery + '&includeImages=false'
@@ -23838,16 +24089,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.whatsappSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
         : null
-      state.instagramSettings = state.businessId && !isStaff && !isSalesAdminDemo
-        ? await getJson('/businesses/' + state.businessId + '/instagram-settings')
+      const instagramSettingsBusinessId = state.businessId
+      const instagramSettingsGeneration = state.instagramMediaGeneration || 0
+      const instagramSettings = instagramSettingsBusinessId && !isStaff && !isSalesAdminDemo
+        ? await getJson('/businesses/' + instagramSettingsBusinessId + '/instagram-settings')
         : null
+      if (instagramSettingsBusinessId === state.businessId && instagramSettingsGeneration === (state.instagramMediaGeneration || 0)) {
+        state.instagramSettings = instagramSettings
+        instagramMediaObserveAccount(instagramSettings?.connection?.instagramAccountId || null)
+      }
       if (!isStaff) {
         state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
         state.botRouting = state.businessId
-          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId)+'&channel='+encodeURIComponent(state.botRoutingChannel||'WHATSAPP'))
           : null
       }
-      state.professionals = await getJson('/professionals' + lightweightCatalogQuery)
+      const professionals = await getJson('/professionals' + lightweightCatalogQuery)
+      if (professionalCatalogScope !== agendaProfessionalPreferenceKey() || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
+      state.professionals = professionals
+      state.agendaProfessionalCatalogScope = professionalCatalogScope
       await loadStaffUsers()
       state.serviceCategories = await getJson('/service-categories' + businessQuery)
       state.services = await getJson('/services' + lightweightCatalogQuery)
@@ -23984,6 +24244,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.campaignsLoaded = false
       state.instagramReels = []
       state.instagramReelsLoaded = false
+      resetInstagramMediaState()
       state.campaignAudiences = {}
       state.campaignDeliveries = {}
       state.campaignSimulations = {}
@@ -25911,6 +26172,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       state.selectedDeposit = null
+      els.chatChannelChip.textContent = 'WhatsApp'
       els.replyForm.hidden = false
 
       const name = conversationDisplayName(selected)
@@ -25998,6 +26260,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderExternalChannelSelected(selected, options = {}) {
+      els.chatChannelChip.textContent = conversationChannelLabel(selected.channel)
       state.selectedDeposit = null
       const name = conversationDisplayName(selected)
       const customer = customerForConversation(selected)
@@ -26006,13 +26269,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.chatAvatar.textContent = avatar
       els.chatPhone.textContent = name
       els.chatStatus.textContent = conversationChannelLabel(selected.channel) + (channelAddress ? ' · ' + channelAddress : '')
-      els.stepChip.textContent = conversationChannelLabel(selected.channel)
+      els.stepChip.textContent = conversationStepLabel(selected.currentStep,selected.aiEnabled,selected)
       els.stepChip.className = 'chip step-progress'
       els.depositApprove.hidden = true
       els.depositReject.hidden = true
       els.advisorQuote.hidden = true
-      els.resolveHandoff.hidden = true
-      els.conversationAiToggle.hidden = true
+      const canReplyConversation=state.currentUser?.role!=='STAFF'||state.currentUser?.canReplyConversations===true
+      const human=conversationHandoffUiStage(selected)!=='NONE'
+      els.resolveHandoff.hidden=!canReplyConversation||!human
+      els.resolveHandoff.disabled=!human
+      els.conversationAiToggle.hidden=!canReplyConversation
+      els.conversationAiToggle.disabled=false
+      els.conversationAiToggle.textContent='Atender manualmente'
+      els.resolveHandoff.textContent='Marcar como resuelto'
       els.replyForm.hidden = false
       els.detailAvatar.textContent = avatar
       els.detailName.textContent = name
@@ -26024,7 +26293,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.detailEmail.hidden = !customer?.email
       els.detailWhatsapp.href = customer?.phone ? whatsappAppUrl(customer.phone) : '#'
       els.detailWhatsapp.hidden = !customer?.phone
-      els.detailStep.textContent = conversationChannelLabel(selected.channel)
+      els.detailStep.textContent = conversationStepLabel(selected.currentStep,selected.aiEnabled,selected)
       els.detailStep.className = 'chip step-progress'
       els.detailMarketingStatus.textContent = customer ? 'Cliente vinculado' : 'Sin ficha de cliente'
       els.detailMarketingStatus.className = 'chip'
@@ -26605,6 +26874,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePriceMode.disabled = isGroup
       els.serviceAttentionMode.disabled = isGroup
       els.serviceRequiresPhoto.disabled = isGroup
+      els.serviceAgendaFavorite.disabled = isGroup
+      if (isGroup) els.serviceAgendaFavorite.checked = false
       els.serviceValidationEnabled.disabled = isGroup
       els.serviceDepositEnabled.disabled = isGroup
       for (const setting of els.serviceForm.querySelectorAll('.service-combination-setting')) {
@@ -26830,6 +27101,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 '<div class="service-card-title">' + escapeHtml(serviceLabel) + '</div>' +
                 (service.description ? '<div class="service-card-description">' + escapeHtml(service.description) + '</div>' : '') +
                 '<div class="service-card-meta">' +
+                  (itemType !== 'GROUP' && service.agendaFavorite === true ? '<span>&#11088; Favorito para Agenda</span>' : '') +
                   (service.isActive === false ? '<span class="service-inactive-status">Inactivo · no se ofrece para reservar</span>' : '') + serviceMeta +
                 '</div>' +
               '</div>' +
@@ -26862,13 +27134,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (els.topHandoffTotal) els.topHandoffTotal.textContent = String(pending)
       els.globalBotToggle.checked = state.aiSettings.botEnabled !== false
       els.globalAiToggle.checked = state.aiSettings.aiEnabled !== false
-      els.bookingV2Toggle.checked = state.aiSettings.bookingV2Enabled === true
       els.globalBotStatus.textContent = state.aiSettings.botEnabled === false ? 'Pausado' : 'Activo'
       els.globalBotStatus.className = state.aiSettings.botEnabled === false ? 'paused' : ''
       els.globalAiStatus.textContent = state.aiSettings.aiEnabled === false ? 'Flujo basico' : 'Activo'
       els.globalAiStatus.className = state.aiSettings.aiEnabled === false ? 'basic' : ''
-      els.bookingV2Status.textContent = state.aiSettings.bookingV2Enabled === true ? 'Booking V2' : 'Bot actual'
-      els.bookingV2Status.className = state.aiSettings.bookingV2Enabled === true ? '' : 'basic'
+      els.globalAiToggle.closest('.automation-control').hidden = state.botRouting?.activeVariant === 'conversational'
       renderBotRoutingControl()
       els.serviceCatalogDisplayMode.value = state.aiSettings.serviceCatalogDisplayMode || 'ALL_SERVICES'
       els.bookingFlowOrder.value = state.aiSettings.bookingFlowOrder || 'PROFESSIONAL_FIRST'
@@ -27732,88 +28002,122 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    async function toggleBookingV2() {
-      const nextValue = els.bookingV2Toggle.checked
-      clearAutomationSettingsFeedback()
-      els.bookingV2Toggle.disabled = true
-      try {
-        state.aiSettings = await getJson('/crm/ai-settings', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: state.businessId,
-            bookingV2Enabled: nextValue
-          })
-        })
-        renderAiControls()
-        showAutomationSettingsFeedback(nextValue ? 'Nuevo flujo de reservas activo.' : 'Nuevo flujo de reservas desactivado.', 'success')
-      } catch (error) {
-        renderAiControls()
-        showAutomationSettingsFeedback(error.message, 'error')
-      } finally {
-        els.bookingV2Toggle.disabled = false
-      }
+
+    async function changeBotRoutingChannel(){
+      if(state.botRoutingBusy||!state.businessId)return
+      const businessId=state.businessId,channel=els.botRoutingChannel.value
+      if(!['WHATSAPP','INSTAGRAM'].includes(channel))return
+      state.botRoutingChannel=channel
+      state.botRoutingBusy=true
+      els.botRoutingChannel.disabled=true
+      try{
+        const value=await getJson('/crm/bot-routing?businessId='+encodeURIComponent(businessId)+'&channel='+encodeURIComponent(channel))
+        if(state.businessId!==businessId||state.botRoutingChannel!==channel)return
+        state.botRouting=value;state.botRoutingSelectionBusinessId=null
+        els.botRoutingEvidence.textContent=''
+      }catch(error){els.botRoutingEvidence.textContent=error.message;els.botRoutingEvidence.className='settings-feedback visible error'}
+      finally{state.botRoutingBusy=false;renderBotRoutingControl()}
+    }
+
+    function routingConfigurationForVariant(routing, variant) {
+      if(routing.channel==='INSTAGRAM')return (routing.configurations||[]).find(configuration=>configuration.id===variant)||null
+      const candidates = (routing.configurations || []).filter(configuration => configuration.variant === variant)
+      return candidates.find(configuration => configuration.id === routing.activeConfigurationId) || candidates[0] || null
     }
 
     function renderBotRoutingControl() {
       const routing = state.botRouting
-      els.botRoutingControl.hidden = !routing
-      if (!routing) return
-      const selected = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId
-        ? routing.activeConfigurationId
-        : 'legacy-whatsapp'
+      els.botRoutingControl.hidden = !routing || state.currentUser?.role === 'STAFF'
+      if (!routing || state.currentUser?.role === 'STAFF') return
+      if (els.globalAiToggle) els.globalAiToggle.closest('.automation-control').hidden = routing.activeVariant === 'conversational'
+      const instagram=routing.channel==='INSTAGRAM'
+      els.botRoutingChannel.value=instagram?'INSTAGRAM':'WHATSAPP'
+      const key=state.businessId+':'+(routing.channel||'WHATSAPP')
+      const selected=state.botRoutingSelectionBusinessId===key?els.botRoutingSelector.value||(instagram?routing.activeConfigurationId||routing.configurations?.[0]?.id:routing.activeVariant)||'options':(instagram?routing.activeConfigurationId||routing.configurations?.[0]?.id:routing.activeVariant)||'options'
+      state.botRoutingSelectionBusinessId=key
       els.botRoutingSelector.replaceChildren()
-      const legacyOption = document.createElement('option')
-      legacyOption.value = 'legacy-whatsapp'
-      legacyOption.textContent = 'Bot actual (legacy)'
-      els.botRoutingSelector.appendChild(legacyOption)
-      for (const configuration of routing.configurations || []) {
+      for (const choice of (instagram?(routing.configurations||[]).map(configuration=>({variant:configuration.id,label:configuration.name+' · '+configuration.version})):[{ variant: 'options', label: 'Bot de opciones' }, { variant: 'conversational', label: 'Nuevo bot' }])) {
         const option = document.createElement('option')
-        option.value = configuration.id
-        option.textContent = configuration.name + ' · ' + configuration.version
+        option.value = choice.variant
+        option.textContent = choice.label
         els.botRoutingSelector.appendChild(option)
       }
       els.botRoutingSelector.value = selected
+      const currentLabel = routing.activeVariant === 'conversational' ? 'Nuevo bot'
+        : routing.activeVariant === 'options' ? 'Bot de opciones'
+        : routing.engineKey === 'legacy-whatsapp' && state.aiSettings.bookingV2Enabled === true ? 'Booking V2 (asignación anterior)'
+        : 'Bot anterior (asignación conservada)'
       els.botRoutingStatus.textContent = routing.paused
-        ? 'Routing pausado: requiere resolución operativa'
-        : 'Routing actual: ' + (selected === 'legacy-whatsapp' ? 'bot legacy' : 'motor de opciones') + ' · generación ' + routing.generation
+        ? 'Cambio pausado: requiere resolución operativa. No se activó otro bot.'
+        : 'Bot actual: ' + currentLabel + ' · generación ' + routing.generation
       els.botRoutingStatus.className = routing.paused ? 'paused' : ''
       const preparation = routing.preparation || {}
       els.botRoutingTimezone.value = preparation.timezone || els.botRoutingTimezone.value || 'America/Argentina/Buenos_Aires'
-      els.botRoutingReadiness.textContent = preparation.ready
-        ? 'WhatsApp, App Secret y zona horaria configurados.'
-        : !preparation.hasAppSecret
-          ? 'Falta guardar el App Secret en Meta y WhatsApp.'
-          : !preparation.hasTimezone
-            ? 'Falta preparar la zona horaria del bot.'
-            : 'WhatsApp todavía no cumple todos los requisitos.'
-      els.botRoutingPrepare.disabled = routing.paused === true
-      els.botRoutingPreflight.disabled = routing.paused === true || (routing.configurations || []).length === 0
+      updateBotRoutingSelection()
+    }
+
+    function updateBotRoutingSelection() {
+      const routing = state.botRouting
+      if (!routing) return
+      const variant = els.botRoutingSelector.value
+      const preparation = routing.preparation || {}
+      const configuration = routingConfigurationForVariant(routing, variant)
+      const conversational = routing.channel==='INSTAGRAM'||variant === 'conversational'
+      const aiReady = !conversational || preparation.conversationalAiReady === true
+      document.getElementById('bot-routing-help').textContent = routing.channel==='INSTAGRAM'?'Elegí una versión publicada del mismo Nuevo bot. La versión y las capacidades son compartidas con WhatsApp; la activación de cada canal se confirma por separado.':conversational
+        ? 'El Nuevo bot interpreta las consultas y redacta con IA. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
+        : 'El Bot de opciones guía al cliente con menús y botones. Prepararlo no cambia el bot actual; revisá y confirmá para activarlo.'
+      els.botRoutingReadiness.textContent = routing.channel==='INSTAGRAM'?(!preparation.rolloutReady?'Falta habilitar Instagram para este comercio en el servidor.':!aiReady?'Falta habilitar y configurar la IA de Instagram en el servidor.':!preparation.hasAppSecret?'Falta la clave privada de la aplicación de Instagram.':!preparation.instagramReady?'Instagram todavía no está conectado y habilitado.':!preparation.hasTimezone?'Falta la zona horaria del comercio.':configuration?'Versión publicada lista. Revisá y confirmá para asignarla a Instagram.':'Publicá primero una versión del Nuevo bot para este comercio.') : !aiReady ? 'Falta habilitar y configurar la IA de WhatsApp en el servidor. No se puede activar el Nuevo bot todavía.'
+        : !preparation.hasAppSecret ? 'Falta guardar el App Secret en Meta y WhatsApp.'
+        : !preparation.whatsappReady ? 'WhatsApp todavía no cumple todos los requisitos.'
+        : !preparation.hasTimezone ? 'Falta preparar la zona horaria del bot.'
+        : configuration ? 'Configuración preparada. Revisá el cambio antes de activarlo.' : 'Prepará el bot elegido para poder revisar su activación.'
+      const disabled = routing.paused === true || state.botRoutingBusy === true
+      els.botRoutingChannel.disabled=disabled
+      els.botRoutingSelector.disabled = disabled
+      els.botRoutingTimezone.disabled = disabled||routing.channel==='INSTAGRAM'
+      els.botRoutingPrepare.disabled = disabled
+      els.botRoutingPrepare.textContent = routing.channel==='INSTAGRAM'?'Actualizar versiones publicadas':'Preparar ' + (conversational ? 'Nuevo bot' : 'Bot de opciones')
+      els.botRoutingPreflight.disabled = disabled || !configuration || !preparation.ready || !aiReady || configuration.id === routing.activeConfigurationId
     }
 
     async function prepareDefaultBotRouting() {
-      if (!state.businessId || !state.botRouting) return
+      const businessId = state.businessId
+      const routing = state.botRouting
+      const variant = els.botRoutingSelector.value
+      if (!businessId || !routing || state.botRoutingBusy) return
+      const isCurrent = () => state.businessId === businessId && state.botRouting === routing
       const timezone = els.botRoutingTimezone.value.trim()
       if (!timezone) {
         els.botRoutingEvidence.textContent = 'Ingresá la zona horaria del comercio.'
         els.botRoutingEvidence.className = 'settings-feedback visible error'
+        els.botRoutingTimezone.focus()
         return
       }
-      if (!setButtonLoading(els.botRoutingPrepare, true, 'Preparando...')) return
+      state.botRoutingBusy = true
+      updateBotRoutingSelection()
+      els.botRoutingEvidence.textContent = 'Preparando la configuración elegida, sin cambiar el bot actual...'
+      els.botRoutingEvidence.className = 'settings-feedback visible'
       try {
         await getJson('/crm/bot-routing/configurations/default', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, timezone })
+          body: JSON.stringify({ businessId, timezone, variant:routing.channel==='INSTAGRAM'?'conversational':variant,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
         })
-        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
+        if (!isCurrent()) return
+        const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId)+'&channel='+encodeURIComponent(routing.channel||'WHATSAPP'))
+        if (!isCurrent()) return
+        state.botRouting = refreshed
         renderBotRoutingControl()
-        els.botRoutingEvidence.textContent = 'Bot de opciones F11 preparado. Seleccionalo y ejecutá el preflight para cambiar el routing.'
+        els.botRoutingEvidence.textContent = 'Configuración preparada. El bot actual no cambió. Revisá y confirmá para activar el elegido.'
         els.botRoutingEvidence.className = 'settings-feedback visible success'
       } catch (error) {
-        els.botRoutingEvidence.textContent = error.message
-        els.botRoutingEvidence.className = 'settings-feedback visible error'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = error.message
+          els.botRoutingEvidence.className = 'settings-feedback visible error'
+        }
       } finally {
-        setButtonLoading(els.botRoutingPrepare, false)
+        state.botRoutingBusy = false
+        updateBotRoutingSelection()
       }
     }
 
@@ -27822,65 +28126,93 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return Object.entries(labels).map(([key, label]) => label + ': ' + (counts[key] || '0')).join(' · ')
     }
 
-    async function abortBotRoutingPreflight(handle) {
+    async function abortBotRoutingPreflight(businessId, handle) {
       return getJson('/crm/bot-routing/abort', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ businessId: state.businessId, handle })
+        body: JSON.stringify({ businessId, handle,...(handle.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
       })
     }
 
     async function changeBotRouting() {
+      const businessId = state.businessId
       const routing = state.botRouting
-      const target = els.botRoutingSelector.value
-      if (!routing || !target) return
+      const variant = els.botRoutingSelector.value
+      const configuration = routing && routingConfigurationForVariant(routing, variant)
+      const target = configuration?.id
+      if (!businessId || !routing || !target || state.botRoutingBusy) return
+      const isCurrent = () => state.businessId === businessId && state.botRouting === routing
       const currentTarget = routing.engineKey === 'deterministic-options' && routing.activeConfigurationId ? routing.activeConfigurationId : 'legacy-whatsapp'
       if (target === currentTarget) {
         els.botRoutingEvidence.textContent = 'Ese motor ya tiene el routing exclusivo.'
         els.botRoutingEvidence.className = 'settings-feedback visible'
         return
       }
-      els.botRoutingPreflight.disabled = true
+      state.botRoutingBusy = true
+      updateBotRoutingSelection()
       els.botRoutingEvidence.textContent = 'Pausando admisión y verificando estados protegidos...'
       els.botRoutingEvidence.className = 'settings-feedback visible'
       let preflight = null
       try {
         preflight = await getJson('/crm/bot-routing/preflight', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, expectedGeneration: routing.generation, target })
+          body: JSON.stringify({ businessId, expectedGeneration: routing.generation, target,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}) })
         })
+        if (!isCurrent()) {
+          await abortBotRoutingPreflight(businessId, preflight.handle)
+          return
+        }
         const evidence = routingCountsText(preflight.snapshot && preflight.snapshot.counts)
         if (preflight.kind !== 'CLEAN') {
           els.botRoutingEvidence.textContent = 'Cambio bloqueado (' + preflight.reason + '). ' + evidence
           els.botRoutingEvidence.className = 'settings-feedback visible error'
-          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+          try { await abortBotRoutingPreflight(businessId, preflight.handle) } catch (_) {}
           return
         }
         const accepted = await requestCrmConfirmation(
           'El preflight quedó limpio. Se descartarán sólo estados no protegidos. ' + evidence,
-          { title: 'Confirmar cambio exclusivo de routing', confirmLabel: 'Sí, cambiar routing', danger: target === 'legacy-whatsapp' }
+          { title: 'Confirmar cambio de bot', confirmLabel: 'Sí, activar el bot elegido' }
         )
-        if (!accepted) {
-          await abortBotRoutingPreflight(preflight.handle)
-          els.botRoutingEvidence.textContent = 'Cambio cancelado; el routing fue reanudado sin modificaciones.'
-          els.botRoutingEvidence.className = 'settings-feedback visible'
+        if (!isCurrent() || !accepted) {
+          await abortBotRoutingPreflight(businessId, preflight.handle)
+          if (isCurrent()) {
+            els.botRoutingEvidence.textContent = 'Cambio cancelado; el routing fue reanudado sin modificaciones.'
+            els.botRoutingEvidence.className = 'settings-feedback visible'
+          }
           return
         }
         await getJson('/crm/bot-routing/commit', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ businessId: state.businessId, target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
+          body: JSON.stringify({ businessId,...(routing.channel==='INSTAGRAM'?{channel:'INSTAGRAM'}:{}), target, handle: preflight.handle, confirmation: 'CONFIRM_ROUTING_CHANGE' })
         })
-        state.botRouting = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId))
-        renderBotRoutingControl()
-        els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
-        els.botRoutingEvidence.className = 'settings-feedback visible success'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = 'Routing actualizado y auditado correctamente.'
+          els.botRoutingEvidence.className = 'settings-feedback visible success'
+        }
       } catch (error) {
         if (preflight?.kind === 'CLEAN') {
-          try { await abortBotRoutingPreflight(preflight.handle) } catch (_) {}
+          try { await abortBotRoutingPreflight(businessId, preflight.handle) } catch (_) {}
         }
-        els.botRoutingEvidence.textContent = error.message
-        els.botRoutingEvidence.className = 'settings-feedback visible error'
+        if (isCurrent()) {
+          els.botRoutingEvidence.textContent = error.message
+          els.botRoutingEvidence.className = 'settings-feedback visible error'
+        }
       } finally {
-        els.botRoutingPreflight.disabled = state.botRouting?.paused === true
+        try {
+          const refreshed = await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(businessId)+'&channel='+encodeURIComponent(routing.channel||'WHATSAPP'))
+          if (isCurrent()) {
+            state.botRouting = refreshed
+            renderBotRoutingControl()
+          }
+        } catch (_) {
+          if (isCurrent()) {
+            state.botRouting = { ...routing, paused: true }
+            els.botRoutingEvidence.textContent = 'No pude comprobar el estado actual. Recargá antes de volver a cambiar el bot.'
+            els.botRoutingEvidence.className = 'settings-feedback visible error'
+            renderBotRoutingControl()
+          }
+        }
+        state.botRoutingBusy = false
+        updateBotRoutingSelection()
       }
     }
 
@@ -29089,6 +29421,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.bookingThemeDirty = false
       const slug = state.business?.slug || ''
       els.landingEnabled.checked = state.business?.landingEnabled !== false
+      els.landingAllowGuestWebBooking.checked = state.business?.allowGuestWebBooking === true
+      els.landingAllowGuestWebBooking.disabled = state.currentUser?.role === 'STAFF'
+      els.landingProfessionalPriority.checked = state.business?.webBookingPrioritizeLeastBooked === true
+      els.landingProfessionalPriority.disabled = state.currentUser?.role === 'STAFF'
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
@@ -29411,18 +29747,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const settings = state.instagramSettings || {}
       const connection = settings.connection || {}
       const connected = Boolean(connection.connected)
-      const ready = connected && Boolean(settings.redirectReady)
+      const verification = connection.verification || { status: 'not_checked', checkedAt: null }
+      const verified = connected && verification.status === 'verified'
       els.instagramSettingsTitle.textContent = connected
-        ? 'Instagram conectado' + (connection.username ? ' · @' + connection.username : '')
-        : 'Instagram no conectado'
+        ? 'Conexión guardada' + (connection.username ? ' · @' + connection.username : '')
+        : 'Instagram sin conectar'
       els.instagramSettingsCopy.textContent = connection.lastError
-        || (ready
-          ? 'La cuenta puede responder consultas y derivar reservas a WhatsApp conservando el contexto.'
-          : connected
-            ? 'La cuenta puede responder consultas, pero falta cargar el WhatsApp publico para derivar reservas.'
-            : 'Carga el Instagram Account ID y el token generado en Meta.')
-      els.instagramSettingsBadge.textContent = ready ? 'Listo' : connected ? 'Incompleto' : 'Pendiente'
-      els.instagramSettingsBadge.classList.toggle('connected', ready)
+        ? 'Último aviso operativo: ' + connection.lastError
+        : connected ? 'La credencial está guardada. Comprobá la cuenta antes de continuar.' : 'Carga el Instagram Account ID y el token generado en Meta.'
+      els.instagramSettingsBadge.textContent = verified ? 'Cuenta comprobada' : connected ? 'Guardada' : 'Pendiente'
+      els.instagramSettingsBadge.classList.toggle('connected', verified)
+      els.instagramConnectionVerification.textContent = verified
+        ? 'Cuenta comprobada: ' + new Date(verification.checkedAt).toLocaleString('es-AR') + '. Solo se consultó el perfil; permisos sin verificar.'
+        : verification.status === 'failed' ? 'No se pudo comprobar la cuenta. Volvé a intentar.' : 'Sin comprobar en esta pantalla. Usá Comprobar cuenta.'
+      const expiry = connection.expiry || { status: 'unknown' }
+      els.instagramConnectionExpiry.textContent = expiry.status === 'unknown'
+        ? 'Vencimiento declarado: desconocido. Instagram no lo confirmó.'
+        : (expiry.status === 'declared_expired' ? 'Vencimiento declarado pasado: ' : 'Vencimiento declarado: ') + new Date(connection.tokenExpiresAt).toLocaleString('es-AR') + '. Fecha cargada manualmente.'
       els.instagramEnabledToggle.checked = Boolean(settings.enabled)
       els.instagramEnabledToggle.disabled = !connected
       els.instagramEnabledStatus.textContent = settings.enabled ? 'Activo' : 'Desactivado'
@@ -29450,6 +29791,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveInstagramSettings(event) {
       event.preventDefault()
       if (!state.businessId) return
+      const businessId = state.businessId
+      const generation = state.instagramMediaGeneration || 0
       clearInstagramSettingsFeedback()
       const payload = {
         instagramAccountId: els.instagramAccountId.value.trim(),
@@ -29475,14 +29818,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!setButtonLoading(els.instagramTechnicalSubmit, true, 'Validando...')) return
       try {
-        state.instagramSettings = await getJson('/businesses/' + state.businessId + '/instagram-settings', {
+        const saved = await getJson('/businesses/' + businessId + '/instagram-settings', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         })
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
+        resetInstagramMediaState()
+        state.instagramSettings = saved
         renderInstagramSettings()
-        showInstagramSettingsFeedback('Instagram conectado y token validado.', 'success')
+        showInstagramSettingsFeedback('Conexión guardada y consulta de cuenta comprobada. Permisos sin verificar.', 'success')
       } catch (error) {
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
         renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
@@ -29509,12 +29856,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function testInstagramConnection() {
       if (!state.businessId) return
+      const businessId = state.businessId
+      const generation = state.instagramMediaGeneration || 0
       clearInstagramSettingsFeedback()
       if (!setButtonLoading(els.instagramTestButton, true, 'Probando...')) return
       try {
-        const result = await getJson('/businesses/' + state.businessId + '/instagram-settings/test', { method: 'POST' })
-        showInstagramSettingsFeedback('Token valido para @' + (result.account?.username || 'la cuenta conectada') + '.', 'success')
+        const result = await getJson('/businesses/' + businessId + '/instagram-settings/test', { method: 'POST' })
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
+        instagramMediaObserveAccount(result.connection?.instagramAccountId || null)
+        state.instagramSettings = result
+        renderInstagramSettings()
+        showInstagramSettingsFeedback('Cuenta comprobada. Los permisos siguen sin verificar.', 'success')
       } catch (error) {
+        if (state.businessId !== businessId || generation !== (state.instagramMediaGeneration || 0)) return
+        if (error.body?.connection) state.instagramSettings = error.body
+        else if (state.instagramSettings?.connection) state.instagramSettings.connection.verification = { status: 'failed', checkedAt: null }
+        renderInstagramSettings()
         showInstagramSettingsFeedback(error.message, 'error')
       } finally {
         setButtonLoading(els.instagramTestButton, false)
@@ -29757,6 +30114,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return words.slice(0, 2).map((word) => word[0]).join('').toUpperCase() || 'S'
     }
 
+    function workspaceRoleLabel(user) {
+      if (user?.role === 'SUPER_ADMIN') return 'Super admin'
+      if (user?.role === 'ACCOUNT_ADMIN') return 'Administrador de cuentas'
+      if (user?.role === 'STAFF') return user.staffProfile === 'SECRETARY' ? 'Secretaría' : 'Profesional'
+      return 'Administrador'
+    }
+
     function updateBusinessBrand() {
       const name = state.business?.name || 'Weex'
       const logoUrl = state.business?.logoUrl || null
@@ -29768,9 +30132,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (brandName) brandName.textContent = name
       if (adminName) adminName.textContent = state.currentUser?.name || name
-      if (adminRole) adminRole.textContent = state.currentUser?.role === 'SUPER_ADMIN'
-        ? 'Super admin'
-        : state.currentUser?.role === 'ACCOUNT_ADMIN' ? 'Administrador de cuentas' : 'Administrador'
+      if (adminRole) adminRole.textContent = workspaceRoleLabel(state.currentUser)
       if (brandMark) {
         brandMark.innerHTML = logoUrl
           ? '<img src="' + escapeHtml(logoUrl) + '" alt="">'
@@ -30142,6 +30504,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveLandingSettings(event) {
       event.preventDefault()
       clearLandingSettingsFeedback()
+      if (state.currentUser?.role === 'STAFF') {
+        showLandingSettingsFeedback('Tu perfil no tiene permiso para modificar las reservas web.', 'error')
+        return
+      }
       if (!state.businessId) return
 
       const slug = normalizeLandingSlug(els.landingSlug.value)
@@ -30176,6 +30542,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             landingEnabled: els.landingEnabled.checked,
+            allowGuestWebBooking: els.landingAllowGuestWebBooking.checked,
+            webBookingPrioritizeLeastBooked: els.landingProfessionalPriority.checked,
             landingTemplate: selectedTemplate,
             bookingTheme: selectedBookingTheme,
             slug,
@@ -30454,6 +30822,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return state.professionals
         .filter((professional) => professional.isActive !== false)
         .sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' }))
+    }
+
+    function isOwnAgendaScope() {
+      return state.currentUser?.role === 'STAFF' && state.currentUser.agendaScope !== 'ALL'
+    }
+
+    function agendaOwnProfessionalId() {
+      if (!isOwnAgendaScope()) return null
+      const professionalId = state.currentUser.professionalId
+      return activeProfessionals().some((professional) => professional.id === professionalId &&
+        (!professional.businessId || professional.businessId === state.businessId)) ? professionalId : ''
+    }
+
+    function agendaVisibleProfessionals() {
+      const ownProfessionalId = agendaOwnProfessionalId()
+      return activeProfessionals().filter((professional) =>
+        (!professional.businessId || professional.businessId === state.businessId) &&
+        (ownProfessionalId === null || professional.id === ownProfessionalId)
+      )
     }
 
     function agendaProfessionalColor(professionalId, index = 0) {
@@ -30739,15 +31126,120 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .join('')
     }
 
+    function agendaProfessionalPreferenceKey() {
+      const user = state.currentUser
+      if (!user?.id || !user.role || !state.businessId || state.business?.id !== state.businessId) return null
+      return 'salon-ai-agenda-professional-v1:' + JSON.stringify([user.id, user.role, user.staffProfile || '', state.businessId])
+    }
+
+    function validAgendaProfessionalFilter(value) {
+      if (typeof value !== 'string' || !value) return ''
+      const professional = activeProfessionals().find((item) => item.id === value)
+      if (!professional || professional.businessId && professional.businessId !== state.businessId) return ''
+      if (state.currentUser?.role === 'STAFF' && state.currentUser.agendaScope !== 'ALL' && state.currentUser.professionalId !== value) return ''
+      return value
+    }
+
+    function agendaDragLockPreferenceKey() {
+      const user = state.currentUser
+      if (!user?.id || !user.role || !state.businessId || state.business?.id !== state.businessId) return null
+      return 'salon-ai-agenda-drag-lock-v1:' + JSON.stringify([user.id, user.role, user.staffProfile || '', state.businessId])
+    }
+
+    function restoreAgendaDragLock() {
+      const key = agendaDragLockPreferenceKey()
+      if (key && state.agendaDragLockScope === key) return
+      if (state.agendaPointerDrag) clearAgendaPointerDrag()
+      state.agendaDragLocked = true
+      state.agendaDragLockScope = key
+      state.agendaDragLockRevision += 1
+      if (!key) return
+      try {
+        const saved = JSON.parse(localStorage.getItem(key) || 'null')
+        if (typeof saved === 'boolean') state.agendaDragLocked = saved
+      } catch {
+        // Keep accidental movement blocked when this device cannot read preferences.
+      }
+    }
+
+    function canDragAgendaAppointments() {
+      restoreAgendaDragLock()
+      return Boolean(state.agendaDragLockScope) && state.agendaDragLocked === false && canEditAppointments()
+    }
+
+    function syncAgendaDragLockControl() {
+      const locked = !canDragAgendaAppointments()
+      els.agendaGridWrap.classList.toggle('agenda-drag-locked', locked)
+      const checkbox = els.agendaGridWrap.querySelector('[data-agenda-drag-lock]')
+      if (checkbox) {
+        checkbox.checked = locked
+        checkbox.disabled = !canEditAppointments() || !state.agendaDragLockScope
+      }
+    }
+
+    function setAgendaDragLocked(locked) {
+      restoreAgendaDragLock()
+      state.agendaDragLocked = locked !== false || !canEditAppointments() || !state.agendaDragLockScope
+      state.agendaDragLockRevision += 1
+      clearAgendaPointerDrag({ keepDidDrag: Boolean(state.agendaPointerDrag?.dragging) })
+      if (state.agendaDragLockScope) {
+        try {
+          localStorage.setItem(state.agendaDragLockScope, JSON.stringify(state.agendaDragLocked))
+        } catch {
+          // The current choice still works if this device cannot store preferences.
+        }
+      }
+      syncAgendaDragLockControl()
+    }
+
+    function restoreAgendaProfessionalFilter() {
+      const key = agendaProfessionalPreferenceKey()
+      if (!key || state.agendaProfessionalCatalogScope !== key) {
+        els.agendaProfessional.value = ''
+        state.agendaProfessionalPreferenceScope = null
+        return
+      }
+      let selected = els.agendaProfessional.value || ''
+      if (state.agendaProfessionalPreferenceScope !== key) {
+        selected = ''
+        try {
+          selected = JSON.parse(localStorage.getItem(key) || 'null')
+        } catch {
+          // Private browsing or malformed local data must not block the Agenda.
+        }
+        state.agendaProfessionalPreferenceScope = key
+      }
+      els.agendaProfessional.value = validAgendaProfessionalFilter(selected)
+    }
+
+    function rememberAgendaProfessionalFilter() {
+      const key = agendaProfessionalPreferenceKey()
+      if (!key || state.agendaProfessionalCatalogScope !== key) {
+        els.agendaProfessional.value = ''
+        return
+      }
+      const selected = validAgendaProfessionalFilter(els.agendaProfessional.value)
+      els.agendaProfessional.value = selected
+      state.agendaProfessionalPreferenceScope = key
+      try {
+        localStorage.setItem(key, JSON.stringify(selected))
+      } catch {
+        // Keep the current selection even when this device cannot persist it.
+      }
+    }
+
     function renderAgendaFilters() {
       const selectedProfessional = els.agendaProfessional.value || ''
       const selectedService = els.agendaService.value || ''
-      els.agendaProfessional.innerHTML = ['<option value="">Todos los profesionales</option>']
-        .concat(activeProfessionals().map((professional) => {
+      const professionals = agendaVisibleProfessionals()
+      els.agendaProfessional.innerHTML = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
+        .concat(professionals.map((professional) => {
           return '<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
-      els.agendaProfessional.value = activeProfessionals().some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
+      els.agendaProfessional.value = professionals.some((professional) => professional.id === selectedProfessional) ? selectedProfessional : ''
+      restoreAgendaProfessionalFilter()
+      if (isOwnAgendaScope()) els.agendaProfessional.value = agendaOwnProfessionalId()
 
       const services = bookableServices()
       els.agendaService.innerHTML = ['<option value="">Todos los servicios</option>']
@@ -30760,13 +31252,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderAgendaProfessionalControls() {
-      const professionals = activeProfessionals()
+      const professionals = agendaVisibleProfessionals()
       const selected = els.agendaProfessional.value || ''
-      const tabs = [
+      const tabs = (isOwnAgendaScope() ? [] : [
         '<button class="agenda-pro-tab' + (!selected ? ' active' : '') + '" type="button" data-agenda-pro-tab="">' +
           'Todos' +
         '</button>'
-      ].concat(professionals.map((professional, index) => {
+      ]).concat(professionals.map((professional, index) => {
         const color = agendaProfessionalColor(professional.id, index)
         return '<button class="agenda-pro-tab' + (selected === professional.id ? ' active' : '') + '" type="button" data-agenda-pro-tab="' + professional.id + '">' +
           '<span class="agenda-dot" style="--agenda-color:' + color + '"></span>' +
@@ -30778,6 +31270,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const button of els.agendaProfessionalTabs.querySelectorAll('[data-agenda-pro-tab]')) {
         button.addEventListener('click', async () => {
           els.agendaProfessional.value = button.dataset.agendaProTab || ''
+          rememberAgendaProfessionalFilter()
           renderAgendaProfessionalControls()
           await loadAgenda()
         })
@@ -30795,16 +31288,31 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         statusLegend
     }
 
+    function orderAgendaServices(services) {
+      return services.filter((service) => service.isActive !== false).sort((left, right) =>
+        Number(right.agendaFavorite === true) - Number(left.agendaFavorite === true)
+      )
+    }
+
     function appointmentServicesForProfessional(professionalId) {
       const professional = state.professionals.find((item) => item.id === professionalId)
-      return filterAssignedServices(professional, bookableServices())
+      return orderAgendaServices(filterAssignedServices(professional, bookableServices()))
     }
 
     function renderAppointmentServiceOptions(preferredServiceId = '') {
       const services = appointmentServicesForProfessional(els.appointmentProfessional.value)
+      const appointment = editingAgendaAppointment()
+      if (appointment?.serviceId === preferredServiceId && appointment.professionalId === els.appointmentProfessional.value) {
+        const professional = state.professionals.find((item) => item.id === appointment.professionalId)
+        const historicalService = filterAssignedServices(professional, bookableServices()).find((service) =>
+          service.id === preferredServiceId && service.isActive === false
+        )
+        if (historicalService) services.push(historicalService)
+      }
       els.appointmentService.innerHTML = services.length
         ? services.map((service) => {
-            return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min</option>'
+            return '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + ' · ' + service.duration + ' min' +
+              (service.isActive === false ? ' · Inactivo · turno existente' : '') + '</option>'
           }).join('')
         : '<option value="">Sin servicios asignados</option>'
       els.appointmentService.disabled = services.length === 0
@@ -30865,7 +31373,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadAppointmentCustomerResults(query = '') {
-      if (!state.businessId) return
+      if (!state.businessId || !canViewAppointmentCustomerData()) return
       if (query.length === 1) {
         state.appointmentCustomerResultsData = []
         els.appointmentCustomerResults.innerHTML = '<div class="appointment-customer-result-empty">Escrib&iacute; al menos 2 caracteres para buscar.</div>'
@@ -31263,10 +31771,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderAgendaMobileThreeDay() {
       state.agendaProfessionalResizeObserver?.disconnect()
       state.agendaProfessionalResizeObserver = null
+      syncAgendaDragLockControl()
       const hourHeight = 88
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
-      const professionalDayView = viewDays === 1 && !els.agendaProfessional.value
-      const columnProfessionals = professionalDayView ? activeProfessionals() : []
+      const professionalDayView = viewDays === 1 && (isOwnAgendaScope() || !els.agendaProfessional.value)
+      const columnProfessionals = professionalDayView ? agendaVisibleProfessionals() : []
       const startDate = startOfDay(state.agendaSelectedDate)
       const monthPanel = state.agendaMobileMonthOpen ? renderAgendaMobileMonthPanel() : ''
       const filtersPanel = state.agendaMobileFiltersOpen ? renderAgendaMobileFilterPanel() : ''
@@ -31315,6 +31824,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '</select>' +
             '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
+            '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
             '</div>' +
             '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
           '</header>' +
@@ -31608,8 +32118,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderAgendaMobileFilterPanel() {
       const selectedProfessional = els.agendaProfessional.value || ''
       const selectedService = els.agendaService.value || ''
-      const professionalOptions = ['<option value="">Todos los profesionales</option>']
-        .concat(activeProfessionals().map((professional) => {
+      const professionalOptions = (isOwnAgendaScope() ? [] : ['<option value="">Todos los profesionales</option>'])
+        .concat(agendaVisibleProfessionals().map((professional) => {
           return '<option value="' + professional.id + '"' + (professional.id === selectedProfessional ? ' selected' : '') + '>' + escapeHtml(professional.name) + '</option>'
         }))
         .join('')
@@ -31976,6 +32486,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function bindAgendaMobileControls(hourHeight, displayRange) {
+      els.agendaGridWrap.querySelector('[data-agenda-drag-lock]')?.addEventListener('change', (event) => {
+        setAgendaDragLocked(event.target.checked)
+      })
       els.agendaGridWrap.querySelector('[data-agenda-mobile-menu]')?.addEventListener('click', openMobileDrawer)
       els.agendaGridWrap.querySelector('[data-agenda-prev]')?.addEventListener('click', async () => {
         await navigateAgendaToDate(addDays(state.agendaSelectedDate, -state.agendaViewDays))
@@ -32026,6 +32539,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       els.agendaGridWrap.querySelector('[data-agenda-mobile-professional]')?.addEventListener('change', async (event) => {
         els.agendaProfessional.value = event.target.value || ''
+        rememberAgendaProfessionalFilter()
         renderAgendaProfessionalControls()
         await loadAgenda()
       })
@@ -32152,6 +32666,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             button.addEventListener('click', async () => {
               if (state.agendaDidDrag) return
               els.agendaProfessional.value = button.dataset.agendaProfessionalColumn || ''
+              rememberAgendaProfessionalFilter()
               renderAgendaProfessionalControls()
               await loadAgenda()
             })
@@ -32543,6 +33058,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function startAgendaPointerDrag(pointerEvent, eventNode, appointmentId) {
       if (pointerEvent.button !== 0) return
+      if (!canDragAgendaAppointments()) return
       if (!canEditAppointments()) {
         showCrmToast('No tenes permiso para editar turnos.', 'error')
         return
@@ -32554,6 +33070,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const rect = eventNode.getBoundingClientRect()
       state.agendaPointerDrag = {
         appointmentId,
+        lockScope: state.agendaDragLockScope,
+        lockRevision: state.agendaDragLockRevision,
         pointerId: pointerEvent.pointerId,
         eventNode,
         ghost: null,
@@ -32580,6 +33098,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function handleAgendaPointerMove(pointerEvent) {
       const drag = state.agendaPointerDrag
       if (!drag || pointerEvent.pointerId !== drag.pointerId) return
+      if (!canDragAgendaAppointments() || drag.lockScope !== state.agendaDragLockScope || drag.lockRevision !== state.agendaDragLockRevision) {
+        clearAgendaPointerDrag({ keepDidDrag: drag.dragging })
+        return
+      }
 
       const moved = Math.hypot(pointerEvent.clientX - drag.startX, pointerEvent.clientY - drag.startY)
       if (!drag.dragging && moved < 5) return
@@ -32601,6 +33123,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function handleAgendaPointerEnd(pointerEvent) {
       const drag = state.agendaPointerDrag
       if (!drag || pointerEvent.pointerId !== drag.pointerId) return
+      if (!canDragAgendaAppointments() || drag.lockScope !== state.agendaDragLockScope || drag.lockRevision !== state.agendaDragLockRevision) {
+        clearAgendaPointerDrag({ keepDidDrag: drag.dragging })
+        return
+      }
 
       if (!drag.dragging) {
         clearAgendaPointerDrag()
@@ -32699,6 +33225,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       window.removeEventListener('pointercancel', handleAgendaPointerCancel, true)
       window.removeEventListener('blur', handleAgendaPointerCancel)
       document.removeEventListener('visibilitychange', handleAgendaVisibilityChange)
+      try {
+        drag?.eventNode.releasePointerCapture?.(drag.pointerId)
+      } catch {}
       drag?.eventNode.classList.remove('dragging')
       drag?.ghost?.remove()
       removeOrphanAgendaDragGhosts()
@@ -32765,6 +33294,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function moveAgendaAppointment(appointmentId, targetDateKey, targetMinute, requestedProfessionalId) {
+      if (!canDragAgendaAppointments()) return
+      const moveScope = state.agendaDragLockScope
+      const moveRevision = state.agendaDragLockRevision
+      const canContinue = () => canDragAgendaAppointments() && state.agendaDragLockScope === moveScope && state.agendaDragLockRevision === moveRevision
       const appointment = state.agendaAppointments.find((item) => item.id === appointmentId)
       if (!appointment) return
       if (state.agendaPendingAppointmentIds.has(appointmentId)) return
@@ -32790,6 +33323,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderAgenda()
 
       try {
+        if (!canContinue()) return
         let saved
         try {
           saved = await getJson('/appointments/' + appointmentId, {
@@ -32798,6 +33332,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             body: JSON.stringify(payload)
           })
         } catch (error) {
+          if (!canContinue()) return
           const conflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
           if (error.body?.code !== 'APPOINTMENT_AVAILABILITY_CONFLICT' || error.body?.forceable !== true || !conflicts.length) {
             throw error
@@ -32819,7 +33354,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               danger: false
             }
           )
-          if (!wantsOverride) return
+          if (!wantsOverride || !canContinue()) return
 
           const confirmedOverride = await requestCrmConfirmation(
             'Esta es la confirmación final. El turno se guardará aunque exista una superposición, un bloqueo o el profesional no esté trabajando.\\n\\n' + conflictList,
@@ -32828,7 +33363,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               confirmLabel: 'Sí, mover como excepción'
             }
           )
-          if (!confirmedOverride) return
+          if (!confirmedOverride || !canContinue()) return
 
           saved = await getJson('/appointments/' + appointmentId, {
             method: 'PATCH',
@@ -32837,6 +33372,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         }
 
+        if (agendaDragLockPreferenceKey() !== moveScope) return
         state.agendaAppointments = state.agendaAppointments.map((item) => {
           return item.id === appointmentId ? { ...item, ...saved } : item
         })
@@ -32921,7 +33457,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function filteredAgendaAppointmentsForRange(from, to) {
-      const professionalId = els.agendaProfessional?.value || ''
+      const ownProfessionalId = agendaOwnProfessionalId()
+      if (ownProfessionalId === '') return []
+      const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
       const serviceId = els.agendaService?.value || ''
 
       return state.agendaAppointments
@@ -32946,7 +33484,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function filteredAgendaBlocksForRange(from, to) {
-      const professionalId = els.agendaProfessional?.value || ''
+      const ownProfessionalId = agendaOwnProfessionalId()
+      if (ownProfessionalId === '') return []
+      const professionalId = ownProfessionalId === null ? els.agendaProfessional?.value || '' : ownProfessionalId
 
       return state.agendaBlocks
         .filter((block) => {
@@ -33093,7 +33633,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const appointment = editingAgendaAppointment()
       if (!appointment) return
       const usedServiceIds = new Set(appointmentVisitSegments(appointment).flatMap(appointmentServiceIds))
-      const services = bookableServices().filter((service) => !usedServiceIds.has(service.id))
+      const services = orderAgendaServices(bookableServices().filter((service) =>
+        !usedServiceIds.has(service.id) && activeProfessionals().some((professional) =>
+          appointmentServicesForProfessional(professional.id).some((assigned) => assigned.id === service.id)
+        )
+      ))
       els.appointmentAddServiceService.innerHTML = services.length
         ? services.map((service) => '<option value="' + service.id + '">' + escapeHtml(serviceCatalogLabel(service)) + '</option>').join('')
         : '<option value="">No quedan servicios para agregar</option>'
@@ -33185,9 +33729,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
       state.editingAppointmentId = appointment?.id || null
+      state.editingAppointmentSnapshot = input.source === 'cash' ? appointment || null : null
+      state.appointmentDialogSource = input.source || null
+      state.appointmentDialogRevision = (state.appointmentDialogRevision || 0) + 1
       setAppointmentAttentionColor(appointment?.attentionColor || 'NONE')
       closeAppointmentAttentionMenu()
-      els.appointmentTitle.textContent = appointment ? 'Editar turno' : 'Nuevo turno'
+      els.appointmentTitle.textContent = appointment?.status === 'COMPLETED' ? 'Detalle del turno realizado' : appointment ? 'Editar turno' : 'Nuevo turno'
       els.appointmentSubmit.textContent = appointment ? 'Guardar cambios' : 'Cargar turno'
       els.appointmentDelete.hidden = !appointment
       const canMarkCompleted = Boolean(
@@ -33260,9 +33807,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const protectsScheduledCustomer = Boolean(appointment && !canViewAppointmentCustomerData())
       const customerSearchRow = els.appointmentCustomerSearch.closest('.form-row')
       const customerPhoneRow = els.appointmentCustomerPhone.closest('.form-row')
-      if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer
+      if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer || !canViewAppointmentCustomerData()
       if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
-      els.appointmentCustomerName.readOnly = protectsScheduledCustomer
+      const usesExistingCustomerPhone = !appointment && state.currentUser?.role === 'STAFF' &&
+        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+      els.appointmentCustomerName.readOnly = protectsScheduledCustomer || usesExistingCustomerPhone
+      if (usesExistingCustomerPhone && !els.appointmentFeedback.textContent) {
+        els.appointmentFeedback.textContent = 'Ingresá el teléfono del cliente registrado. Usaremos su ficha existente, sin crear una nueva.'
+      }
       if (protectsScheduledCustomer) els.appointmentCustomerPhone.value = ''
       updateAppointmentContactActions(appointment)
       renderAppointmentVisitServices(appointment)
@@ -33276,6 +33828,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentDialog.hidden = true
       els.appointmentFeedback.textContent = ''
       state.editingAppointmentId = null
+      state.editingAppointmentSnapshot = null
+      state.appointmentDialogSource = null
+      state.appointmentDialogRevision = (state.appointmentDialogRevision || 0) + 1
       els.appointmentDelete.hidden = true
       els.appointmentComplete.hidden = true
       els.appointmentNoShow.hidden = true
@@ -33288,6 +33843,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function editingAgendaAppointment() {
+      const snapshot = state.editingAppointmentSnapshot
+      if (snapshot?.id === state.editingAppointmentId && (!snapshot.businessId || snapshot.businessId === state.businessId)) return snapshot
       return state.agendaAppointments.find((item) => item.id === state.editingAppointmentId) ||
         state.appointments.find((item) => item.id === state.editingAppointmentId) ||
         null
@@ -33482,10 +34039,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const reminderMessage = reminderAppointment
         ? buildAppointmentReminderMessage(reminderAppointment, els.appointmentCustomerName.value || 'cliente')
         : ''
+      const whatsappMessage = reminderAppointment
+        ? buildAgendaAppointmentWhatsappMessage({
+            ...reminderAppointment,
+            professional: state.professionals.find((item) => item.id === els.appointmentProfessional.value) || appointment.professional
+          }, els.appointmentCustomerName.value || 'cliente')
+        : ''
 
       els.appointmentWhatsapp.hidden = !canUseWhatsapp
       els.appointmentWhatsapp.href = canUseWhatsapp
-        ? whatsappAppUrl(digits, reminderMessage)
+        ? whatsappAppUrl(digits, whatsappMessage)
         : '#'
       els.appointmentOpenChat.hidden = !canOpenChat
       els.appointmentOpenChat.disabled = !canOpenChat
@@ -33574,6 +34137,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function saveManualAppointment(event) {
       event.preventDefault()
       els.appointmentFeedback.textContent = ''
+      if (editingAgendaAppointment()?.status === 'COMPLETED') {
+        els.appointmentFeedback.textContent = 'El turno está realizado. El administrador del local puede usar Corregir servicio realizado.'
+        return
+      }
 
       if (state.editingAppointmentId ? !canEditAppointments() : !canCreateAppointments()) {
         els.appointmentFeedback.textContent = state.editingAppointmentId
@@ -33593,6 +34160,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const attentionColor = els.appointmentAttentionColor.value
       let customerId = els.appointmentCustomer.value
       const appointment = editingAgendaAppointment()
+      const resolveExistingCustomerByPhone = !appointment && !customerId &&
+        state.currentUser?.role === 'STAFF' &&
+        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+      const existingCustomerPhone = els.appointmentCustomerPhone.value.trim()
+      if (resolveExistingCustomerByPhone && !existingCustomerPhone) {
+        els.appointmentFeedback.textContent = 'Ingresá el número completo de un cliente registrado para cargarle el turno.'
+        els.appointmentCustomerPhone.focus()
+        return
+      }
       const selectedServiceIds = appointment
         ? Array.from(new Set([
             serviceId,
@@ -33702,7 +34278,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.editingAppointmentId ? 'Guardando...' : 'Creando turno...'
       )) return
       try {
-        if (!customerId) {
+        if (!customerId && !resolveExistingCustomerByPhone) {
           const name = els.appointmentCustomerName.value.trim()
           const phone = els.appointmentCustomerPhone.value.trim()
           if (!name) {
@@ -33723,7 +34299,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           customerId = customer.id
           state.customers = await getJson(businessScopedPath('/customers'))
           renderAppointmentFormOptions()
-        } else {
+        } else if (customerId) {
           if (customerChanges.changed) {
             const updatedCustomer = await updateAppointmentCustomer(customerId, customerChanges)
             applyUpdatedCustomerLocally(updatedCustomer)
@@ -33733,7 +34309,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         const appointmentId = state.editingAppointmentId
         const appointmentPath = appointmentId ? '/appointments/' + appointmentId : '/appointments'
         const appointmentPayload = {
-            customerId,
+            ...(resolveExistingCustomerByPhone ? { customerPhone: existingCustomerPhone } : { customerId }),
             professionalId,
             serviceId,
             serviceIds: selectedServiceIds,
@@ -33973,9 +34549,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
     const defaultCampaignEmojis = '😊 ✨ 🎉 🎁 ❤️ 🙌 👋 🔥 📅 ⏰ 💇 💅 👍 🥰 😍 🎂 🌟 💖 ✅'.split(' ')
 
+    ${instagramMediaScript}
+    ${instagramPlanningScript}
+    ${instagramStoriesScript}
+
     function instagramReelStatusMeta(status) {
       const statuses = {
         DRAFT: { label: 'Borrador', tone: 'draft' },
+        SCHEDULED: { label: 'Programado', tone: 'processing' },
+        CANCELLED: { label: 'Cancelado', tone: 'draft' },
         READY: { label: 'En cola', tone: 'processing' },
         CREATING_CONTAINER: { label: 'Preparando', tone: 'processing' },
         PROCESSING: { label: 'Procesando', tone: 'processing' },
@@ -33988,11 +34570,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderInstagramReels() {
-      if (!state.instagramReels.length) {
+      const linked = new Set(state.instagramMedia?.data?.linkedPublicationIds || [])
+      const local = state.instagramReels.filter((publication) => !linked.has(publication.id))
+      if (!local.length) {
         els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Todav&iacute;a no hay Reels preparados.</td></tr>'
         return
       }
-      els.instagramReelsTableBody.innerHTML = state.instagramReels.map((publication) => {
+      els.instagramReelsTableBody.innerHTML = local.map((publication) => {
         const status = instagramReelStatusMeta(publication.status)
         const keywords = Array.isArray(publication.automation?.keywords)
           ? publication.automation.keywords.map((keyword) => escapeHtml(keyword.value || '')).filter(Boolean).join(', ')
@@ -34007,15 +34591,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<td><strong>' + (caption ? escapeHtml(caption) : 'Reel sin descripci&oacute;n') + '</strong><small>' + (publication.shareToFeed ? 'Reel y feed' : 'Solo Reels') + '</small></td>' +
           '<td>' + (publication.automation?.enabled ? 'Activa' : 'Pausada') + '</td>' +
           '<td>' + (keywords || 'Sin palabras clave') + '</td>' +
-          '<td>Mensaje privado</td>' +
-          '<td><div class="instagram-reel-row-actions"><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span>' + deleteLabel + '</div></td>' +
+          '<td>' + (publication.status === 'PUBLISHED' ? 'Respuestas por palabra clave' : 'Mensaje privado') + '</td>' +
+          '<td><div class="instagram-reel-row-actions"><span class="instagram-reel-status ' + status.tone + '"' + failureTitle + '>' + status.label + '</span>' + deleteLabel + (publication.status === 'PUBLISHED' ? '<button type="button" data-instagram-automation="publications" data-instagram-automation-id="' + escapeHtml(publication.id) + '">Configurar respuestas</button>' : '') + '</div></td>' +
         '</tr>'
       }).join('')
     }
 
     async function refreshInstagramPublication(publicationId) {
       if (!state.businessId || !state.instagramReelsLoaded) return
+      const context = instagramMediaContext()
       const publication = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications/' + encodeURIComponent(publicationId))
+      if (!instagramMediaCurrent(context)) return
       const index = state.instagramReels.findIndex((item) => item.id === publicationId)
       if (index >= 0) state.instagramReels.splice(index, 1, publication)
       else state.instagramReels.unshift(publication)
@@ -34043,23 +34629,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function loadInstagramReels(options = {}) {
       if (!state.businessId) return
+      const context = instagramMediaContext()
       if (!options.silent) {
         els.instagramReelsFeedback.textContent = ''
-        els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando Reels...</td></tr>'
+        if (!state.instagramReels.length) els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando creaciones del CRM...</td></tr>'
       }
-      try {
-        const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
-        state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
-        state.instagramReelsLoaded = true
-        renderInstagramReels()
-      } catch (error) {
-        if (!options.silent) {
-          state.instagramReels = []
-          els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">No pudimos cargar los Reels.</td></tr>'
-          els.instagramReelsFeedback.textContent = error.message
-          els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+      await Promise.allSettled([loadInstagramMediaCatalogue(), (async () => {
+        try {
+          const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
+          if (!instagramMediaCurrent(context)) return
+          state.instagramReels = Array.isArray(response) ? response : (Array.isArray(response?.items) ? response.items : [])
+          state.instagramReelsLoaded = true
+          renderInstagramReels()
+        } catch (error) {
+          if (!instagramMediaCurrent(context)) return
+          if (!options.silent) {
+            renderInstagramReels()
+            els.instagramReelsFeedback.textContent = 'No pudimos leer las creaciones del CRM. El catálogo de Instagram sigue disponible.'
+            els.instagramReelsFeedback.className = 'instagram-reel-feedback error visible'
+          }
         }
-      }
+      })()])
     }
 
     function instagramReelMimeType(file) {
@@ -34101,7 +34691,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramReelProgress.style.width = Math.max(0, Math.min(100, percent)) + '%'
     }
 
-    function uploadInstagramReelFile(upload, file) {
+    function uploadInstagramReelFile(upload, file, signal, feedback = {}) {
       return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest()
         request.open('PUT', upload.uploadUrl)
@@ -34109,13 +34699,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         request.upload.addEventListener('progress', (event) => {
           if (!event.lengthComputable) return
           const uploadedPercent = Math.round((event.loaded / event.total) * 100)
-          setInstagramReelProgress(15 + Math.round(uploadedPercent * 0.4))
-          setInstagramReelFeedback('Subiendo el video... ' + uploadedPercent + '%')
+          ;(feedback.progress || setInstagramReelProgress)(15 + Math.round(uploadedPercent * 0.4))
+          ;(feedback.feedback || setInstagramReelFeedback)('Subiendo archivo... ' + uploadedPercent + '%')
         })
         request.addEventListener('load', () => request.status >= 200 && request.status < 300
           ? resolve()
           : reject(new Error('No pudimos subir el video al almacenamiento.')))
         request.addEventListener('error', () => reject(new Error('Se interrumpió la carga del video.')))
+        request.addEventListener('abort', () => reject(new Error('Carga cancelada.')))
+        signal?.addEventListener('abort', () => request.abort(), { once:true })
+        if (signal?.aborted) return reject(new Error('Carga cancelada.'))
         request.send(file)
       })
     }
@@ -34126,13 +34719,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.instagramReelKeywords = []
       els.instagramReelForm.reset()
       els.instagramReelShareToFeed.checked = true
-      els.instagramReelAutomationEnabled.checked = true
+      els.instagramReelAutomationEnabled.checked = false
+      for (const field of [els.instagramReelVideo,els.instagramReelCaption,els.instagramReelShareToFeed,els.instagramReelAutomationEnabled,els.instagramReelPrivateReply,els.instagramReelKeywordInput,els.instagramReelKeywordAdd,document.getElementById('instagram-reel-public-reply'),document.getElementById('instagram-reel-public-enabled'),document.getElementById('instagram-reel-private-enabled')]) field.disabled = false
       els.instagramReelVideoPreview.removeAttribute('src')
       els.instagramReelVideoPreview.hidden = true
       els.instagramReelVideoEmpty.hidden = false
       els.instagramReelCancel.textContent = 'Cancelar'
       els.instagramReelSubmit.disabled = false
-      els.instagramReelSubmit.textContent = 'Guardar y publicar'
+      els.instagramReelSubmit.textContent = 'Guardar'
       setInstagramReelProgress(0)
       setInstagramReelFeedback('')
       renderInstagramReelKeywords()
@@ -34141,15 +34735,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function openInstagramReelDialog() {
       resetInstagramReelForm()
+      instagramMediaPlanNew()
       els.instagramReelDialog.hidden = false
       requestAnimationFrame(() => els.instagramReelVideo.focus())
     }
 
     function closeInstagramReelDialog() {
-      if (els.instagramReelSubmit.dataset.loading === 'true') return
+      const editor = state.instagramPlanning?.editor
+      editor?.controller.abort()
+      if (state.instagramPlanning) state.instagramPlanning.editor = null
       els.instagramReelDialog.hidden = true
       if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
       state.instagramReelPreviewUrl = null
+      if (editor?.origin?.isConnected) editor.origin.focus()
     }
 
     function addInstagramReelKeyword() {
@@ -34191,87 +34789,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function submitInstagramReel(event) {
-      event.preventDefault()
-      const file = els.instagramReelVideo.files?.[0]
-      const mimeType = instagramReelMimeType(file)
-      const privateReplyText = els.instagramReelPrivateReply.value.trim()
-      if (!state.businessId) return setInstagramReelFeedback('No encontramos el comercio activo.', 'error')
-      if (!file || !mimeType) {
-        setInstagramReelFeedback('Elegí un video MP4 o MOV.', 'error')
-        els.instagramReelVideo.focus()
-        return
-      }
-      if (!state.instagramReelKeywords.length) {
-        setInstagramReelFeedback('Agregá al menos una palabra clave.', 'error')
-        els.instagramReelKeywordInput.focus()
-        return
-      }
-      if (!privateReplyText) {
-        setInstagramReelFeedback('Escribí el primer mensaje privado.', 'error')
-        els.instagramReelPrivateReply.focus()
-        return
-      }
-      if (!setButtonLoading(els.instagramReelSubmit, true, 'Preparando...')) return
-      els.instagramReelCancel.disabled = true
-      let queued = false
-      try {
-        setInstagramReelFeedback('Preparando una carga segura...')
-        setInstagramReelProgress(10)
-        const basePath = '/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications'
-        const upload = await getJson(basePath + '/uploads', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mimeType, sizeBytes: file.size })
-        })
-        if (!upload?.uploadUrl || !upload?.objectPath || !upload?.uploadHeaders) throw new Error('El servidor no devolvió una carga válida.')
-        setInstagramReelFeedback('Subiendo el video...')
-        setInstagramReelProgress(15)
-        await uploadInstagramReelFile(upload, file)
-        setInstagramReelFeedback('Verificando el archivo...')
-        setInstagramReelProgress(60)
-        const verified = await getJson(basePath + '/uploads/verify', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ objectPath: upload.objectPath, mimeType, sizeBytes: file.size })
-        })
-        if (!verified?.verified) throw new Error('No pudimos verificar el video subido.')
-        setInstagramReelFeedback('Guardando el borrador...')
-        setInstagramReelProgress(80)
-        const publication = await getJson(basePath, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoObjectPath: verified.objectPath,
-            videoMimeType: verified.mimeType,
-            videoSizeBytes: verified.sizeBytes,
-            caption: els.instagramReelCaption.value.trim(),
-            shareToFeed: els.instagramReelShareToFeed.checked,
-            automation: {
-              enabled: els.instagramReelAutomationEnabled.checked,
-              privateReplyText,
-              keywords: state.instagramReelKeywords
-            }
-          })
-        })
-        await getJson(basePath + '/' + publication.id + '/publish', { method: 'POST' })
-        queued = true
-        setInstagramReelProgress(100)
-        els.instagramReelFeedback.innerHTML = '<strong>Publicaci&oacute;n en cola.</strong> Instagram la procesar&aacute; en segundo plano.'
-        els.instagramReelFeedback.className = 'instagram-reel-feedback visible success'
-        els.instagramReelsFeedback.innerHTML = '<strong>Reel en cola.</strong> El estado se actualizar&aacute; autom&aacute;ticamente.'
-        els.instagramReelsFeedback.className = 'instagram-reel-feedback visible success'
-        await loadInstagramReels()
-      } catch (error) {
-        setInstagramReelFeedback(error.message, 'error')
-      } finally {
-        setButtonLoading(els.instagramReelSubmit, false)
-        els.instagramReelCancel.disabled = false
-        if (queued) {
-          els.instagramReelSubmit.disabled = true
-          els.instagramReelSubmit.textContent = 'En cola'
-          els.instagramReelCancel.textContent = 'Cerrar'
-        }
-      }
+      return instagramMediaPlanSubmit(event)
     }
 
     function setMarketingView(view) {
+      if (view !== 'instagram-reels') instagramMediaAutomationClose(false)
+      if (view !== 'instagram-reels') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
+      if (view !== 'instagram-reels' && state.instagramMedia?.syncing) pauseInstagramMediaSync()
       state.marketingView = view
       els.campaignsContent.hidden = view !== 'campaigns'
       els.templateManager.hidden = view !== 'templates'
@@ -34289,10 +34813,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'instagram-reels') {
         document.querySelector('.campaigns-title h2').textContent = 'Instagram Reels'
-        document.querySelector('.campaigns-title p').textContent = 'Publicá videos y convertí comentarios con palabras clave en conversaciones privadas.'
+        document.querySelector('.campaigns-title p').textContent = 'Consultá alcance y vistas orgánicas, sincronizá publicaciones y prepará nuevos Reels.'
         els.campaignSearch.hidden = true
         els.campaignNew.hidden = true
-        if (!state.instagramReelsLoaded) loadInstagramReels()
+        if (!state.instagramReelsLoaded || !state.instagramMedia?.loaded) loadInstagramReels()
+        if (!state.instagramPlanning?.data) instagramMediaPlanLoad()
+        if(typeof instagramStoriesLoad==='function')instagramStoriesLoad()
       } else if (view === 'reminders') {
         els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'
@@ -34375,6 +34901,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function reminderTimeLabel(minutes) {
       if (Number(minutes) === 60) return '1 hora'
       if (Number(minutes) === 120) return '2 horas'
+      if ([240, 360, 480, 720].includes(Number(minutes))) return (Number(minutes) / 60) + ' horas'
       if (Number(minutes) === 2880) return '48 hs'
       return '24 hs'
     }
@@ -34565,10 +35092,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ businessId: state.businessId, limit: 100 })
         })
-        els.reminderFeedback.textContent = result.total || result.prepared
-          ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
-          : 'No hay recordatorios pendientes en este momento.'
-        els.reminderFeedback.className = result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
+        els.reminderFeedback.textContent = result.blocked
+          ? (result.message || 'No se pudieron procesar los recordatorios. Revisá la conexión y los permisos de WhatsApp.')
+          : result.total || result.prepared
+            ? 'Procesado: ' + (result.prepared || 0) + ' preparados · ' + result.sent + ' enviados · ' + result.failed + ' fallidos.'
+            : 'No hay recordatorios pendientes en este momento.'
+        els.reminderFeedback.className = result.blocked || result.failed ? 'campaign-form-feedback error' : 'campaign-form-feedback success'
         await loadReminderSettings()
       } catch (error) {
         els.reminderFeedback.textContent = error.message
@@ -36356,6 +36885,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       els.appShell.dataset.section = section
+      if (section !== 'campaigns') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
+      if (section !== 'campaigns') instagramMediaAutomationClose(false)
       document.body.dataset.currentSection = section
       const mobileTitle = document.getElementById('mobile-current-section-title')
       if (mobileTitle) {
@@ -36369,6 +36900,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           agenda: 'Agenda',
           pipeline: 'Pipeline',
           cash: 'Caja',
+          settlements: staffSettlementsLabel(),
           customers: 'Clientes',
           professionals: 'Profesionales',
           services: 'Servicios',
@@ -36400,6 +36932,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       if (${cashRegisterEnabled ? "section === 'cash'" : 'false'}) {
         loadCashRegister({ preserve: Boolean(state.cashRegister?.loaded) }).catch((error) => showCrmToast(error.message, 'error'))
+      }
+      if (${cashRegisterEnabled ? "section === 'settlements'" : 'false'}) {
+        loadStaffSettlements().catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'customers') {
@@ -36819,6 +37354,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const price = isGroup ? null : priceValue ? Number(priceValue) : null
       const priceMode = isGroup ? 'FIXED' : els.servicePriceMode.value
       const bookingOrderPriority = isGroup ? 20 : Number(els.serviceBookingOrderPriority.value)
+      const agendaFavorite = !isGroup && els.serviceAgendaFavorite.checked
       const categoryId = els.serviceCategory.value.trim() || null
       const parentServiceId = isVariant ? els.serviceParent.value.trim() || null : null
       const variantSelectionMode = 'ONE_OF'
@@ -36987,6 +37523,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             price,
             priceMode,
             bookingOrderPriority,
+            agendaFavorite,
             categoryId,
             parentServiceId,
             isBookable: !isGroup,
@@ -37080,6 +37617,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePrice.value = hasServicePrice(service) ? service.price : ''
       els.servicePriceMode.value = service.priceMode || 'FIXED'
       els.serviceBookingOrderPriority.value = service.bookingOrderPriority ?? 20
+      els.serviceAgendaFavorite.checked = service.agendaFavorite === true
       els.serviceCategory.value = service.catalogCategoryId || ''
       els.serviceParent.value = service.parentServiceId || ''
       els.serviceAttentionMode.value = service.attentionMode || 'DIRECT_BOOKING'
@@ -37227,6 +37765,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.servicePrice.value = ''
       els.servicePriceMode.value = 'FIXED'
       els.serviceBookingOrderPriority.value = '20'
+      els.serviceAgendaFavorite.checked = false
       els.serviceCategory.value = ''
       els.serviceItemType.value = 'SERVICE'
       els.serviceParent.value = ''
@@ -37362,6 +37901,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationHandoffUiStage(conversation) {
+      if(conversation.botHandoffStatus==='QUEUED'||conversation.botHandoffStatus==='TAKEN')return conversation.botHandoffStatus
       if (conversation.aiEnabled === false) return 'TAKEN'
       if (conversation.currentStep === 'HUMAN_HANDOFF' && !conversation.humanHandoffResolvedAt) return 'QUEUED'
       return 'NONE'
@@ -37463,7 +38003,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function conversationStepLabel(step, aiEnabled, conversation = null) {
-      if (conversation?.channel && conversation.channel !== 'WHATSAPP') return conversationChannelLabel(conversation.channel)
+      if(conversation?.channel&&conversation.channel!=='WHATSAPP'){const stage=conversationHandoffUiStage(conversation);return conversationChannelLabel(conversation.channel)+(stage==='QUEUED'?' · En cola':stage==='TAKEN'?' · Atención manual':'')}
       if (conversation?.bookingV2State?.advisorQuote?.status === 'awaiting_acceptance') {
         return 'Esperando aceptaci\u00f3n'
       }
@@ -37805,6 +38345,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (event.target === els.instagramReelDialog) closeInstagramReelDialog()
     })
     els.instagramReelForm.addEventListener('submit', submitInstagramReel)
+    bindInstagramMediaControls()
+    bindInstagramPlanningControls()
+    if(typeof bindInstagramStoriesControls==='function')bindInstagramStoriesControls()
     els.instagramReelVideo.addEventListener('change', readInstagramReelVideo)
     els.instagramReelKeywordAdd.addEventListener('click', addInstagramReelKeyword)
     els.instagramReelKeywordInput.addEventListener('keydown', (event) => {
@@ -38375,8 +38918,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     })
     els.globalBotToggle.addEventListener('change', toggleGlobalBot)
     els.globalAiToggle.addEventListener('change', toggleGlobalAi)
-    els.bookingV2Toggle.addEventListener('change', toggleBookingV2)
     els.botRoutingPreflight.addEventListener('click', changeBotRouting)
+    els.botRoutingChannel.addEventListener('change',changeBotRoutingChannel)
+    els.botRoutingSelector.addEventListener('change', updateBotRoutingSelection)
     els.botRoutingPrepare.addEventListener('click', prepareDefaultBotRouting)
     els.automationSettingsForm.addEventListener('submit', saveAutomationSettings)
     els.serviceCatalogDisplayMode.addEventListener('change', updateServiceCatalogDisplayHelp)
@@ -38630,6 +39174,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
     }
     els.agendaProfessional.addEventListener('change', async () => {
+      rememberAgendaProfessionalFilter()
       renderAgendaProfessionalControls()
       await loadAgenda()
     })

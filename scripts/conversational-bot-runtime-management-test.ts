@@ -30,7 +30,7 @@ const confirmation = await respond({ ...context, serverRuntimeBookingScope: { ..
 assert.equal(confirmation.bookingCommand?.kind, 'CONFIRM_BOOKING')
 const presented = state.bookingReservation.presented
 const booked = finalizeRuntimeBooking(confirmation, { kind: 'COMMITTED', coordinationGroupId: 'owned-group', proposalNonce: presented.nonce, fingerprint: presented.fingerprint, appointments: [{ segmentIndex: 0, appointmentId: 'owned-appointment', visitId: 'owned-visit' }] })
-const snapshot: CancellationSnapshot = { scope: { businessId: 'b', customerId: 'owned-customer', sessionId: 'session', normalizedPhone: '5491112345678' }, groupId: 'owned-group', dbNow: context.dbNow.toISOString(), members: [{ appointmentId: 'owned-appointment', version: 0, status: 'CONFIRMED', visitId: 'owned-visit', visitVersion: 0, visitStatus: 'CONFIRMED', professionalId: 'elisa', serviceIds: ['cut'], startAt: slot.startAt, durationMinutes: 30, customerDurationMinutes: 30, quotedPrice: 1000, depositId: null, depositStatus: null, manualDepositPaid: false, manualDepositAmount: null }] }
+const snapshot: CancellationSnapshot & {scope:{normalizedPhone:string;subject?:never}} = { scope: { businessId: 'b', customerId: 'owned-customer', sessionId: 'session', normalizedPhone: '5491112345678' }, groupId: 'owned-group', dbNow: context.dbNow.toISOString(), members: [{ appointmentId: 'owned-appointment', version: 0, status: 'CONFIRMED', visitId: 'owned-visit', visitVersion: 0, visitStatus: 'CONFIRMED', professionalId: 'elisa', serviceIds: ['cut'], startAt: slot.startAt, durationMinutes: 30, customerDurationMinutes: 30, quotedPrice: 1000, depositId: null, depositStatus: null, manualDepositPaid: false, manualDepositAmount: null }] }
 const original = structuredClone(booked.state)
 const managementContext = { ...context, serverRuntimeBookingScope: { ...scope, revision: '3' }, serverManagementSnapshot: snapshot }
 const requested = await respond(managementContext, booked.state, 'Quiero cancelar mi turno confirmado.', port, { serviceId: null, candidateIds: [], correction: false,
@@ -587,3 +587,10 @@ try {
   assert.equal(parseBotOptionsState(live.session.state).ok,true)
   console.log('runtime management caller F7→ALL F9 reschedule; cancellation invokes queued effect without changing visits (handoff adapter controlled): PASS')
 } finally {await bookingDb.close();console.info=runtimeInfo}
+
+const igSnapshot={...snapshot,scope:{businessId:snapshot.scope.businessId,customerId:snapshot.scope.customerId,sessionId:snapshot.scope.sessionId,subject:{channel:'INSTAGRAM' as const,instagramLeadId:'ig-lead',instagramAccountId:'ig-account',externalUserId:'ig-user'}}}
+const igItem={...ownLookupItem,key:ownAppointmentKey(igSnapshot),snapshot:igSnapshot}
+const igOwn={...ownLookup,items:[igItem]}
+const igAfterReset=await respond({...ownLookupContext,serverOwnAppointments:igOwn,serverManagementSnapshot:igSnapshot},resetState,ownRescheduleMessage,reschedulePort,{serviceId:null,candidateIds:[],correction:false,turnPlan:{version:1,operations:[{kind:'own_appointment',action:'reschedule',optionKey:igItem.key,evidence:ownRescheduleMessage,confidence:1}]}})
+assert.equal(igAfterReset.state.appointmentManagement?.context.source,'own_lookup','A linked Instagram actor may manage its own historical appointment after restart without a telephone')
+console.log('IG exact identity own lookup after restart without historical receipt manufacture: PASS')

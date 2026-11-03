@@ -2,8 +2,10 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { FastifyRequest } from 'fastify'
 import { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../config/prisma.js'
+import type { Prisma } from '../generated/prisma/client.js'
+import { webSelfServiceSummary } from './web-appointment-self-service.js'
 import { isSimulatorAppointmentId, isSimulatorBookingCommunication } from './simulator-booking-scope.js'
-import { normalizeArgentineMobilePhone, normalizePhone, phoneSearchVariants } from './phone-normalization-service.js'
+import { normalizeCustomerPhone, phoneSearchVariants } from './phone-normalization-service.js'
 
 const SESSION_COOKIE = 'weex_account_session'
 const SESSION_MAX_AGE_DAYS = 90
@@ -248,11 +250,11 @@ export async function createGoogleCalendarEventForAppointment(input: { accountId
   }
 }
 
-export async function getWeexAuthFromRequest(request: FastifyRequest): Promise<WeexAccountAuth | null> {
+export async function getWeexAuthFromRequest(request: FastifyRequest, client?: Prisma.TransactionClient): Promise<WeexAccountAuth | null> {
   const token = readCookie(request.headers.cookie || '', SESSION_COOKIE)
   if (!token) return null
 
-  const session = await prisma.weexAccountSession.findUnique({
+  const session = await (client ?? prisma).weexAccountSession.findUnique({
     where: {
       tokenHash: hashSessionToken(token)
     },
@@ -261,7 +263,7 @@ export async function getWeexAuthFromRequest(request: FastifyRequest): Promise<W
     }
   })
   if (!session || session.expiresAt.getTime() <= Date.now()) {
-    if (session) await prisma.weexAccountSession.delete({ where: { id: session.id } }).catch(() => null)
+    if (session && !client) await prisma.weexAccountSession.delete({ where: { id: session.id } }).catch(() => null)
     return null
   }
 
@@ -281,7 +283,7 @@ export async function destroyWeexSessionFromRequest(request: FastifyRequest) {
 }
 
 export async function updateWeexPhone(accountId: string, phoneInput: string, defaultAreaCode?: string | null) {
-  const normalized = normalizeArgentineMobilePhone(phoneInput, { defaultAreaCode })
+  const normalized = normalizeCustomerPhone(phoneInput, { defaultAreaCode })
   if (!normalized.ok) {
     return {
       ok: false as const,
@@ -299,7 +301,7 @@ export async function updateWeexPhone(accountId: string, phoneInput: string, def
       phoneVerifiedAt: null
     }
   })
-  const linkedCount = await linkExistingCustomersByPhone(account.id, phone, defaultAreaCode)
+  const linkedCount = await linkExistingCustomersByPhone(account.id, `+${phone}`, defaultAreaCode)
 
   return {
     ok: true as const,
@@ -309,8 +311,12 @@ export async function updateWeexPhone(accountId: string, phoneInput: string, def
 }
 
 export async function linkExistingCustomersByPhone(accountId: string, phone: string, defaultAreaCode?: string | null) {
-  const normalizedPhone = normalizePhone(phone, { defaultAreaCode })
-  const phoneVariants = phoneSearchVariants(phone, { defaultAreaCode })
+  const normalized = normalizeCustomerPhone(phone, { defaultAreaCode })
+  if (!normalized.ok) return 0
+  const normalizedPhone = normalized.phone
+  const internationalPhone = normalized.local.startsWith('+')
+  const phoneVariants = [...new Set([phone.trim(), `+${normalizedPhone}`, normalized.display,
+    ...(internationalPhone ? [`00${normalizedPhone}`] : phoneSearchVariants(phone, { defaultAreaCode }))])]
   const account = await prisma.weexAccount.findUnique({
     where: { id: accountId },
     select: { email: true, emailVerified: true }
@@ -320,7 +326,7 @@ export async function linkExistingCustomersByPhone(accountId: string, phone: str
       customer: {
         OR: [
           { normalizedPhone },
-          { phone: { in: phoneVariants } }
+          { phone: { in: phoneVariants }, ...(internationalPhone ? { normalizedPhone: null } : {}) }
         ]
       }
     },
@@ -413,28 +419,19 @@ export async function getWeexAppointmentsForBusiness(accountId: string, business
   })
 
   const customerIds = [...new Set(links.map((link) => link.customerId))]
-  if (!customerIds.length) {
-    return {
-      business,
-      appointments: []
-    }
-  }
-
   const allowedBusinessIds = new Set(links.map((link) => link.businessId))
   const appointments = await prisma.appointment.findMany({
     where: {
-      customerId: {
-        in: customerIds
-      },
-      professional: {
-        businessId: {
-          in: [...allowedBusinessIds]
-        }
-      }
+      ...(business ? { businessId: business.id } : {}),
+      OR: [
+        { createdByWeexAccountId: accountId },
+        { customerId: { in: customerIds }, professional: { businessId: { in: [...allowedBusinessIds] } } }
+      ]
     },
     include: {
       customer: true,
       service: true,
+      bookingDeposit: { select: { source: true, status: true, snapshotSealedAt: true, visitId: true } },
       professional: {
         include: {
           business: {
@@ -459,6 +456,7 @@ export async function getWeexAppointmentsForBusiness(accountId: string, business
       id: appointment.id,
       startAt: appointment.startAt,
       status: appointment.status,
+      selfService: webSelfServiceSummary(appointment, appointment.createdByWeexAccountId === accountId),
       service: {
         id: appointment.service.id,
         name: appointment.service.name,

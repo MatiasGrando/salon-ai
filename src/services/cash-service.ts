@@ -9,6 +9,7 @@ import {
   signedAmount,
   summarizeCashRegister
 } from './cash-domain.js'
+import { calculateCompletedServiceCorrection } from './completed-service-correction.js'
 import type {
   AppointmentBackfillEvidence,
   CashEntryForSummary,
@@ -411,6 +412,178 @@ export class CashService {
     })
   }
 
+  async correctCompletedAppointmentService(input: {
+    businessId: string
+    appointmentId: string
+    serviceId: string
+    expectedServiceId: string
+    requestId: string
+    expectedServicePrice: number
+    expectedAgreedAmount: number
+    expectedPaidAmount: number
+    expectedDiscountAmount: number
+    expectedProductSubtotal: number
+    reason: string
+    actorUserId: string
+    actorName: string
+    cashSessionId?: string
+    paymentMethodId?: string
+  }) {
+    const serviceId = input.serviceId.trim()
+    const reason = input.reason.trim()
+    const actorName = input.actorName.trim()
+    const requestId = input.requestId?.trim()
+    if (!requestId || requestId.length > 100 || !input.expectedServiceId?.trim()) throw new CashServiceError('SERVICE_CORRECTION_REQUEST_REQUIRED')
+    const requestFingerprint = createHash('sha256').update(JSON.stringify({
+      appointmentId: input.appointmentId, serviceId, expectedServiceId: input.expectedServiceId.trim(), reason,
+      actorUserId: input.actorUserId, cashSessionId: input.cashSessionId?.trim() || null,
+      paymentMethodId: input.paymentMethodId?.trim() || null,
+      expectedServicePrice: input.expectedServicePrice, expectedAgreedAmount: input.expectedAgreedAmount,
+      expectedPaidAmount: input.expectedPaidAmount, expectedDiscountAmount: input.expectedDiscountAmount,
+      expectedProductSubtotal: input.expectedProductSubtotal
+    })).digest('hex')
+    if (!serviceId) throw new CashServiceError('SERVICE_REQUIRED')
+    if (!reason || reason.length > 300) throw new CashServiceError('SERVICE_CORRECTION_REASON_REQUIRED')
+    if (!input.actorUserId.trim() || !actorName) throw new CashServiceError('SERVICE_CORRECTION_ACTOR_REQUIRED')
+
+    return this.repository.transaction(async (transaction) => {
+      const context = await transaction.lockBusiness(input.businessId)
+      if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (!await transaction.isServiceCorrectionAdministrator(input.businessId, input.actorUserId)) throw new CashServiceError('BUSINESS_ADMIN_REQUIRED')
+      const replay = await transaction.findServiceCorrectionRequest(input.businessId, requestId)
+      if (replay) {
+        if (replay.requestFingerprint !== requestFingerprint) throw new CashServiceError('SERVICE_CORRECTION_REQUEST_CONFLICT')
+        const replayAccount = await transaction.lockAppointmentAccount(input.businessId, input.appointmentId)
+        if (!replayAccount) throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+        const finance = await accountFinance(transaction, replayAccount)
+        return { finance, correction: {
+          id: replay.id, previousServiceId: replay.previousServiceId, newServiceId: replay.newServiceId,
+          refundAmount: replay.refundAmount, balanceAmount: finance.balanceAmount, refundCashEntryId: replay.refundCashEntryId,
+          compensation: { previousAmount: replay.previousCompensation?.amount as number | null ?? null, amount: replay.newCompensation.amount }
+        } }
+      }
+      const appointment = await transaction.lockCompletedAppointmentForServiceCorrection(input.businessId, input.appointmentId)
+      if (!appointment || appointment.serviceItemCount > 1) throw new CashServiceError('COMPLETED_SINGLE_SERVICE_APPOINTMENT_REQUIRED')
+      if (appointment.serviceId !== input.expectedServiceId.trim()) throw new CashServiceError('SERVICE_CORRECTION_STALE')
+      if (appointment.accountAppointmentCount > 1) throw new CashServiceError('SERVICE_CORRECTION_SHARED_ACCOUNT')
+      if (appointment.serviceId === serviceId) throw new CashServiceError('SERVICE_UNCHANGED')
+      const service = await transaction.findCorrectableServiceForProfessional({
+        businessId: input.businessId,
+        professionalId: appointment.professionalId,
+        serviceId
+      })
+      if (!service) throw new CashServiceError('PROFESSIONAL_SERVICE_MISMATCH')
+      if (service.priceMode !== 'FIXED') throw new CashServiceError('SERVICE_CORRECTION_FIXED_PRICE_REQUIRED')
+      if (service.price === null) throw new CashServiceError('SERVICE_PRICE_REQUIRED')
+      const servicePrice = assertMoney(service.price)
+      const account = await transaction.lockAppointmentAccount(input.businessId, input.appointmentId)
+      if (!account || account.agreedAmount === null) throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      if (account.pricingMode !== 'FIXED') throw new CashServiceError('SERVICE_CORRECTION_FIXED_PRICE_REQUIRED')
+      const [entries, productSubtotal] = await Promise.all([
+        transaction.listAccountEntries(input.businessId, account.id),
+        transaction.resolveAccountProductSubtotal(input.businessId, account.id)
+      ])
+      const current = calculateAccountTotals({
+        agreedAmount: account.agreedAmount,
+        discountAmount: account.discountAmount,
+        entries
+      })
+      if (servicePrice !== input.expectedServicePrice || account.agreedAmount !== input.expectedAgreedAmount ||
+        current.paidAmount !== input.expectedPaidAmount || account.discountAmount !== input.expectedDiscountAmount ||
+        productSubtotal !== input.expectedProductSubtotal) throw new CashServiceError('SERVICE_CORRECTION_STALE')
+      const newAmount = assertMoney(productSubtotal + servicePrice)
+      if (account.discountAmount > newAmount) throw new CashServiceError('DISCOUNT_EXCEEDS_NEW_TOTAL')
+      const newFinalAmount = newAmount - account.discountAmount
+      const impact = calculateCompletedServiceCorrection({
+        previousServiceAmount: current.finalAmount,
+        newServiceAmount: newFinalAmount,
+        paidAmount: current.paidAmount
+      })
+      let refund: { id: string } | null = null
+      let refundMethod: 'CASH' | 'TRANSFER' | 'CARD' | null = null
+      let refundState: Awaited<ReturnType<typeof requireCurrentState>> | null = null
+      if (impact.refundAmount > 0) {
+        if (!input.cashSessionId?.trim() || !input.paymentMethodId?.trim()) {
+          throw new CashServiceError('SERVICE_CORRECTION_REFUND_CONTEXT_REQUIRED')
+        }
+        refundState = await requireCurrentState(transaction, input.businessId, input.cashSessionId.trim())
+        const configured = await transaction.findBusinessPaymentMethod(input.businessId, input.paymentMethodId.trim())
+        if (!configured || !configured.isActive) throw new CashServiceError('INVALID_PAYMENT_METHOD')
+        refundMethod = configured.kind
+      }
+
+      if (newAmount !== account.agreedAmount) {
+        await transaction.insertTotalAdjustment({
+          id: randomUUID(),
+          businessId: input.businessId,
+          accountId: account.id,
+          actorUserId: input.actorUserId,
+          actorName,
+          reason: `Corrección de servicio: ${reason}`,
+          previousAmount: account.agreedAmount,
+          newAmount
+        })
+        await transaction.updateAdjustedTotal(input.businessId, account.id, newAmount)
+      }
+      await transaction.updateCompletedAppointmentService({
+        businessId: input.businessId,
+        appointmentId: input.appointmentId,
+        serviceId: service.id,
+        servicePrice,
+        durationMinutes: service.duration
+      })
+      if (refundState && refundMethod) {
+        refund = await transaction.createServiceCorrectionRefund({
+          id: randomUUID(),
+          businessId: input.businessId,
+          accountId: account.id,
+          registerDayId: refundState.day.id,
+          cashSessionId: refundState.session.id,
+          amount: impact.refundAmount,
+          method: refundMethod,
+          paymentMethodId: input.paymentMethodId!.trim(),
+          reason,
+          effectiveAt: context.dbNow
+        })
+      }
+      const compensation = await transaction.replaceProfessionalEarningForCompletedAppointment({
+        businessId: input.businessId,
+        appointmentId: input.appointmentId,
+        actorUserId: input.actorUserId,
+        actorName,
+        baseAmount: servicePrice,
+        effectiveAt: context.dbNow
+      })
+      if (!compensation) throw new CashServiceError('SERVICE_CORRECTION_COMPENSATION_REQUIRED')
+      const correctionId = randomUUID()
+      await transaction.createAppointmentServiceCorrection({
+        id: correctionId, businessId: input.businessId, appointmentId: input.appointmentId,
+        previousServiceId: appointment.serviceId, newServiceId: service.id,
+        previousServicePrice: appointment.serviceItemPrice ?? appointment.quotedPrice ?? appointment.servicePrice,
+        newServicePrice: servicePrice, previousAmount: account.agreedAmount, newAmount,
+        refundAmount: impact.refundAmount, refundCashEntryId: refund?.id ?? null,
+        actorUserId: input.actorUserId, actorName, reason, requestId, requestFingerprint,
+        previousCompensation: compensation.previous, newCompensation: compensation.current
+      })
+      const finance = await accountFinance(transaction, {
+        ...account,
+        agreedAmount: newAmount
+      })
+      return {
+        finance,
+        correction: {
+          id: correctionId,
+          previousServiceId: appointment.serviceId,
+          newServiceId: service.id,
+          refundAmount: impact.refundAmount,
+          balanceAmount: impact.balanceAmount,
+          refundCashEntryId: refund?.id ?? null,
+          compensation
+        }
+      }
+    })
+  }
+
   async setAppointmentDiscount(input: {
     businessId: string
     appointmentId: string
@@ -663,7 +836,7 @@ export class CashService {
       if (input.allowedSourceTypes && !input.allowedSourceTypes.includes(source.type)) {
         throw new CashServiceError('CASH_PERMISSION_REQUIRED')
       }
-      if (source.type === 'REVERSAL' || source.reversedById) throw new CashServiceError('ENTRY_NOT_REVERSIBLE')
+      if (source.type === 'REVERSAL' || source.reversedById || source.serviceCorrectionRefund) throw new CashServiceError('ENTRY_NOT_REVERSIBLE')
       return transaction.insertCashReversal({
         id: randomUUID(),
         businessId: input.businessId,
@@ -1164,10 +1337,11 @@ async function accountFinance(
   account: { id: string; businessId: string; pricingMode: 'FIXED' | 'ESTIMATED'; agreedAmount: number | null; originalAmount: number | null; minimumAmount: number; discountAmount: number }
 ) {
   if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
-  const [entries, totalAdjustments, productSubtotal] = await Promise.all([
+  const [entries, totalAdjustments, productSubtotal, serviceCorrections] = await Promise.all([
     transaction.listAccountEntries(account.businessId, account.id),
     transaction.listTotalAdjustments(account.businessId, account.id),
-    transaction.resolveAccountProductSubtotal(account.businessId, account.id)
+    transaction.resolveAccountProductSubtotal(account.businessId, account.id),
+    transaction.listServiceCorrections(account.businessId, account.id)
   ])
   return {
     accountId: account.id,
@@ -1178,7 +1352,8 @@ async function accountFinance(
     productSubtotal,
     ...calculateAccountTotals({ agreedAmount: account.agreedAmount, discountAmount: account.discountAmount, entries }),
     entries,
-    totalAdjustments
+    totalAdjustments,
+    serviceCorrections
   }
 }
 

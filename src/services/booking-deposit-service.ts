@@ -1,5 +1,6 @@
 import { prisma as defaultPrisma } from '../config/prisma.js'
 import { acquireAppointmentWriteHierarchy } from './agenda-locks.js'
+import { validateDepositProofPdf, DepositProofValidationError } from './deposit-proof-pdf-validation.js'
 
 type PrismaClientLike = typeof defaultPrisma
 
@@ -8,7 +9,8 @@ const WEB_PROOF_MAX_BYTES = 3 * 1024 * 1024
 const WEB_PROOF_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
-  'image/webp'
+  'image/webp',
+  'application/pdf'
 ])
 
 export const DEPOSIT_PROOF_RECEIVED_ACKNOWLEDGEMENT =
@@ -121,7 +123,7 @@ export class BookingDepositService {
     | { ok: true; deposit: Awaited<ReturnType<PrismaClientLike['bookingDeposit']['findUnique']>> }
     | { ok: false; statusCode: number; message: string }
   > {
-    const parsed = parseWebProof(input.dataUrl, input.filename)
+    const parsed = await parseWebProof(input.dataUrl, input.filename)
     if (!parsed.ok) return parsed
     const receivedAt = input.receivedAt ?? new Date()
     await this.expireOverdue(receivedAt)
@@ -301,20 +303,29 @@ async function depositAppointmentIdsFromDb(
   return Array.from(new Set([...stateIds, ...coordinated.map((appointment) => appointment.id)]))
 }
 
-function parseWebProof(dataUrl?: string, filename?: string):
+async function parseWebProof(dataUrl?: string, filename?: string): Promise<
   | { ok: true; data: Uint8Array<ArrayBuffer>; mimeType: string; filename: string }
-  | { ok: false; statusCode: number; message: string } {
+  | { ok: false; statusCode: number; message: string }> {
   const match = dataUrl?.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/)
   if (!match) {
     return { ok: false, statusCode: 400, message: 'Selecciona una imagen valida' }
   }
   const mimeType = match[1]!.trim().toLowerCase()
   if (!WEB_PROOF_MIME_TYPES.has(mimeType)) {
-    return { ok: false, statusCode: 400, message: 'El comprobante debe ser JPG, PNG o WebP' }
+    return { ok: false, statusCode: 400, message: 'El comprobante debe ser JPG, PNG, WebP o PDF' }
   }
   const decoded = Buffer.from(match[2]!, 'base64')
   if (!decoded.length || decoded.length > WEB_PROOF_MAX_BYTES) {
     return { ok: false, statusCode: 400, message: 'El comprobante debe pesar hasta 3 MB' }
+  }
+  if (mimeType === 'application/pdf') {
+    try {
+      const validated = await validateDepositProofPdf({ data: decoded, declaredMimeType: mimeType, filename: filename ?? null })
+      return { ok: true, data: Uint8Array.from(validated.sourceData), mimeType, filename: validated.sourceFilename }
+    } catch (error) {
+      if (!(error instanceof DepositProofValidationError)) throw error
+      return { ok: false, statusCode: 400, message: 'No pudimos validar ese PDF. Envia un PDF sin contraseña ni contenido activo, o una imagen del comprobante.' }
+    }
   }
   if (!matchesProofSignature(decoded, mimeType)) {
     return { ok: false, statusCode: 400, message: 'El contenido del archivo no coincide con su formato' }

@@ -144,7 +144,7 @@ try {
     CREATE TABLE "Service" (id text PRIMARY KEY,"businessId" text,duration int,"customerDurationMin" int,"customerDurationMax" int);
     CREATE TABLE "Customer" (id text PRIMARY KEY,"businessId" text,"normalizedPhone" text);
     CREATE TABLE "Conversation" (id text PRIMARY KEY,"businessId" text,phone text);
-    CREATE TABLE "BotSession" (id text PRIMARY KEY,"businessId" text,"conversationId" text);
+    CREATE TABLE "BotSession" (id text PRIMARY KEY,"businessId" text,"conversationId" text,status text NOT NULL);
     CREATE TABLE "Appointment" (id text PRIMARY KEY,"businessId" text,"customerId" text,"professionalId" text,"serviceId" text,"coordinationGroupId" text,
       version int,status text,"visitId" text,"startAt" timestamptz,"totalDurationMinutes" int,"quotedPrice" int,"manualDepositPaid" boolean,"manualDepositAmount" int);
     CREATE TABLE "BookingVisit" (id text PRIMARY KEY,"businessId" text,"customerId" text,"professionalId" text,version int,status text,"scheduledStartAt" timestamptz);
@@ -156,7 +156,7 @@ try {
     INSERT INTO "Service" (id,"businessId",duration) VALUES ('illumination','business',120),('cut','business',30);
     INSERT INTO "Customer" VALUES ('customer','business','5491112345678');
     INSERT INTO "Conversation" VALUES ('conversation','business','+54 9 11 1234 5678');
-    INSERT INTO "BotSession" VALUES ('session','business','conversation');
+    INSERT INTO "BotSession" VALUES ('session','business','conversation','ACTIVE');
     INSERT INTO "Appointment" VALUES
       ('a','business','customer','p-a','illumination','joint-group',3,'CONFIRMED','v-a',now()+interval '3 days',120,NULL,false,NULL),
       ('b','business','customer','p-b','cut','joint-group',3,'CONFIRMED','v-b',now()+interval '3 days 2 hours',30,15000,false,NULL);
@@ -168,6 +168,12 @@ try {
   `)
   const snapshot = () => loadCancellationGroupSnapshot(tx as never, scope, 'a')
   const current = await snapshot()
+  await check('paid group ownership rejects an inactive caller before reading booking terms', async () => {
+    await db.exec(`UPDATE "BotSession" SET status='CLOSED' WHERE id='session'`)
+    try { await assert.rejects(snapshot(), /management ownership unavailable/) }
+    finally { await db.exec(`UPDATE "BotSession" SET status='ACTIVE' WHERE id='session'`) }
+    assert.deepEqual((await snapshot()).members, current.members)
+  })
   const requested = current.members.map(member => ({ appointmentId: member.appointmentId, newStartAt: new Date(Date.parse(member.startAt) + 86400000).toISOString() }))
   const proposed = presentGroupReschedule(current, requested)
   const command = confirmGroupReschedule(proposed, { nonce: proposed.nonce, fingerprint: proposed.fingerprint })

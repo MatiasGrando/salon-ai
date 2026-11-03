@@ -186,7 +186,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: 'la web rechaza PDF aunque tenga una firma valida',
+  name: 'la web rechaza un PDF incompleto aunque tenga una firma valida',
     run: async () => {
       const fixture = fakeDepositDb({
         deposits: [{

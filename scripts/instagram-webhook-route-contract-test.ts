@@ -249,3 +249,20 @@ for (const headers of [
 }
 
 console.log('Instagram webhook route contract: OK')
+
+// Both supported comment envelopes traverse the real raw-body signature gate.
+{
+  const direct = { object: 'instagram', entry: [{ id: 'ig-business-1', field: 'comments', value: mixedPayload.entry[0]!.changes[0]!.value }] }
+  let admitted = 0
+  const app = Fastify()
+  await app.register(instagramWebhookRoutes, { appSecret: secret, commentsRuntimeReady: true,
+    commentIngress: { async ingest() { admitted++ } }, legacyWebhookService: {
+      verifyWebhook: () => ({ verified: true }), async handleWebhook() { return { received: true } }
+    } })
+  for (const payload of [mixedPayload, direct]) {
+    assert.equal((await app.inject(signedRequest(payload))).statusCode, 200)
+    assert.equal((await app.inject(signedRequest(payload, 'wrong-secret'))).statusCode, 403)
+  }
+  assert.equal(admitted, 2)
+  await app.close()
+}

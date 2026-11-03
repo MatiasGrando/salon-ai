@@ -1,3 +1,5 @@
+import {runtimeIdentityFromManagement} from '../conversational-bot/conversation-subject.js'
+import { lockInstagramRuntimeActorTx, resolveInstagramSessionSubjectTx, validRuntimeChannelIdentity, runtimeChannelIdentityRecord, type RuntimeChannelIdentity } from '../conversational-bot/conversation-subject.js'
 import { isDeepStrictEqual } from 'node:util'
 import { createHash } from 'node:crypto'
 import { validateCustomerName } from '../bot-options/domain/customer-name-validation.js'
@@ -10,16 +12,24 @@ import type { RuntimeBookingInput, RuntimeBookingOrigin, RuntimePresentedBooking
 
 export type CoordinatedDepositInput = { origin: RuntimeBookingOrigin; proposal: RuntimePresentedBooking; currentDraft: unknown; consent: RuntimeBookingInput['consent'] }
 export type CoordinatedDepositMember = { segmentIndex: number; appointmentId: string; visitId: string; depositId: string | null; amount: number; childOperationKey: string; childRequestHash: string }
-export type CoordinatedDepositGroup = { version: 1; groupId: string; operationKey: string; requestHash: string; customerId: string; canonicalPhone: string; proposal: RuntimePresentedBooking; expiresAt: string; amount: number; anchorDepositId: string; members: CoordinatedDepositMember[] }
+export type CoordinatedDepositGroup = { version: 1; groupId: string; operationKey: string; requestHash: string; customerId: string; proposal: RuntimePresentedBooking; expiresAt: string; amount: number; anchorDepositId: string; members: CoordinatedDepositMember[] } & RuntimeChannelIdentity
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = (v: unknown, max = 128): v is string => typeof v === 'string' && !!v.trim() && v.length <= max && !/[\u0000-\u001f]/.test(v)
 const iso = (v: unknown) => { try { return (v instanceof Date ? v : new Date(String(v))).toISOString() } catch { return null } }
 function fail(): never { throw new Error('coordinated deposit group scope, terms or membership mismatch') }
 export const coordinatedDepositOperationKey = (o: RuntimeBookingOrigin, p: RuntimePresentedBooking) => 'conversation-booking:' + o.operationKey + ':' + p.nonce
-export const coordinatedDepositRequestHash = (o: RuntimeBookingOrigin, p: RuntimePresentedBooking) => canonicalJsonHash({ proposal: p, origin: { ...p.scope, canonicalPhone: o.canonicalPhone } })
+export const coordinatedDepositRequestHash = (o: RuntimeBookingOrigin, p: RuntimePresentedBooking) => canonicalJsonHash({ proposal: p, origin: { ...p.scope, ...runtimeChannelIdentityRecord(o) } })
 export function coordinatedServiceConfigurationHash(service: Record<string, unknown>): string {
   return canonicalJsonHash(['attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
     'requiresPhoto','validationEnabled','validationMessage','validationQuestion','customerDurationMin','customerDurationMax','depositMode','depositValue'].map(key => service[key] ?? null))
+}
+/** The two published server contracts remain immutable. Runtime validates its
+ * larger proposal before calling this primitive; old coordinated receipts keep
+ * their original digest and are never converted or re-signed. */
+export function matchesCoordinatedServiceConfiguration(service:Record<string,unknown>, supplied:string|null):boolean {
+  const runtime=canonicalJsonHash(['bookingOrderPriority','attentionMode','price','priceMode','estimateAllowsBooking','estimateQuestion','estimateOptions','estimateExplanation','estimateDisclaimer',
+    'requiresPhoto','validationEnabled','validationMessage','validationQuestion','customerDurationMin','customerDurationMax','depositMode','depositValue'].map(key=>service[key]??null))
+  return supplied===coordinatedServiceConfigurationHash(service)||supplied===runtime
 }
 function validCoordinatedSegment(s:unknown):s is RuntimeBookingSegment {
   if (!object(s)) return false
@@ -45,7 +55,7 @@ export function assertCoordinatedDepositInput(input: CoordinatedDepositInput): v
       input.consent.confirmed !== true || input.consent.nonce !== p.nonce || input.consent.fingerprint !== p.fingerprint ||
       !p.scope || ![o.businessId,o.sessionId,o.deploymentId,o.configurationId].every(v=>text(v)) ||
       !Number.isSafeInteger(o.generation) || o.generation<1 || ![o.dispatchFenceEpoch,o.handoffFenceEpoch].every(v=>Number.isSafeInteger(v)&&v>=0) ||
-      !/^\d+$/.test(String(o.revision)) || !/^\d{10,15}$/.test(o.canonicalPhone) || !text(o.operationKey, 256) || t.businessId !== o.businessId ||
+      !/^\d+$/.test(String(o.revision)) || !validRuntimeChannelIdentity(o) || !text(o.operationKey, 256) || t.businessId !== o.businessId ||
       !isDeepStrictEqual(p.scope, { businessId: o.businessId, sessionId: o.sessionId, deploymentId: o.deploymentId, generation: o.generation,
         revision: String(o.revision), configurationId: o.configurationId, dispatchFenceEpoch: o.dispatchFenceEpoch, handoffFenceEpoch: o.handoffFenceEpoch })) fail()
   if (!object(t.preference) || !(t.preference.kind==='any' || t.preference.kind==='specific' && text(t.preference.id))) fail()
@@ -71,7 +81,8 @@ export async function lockCoordinatedDepositOrigin(tx: Prisma.TransactionClient,
   assertCoordinatedDepositInput(input)
   const o = input.origin, p = input.proposal
   await acquireAgendaHierarchy(tx, { businessId: o.businessId, professionalIds: p.terms.segments.map(s => s.professionalId) })
-  const rows = await tx.$queryRaw<Array<{ customerId: string; state: unknown }>>(Prisma.sql`
+  const instagramActor=o.subject?await lockInstagramRuntimeActorTx(tx,o):null
+  const rows = o.subject ? (instagramActor?.customerId?[instagramActor]:[]) : await tx.$queryRaw<Array<{ customerId: string; state: unknown }>>(Prisma.sql`
     SELECT customer.id AS "customerId", s.state
     FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "Customer" customer ON customer."businessId"=s."businessId" AND customer."normalizedPhone"=${o.canonicalPhone}
@@ -88,7 +99,7 @@ export async function lockCoordinatedDepositOrigin(tx: Prisma.TransactionClient,
     FOR UPDATE OF s,c,customer FOR SHARE OF d,cfg,b
   `)
   const row = rows[0]
-  if (rows.length !== 1 || !row || !object(row.state) || !['NONE','DRAFT'].includes(String(row.state.booking)) ||
+  if (rows.length !== 1 || !row || !row.customerId || !object(row.state) || !['NONE','DRAFT'].includes(String(row.state.booking)) ||
       row.state.deposit !== 'NONE' || row.state.handoff !== 'NONE' || !object(row.state.conversationDraft) ||
       !isDeepStrictEqual(row.state.conversationDraft.dialogue, input.currentDraft)) fail()
   return row.customerId
@@ -130,7 +141,7 @@ export type CoordinatedDepositGroupState = { group: CoordinatedDepositGroup; dep
 
 /** Reconstruct operational assignments from the immutable F8 seal and completed,
  * append-only group amendments. Payment terms are never rewritten by a move. */
-export type PaidAssignmentSeal = Pick<CoordinatedDepositGroup,'groupId'|'proposal'|'customerId'|'canonicalPhone'> & {members: Array<Pick<CoordinatedDepositMember,'appointmentId'|'visitId'|'depositId'>>}
+export type PaidAssignmentSeal = Pick<CoordinatedDepositGroup,'groupId'|'proposal'|'customerId'> & RuntimeChannelIdentity & {members: Array<Pick<CoordinatedDepositMember,'appointmentId'|'visitId'|'depositId'>>}
 export async function amendedPaidAssignments(tx: Pick<Prisma.TransactionClient,'$queryRaw'>, businessId: string, group: PaidAssignmentSeal) {
   const assignments = new Map(group.members.map((member, index) => [member.appointmentId, {
     startAt: group.proposal.terms.segments[index]!.startAt,
@@ -222,18 +233,19 @@ export async function amendedPaidAssignments(tx: Pick<Prisma.TransactionClient,'
     if (snapshot.groupId !== group.groupId || !object(snapshot.scope) || snapshot.scope.businessId !== businessId ||
       snapshot.scope.sessionId !== operation.sessionId || (command.source!=='own_lookup' && operation.sessionId!==group.proposal.scope.sessionId) ||
       snapshot.scope.customerId!==group.customerId ||
-      snapshot.scope.normalizedPhone!==group.canonicalPhone ||
+      (command.source!=='own_lookup'&&!isDeepStrictEqual(runtimeIdentityFromManagement(command.snapshot.scope),runtimeChannelIdentityRecord(group))) ||
       operation.operationKey!=='reschedule-group:'+canonicalJsonHash([snapshot.scope,command.nonce,command.fingerprint]) ||
       !Array.isArray(snapshot.members) || snapshot.members.length !== group.members.length ||
       !Array.isArray(command.moves) || command.moves.length !== group.members.length) fail()
     if (command.source==='own_lookup') {
-      const owner=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+      const historicalActor=command.snapshot.scope.subject?await resolveInstagramSessionSubjectTx(tx,{businessId,sessionId:operation.sessionId,expected:command.snapshot.scope.subject}):null
+      const owner=command.snapshot.scope.subject?(historicalActor?.customerId===group.customerId?[{id:operation.sessionId}]:[]):await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
         SELECT s.id FROM "BotSession" s
         JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
         JOIN "Customer" customer ON customer.id=${group.customerId} AND customer."businessId"=s."businessId"
-          AND customer."normalizedPhone"=${group.canonicalPhone}
+          AND customer."normalizedPhone"=${command.snapshot.scope.normalizedPhone}
         WHERE s.id=${operation.sessionId} AND s."businessId"=${businessId}
-          AND regexp_replace(c.phone,'[^0-9]','','g')=${group.canonicalPhone}
+          AND regexp_replace(c.phone,'[^0-9]','','g')=${command.snapshot.scope.normalizedPhone}
         FOR SHARE OF s,c,customer`)
       if(owner.length!==1) fail()
     }
@@ -306,9 +318,81 @@ async function lockCoordinatedDepositGroupForMember(tx:Prisma.TransactionClient,
     : await tx.$queryRaw<Array<{groupId:string|null;origin:string;professionalId:string}>>(Prisma.sql`SELECT "coordinationGroupId" AS "groupId",origin,"professionalId" FROM "Appointment" WHERE id=${id} AND "businessId"=${businessId}`)
   if(rows.some(row=>row.origin==='BOT' && row.groupId)) {
     if(rows.length!==1) fail()
-    await assertRuntimeSingularDeposit(tx,{businessId,key,id,groupId:rows[0]!.groupId!,professionalId:rows[0]!.professionalId})
+    const parents=await tx.$queryRaw<Array<{type:string}>>(Prisma.sql`SELECT type FROM "BotOperation" WHERE "resultRef"=${rows[0]!.groupId}`)
+    if(parents.length===1 && parents[0]!.type==='CONFIRM_VISIT') {
+      await assertRuntimeNoDepositBooking(tx,{businessId,key,id,groupId:rows[0]!.groupId!})
+    } else {
+      await assertRuntimeSingularDeposit(tx,{businessId,key,id,groupId:rows[0]!.groupId!,professionalId:rows[0]!.professionalId})
+    }
   }
   return null // Validated runtime singular and unrelated single/legacy aggregates use their own lifecycle.
+}
+
+/** A runtime CONFIRM_VISIT parent is durable authority for no-deposit bookings.
+ * Revalidate its exact children and current membership without treating mutable
+ * appointment prices or schedules as a replay hash. The operation hashes are
+ * format checked because the original proposal is intentionally not persisted. */
+async function assertRuntimeNoDepositBooking(tx:Prisma.TransactionClient,target:{businessId:string;key:'depositId'|'appointmentId';id:string;groupId:string}) {
+  const {businessId,groupId}=target
+  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(groupId)) fail()
+  // Establish the lock set, then require the exact same set after acquiring the agenda hierarchy.
+  const candidates=await tx.$queryRaw<Array<{appointmentId:string;professionalId:string}>>(Prisma.sql`
+    SELECT id AS "appointmentId","professionalId" FROM "Appointment" WHERE "coordinationGroupId"=${groupId} ORDER BY id`)
+  if(candidates.length<1 || candidates.length>8 || candidates.some(member=>!text(member.appointmentId) || !text(member.professionalId))) fail()
+  await acquireAgendaHierarchy(tx,{businessId,professionalIds:candidates.map(member=>member.professionalId)})
+  // Read every member without tenant filters so forged or foreign members fail closed.
+  const members=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
+    SELECT a.id AS "appointmentId",a.origin,a."businessId",a."customerId",a."professionalId",a."visitId",
+      a."manualDepositPaid",a."manualDepositAmount",v.origin AS "visitOrigin",v."businessId" AS "visitBusinessId",
+      v."customerId" AS "visitCustomerId",v."professionalId" AS "visitProfessionalId",v."sessionId",
+      d.id AS "depositId",d."businessId" AS "depositBusinessId"
+    FROM "Appointment" a LEFT JOIN "BookingVisit" v ON v.id=a."visitId"
+    LEFT JOIN "BookingDeposit" d ON d."appointmentId"=a.id
+    WHERE a."coordinationGroupId"=${groupId} ORDER BY a.id FOR UPDATE OF a`)
+  if(members.length<1 || members.length>8) fail()
+  if(!isDeepStrictEqual(candidates.map(row=>[row.appointmentId,row.professionalId]),members.map(row=>[row.appointmentId,row.professionalId]))) fail()
+  const first=members[0]!
+  if(![first.customerId,first.sessionId].every(v=>text(v)) || first.businessId!==businessId || first.visitBusinessId!==businessId) fail()
+  const appointmentIds=new Set<string>(),visitIds=new Set<string>(),professionalIds:string[]=[]
+  for(const member of members) {
+    if(member.origin!=='BOT' || member.visitOrigin!=='BOT' || member.businessId!==businessId || member.visitBusinessId!==businessId ||
+      member.customerId!==first.customerId || member.visitCustomerId!==first.customerId || member.sessionId!==first.sessionId ||
+      !text(member.appointmentId) || !text(member.visitId) || !text(member.professionalId) || member.visitProfessionalId!==member.professionalId ||
+      member.depositId!==null || member.depositBusinessId!==null || member.manualDepositPaid!==false || member.manualDepositAmount!==null) fail()
+    if(appointmentIds.has(member.appointmentId) || visitIds.has(member.visitId)) fail()
+    appointmentIds.add(member.appointmentId as string); visitIds.add(member.visitId as string); professionalIds.push(member.professionalId as string)
+  }
+  if(!members.some(member=>member[target.key]===target.id)) fail()
+  const lockedVisits=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT id FROM "BookingVisit" WHERE "businessId"=${businessId} AND id IN (${Prisma.join([...visitIds])}) FOR UPDATE`)
+  if(lockedVisits.length!==visitIds.size) fail()
+  const owners=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT s.id FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
+    JOIN "Customer" customer ON customer.id=${first.customerId} AND customer."businessId"=s."businessId"
+    WHERE s.id=${first.sessionId} AND s."businessId"=${businessId}
+      AND customer."normalizedPhone"=regexp_replace(c.phone,'[^0-9]','','g') FOR SHARE OF s,c,customer`)
+  if(owners.length!==1) fail()
+  const professionals=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+    SELECT id FROM "Professional" WHERE "businessId"=${businessId} AND id IN (${Prisma.join([...new Set(professionalIds)])}) FOR SHARE`)
+  if(professionals.length!==new Set(professionalIds).size) fail()
+  const parents=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;requestHash:string;status:string;type:string}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId","requestHash",status,type FROM "BotOperation" WHERE "resultRef"=${groupId} FOR UPDATE`)
+  const parent=parents[0]
+  if(parents.length!==1 || !parent || parent.businessId!==businessId || parent.type!=='CONFIRM_VISIT' || parent.status!=='COMPLETED' || parent.sessionId!==first.sessionId ||
+    !text(parent.operationKey,256) || !parent.operationKey.startsWith('conversation-booking:') || !/^[a-f0-9]{64}$/.test(parent.requestHash)) fail()
+  const prefix=parent.operationKey+':segment:'
+  const children=await tx.$queryRaw<Array<{operationKey:string;businessId:string;sessionId:string;requestHash:string;status:string;type:string;resultRef:string}>>(Prisma.sql`
+    SELECT "operationKey","businessId","sessionId","requestHash",status,type,"resultRef" FROM "BotOperation"
+    WHERE left("operationKey",length(${prefix}))=${prefix} FOR UPDATE`)
+  if(children.length!==members.length) fail()
+  const seenVisits=new Set<string>()
+  for(let index=0;index<members.length;index++) {
+    const child=children.find(row=>row.operationKey===prefix+index+':CONFIRM_VISIT')
+    if(!child || child.businessId!==businessId || child.sessionId!==first.sessionId || child.status!=='COMPLETED' ||
+      child.type!=='CONFIRM_VISIT' || !/^[a-f0-9]{64}$/.test(child.requestHash) || !visitIds.has(child.resultRef) || seenVisits.has(child.resultRef)) fail()
+    seenVisits.add(child.resultRef)
+  }
+  if(seenVisits.size!==visitIds.size) fail()
 }
 
 /** Runtime singular holds use a coordination UUID too, but NOT a coordinated
@@ -331,10 +415,11 @@ async function assertRuntimeSingularDeposit(tx:Prisma.TransactionClient,target:{
   if(members.length!==1) fail()
   const member=members[0]!
   if(member.origin!=='BOT' || member.businessId!==businessId || member.visitBusinessId!==businessId || member.depositBusinessId!==businessId ||
-      ![member.appointmentId,member.visitId,member.depositId,member.customerId,member.sessionId,member.conversationId].every(v=>text(v)) ||
+      ![member.appointmentId,member.visitId,member.depositId,member.customerId,member.sessionId].every(v=>text(v)) || (member.source==='INSTAGRAM'?member.conversationId!==null:!text(member.conversationId)) ||
       member.customerId!==member.visitCustomerId || member.professionalId!==target.professionalId || member.visitProfessionalId!==target.professionalId ||
-      member.depositVisitId!==member.visitId || member.source!=='WHATSAPP' || member[target.key]!==target.id) fail()
-  const owners=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+      member.depositVisitId!==member.visitId || !['WHATSAPP','INSTAGRAM'].includes(String(member.source)) || member[target.key]!==target.id) fail()
+  const instagramOwner=member.source==='INSTAGRAM'?await resolveInstagramSessionSubjectTx(tx,{businessId,sessionId:String(member.sessionId)}):null
+  const owners=member.source==='INSTAGRAM'?(instagramOwner?.customerId===member.customerId?[{id:String(member.sessionId)}]:[]):await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
     SELECT s.id FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "Customer" customer ON customer.id=${member.customerId} AND customer."businessId"=s."businessId"
     JOIN "Professional" p ON p.id=${target.professionalId} AND p."businessId"=s."businessId"
@@ -371,9 +456,13 @@ export async function lockRuntimeSingularApprovedDeposit(tx:Prisma.TransactionCl
     FOR UPDATE OF a,v,d`)
   const row=rows[0]
   if(rows.length!==1 || !row || row.origin!=='BOT' || row.appointmentStatus!=='CONFIRMED' || row.visitStatus!=='CONFIRMED' ||
-    row.visitBusinessId!==target.businessId || row.customerId!==row.visitCustomerId || row.depositVisitId!==row.visitId || row.source!=='WHATSAPP' ||
-    row.depositStatus!=='APPROVED' || !text(row.coordinationGroupId) || !text(row.sessionId) || !text(row.conversationId) || !row.snapshotSealedAt ||
+    row.visitBusinessId!==target.businessId || row.customerId!==row.visitCustomerId || row.depositVisitId!==row.visitId || !['WHATSAPP','INSTAGRAM'].includes(String(row.source)) ||
+    row.depositStatus!=='APPROVED' || !text(row.coordinationGroupId) || !text(row.sessionId) || (row.source==='INSTAGRAM'?row.conversationId!==null:!text(row.conversationId)) || !row.snapshotSealedAt ||
     !Number.isSafeInteger(row.amount) || Number(row.amount)<0) fail()
+  if(row.source==='INSTAGRAM') {
+    const original=await resolveInstagramSessionSubjectTx(tx,{businessId:target.businessId,sessionId:String(row.sessionId)})
+    if(!original||original.customerId!==row.customerId)fail()
+  }
   const lines=await tx.$queryRaw<Array<Record<string,unknown>>>(Prisma.sql`
     SELECT "serviceId","sortOrder","serviceName",mode,"configuredValue","baseAmount",amount FROM "BookingDepositLine"
     WHERE "businessId"=${target.businessId} AND "depositId"=${row.depositId} ORDER BY "sortOrder" FOR UPDATE`)
@@ -420,9 +509,9 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
   try { group = JSON.parse(ops[0]!.resultRef) as CoordinatedDepositGroup } catch { return fail() }
   const p = group.proposal
   if (group.version !== 1 || group.groupId !== target.groupId || group.operationKey !== ops[0]!.operationKey ||
-      group.requestHash !== canonicalJsonHash({proposal:p,origin:{...p?.scope,canonicalPhone:group.canonicalPhone}}) || group.requestHash !== ops[0]!.requestHash || p?.scope.businessId !== target.businessId || p.fingerprint !== canonicalJsonHash(p.terms) ||
+      group.requestHash !== canonicalJsonHash({proposal:p,origin:{...p?.scope,...runtimeChannelIdentityRecord(group)}}) || group.requestHash !== ops[0]!.requestHash || p?.scope.businessId !== target.businessId || p.fingerprint !== canonicalJsonHash(p.terms) ||
       group.amount !== p.terms.deposit?.financial.amount || iso(group.expiresAt) !== group.expiresAt ||
-      JSON.stringify(group).length>24000 || !text(group.customerId) || !/^\d{10,15}$/.test(group.canonicalPhone) || !Array.isArray(group.members) || group.members.length !== p.terms.segments.length || group.members.length < 2 || group.members.length > 8) fail()
+      JSON.stringify(group).length>24000 || !text(group.customerId) || !validRuntimeChannelIdentity(group) || !Array.isArray(group.members) || group.members.length !== p.terms.segments.length || group.members.length < 2 || group.members.length > 8) fail()
   const currentProfessionals=await tx.$queryRaw<Array<{professionalId:string}>>(Prisma.sql`
     SELECT "professionalId" FROM "Appointment" WHERE "coordinationGroupId"=${target.groupId}`)
   await acquireAgendaHierarchy(tx,{businessId:target.businessId,professionalIds:[...p.terms.segments.map(s=>s.professionalId),...currentProfessionals.map(r=>r.professionalId)]})
@@ -435,7 +524,8 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     WHERE a."coordinationGroupId"=${target.groupId} ORDER BY a.id FOR UPDATE OF a,v`)
   if (rows.length !== group.members.length) fail()
   const assignments=await amendedPaidAssignments(tx,target.businessId,group)
-  const customer = await tx.$queryRaw<Array<{ conversationId: string }>>(Prisma.sql`
+  const originalActor=group.subject?await resolveInstagramSessionSubjectTx(tx,{businessId:target.businessId,sessionId:p.scope.sessionId,expected:group.subject}):null
+  const customer = group.subject ? (originalActor?.customerId===group.customerId?[{conversationId:null}]:[]) : await tx.$queryRaw<Array<{ conversationId: string|null }>>(Prisma.sql`
     SELECT c.id AS "conversationId" FROM "BotSession" s JOIN "Conversation" c ON c.id=s."conversationId" AND c."businessId"=s."businessId"
     JOIN "Customer" customer ON customer.id=${group.customerId} AND customer."businessId"=s."businessId" AND customer."normalizedPhone"=${group.canonicalPhone}
     WHERE s.id=${p.scope.sessionId} AND s."businessId"=${target.businessId} AND regexp_replace(c.phone,'[^0-9]','','g')=${group.canonicalPhone} FOR SHARE OF s,c,customer`)
@@ -462,7 +552,7 @@ export async function lockCoordinatedDepositGroupState(tx: Prisma.TransactionCli
     const financialLine = p.terms.deposit!.financial.lines.find(l=>l.serviceId===segment.serviceId)
     if (financialLine) {
       if (!text(m.depositId) || deposits.has(m.depositId) || row.depositId!==m.depositId || row.depositBusinessId!==target.businessId || row.depositVisitId!==m.visitId ||
-          row.conversationId!==customer[0]!.conversationId || row.source!=='WHATSAPP' || row.amount!==m.amount || m.amount!==financialLine.amount ||
+          row.conversationId!==customer[0]!.conversationId || row.source!==(group.subject?'INSTAGRAM':'WHATSAPP') || row.amount!==m.amount || m.amount!==financialLine.amount ||
           row.holdTtlMinutes!==p.terms.deposit!.financial.ttlMinutes || row.holdTtlProvenance!==p.terms.deposit!.financial.ttlProvenance ||
           !row.snapshotSealedAt) fail()
       deposits.add(m.depositId)

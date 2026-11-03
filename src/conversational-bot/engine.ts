@@ -1,3 +1,4 @@
+import { runtimeIdentityFromManagement, validRuntimeChannelIdentity } from './conversation-subject.js'
 import { parseAppointmentManagement, beginAppointmentManagement, attachManagementRescheduleOffers, selectManagementRescheduleOffer, confirmAppointmentManagement, cancellationFingerprint, rescheduleFingerprint, parseCompletedCancellation, type CompletedCancellation, type AppointmentManagementContext, type CancellationSnapshot, type GroupCancellationCommand, type GroupRescheduleCommand, type ManagementRescheduleOffer } from './appointment-management.js'
 import { parseRuntimeBookingReservation, runtimeProposalMatchesState, runtimeBookingSummary, runtimeBookingReceiptReply, type RuntimeBookingReservation, type RuntimePresentedBooking, type RuntimeShownScope, type RuntimeBookingResult } from './prisma-conversational-booking.js'
 import { socialContinuationFacts } from './reply-contract.js'
@@ -2024,6 +2025,12 @@ async function respondAppointmentManagement(context: DialogueContext, previous: 
     return ownLookup ? reply('No pude verificar que el turno siga asociado a esta conversación. No cambié tu turno ni el pago; podés volver a consultarlo.') : null
   }
   if (action === 'CANCEL' || state.appointmentManagement?.context.action === 'CANCEL') {
+    if (current.scope.subject) {
+      cancellationFingerprint(current)
+      delete state.appointmentManagement
+      return { ...reply('Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'),
+        confirmedCancellationHandoff:{snapshot:structuredClone(current),evidence:message} }
+    }
     const pending=state.appointmentManagement, shown=pending?.presentedScope
     if (pending?.context.action==='CANCEL' && decision?.communicative?.continuity==='pause' && plan?.operations.length===0) {
       return declineManagement(state)
@@ -2193,7 +2200,7 @@ async function respondOwnAppointment(context: DialogueContext, previous: Dialogu
   if (!own && port.ownAppointments) { try { own = await port.ownAppointments() } catch { return reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') } }
   if (!own || !scope || own.businessId!==context.businessId || own.sessionId!==scope.sessionId || String(BigInt(scope.revision)-1n)!==own.revision)
     return operation ? reply('No pude consultar tus turnos de forma segura ahora. No inicié otra reserva; podés intentar nuevamente.') : null
-  if (!own.items.length) { delete state.ownAppointmentInquiry; return reply('No encontré turnos futuros confirmados asociados a tu número en este local. No inicié otra reserva.') }
+  if (!own.items.length) { delete state.ownAppointmentInquiry; return reply('No encontré turnos futuros confirmados asociados a tu cuenta en este local. No inicié otra reserva.') }
   const key = operation?.kind==='own_appointment' ? operation.optionKey : null
   const options = ownAppointmentOptions(own.items), prior = state.ownAppointmentInquiry
   const currentOption = key ? options.find(option => option.key === key) : undefined
@@ -2219,7 +2226,7 @@ async function respondOwnAppointment(context: DialogueContext, previous: Dialogu
       const revision = scope && /^\d+$/.test(scope.revision) ? BigInt(scope.revision) : 0n
       if (!scope || own.businessId !== context.businessId || own.sessionId !== scope.sessionId || revision < 1n || String(revision - 1n) !== own.revision ||
         selected.snapshot.scope.businessId !== context.businessId || selected.snapshot.scope.sessionId !== scope.sessionId ||
-        !selected.snapshot.scope.customerId || !/^[0-9]{10,15}$/.test(selected.snapshot.scope.normalizedPhone))
+        !selected.snapshot.scope.customerId || !validRuntimeChannelIdentity(runtimeIdentityFromManagement(selected.snapshot.scope)))
         return reply('No pude verificar que el turno siga asociado a esta conversación. No cambié tu turno ni el pago; podés volver a consultarlo.')
       state.appointmentManagement = { context: beginAppointmentManagement('RESCHEDULE', selected.snapshot, 'own_lookup'),summary:selected.label }
       const turnPlan: TurnPlan = { version: 1, operations: (decision?.turnPlan?.operations ?? []).map(op => op.kind === 'own_appointment'
@@ -2237,6 +2244,10 @@ async function respondOwnAppointment(context: DialogueContext, previous: Dialogu
       return managed ? includeCurrentTurn(managed,selected.label) : managed
     }
     return reply('Encontré tu turno:\n'+selected.label+'\nNo pude verificar la autorización original para reprogramarlo desde esta conversación. El equipo puede ayudarte a verificarla. No envié una solicitud ni cambié tus turnos o el pago.')
+  }
+  if (selected.snapshot.scope.subject) {
+    return {...reply('Envié tu pedido de cancelación al equipo. Tu turno sigue vigente hasta que te confirmen la cancelación.'),
+      ownAppointmentHandoff:{snapshot:structuredClone(selected.snapshot),action:'cancel',evidence:message}}
   }
   state.appointmentManagement={context:beginAppointmentManagement('CANCEL',selected.snapshot,'own_lookup'),summary:selected.label,presentedScope:structuredClone(scope)}
   return cancellationChoices(reply('Vas a cancelar este pedido:\n'+selected.label+'\n'+CANCELLATION_QUESTION))
@@ -2547,7 +2558,7 @@ export async function respondConversationChoice(context: DialogueContext, previo
   }
   if (operation.kind==='cancel_appointment') {
     const management=state.appointmentManagement, proposal=management?.context.proposal, shown=management?.presentedScope, scope=context.serverRuntimeBookingScope
-    if (!Number.isFinite(context.dbNow.getTime()) || management?.context.action!=='CANCEL' || management.outcome ||
+    if (!Number.isFinite(context.dbNow.getTime()) || management?.context.action!=='CANCEL' || management.outcome || management.context.snapshot.scope.subject ||
         proposal?.kind!=='GROUP_CANCELLATION_PROPOSAL' || proposal.nonce!==operation.nonce || proposal.fingerprint!==operation.fingerprint ||
         proposal.fingerprint!==cancellationFingerprint(management.context.snapshot) || !shown || !scope || !/^\d+$/.test(scope.revision) || BigInt(scope.revision)<1n ||
         management.context.snapshot.scope.businessId!==context.businessId || management.context.snapshot.scope.sessionId!==scope.sessionId ||

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PGlite } from '@electric-sql/pglite'
+import { resolveProofTarget,processDepositProofJob } from '../src/bot-options/application/process-deposit-proof-job.js'
+import { conversationProofBindingFromState,CONVERSATION_PROOF_ACTION } from '../src/conversational-bot/attachment-intent.js'
+import { enqueueConversationalHandoffTx } from '../src/conversational-bot/prisma-conversational-handoff.js'
+import { rescheduleGroupInTransaction } from '../src/conversational-bot/prisma-appointment-management.js'
+import { presentGroupReschedule, confirmGroupReschedule } from '../src/conversational-bot/appointment-management.js'
+import { loadOwnAppointments } from '../src/conversational-bot/prisma-own-appointments.js'
 import { initialDialogueState } from '../src/conversational-bot/engine.js'
 import { projectConversationDraft, reconcileConversationDraft } from '../src/conversational-bot/session-state.js'
 import { conversationStepForBotOptionsState } from '../src/bot-options/domain/conversation-status.js'
@@ -9,10 +15,10 @@ import { loadRuntimeDepositReceipt, runtimeBookingReceiptReply, executePrismaCon
 
 const db = new PGlite()
 const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8')
-const models = ['Business','Conversation','Customer','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositProof','BookingDepositReviewAudit','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
-for (const name of ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance']) {
+const models = ['BotTransitionLog','BotPrompt','BotPromptChoice','BotProviderEvent','BotActionInbox','BotOutbox','Business','Conversation','Customer','InstagramLead','BusinessInstagramConfig','CustomerChannelIdentity','BotSession','BotChannelDeployment','BusinessBotConfiguration','BusinessBotOptionsSettings','ServiceCategory','Service','Professional','ProfessionalService','BusinessHours','ProfessionalHours','ScheduleBlock','Appointment','AppointmentChangeHistory','AppointmentServiceItem','BookingVisit','BookingDeposit','BookingDepositLine','BookingDepositProof','BookingDepositReviewAudit','BotHandoff','BusinessPaymentSettings','BotJob','ServiceCombinationRule','BotOperation']
+for (const name of ['BotPromptStatus','BotPromptMode','BotProviderEventType','BotProviderEventStatus','BotInboxStatus','BotJobStatus','BotOutboxStatus','BookingDepositProofKind','BotChannel','BotSessionStatus','BotHandoffStatus','ConversationStep','AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance']) {
   const body = schema.match(new RegExp('enum '+name+' \\{([\\s\\S]*?)\\n\\}'))![1]!
-  const values = body.split('\n').flatMap(line => line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1] ?? [])
+  const values = body.split('\n').flatMap(line => line.match(/@map\("([^"]+)"\)/)?.[1]??line.trim().match(/^([A-Z_]+)(?:\s|$)/)?.[1]??[])
   await db.exec('CREATE TYPE "'+name+'" AS ENUM ('+values.map(v=>"'"+v+"'").join(',')+')')
 }
 for (const name of models) {
@@ -20,14 +26,15 @@ for (const name of models) {
   const columns = body.split('\n').flatMap(line => {
     const field = line.trim().match(/^(\w+)\s+(\w+)(\?)?(?:\s|$)/)
     if (!field || /\[\]/.test(line)) return []
-    const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision'} as Record<string,string>)[field[2]!]
-    const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? ['AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance'].includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
+    const scalar = ({String:'text',Int:'integer',Boolean:'boolean',DateTime:'timestamptz',Json:'jsonb',Decimal:'numeric',BigInt:'bigint',Float:'double precision',Bytes:'bytea'} as Record<string,string>)[field[2]!]
+    const type = scalar ?? (schema.includes('enum '+field[2]+' {') ? ['BotPromptStatus','BotPromptMode','BotProviderEventType','BotProviderEventStatus','BotInboxStatus','BotJobStatus','BotOutboxStatus','BookingDepositProofKind','BotChannel','BotSessionStatus','BotHandoffStatus','ConversationStep','AppointmentStatus','BookingDepositStatus','BookingVisitStatus','AppointmentOrigin','ServiceAttentionMode','ServiceCombinationPolicy','ServiceDepositMode','BookingDepositSource','BookingDepositTtlProvenance'].includes(field[2]!) ? '"'+field[2]+'"' : 'text' : null)
     const primary = field[1] === (name === 'BusinessBotOptionsSettings' ? 'businessId' : 'id')
-    return type ? ['"'+field[1]+'" '+type+(primary?' PRIMARY KEY':'')+(['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')] : []
+    const columnName=line.match(/@map\("([^"]+)"\)/)?.[1]??field[1]
+    return type ? ['"'+columnName+'" '+type+(primary?' PRIMARY KEY':'')+(field[1]==='version'?' DEFAULT 1':['createdAt','updatedAt'].includes(field[1]!)?' DEFAULT clock_timestamp()':'')] : []
   })
   await db.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
 }
-await db.exec('CREATE UNIQUE INDEX operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX appointment_visit ON "Appointment" ("visitId")')
+await db.exec('CREATE UNIQUE INDEX operation_key ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX appointment_visit ON "Appointment" ("visitId");CREATE UNIQUE INDEX bot_outbox_key ON "BotOutbox" ("idempotencyKey");CREATE UNIQUE INDEX bot_job_key ON "BotJob" (kind,"aggregateId")')
 await db.exec(`
 INSERT INTO "Business" ("id","name","botEnabled") VALUES ('b','Salon',true),('foreign','Other',true);
 INSERT INTO "Conversation" ("id","businessId","phone") VALUES ('c','b','5491112345678');
@@ -54,7 +61,10 @@ function orm(pg: QuerySource): Prisma.TransactionClient {
     statements.push(sql)
     if (sql.includes('pg_advisory_xact_lock')) return [{locked:1}]
     if (rejectSecondChild && sql.includes('INSERT INTO "Appointment"') && values.includes('p2')) throw new Error('controlled second child failure')
-    const rows = (await pg.query(sql, values.map(v=>v instanceof Date ? v.toISOString() : v !== null && typeof v === 'object' ? JSON.stringify(v) : v))).rows as Record<string, unknown>[]
+    if(sql.includes('pg_notify'))return [{notified:''}]
+    const result=await pg.query(sql, values.map(v=>v instanceof Date ? v.toISOString() : v instanceof Uint8Array ? v : v !== null && typeof v === 'object' ? JSON.stringify(v) : v))
+    const rows=result.rows as Record<string,unknown>[]
+    for(const field of result.fields??[])if(field.dataTypeID===20)for(const row of rows)if(row[field.name]!==null&&row[field.name]!==undefined)row[field.name]=BigInt(String(row[field.name]))
     if(lateSlotConflict && sql.includes('FROM "BusinessBotOptionsSettings" s') && values.some(v=>v instanceof Date && v.toISOString()==='2030-09-02T13:30:00.000Z')) for(const row of rows) row.insideWindow=false
     for (const row of rows) for (const key of ['startAt','endAt','dbNow','scheduledStartAt','expiresAt']) if (row[key] != null) row[key] = new Date(String(row[key]))
     return rows
@@ -76,10 +86,17 @@ function orm(pg: QuerySource): Prisma.TransactionClient {
     findFirst: async ({where}:{where:Record<string, unknown>})=>(await select(table,where))[0]??null,
     count: async ({where}:{where:Record<string, unknown>})=>(await select(table,where)).length
   }
-  return {...delegates, scheduleBlock:{findFirst:async()=>null},
-    $queryRaw:async(q:Prisma.Sql)=>query(q.text,q.values),
-    $executeRaw:async(q:Prisma.Sql)=>{await query(q.text,q.values);return 1}
-  } as unknown as Prisma.TransactionClient
+  for(const [name,table] of Object.entries({instagramLead:'InstagramLead',customer:'Customer',customerChannelIdentity:'CustomerChannelIdentity'})) delegates[name]={
+    findFirst:async({where,include}:{where:Record<string,unknown>;include?:{customer?:boolean}})=>{
+      const row=(await select(table,where))[0]??null
+      return row&&include?.customer?{...row,customer:(await select('Customer',{id:row.customerId}))[0]??null}:row
+    },
+    create:async({data}:{data:Record<string,unknown>})=>{
+      const record={id:crypto.randomUUID(),...data},keys=Object.keys(record)
+      return (await query('INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(',')+') VALUES ('+keys.map((_,i)=>'$'+(i+1)).join(',')+') RETURNING *',Object.values(record)))[0]
+    }
+  }
+  return {...delegates,scheduleBlock:{findFirst:async()=>null},$queryRaw:async(q:Prisma.Sql)=>query(q.text,q.values),$executeRaw:async(q:Prisma.Sql)=>{await query(q.text,q.values);return 1}} as unknown as Prisma.TransactionClient
 }
 const terms: RuntimeBookingTerms = { version:1,businessId:'b',timezone:'America/Argentina/Buenos_Aires',date:'2030-09-02',customerName:'Ana',preference:{kind:'any'},segments:[
   {serviceId:'s1',serviceName:'Corte',professionalId:'p1',professionalName:'Elisa',startAt:'2030-09-02T13:00:00.000Z',endAt:'2030-09-02T13:30:00.000Z',durationMinutes:30,customerDurationMinutes:30,priceMinor:1000,priceMode:'FIXED',configurationHash:null},
@@ -96,6 +113,160 @@ await db.query('UPDATE "BotSession" SET "state"=$1 WHERE "id"=$2',[JSON.stringif
 const counts = async () => (await db.query<{appointments:number;visits:number;operations:number}>(`SELECT (SELECT count(*)::int FROM "Appointment") appointments,(SELECT count(*)::int FROM "BookingVisit") visits,(SELECT count(*)::int FROM "BotOperation") operations`)).rows[0]!
 const execute = (value=input,failPersist=false)=>db.transaction(async tx=>{const result=await executePrismaConversationBooking(orm(tx),value);if(failPersist)throw new Error('caller persistence failure');return result})
 try {
+  await db.transaction(async tx=>{
+    await tx.exec(`INSERT INTO "InstagramLead" (id,"businessId","instagramUserId","aiEnabled") VALUES ('ig-lead','b','5491112345678',true);
+      INSERT INTO "BusinessInstagramConfig" (id,"businessId","instagramAccountId",enabled) VALUES ('ig-settings','b','ig-account',true);
+      INSERT INTO "Customer" (id,"businessId",phone,"normalizedPhone",name) VALUES ('ig-customer','b','',NULL,'Before');
+      INSERT INTO "CustomerChannelIdentity" (id,"businessId",channel,"externalUserId","customerId") VALUES ('ig-identity','b','INSTAGRAM','5491112345678','ig-customer');
+      INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion") VALUES ('ig-dep','b','INSTAGRAM',2,3,'cfg',1);
+      INSERT INTO "BotSession" (id,"businessId",channel,"instagramLeadId","instagramAccountId","deploymentId","deploymentGeneration",status,revision,"handoffFenceEpoch","businessTimezone") VALUES ('ig-session','b','INSTAGRAM','ig-lead','ig-account','ig-dep',2,'ACTIVE',4,5,'America/Argentina/Buenos_Aires');`)
+    await tx.query('UPDATE "BotChannelDeployment" SET "engineKey"=$1',['deterministic-options'])
+    await tx.query('UPDATE "BusinessBotConfiguration" SET definition=$1',[JSON.stringify({conversation:{engine:'conversational-booking-v1',schemaVersion:1}})])
+    const {canonicalPhone:waPhone,...originWithoutPhone}=origin
+    const igOrigin={...originWithoutPhone,sessionId:'ig-session',deploymentId:'ig-dep',operationKey:'ig-runtime:nonce',subject:{channel:'INSTAGRAM' as const,instagramLeadId:'ig-lead',instagramAccountId:'ig-account',externalUserId:'5491112345678'}}
+    const nextMonday=new Date((await tx.query<{now:string}>('SELECT clock_timestamp() now')).rows[0]!.now)
+    nextMonday.setUTCDate(nextMonday.getUTCDate()+((8-nextMonday.getUTCDay())%7||7));const igDate=nextMonday.toISOString().slice(0,10)
+    const igTerms={...terms,date:igDate,segments:terms.segments.map(segment=>({...segment,startAt:igDate+segment.startAt.slice(10),endAt:igDate+segment.endAt.slice(10)}))}
+    const igShown={...presented,terms:igTerms,fingerprint:runtimeBookingFingerprint(igTerms),scope:{...presented.scope,sessionId:'ig-session',deploymentId:'ig-dep'}}
+    const igDraft={...draft,date:igDate,slot:{startAt:igTerms.segments[0]!.startAt,coordination:{segments:igTerms.segments.map(({priceMinor,priceMode,configurationHash,...segment})=>segment)}},bookingReservation:{presented:igShown}}
+    const igInput={origin:igOrigin,presented:igShown,currentDraft:igDraft,consent:{nonce:igShown.nonce,fingerprint:igShown.fingerprint,confirmed:true}} as RuntimeBookingInput
+    await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:igDraft}}),'ig-session'])
+    for(const change of [{subject:{...igOrigin.subject,instagramAccountId:'other-account'}},{subject:{...igOrigin.subject,externalUserId:'someone-else'}},{revision:3n},{businessId:'foreign'},{handoffFenceEpoch:4}]){
+      assert.equal((await executePrismaConversationBooking(orm(tx),{...igInput,origin:{...igOrigin,...change}} as RuntimeBookingInput)).kind,'BLOCKED','IG scope cannot borrow a phone, account, tenant or old consent')
+    }
+    const result=await executePrismaConversationBooking(orm(tx),igInput)
+    assert.equal(result.kind,'COMMITTED','Instagram must execute the SAME booking primitive without any phone')
+    assert.deepEqual((await tx.query('SELECT DISTINCT "customerId" FROM "Appointment"')).rows,[{customerId:'ig-customer'}],'numeric sender ID never links the WhatsApp customer')
+    assert.deepEqual(await executePrismaConversationBooking(orm(tx),igInput),result,'IG replay does not duplicate appointments')
+    assert.equal((await tx.query<{phone:string;normalizedPhone:string|null}>('SELECT phone,"normalizedPhone" FROM "Customer" WHERE id=$1',['ig-customer'])).rows[0]!.phone,'')
+    console.log('IG booking/no-phone/exact-customer/replay: PASS')
+    await tx.exec('UPDATE "Appointment" SET version=0,"manualDepositPaid"=false; UPDATE "BookingVisit" SET version=0')
+    await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'CONFIRMED',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:{...igDraft,bookingReservation:{presented:igShown,receipt:result}}}}),'ig-session'])
+    const own=await loadOwnAppointments(orm(tx),{businessId:'b',sessionId:'ig-session',subject:igOrigin.subject,expectedRevision:4n} as never)
+    assert.equal(own.items.length,1,'IG exact linked customer can read its coordinated booking without a phone')
+    await tx.exec('UPDATE "BusinessBotOptionsSettings" SET "bookingHorizonDays"=90,"rescheduleLeadMinutes"=0')
+    const moves=own.items[0]!.snapshot.members.map(member=>({appointmentId:member.appointmentId,newStartAt:new Date(Date.parse(member.startAt)+2*60*60*1000).toISOString()}))
+    const proposal=presentGroupReschedule(own.items[0]!.snapshot,moves,'own_lookup')
+    const command=confirmGroupReschedule(proposal,{nonce:proposal.nonce,fingerprint:proposal.fingerprint})
+    const changed=await rescheduleGroupInTransaction(orm(tx),command)
+    assert.equal(changed.appointmentIds.length,2,'IG reschedules the same exact-customer coordinated group')
+    assert.equal((await tx.query<{n:number}>('SELECT count(*)::int n FROM "AppointmentChangeHistory"')).rows[0]!.n,2)
+    assert.equal((await rescheduleGroupInTransaction(orm(tx),command)).replayed,true,'IG rescheduling replay does not repeat effects')
+    console.log('IG own-read/reschedule: PASS')
+    await tx.query('UPDATE "CustomerChannelIdentity" SET "customerId"=$1 WHERE id=$2',['customer','ig-identity'])
+    assert.equal((await loadOwnAppointments(orm(tx),{businessId:'b',sessionId:'ig-session',subject:igOrigin.subject,expectedRevision:4n} as never)).items.length,0,'an explicit link grants only that exact customer, not the old IG customer')
+    await tx.exec(`UPDATE "Appointment" SET "customerId"='customer'; UPDATE "BookingVisit" SET "customerId"='customer',"sessionId"='session'`)
+    const linked=await loadOwnAppointments(orm(tx),{businessId:'b',sessionId:'ig-session',subject:igOrigin.subject,expectedRevision:4n} as never)
+    assert.equal(linked.items.length,1,'an explicit IG link can read that same customer WA-origin visit')
+    const policy={businessId:'b',deploymentId:'ig-dep',generation:2,configurationId:'cfg',channel:'INSTAGRAM' as const}
+    const handoffState=projectConversationDraft({...initialDialogueState('b'),completedBooking:{presented:igShown,receipt:result}} as never,policy)
+    await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify(handoffState),'ig-session'])
+    const unchanged=(await tx.query('SELECT id,status,"startAt",version FROM "Appointment" ORDER BY id')).rows
+    const request={businessId:'b',sessionId:'ig-session',policy,expectedRevision:4n,handoffFenceEpoch:5,operationKey:'ig-cancel-referral',command:{ownAppointment:{snapshot:linked.items[0]!.snapshot,action:'cancel' as const,evidence:'Quiero cancelar mi turno'},consent:{revision:4n,evidence:'Quiero cancelar mi turno'}}}
+    const handoff=await enqueueConversationalHandoffTx(orm(tx),request)
+    assert.ok(handoff.handoffId)
+    assert.deepEqual((await tx.query('SELECT id,status,"startAt",version FROM "Appointment" ORDER BY id')).rows,unchanged,'cancel request queues a human and NEVER mutates the appointment')
+    assert.equal((await tx.query<{aiEnabled:boolean}>('SELECT "aiEnabled" FROM "InstagramLead" WHERE id=$1',['ig-lead'])).rows[0]!.aiEnabled,false,'handoff pause is durable on the lead')
+    assert.equal((await enqueueConversationalHandoffTx(orm(tx),request)).replayed,true)
+    console.log('IG exact linked WA-customer/cancellation referral/no appointment mutation: PASS')
+    await tx.exec(`UPDATE "BotSession" SET status='ACTIVE',revision=4 WHERE id='ig-session'; UPDATE "InstagramLead" SET "aiEnabled"=true,"botPausedAt"=NULL WHERE id='ig-lead';
+      DELETE FROM "AppointmentChangeHistory"; DELETE FROM "BookingDeposit"; DELETE FROM "AppointmentServiceItem"; DELETE FROM "Appointment"; DELETE FROM "BookingVisit"; DELETE FROM "BotOperation"; DELETE FROM "BotHandoff";
+      UPDATE "Service" SET "depositMode"='FIXED',"depositValue"=100 WHERE id='s1'; UPDATE "BusinessBotOptionsSettings" SET "depositHoldMinutes"=60;
+      INSERT INTO "BusinessPaymentSettings" (id,"businessId","transferEnabled",alias,"paymentLinkEnabled") VALUES ('ig-pay','b',true,'salon.test',false)`)
+    const deposit={financial:{amount:100,ttlMinutes:60,ttlProvenance:'BUSINESS_POLICY' as const,lines:[{serviceId:'s1',sortOrder:0,serviceName:'Corte',mode:'FIXED' as const,configuredValue:100,baseAmount:null,amount:100}]},payment:{transferEnabled:true,alias:'salon.test',cbu:null,cvu:null,paymentLinkEnabled:false,paymentLink:null}}
+    const service=(await tx.query<Record<string,unknown>>('SELECT * FROM "Service" WHERE id=$1',['s1'])).rows[0]!
+    const heldTerms={...igTerms,segments:[{...igTerms.segments[0]!,configurationHash:runtimeServiceConfigurationHash(service)}],totalPriceMinor:1000,deposit}
+    const heldShown={...igShown,terms:heldTerms,fingerprint:runtimeBookingFingerprint(heldTerms)}
+    const heldDraft={...igDraft,basket:{members:[igDraft.basket.members[0]!]},slot:{startAt:heldTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa'},bookingReservation:{presented:heldShown}}
+    const heldInput={...igInput,presented:heldShown,currentDraft:heldDraft,consent:{nonce:heldShown.nonce,fingerprint:heldShown.fingerprint,confirmed:true}} as RuntimeBookingInput
+    await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:heldDraft}}),'ig-session'])
+    const previousCapability=process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED,previousAuthority=process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED
+    process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED='false';process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED='false'
+    process.env.INSTAGRAM_CONVERSATIONAL_BOT_ENABLED='true';process.env.INSTAGRAM_CONVERSATIONAL_BOT_BUSINESS_IDS='b'
+    try {
+      const held=await executePrismaConversationBooking(orm(tx),heldInput)
+      assert.equal(held.kind,'HELD','Instagram creates the same real financial hold')
+      if(held.kind!=='HELD')throw Error('expected IG hold')
+      assert.equal((await tx.query<{source:string;conversationId:string|null}>('SELECT source,"conversationId" FROM "BookingDeposit"')).rows[0]!.source,'INSTAGRAM','IG financial origin is explicit, never disguised as WhatsApp')
+      const refreshed=await loadRuntimeDepositReceipt(orm(tx),{businessId:'b',sessionId:'ig-session',subject:igOrigin.subject,expectedRevision:4n} as never,{presented:heldShown,receipt:held})
+      assert.deepEqual(refreshed,held,'IG held receipt survives durable reread')
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),{businessId:'b',sessionId:'ig-session',canonicalPhone:origin.canonicalPhone,expectedRevision:4n},{presented:heldShown,receipt:held}),null,'a WA phone cannot read an IG receipt')
+      assert.equal(await loadRuntimeDepositReceipt(orm(tx),{businessId:'b',sessionId:'ig-session',subject:{...igOrigin.subject,instagramAccountId:'wrong'},expectedRevision:4n} as never,{presented:heldShown,receipt:held}),null)
+      assert.deepEqual(await executePrismaConversationBooking(orm(tx),heldInput),held,'IG deposit replay creates no second obligation')
+      console.log('IG financial hold/exact receipt/replay: PASS')
+      const financialDialogue={...initialDialogueState('b'),serviceId:'s1',customerName:'Ana',date:igDate,professional:heldTerms.preference,pending:'proposal' as const,slot:{date:igDate,time:'10:00',startAt:heldTerms.segments[0]!.startAt,professionalId:'p1',professionalName:'Elisa',band:'MORNING' as const,occupiedMinutes:0},bookingReservation:{presented:heldShown,receipt:held}}
+      const financialState=projectConversationDraft(financialDialogue,policy)
+      await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify(financialState),'ig-session'])
+      const {loadPendingDepositCancellationTx}=await import('../src/services/pending-deposit-cancellation.js')
+      const pendingActor={kind:'CUSTOMER' as const,sessionId:'ig-session',subject:igOrigin.subject,expectedRevision:4n,expectedReceipt:{groupId:held.coordinationGroupId,operationKey:held.operationKey,proposalNonce:held.proposalNonce,fingerprint:held.fingerprint}}
+      const pendingReset=await loadPendingDepositCancellationTx(orm(tx),{businessId:'b',appointmentId:held.appointments[0]!.appointmentId,actor:pendingActor})
+      assert.equal(pendingReset.sessionId,'ig-session','Current pending-hold reset uses exact IG identity and same original session')
+      await assert.rejects(loadPendingDepositCancellationTx(orm(tx),{businessId:'b',appointmentId:held.appointments[0]!.appointmentId,actor:{...pendingActor,subject:{...igOrigin.subject,instagramAccountId:'other-account'}}}),/OWNERSHIP/)
+      await tx.exec('SAVEPOINT ig_pending_reset')
+      const {cancelPendingDepositInTransaction}=await import('../src/services/pending-deposit-cancellation.js')
+      assert.equal((await cancelPendingDepositInTransaction(orm(tx),{snapshot:pendingReset,actor:pendingActor,confirmed:true,operationKey:'ig-pending-reset'})).outcome,'CANCELLED')
+      assert.equal((await tx.query<{status:string}>('SELECT status FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows[0]!.status,'REJECTED','Only the current pending hold is released by the existing reset policy')
+      const {canResumeExpiredConversationTx}=await import('../src/conversational-bot/conversation-expired-recovery.js')
+      await tx.exec(`UPDATE "BotOutbox" SET status='ACCEPTED' WHERE "sessionId"='ig-session'`)
+      const terminalRows=(await tx.query('SELECT * FROM "Appointment" ORDER BY id')).rows
+      assert.equal(await canResumeExpiredConversationTx(orm(tx),{...heldShown.scope,subject:igOrigin.subject},financialDialogue),true,'Terminal current IG hold can recover only after exact receipt and effect checks')
+      assert.equal(await canResumeExpiredConversationTx(orm(tx),{...heldShown.scope,subject:{...igOrigin.subject,instagramAccountId:'foreign'}},financialDialogue),false)
+      assert.deepEqual((await tx.query('SELECT * FROM "Appointment" ORDER BY id')).rows,terminalRows,'Recovery reads never mutate historical appointments')
+      await tx.exec('ROLLBACK TO SAVEPOINT ig_pending_reset')
+
+      const proofBinding=conversationProofBindingFromState(financialState,{businessId:'b',sessionId:'ig-session',deploymentId:'ig-dep',generation:2,configurationId:'cfg',revision:'4',timezone:igTerms.timezone})
+      assert.ok(proofBinding)
+      const pdfProof=process.argv.includes('--instagram-pdf-proof')
+      const proofPayload={kind:'message',channel:'INSTAGRAM',instagramLeadId:'ig-lead',instagramAccountId:'ig-account',senderId:'5491112345678',messageType:pdfProof?'document':'image',mediaSource:'INSTAGRAM_SIGNED_URL',instagramAttachment:{type:pdfProof?'file':'image',url:'https://lookaside.fbsbx.com/ig_messaging_cdn/?signed=offline'},textBody:'',mediaMimeType:null,contextWindowEvaluated:true}
+      await tx.query('INSERT INTO "BotProviderEvent" (id,"businessId",provider,"eventType","providerMessageId",payload,status,"admittedAt","providerOccurredAt") VALUES ($1,$2,$3,$4,$5,$6,$7,clock_timestamp(),clock_timestamp())',['ig-proof-event','b','INSTAGRAM','MESSAGE','ig-proof-mid',JSON.stringify(proofPayload),'PROCESSED'])
+      await tx.query('INSERT INTO "BotActionInbox" (id,"businessId","providerEventId","sessionId","deploymentId","deploymentGeneration","actionType","entityRef",status) VALUES ($1,$2,$3,$4,$5,2,$6,$7,$8)',['ig-proof-inbox','b','ig-proof-event','ig-session','ig-dep',CONVERSATION_PROOF_ACTION,JSON.stringify(proofBinding),'PROCESSED'])
+      const proofEvent={id:'ig-proof-event',businessId:'b',providerMessageId:'ig-proof-mid',phoneNumberId:null,payload:proofPayload}
+      assert.deepEqual(await resolveProofTarget(orm(tx),proofEvent,'ig-dep'),{kind:'FOUND',depositId:held.depositId},'proof target resolves only the bound IG obligation without a phone')
+      await tx.query('INSERT INTO "BotJob" (id,kind,"aggregateId","businessId","deploymentId","deploymentGeneration",status,attempts,"maxAttempts","leaseToken","leasedUntil") VALUES ($1,$2,$3,$4,$5,2,$6,1,5,$7,clock_timestamp()+interval \'1 minute\')',['ig-proof-job','RECEIVE_DEPOSIT_PROOF','ig-proof-event','b','ig-dep','LEASED','ig-proof-token'])
+      const proofClient={...orm(tx),$transaction:async<T>(run:(client:Prisma.TransactionClient)=>Promise<T>)=>run(orm(tx))}
+      const image=pdfProof?await(async()=>{const pdf=await(await import('pdf-lib')).PDFDocument.create();pdf.addPage([100,100]);return pdf.save({useObjectStreams:false})})():await (await import('sharp')).default({create:{width:32,height:32,channels:3,background:'#ffffff'}}).png().toBuffer()
+      assert.equal((await resolveProofTarget(orm(tx),{...proofEvent,payload:{...proofPayload,instagramAccountId:'other-account'}},'ig-dep')).kind,'NONE','proof cannot cross account')
+      for(const binding of [{...proofBinding,depositId:'foreign-deposit'},{...proofBinding,revision:'5'}]){
+        await tx.query('UPDATE "BotActionInbox" SET "entityRef"=$1 WHERE id=$2',[JSON.stringify(binding),'ig-proof-inbox'])
+        assert.equal((await resolveProofTarget(orm(tx),proofEvent,'ig-dep')).kind,'NONE','foreign obligation or future binding never authorizes proof bytes')
+      }
+      await tx.query('UPDATE "BotActionInbox" SET "entityRef"=$1 WHERE id=$2',[JSON.stringify(proofBinding),'ig-proof-inbox'])
+      let proofDownloads=0
+      const proofResult=await processDepositProofJob({client:proofClient as never,job:{id:'ig-proof-job',kind:'RECEIVE_DEPOSIT_PROOF',aggregateId:'ig-proof-event',businessId:'b',deploymentId:'ig-dep',deploymentGeneration:2,expectedRevision:4n,attempts:1,maxAttempts:5,claimToken:'ig-proof-token',claimedUntil:new Date(Date.now()+60000),queueWaitMs:0,channel:'INSTAGRAM'},capabilityEnabled:true,instagramFetch:(async(_url:string,options:{headers:Record<string,string>})=>{proofDownloads++;assert.deepEqual(options.headers,{});return {ok:true,headers:new Headers({'content-type':pdfProof?'application/pdf':'image/png','content-length':String(image.length)}),body:(async function*(){yield image})()}}) as never})
+      assert.equal(proofResult,'APPLIED');assert.equal(proofDownloads,1)
+      assert.equal((await tx.query<{status:string}>('SELECT status FROM "BookingDeposit" WHERE id=$1',[held.depositId])).rows[0]!.status,'PROOF_RECEIVED','validated IG proof waits for staff review and is NEVER approved automatically')
+      assert.equal((await tx.query<{n:number}>("SELECT count(*)::int n FROM \"BotOutbox\" WHERE payload->>'channel'='INSTAGRAM'")).rows[0]!.n,1,'proof acknowledgement uses the shared IG outbox')
+      console.log('IG exact financial proof worker/'+(pdfProof?'PDF':'image')+' validation/receipt acknowledgement: PASS')
+
+      await tx.exec('DELETE FROM "BookingDepositProof"; DELETE FROM "BookingDepositLine"; DELETE FROM "BookingDeposit"; DELETE FROM "AppointmentServiceItem"; DELETE FROM "Appointment"; DELETE FROM "BookingVisit"; DELETE FROM "BotOperation"; DELETE FROM "BotJob"')
+      const groupTerms={...igTerms,segments:[{...heldTerms.segments[0]!},igTerms.segments[1]!],deposit}
+      const groupShown={...igShown,terms:groupTerms,fingerprint:runtimeBookingFingerprint(groupTerms)}
+      const groupDraft={...igDraft,bookingReservation:{presented:groupShown}}
+      await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:groupDraft}}),'ig-session'])
+      const groupInput={...igInput,presented:groupShown,currentDraft:groupDraft,consent:{nonce:groupShown.nonce,fingerprint:groupShown.fingerprint,confirmed:true}} as RuntimeBookingInput
+      const groupHeld=await executePrismaConversationBooking(orm(tx),groupInput)
+      assert.equal(groupHeld.kind,'HELD','IG coordinated financial booking must hold every segment')
+      assert.deepEqual(await executePrismaConversationBooking(orm(tx),groupInput),groupHeld,'IG coordinated receipt remains recoverable and idempotent')
+      console.log('IG coordinated financial hold/receipt/replay: PASS')
+      await tx.exec(`DELETE FROM "BookingDepositProof"; DELETE FROM "BookingDepositLine"; DELETE FROM "BookingDeposit"; DELETE FROM "AppointmentServiceItem"; DELETE FROM "Appointment"; DELETE FROM "BookingVisit"; DELETE FROM "BotOperation"; DELETE FROM "BotJob"; DELETE FROM "CustomerChannelIdentity" WHERE id='ig-identity'; UPDATE "Service" SET "depositMode"='NONE',"depositValue"=NULL WHERE id='s1'`)
+      const freshTerms={...igTerms,segments:igTerms.segments.map(segment=>({...segment}))}
+      freshTerms.segments[0]!.configurationHash=runtimeServiceConfigurationHash((await tx.query<Record<string,unknown>>('SELECT * FROM "Service" WHERE id=$1',['s1'])).rows[0]!)
+      const freshShown={...igShown,terms:freshTerms,fingerprint:runtimeBookingFingerprint(freshTerms)}
+      const freshDraft={...igDraft,bookingReservation:{presented:freshShown}}
+      await tx.query('UPDATE "BotSession" SET state=$1 WHERE id=$2',[JSON.stringify({booking:'DRAFT',deposit:'NONE',handoff:'NONE',conversationDraft:{dialogue:freshDraft}}),'ig-session'])
+      const fresh=await executePrismaConversationBooking(orm(tx),{...igInput,presented:freshShown,currentDraft:freshDraft,consent:{confirmed:true,nonce:freshShown.nonce,fingerprint:freshShown.fingerprint}} as RuntimeBookingInput)
+      assert.equal(fresh.kind,'COMMITTED','new Instagram customer is created after a valid name, without a phone')
+      const created=(await tx.query<{id:string;phone:string;normalizedPhone:string|null;name:string}>('SELECT c.id,c.phone,c."normalizedPhone",c.name FROM "CustomerChannelIdentity" i JOIN "Customer" c ON c.id=i."customerId" WHERE i."businessId"=$1 AND i.channel=$2 AND i."externalUserId"=$3',['b','INSTAGRAM','5491112345678'])).rows[0]!
+      assert.equal(created.phone,'');assert.equal(created.normalizedPhone,null);assert.equal(created.name,'Ana');assert.notEqual(created.id,'customer')
+      console.log('IG new named customer/no phone/no typed identity match: PASS')
+    } finally {
+      delete process.env.INSTAGRAM_CONVERSATIONAL_BOT_ENABLED;delete process.env.INSTAGRAM_CONVERSATIONAL_BOT_BUSINESS_IDS
+      if(previousCapability===undefined)delete process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED;else process.env.BOT_OPTIONS_CAPABILITY_DEPOSITS_ENABLED=previousCapability
+      if(previousAuthority===undefined)delete process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED;else process.env.BOT_OPTIONS_AUTHORITATIVE_PROCESSING_ENABLED=previousAuthority
+    }
+    throw new Error('reset Instagram booking')
+  }).catch(error=>{if(!(error instanceof Error)||error.message!=='reset Instagram booking')throw error})
+  if (!process.argv.includes('--instagram-only')) {
   for(const change of [{revision:3n},{canonicalPhone:'5491199999999'},{businessId:'foreign'},{handoffFenceEpoch:4},{dispatchFenceEpoch:2},{generation:1},{newBookingAllowed:false}]) {
     const result=await execute({...input,origin:{...origin,...change}})
     assert.equal(result.kind,'BLOCKED');assert.deepEqual(await counts(),{appointments:0,visits:0,operations:0})
@@ -329,4 +500,5 @@ try {
   await db.transaction(async tx=>{await tx.exec(`UPDATE "BotOperation" SET "requestHash"='tampered' WHERE "operationKey" LIKE '%segment:1:CONFIRM_VISIT'`);await assert.rejects(executePrismaConversationBooking(orm(tx),input),/replay/);throw new Error('reset child hash')}).catch(error=>assert.match(String(error),/reset child hash/))
   assert.ok(statements.some(s=>s.includes('pg_advisory_xact_lock')),'existing agenda locks reused')
   console.log('booking runtime PGlite: PASS (production F7 children; caller rollback; no network; no cross-process lock claim)')
+  }
 } finally { await db.close() }
