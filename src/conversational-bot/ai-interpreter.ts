@@ -403,8 +403,9 @@ export async function respondWithAiInterpreter(
   let commercialHours: BusinessHoursContext | undefined
   try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
+  // bookingMessage includes unclassified text; only the final AI admission proves independent conversation.
   const conversationalPossible = allowsConversationalContent(state) && !preparedInformation &&
-    !pureInformation && !route.information.length && !route.pendingAction && !route.bookingMessage
+    !pureInformation && !route.information.length && !route.pendingAction
   const conversationalContinuation = hasActiveBooking(state) || state.serviceRequest || state.catalogNavigation || state.informationFocus
     ? 'pending' as const : 'help_or_booking' as const
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
