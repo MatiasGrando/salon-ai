@@ -16,7 +16,7 @@ assert.match(migration, /ADD COLUMN "bookingTheme" TEXT/, 'migration must add th
 assert.match(businessRoute, /normalizeBookingTheme\(body\.bookingTheme\)/, 'the business endpoint must validate booking themes')
 assert.match(businessRoute, /bookingTheme: bookingTheme/, 'the business endpoint must persist the selected theme')
 
-for (const theme of ['light', 'dark', 'rose', 'sage', 'blue', 'violet']) {
+for (const theme of ['light', 'dark', 'rose', 'sage', 'blue', 'violet', 'yellow-black']) {
   assert.match(crmUi, new RegExp('name="booking-theme" value="' + theme + '"'), `settings must offer the ${theme} theme`)
   assert.match(bookingUi, new RegExp('booking-theme-' + theme), `public booking must style the ${theme} theme`)
 }
@@ -62,20 +62,26 @@ for (const selector of [
   assert.match(bookingUi, new RegExp('body\\[class\\*="booking-theme-"\\][\\s\\S]*?\\.' + selector + '[^}]*var\\(--booking-'), `${selector} must consume semantic booking tokens`)
 }
 
-assert.match(businessRoute, /BOOKING_THEMES = new Set\(\['light', 'dark', 'rose', 'sage', 'blue', 'violet'\]\)/, 'only the six approved themes are accepted')
+assert.match(businessRoute, /BOOKING_THEMES = new Set\(\['light', 'dark', 'rose', 'sage', 'blue', 'violet', 'yellow-black'\]\)/, 'only the approved themes are accepted')
 assert.match(businessRoute, /if \(value === null \|\| !value\.trim\(\)\) return null/, 'PATCH must support clearing the explicit theme')
 
 assert.equal(defaultBookingTheme('classic'), 'dark')
 assert.equal(defaultBookingTheme('editorial'), 'light')
 assert.equal(defaultBookingTheme('salon-white'), 'rose')
 assert.equal(defaultBookingTheme('luxe-nails'), 'violet')
-for (const theme of ['light', 'dark', 'rose', 'sage', 'blue', 'violet']) {
+for (const theme of ['light', 'dark', 'rose', 'sage', 'blue', 'violet', 'yellow-black']) {
   assert.equal(normalizeBookingTheme(theme), theme, `PATCH normalization must preserve ${theme}`)
   assert.equal(resolveBookingTheme(theme, 'classic'), theme, `public rendering must preserve explicit ${theme}`)
 }
 assert.equal(normalizeBookingTheme('neon'), undefined, 'PATCH must reject themes outside the approved set')
 assert.equal(normalizeBookingTheme(null), null, 'PATCH must allow clearing the explicit theme')
 assert.equal(resolveBookingTheme(null, 'salon-white'), 'rose', 'cleared themes must fall back to the landing-compatible default')
+assert.match(crmUi, /value="yellow-black"[^\n]+<strong>Amarillo y negro<\/strong>/, 'the new theme has the requested neutral display name')
+assert.match(bookingUi, /body\.booking-theme-yellow-black \.booking-brand-actions::before[^}]*clip-path:\s*polygon\(/, 'the compact brand header draws its own diagonal without a banner')
+assert.match(bookingUi, /body\.booking-theme-yellow-black \.booking-brand-logo,[\s\S]*?\.booking-brand-logo img\s*\{[^}]*background:\s*var\(--booking-cta\)/, 'both transparent image pixels and their container receive the yellow background')
+assert.match(bookingUi, /\.booking-theme-yellow-black\s*\{[^}]*--booking-cta:\s*#FFE52B;[^}]*--booking-on-cta:\s*#111111;/, 'yellow actions retain dark readable text')
+assert.match(bookingUi, /body\.booking-theme-yellow-black \.booking-brand-actions \.booking-navigation-close\s*\{[^}]*color:#FFFFFF;/, 'header controls remain readable on the black cut')
+assert.match(crmUi, /\.booking-theme-preview\.booking-theme-yellow-black::after[^}]*clip-path:\s*polygon\(/, 'the immediate selector preview includes the diagonal header')
 
 function escaped(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

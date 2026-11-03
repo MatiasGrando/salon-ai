@@ -243,7 +243,7 @@ function normalizeLandingTemplate(value?: string | null) {
   return value === 'editorial' ? 'editorial' : 'classic'
 }
 
-const BOOKING_THEMES = new Set(['light', 'dark', 'rose', 'sage', 'blue', 'violet'])
+const BOOKING_THEMES = new Set(['light', 'dark', 'rose', 'sage', 'blue', 'violet', 'yellow-black'])
 
 export function defaultBookingTheme(templateId: string) {
   if (templateId === 'classic') return 'dark'
@@ -8371,6 +8371,24 @@ function htmlPage(input: {
       --booking-cta: #624073;
       --booking-on-cta: #FFFFFF;
     }
+    .booking-theme-yellow-black {
+      --booking-bg: #FFFEFA;
+      --booking-surface: #FFFFFF;
+      --booking-ink: #111111;
+      --booking-muted: #66635C;
+      --booking-secondary-ink: #55524B;
+      --booking-deposit-ink: #744322;
+      --booking-deposit-bg: #FFF0DD;
+      --booking-border: #D9D7CF;
+      --booking-accent: #111111;
+      --booking-accent-hover: #35332D;
+      --booking-accent-soft: #FFF4A4;
+      --booking-on-accent: #FFE52B;
+      --booking-summary-bg: #FFFFFF;
+      --booking-summary-ink: #111111;
+      --booking-cta: #FFE52B;
+      --booking-on-cta: #111111;
+    }
     body[class*="booking-theme-"] { background: var(--booking-bg); }
     body[class*="booking-theme-"] .fresha-booking {
       padding: 28px 20px 64px;
@@ -8859,6 +8877,39 @@ function htmlPage(input: {
       body[class*="booking-theme-"] .service-meta small { font-size:11px; }
       .booking-my-appointments { max-width:75px; text-align:center; }
       .booking-professional strong { font-size:12px; }
+    }
+
+    /* Yellow and black stays scoped to the selected booking theme. */
+    body.booking-theme-yellow-black .booking-brand-rail { padding:14px 18px; background:var(--booking-cta); border:0; border-radius:16px; overflow:hidden; isolation:isolate; }
+    body.booking-theme-yellow-black .booking-brand { flex:1; gap:10px; min-width:0; }
+    body.booking-theme-yellow-black .booking-brand-name { min-width:0; overflow:hidden; }
+    body.booking-theme-yellow-black .booking-brand-name strong { display:block; overflow:hidden; color:var(--booking-ink); font-size:22px; font-weight:850; text-transform:uppercase; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-.025em; }
+    body.booking-theme-yellow-black .booking-brand-name span { display:block; overflow:hidden; color:var(--booking-ink); font-size:11px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    body.booking-theme-yellow-black .booking-brand-logo,
+    body.booking-theme-yellow-black .booking-brand-logo img { color:var(--booking-ink); background:var(--booking-cta); border-color:transparent; }
+    body.booking-theme-yellow-black .booking-brand-actions { position:relative; align-self:stretch; padding-left:26px; isolation:isolate; }
+    body.booking-theme-yellow-black .booking-brand-actions::before { content:""; position:absolute; z-index:-1; inset:-14px -18px -14px 0; background:var(--booking-ink); clip-path:polygon(26px 0,100% 0,100% 100%,0 100%); pointer-events:none; }
+    body.booking-theme-yellow-black .booking-brand-actions .booking-reservations-link,
+    body.booking-theme-yellow-black .booking-brand-actions .booking-navigation-close { color:#FFFFFF; background:transparent; border-color:transparent; }
+    body.booking-theme-yellow-black .booking-brand-actions .booking-reservations-link:hover,
+    body.booking-theme-yellow-black .booking-brand-actions .booking-navigation-close:hover { color:var(--booking-cta); background:#2C2C2C; }
+    body.booking-theme-yellow-black .booking-brand:focus-visible { outline:3px solid var(--booking-ink); outline-offset:3px; }
+    body.booking-theme-yellow-black .booking-brand-actions :focus-visible { outline:3px solid var(--booking-cta); outline-offset:2px; }
+    body.booking-theme-yellow-black .fresha-heading { font-size:clamp(30px,3.5vw,42px); font-weight:850; line-height:1.08; letter-spacing:-.035em; text-transform:uppercase; }
+    body.booking-theme-yellow-black .booking-progress-number { color:var(--booking-ink); background:var(--booking-cta); }
+    body.booking-theme-yellow-black .booking-progress-segments .active { background:var(--booking-cta); }
+    body.booking-theme-yellow-black .summary-logo { color:var(--booking-ink); background:var(--booking-cta); border-color:var(--booking-cta); }
+    body.booking-theme-yellow-black .booking-service-option.selected { border-color:var(--booking-ink); box-shadow:0 0 0 1px var(--booking-ink); }
+    @media (max-width:820px) {
+      body.booking-theme-yellow-black .booking-brand-rail { padding:12px; gap:8px; }
+      body.booking-theme-yellow-black .booking-brand { gap:8px; }
+      body.booking-theme-yellow-black .booking-brand-name strong { font-size:18px; }
+      body.booking-theme-yellow-black .booking-brand-name span { font-size:10px; }
+      body.booking-theme-yellow-black .booking-brand-actions { gap:3px; padding-left:18px; }
+      body.booking-theme-yellow-black .booking-brand-actions::before { inset:-12px -12px -12px 0; clip-path:polygon(18px 0,100% 0,100% 100%,0 100%); }
+      body.booking-theme-yellow-black .booking-brand-actions .booking-reservations-link { min-width:36px; padding:6px; font-size:11px; }
+      body.booking-theme-yellow-black .booking-brand-actions .booking-navigation-close { min-width:44px; min-height:44px; padding:6px; }
+      body.booking-theme-yellow-black .fresha-heading { font-size:32px; }
     }
 
     @media (max-width: 980px) {

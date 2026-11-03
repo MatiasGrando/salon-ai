@@ -1113,7 +1113,7 @@ function normalizeLandingTemplate(value?: string) {
   return LANDING_TEMPLATES.has(normalized) ? normalized : undefined
 }
 
-const BOOKING_THEMES = new Set(['light', 'dark', 'rose', 'sage', 'blue', 'violet'])
+const BOOKING_THEMES = new Set(['light', 'dark', 'rose', 'sage', 'blue', 'violet', 'yellow-black'])
 
 export function normalizeBookingTheme(value?: string | null) {
   if (value === undefined) return undefined

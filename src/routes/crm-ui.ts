@@ -9533,6 +9533,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .booking-theme-sage { --theme-bg:#f3f5ef; --theme-surface:#fefffc; --theme-border:#dce4d9; --theme-accent:#49745a; --theme-soft:#e5efe6; --theme-ink:#27322b; --theme-summary:#fdfefb; --theme-summary-ink:#27322b; --theme-cta:#365b45; --theme-on-cta:#fff; }
     .booking-theme-blue { --theme-bg:#f1f5f9; --theme-surface:#fff; --theme-border:#d9e2ec; --theme-accent:#285f9e; --theme-soft:#e5effa; --theme-ink:#172033; --theme-summary:#f8fafc; --theme-summary-ink:#172033; --theme-cta:#173e6c; --theme-on-cta:#fff; }
     .booking-theme-violet { --theme-bg:#f6f2f8; --theme-surface:#fff; --theme-border:#e5dae9; --theme-accent:#735184; --theme-soft:#eee5f2; --theme-ink:#302538; --theme-summary:#fff; --theme-summary-ink:#302538; --theme-cta:#624073; --theme-on-cta:#fff; }
+    .booking-theme-yellow-black { --theme-bg:#fffefa; --theme-surface:#fff; --theme-border:#d9d7cf; --theme-accent:#111111; --theme-soft:#fff4a4; --theme-ink:#111111; --theme-summary:#fff; --theme-summary-ink:#111111; --theme-cta:#ffe52b; --theme-on-cta:#111111; }
+    .booking-theme-yellow-black .booking-theme-swatches i:nth-child(2) { background:var(--theme-cta); }
     .booking-theme-preview { padding: 13px; display: grid; grid-template-columns: minmax(0,1fr) 82px; gap: 8px; align-content: center; background: var(--theme-bg); border: 1px solid var(--theme-border); border-radius: 11px; }
     .booking-theme-preview-services { display: grid; gap: 6px; }
     .booking-theme-preview-services span { height: 28px; display: block; background: var(--theme-surface); border: 1px solid var(--theme-border); border-radius: 6px; }
@@ -9540,6 +9542,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .booking-theme-preview-summary { padding: 8px; display: grid; align-content: space-between; color: var(--theme-summary-ink); background: var(--theme-summary); border: 1px solid var(--theme-border); border-radius: 7px; }
     .booking-theme-preview-summary::before { content: ""; height: 32px; border-bottom: 1px solid var(--theme-border); }
     .booking-theme-preview-summary::after { content: "Continuar"; padding: 7px 3px; color: var(--theme-on-cta); background: var(--theme-cta); border-radius: 5px; font-size: 8px; font-weight: 800; text-align: center; }
+    .booking-theme-preview.booking-theme-yellow-black { position:relative; align-content:start; }
+    .booking-theme-preview.booking-theme-yellow-black::before { content:""; grid-column:1 / -1; height:26px; background:var(--theme-cta); border-radius:5px; }
+    .booking-theme-preview.booking-theme-yellow-black::after { content:""; position:absolute; top:13px; right:13px; width:30%; height:26px; background:var(--theme-ink); border-radius:0 5px 5px 0; clip-path:polygon(12px 0,100% 0,100% 100%,0 100%); pointer-events:none; }
     @media (max-width: 720px) {
       .booking-theme-layout { grid-template-columns: 1fr; }
       .booking-theme-grid { grid-template-columns: 1fr 1fr; }
@@ -18726,6 +18731,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label class="booking-theme-card"><input name="booking-theme" value="sage" type="radio"><span class="booking-theme-choice booking-theme-sage"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Verde</strong></span></label>
                   <label class="booking-theme-card"><input name="booking-theme" value="blue" type="radio"><span class="booking-theme-choice booking-theme-blue"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Azul</strong></span></label>
                   <label class="booking-theme-card"><input name="booking-theme" value="violet" type="radio"><span class="booking-theme-choice booking-theme-violet"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Violeta</strong></span></label>
+                  <label class="booking-theme-card"><input name="booking-theme" value="yellow-black" type="radio"><span class="booking-theme-choice booking-theme-yellow-black"><span class="booking-theme-swatches"><i></i><i></i><i></i></span><strong>Amarillo y negro</strong></span></label>
                 </div>
                 <div class="booking-theme-preview booking-theme-light" id="booking-theme-preview" aria-label="Vista previa del tema de reserva">
                   <div class="booking-theme-preview-services"><span></span><span class="selected"></span><span></span></div>
