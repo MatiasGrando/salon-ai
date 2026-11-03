@@ -23,6 +23,10 @@ export type ServiceRequestContext = ServiceRequest & {
     request: string;
     /** Latest original clarification; never inherited evidence or catalog identity. */
     detail?: string;
+    /** Rejected suggestions for this pending goal, never selected basket members. */
+    rejectedServiceIds?: readonly string[];
+    /** Offer catalog guidance once per pending goal rather than repeating it on every no-op. */
+    catalogGuidanceOffered?: true;
     /** Server-rendered candidate name; a renamed catalog entry requires fresh clarification. */
     candidateName?: string;
     /** Actual AI-authored question bound to this current request, never selection authority. */
@@ -30,6 +34,7 @@ export type ServiceRequestContext = ServiceRequest & {
     /** Server-confirmed catalog reference only; never proof of a requested variant. */
     referenceConfirmed?: true;
 };
+const REJECTION_MEMORY_LIMIT = 20;
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const bounded = (value: unknown, maximum: number): value is string => typeof value === 'string' && value.trim().length > 0 && value.length <= maximum && !/[\u0000-\u001f]/.test(value);
@@ -67,7 +72,10 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
 export function parseServiceRequestContext(value: unknown, businessId: string): ServiceRequestContext {
     const item = value as Record<string, unknown>;
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
-    if (!item || Object.keys(item).filter(key => !['candidateName', 'clarificationQuestion', 'detail', 'referenceConfirmed', 'subject', 'aspect'].includes(key)).sort().join(',') !== keys ||
+    if (!item || Object.keys(item).filter(key => !['candidateName', 'clarificationQuestion', 'detail', 'referenceConfirmed', 'subject', 'aspect', 'rejectedServiceIds', 'catalogGuidanceOffered'].includes(key)).sort().join(',') !== keys ||
+        item.catalogGuidanceOffered !== undefined && item.catalogGuidanceOffered !== true ||
+        item.rejectedServiceIds !== undefined && (!Array.isArray(item.rejectedServiceIds) || item.rejectedServiceIds.length > REJECTION_MEMORY_LIMIT ||
+            new Set(item.rejectedServiceIds).size !== item.rejectedServiceIds.length || item.rejectedServiceIds.some(id => !bounded(id, 128))) ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
         item.clarificationQuestion !== undefined && (!isCustomerText(item.clarificationQuestion, 240) || !item.clarificationQuestion.endsWith('?')) ||
         item.detail !== undefined && !isCustomerText(item.detail, 300) ||
@@ -79,6 +87,8 @@ export function parseServiceRequestContext(value: unknown, businessId: string): 
         throw new Error('invalid service request scope');
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,
+        ...(item.rejectedServiceIds !== undefined ? { rejectedServiceIds: [...item.rejectedServiceIds as string[]] } : {}),
+        ...(item.catalogGuidanceOffered === true ? { catalogGuidanceOffered: true as const } : {}),
         ...(item.candidateName !== undefined ? { candidateName: item.candidateName as string } : {}),
         ...(item.clarificationQuestion !== undefined ? { clarificationQuestion: item.clarificationQuestion as string } : {}),
         ...(item.detail !== undefined ? { detail: item.detail as string } : {}),
@@ -90,7 +100,7 @@ export function retainServiceRequestBase(previous: ServiceRequestContext | undef
     if (!admitted || !previous || !current.continuation || current.correction || current.disposition === 'clear' ||
         previous.purpose !== current.purpose ||
         previous.serviceIds.some(id => !services.some(service => service.id === id)) ||
-        current.serviceIds.some(id => !previous.serviceIds.includes(id)) ||
+        (current.serviceIds.some(id => !previous.serviceIds.includes(id)) && !(previous.rejectedServiceIds?.length && previous.serviceIds.length === 0)) ||
         previous.candidateName !== undefined && (previous.serviceIds.length !== 1 ||
             previous.candidateName !== services.find(service => service.id === previous.serviceIds[0])?.name)) return evidence;
     return previous.request;
@@ -141,7 +151,14 @@ export function assessServiceIdentity(evidence: string, proposedId: string, conf
 }
 /** Interpretation proposes meaning; a category ID alone never proves a documented variant. */
 export function resolveServiceRequest(raw: ServiceRequest, evidence: string, confidence: number, services: readonly DialogueService[], previous?: ServiceRequestContext, semanticInterpretation = false): ServiceRequest {
-    const request = parseServiceRequest(raw, services.map(service => service.id));
+    let request = parseServiceRequest(raw, services.map(service => service.id));
+    // A new explicit choice may revisit a service; speculative suggestions must
+    // not immediately resurrect the rejected pool of the pending goal.
+    if (request.disposition !== 'clear' && previous?.rejectedServiceIds?.length) {
+        const ids = request.serviceIds.filter(id => !previous.rejectedServiceIds!.includes(id));
+        request = { ...request, serviceIds: ids,
+            ...(request.disposition === 'alternatives' && ids.length < 2 ? { disposition: 'needs_detail' as const } : {}) };
+    }
     if (confidence < 0.85)
         return { ...request, disposition: 'needs_detail' };
     // A yes answers a single proposed catalog identity, never authorizes an undocumented variant.
@@ -211,6 +228,14 @@ export function serviceRequestQuestion(request: ServiceRequestContext): string {
     if (request.serviceIds.length > 1) return '¿Alguna corresponde a lo que buscás o podés contarme el resultado que querés?';
     return '¿Podés contarme un poco más sobre el resultado que buscás?';
 }
+/** Only the caller's validated semantic refusal can retire the current suggestion pool. */
+export function dismissServiceSuggestions(request: ServiceRequestContext, services: readonly DialogueService[]): ServiceRequestContext {
+    const { candidateName: _name, clarificationQuestion: _question, referenceConfirmed: _confirmed, ...goal } = request;
+    const rejectedServiceIds = [...new Set([...request.serviceIds, ...(request.rejectedServiceIds ?? [])])]
+        .filter(id => services.some(service => service.id === id)).slice(0, REJECTION_MEMORY_LIMIT);
+    return { ...goal, serviceIds: [], disposition: 'needs_detail', basis: 'related_category', sourceQuote: null,
+        correction: false, continuation: true, rejectedServiceIds };
+}
 /** Verify only a server-owned live referent; the model owns the speech-act interpretation. */
 export function validServiceReferenceContext(request: ServiceRequestContext | undefined, serviceId: string,
     businessId: string, services: readonly DialogueService[],
@@ -273,6 +298,11 @@ export function serviceRequestReply(request: ServiceRequestContext, services: re
             ? 'No tengo información confirmada sobre «' + description + '». '
             : 'Para «' + description + '»: ';
         return prefix + '¿Te referís al servicio publicado ' + candidates[0]!.name + ' o buscás un procedimiento distinto?';
+    }
+    if (request.disposition === 'needs_detail' && request.basis === 'related_category') {
+        const options = candidates.length ? 'Estas opciones del catálogo pueden ayudar a orientar la consulta:\n' +
+            candidates.map(service => '• ' + service.name).join('\n') : 'El local ofrece los servicios de su catálogo.';
+        return options + '\n' + serviceRequestQuestion(request);
     }
     const uncertainty = request.disposition === 'unverified_variant'
         ? 'No tengo información confirmada sobre «' + description + '». '

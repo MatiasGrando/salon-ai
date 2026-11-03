@@ -13,7 +13,7 @@ import type { DialogueService, DialogueState } from './engine.js'
 
 export const COMMUNICATIVE_FIELDS = ['service', 'professional', 'date', 'time', 'name', 'estimate', 'general'] as const
 export type CommunicativeField = typeof COMMUNICATIVE_FIELDS[number]
-const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair', 'social'] as const
+const kinds = ['request', 'change', 'answer', 'inquiry', 'reference', 'uncertain', 'notice', 'pause', 'repair', 'social', 'decline'] as const
 export type CommunicativeAct = {
   kind: typeof kinds[number]; field: CommunicativeField; evidence: string; confidence: number
   mention: string | null; operationIndexes: number[]
@@ -42,6 +42,8 @@ export type CommunicativeAdmission = {
   currentTimeAnswer?: true
   /** A validated refusal of the current management proposal authorizes only dismissing that proposal. */
   managementDeclined?: true
+  /** Refuses only the live service suggestions; never a selected service or appointment. */
+  serviceCandidatesDeclined?: true
   /** A validated contextual answer authorizes only confirming the displayed reprogramming proposal. */
   managementConfirmed?: true
   reference?: { mention: string; evidence: string }
@@ -389,6 +391,17 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
       act.mention===null && act.operationIndexes.length===0) &&
     metadata.acts.every(act=>act.kind==='social' || act.kind==='answer' && act.field==='general' && act.confidence>=.85 &&
       act.evidence===message && act.mention===null && act.operationIndexes.length===0))
+  const serviceCandidatesDeclined = Boolean(state.pending === 'service' && !state.bookingReservation && !state.sandboxReservation && !state.appointmentManagement &&
+    state.serviceRequest && !state.serviceRequest.referenceConfirmed && source.operations.length === 0 &&
+    (state.serviceRequest.serviceIds.length > 0 &&
+      validServiceCandidateContext(state.serviceRequest, state.serviceRequest.serviceIds[0]!, state.businessId, services, state.questionContext, false) ||
+      state.serviceRequest.catalogGuidanceOffered && state.catalogNavigation && state.questionContext?.complete &&
+        ['category', 'service'].includes(state.questionContext.role) && state.questionContext.options.length > 0) &&
+    metadata?.acts.some(act => act.kind === 'decline' && act.field === 'service' && act.confidence >= .85 &&
+      uniqueLiteralSpan(message, act.evidence) && act.mention === null && act.operationIndexes.length === 0) &&
+    metadata.acts.every(act => act.kind === 'social' ||
+      (act.kind === 'decline' && act.field === 'service' || act.kind === 'inquiry' && ['service', 'general'].includes(act.field)) &&
+      act.confidence >= .85 && uniqueLiteralSpan(message, act.evidence) && act.mention === null && act.operationIndexes.length === 0))
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
@@ -480,6 +493,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     ...(temporalInquiry ? { temporalInquiry: true as const } : {}),
     ...(currentTimeAnswer ? { currentTimeAnswer: true as const } : {}),
     ...(managementDeclined ? { managementDeclined: true as const } : {}),
+    ...(serviceCandidatesDeclined ? { serviceCandidatesDeclined: true as const } : {}),
     ...(managementConfirmed ? { managementConfirmed: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&

@@ -681,7 +681,9 @@ export async function respondWithAiInterpreter(
   const serviceClarificationEligible = (hasServiceClarification || hasSemanticClarification) && !response.proposal && !response.bookingCommand &&
     !response.managementCommand && !response.handoffCommand && availabilityCalls === 0 && !reason && !canonicalOnly
   if (serviceClarificationEligible && hasSemanticClarification) finalContract.semanticClarification = {
-    field: response.semanticClarification!.field, serviceNames: services.map(service => service.name)
+    field: response.semanticClarification!.field,
+    serviceNames: services.filter(service => !response.state.serviceRequest?.rejectedServiceIds?.includes(service.id)).map(service => service.name),
+    ...(response.semanticClarification!.categoryNames ? { categoryNames: response.semanticClarification!.categoryNames } : {})
   }
   else if (serviceClarificationEligible) finalContract.serviceClarification = {
     serviceNames: services.filter(service => serviceClarificationIds!.includes(service.id)).map(service => service.name)
@@ -805,8 +807,9 @@ export async function respondWithAiInterpreter(
   if (authored && authoredClarification && (serviceClarificationIds !== undefined || response.semanticClarification)) {
     if (response.state.serviceRequest && !response.serviceClarification && !response.semanticClarification) response.state.serviceRequest.clarificationQuestion = authoredClarification
     rememberDialogueQuestion(response.state, authoredClarification,
-      services.filter(service => serviceClarificationIds?.includes(service.id))
-        .map(service => ({ id: service.id, label: service.name })))
+      response.state.catalogNavigation ? response.state.questionContext?.options ?? []
+        : services.filter(service => serviceClarificationIds?.includes(service.id)).map(service => ({ id: service.id, label: service.name })))
+    if (response.state.catalogNavigation) response.state.dialogueContext = { lastQuestion: authoredClarification, presentedOffer: null }
   }
   const availability = summarizeAvailability(response.availability)
   return finalizeDialogueIntroduction(context, { ...response, reply: authored ?? (!newVerifiedFacts && finalFacts.length ? finalFacts.map(fact => fact.text).join('\n') : safeReply), interpretation: {

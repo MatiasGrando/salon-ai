@@ -11,7 +11,7 @@ import { remapCurrentServiceReads, remapCurrentServiceInquiries, remapInquiryBin
 import { parseDatePreferences, resolveDatePreferences, type DatePreference } from './date-preference.js'
 import { isCustomerText } from './customer-text.js'
 import { attachReferralOffer, explicitReferralAction, parseConversationalReferral, reconcileConversationalReferral, referralPendingReply, type ConversationalReferral } from './conversational-referral.js'
-import { retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceRequestCaveat, serviceSelectionNote, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
+import { dismissServiceSuggestions, retainServiceRequestBase, assessServiceIdentity, parseServiceRequestContext, resolveServiceRequest, serviceRequestReply, serviceRequestQuestion, serviceRequestDelivery, serviceRequestCaveat, serviceSelectionNote, serviceCandidateMutation, validServiceCandidateContext, validServiceReferenceContext, type ServiceRequestContext } from './service-request.js'
 import { requestedTimeExplanation } from './requested-time-presentation.js'
 import { memoBusinessTimeContext, type BusinessTimeContextReader, type BusinessHoursContextReader } from './business-time-context.js'
 import { groundTemporalPlan, parseTimeClarification, temporalClarificationQuestion } from './temporal-grounding.js'
@@ -114,7 +114,7 @@ export type AvailabilityDiagnostic = {
   scope?: 'all_compatible' | 'preferred'
 }
 export type DialogueTurnOutcome = { changedFields: (DraftEditField | 'estimate')[]; appliedFields: (DraftEditField | 'estimate')[]; requestedChanges: DraftEditField[]; rejectedProfessionalPreference: boolean }
-export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; serviceClarification?: { serviceIds: readonly string[] }; semanticClarification?: { field: CommunicativeField }; managementRead?: true; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; ownAppointmentHandoff?: { snapshot: CancellationSnapshot; action: 'cancel'; evidence: string }; choicePresentation?: ConversationChoicePresentation }
+export type DialogueResponse = { publicLink?: PublicLocationAction; catalogInformation?: CatalogInformationContext; serviceClarification?: { serviceIds: readonly string[] }; semanticClarification?: { field: CommunicativeField; categoryNames?: readonly string[] }; managementRead?: true; replyPrepared?: true; replyFacts?: readonly ReplyFact[]; turnOutcome?: DialogueTurnOutcome; state: DialogueState; reply: string; proposal: BookingProposal | null; availability?: AvailabilityDiagnostic; bookingCommand?: SandboxBookingCommand | {kind:'CONFIRM_BOOKING';presented:RuntimePresentedBooking}; managementCommand?: GroupCancellationCommand | GroupRescheduleCommand; handoffCommand?: { referral: ConversationalReferral; evidence: string }; confirmedCancellationHandoff?: { snapshot: CancellationSnapshot; evidence: string }; ownAppointmentHandoff?: { snapshot: CancellationSnapshot; action: 'cancel'; evidence: string }; choicePresentation?: ConversationChoicePresentation }
 function informationChoiceFields(state: DialogueState): Pick<DialogueResponse, 'choicePresentation'> {
   const presentation = choicePresentationForInformation(state)
   return presentation ? { choicePresentation: presentation } : {}
@@ -1247,6 +1247,24 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   // inference here would recreate a field that was rejected as historical/uncertain.
   // Direct and deterministic callers have no admission and retain their grounding.
   let raw = parseTurnPlan(communicative ? rawPlan : groundTemporalPlan(rawPlan, message, state, {businessId:context.businessId,timezone:context.timezone,businessDate:localDateKey(context.dbNow,context.timezone),...(port.businessTimeContext ? {read:port.businessTimeContext} : {})}), message)
+  if (communicative?.serviceCandidatesDeclined && raw.operations.length === 0) {
+    const services = await port.catalog(), request = state.serviceRequest
+    const liveSuggestions = request && request.serviceIds.length > 0 &&
+      validServiceCandidateContext(request, request.serviceIds[0]!, context.businessId, services, state.questionContext, false)
+    const liveGuidance = request?.catalogGuidanceOffered && state.catalogNavigation && state.questionContext?.complete && port.catalogNavigation &&
+      state.catalogNavigation.configurationKey === catalogNavigationKey(validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services), services)
+    if (request && (liveSuggestions || liveGuidance)) {
+      state.serviceRequest = liveSuggestions ? dismissServiceSuggestions(request, services) : request
+      delete state.catalogNavigation; delete state.questionContext; delete state.dialogueContext
+      const guidance = liveSuggestions ? await serviceCatalogGuidance(state, services, port, true) : undefined
+      if (guidance) return guidance
+      const facts = [{ id: 'procedure', text: 'Retiré esas sugerencias.' },
+        { id: 'next', text: '¿Qué resultado te gustaría conseguir?' }]
+      rememberDialogueQuestion(state, facts[1]!.text)
+      return { state, proposal: null, reply: facts.map(fact => fact.text).join('\n'), replyFacts: facts,
+        replyPrepared: true, semanticClarification: { field: 'service' } }
+    }
+  }
   // An admitted owned read or service action leaves browsing. Its next question
   // must not inherit category identity or intercept a new information invitation.
   if (state.catalogNavigation && raw.operations.some(operation => ['information', 'service', 'basket', 'service_request', 'service_reference', 'referral'].includes(operation.kind))) {
@@ -1400,6 +1418,8 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
     const requestContext: ServiceRequestContext = {
       ...request,
       businessId: context.businessId,
+      ...(previousRequest?.rejectedServiceIds?.length ? { rejectedServiceIds: [...previousRequest.rejectedServiceIds] } : {}),
+      ...(previousRequest?.catalogGuidanceOffered ? { catalogGuidanceOffered: true as const } : {}),
       ...(request.disposition !== 'clear' && request.serviceIds.length === 1
         ? { candidateName: services.find(service => service.id === request.serviceIds[0])!.name } : {}),
       request: requestBase,
@@ -1695,6 +1715,11 @@ async function respondTurnPlan(context: DialogueContext, state: DialogueState, m
   if (procedureQuestion) {
     if (state.serviceRequest) {
       const request = state.serviceRequest
+      if (request.disposition === 'needs_detail' && request.serviceIds.length === 0) {
+        const guidance = await serviceCatalogGuidance(state, services, port, false)
+        if (guidance) return { ...guidance, reply: [...answers, guidance.reply].filter(Boolean).join('\n'),
+          replyFacts: [...answerFacts(), ...guidance.replyFacts!] }
+      }
       if (request.purpose === 'booking' && request.serviceIds.length) state.pending = 'service'
       const retainedDelivery = serviceRequestDelivery(request, services)
       const localBody = localProcedureRequest ? serviceRequestDelivery(localProcedureRequest, services).facts[0]!.text : null
@@ -2557,6 +2582,23 @@ async function catalogIntakeResponse(state: DialogueState, services: readonly Di
   return { state, proposal: null, reply: page.question + (page.options.length ? '' : '\nNo tengo servicios disponibles para consultar.'),
     replyPrepared: true, ...(page.presentation ? { choicePresentation: page.presentation } : {}) }
 }
+/** Guide an unresolved goal through actual catalog options without acquiring anything. */
+async function serviceCatalogGuidance(state: DialogueState, services: readonly DialogueService[], port: DialoguePort,
+  declined: boolean): Promise<DialogueResponse | undefined> {
+  if (!port.catalogNavigation || selectionBasket(state).members.length || state.bookingReservation || state.sandboxReservation ||
+      state.appointmentManagement || state.referral || state.professionalReference || state.serviceRequest?.catalogGuidanceOffered) return undefined
+  const navigation = validateCatalogNavigation(await port.catalogNavigation(), state.businessId, services)
+  const response = (await catalogIntakeResponse(state, services, port,
+    { view: navigation.categories.length ? 'categories' : 'services', categoryId: null, page: 0 }, navigation))!
+  const next = navigation.categories.length ? '¿Qué categoría te gustaría explorar?' : '¿Qué servicio del catálogo te interesa consultar?'
+  if (state.serviceRequest) state.serviceRequest = { ...state.serviceRequest, catalogGuidanceOffered: true }
+  const facts = [{ id: 'procedure', text: declined ? 'Retiré esas sugerencias. Podemos explorar el catálogo del local.'
+    : 'Podemos guiarnos por las categorías y servicios disponibles en el catálogo del local.' }, { id: 'next', text: next }]
+  rememberDialogueQuestion(state, next, state.questionContext?.options ?? [])
+  state.dialogueContext = { lastQuestion: next, presentedOffer: null }
+  return { ...response, reply: facts.map(fact => fact.text).join('\n'), replyFacts: facts,
+    semanticClarification: { field: 'service', categoryNames: navigation.categories.map(category => category.name) } }
+}
 export async function respondConversationChoice(context: DialogueContext, previous: unknown, value: unknown, port: DialoguePort): Promise<DialogueResponse> {
   const operation = parseConversationChoiceOperation(value)
   const state = parseDialogueState(previous, context.businessId, context.timezone)
@@ -2606,7 +2648,13 @@ export async function respondConversationChoice(context: DialogueContext, previo
     if (!fresh.presentation?.choices.some(choice => JSON.stringify(choice.operation) === JSON.stringify(operation))) return reject()
     if (operation.kind === 'category') return finish((await catalogIntakeResponse(state, services, port, { view: 'services', categoryId: operation.categoryId, page: 0 }, navigation))!)
     if (operation.kind === 'page') return finish((await catalogIntakeResponse(state, services, port, { view: stored.view, categoryId: stored.categoryId, page: operation.cursor }, navigation))!)
+    if (operation.kind !== 'service') return reject()
     delete state.catalogNavigation
+    // This service was explicitly picked from a freshly validated catalog page,
+    // not from the old hypothesis pool retained solely as the customer's goal.
+    if (state.serviceRequest?.purpose === 'inquiry')
+      return finalizeDialogueIntroduction(context, await readServiceCandidate(context, state, state.serviceRequest, operation.serviceId, port, services), port)
+    delete state.serviceRequest; delete state.informationFocus
   }
   const invitation = priceBookingChoice(state)
   if (invitation && operation.kind !== 'service') return reject()
