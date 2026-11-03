@@ -9,7 +9,7 @@ export type FactsClient = Pick<PrismaClient, 'business' | 'businessHours' | 'sch
 const publicSelect = { id: true, name: true, publicAddress: true, publicAddressArea: true, publicMapsUrl: true, publicWhatsapp: true, contactEmail: true, workshopPublicSiteUrl: true, instagramUrl: true, facebookUrl: true, tiktokUrl: true, landingDescription: true, featureSettings: { select: { businessId: true, assistantPersonality: true } } } as const
 /** Only allowlisted customer-facing values leave the tenant-scoped query. */
 export async function loadBusinessFacts(client: FactsClient, context: DialogueContext, actions?: readonly InformationAction[]): Promise<BusinessFacts> {
-  const row = await client.business.findFirst({ where: { id: context.businessId }, select: publicSelect })
+  const row = await client.business.findFirst({ where: { id: context.businessId }, select: { ...publicSelect, slug: true, landingEnabled: true } })
   if (!row || row.id !== context.businessId || (row.featureSettings && row.featureSettings.businessId !== context.businessId)) throw new Error('invalid facts scope')
   let hoursText: string | null = null
   if (!actions || actions.includes('HOURS')) {
@@ -34,9 +34,13 @@ export async function loadBusinessFacts(client: FactsClient, context: DialogueCo
     paymentMethods = methods.length ? methods.map(method => method.name).join(', ') : null
   }
   const commercialName = normalizeAssistantPersonality(row.featureSettings?.assistantPersonality).commercialName
+  const domain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/\/+$/,'')
+  const bookingUrl = row.landingEnabled && row.slug && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(row.slug) &&
+    /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)
+    ? 'https://'+row.slug+'.'+domain+'/reservar' : null
   const facts: BusinessFacts = {
     businessId: row.id, name: commercialName ?? row.name, address: row.publicAddress, area: row.publicAddressArea,
-    mapsUrl: row.publicMapsUrl, website: row.workshopPublicSiteUrl, bookingUrl: null,
+    mapsUrl: row.publicMapsUrl, website: row.workshopPublicSiteUrl, bookingUrl,
     whatsapp: row.publicWhatsapp, email: row.contactEmail ?? null, instagram: row.instagramUrl,
     facebook: row.facebookUrl, tiktok: row.tiktokUrl, description: row.landingDescription, hours: hoursText, paymentMethods
   }

@@ -91,7 +91,6 @@ export function inferInformationTarget(state: DialogueState, message: string, se
   const focus = state.informationFocus
   const aspect = informationAspect(message)
   const named = namedInformationServices(message, services)
-  if (state.serviceRequest?.purpose === 'inquiry' && !(named.length && ['description', 'comparison', 'recommendation', 'price'].includes(aspect ?? ''))) return null
   if (named.length && ['description', 'comparison', 'recommendation'].includes(aspect ?? '')) return { kind: 'service', actions: [], serviceIds: named.map(service => service.id), aspect: aspect! }
   // An unresolved new catalog mention cannot borrow an older service's facts.
   // Elliptical followups have no such mention and may retain their current focus.
@@ -109,9 +108,9 @@ export function inferInformationTarget(state: DialogueState, message: string, se
   if (actions.length) return { kind: 'business', actions, ...(businessSubject(message) ? { subject: businessSubject(message)! } : {}) }
   return null
 }
-function focusFor(state: DialogueState, services: readonly DialogueService[], aspect: ServiceInformationAspect, serviceId: string | null, candidateId: string | null = null): InformationFocus {
+function focusFor(state: DialogueState, services: readonly DialogueService[], aspect: ServiceInformationAspect, serviceId: string | null, candidateId: string | null = null, subject?: string): InformationFocus {
   return parseInformationFocus({ version: 1, businessId: state.businessId, topic: aspect === 'price' ? 'price' : 'details', aspect,
-    serviceId, awaitingChoice: serviceId === null, candidateId, options: services.map(service => ({ id: service.id, label: service.name })) }, state.businessId)
+    serviceId, awaitingChoice: serviceId === null, candidateId, options: services.map(service => ({ id: service.id, label: service.name })), ...(subject ? { subject } : {}) }, state.businessId)
 }
 function clarifyService(state: DialogueState, services: readonly DialogueService[], aspect: ServiceInformationAspect, candidateId: string | null = null): InformationRead {
   if (services.length > 10) services = []
@@ -124,21 +123,21 @@ function clarifyService(state: DialogueState, services: readonly DialogueService
 function serviceRead(state: DialogueState, message: string, target: Extract<InformationTarget, { kind: 'service' }>, services: readonly DialogueService[], currentInquiry?: CurrentServiceInquiry, currentRead?: CurrentServiceReadEvidence, catalogInquiry?: CatalogInquiryScope): InformationRead {
   const old = state.informationFocus
   const described = services.filter(service => target.serviceIds.includes(service.id))
+  const subject = target.subject?.trim() || message.replace(/\s+/gu, ' ').trim().slice(0, 200)
+  const previousTopic = old?.businessId === state.businessId && old.options.every(option =>
+    services.some(service => service.id === option.id && service.name === option.label)) ? old.subject : undefined
   const publishedComparison = ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1 &&
     described.length === target.serviceIds.length && described.every(service => literalCatalogName(message, service.name))
-  const comparisonFollowup = target.aspect === 'comparison' && described.length === 1 && old?.aspect === 'comparison' &&
-    old.options.length > 1 && old.options.every(option => services.some(service => service.id === option.id && service.name === option.label)) &&
-    old.options.some(option => option.id === described[0]!.id)
-  const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services) &&
-    !(described.length === 1 && !['description', 'overview'].includes(target.aspect) && !comparisonFollowup && (parseEstimateOptions(described[0]!.bookingPolicy?.estimateOptions ?? []) ?? []).length)
+  const sourcedExplanation = validCatalogInquiry(catalogInquiry, state.businessId, message, target, services)
   if (publishedComparison || sourcedExplanation) {
-    const context = catalogInformation(target, described, sourcedExplanation, state.businessId)
+    const context = catalogInformation(target, described, sourcedExplanation, state.businessId, { message, topic: subject,
+      ...(previousTopic ? { previousTopic } : {}) })
     // Retain what was explained, without manufacturing a choice or basket selection.
-    const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id)
-      : target.aspect === 'price' && described.length > 1 ? focusFor(state, described, target.aspect, null)
+    const focus = described.length === 1 ? focusFor(state, described, target.aspect, described[0]!.id, null, subject)
       : ['comparison', 'recommendation'].includes(target.aspect) && described.length > 1
-        ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null), awaitingChoice: false }, state.businessId) : undefined
-    return { reply: catalogInformationBody(context), outcome: described.every(service => service.description?.trim()) || context.services.some(service => service.publicDetails?.length) ? 'found' : 'missing',
+        ? parseInformationFocus({ ...focusFor(state, described, target.aspect, null, null, subject), awaitingChoice: false }, state.businessId)
+        : focusFor(state, described, target.aspect, null, null, subject)
+    return { reply: catalogInformationBody(context), outcome: 'found',
       catalogInformation: context, ...(focus ? { focus } : {}) }
   }
   if (old?.serviceId && !services.some(service => service.id === old.serviceId) && !target.serviceIds.length) return missing('la información vigente de ese servicio')
@@ -186,7 +185,7 @@ function serviceRead(state: DialogueState, message: string, target: Extract<Info
   const item = selected[0]!
   if (old?.serviceId === item.id && old.options.some(option => option.id === item.id && normalizeAnswer(option.label) !== normalizeAnswer(item.name))) return missing('la información vigente de ese servicio')
   for (const value of [item.name, item.description]) if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > 8000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))) throw new Error('invalid service information')
-  const focus = focusFor(state, [item], target.aspect, item.id)
+  const focus = focusFor(state, [item], target.aspect, item.id, null, subject)
   const unavailable = (subject: string) => ({ ...missing(subject + ' sobre ' + item.name), focus })
   const options = parseEstimateOptions(item.bookingPolicy?.estimateOptions ?? []) ?? []
   if (!validInformationEstimate(target, services)) return unavailable('esa opción vigente del presupuesto')
@@ -296,13 +295,11 @@ export async function readInformation(context: DialogueContext, state: DialogueS
 export function informationNext(read: InformationRead, state: DialogueState, activeBooking: boolean): string {
   if (read.outcome === 'clarifying') return ''
   const catalog = read.catalogInformation
-  if (catalog?.aspect === 'price' && (state.serviceRequest || state.referral)) return pendingQuestion(state)
-  if (catalog && ['overview', 'description', 'price'].includes(catalog.aspect) && catalog.services.length === 1 && read.outcome === 'found') return '¿Querés agendar ' + catalog.services[0]!.name + '?'
-  if (read.catalogInformation) return !read.catalogInformation.services.length ? '¿Qué más querés saber sobre este tema?' : read.catalogInformation.services.length > 1 ? '¿Qué más querés saber sobre estos servicios?' : '¿Qué más querés saber sobre este servicio?'
-  const service = read.outcome === 'found' && read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
-  if (service && read.focus?.aspect === 'price') return '¿Querés agendar ' + service.label + '?'
-  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)
+  if (catalog && catalog.services.length === 1 && read.outcome === 'found') return '¿Querés agendar ' + catalog.services[0]!.name + '?'
+  if (catalog) return '¿Querés agendar un turno?'
+  const service = read.focus?.serviceId ? read.focus.options.find(option => option.id === read.focus!.serviceId) : null
   if (service) return '¿Querés agendar ' + service.label + '?'
+  if (hasBasketSelection(state) || state.editRequest || state.serviceRequest || state.referral) return pendingQuestion(state)
   return activeBooking ? pendingQuestion(state) : '¿En qué más te puedo ayudar?'
 }
 export function informationReply(read: InformationRead, state: DialogueState, activeBooking: boolean): string {

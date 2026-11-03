@@ -10,7 +10,7 @@ import { cancelManageableAppointmentInTransaction, type CancelManageableAppointm
 import { rescheduleManageableAppointmentInTransaction, type RescheduleManageableAppointmentInput, type RescheduleManageableAppointmentResult } from '../bot-options/application/appointment-rescheduling.js'
 import { revalidateBookingWrite } from '../services/booking-operations.js'
 import { amendedPaidAssignments, lockCoordinatedDepositGroupState, lockRuntimeSingularApprovedDeposit } from '../services/coordinated-deposit-group.js'
-import { assertManagementScope, assertCancellationSnapshot, cancellationFingerprint, managementIdentifier, GroupCancellationError, assertGroupMoves, rescheduleFingerprint, type GroupRescheduleCommand, type GroupMove, type CancellationSnapshot, type GroupCancellationCommand, type ManagementScope } from './appointment-management.js'
+import { assertManagementScope, assertCancellationSnapshot, cancellationFingerprint, managementIdentifier, GroupCancellationError, assertGroupMoves, rescheduleFingerprint, parseCompletedCancellation, type CompletedCancellation, type GroupRescheduleCommand, type GroupMove, type CancellationSnapshot, type GroupCancellationCommand, type ManagementScope } from './appointment-management.js'
 
 type Tx = Prisma.TransactionClient
 type MemberRow = CancellationSnapshot['members'][number] & {
@@ -18,11 +18,11 @@ type MemberRow = CancellationSnapshot['members'][number] & {
   visitBusinessId: string | null; visitCustomerId: string | null; visitProfessionalId: string | null; visitStartAt: Date | string | null
   depositBusinessId: string | null; serviceBusinesses: string[]
 }
-export type GroupCancellationReceipt = { appointmentIds: string[]; replayed: boolean }
+export type GroupCancellationReceipt = { appointmentIds: string[]; replayed: boolean; cancellation?: CompletedCancellation }
 type ChildInput = CancelManageableAppointmentInput & { requestHash: string }
 type Child = (tx: Tx, input: ChildInput) => Promise<CancelManageableAppointmentResult>
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
-const childHash = (scope: ManagementScope, appointmentId: string) => digest({ action: 'CANCEL_APPOINTMENT', businessId: scope.businessId, normalizedPhone: scope.normalizedPhone, sessionId: scope.sessionId, appointmentId, confirmed: true })
+const childHash = (scope: ManagementScope, appointmentId: string, customerPolicy?: 'whatsapp_confirmed') => digest({ action: 'CANCEL_APPOINTMENT', businessId: scope.businessId, normalizedPhone: scope.normalizedPhone, sessionId: scope.sessionId, appointmentId, confirmed: true, ...(customerPolicy ? {customerPolicy} : {}) })
 const iso = (value: Date | string) => new Date(value).toISOString()
 
 async function readSnapshot(tx: Tx, scope: ManagementScope, appointmentId: string): Promise<CancellationSnapshot> {
@@ -64,18 +64,25 @@ export async function loadCancellationGroupSnapshot(tx: Tx, scope: ManagementSco
 }
 
 /** Caller must own the transaction and propagate every error outside it. No catches or nested transactions. */
-export async function cancelGroupInTransaction(tx: Tx, command: GroupCancellationCommand, child: Child = cancelManageableAppointmentInTransaction): Promise<GroupCancellationReceipt> {
+export async function cancelGroupInTransaction(tx: Tx, command: GroupCancellationCommand, child: Child = cancelManageableAppointmentInTransaction,
+  customerPolicy?: 'whatsapp_confirmed'): Promise<GroupCancellationReceipt> {
   if (command.kind !== 'CANCEL_APPOINTMENT_GROUP' || command.confirmed !== true || command.fingerprint !== cancellationFingerprint(command.snapshot)) throw new GroupCancellationError('current consent/snapshot mismatch')
   managementIdentifier(command.nonce)
   const scope=command.snapshot.scope, members=[...command.snapshot.members].sort((a,b)=>a.appointmentId.localeCompare(b.appointmentId))
   const key='cancel-group:'+canonicalJsonHash([scope,command.nonce,command.fingerprint]), hash=canonicalJsonHash(command)
   const locked=await lockManagedGroup(tx,scope,members[0]!.appointmentId)
-  const receipt={ fingerprint:command.fingerprint, nonce:command.nonce, appointmentIds:members.map(m=>m.appointmentId),
-    children:members.map(m=>({key:key+':'+m.appointmentId,id:m.appointmentId,hash:childHash(scope,m.appointmentId)})) }
+  const receipt: {fingerprint:string;nonce:string;appointmentIds:string[];children:{key:string;id:string;hash:string}[];cancellation?:CompletedCancellation} = {
+    fingerprint:command.fingerprint, nonce:command.nonce, appointmentIds:members.map(m=>m.appointmentId),
+    children:members.map(m=>({key:key+':'+m.appointmentId,id:m.appointmentId,hash:childHash(scope,m.appointmentId,customerPolicy)})) }
   const prior=await tx.$queryRaw<Array<{businessId:string;sessionId:string;type:string;status:string;requestHash:string;resultRef:string|null}>>(Prisma.sql`
     SELECT "businessId","sessionId",type,status,"requestHash","resultRef" FROM "BotOperation" WHERE "operationKey"=${key} FOR UPDATE`)
   if(prior.length) {
     const p=prior[0]!
+    if (customerPolicy) {
+      try { receipt.cancellation=parseCompletedCancellation(JSON.parse(p.resultRef ?? '{}').cancellation) }
+      catch { throw new GroupCancellationError('cancellation receipt unavailable') }
+      if (receipt.cancellation.operationKey!==key || !isDeepStrictEqual(receipt.cancellation.appointmentIds,receipt.appointmentIds)) throw new GroupCancellationError('cancellation receipt scope mismatch')
+    }
     if(p.businessId!==scope.businessId || p.sessionId!==scope.sessionId || p.type!=='CANCEL_APPOINTMENT_GROUP' || p.status!=='COMPLETED' || p.requestHash!==hash || p.resultRef!==JSON.stringify(receipt)) throw new GroupCancellationError('group replay mismatch')
     assertCancellationSnapshot(locked,true)
     const expected=members.map(m=>({...m,status:'CANCELLED',version:m.version+1,visitStatus:m.visitId?'CANCELLED':null,visitVersion:m.visitVersion===null?null:m.visitVersion+1}))
@@ -84,19 +91,28 @@ export async function cancelGroupInTransaction(tx: Tx, command: GroupCancellatio
       const operations=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotOperation" WHERE "operationKey"=${c.key} AND "businessId"=${scope.businessId} AND "sessionId"=${scope.sessionId} AND type='CANCEL_APPOINTMENT' AND status='COMPLETED' AND "requestHash"=${c.hash} AND "resultRef"=${c.id} FOR UPDATE`)
       if(operations.length!==1) throw new GroupCancellationError('child replay missing or foreign')
     }
-    return {appointmentIds:receipt.appointmentIds,replayed:true}
+    return {appointmentIds:receipt.appointmentIds,replayed:true,...(receipt.cancellation?{cancellation:receipt.cancellation}:{})}
   }
   if(cancellationFingerprint(locked)!==command.fingerprint) throw new GroupCancellationError('group snapshot changed; new consent required')
   // Financial uncertainty blocks the group before any child; F9 remains the final policy authority.
-  if(locked.members.some(m=>m.manualDepositPaid || m.manualDepositAmount!==null || m.depositId!==null)) throw new GroupCancellationError('HANDOFF: group financial review required')
+  if(customerPolicy !== 'whatsapp_confirmed' && locked.members.some(m=>m.manualDepositPaid || m.manualDepositAmount!==null || m.depositId!==null)) throw new GroupCancellationError('HANDOFF: group financial review required')
+  if (customerPolicy === 'whatsapp_confirmed') {
+    if (locked.members.some(member=>member.depositId!==null && member.depositStatus!=='APPROVED')) throw new GroupCancellationError('pending deposit retains its existing cancellation policy')
+    const settings=await tx.$queryRaw<Array<{cancellationLeadMinutes:number}>>(Prisma.sql`SELECT "cancellationLeadMinutes" FROM "BusinessBotOptionsSettings" WHERE "businessId"=${scope.businessId} FOR SHARE`)
+    const lead=settings[0]?.cancellationLeadMinutes
+    if (settings.length!==1 || !Number.isSafeInteger(lead) || Number(lead)<0) throw new GroupCancellationError('cancellation lead settings unavailable')
+    receipt.cancellation=parseCompletedCancellation({operationKey:key,appointmentIds:receipt.appointmentIds,cancelledAt:locked.dbNow,
+      hadDeposit:locked.members.some(member=>member.depositId!==null || member.manualDepositPaid || Number(member.manualDepositAmount)>0),
+      cancellationLeadMinutes:lead,insideLeadWindow:locked.members.some(member=>Date.parse(member.startAt)-Date.parse(locked.dbNow)<Number(lead)*60_000)})
+  }
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","updatedAt") VALUES (${randomUUID()},${key},'CANCEL_APPOINTMENT_GROUP',${scope.businessId},${scope.sessionId},'STARTED',${hash},clock_timestamp())`)
   for(const c of receipt.children) {
-    const result=await child(tx,{businessId:scope.businessId,normalizedPhone:scope.normalizedPhone,sessionId:scope.sessionId,appointmentId:c.id,operationKey:c.key,confirmed:true,requestHash:c.hash})
+    const result=await child(tx,{businessId:scope.businessId,normalizedPhone:scope.normalizedPhone,sessionId:scope.sessionId,appointmentId:c.id,operationKey:c.key,confirmed:true,requestHash:c.hash,...(customerPolicy?{customerPolicy}:{})})
     if(result.outcome!=='CANCELLED' || result.replayed) throw new GroupCancellationError('group child '+result.outcome+'; rollback required')
   }
   const completed=await tx.$executeRaw(Prisma.sql`UPDATE "BotOperation" SET status='COMPLETED',"resultRef"=${JSON.stringify(receipt)},"updatedAt"=clock_timestamp() WHERE "operationKey"=${key} AND status='STARTED' AND "requestHash"=${hash}`)
   if(completed!==1) throw new GroupCancellationError('group completion fence failed')
-  return {appointmentIds:receipt.appointmentIds,replayed:false}
+  return {appointmentIds:receipt.appointmentIds,replayed:false,...(receipt.cancellation?{cancellation:receipt.cancellation}:{})}
 }
 
 async function lockManagedGroup(tx: Tx,scope: ManagementScope,appointmentId: string): Promise<CancellationSnapshot> {
@@ -111,6 +127,12 @@ async function lockManagedGroup(tx: Tx,scope: ManagementScope,appointmentId: str
 
 type RescheduleChild = (tx: Tx,input: RescheduleManageableAppointmentInput) => Promise<RescheduleManageableAppointmentResult>
 export type GroupRescheduleReceipt = {appointmentIds:string[];moves:readonly GroupMove[];replayed:boolean}
+export class GroupRescheduleUnavailableError extends Error {
+  constructor(readonly outcome: 'SLOT_CONFLICT' | 'HANDOFF' | 'INELIGIBLE') {
+    super('group reschedule unavailable: '+outcome)
+    this.name='GroupRescheduleUnavailableError'
+  }
+}
 
 /** The same caller-owned atomic boundary as cancellation; no legacy exclusion override. */
 export async function rescheduleGroupInTransaction(tx: Tx,command: GroupRescheduleCommand,
@@ -164,6 +186,16 @@ export async function rescheduleGroupInTransaction(tx: Tx,command: GroupReschedu
   if(cancellationFingerprint(locked)!==cancellationFingerprint(command.snapshot)) throw new GroupCancellationError('group snapshot changed; new consent required')
   assertGroupMoves(locked,command.moves)
   if(locked.members.some(m=>m.manualDepositPaid || m.manualDepositAmount!==null || m.depositId!==null)) throw new GroupCancellationError('HANDOFF: group financial review required')
+  // Validate every child before creating any operation or changing any appointment.
+  // The locks acquired by the child remain held by this transaction, so a normal
+  // availability/eligibility rejection can safely become a conversational reply.
+  for(const c of children) {
+    const preview=await child(tx,{...c.input,preview:true})
+    if(preview.outcome==='SLOT_CONFLICT' || preview.outcome==='HANDOFF' || preview.outcome==='INELIGIBLE')
+      throw new GroupRescheduleUnavailableError(preview.outcome)
+    if(preview.replayed || preview.appointmentId!==c.input.appointmentId || preview.newStartAt!==c.input.newStartAt || preview.depositPreserved)
+      throw new GroupCancellationError('reschedule preflight result mismatch')
+  }
   await tx.$executeRaw(Prisma.sql`INSERT INTO "BotOperation" (id,"operationKey",type,"businessId","sessionId",status,"requestHash","updatedAt")
     VALUES (${randomUUID()},${key},'RESCHEDULE_APPOINTMENT_GROUP',${scope.businessId},${scope.sessionId},'STARTED',${hash},clock_timestamp())`)
   for(const c of children) {
@@ -482,23 +514,25 @@ export async function prepareGroupRescheduleOffers(snapshot: CancellationSnapsho
     if (!Array.isArray(slots) || slots.length > 1000) throw new GroupCancellationError('invalid assignment availability bound')
     for (const slot of slots) {
       if (slot.date !== date || !Number.isFinite(Date.parse(slot.startAt)) || new Date(slot.startAt).toISOString() !== slot.startAt ||
+        slot.band!==undefined && !['MORNING','AFTERNOON','EVENING'].includes(slot.band) ||
         slot.professionalId !== professionalId || !isDeepStrictEqual(slot.serviceIds, member.serviceIds) ||
         slot.durationMinutes !== member.durationMinutes || slot.customerDurationMinutes !== (member.customerDurationMinutes ?? member.durationMinutes)) throw new GroupCancellationError('assignment availability proof mismatch')
     }
     return slots
   }))
   const offers: ManagementRescheduleOffer[] = [], seen = new Set<string>()
-  for (const slot of options[0]!) {
+  const starts=options.map(slots=>new Set(slots.map(slot=>slot.startAt)))
+  for (const slot of [...options[0]!].sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt))) {
     const delta = Date.parse(slot.startAt) - Date.parse(members[0]!.startAt)
     const moves = snapshot.members.map(member => ({ appointmentId: member.appointmentId, newStartAt: new Date(Date.parse(member.startAt) + delta).toISOString(),
       ...(professionalChange?.appointmentId===member.appointmentId ? {newProfessionalId:professionalChange.professionalId} : {}) }))
-    if (!members.every((member, index) => options[index]!.some(option => option.startAt === moves.find(move => move.appointmentId === member.appointmentId)!.newStartAt))) continue
+    const nextStarts=new Map(moves.map(move=>[move.appointmentId,move.newStartAt]))
+    if (!members.every((member, index) => starts[index]!.has(nextStarts.get(member.appointmentId)!))) continue
     // Only a known conservative C2 rejection excludes a candidate; reader/shape errors propagate.
     try { assertGroupMoves(snapshot, moves) }
     catch (error) { if (error instanceof GroupCancellationError) continue; throw error }
     const key = managementRescheduleOfferKey(snapshot, date, moves)
-    if (!seen.has(key)) { offers.push({ key, date, moves }); seen.add(key) }
-    if (offers.length === 10) break
+    if (!seen.has(key)) { offers.push({ key, date, moves, ...(slot.band?{band:slot.band}:{}) }); seen.add(key) }
   }
   return offers
 }

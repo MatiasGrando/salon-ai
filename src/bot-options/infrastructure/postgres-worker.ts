@@ -212,11 +212,15 @@ export async function rescheduleClaimedBotJobTx(
   tx: Prisma.TransactionClient,
   job: ClaimedBotJob,
   availableAt: Date,
-  options: { refundClaimAttempt?: boolean } = {}
+  options: { refundClaimAttempt?: boolean; reason?: string } = {}
 ): Promise<void> {
+  const reason = typeof options.reason === 'string' && /^[A-Z_]{1,80}$/.test(options.reason)
+    ? options.reason
+    : null
   const count = await tx.$executeRaw(Prisma.sql`
     UPDATE "BotJob" SET "status" = 'READY'::"BotJobStatus", "availableAt" = ${availableAt},
       "attempts" = CASE WHEN ${options.refundClaimAttempt === true} THEN GREATEST("attempts" - 1, 0) ELSE "attempts" END,
+      "lastError" = CASE WHEN ${reason === null} THEN "lastError" ELSE ${reason} END,
       "leaseToken" = NULL, "leasedUntil" = NULL, "updatedAt" = clock_timestamp()
     WHERE "id" = ${job.id} AND "status" = 'LEASED'::"BotJobStatus" AND "leaseToken" = ${job.claimToken}
   `)

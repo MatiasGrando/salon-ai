@@ -5,7 +5,7 @@ import { interpretConversationAttachment, conversationProofBindingFromState, sam
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import { isBarberTestReset, resetTestDialogue } from './test-conversation-reset.js'
 import type { DialoguePersonalityPort } from './dialogue-identity.js'
-import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, loadVerifiedRuntimeManagementSchedule, cancelGroupInTransaction, rescheduleGroupInTransaction } from './prisma-appointment-management.js'
+import { loadOwnConfirmedRuntimeGroupSnapshot, loadOwnConfirmedCancellationHandoffSnapshot, loadVerifiedRuntimeManagementSchedule, cancelGroupInTransaction, rescheduleGroupInTransaction, GroupRescheduleUnavailableError } from './prisma-appointment-management.js'
 import { GroupCancellationError, cancellationFingerprint, type CancellationSnapshot } from './appointment-management.js'
 import { loadOwnAppointments } from './prisma-own-appointments.js'
 import { ownAppointmentKey } from './own-appointments.js'
@@ -26,7 +26,7 @@ import type { WhatsAppConversationAi } from './whatsapp-ai.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '../generated/prisma/client.js'
 import { canResumeExpiredConversationTx, expiredConversationDraft, hasPendingConversationEffectsTx } from './conversation-expired-recovery.js'
-import { initialDialogueState, respond, respondConversationChoice, ConversationChoiceUnavailableError, type DialogueContext, type DialoguePort } from './engine.js'
+import { initialDialogueState, respond, respondConversationChoice, ConversationChoiceUnavailableError, type DialogueContext, type DialoguePort, type DialogueResponse, type DialogueState } from './engine.js'
 import { createPrismaDialoguePort } from './prisma-dialogue-port.js'
 import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from './runtime-policy.js'
 import { reconcileConversationDraft, projectConversationDraft } from './session-state.js'
@@ -58,6 +58,49 @@ type Row = PolicyRow & { id: string; actionType: string; expectedRevision: bigin
   admittedAt: Date; providerOccurredAt: Date | null; botEnabled: boolean; projectedConversationId: string | null }
 type Session = NonNullable<Awaited<ReturnType<typeof lockExistingInitialSession>>> & { handoffFenceEpoch: number; handoffClaimsPausedAt: Date | null; deploymentId: string; deploymentGeneration: number }
 const txOptions = { maxWait: 2_000, timeout: 10_000 } as const
+
+type RescheduleRecoveryOutcome = GroupRescheduleUnavailableError['outcome'] | 'STALE_PROPOSAL'
+
+/** A proposed reschedule may lose eligibility before the final write. This is
+ * a conversational outcome: retain the appointment, retire the stale proposal,
+ * and let the customer choose another verified option. */
+function rescheduleUnavailableResponse(draft: DialogueState, outcome: RescheduleRecoveryOutcome): DialogueResponse {
+  const state=structuredClone(draft), management=state.appointmentManagement
+  if (!management || management.context.action!=='RESCHEDULE' || management.outcome) throw new Error('reschedule recovery without active proposal')
+  delete management.context.proposal
+  delete management.context.offers
+  delete management.presentedScope
+  delete management.selectedTime
+  delete management.timeClarification
+  delete management.timePreference
+  const reply=outcome==='SLOT_CONFLICT'
+    ? 'Ese horario dejó de estar disponible antes de confirmar. No modifiqué tu turno. Decime otro horario para ese día o una nueva fecha.'
+    : outcome==='HANDOFF'
+      ? 'No puedo completar este cambio por WhatsApp porque requiere revisión del local. No modifiqué tu turno.'
+      : outcome==='STALE_PROPOSAL'
+        ? 'La propuesta cambió antes de confirmarla. No modifiqué tu turno. Decime otro horario para ese día o una nueva fecha.'
+      : 'Ese cambio ya no puede confirmarse con los datos actuales. No modifiqué tu turno. Decime otra fecha u horario si querés intentarlo de nuevo.'
+  return {state,proposal:null,reply,replyPrepared:true}
+}
+
+/** Only deterministic, pre-write revalidation outcomes become a customer reply.
+ * Integrity, database and programming faults still leave this path and retry. */
+function rescheduleRecoveryOutcome(error: unknown): RescheduleRecoveryOutcome | null {
+  if (error instanceof GroupRescheduleUnavailableError) return error.outcome
+  if (!(error instanceof GroupCancellationError)) return null
+  if (error.message === 'HANDOFF: group financial review required') return 'HANDOFF'
+  if (error.message.startsWith('SLOT_CONFLICT:')) return 'SLOT_CONFLICT'
+  if ([
+    'management snapshot changed; new consent required',
+    'own lookup selection changed; new consent required',
+    'group snapshot changed; new consent required',
+    'reschedule policy window mismatch',
+    'reschedule time grid mismatch',
+    'reschedule duration changed; new confirmation required',
+    'reschedule has no assignment change'
+  ].includes(error.message)) return 'STALE_PROPOSAL'
+  return null
+}
 
 /** Private PROCESS claim guard: this caller acquires its dispatch with sessionId null.
  * Snapshot/final callers already take the standalone shared cutover gate before identity/phone and row locks.
@@ -278,18 +321,28 @@ export async function processConversationInbox(input: {
     const resetAllowedTx = async (tx: Prisma.TransactionClient, session: Session, timezone: string, phone: string): Promise<boolean> => {
       if (await expiredRecoveryAllowedTx(tx, session, phone, timezone)) return true
       const parsed = parseBotOptionsState(session.state)
-      if (!parsed.ok || parsed.state.deposit !== 'NONE' || parsed.state.handoff !== 'NONE' ||
+      if (!parsed.ok || parsed.state.handoff !== 'NONE' ||
           !['NONE', 'DRAFT', 'CONFIRMED'].includes(parsed.state.booking)) return false
       try {
         const draft = readConversationDraft(session.state, policy, timezone)
+        const managementOnly=Boolean(draft.appointmentManagement && !draft.appointmentManagement.outcome)
+        if (parsed.state.deposit !== 'NONE') {
+          // Ending a proposed management action preserves the verified paid reservation verbatim.
+          if (!managementOnly || parsed.state.booking!=='CONFIRMED' || parsed.state.deposit!=='APPROVED') return false
+          const reservation=draft.bookingReservation ?? draft.completedBooking
+          if (reservation?.receipt?.kind!=='HELD') return false
+          const actual=await loadRuntimeDepositReceipt(tx,{businessId:policy.businessId,sessionId:session.sessionId,
+            canonicalPhone:phone.replace(/[^0-9]/g,''),expectedRevision:session.revision},reservation)
+          if (actual?.depositStatus!=='APPROVED') return false
+        }
         resetTestDialogue(draft)
         if (parsed.state.booking === 'CONFIRMED' && !(draft.bookingReservation ?? draft.completedBooking)?.receipt) return false
       } catch { return false }
       return !await hasPendingConversationEffectsTx(tx, { businessId: policy.businessId, sessionId: session.sessionId })
     }
-    const retry = async (tx: Prisma.TransactionClient, row: Row, immediate = false) => {
+    const retry = async (tx: Prisma.TransactionClient, row: Row, reason: string, immediate = false) => {
       await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token))
-      await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + (immediate ? 0 : 500)), { refundClaimAttempt: true }))
+      await measureAttemptStage('conversation_job_reschedule', () => rescheduleClaimedBotJobTx(tx, input.job, new Date(row.dbNow.getTime() + (immediate ? 0 : 500)), { refundClaimAttempt: true, reason }))
     }
     const snapshot = await measureAttemptTransaction('conversation_snapshot', body => input.client.$transaction(body, txOptions), async (tx: Prisma.TransactionClient) => {
       // Take the conversation mutex before any job/deployment/event/session row lock.
@@ -303,7 +356,7 @@ export async function processConversationInbox(input: {
       await lockConversationPhoneTx(tx, policy.businessId, identity[0].phone)
       const row = await readRow(tx)
       const currentPolicy = resolveConversationPolicy(row)
-      if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row); return null }
+      if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row, 'POLICY_CHANGED'); return null }
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return null }
       const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; conversationChoice?:unknown }
       if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('conversation phone unavailable')
@@ -311,7 +364,7 @@ export async function processConversationInbox(input: {
       if (canonicalConversationPhone(phone) !== canonicalConversationPhone(targetPhone)) throw new Error('conversation computation identity changed')
       const isChoice = row.actionType === CONVERSATION_CHOICE_ACTION
       const eligibleText = !isChoice && payload.messageType === 'text' && !isRestart(payload.textBody)
-      if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row); return null }
+      if (!eligibleText && !await ordered(tx, row, phone)) { await retry(tx, row, 'NON_TEXT_ORDER_BLOCKED'); return null }
       let session = await measureAttemptStage('conversation_session_lock', () => input.lockSession(tx, row.businessId, phone)) as Session | null
       if(isChoice && !session) {await finish(tx,row);return null}
       // The provider worker already committed CRM before classification. Reuse only its exact
@@ -337,9 +390,9 @@ export async function processConversationInbox(input: {
         // This cancellation belongs to the currently locked queue, not to an AI
         // interpretation, a former presentation or an operator-owned conversation.
         if (session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation) {
-          await retry(tx,row);return null
+          await retry(tx,row,'HANDOFF_GENERATION_MISMATCH');return null
         }
-        if (!await ordered(tx,row,phone)) {await retry(tx,row);return null}
+        if (!await ordered(tx,row,phone)) {await retry(tx,row,'HANDOFF_ORDER_BLOCKED');return null}
         const parsed = parseBotOptionsState(session.state)
         if (!parsed.ok || parsed.state.handoff !== 'QUEUED' || !['NONE','DRAFT'].includes(parsed.state.booking) ||
             parsed.state.deposit !== 'NONE') {await finish(tx,row);return null}
@@ -386,7 +439,7 @@ export async function processConversationInbox(input: {
         const window = await measureAttemptStage('conversation_context_window', () => applyLazyContextWindowTx(tx, { businessId: row.businessId, deploymentId: row.deploymentId,
           generation: row.generation, providerEventId: row.providerEventId, phone, admittedAt: row.admittedAt,
           providerOccurredAt: row.providerOccurredAt, isMedia: payload.messageType !== 'text', processingInboxId: row.id, currentJobId: input.job.id }, input.writeView))
-        if (window.kind === 'WAIT') { await retry(tx, row); return null }
+        if (window.kind === 'WAIT') { await retry(tx, row, 'CONTEXT_WINDOW_BUSY'); return null }
         if (window.kind === 'EXPIRED' || window.kind === 'REPLAY') { await finish(tx, row); return null }
       }
       if (!session) {
@@ -430,7 +483,7 @@ export async function processConversationInbox(input: {
           return notice('No reinicié la conversación. El equipo debe resolver la atención o configuración pendiente; no modifiqué turnos ni pagos.')
         }
         // This effect runs in the snapshot transaction, so retain the ordering guard normally checked at final commit.
-        if (!await ordered(tx, row, phone)) { await retry(tx, row); return null }
+        if (!await ordered(tx, row, phone)) { await retry(tx, row, 'RESET_ORDER_BLOCKED'); return null }
         if (await hasPendingConversationEffectsTx(tx, { businessId: row.businessId, sessionId: activeSession.sessionId })) {
           return notice('Todavía hay una operación o respuesta pendiente. No reinicié la conversación ni modifiqué tus turnos. Esperá a que termine y volvé a enviar /reset.')
         }
@@ -446,6 +499,9 @@ export async function processConversationInbox(input: {
         }
         if (status === 'APPROVED' || parsed.state.deposit === 'APPROVED') {
           return notice('Tu reserva tiene un pago aprobado. No reinicié ni cancelé esos turnos, ni modifiqué el pago o el historial.')
+        }
+        if (!pendingResetChoice && (parsed.state.booking!=='HELD' || parsed.state.deposit!=='PENDING_PROOF')) {
+          return notice('No pude verificar que el estado actual permita reiniciar la conversación. Conservé tus turnos, pagos y datos; no realicé ninguna cancelación.')
         }
         if (!reservation || !actual || status !== 'PENDING_PROOF' || parsed.state.booking !== 'HELD' || parsed.state.deposit !== 'PENDING_PROOF' ||
             reservation.presented.scope.deploymentId !== policy.deploymentId || reservation.presented.scope.generation !== policy.generation ||
@@ -511,11 +567,13 @@ export async function processConversationInbox(input: {
         } catch { /* A completed label alone does not grant financial authority. */ }
       }
       let serverManagementSnapshot: CancellationSnapshot | undefined
-      let runtimeManagementAllowed = false
+      // Only an already resolved current management choice may bypass the conversational receipt interception.
+      // The native handler and final writer still revalidate the proposal and ownership before any effect.
+      let runtimeManagementAllowed = selectedChoice?.operation.kind==='cancel_appointment'
       if (payload.messageType === 'text' && !isRestart(payload.textBody)) {
         const draft = readConversationDraft(activeSession.state, policy, row.businessTimezone)
         const ownManagement = draft.appointmentManagement?.context
-        if (ownManagement?.source === 'own_lookup' && ownManagement.action === 'RESCHEDULE') {
+        if (ownManagement?.source === 'own_lookup') {
           try {
             const own = await loadOwnAppointments(tx, { businessId: row.businessId, sessionId: activeSession.sessionId,
               canonicalPhone: phone.replace(/[^0-9]/g, ''), expectedRevision: activeSession.revision })
@@ -609,13 +667,14 @@ export async function processConversationInbox(input: {
         await measureAttemptStage('conversation_transition_insert', () => tx.$executeRaw(Prisma.sql`INSERT INTO "BotTransitionLog" ("id", "businessId", "sessionId", "deploymentId", "deploymentGeneration", "revisionFrom", "revisionTo", "actionType", "outcome", "providerEventId") VALUES (${randomUUID()}, ${row.businessId}, ${activeSession.sessionId}, ${row.deploymentId}, ${row.generation}, ${activeSession.revision}, ${revision}, 'system.configuration_reset', 'APPLIED', ${row.providerEventId})`))
         session = { ...session, state, revision, deploymentGeneration: policy.generation }
       }
-      const reset = !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
-      if (expiredRecovery && !await ordered(tx, row, phone)) { await retry(tx, row, true); return null }
+      // The demo reset helper needs the actual draft to dismiss management while preserving its reservation.
+      const reset = !testReset && !isChoice && payload.messageType === 'text' && isRestart(payload.textBody)
+      if (expiredRecovery && !await ordered(tx, row, phone)) { await retry(tx, row, 'EXPIRED_RECOVERY_ORDER_BLOCKED', true); return null }
       const consolidation = eligibleText && !runtimeManagementAllowed && !expiredRecovery ? await measureAttemptStage('conversation_order_read', () => selectConsolidationGroupTx(tx, { businessId: row.businessId,
         sessionId: session.sessionId, deploymentId: policy.deploymentId, generation: policy.generation, currentClaimToken: token,
         handoffFenceEpoch: session.handoffFenceEpoch, revision: session.revision, state: session.state,
         phone, currentEventId: row.providerEventId, isRestart })) : null
-      if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, true); return null }
+      if (eligibleText && !runtimeManagementAllowed && !expiredRecovery && !consolidation) { await retry(tx, row, 'CONSOLIDATION_UNAVAILABLE', true); return null }
       const recoveredDraft = expiredRecovery ? expiredConversationDraft(readConversationDraft(session.state, policy, row.businessTimezone)) : null
       const reconciled = recoveredDraft ? { draft: recoveredDraft, reset: false } : reset ? { draft: initialDialogueState(row.businessId), reset: false } : reconcileConversationDraft(consolidation?.envelope.baseState ?? session.state, policy, row.businessTimezone)
       const draft = confirmedDraft ?? reconciled.draft
@@ -656,7 +715,7 @@ export async function processConversationInbox(input: {
       ...(prepared.port.information ? { information: (actions?: Parameters<NonNullable<DialoguePort['information']>>[0]) => prepared.port.information!(actions) } : {})
     }
     const computedStarted = performance.now()
-    const useAi = input.conversationalAi && !snapshot.selectedChoice && !snapshot.reset && snapshot.payload.messageType === 'text'
+    const useAi = input.conversationalAi && !snapshot.selectedChoice && !snapshot.reset && !snapshot.testReset && snapshot.payload.messageType === 'text'
     const attachment = snapshot.payload.messageType === 'image' || snapshot.payload.messageType === 'document'
       ? await interpretConversationAttachment({ state: snapshot.draft, payload: snapshot.payload,
         proofExpected: Boolean(snapshot.attachmentProofBinding), port,
@@ -696,7 +755,7 @@ export async function processConversationInbox(input: {
       if (!session || JSON.stringify(currentPolicy) !== JSON.stringify(policy) || session.sessionId !== snapshot.session.sessionId ||
           session.deploymentId !== policy.deploymentId || session.deploymentGeneration !== policy.generation ||
           session.handoffFenceEpoch !== snapshot.session.handoffFenceEpoch || session.revision !== snapshot.session.revision ||
-          (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row); return 'STALE_REVISION' as const }
+          (!snapshot.consolidation && !await ordered(tx, row, snapshot.phone))) { await retry(tx, row, 'FINAL_STALE_REVISION'); return 'STALE_REVISION' as const }
       if ('confirmedDraft' in snapshot && snapshot.confirmedDraft) {
         const reservation=snapshot.confirmedDraft.bookingReservation ?? snapshot.confirmedDraft.completedBooking
         if (reservation?.receipt?.kind==='HELD') {
@@ -735,7 +794,7 @@ export async function processConversationInbox(input: {
           revision: session.revision, state: session.state, phone: snapshot.phone, currentEventId: row.providerEventId, isRestart })
         if (!fresh || fresh.signature !== snapshot.consolidation.signature || fresh.previousTransitionId !== snapshot.consolidation.previousTransitionId ||
             (fresh.previousTransitionId && !await supersedeConsolidationOutboxTx(tx, row.businessId, session.sessionId, fresh.previousTransitionId))) {
-          await retry(tx, row, true); return 'STALE_REVISION' as const
+          await retry(tx, row, 'FINAL_CONSOLIDATION_CHANGED', true); return 'STALE_REVISION' as const
         }
       }
       if (attachment?.intent === 'deposit_proof' && snapshot.attachmentProofBinding && snapshot.draft.bookingReservation) {
@@ -780,7 +839,7 @@ export async function processConversationInbox(input: {
       const confirmedCancellationHandoff = proposedConfirmedCancellation && (!useAi || (response as InterpretedDialogueResponse).interpretation.mode === 'ai')
         ? proposedConfirmedCancellation : undefined
       const command='bookingCommand' in response ? response.bookingCommand : undefined
-      const managementCommand = 'managementCommand' in response ? response.managementCommand : undefined
+      let managementCommand = 'managementCommand' in response ? response.managementCommand : undefined
       if (ownCancellation) {
         if (command || managementCommand || handoffCommand || confirmedCancellationHandoff) throw new Error('competing own appointment effects')
         const own = await loadOwnAppointments(tx,{businessId:row.businessId,sessionId:session.sessionId,
@@ -804,20 +863,50 @@ export async function processConversationInbox(input: {
           const managementScope = { businessId: row.businessId, sessionId: session.sessionId, canonicalPhone: snapshot.phone.replace(/[^0-9]/g, ''), expectedRevision: session.revision }
           const managementState = parseBotOptionsState(session.state)
           if (!managementState.ok) throw new GroupCancellationError('invalid current management state')
-          const fresh = managementCommand.kind === 'RESCHEDULE_APPOINTMENT_GROUP' && managementCommand.source === 'own_lookup'
-            ? await (async () => {
-              const own = await loadOwnAppointments(tx, managementScope)
-              const selectedKey = ownAppointmentKey(managementCommand.snapshot)
-              const selected = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(managementCommand.snapshot))
-              if (!selected) throw new GroupCancellationError('own lookup selection changed; new consent required')
-              return selected.snapshot
-            })()
-            : await (managementState.state.deposit === 'APPROVED'
-              ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
-              : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
-          if (cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) throw new GroupCancellationError('management snapshot changed; new consent required')
-          const receipt = managementCommand.kind === 'CANCEL_APPOINTMENT_GROUP' ? await cancelGroupInTransaction(tx, managementCommand) : await rescheduleGroupInTransaction(tx, managementCommand)
-          finalResponse = finalizeAppointmentManagement(response, receipt)
+          if (managementCommand.kind === 'CANCEL_APPOINTMENT_GROUP') {
+            const fresh = managementCommand.source === 'own_lookup'
+              ? await (async () => {
+                const own = await loadOwnAppointments(tx, managementScope)
+                const selectedKey = ownAppointmentKey(managementCommand.snapshot)
+                const selected = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(managementCommand.snapshot))
+                return selected?.snapshot ?? null
+              })()
+              : await (managementState.state.deposit === 'APPROVED'
+                ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
+                : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
+            if (!fresh || cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) {
+              const unchanged=structuredClone(snapshot.draft)
+              delete unchanged.appointmentManagement
+              finalResponse={state:unchanged,proposal:null,reply:'El turno cambió o ya no aparece entre tus turnos futuros confirmados. No realicé esta cancelación; volvé a consultar el turno antes de confirmar.'}
+            } else {
+              finalResponse = finalizeAppointmentManagement(response, await cancelGroupInTransaction(tx, managementCommand, undefined, 'whatsapp_confirmed'))
+            }
+          } else {
+            try {
+              const fresh = managementCommand.source === 'own_lookup'
+                ? await (async () => {
+                  const own = await loadOwnAppointments(tx, managementScope)
+                  const selectedKey = ownAppointmentKey(managementCommand.snapshot)
+                  const selected = own.items.find(item => item.key === selectedKey && cancellationFingerprint(item.snapshot) === cancellationFingerprint(managementCommand.snapshot))
+                  if (!selected) throw new GroupCancellationError('own lookup selection changed; new consent required')
+                  return selected.snapshot
+                })()
+                : await (managementState.state.deposit === 'APPROVED'
+                  ? loadOwnConfirmedCancellationHandoffSnapshot(tx, managementScope)
+                  : loadOwnConfirmedRuntimeGroupSnapshot(tx, managementScope))
+              if (cancellationFingerprint(fresh) !== cancellationFingerprint(managementCommand.snapshot)) {
+                throw new GroupCancellationError('management snapshot changed; new consent required')
+              }
+              finalResponse = finalizeAppointmentManagement(response, await rescheduleGroupInTransaction(tx, managementCommand))
+            } catch (error) {
+              const outcome=rescheduleRecoveryOutcome(error)
+              if (!outcome) throw error
+              // No identifier, phone, message, time, or appointment data is emitted.
+              console.warn('[barber-local-reschedule-recovery]', JSON.stringify({ event: 'reschedule_operational_recovery', outcome }))
+              finalResponse = rescheduleUnavailableResponse(snapshot.draft, outcome)
+              managementCommand = undefined
+            }
+          }
         }
       }
       if(command?.kind==='CONFIRM_BOOKING') {
@@ -860,7 +949,7 @@ export async function processConversationInbox(input: {
       const update = await measureAttemptStage('conversation_turn_persist', () => persistConversationTurnTx(tx, {
         businessId: row.businessId, sessionId: session.sessionId, expectedRevision: session.revision, revision,
         handoffFenceEpoch: session.handoffFenceEpoch, state, transitionId, deploymentId: row.deploymentId,
-        generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
+        generation: row.generation, providerEventId: row.providerEventId, consolidation: deliveryEnvelope, admittedAt: snapshot.consolidation?.admittedAt, actionType: snapshot.reset || snapshot.testReset ? 'system.conversation_restart' : snapshot.selectedChoice ? CONVERSATION_CHOICE_ACTION : 'conversation.message',
         step: handoffCommand || confirmedCancellationHandoff ? null : conversationStepForBotOptionsState(state),
         ...(atomicText ? { finalizeText: { reply, toPhone: snapshot.phone, dbNow: row.dbNow, inboxId: row.id,
           coveredIds: snapshot.consolidation?.envelope.eventIds ?? [row.providerEventId],

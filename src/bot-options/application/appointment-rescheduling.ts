@@ -17,6 +17,8 @@ export type RescheduleManageableAppointmentInput = {
   actor: string
   confirmed: true
   newStartAt: string
+  /** Internal group preflight; runs all authoritative guards and locks without writing. */
+  preview?: true
 }
 
 export type RescheduleManageableAppointmentResult =
@@ -126,6 +128,7 @@ export function depositSnapshotMatchesCurrentPolicy(input: {
 }
 
 export async function rescheduleManageableAppointment(client: RescheduleClient, input: RescheduleManageableAppointmentInput): Promise<RescheduleManageableAppointmentResult> {
+  if (input.preview) throw new AppointmentReschedulingError('reschedule preview is transaction-internal')
   validateRescheduleInput(input)
   return client.$transaction((tx) => rescheduleManageableAppointmentInTransaction(tx, input))
 }
@@ -314,6 +317,7 @@ export async function rescheduleManageableAppointmentInTransaction(tx: Reschedul
   if (decision === 'HANDOFF') return { outcome: 'HANDOFF', replayed: false }
   if (decision === 'INELIGIBLE') return { outcome: 'INELIGIBLE', replayed: false }
   if (!slotPolicy.insideWindow || !slotPolicy.onGrid || validation.conflicts.length) return { outcome: 'SLOT_CONFLICT', replayed: false }
+  if (input.preview) return { outcome: 'RESCHEDULED', replayed: false, appointmentId: row.appointmentId, newStartAt: newStartAt.toISOString(), depositPreserved: row.depositId !== null }
 
   const reserved = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "BotOperation" ("id", "operationKey", "type", "businessId", "sessionId", "status", "requestHash", "updatedAt")
@@ -379,6 +383,7 @@ export function validateRescheduleInput(input: RescheduleManageableAppointmentIn
     throw new AppointmentReschedulingError('actor must be a nonblank textual principal')
   }
   if (input.confirmed !== true) throw new AppointmentReschedulingError('reschedule confirmation is required')
+  if (input.preview !== undefined && input.preview !== true) throw new AppointmentReschedulingError('reschedule preview is invalid')
   if (typeof input.newStartAt !== 'string') throw new AppointmentReschedulingError('newStartAt must be a canonical ISO instant')
   const parsed = new Date(input.newStartAt)
   if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== input.newStartAt) throw new AppointmentReschedulingError('newStartAt must be a canonical ISO instant')

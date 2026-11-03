@@ -269,7 +269,7 @@ export async function executePrismaConversationBooking(tx: Prisma.TransactionCli
       s.attentionMode==='GUIDED_ESTIMATE' && !estimate ||
       segment.configurationHash!==runtimeServiceConfigurationHash(s)) return {kind:'REQUOTE'}
     canonicalServices.push(s)
-    const catalogs=await tx.$queryRaw<Array<{count:number}>>(Prisma.sql`SELECT count(*)::int AS count FROM "Service" s JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true WHERE s.id=${segment.serviceId} AND s."businessId"=${o.businessId} AND s."isActive"=true AND s."isBookable"=true`)
+    const catalogs=await tx.$queryRaw<Array<{count:number}>>(Prisma.sql`SELECT count(*)::int AS count FROM "Service" s LEFT JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true WHERE s.id=${segment.serviceId} AND s."businessId"=${o.businessId} AND s."isActive"=true AND s."isBookable"=true AND (s."catalogCategoryId" IS NULL OR c.id IS NOT NULL)`)
     const windows=await tx.$queryRaw<Array<{valid:boolean}>>(Prisma.sql`SELECT (${new Date(segment.startAt)} >= clock_timestamp()+make_interval(hours=>${settings.bookingLeadTimeHours})
       AND (${new Date(segment.startAt)} AT TIME ZONE ${settings.timezone})::date < (clock_timestamp() AT TIME ZONE ${settings.timezone})::date+${settings.bookingHorizonDays}::int
       AND extract(minute FROM (${new Date(segment.startAt)} AT TIME ZONE ${settings.timezone}))::int % 30=0 AND extract(second FROM ${new Date(segment.startAt)}::timestamptz)=0) AS valid`)

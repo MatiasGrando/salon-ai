@@ -10,8 +10,21 @@ export type CancellationMember = {
 }
 export type CancellationSnapshot = { scope: ManagementScope; groupId: string | null; dbNow: string; members: readonly CancellationMember[] }
 /** Separate from the prospective booking draft and its confirmation nonce. */
-export type GroupCancellationProposal = { kind: 'GROUP_CANCELLATION_PROPOSAL'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot }
-export type GroupCancellationCommand = { kind: 'CANCEL_APPOINTMENT_GROUP'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot; confirmed: true }
+export type GroupCancellationProposal = { kind: 'GROUP_CANCELLATION_PROPOSAL'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot; source?: 'own_lookup' }
+export type GroupCancellationCommand = { kind: 'CANCEL_APPOINTMENT_GROUP'; nonce: string; fingerprint: string; snapshot: CancellationSnapshot; confirmed: true; source?: 'own_lookup' }
+export type CompletedCancellation = {
+  operationKey: string; appointmentIds: string[]; cancelledAt: string
+  hadDeposit: boolean; cancellationLeadMinutes: number; insideLeadWindow: boolean
+}
+export function parseCompletedCancellation(value: unknown): CompletedCancellation {
+  const row = value as CompletedCancellation
+  if (!row || typeof row !== 'object' || Array.isArray(row) || Object.keys(row).sort().join(',') !== 'appointmentIds,cancellationLeadMinutes,cancelledAt,hadDeposit,insideLeadWindow,operationKey' ||
+    !Array.isArray(row.appointmentIds) || !row.appointmentIds.length || row.appointmentIds.length > 20 || new Set(row.appointmentIds).size !== row.appointmentIds.length ||
+    !Number.isSafeInteger(row.cancellationLeadMinutes) || row.cancellationLeadMinutes < 0 || typeof row.hadDeposit !== 'boolean' || typeof row.insideLeadWindow !== 'boolean')
+    throw new GroupCancellationError('invalid completed cancellation')
+  managementIdentifier(row.operationKey); row.appointmentIds.forEach(managementIdentifier); instant(row.cancelledAt)
+  return structuredClone(row)
+}
 
 export class GroupCancellationError extends Error {
   constructor(message: string) { super(message); this.name = 'GroupCancellationError' }
@@ -65,14 +78,14 @@ export function cancellationFingerprint(snapshot: CancellationSnapshot): string 
   return canonicalJsonHash({ scope: snapshot.scope, groupId: snapshot.groupId,
     members: [...snapshot.members].sort((a,b)=>a.appointmentId.localeCompare(b.appointmentId)) })
 }
-export function presentGroupCancellation(snapshot: CancellationSnapshot): GroupCancellationProposal {
-  return { kind: 'GROUP_CANCELLATION_PROPOSAL', nonce: randomUUID(), fingerprint: cancellationFingerprint(snapshot), snapshot: structuredClone(snapshot) }
+export function presentGroupCancellation(snapshot: CancellationSnapshot, source?: 'own_lookup'): GroupCancellationProposal {
+  return { kind: 'GROUP_CANCELLATION_PROPOSAL', nonce: randomUUID(), fingerprint: cancellationFingerprint(snapshot), snapshot: structuredClone(snapshot), ...(source ? {source} : {}) }
 }
 export function confirmGroupCancellation(proposal: GroupCancellationProposal, consent: { nonce: string; fingerprint: string }): GroupCancellationCommand {
   managementIdentifier(proposal.nonce)
   if (proposal.kind !== 'GROUP_CANCELLATION_PROPOSAL' || proposal.fingerprint !== cancellationFingerprint(proposal.snapshot)) throw new GroupCancellationError('proposal fingerprint mismatch')
   if (consent.nonce !== proposal.nonce || consent.fingerprint !== proposal.fingerprint) throw new GroupCancellationError('current management consent required')
-  return { kind: 'CANCEL_APPOINTMENT_GROUP', nonce: proposal.nonce, fingerprint: proposal.fingerprint, snapshot: structuredClone(proposal.snapshot), confirmed: true }
+  return { kind: 'CANCEL_APPOINTMENT_GROUP', nonce: proposal.nonce, fingerprint: proposal.fingerprint, snapshot: structuredClone(proposal.snapshot), confirmed: true, ...(proposal.source ? {source:proposal.source} : {}) }
 }
 
 export type GroupMove = { appointmentId: string; newStartAt: string; newProfessionalId?: string }
@@ -122,7 +135,7 @@ export function confirmGroupReschedule(proposal: GroupRescheduleProposal, consen
   if(consent.nonce!==proposal.nonce || consent.fingerprint!==proposal.fingerprint) throw new GroupCancellationError('current management consent required')
   return {...structuredClone(proposal),kind:'RESCHEDULE_APPOINTMENT_GROUP',confirmed:true}
 }
-export type ManagementRescheduleOffer = { key: string; date: string; moves: readonly GroupMove[] }
+export type ManagementRescheduleOffer = { key: string; date: string; moves: readonly GroupMove[]; band?: 'MORNING'|'AFTERNOON'|'EVENING' }
 /** Server-only sidecar: never a booking draft, model instruction, or effects capability. */
 export type AppointmentManagementContext = {
   version: 1; action: 'CANCEL' | 'RESCHEDULE'; snapshot: CancellationSnapshot
@@ -131,6 +144,7 @@ export type AppointmentManagementContext = {
 export type ManagementSlotEvidence = {
   date: string; startAt: string; professionalId: string; serviceIds: readonly string[]
   durationMinutes: number; customerDurationMinutes: number
+  band?: 'MORNING'|'AFTERNOON'|'EVENING'
 }
 export type ManagementAvailabilityReader = (member: CancellationMember, date: string, professionalId: string) => Promise<readonly ManagementSlotEvidence[]>
 function managementRecord(value: unknown): asserts value is Record<string, unknown> {
@@ -162,7 +176,8 @@ function assertManagementOffers(snapshot: CancellationSnapshot, offers: unknown)
   if (!Array.isArray(offers) || offers.length > 10) throw new GroupCancellationError('invalid offers bound')
   const keys = new Set<string>()
   for (const offer of offers) {
-    managementRecord(offer); managementKeys(offer, ['key', 'date', 'moves'])
+    managementRecord(offer); managementKeys(offer, ['key', 'date', 'moves'], ['band'])
+    if (offer.band!==undefined && !['MORNING','AFTERNOON','EVENING'].includes(String(offer.band))) throw new GroupCancellationError('invalid offer band')
     if (!Array.isArray(offer.moves)) throw new GroupCancellationError('invalid offer moves')
       for (const move of offer.moves) { managementRecord(move); managementKeys(move, ['appointmentId', 'newStartAt'], ['newProfessionalId']) }
     if (offer.key !== managementRescheduleOfferKey(snapshot, offer.date as string, offer.moves as GroupMove[])) throw new GroupCancellationError('offer fingerprint mismatch')
@@ -172,7 +187,7 @@ function assertManagementOffers(snapshot: CancellationSnapshot, offers: unknown)
 }
 export function parseAppointmentManagement(value: unknown, businessId: string, sessionId: string): AppointmentManagementContext {
   managementRecord(value); managementKeys(value, ['version', 'action', 'snapshot'], ['proposal', 'offers', 'source'])
-  if (value.source !== undefined && (value.source !== 'own_lookup' || value.action !== 'RESCHEDULE')) throw new GroupCancellationError('invalid management source')
+  if (value.source !== undefined && value.source !== 'own_lookup') throw new GroupCancellationError('invalid management source')
   if (JSON.stringify(value).length > 16384 || value.version !== 1 || !['CANCEL', 'RESCHEDULE'].includes(value.action as string)) throw new GroupCancellationError('invalid management context bound/action')
   exactSnapshot(value.snapshot)
   if (value.snapshot.scope.businessId !== businessId || value.snapshot.scope.sessionId !== sessionId) throw new GroupCancellationError('management scope mismatch')
@@ -180,7 +195,7 @@ export function parseAppointmentManagement(value: unknown, businessId: string, s
   if (value.offers !== undefined) assertManagementOffers(value.snapshot, value.offers)
   if (value.proposal !== undefined) {
     const proposal = value.proposal
-    managementRecord(proposal); managementKeys(proposal, ['kind', 'nonce', 'fingerprint', 'snapshot'], value.action === 'RESCHEDULE' ? ['moves', 'source'] : [])
+    managementRecord(proposal); managementKeys(proposal, ['kind', 'nonce', 'fingerprint', 'snapshot'], value.action === 'RESCHEDULE' ? ['moves', 'source'] : ['source'])
     if (proposal.source !== value.source) throw new GroupCancellationError('management source mismatch')
     exactSnapshot(proposal.snapshot)
     if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(proposal.nonce as string) || canonicalJsonHash(proposal.snapshot) !== canonicalJsonHash(value.snapshot)) throw new GroupCancellationError('management proposal/snapshot mismatch')
@@ -196,7 +211,7 @@ export function parseAppointmentManagement(value: unknown, businessId: string, s
   return structuredClone(value) as unknown as AppointmentManagementContext
 }
 export function beginAppointmentManagement(action: AppointmentManagementContext['action'], snapshot: CancellationSnapshot, source?: 'own_lookup'): AppointmentManagementContext {
-  const context: AppointmentManagementContext = { version: 1, action, snapshot: structuredClone(snapshot), ...(source ? {source} : {}), ...(action === 'CANCEL' ? { proposal: presentGroupCancellation(snapshot) } : {}) }
+  const context: AppointmentManagementContext = { version: 1, action, snapshot: structuredClone(snapshot), ...(source ? {source} : {}), ...(action === 'CANCEL' ? { proposal: presentGroupCancellation(snapshot,source) } : {}) }
   return parseAppointmentManagement(context, snapshot.scope.businessId, snapshot.scope.sessionId)
 }
 export function attachManagementRescheduleOffers(context: AppointmentManagementContext, offers: readonly ManagementRescheduleOffer[]): AppointmentManagementContext {

@@ -34,6 +34,10 @@ export type CommunicativeAdmission = {
   temporalInquiry?: true
   /** Sole admitted exact-time answer ownership; ephemeral, never model or stored authority. */
   currentTimeAnswer?: true
+  /** A validated refusal of the current management proposal authorizes only dismissing that proposal. */
+  managementDeclined?: true
+  /** A validated contextual answer authorizes only confirming the displayed reprogramming proposal. */
+  managementConfirmed?: true
   reference?: { mention: string; evidence: string }
   /** Ephemeral server admission, never a model flag or persisted booking action. */
   continuity?: 'notice' | 'pause' | 'repair'
@@ -313,6 +317,25 @@ function repeatedAdd(operation: TurnOperation, state: DialogueState): boolean {
   return operation.kind === 'basket' && operation.mutation === 'add' && operation.members.every(member =>
     member.mode === 'single' && selectionBasket(state).members.some(old => old.mode === 'single' && old.serviceIds[0] === member.serviceIds[0]))
 }
+/** A fresh, complete request can retain independent facts when its optional act map groups their ownership. */
+function completeProspectiveBookingRequest(plan: TurnPlan, state: DialogueState): boolean {
+  if (selectionBasket(state).members.length || state.date || state.datePreferences || state.requestedTime || state.timePreference ||
+      state.timeClarification || state.timeMeaningClarification || state.slot || state.professional || state.professionalNameHint ||
+      state.serviceRequest || state.editRequest || state.referral || state.professionalReference || state.questionContext ||
+      state.dialogueContext || state.sandboxReservation) return false
+  const service = plan.operations.some(operation => operation.kind === 'basket' && operation.mutation === 'set' &&
+    operation.scope === 'all' && operation.targetMemberIds.length === 0 && operation.members.length > 0 ||
+    operation.kind === 'service' && operation.mode !== 'unresolved' && !operation.correction ||
+    operation.kind === 'service_request' && operation.purpose === 'booking' && operation.disposition === 'clear')
+  return service && plan.operations.some(operation => operation.kind === 'date') &&
+    plan.operations.some(operation => operation.kind === 'time')
+}
+/** This admits only an omitted or grouped current request; every explicit contrary act remains authoritative. */
+function groupedProspectiveRequestOwner(owners: readonly CommunicativeAct[], operation: TurnOperation): boolean {
+  const owner = owners[0]
+  return owners.length <= 1 && (owners.length === 0 || !!owner && owner.kind === 'request' && owner.confidence >= .85 &&
+    contains(owner.evidence, operation.evidence)) && operation.confidence >= .85
+}
 /** Every owner must support the same current mutation; union coverage is not partial consent. */
 function sharedBasketAuthority(owners: readonly CommunicativeAct[], operation: TurnOperation | undefined,
   message: string, state: DialogueState, services: readonly DialogueService[]): boolean {
@@ -337,6 +360,7 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   let timeMeaningRejected = false
   let temporalInquiry = false
   let currentTimeAnswer = false
+  const completeProspectiveRequest = completeProspectiveBookingRequest(source, state)
   const reference = metadata?.acts.find(act => act.kind === 'reference' && act.field === 'professional' && act.confidence >= .85 && act.mention !== null)
   // Establish sole current nonoperative ownership before inspecting unowned proposals.
   const continuityActs = metadata?.acts.filter(act => ['notice', 'pause', 'repair'].includes(act.kind) &&
@@ -345,6 +369,16 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
   const distinct = [...new Set(continuityActs.map(act => act.kind))]
   const continuityCandidate = distinct.length === 1 && continuityActs.length === metadata?.acts.filter(act => act.kind !== 'social').length
     ? distinct[0] as NonNullable<CommunicativeAdmission['continuity']> : undefined
+  const managementDeclined=Boolean(state.appointmentManagement?.context.proposal && state.appointmentManagement.presentedScope &&
+    !state.appointmentManagement.outcome && metadata?.acts.some(act=>act.kind==='pause' && act.field==='general' && act.confidence>=.85 &&
+      act.evidence===message && act.mention===null) && !metadata?.acts.some(act=>['request','change'].includes(act.kind)) &&
+    !source.operations.some(operation=>operation.kind==='confirm_proposal'))
+  const managementConfirmed=Boolean(state.appointmentManagement?.context.proposal?.kind==='GROUP_RESCHEDULE_PROPOSAL' &&
+    state.appointmentManagement.presentedScope && !state.appointmentManagement.outcome && !/[?¿]/.test(message) && source.operations.length===0 &&
+    metadata?.acts.some(act=>act.kind==='answer' && act.field==='general' && act.confidence>=.85 && act.evidence===message &&
+      act.mention===null && act.operationIndexes.length===0) &&
+    metadata.acts.every(act=>act.kind==='social' || act.kind==='answer' && act.field==='general' && act.confidence>=.85 &&
+      act.evidence===message && act.mention===null && act.operationIndexes.length===0))
   const admitted = plan.operations.filter(operation => {
     const index = sourceOperationIndex(operation, source)
     const original = source.operations[index]
@@ -395,6 +429,11 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
       if (!sharedBasketAuthority(owners, original, message, state, services)) { blocked.add(field); return false }
       return true
     }
+    // The act map is secondary metadata, not a second semantic parser. A single
+    // new request can legitimately own service/date/time together, or omit a
+    // sibling index; its already validated plan keeps those prospective facts.
+    if (completeProspectiveRequest && ['service', 'date', 'time'].includes(field) &&
+        groupedProspectiveRequestOwner(owners, operation)) return true
     const read = original?.kind === 'information' || original?.kind === 'unsupported_action' || original?.kind === 'own_appointment' ||
       original?.kind === 'service_request' && original.purpose === 'inquiry'
     // SERVICES is a catalog read. A shared current comparison inquiry may own
@@ -434,6 +473,8 @@ export function admitCommunicativePlan(metadata: CommunicativeActs | null, sourc
     ...(timeMeaningRejected ? { timeMeaningRejected: true as const } : {}),
     ...(temporalInquiry ? { temporalInquiry: true as const } : {}),
     ...(currentTimeAnswer ? { currentTimeAnswer: true as const } : {}),
+    ...(managementDeclined ? { managementDeclined: true as const } : {}),
+    ...(managementConfirmed ? { managementConfirmed: true as const } : {}),
     ...(continuity ? { continuity } : {}),
     ...(blocked.size === 0 && metadata?.acts.some(act => act.kind === 'social' && act.field === 'general' && act.confidence >= .85 && act.operationIndexes.length === 0 && act.mention === null) &&
       !metadata.acts.some(act => ['notice', 'pause', 'repair'].includes(act.kind)) ? { social: true as const } : {}),

@@ -27,7 +27,11 @@ export function adaptChoicePresentation(presentation: ChoicePresentation, questi
   return { kind: presentation.kind === 'slots' ? 'slot' : presentation.kind === 'dates' ? 'date' : presentation.kind === 'professionals' ? 'professional' : 'preference', title: presentation.kind === 'slots' ? 'Horarios disponibles' : presentation.kind === 'dates' ? 'Días disponibles' : presentation.kind === 'professionals' ? 'Profesionales disponibles' : 'Preferencia horaria', choices }
 }
 export function choiceOptionId(operation: ConversationChoiceOperation): string {
+  if (operation.kind === 'start_booking') return 'start_booking'
+  if (operation.kind === 'availability_alternatives') return 'availability_alternatives:' + operation.scope
   if (operation.kind === 'category') return 'category:' + operation.categoryId
+  if (operation.kind === 'cancel_appointment') return 'cancel_appointment:' + operation.nonce + ':' + operation.confirm
+  if (operation.kind === 'confirm_reschedule_appointment') return 'confirm_reschedule_appointment:' + operation.nonce
   return operation.kind === 'slot' ? operation.startAt + '/' + operation.professionalId + (operation.coordinationKey ? '/' + operation.coordinationKey : '') : operation.kind === 'date' ? operation.date
     : operation.kind === 'professional' ? operation.professionalId : operation.kind === 'any_professional' ? ANY_PROFESSIONAL_OPTION
     : operation.kind === 'preference' ? preferenceOptionId(operation) : operation.kind === 'service' ? operation.serviceId
@@ -60,12 +64,20 @@ export function choicePresentationForQuestion(state: DialogueState, services: re
 /** Exact server invitation over one focal published price, not a client-proposed cart command. */
 export function priceBookingChoice(state: DialogueState): { id: string; label: string } | null {
   const focus = state.informationFocus;
-  if (!focus || focus.businessId !== state.businessId || !['price', 'overview', 'description'].includes(focus.aspect ?? '') || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1) return null;
+  if (!focus || focus.businessId !== state.businessId || focus.awaitingChoice || !focus.serviceId || focus.options.length !== 1) return null;
   const service = focus.options[0]!;
   const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null;
   return service.id === focus.serviceId && question?.complete && question.options.length === 1 &&
     question.options[0]!.id === service.id && question.options[0]!.label === service.label &&
     question.question === '¿Querés agendar ' + service.label + '?' ? service : null;
+}
+/** A generic invitation opens service selection; it never borrows an identity from the topic. */
+export function generalBookingChoice(state: DialogueState): boolean {
+  const focus = state.informationFocus
+  if (!focus || focus.businessId !== state.businessId || focus.serviceId || !focus.subject) return false
+  const question = state.questionContext ? parseDialogueQuestion(state.questionContext, state) : null
+  return !!question?.complete && question.question === '¿Querés agendar un turno?' && question.options.length === 1 &&
+    question.options[0]!.id === 'start_booking' && question.options[0]!.label === 'Reservar'
 }
 /** Current scoped factual focus can ground a request; only a booking invitation grounds an answer. */
 export function informationBookingService(state: DialogueState, services: readonly DialogueService[], ownership: 'request' | 'answer'): DialogueService | null {
@@ -90,6 +102,7 @@ export function choicePresentationForInformation(state: DialogueState): Conversa
   const focus = state.informationFocus
   const invitation = priceBookingChoice(state)
   if (invitation) return { kind: 'service', title: 'Reservar ' + invitation.label, choices: [{ label: 'Reservar', operation: { kind: 'service', serviceId: invitation.id } }] }
+  if (generalBookingChoice(state)) return { kind: 'service', title: 'Agendar un turno', choices: [{ label: 'Reservar', operation: { kind: 'start_booking' } }] }
   const recommendation = focus?.aspect === 'recommendation' && !focus.serviceId && focus.options.length > 1
   if ((!focus?.awaitingChoice && !recommendation) || !focus?.options.length || focus.options.length > 10) return undefined
   return { kind: 'service', title: focus.aspect === 'price' ? 'Precios por servicio' : 'Información del servicio', choices: focus.options.map(option => ({ label: option.label, operation: { kind: 'service', serviceId: option.id } })) }

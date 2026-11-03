@@ -20,17 +20,30 @@ export function planConversationChoiceView(input: { question: ChoiceQuestion; re
   const id = input.idFactory ?? randomUUID, promptToken = input.promptToken ?? generatePromptToken()
   // Only surface separators are equivalent here. Missing service/professional/time text still requires the full fallback.
   const coverageText = (value: string) => value.replace(/\ba las (?=\d{2}:\d{2})/g, 'a ').replace(/\s*→\s*|\s+/g, ' ').trim()
+  const coordinated = question.kind === 'slot' && question.choices.some(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey)
+  const listMode = coordinated || preferredChoiceMode(question.choices.map(choice => choice.label)) === 'list'
+  const slotChoices = question.kind === 'slot' ? question.choices.filter(choice => choice.operation.kind === 'slot') : []
+  const slotRowsCovered = slotChoices.length > 0 && slotChoices.every(choice => choice.operation.kind === 'slot' &&
+    (choice.operation.coordinationKey ? coverageText(input.reply).includes(coverageText(choice.label)) : input.reply.includes(choice.label)))
   // The existing explicit confirmation question is the textual alternative to the one actual confirm button.
   const confirmationCovered = question.kind === 'proposal' && question.choices.length === 1 &&
     question.choices[0]!.operation.kind === 'confirm' && ['¿Confirmás este turno?',
       '¿Confirmás la reserva de todos estos servicios con la seña conjunta?'].some(question => input.reply.includes(question))
-  const covered = confirmationCovered || question.choices.every(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey
+  const cancellationCovered = question.kind === 'proposal' && question.choices.length === 2 &&
+    question.choices.every(choice=>choice.operation.kind==='cancel_appointment')
+  const rescheduleCovered = question.kind === 'proposal' && question.choices.length === 1 &&
+    question.choices[0]!.operation.kind === 'confirm_reschedule_appointment'
+  const covered = confirmationCovered || cancellationCovered || rescheduleCovered || listMode && slotRowsCovered || question.choices.every(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey
     ? coverageText(input.reply).includes(coverageText(choice.label)) : input.reply.includes(choice.label))
-  const body = covered ? input.reply : input.reply + '\n\n' + question.choices.map(choice => choice.label).join(' · ')
+  const slotEnumeration = slotChoices.length ? slotChoices.map((choice, index) => `${index + 1}. ${choice.label}`).join('\n') : null
+  // The fallback text lists real slots for a plain-text channel. A native list
+  // already renders those same rows, so keep only the lead and the question.
+  const nativeSlotBody = listMode && slotEnumeration && input.reply.includes(slotEnumeration)
+    ? input.reply.replace(slotEnumeration, '').replace(/\n{3,}/g, '\n\n').trim() : input.reply
+  const body = covered ? nativeSlotBody : input.reply + '\n\n' + question.choices.map(choice => choice.label).join(' · ')
   const rendered = renderWhatsAppScreen({ bodyKind: 'menu', informativeTexts: [], interactiveBody: body,
     choices: question.choices.map(choice => ({ label: choice.label, actionType: 'input.unsupported' })) }, { promptToken })
-  const coordinated = question.kind === 'slot' && question.choices.some(choice => choice.operation.kind === 'slot' && choice.operation.coordinationKey)
-  if (coordinated || preferredChoiceMode(question.choices.map(choice => choice.label)) === 'list') {
+  if (listMode) {
     rendered.items = rendered.items.map(item => item.type === 'interactive' ? {
       type: 'interactive' as const, mode: 'list' as const, body: item.body, actionIds: item.actionIds,
       rows: question.choices.map((choice, index) => ({ id: item.actionIds[index]!,

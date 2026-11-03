@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { acquireAgendaHierarchy } from '../../services/agenda-locks.js'
 import { normalizePhone } from '../../services/phone-normalization-service.js'
+import { cancelAppointmentAgendaRowInTransaction } from '../../services/appointment-cancellation-write.js'
 
 export {
   AppointmentReschedulingError,
@@ -61,6 +62,8 @@ export type CancelManageableAppointmentInput = {
   appointmentId: string
   operationKey: string
   confirmed: true
+  /** Server-owned WhatsApp policy; existing web/options callers retain their current policy. */
+  customerPolicy?: 'whatsapp_confirmed'
 }
 
 export type CancelManageableAppointmentResult = {
@@ -189,13 +192,13 @@ export async function cancelManageableAppointmentInTransaction(tx: CancellationT
   await acquireAgendaHierarchy(tx, { businessId: input.businessId, professionalIds: [target[0]!.professionalId] })
 
   const rows = await tx.$queryRaw<Array<{
-    appointmentId: string; visitId: string | null; depositId: string | null; depositVisitId: string | null
-    sessionId: string | null; startAt: Date; dbNow: Date; timezone: string | null; cancellationLeadMinutes: number | null
+    appointmentId: string; visitId: string | null; depositId: string | null; depositVisitId: string | null; depositBusinessId: string | null
+    sessionId: string | null; version: number; startAt: Date; dbNow: Date; timezone: string | null; cancellationLeadMinutes: number | null
     appointmentStatus: string; visitStatus: string | null; depositStatus: string | null
     snapshotSealedAt: Date | null; depositExpiresAt: Date | null; holdExpiresAt: Date | null
   }>>(Prisma.sql`
-    SELECT a."id" AS "appointmentId", a."visitId", d."id" AS "depositId", d."visitId" AS "depositVisitId",
-      v."sessionId", a."startAt", clock_timestamp() AS "dbNow", settings."timezone", settings."cancellationLeadMinutes",
+    SELECT a."id" AS "appointmentId", a."visitId", d."id" AS "depositId", d."visitId" AS "depositVisitId", d."businessId" AS "depositBusinessId",
+      v."sessionId", a.version, a."startAt", clock_timestamp() AS "dbNow", settings."timezone", settings."cancellationLeadMinutes",
       a."status"::text AS "appointmentStatus", v."status"::text AS "visitStatus", d."status"::text AS "depositStatus",
       d."snapshotSealedAt", d."expiresAt" AS "depositExpiresAt", v."holdExpiresAt"
     FROM "Appointment" a
@@ -236,7 +239,11 @@ export async function cancelManageableAppointmentInTransaction(tx: CancellationT
     return { outcome: 'CANCELLED', replayed: true }
   }
 
-  const decision = classifyCancellationAggregate({
+  const preserveApprovedDeposit = input.customerPolicy === 'whatsapp_confirmed' && row.depositStatus === 'APPROVED' && row.depositBusinessId === input.businessId
+  const whatsappConfirmed = input.customerPolicy === 'whatsapp_confirmed' && row.appointmentStatus === 'CONFIRMED' && row.startAt > row.dbNow &&
+    (row.visitId === null || row.visitStatus === 'CONFIRMED') &&
+    (row.depositId === null || preserveApprovedDeposit && (row.visitId === null || row.depositVisitId === null || row.visitId === row.depositVisitId))
+  const decision = whatsappConfirmed ? 'CANCEL' : classifyCancellationAggregate({
     appointmentStatus: row.appointmentStatus, visitStatus: row.visitStatus, depositStatus: row.depositStatus,
     hasVisit: row.depositId ? row.visitId !== null && row.visitId === row.depositVisitId : row.visitId !== null,
     depositVisitId: row.depositVisitId, snapshotSealedAt: row.snapshotSealedAt, startAt: row.startAt, dbNow: row.dbNow,
@@ -251,7 +258,7 @@ export async function cancelManageableAppointmentInTransaction(tx: CancellationT
   `)
   if (reserved !== 1) throw new AppointmentCancellationError('cancellation operation reservation fence failed')
 
-  if (row.depositId) {
+  if (row.depositId && !preserveApprovedDeposit) {
     const depositCount = await tx.$executeRaw(Prisma.sql`
       UPDATE "BookingDeposit" SET "status" = 'REJECTED'::"BookingDepositStatus", "reviewedAt" = ${row.dbNow},
         "rejectionReason" = 'CANCELLED_BY_CUSTOMER', "updatedAt" = ${row.dbNow}
@@ -268,12 +275,15 @@ export async function cancelManageableAppointmentInTransaction(tx: CancellationT
     `)
     if (visitCount !== 1) throw new AppointmentCancellationError('cancellation lost its visit state fence')
   }
-  const appointmentCount = await tx.$executeRaw(Prisma.sql`
-    UPDATE "Appointment" SET "status" = 'CANCELLED'::"AppointmentStatus", "version" = "version" + 1
-    WHERE "id" = ${row.appointmentId} AND "status" IN ('CONFIRMED'::"AppointmentStatus", 'PENDING'::"AppointmentStatus")
-  `)
+  const appointmentCount = whatsappConfirmed
+    ? await cancelAppointmentAgendaRowInTransaction(tx, { businessId: input.businessId, appointmentId: row.appointmentId,
+        expectedVersion: row.version, confirmedOnly: true, incrementVersion: true })
+    : await tx.$executeRaw(Prisma.sql`
+      UPDATE "Appointment" SET "status" = 'CANCELLED'::"AppointmentStatus", "version" = "version" + 1
+      WHERE "id" = ${row.appointmentId} AND "status" IN ('CONFIRMED'::"AppointmentStatus", 'PENDING'::"AppointmentStatus")
+    `)
   if (appointmentCount !== 1) throw new AppointmentCancellationError('cancellation lost its appointment state fence')
-  if (row.depositId) await neutralizeCancellationExpiryJobs(tx, input.businessId, row.depositId)
+  if (row.depositId && !preserveApprovedDeposit) await neutralizeCancellationExpiryJobs(tx, input.businessId, row.depositId)
   const completed = await tx.$executeRaw(Prisma.sql`
     UPDATE "BotOperation" SET "status" = 'COMPLETED', "resultRef" = ${row.appointmentId}, "updatedAt" = ${row.dbNow}
     WHERE "operationKey" = ${input.operationKey} AND "status" = 'STARTED' AND "requestHash" = ${requestHash}
@@ -298,7 +308,8 @@ async function neutralizeCancellationExpiryJobs(tx: CancellationTx, businessId: 
 }
 
 function cancellationRequestHash(input: CancelManageableAppointmentInput) {
-  return createHash('sha256').update(JSON.stringify({ action: 'CANCEL_APPOINTMENT', businessId: input.businessId, normalizedPhone: input.normalizedPhone, sessionId: input.sessionId, appointmentId: input.appointmentId, confirmed: input.confirmed })).digest('hex')
+  return createHash('sha256').update(JSON.stringify({ action: 'CANCEL_APPOINTMENT', businessId: input.businessId, normalizedPhone: input.normalizedPhone, sessionId: input.sessionId, appointmentId: input.appointmentId, confirmed: input.confirmed,
+    ...(input.customerPolicy ? { customerPolicy: input.customerPolicy } : {}) })).digest('hex')
 }
 
 export function validateCancellationInput(input: CancelManageableAppointmentInput): void {
@@ -306,6 +317,7 @@ export function validateCancellationInput(input: CancelManageableAppointmentInpu
     if (typeof value !== 'string' || value.length === 0 || value.trim() !== value || value.length > 512) throw new AppointmentCancellationError(`${label} must be a nonblank normalized identifier`)
   }
   if (input.confirmed !== true) throw new AppointmentCancellationError('cancellation confirmation is required')
+  if (input.customerPolicy !== undefined && input.customerPolicy !== 'whatsapp_confirmed') throw new AppointmentCancellationError('invalid cancellation customer policy')
 }
 
 /**

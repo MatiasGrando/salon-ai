@@ -2,15 +2,18 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
+import { Prisma } from '../generated/prisma/client.js'
+import { chooseBalancedProfessional } from '../bot-options/application/availability-queries.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
 import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
-import { inferDefaultAreaCodeFromPhone, normalizePhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
-import { findOrCreateCustomerByPhone } from '../services/customer-identity-service.js'
+import { inferDefaultAreaCodeFromPhone, normalizePhone, normalizeCustomerPhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
+import { findOrCreateCustomerByPhone, normalizeCustomerEmail } from '../services/customer-identity-service.js'
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
 import { calculateBookingV2Deposit } from '../services/booking-v2-deposit.js'
 import { bookingDepositService } from '../services/booking-deposit-service.js'
 import { publishDepositUpdated } from '../services/crm-realtime-events.js'
+import { ensureGuestBookingCapacity, prepareGuestBookingAccess, persistGuestBookingAccess, resolveGuestBookingAccesses, setGuestBookingCookie } from '../services/guest-booking-access.js'
 import { BookingAvailabilitySearchEngine } from '../services/booking-availability-search.js'
 import { InternalBookingProvider } from '../providers/internal-booking-provider.js'
 import {
@@ -30,7 +33,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
 
-    const [serviceLinks, combinationRules] = await Promise.all([
+    const [serviceLinks, combinationRules, professionalOrder] = await Promise.all([
       prisma.professionalService.findMany({
         where: {
           service: { businessId: business.id },
@@ -41,14 +44,16 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       prisma.serviceCombinationRule.findMany({
         where: { businessId: business.id },
         select: { serviceAId: true, serviceBId: true, policy: true, note: true }
-      })
+      }),
+      publicProfessionalOrder(business.id, business.professionals)
     ])
 
     return {
       business: {
         id: business.id,
         name: business.name,
-        slug: business.slug
+        slug: business.slug,
+        allowGuestWebBooking: business.allowGuestWebBooking === true
       },
       services: business.services
         .filter((service) => service.isActive)
@@ -65,6 +70,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         .map((service) => ({
         id: service.id,
         name: service.name,
+        imageUrl: publicServiceImageUrl(service.imageUrl),
         duration: service.duration,
         customerDurationMin: service.customerDurationMin,
         customerDurationMax: service.customerDurationMax,
@@ -95,7 +101,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           .filter((link) => link.serviceId === service.id)
           .map((link) => link.professionalId)
       })),
-      professionals: business.professionals.map((professional) => ({
+      professionals: [...business.professionals].sort((left, right) => professionalOrder.indexOf(left.id) - professionalOrder.indexOf(right.id)).map((professional) => ({
         id: professional.id,
         name: professional.name,
         avatarUrl: professional.avatarUrl
@@ -111,23 +117,26 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       professionalId?: string
       date?: string
     }
-    if (!query.serviceId || !query.professionalId || !query.date) return reply.status(400).send({ message: 'Servicio, profesional y fecha son requeridos' })
+    if (!query.serviceId || !query.date || !validPublicBookingDate(query.date)) return reply.status(400).send({ message: 'Servicio y fecha valida son requeridos' })
     const serviceId = query.serviceId
-    const professionalId = query.professionalId
+    const professionalId = query.professionalId && query.professionalId !== 'any' ? query.professionalId : undefined
     const date = query.date
-
-    const [business, professionals, availability] = await Promise.all([
-      findAvailablePublicBookingBusinessAccess(request, params.slug),
-      professionalsForServiceSlug(params.slug, serviceId, professionalId),
-      appointmentService.findAvailability({ professionalId, serviceId, date })
-    ])
+    const business = await findAvailablePublicBookingBusinessAccess(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    const allProfessionals = await professionalsForServiceSlug(params.slug, serviceId)
+    const professionalOrder = await publicProfessionalOrder(business.id, allProfessionals, date)
+    const professionals = [...allProfessionals]
+      .filter((professional) => !professionalId || professional.id === professionalId)
+      .sort((left, right) => professionalOrder.indexOf(left.id) - professionalOrder.indexOf(right.id))
     if (professionals.length === 0) return reply.status(404).send({ message: 'No hay profesionales para ese servicio' })
 
     const slots: Array<{ time: string; professionalId: string; professionalName: string }> = []
     const errors: string[] = []
     const unavailableReasons: string[] = []
-    const results = [{ professional: professionals[0]!, result: availability }]
+    const results = await publicAvailabilityBatch(professionals, async (professional) => ({
+      professional,
+      result: await appointmentService.findAvailability({ professionalId: professional.id, serviceId, date })
+    }))
 
     for (const { professional, result } of results) {
       if (result.ok) {
@@ -146,10 +155,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }
     }
 
-    slots.sort((left, right) => left.time.localeCompare(right.time) || left.professionalName.localeCompare(right.professionalName))
+    slots.sort((left, right) => left.time.localeCompare(right.time) || professionalOrder.indexOf(left.professionalId) - professionalOrder.indexOf(right.professionalId))
+    const balancedSlots = professionalId ? slots : [...new Map(slots.map((slot) => [slot.time, slot])).keys()]
+      .map((time) => slots.find((slot) => slot.time === time)!)
 
     return {
-      slots,
+      slots: balancedSlots,
+      professionalOrder,
       message: slots.length
         ? null
         : unavailableReasons[0] || errors[0] || 'No quedan turnos disponibles para ese día.'
@@ -158,11 +170,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
   app.post('/public/booking/:slug/itineraries', async (request, reply) => {
     const params = request.params as { slug: string }
-    const body = request.body as { serviceIds?: string[]; date?: string }
+    const body = request.body as { serviceIds?: string[]; date?: string; professionalId?: string }
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
     const date = body.date?.trim()
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (!date || !validPublicBookingDate(date)) {
       return reply.status(400).send({ message: 'Selecciona una fecha valida' })
     }
     const selection = await preparePublicServiceSet(business, body.serviceIds)
@@ -170,10 +182,12 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const availability = await searchPublicCoordinatedAvailability({
       business,
       services: selection.services,
-      date
+      date,
+      professionalId: body.professionalId && body.professionalId !== 'any' ? body.professionalId : undefined
     })
     return {
       options: availability.options,
+      professionalOrder: availability.professionalOrder,
       message: availability.options.length
         ? null
         : availability.unavailable?.message || coordinatedAvailabilityMessage(availability.status),
@@ -198,6 +212,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       time?: string
       customerName?: string
       customerPhone?: string
+      customerEmail?: unknown
       estimateOptionId?: string | null
       validationAccepted?: boolean
     }
@@ -207,6 +222,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     ])
     markConfirmationTiming('businessAndAuthMs')
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    if (!weexAuth && business.allowGuestWebBooking !== true) return reply.status(401).send({ message: 'Inicia sesion con Google para reservar en este negocio' })
+    if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
+    let customerEmail: string | null
+    try { customerEmail = weexAuth ? (weexAuth.account.emailVerified ? weexAuth.account.email : null) : optionalGuestEmail(body.customerEmail) }
+    catch { return reply.status(400).send({ message: 'Ingresa un correo electronico valido o deja ese campo vacio' }) }
+    if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
+
 
     const serviceId = body.serviceId?.trim()
     const professionalId = body.professionalId?.trim()
@@ -214,7 +236,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const time = body.time?.trim()
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
+    const guestPhone = !weexAuth ? normalizeCustomerPhone(body.customerPhone, { defaultAreaCode }) : null
+    const customerPhone = weexAuth ? normalizePhone(weexAuth.account.phone || body.customerPhone, { defaultAreaCode })
+      : guestPhone?.ok ? guestPhone.phone : ''
 
     if (!serviceId || !professionalId || !date || !time || !customerName || !customerPhone) {
       return reply.status(400).send({ message: 'Completa servicio, profesional, fecha, horario y tus datos de contacto' })
@@ -255,8 +279,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       findOrCreatePublicCustomer({
         businessId: business.id,
         name: customerName,
-        phone: customerPhone,
-        email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
+        phone: !weexAuth ? '+' + customerPhone : customerPhone,
+        registerMarketingPreference: Boolean(weexAuth),
+        email: customerEmail
       })
     ])
     markConfirmationTiming('professionalAndCustomerMs')
@@ -269,7 +294,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const depositExpiresAt = depositCalculation
       ? new Date(Date.now() + service.depositHoldMinutes * 60_000)
       : null
-    const result = await appointmentService.createPublicBooking({
+    const guestAccess = !weexAuth ? prepareGuestBookingAccess() : null
+    let result: Awaited<ReturnType<AppointmentService['createPublicBooking']>>
+    try {
+      result = await appointmentService.createPublicBooking({
       businessId: business.id,
       customerId: customer.id,
       customerPhone,
@@ -286,13 +314,22 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         amount: depositCalculation.amount,
         expiresAt: depositExpiresAt
       } : null
-    })
+      }, guestAccess ? { afterCreateInTransaction: async ({ transaction, appointment }) => {
+        const created = appointment as typeof appointment & { bookingDeposit?: { id: string } | null }
+        await persistGuestBookingAccess(transaction, { tokenHash: guestAccess.tokenHash, expiresAt: guestAccess.expiresAt,
+          businessId: business.id, appointmentIds: [appointment.id], depositId: created.bookingDeposit?.id ?? null })
+      } } : {})
+    } catch (error) {
+      request.log.error({ error, businessId: business.id }, 'No se pudo guardar la reserva web completa')
+      return reply.status(409).send({ message: 'No pudimos completar la reserva. Tus horarios no fueron confirmados; intenta nuevamente.' })
+    }
     markConfirmationTiming('appointmentAndDepositWriteMs')
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({ message: result.message })
     }
 
+    if (guestAccess) setGuestBookingCookie(request, reply, { ...guestAccess, businessId: business.id, slug: params.slug })
     const deposit = result.appointment.bookingDeposit
     if (deposit) {
       publishDepositUpdated({
@@ -334,10 +371,10 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }
     }
 
-    if (!deposit && weexAuth?.account.emailVerified && appointment) {
+    if (!deposit && customerEmail && appointment) {
       void sendBookingConfirmationEmail({
-        recipientEmail: weexAuth.account.email,
-        recipientName: weexAuth.account.name,
+        recipientEmail: customerEmail,
+        recipientName: customerName,
         appointmentId: appointment.id,
         businessName: business.name,
         businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
@@ -359,7 +396,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }, 'Tiempos de confirmacion de reserva web')
 
     return {
-      appointment,
+      ...(guestAccess ? { guest: true, appointment: publicGuestAppointment(appointment) } : { appointment }),
       calendarSync,
       deposit: deposit ? {
         id: deposit.id,
@@ -387,16 +424,25 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       }>
       date?: string
       itineraryId?: string
+      professionalId?: string
       customerName?: string
       customerPhone?: string
+      customerEmail?: unknown
     }
     const [business, weexAuth] = await Promise.all([
       findAvailablePublicBookingBusiness(request, params.slug),
       getWeexAuthFromRequest(request)
     ])
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    if (!weexAuth && business.allowGuestWebBooking !== true) return reply.status(401).send({ message: 'Inicia sesion con Google para reservar en este negocio' })
+    if (!weexAuth && !validGuestContact(body.customerName, body.customerPhone)) return reply.status(400).send({ message: 'Completa tu nombre y un telefono de contacto valido' })
+    let customerEmail: string | null
+    try { customerEmail = weexAuth ? (weexAuth.account.emailVerified ? weexAuth.account.email : null) : optionalGuestEmail(body.customerEmail) }
+    catch { return reply.status(400).send({ message: 'Ingresa un correo electronico valido o deja ese campo vacio' }) }
+    if (!weexAuth) await ensureGuestBookingCapacity(request, business.id)
     const date = body.date?.trim()
     const itineraryId = body.itineraryId?.trim()
+    const requestedProfessionalId = body.professionalId && body.professionalId !== 'any' ? body.professionalId.trim() : undefined
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !itineraryId) {
       return reply.status(400).send({ message: 'Selecciona una fecha y un itinerario validos' })
     }
@@ -437,7 +483,8 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const availability = await searchPublicCoordinatedAvailability({
       business,
       services: selection.services,
-      date
+      date,
+      professionalId: requestedProfessionalId
     })
     const itinerary = availability.options.find((option) => option.id === itineraryId)
     if (!itinerary) {
@@ -446,15 +493,18 @@ export async function publicBookingRoutes(app: FastifyInstance) {
 
     const customerName = weexAuth?.account.name || body.customerName?.trim()
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const customerPhone = normalizePhone(weexAuth?.account.phone || body.customerPhone, { defaultAreaCode })
+    const guestPhone = !weexAuth ? normalizeCustomerPhone(body.customerPhone, { defaultAreaCode }) : null
+    const customerPhone = weexAuth ? normalizePhone(weexAuth.account.phone || body.customerPhone, { defaultAreaCode })
+      : guestPhone?.ok ? guestPhone.phone : ''
     if (!customerName || customerPhone.length < 8) {
-      return reply.status(400).send({ message: 'Inicia sesion y completa un telefono valido para confirmar los turnos' })
+      return reply.status(400).send({ message: 'Completa tu nombre y un telefono valido para confirmar los turnos' })
     }
     const customer = await findOrCreatePublicCustomer({
       businessId: business.id,
       name: customerName,
-      phone: customerPhone,
-      email: weexAuth?.account.emailVerified ? weexAuth.account.email : null
+      phone: !weexAuth ? '+' + customerPhone : customerPhone,
+      registerMarketingPreference: Boolean(weexAuth),
+      email: customerEmail
     })
 
     const coordinationGroupId = randomUUID()
@@ -472,7 +522,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           status: 'PENDING',
           quotedPrice: resolved.estimate.priceMin,
           coordinationGroupId
-        })
+        }, undefined, { skipDefaultMarketingPreference: !weexAuth })
         if (!created.ok) throw new Error(created.message)
         appointmentIds.push(created.appointment.id)
       }
@@ -486,13 +536,26 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
 
     let deposit = null
+    let guestAppointments: GuestAppointmentSummary[] | null = null
+    const guestAccess = !weexAuth ? prepareGuestBookingAccess() : null
+    const grantAccess = async (transaction: Parameters<typeof persistGuestBookingAccess>[0], depositId: string | null) => {
+      if (!guestAccess) return
+      const created = await transaction.appointment.findMany({
+        where: { id: { in: appointmentIds }, businessId: business.id, origin: 'WEB' },
+        include: { service: true, professional: true }, orderBy: { startAt: 'asc' }
+      })
+      if (created.length !== appointmentIds.length) throw new Error('GUEST_BOOKING_GROUP_INCOMPLETE')
+      await persistGuestBookingAccess(transaction, { tokenHash: guestAccess.tokenHash, expiresAt: guestAccess.expiresAt,
+        businessId: business.id, appointmentIds, depositId })
+      guestAppointments = created
+    }
     try {
       if (totalDeposit > 0) {
         const holdMinutes = Math.min(...resolvedSelections
           .filter((item) => item.deposit)
           .map((item) => item.service.depositHoldMinutes))
-        deposit = await prisma.bookingDeposit.create({
-          data: {
+        deposit = await prisma.$transaction(async transaction => {
+          const created = await transaction.bookingDeposit.create({ data: {
             businessId: business.id,
             appointmentId: appointmentIds[0]!,
             conversationId: null,
@@ -502,10 +565,13 @@ export async function publicBookingRoutes(app: FastifyInstance) {
             baseAmount: null,
             amount: totalDeposit,
             expiresAt: new Date(Date.now() + holdMinutes * 60_000)
-          }
+          } })
+          await grantAccess(transaction, created.id)
+          return created
         })
       } else {
-        const confirmed = await appointmentService.confirmPendingAppointments(appointmentIds)
+        const confirmed = await appointmentService.confirmPendingAppointments(appointmentIds,
+          guestAccess ? { afterConfirmInTransaction: transaction => grantAccess(transaction, null) } : {})
         if (!confirmed) throw new Error('COORDINATED_CONFIRMATION_FAILED')
       }
     } catch (error) {
@@ -529,23 +595,24 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         await linkExistingCustomersByPhone(weexAuth.account.id, customerPhone, defaultAreaCode)
       }
     }
-    const appointments = await prisma.appointment.findMany({
+    const appointments = guestAppointments ?? await prisma.appointment.findMany({
       where: { id: { in: appointmentIds } },
       include: { service: true, professional: true, customer: true },
       orderBy: { startAt: 'asc' }
     })
-    if (!deposit && weexAuth) {
+    if (guestAccess) setGuestBookingCookie(request, reply, { ...guestAccess, businessId: business.id, slug: params.slug })
+    if (!deposit && (weexAuth || customerEmail)) {
       for (const appointment of appointments) {
-        if (weexGoogleCalendarEnabled()) {
+        if (weexAuth && weexGoogleCalendarEnabled()) {
           void createGoogleCalendarEventForAppointment({
             accountId: weexAuth.account.id,
             appointmentId: appointment.id
           }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo sincronizar Google Calendar'))
         }
-        if (weexAuth.account.emailVerified) {
+        if (customerEmail) {
           void sendBookingConfirmationEmail({
-            recipientEmail: weexAuth.account.email,
-            recipientName: weexAuth.account.name,
+            recipientEmail: customerEmail,
+            recipientName: customerName,
             appointmentId: appointment.id,
             businessName: business.name,
             businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
@@ -560,7 +627,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     }
     return {
       coordinationGroupId,
-      appointments,
+      ...(guestAccess ? { guest: true, appointments: appointments.map(publicGuestAppointment) } : { appointments }),
       itinerary,
       deposit: deposit ? {
         id: deposit.id,
@@ -577,8 +644,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
     const body = request.body as { dataUrl?: string; filename?: string }
     const business = await findAvailablePublicBookingBusiness(request, params.slug)
     if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    reply.header('Cache-Control', 'no-store')
     const weexAuth = await getWeexAuthFromRequest(request)
-    if (!weexAuth?.account.phone) return reply.status(401).send({ message: 'Inicia sesion para enviar el comprobante' })
+    const guestScopes = !weexAuth ? await resolveGuestBookingAccesses(request, business.id) : []
+    const guestAccess = guestScopes.find(scope => scope.access.depositId === params.depositId) ?? null
+    if (!weexAuth?.account.phone && !guestAccess) return reply.status(401).send({ message: 'Necesitas el acceso de esta reserva o iniciar sesion para enviar el comprobante' })
 
     const deposit = await prisma.bookingDeposit.findFirst({
       where: {
@@ -589,9 +659,11 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       include: { appointment: { include: { customer: true } } }
     })
     const defaultAreaCode = inferDefaultAreaCodeFromPhone(publicWhatsappNumber(business))
-    const accountPhone = normalizePhone(weexAuth.account.phone, { defaultAreaCode })
+    const accountPhone = normalizePhone(weexAuth?.account.phone, { defaultAreaCode })
     const customerPhone = normalizePhone(deposit?.appointment.customer.phone, { defaultAreaCode })
-    if (!deposit || accountPhone !== customerPhone) {
+    const ownsGuestDeposit = guestAccess && deposit && guestAccess.access.appointmentIds.includes(deposit.appointmentId) &&
+      guestAccess.appointments.every(appointment => appointment.status === 'PENDING' || appointment.status === 'CONFIRMED')
+    if (!deposit || (guestAccess ? !ownsGuestDeposit : !accountPhone || accountPhone !== customerPhone)) {
       return reply.status(404).send({ message: 'No encontre esa seña para tu cuenta' })
     }
 
@@ -606,7 +678,27 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       depositId: deposit.id,
       updatedAt: new Date().toISOString()
     })
-    return { deposit: received.deposit }
+    return { deposit: guestAccess ? publicGuestDeposit(received.deposit, guestAccess.appointments, business) : received.deposit }
+  })
+
+  app.get('/public/booking/:slug/guest-booking', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    const params = request.params as { slug: string }
+    const business = await findAvailablePublicBookingBusiness(request, params.slug)
+    if (!business) return reply.status(404).send({ message: 'No encontre esta landing' })
+    const scopes = await resolveGuestBookingAccesses(request, business.id)
+    const bookings = []
+    for (const scope of scopes) {
+      const deposit = scope.access.depositId ? await prisma.bookingDeposit.findFirst({
+        where: { id: scope.access.depositId, businessId: business.id, source: 'WEB', appointmentId: { in: scope.access.appointmentIds } }
+      }) : null
+      if (scope.access.depositId && !deposit) continue
+      bookings.push({ bookingId: scope.access.id, appointments: scope.appointments.map(publicGuestAppointment),
+        deposit: publicGuestDeposit(deposit, scope.appointments, business) })
+    }
+    const selected = bookings[0]
+    if (!selected) return reply.status(401).send({ message: 'No hay un acceso vigente a esta reserva' })
+    return { guest: true, ...selected, bookings }
   })
 
   app.get('/public/booking/:slug/pending-deposit', async (request, reply) => {
@@ -758,7 +850,7 @@ async function professionalsForService(businessId: string, serviceId: string, pr
   return service.professionalLinks.map((link) => link.professional)
 }
 
-async function professionalsForServiceSlug(slug: string, serviceId: string, professionalId: string) {
+async function professionalsForServiceSlug(slug: string, serviceId: string, professionalId?: string) {
   const service = await prisma.service.findFirst({
     where: {
       id: serviceId,
@@ -770,7 +862,7 @@ async function professionalsForServiceSlug(slug: string, serviceId: string, prof
       attentionMode: true,
       estimateAllowsBooking: true,
       professionalLinks: {
-        where: { professional: { id: professionalId, isActive: true } },
+        where: { professional: { ...(professionalId ? { id: professionalId } : {}), business: { slug }, isActive: true } },
         select: { professional: { select: { id: true, name: true } } }
       }
     }
@@ -784,6 +876,7 @@ async function findOrCreatePublicCustomer(input: {
   name: string
   phone: string
   email?: string | null
+  registerMarketingPreference?: boolean
 }) {
   const result = await findOrCreateCustomerByPhone(input)
   return result.customer
@@ -791,6 +884,55 @@ async function findOrCreatePublicCustomer(input: {
 
 type PublicBookingBusiness = NonNullable<Awaited<ReturnType<BusinessService['findPublicBySlug']>>>
 type PublicBusinessService = PublicBookingBusiness['services'][number]
+function validGuestContact(name: unknown, phone: unknown) {
+  return typeof name === 'string' && Boolean(name.trim()) && name.length <= 100 &&
+    !/[\u0000-\u001f]/.test(name) && typeof phone === 'string' && phone.length <= 100
+}
+
+type GuestAppointmentSummary = {
+  id: string; startAt: Date; status: string; serviceId: string; professionalId: string;
+  quotedPrice?: number | null; totalDurationMinutes?: number | null;
+  service: { id: string; name: string; duration: number; price: number | null;
+    customerDurationMin?: number | null; customerDurationMax?: number | null };
+  professional: { id: string; name: string }
+}
+
+function publicGuestAppointment(appointment: GuestAppointmentSummary) {
+  return {
+    id: appointment.id, startAt: appointment.startAt, status: appointment.status,
+    serviceId: appointment.serviceId, professionalId: appointment.professionalId,
+    quotedPrice: appointment.quotedPrice ?? null, totalDurationMinutes: appointment.totalDurationMinutes ?? null,
+    service: { id: appointment.service.id, name: appointment.service.name, duration: appointment.service.duration,
+      displayDuration: formatCustomerDuration(appointment.service), price: appointment.quotedPrice ?? appointment.service.price },
+    professional: { id: appointment.professional.id, name: appointment.professional.name }
+  }
+}
+
+function publicGuestDeposit(deposit: { id: string; amount: number; expiresAt: Date; status: string } | null,
+  appointments: GuestAppointmentSummary[], business: PublicBookingBusiness) {
+  const first = appointments[0]
+  if (!deposit || !first) return null
+  return {
+    id: deposit.id, amount: deposit.amount, expiresAt: deposit.expiresAt, status: deposit.status,
+    serviceId: first.serviceId, professionalId: first.professionalId, professionalName: first.professional.name,
+    date: formatPublicBookingDate(first.startAt), time: formatPublicBookingTime(first.startAt),
+    payment: publicTransferSettings(business), serviceIds: appointments.map(appointment => appointment.serviceId),
+    segments: appointments.map(appointment => ({
+      serviceId: appointment.serviceId, serviceName: appointment.service.name,
+      professionalId: appointment.professionalId, professionalName: appointment.professional.name,
+      startTime: formatPublicBookingTime(appointment.startAt),
+      endTime: formatPublicBookingTime(new Date(appointment.startAt.getTime() + (
+        typeof appointment.totalDurationMinutes === 'number' && appointment.totalDurationMinutes > 0
+          ? appointment.totalDurationMinutes : customerDurationRange(appointment.service).max
+      ) * 60_000))
+    }))
+  }
+}
+function optionalGuestEmail(value: unknown) {
+  if (value !== undefined && value !== null && typeof value !== 'string') throw new Error('INVALID_GUEST_EMAIL')
+  return normalizeCustomerEmail(value as string | null | undefined) ?? null
+}
+
 type WebBookableService = {
   attentionMode: 'DIRECT_BOOKING' | 'QUOTE' | 'ADVISOR' | 'GUIDED_ESTIMATE'
   estimateAllowsBooking: boolean
@@ -866,6 +1008,7 @@ async function searchPublicCoordinatedAvailability(input: {
   business: PublicBookingBusiness
   services: PublicBusinessService[]
   date: string
+  professionalId?: string | undefined
 }) {
   const [links, professionals] = await Promise.all([
     prisma.professionalService.findMany({
@@ -881,13 +1024,20 @@ async function searchPublicCoordinatedAvailability(input: {
       orderBy: { name: 'asc' }
     })
   ])
+  const reads = new Map<string, ReturnType<typeof availabilityProvider.getAvailability>>()
   const searchEngine = new BookingAvailabilitySearchEngine(async (request) => {
-    const result = await availabilityProvider.getAvailability({
-      professionalId: request.professionalId,
-      serviceId: request.serviceIds[0]!,
-      serviceIds: request.serviceIds,
-      date: request.date
-    })
+    const key = JSON.stringify([request.professionalId, request.serviceIds, request.date])
+    let read = reads.get(key)
+    if (!read) {
+      read = availabilityProvider.getAvailability({
+        professionalId: request.professionalId,
+        serviceId: request.serviceIds[0]!,
+        serviceIds: request.serviceIds,
+        date: request.date
+      })
+      reads.set(key, read)
+    }
+    const result = await read
     return result.ok
       ? { ok: true as const, slots: result.slots, unavailable: result.unavailable }
       : { ok: false as const, message: result.message }
@@ -907,13 +1057,97 @@ async function searchPublicCoordinatedAvailability(input: {
   const commonProfessionals = services[0]?.professionalIds.filter((professionalId) =>
     services.every((service) => service.professionalIds.includes(professionalId))
   ) ?? []
-  return searchEngine.search({
+  const professionalOrder = await publicProfessionalOrder(input.business.id, professionals, input.date)
+  const request = {
     mode: { type: 'DATE', date: input.date },
     services,
     professionals,
-    assignmentMode: commonProfessionals.length ? 'SINGLE_PROFESSIONAL' : 'MULTIPLE_PROFESSIONALS',
-    maxResults: 15
-  })
+    assignmentMode: commonProfessionals.length || input.professionalId ? 'SINGLE_PROFESSIONAL' : 'MULTIPLE_PROFESSIONALS',
+    maxResults: 25
+  } as const
+  const fullDay = async (professionalId?: string) => {
+    const scoped = { ...request, ...(professionalId ? { requiredProfessionalId: professionalId } : {}) }
+    const first = await searchEngine.search(scoped)
+    // The shared engine limits presentation results. Ask it for each verified
+    // start using the same cached reads so late-day starts are never truncated.
+    const loaded = await Promise.all([...reads.entries()]
+      .filter(([key]) => !professionalId || (JSON.parse(key) as string[])[0] === professionalId)
+      .map(([, read]) => read))
+    const times = [...new Set(loaded.flatMap((result) => result.ok ? result.slots : []))].sort()
+    const exact = await publicAvailabilityBatch(times, (time) => searchEngine.search({ ...scoped, mode: { type: 'DATE', date: input.date, requestedTime: time } }))
+    const options = exact.flatMap((result, index) => result.options.filter((option) => option.startTime === times[index]))
+    return { ...first, options, status: options.length ? 'AVAILABLE' as const : first.status }
+  }
+  if (input.professionalId || !commonProfessionals.length) {
+    const result = await fullDay(input.professionalId)
+    return { ...result, professionalOrder }
+  }
+  // Query every common candidate before allocating a start. Name-based engine
+  // ordering must not hide a less-loaded professional behind its result limit.
+  const candidates = professionalOrder.filter((id) => commonProfessionals.includes(id))
+  if (!candidates.length) return { ...await fullDay(), professionalOrder }
+  const results = await publicAvailabilityBatch(candidates, (id) => fullDay(id))
+  const ranked = results.flatMap((result) => result.options).sort((left, right) =>
+    left.startTime.localeCompare(right.startTime) ||
+    professionalOrder.indexOf(left.segments[0]!.professionalId) - professionalOrder.indexOf(right.segments[0]!.professionalId))
+  const options = ranked.filter((option, index) => !ranked.slice(0, index).some((previous) => previous.startTime === option.startTime))
+  const base = results.find((result) => result.options.length) ?? results[0]!
+  return { ...base, options, professionalOrder }
+}
+
+/** Bound fan-out to the configured small connection pool without truncating the team. */
+async function publicAvailabilityBatch<T, R>(items: readonly T[], read: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  for (let index = 0; index < items.length; index += 3) {
+    results.push(...await Promise.all(items.slice(index, index + 3).map(read)))
+  }
+  return results
+}
+
+/** The public page shares the bot's allocation rule, but never publishes workload. */
+async function publicProfessionalOrder(businessId: string, professionals: readonly { id: string; name: string }[], date?: string): Promise<string[]> {
+  if (!professionals.length) return []
+  const workload = await prisma.$queryRaw<Array<{ id: string; name: string; priority: number; occupiedMinutes: number }>>(Prisma.sql`
+    SELECT p."id", p."name", p."botBookingPriority" AS priority,
+      COALESCE(SUM(a."totalDurationMinutes"), 0)::int AS "occupiedMinutes"
+    FROM "Professional" p
+    JOIN "Business" b ON b."id" = p."businessId"
+    LEFT JOIN "BusinessBotOptionsSettings" settings ON settings."businessId" = b."id"
+    LEFT JOIN "Appointment" a ON a."professionalId" = p."id" AND a."businessId" = p."businessId"
+      AND (a."startAt" AT TIME ZONE COALESCE(b."timezone", settings.timezone))::date =
+        COALESCE(${date ?? null}::date, (clock_timestamp() AT TIME ZONE COALESCE(b."timezone", settings.timezone))::date)
+      AND a."status" IN ('CONFIRMED'::"AppointmentStatus", 'PENDING'::"AppointmentStatus")
+      AND NOT (a."status" = 'PENDING'::"AppointmentStatus" AND EXISTS (
+        SELECT 1 FROM "BookingDeposit" d WHERE d."appointmentId" = a."id"
+          AND d."status" = 'PENDING_PROOF'::"BookingDepositStatus" AND d."expiresAt" <= clock_timestamp()))
+    WHERE p."businessId" = ${businessId} AND p."isActive" = true
+      AND p."id" IN (${Prisma.join(professionals.map((professional) => professional.id))})
+    GROUP BY p."id", p."name", p."botBookingPriority"
+  `)
+  const remaining = workload.map((row) => ({ professional: { id: row.id, name: row.name, priority: row.priority }, occupiedMinutes: row.occupiedMinutes }))
+  const ordered: string[] = []
+  while (remaining.length) {
+    const selected = chooseBalancedProfessional(remaining)!
+    ordered.push(selected.professional.id)
+    remaining.splice(remaining.findIndex((candidate) => candidate.professional.id === selected.professional.id), 1)
+  }
+  return [...ordered, ...professionals.map((professional) => professional.id).filter((id) => !ordered.includes(id)).sort()]
+}
+
+function publicServiceImageUrl(value: string | null | undefined): string | null {
+  const image = value?.trim()
+  if (!image) return null
+  if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(image) || /^\/landing-assets\/[a-z0-9-]+\.png$/i.test(image)) return image
+  try {
+    const url = new URL(image)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? image : null
+  } catch { return null }
+}
+
+function validPublicBookingDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(value + 'T12:00:00.000Z')
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
 }
 
 function coordinatedAvailabilityMessage(status: string) {

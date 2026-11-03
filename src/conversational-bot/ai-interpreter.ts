@@ -6,10 +6,9 @@ import { independentServiceInformationInquiry, neutralOwnedServiceInquiry, uniqu
 import { matchPresentedServiceAnswer } from './contextual-matching.js'
 import { deriveCurrentServiceReads, deriveCurrentServiceInquiries, deriveInquiryBindings, admitCommunicativePlan, parseCommunicativeActs, protectProspectiveBasket, type CommunicativeAdmission, type CommunicativeActs } from './communicative-act.js'
 import { assessServiceIdentity, requiresServiceVerification, serviceRequestReply } from './service-request.js'
-import { memoBusinessTimeContext, scopedBusinessTimeContext, scopedBusinessHoursContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessTimeContextReader, type BusinessHoursContext } from './business-time-context.js'
-import { approximateTimeRequest } from './time-preference.js'
+import { memoBusinessTimeContext, scopedBusinessTimeContext, scopedBusinessHoursContext, prospectiveMessageDate, type BusinessTimeContext, type BusinessHoursContext } from './business-time-context.js'
+import { approximateTimeRequest, classifyTemporalRequest } from './time-preference.js'
 import { isCustomerText } from './customer-text.js'
-import { groundAiClockPlan, TemporalMeaningConflictError } from './temporal-grounding.js'
 import { replyContract, validateReplyDraft, projectValidatedReplyFrame, skippedReplyValidation, type ReplyContract, type ReplyValidationResult, type ReplyValidationTrace, type ReplyValidation, type ReplyRejectionDiagnostic } from './reply-contract.js'
 import { parseIncidentalArithmetic } from './incidental-arithmetic.js'
 import { matchNamedItems } from './contextual-matching.js'
@@ -31,7 +30,7 @@ import { fallbackIndependentTurnPlan, finalizeDialogueIntroduction, parseDialogu
 
 export type ReplyFact = import('./reply-contract.js').ReplyFact
 export type AiInterpretationInput = { catalogNavigation?: CatalogNavigation; repairFeedback?: InterpretationRepairFeedback; attachment?: AttachmentMetadata; personality?: DialoguePersonality; message: string; state: DialogueState; services: readonly DialogueService[]; ownAppointments?: { key:string; label:string }[]; businessDate?: string; timezone?: string; firstReplyFacts?: readonly ReplyFact[]; replyContract?: ReplyContract; intakeReplyAllowed?: boolean; expectedAnswer?: ReturnType<typeof expectedDialogueAnswer>; businessTimeContext?: BusinessTimeContext; businessHoursContext?: BusinessHoursContext }
-export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract }
+export type AiResponseInput = { catalogInformation?: CatalogInformationContext; personality?: DialoguePersonality; message: string; intent: Candidate['intent']; state: DialogueState; facts: readonly ReplyFact[]; replyContract?: ReplyContract; timezone?:string }
 export type AiResponseProvider = (input: AiResponseInput, signal: AbortSignal) => Promise<unknown>
 export type AiInterpretationProvider = ((input: AiInterpretationInput, signal: AbortSignal) => Promise<unknown>) & { respond?: AiResponseProvider }
 export type DecisionTrace = {
@@ -85,13 +84,25 @@ const ms = (value: number) => Math.round(value * 10) / 10
 const normalized = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
 const evidenceWords = (value: string) => ' ' + normalized(value).replace(/[^a-z0-9]+/g, ' ').trim() + ' '
 const containsEvidence = (message: string, evidence: string) => evidenceWords(message).includes(evidenceWords(evidence))
-function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState, context: DialogueContext, read?: BusinessTimeContextReader): Candidate {
+/** An explicit 24-hour request is not an AM/PM ambiguity. Preserve the AI operation
+ * only when its own candidates include that factual clock; otherwise retry rather
+ * than letting an unrelated clarification replace the requested hour. */
+function resolveExplicitClockClarification(plan: TurnPlan, message: string): TurnPlan {
+  const temporal = classifyTemporalRequest(message)
+  if (temporal?.kind !== 'exact') return plan
+  return { ...plan, operations: plan.operations.map(operation => {
+    if (operation.kind !== 'time_clarification') return operation
+    if (!operation.candidateTimes.includes(temporal.time))
+      throw new TurnPlanValidationError('evidence', 'time clarification contradicts an explicit clock')
+    return { kind: 'time' as const, value: temporal.time, evidence: operation.evidence, confidence: operation.confidence }
+  }) }
+}
+function validateCandidate(value: unknown, message: string, services: readonly DialogueService[], state: DialogueState, context: DialogueContext): Candidate {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid AI output')
   const item = value as Record<string, unknown>
   if (Object.keys(item).some(key => !['intent','professionalMention','serviceEvidence','serviceId','serviceConfidence','serviceCandidateIds','serviceCorrection','firstReply','intakeReply','informationTarget','turnPlan','communicativeActs','attachmentIntent'].includes(key)) || !['intent','professionalMention','serviceEvidence','serviceId'].every(key => Object.hasOwn(item,key))) throw new Error('invalid AI output keys')
   if (item.attachmentIntent != null && !['deposit_proof','service_reference','other','unclear'].includes(String(item.attachmentIntent))) throw new Error('invalid attachment intent')
   if (!['booking', 'information', 'other'].includes(String(item.intent))) throw new Error('invalid AI intent')
-  let temporalGrounding: InterpretationDiagnostics['temporalGrounding']
   let turnPlan: TurnPlan | null | undefined
   let communicative: CommunicativeAdmission | undefined
   let communicativeActs: CommunicativeActs | null = null
@@ -101,22 +112,11 @@ function validateCandidate(value: unknown, message: string, services: readonly D
       try {
         const catalogIds = services.map(service => service.id)
         const serviceGrounded = groundServicePlan(item.turnPlan, message, services)
-        // Existing catalog-boundary alignment keeps every operation, property and index.
-        // Validate that whole original source before temporal projection or act admission.
-        const original = parseTurnPlanStructure(serviceGrounded, message, catalogIds)
-        let parsedPlan: TurnPlan
-        try {
-          parsedPlan = parseTurnPlan(groundAiClockPlan(serviceGrounded, message, state,
-            { businessId: context.businessId, timezone: context.timezone,
-              businessDate: localDateKey(context.dbNow, context.timezone), ...(read ? { read } : {}) }), message, catalogIds)
-        } catch (error) {
-          if (!(error instanceof TemporalMeaningConflictError)) throw error
-          // This specific semantic mismatch cannot authorize a malformed original
-          // proposal or a bad companion hidden by a service projection.
-          parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original)
-          parsedPlan = original
-          temporalGrounding = { outcome: 'field_rejected', field: error.field, reason: error.reason }
-        }
+        // Validate the complete proposal before act admission. Temporal interpretation
+        // belongs to the IA: a local phrase parser cannot replace or discard its operations.
+        // Typed values, quoted evidence, confidence and effects are still server-validated.
+        const original = resolveExplicitClockClarification(parseTurnPlanStructure(serviceGrounded, message, catalogIds), message)
+        const parsedPlan = original
         // Validate the whole untrusted proposal before any semantic filtering. A reference
         // label cannot rescue foreign catalog IDs, fabricated quotes, targets or estimates.
         try { communicativeActs = parseCommunicativeActs(item.communicativeActs, message, original.operations.length, original) }
@@ -141,31 +141,21 @@ function validateCandidate(value: unknown, message: string, services: readonly D
         // A known prospective overlap is not a malformed companion estimate.
         // Validate that estimate against the safely retained draft; invalid IDs,
         // configuration and evidence still fail globally before semantic admission.
-        validateEstimateOperations(protectProspectiveBasket({ plan: parsed, blockedFields: [] }, state).plan, state, services)
-        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services, localDateKey(context.dbNow, context.timezone), temporalGrounding ? ['time'] : []), state)
+        validateEstimateOperations(protectProspectiveBasket({ plan: parsed, blockedFields: [] }, state).plan, state, services, true)
+        communicative = protectProspectiveBasket(admitCommunicativePlan(communicativeActs, original, parsed, message, state, services, localDateKey(context.dbNow, context.timezone)), state)
         const grounded = parseTurnPlan({ ...communicative.plan, operations: communicative.plan.operations.map(operation => {
           if (operation.kind === 'basket') {
             const current = selectionBasket(state)
-            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [])) }
+            return { ...operation, members: operation.members.map(member => groundedBasketMember(member, services, message, operation.mutation === 'replace' && operation.scope === 'all' && operation.members.length === 1 ? current.members.filter(member => member.mode === 'single').flatMap(member => member.serviceIds) : [], true)) }
           }
-          if (operation.kind === 'service' && operation.mode === 'single' &&
-              requiresServiceVerification(operation.evidence, services.find(service => service.id === operation.serviceIds[0])!, services, operation.confidence)) {
-            return { kind: 'service_request' as const, purpose: item.intent === 'information' ? 'inquiry' as const : 'booking' as const,
-              disposition: 'needs_detail' as const, serviceIds: operation.serviceIds, correction: operation.correction,
-              basis: 'semantic_equivalent' as const, sourceQuote: null, continuation: false,
-              evidence: operation.evidence, confidence: operation.confidence }
-          }
-          if (operation.kind !== 'service' || operation.mode === 'multiple') return operation
-          const matches = catalogEvidenceMatches(serviceEvidenceMeaning(operation.evidence, services), services)
-          // A model-proposed single/subset cannot hide other matches for its grounded phrase.
-          return matches.length > 1 ? { ...operation, mode: 'alternatives' as const, serviceIds: matches.map(service => service.id) } : operation
+          return operation
         }) }, message, services.map(service => service.id))
         communicative = protectProspectiveBasket({ ...communicative, plan: grounded }, state)
         communicative = { ...communicative, inquiryBindings: deriveInquiryBindings(communicativeActs, original, communicative.plan),
           currentServiceInquiries: deriveCurrentServiceInquiries(communicativeActs, original, communicative.plan, message, state.businessId),
           currentServiceReads: deriveCurrentServiceReads(communicativeActs, original, communicative.plan, message, state.businessId) }
         turnPlan = communicative.plan
-        validateEstimateOperations(turnPlan, state, services)
+        validateEstimateOperations(turnPlan, state, services, true)
       } catch (error) { if (error instanceof CandidateValidationError) throw error; throw new TurnPlanValidationError(error instanceof TurnPlanValidationError ? error.validationCause : 'shape', 'invalid AI turn plan', error instanceof TurnPlanValidationError ? error.validationDetail : undefined) }
     }
   }
@@ -180,7 +170,7 @@ function validateCandidate(value: unknown, message: string, services: readonly D
     if (item.serviceId !== null || item.serviceEvidence !== null || item.professionalMention !== null ||
         item.serviceCorrection === true || item.informationTarget != null ||
         item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 0)) throw new TurnPlanValidationError('conflict')
-    return { ...item, turnPlan, communicativeActs, communicative, ...(temporalGrounding ? { temporalGrounding } : {}) } as Candidate
+    return { ...item, turnPlan, communicativeActs, communicative } as Candidate
   }
   if (item.serviceCandidateIds !== undefined && (!Array.isArray(item.serviceCandidateIds) || item.serviceCandidateIds.length > 10 || item.serviceCandidateIds.length === 1 ||
       new Set(item.serviceCandidateIds).size !== item.serviceCandidateIds.length ||
@@ -225,14 +215,14 @@ function validateCandidate(value: unknown, message: string, services: readonly D
 }
 
 /** Project only the bounded selection; the motor independently applies it and authorizes fresh agenda use. */
-function validateEstimateOperations(plan: TurnPlan, state: DialogueState, services: readonly DialogueService[]): void {
+function validateEstimateOperations(plan: TurnPlan, state: DialogueState, services: readonly DialogueService[], semanticInterpretation = false): void {
   if (!plan.operations.some(operation => operation.kind === 'estimate')) return
   let basket = selectionBasket(state)
   const basketOp = plan.operations.find(operation => operation.kind === 'basket')
   const serviceOp = plan.operations.find(operation => operation.kind === 'service')
   if (basketOp?.kind === 'basket') basket = applyBasketMutation(basket, {
     ...basketOp,
-    members: basketOp.members.map(member => member.mode === 'single' &&
+    members: basketOp.members.map(member => !semanticInterpretation && member.mode === 'single' &&
       requiresServiceVerification(member.evidence, services.find(service => service.id === member.serviceIds[0])!, services, member.confidence)
       ? { ...member, mode: 'unresolved', serviceIds: [] } : member)
   }).basket
@@ -260,7 +250,8 @@ function catalogEvidenceMatches(evidence: string, services: readonly DialogueSer
   }) : []
 }
 /** Resolve ambiguity per member; an exact companion service is never swallowed by a generic phrase. */
-function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string, retainedIds: readonly string[] = []): BasketMemberProposal {
+function groundedBasketMember(member: BasketMemberProposal, services: readonly DialogueService[], message: string, retainedIds: readonly string[] = [], semanticInterpretation = false): BasketMemberProposal {
+  if (semanticInterpretation) return member
   const meaning = serviceEvidenceMeaning(member.evidence, services)
   // Resolve an unambiguous retained-member reference before widening to catalog variants.
   const retained = catalogEvidenceMatches(meaning, services.filter(service => retainedIds.includes(service.id)))
@@ -336,8 +327,11 @@ export async function respondWithAiInterpreter(
   const started = performance.now()
   const parsedState = parseDialogueState(previous, context.businessId, context.timezone)
   const state = context.serverManagementSnapshot ? parsedState : continueCompletedBooking(parsedState)
-  const temporalState: DialogueState = state.appointmentManagement ? { ...state, date: state.appointmentManagement.date ?? null, requestedTime: state.appointmentManagement.selectedTime ?? null, slot: null, pending: state.appointmentManagement.date ? 'time' : 'date' } : state
-  if (state.appointmentManagement) delete temporalState.bookingReservation
+  const managementActive=Boolean(state.appointmentManagement && !state.appointmentManagement.outcome)
+  const temporalState: DialogueState = managementActive ? { ...state, date: state.appointmentManagement!.date ?? null, requestedTime: state.appointmentManagement!.selectedTime ?? null,
+    timePreference:state.appointmentManagement!.timePreference,timeClarification:state.appointmentManagement!.timeClarification,
+    slot:null,pending:state.appointmentManagement!.date?'time':'date',questionContext:undefined,dialogueContext:undefined } : state
+  if (managementActive) delete temporalState.bookingReservation
   const services = await port.catalog()
   const catalogNavigation = port.catalogNavigation ? validateCatalogNavigation(await port.catalogNavigation(), context.businessId, services) : undefined
   if (state.catalogNavigation && (!catalogNavigation || state.catalogNavigation.configurationKey !== catalogNavigationKey(catalogNavigation, services))) {
@@ -346,7 +340,7 @@ export async function respondWithAiInterpreter(
   const personality = port.personality ? validateDialoguePersonality(await port.personality(), context.businessId) : undefined
   const route = routeActions(message)
   const pureInformation = route.information.length > 0 && !route.bookingMessage && !route.pendingAction
-  const intakeReplyAllowed = !route.information.length && !route.pendingAction
+  const intakeReplyAllowed = !managementActive && !route.information.length && !route.pendingAction
   const arithmetic = intakeReplyAllowed ? parseIncidentalArithmetic(message)?.text ?? null : null
   const socialNext = socialContinuationQuestion(state)
   const incidentalFacts: ReplyFact[] | null = arithmetic ? [{ id: 'calculation', text: arithmetic },
@@ -387,7 +381,7 @@ export async function respondWithAiInterpreter(
   const informationTarget = inferInformationTarget(state, message, services)
   // A focus-only read can be inferred even when the clause router leaves the text unclassified.
   // inferInformationTarget already excludes explicit booking; mixed classified booking still waits for the motor.
-  if ((pureInformation || informationTarget && !route.pendingAction && (!route.bookingMessage || !route.information.length)) && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
+  if (!managementActive && (pureInformation || informationTarget && !route.pendingAction && (!route.bookingMessage || !route.information.length)) && !(state.dialogueContext?.presentedOffer && route.information.includes('HOURS'))) {
     if (informationTarget && informationTarget.kind !== 'presented_offer' &&
         !(informationTarget.kind === 'professional' && informationTarget.aspect === 'availability')) {
       const read = await readInformation(context, state, message, cachedPort, informationTarget, services)
@@ -401,11 +395,11 @@ export async function respondWithAiInterpreter(
   // Commercial proof supports an implicit numeric request, not an explicit period answer.
   // Re-resolve its prospective date even when a previous AM/PM clarification is pending.
   const candidateTimes = approximateTimeRequest(message)?.candidateTimes
-  const temporalDate = prospectiveMessageDate(message,state.date,businessDate)
+  const temporalDate = prospectiveMessageDate(message,temporalState.date,businessDate)
   const commercialProof = temporalDate && candidateTimes?.length === 2 ? scopedBusinessTimeContext(commercialRead?.(temporalDate,candidateTimes),{businessId:context.businessId,timezone:context.timezone,date:temporalDate},candidateTimes) : undefined
   // Public opening context accompanies interpretation without a lexical trigger.
   // It covers only the coherent prospective/selected day, never other dates or occupancy.
-  const hoursDate = temporalDate ?? (state.date === null ? businessDate : null)
+  const hoursDate = temporalDate ?? (temporalState.date === null ? businessDate : null)
   let commercialHours: BusinessHoursContext | undefined
   try { commercialHours = hoursDate ? scopedBusinessHoursContext(port.businessHoursContext?.(hoursDate), { businessId: context.businessId, timezone: context.timezone, date: hoursDate }) : undefined } catch { commercialHours = undefined }
   const timeoutMs = resolveConversationalAiTimeoutMs(options.timeoutMs)
@@ -415,8 +409,8 @@ export async function respondWithAiInterpreter(
     ...(!context.serverOwnAppointments && state.ownAppointmentInquiry ? {ownAppointments:state.ownAppointmentInquiry.options.map(({key,label})=>({key,label}))} : {}),
     ...(personality ? { personality } : {}), ...(commercialProof ? { businessTimeContext: commercialProof } : {}),
     ...(commercialHours ? { businessHoursContext: commercialHours } : {}),
-    expectedAnswer: expectedDialogueAnswer(state), businessDate, timezone: context.timezone,
-    replyContract: replyContract(preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
+    expectedAnswer: expectedDialogueAnswer(state,context.timezone), businessDate, timezone: context.timezone,
+    replyContract: replyContract(managementActive?'continuation':preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
     intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }
   let raw: unknown, validationError: unknown, candidate: Candidate | null = null
   let reason: InterpretationDiagnostics['reason'] = null
@@ -442,7 +436,7 @@ export async function respondWithAiInterpreter(
     } finally { if (timer) clearTimeout(timer) }
     const providerMs = ms(performance.now() - providerStarted), validationStarted = performance.now()
     if (!reason) {
-      try { candidate = validateCandidate(raw, message, services, temporalState, context, commercialRead) }
+      try { candidate = validateCandidate(raw, message, services, temporalState, context) }
       catch (error) { validationError = error; reason = 'invalid_output' }
     }
     const attemptUsage = readAiUsage(raw)
@@ -586,7 +580,8 @@ export async function respondWithAiInterpreter(
   const planHasUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && !(operation.kind==='own_appointment' && operation.action==='read')))
   const planHasInformation = Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' || operation.kind==='own_appointment' && operation.action==='read' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
   const planHasBookingUpdates = Boolean(turnPlan?.operations.some(operation => operation.kind !== 'information' && operation.kind !== 'own_appointment' && operation.kind !== 'name' && !(operation.kind === 'service_request' && operation.purpose === 'inquiry') && !(operation.kind === 'service_reference' && operation.action === 'confirm' && state.serviceRequest?.purpose === 'inquiry')))
-  const replyIntent = planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
+  const managementConversation=managementActive || Boolean(response.state.appointmentManagement && !response.state.appointmentManagement.outcome) || response.managementRead===true
+  const replyIntent = managementConversation ? planHasInformation?'information':'other' : planHasBookingUpdates ? 'booking' : planHasInformation ? 'information' : candidate?.intent ?? null
   const presentedOfferRead = candidate?.informationTarget?.kind === 'presented_offer' || Boolean(turnPlan?.operations.some(operation => operation.kind === 'information' && operation.target.kind === 'presented_offer'))
   const safeReply = defaultServiceMenu && replyIntent === 'other' ? '¿En qué te puedo ayudar con el local?'
     : defaultServiceMenu ? '¿Qué servicio necesitás?' : response.reply
@@ -594,10 +589,26 @@ export async function respondWithAiInterpreter(
   // inquiry metadata changes are not booking effects, and their facts stay server-owned.
   const explanatoryReadOnly = catalogInquiries.length > 0 && Boolean(turnPlan?.operations.every(operation =>
     operation.kind === 'information' || operation.kind === 'service_request' && operation.purpose === 'inquiry'))
-  const canonicalOnly = Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !explanatoryReadOnly && !hasActiveBooking(response.state)) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
+  const serviceClarificationIds = response.serviceClarification?.serviceIds ??
+    (response.state.serviceRequest && response.state.serviceRequest.disposition !== 'clear' ? response.state.serviceRequest.serviceIds : undefined)
+  const hasServiceClarification = serviceClarificationIds !== undefined && Boolean(response.replyFacts?.some(fact => fact.id === 'procedure') &&
+    response.replyFacts.some(fact => fact.id === 'next'))
+  // An accepted partial request still needs human acknowledgment before service selection.
+  // Only its qualitative frame is authored; the current menu and facts remain canonical.
+  const partialAcquisition = !managementActive && !response.state.appointmentManagement && candidate?.intent === 'booking' && state.pending === 'service' &&
+    response.state.pending === 'service' && selectionBasket(state).members.length === 0 &&
+    selectionBasket(response.state).members.length === 0 && availabilityCalls === 0 &&
+    Boolean(turnPlan?.operations.length) && turnPlan!.operations.every(operation =>
+      ['date', 'professional', 'time', 'time_preference', 'time_clarification', 'name'].includes(operation.kind))
+  const managementReadOnly=response.managementRead===true && !response.proposal && !response.bookingCommand && !response.managementCommand && !response.handoffCommand &&
+    !response.confirmedCancellationHandoff && !response.ownAppointmentHandoff &&
+    Boolean(response.replyFacts?.some(fact=>['current_appointment','management_preserved'].includes(fact.id)) && response.replyFacts.some(fact=>fact.id==='next'))
+  const canonicalOnly = !managementReadOnly && Boolean(state.bookingReservation?.receipt) || informationPreparationFailed || Boolean(port.identity && planHasUpdates && !explanatoryReadOnly && !managementReadOnly && !hasActiveBooking(response.state) &&
+    !hasServiceClarification && !partialAcquisition) || response.proposal !== null || Boolean(response.bookingCommand || response.state.sandboxReservation) || Boolean(typoService) || uncertain || Boolean(response.state.questionContext?.matchCandidateIds)
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
   let modelFraming = false
+  let authoredClarification: string | undefined
   let intakeValidation: ReplyValidationResult['validation'] | undefined
   const rejections: ReplyRejectionDiagnostic[] = []
   const recordReplyValidation = (stage: ReplyRejectionDiagnostic['stage'], validation: ReplyValidation) => {
@@ -634,7 +645,16 @@ export async function respondWithAiInterpreter(
     ((preparedInformation || pureInformation) && replyIntent === 'information' || !route.information.length &&
       !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
       !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
-  const finalContract = replyContract(replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
+  const finalContract = replyContract(managementActive || managementReadOnly ? 'continuation' : replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
+  const bookingAcknowledgmentEligible = partialAcquisition && !finalContract.neutral && !reason && !canonicalOnly &&
+    !response.proposal && !response.bookingCommand && !response.managementCommand && !response.handoffCommand &&
+    !response.state.sandboxReservation
+  if (bookingAcknowledgmentEligible) finalContract.bookingAcknowledgment = true
+  const serviceClarificationEligible = hasServiceClarification && !response.proposal && !response.bookingCommand &&
+    !response.managementCommand && !response.handoffCommand && availabilityCalls === 0 && !reason && !canonicalOnly
+  if (serviceClarificationEligible) finalContract.serviceClarification = {
+    serviceNames: services.filter(service => serviceClarificationIds!.includes(service.id)).map(service => service.name)
+  }
   const replyValidation: ReplyValidationTrace = { firstCall: skippedReplyValidation(finalFacts, canonicalOnly ? 'canonical_only' : 'new_facts'), secondCall: skippedReplyValidation(finalFacts, 'canonical_only'), rejections }
   if (intakeValidation) replyValidation.firstCall = intakeValidation
   if (reason) replyValidation.firstCall = { status: 'rejected', reason: reason === 'invalid_output' ? 'interpretation_invalid' : reason, factCount: Math.min(finalFacts.length, 101), providedCount: 0 }
@@ -642,28 +662,26 @@ export async function respondWithAiInterpreter(
     availabilityCalls === 0 && !response.bookingCommand && !response.handoffCommand && !response.proposal
   const hasExplanatoryBody = (raw: unknown, validated: ReplyValidationResult) =>
     validated.validation.status === 'accepted' && raw !== null && typeof raw === 'object' &&
-    !Array.isArray(raw) && (raw as Record<string, unknown>).catalogAnswer != null
-  if (!authored && (eligibleFirstReply || catalogCopyEligible)) {
+    !Array.isArray(raw) && (raw as Record<string, unknown>).catalogAnswer != null &&
+    (!response.catalogInformation?.answerGoal ||
+      ((raw as Record<string, unknown>).catalogAnswer as { assessment?: { sufficient?: unknown } }).assessment?.sufficient === true)
+  if (!authored && (eligibleFirstReply || catalogCopyEligible || serviceClarificationEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
     recordReplyValidation('first_reply', validated.validation)
     // Accepted framing alone is not an explanatory body. Keep its original trace,
     // but compose the missing explanation from the proved scope rather than a menu.
-    authored = !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
+    authored = serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
+      : !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
+    if (validated.validation.discardedFramingReason === 'identity_in_frame' && !validated.modelFraming) authored = null
+    authoredClarification = authored ? validated.clarificationQuestion : undefined
     modelFraming = validated.modelFraming
     if (authored) replyRoute = 'first_call'
   }
-  // A partial booking draft changes acquisition context, not verified agenda/business facts.
-  // Its question still belongs to the server; only the original factual-free frame is reusable.
-  const partialAcquisition = candidate?.intent === 'booking' && state.pending === 'service' &&
-    response.state.pending === 'service' && selectionBasket(state).members.length === 0 &&
-    selectionBasket(response.state).members.length === 0 && availabilityCalls === 0 &&
-    Boolean(turnPlan?.operations.length) && turnPlan!.operations.every(operation =>
-      ['date', 'professional', 'time', 'time_preference', 'time_clarification', 'name'].includes(operation.kind))
   // Prepared body ownership never transfers to the model. Validate the whole draft
   // against its original facts, then reuse only a factual-free opening.
   // Final neutral facts remain immutable; they are not the model's frame contract.
-  if (!authored && !intakeValidation && !reason && !catalogCopyEligible && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
+  if (!managementActive && !response.state.appointmentManagement && !authored && !intakeValidation && !reason && !catalogCopyEligible && !serviceClarificationEligible && (response.replyPrepared || partialAcquisition) && candidate?.firstReply != null && firstReplyFacts !== undefined &&
       !response.proposal && !response.bookingCommand && !response.state.sandboxReservation && !uncertain && !typoService && !response.state.questionContext?.matchCandidateIds) {
     const originalContract = replyContract(finalContract.role, Boolean(port.identity), state.introduced === true, firstReplyFacts)
     const frame = validateReplyDraft(candidate.firstReply, firstReplyFacts, originalContract, services.map(service => service.name))
@@ -677,7 +695,7 @@ export async function respondWithAiInterpreter(
         replyValidation.firstCall = { ...frame.validation, status: 'rejected', reason: 'continuation_conflict' }
         recordReplyValidation('prepared_frame', replyValidation.firstCall)
       }
-      else if (projected.openingText.trim()) {
+      else if (projected.openingText.trim() && (!bookingAcknowledgmentEligible || frame.validatedFraming?.opening?.trim())) {
         authored = [projected.openingText, ...finalFacts.map(fact => fact.text)].join('\n')
         modelFraming = projected.modelFraming
         replyRoute = 'first_call'
@@ -689,14 +707,14 @@ export async function respondWithAiInterpreter(
   let responseUsage: AiUsage | null = null
   let responseProviderError: ProviderFailure | null = null
   const newVerifiedFacts = firstReplyFacts === undefined || JSON.stringify(finalFacts) !== JSON.stringify(firstReplyFacts)
-  // Recover rejected identity framing once without repeating the accepted partial plan.
-  // The final server facts and every material safety check still govern the new draft.
-  const partialFrameRecovery = partialAcquisition && replyValidation.firstCall.status === 'rejected' &&
-    replyValidation.firstCall.reason === 'identity_in_frame'
+  // One shared writing repair across routes; interpretation and effects are never repeated.
+  // A validated explanatory body already used above needs no extra model call.
+  const identityFrameRecovery = replyValidation.firstCall.reason === 'identity_in_frame' ||
+    replyValidation.firstCall.discardedFramingReason === 'identity_in_frame'
   // A proved explanatory read also needs composition when the interpretation did not
   // include a body. Its current catalog scope is authority for prose, never acquisition.
-  if (!authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible || partialFrameRecovery) &&
-      (!response.replyPrepared || catalogCopyEligible || partialFrameRecovery) && (!partialAcquisition || partialFrameRecovery)) {
+  if (!authored && !reason && !canonicalOnly && responseProvider && (newVerifiedFacts || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) &&
+      (!response.replyPrepared || catalogCopyEligible || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible) && (!partialAcquisition || identityFrameRecovery || serviceClarificationEligible || bookingAcknowledgmentEligible)) {
     replyValidation.secondCall = skippedReplyValidation(finalFacts, 'new_facts')
     const facts = finalFacts
     aiCalls++
@@ -706,14 +724,16 @@ export async function respondWithAiInterpreter(
     const responseStarted = performance.now()
     try {
       const output = await Promise.race([
-        responseProvider({ message, ...(personality ? { personality } : {}), intent: replyIntent!, state: response.state, facts, replyContract: finalContract, ...(response.catalogInformation ? { catalogInformation: response.catalogInformation } : {}) }, responseController.signal),
+        responseProvider({ message, ...(personality ? { personality } : {}), intent: replyIntent!, state: response.state, facts, replyContract: finalContract,timezone:context.timezone, ...(response.catalogInformation ? { catalogInformation: response.catalogInformation } : {}) }, responseController.signal),
         new Promise<never>((_resolve, reject) => { responseTimer = setTimeout(() => { responseController.abort(); reject(new Error('response timeout')) }, timeoutMs) })
       ])
       responseUsage = readAiUsage(output)
       const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
       recordReplyValidation('second_reply', validated.validation)
-      authored = !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
+      authored = serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
+        : !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
+      authoredClarification = authored ? validated.clarificationQuestion : undefined
       modelFraming = validated.modelFraming
       copyReason = authored ? modelFraming ? null : 'canonical_only' : 'invalid_response'
     } catch (error) {
@@ -750,6 +770,12 @@ export async function respondWithAiInterpreter(
       : uncertain ? 'not_applied' : decision?.serviceId && response.state.serviceId === decision.serviceId
         ? 'validated_service' : decision?.serviceId ? 'not_applied' : response.proposal ? 'proposal_only'
           : route.pendingAction ? 'pending_action' : candidate?.informationTarget || route.information.length ? 'information_route' : 'no_service_decision')
+  }
+  if (authored && authoredClarification && serviceClarificationIds !== undefined) {
+    if (response.state.serviceRequest && !response.serviceClarification) response.state.serviceRequest.clarificationQuestion = authoredClarification
+    rememberDialogueQuestion(response.state, authoredClarification,
+      services.filter(service => serviceClarificationIds.includes(service.id))
+        .map(service => ({ id: service.id, label: service.name })))
   }
   const availability = summarizeAvailability(response.availability)
   return finalizeDialogueIntroduction(context, { ...response, reply: authored ?? (!newVerifiedFacts && finalFacts.length ? finalFacts.map(fact => fact.text).join('\n') : safeReply), interpretation: {

@@ -3,6 +3,8 @@ import { parseTimePreference, type TimePreference } from './time-preference.js'
 
 /** Server-owned operations. A label or a token supplied by a client is never an operation. */
 export type ConversationChoiceOperation =
+  | { kind: 'start_booking' }
+  | { kind: 'availability_alternatives'; scope: 'dates' | 'professionals' | 'same_day' }
   | { kind: 'category'; categoryId: string }
   | { kind: 'service'; serviceId: string; targetMemberId?: string }
   | { kind: 'professional'; professionalId: string }
@@ -12,6 +14,8 @@ export type ConversationChoiceOperation =
   | { kind: 'preference'; preference: TimePreference }
   | { kind: 'estimate'; serviceId: string; optionId: string; configurationKey: string }
   | { kind: 'confirm'; nonce: string }
+  | { kind: 'cancel_appointment'; confirm: boolean; nonce: string; fingerprint: string }
+  | { kind: 'confirm_reschedule_appointment'; nonce: string; fingerprint: string }
   | { kind: 'pending_deposit_reset'; confirm: boolean; proposalNonce: string; receiptFingerprint: string }
   | { kind: 'page'; questionKind: 'slots' | 'professionals' | 'dates' | 'categories' | 'catalog_services'; cursor: number }
 export type ConversationChoiceKind = 'category' | 'service' | 'date' | 'professional' | 'slot' | 'preference' | 'estimate' | 'proposal'
@@ -69,6 +73,11 @@ export function parseConversationChoiceOperation(value: unknown): ConversationCh
       keys(value, ['kind', 'professionalId'])
       if (!text(value.professionalId, 128)) fail('professional')
       break
+    case 'start_booking': keys(value, ['kind']); break
+    case 'availability_alternatives':
+      keys(value, ['kind', 'scope'])
+      if (!['dates', 'professionals', 'same_day'].includes(String(value.scope))) fail('availability alternatives')
+      break
     case 'any_professional': keys(value, ['kind']); break
     case 'date':
       keys(value, ['kind', 'date'])
@@ -88,6 +97,17 @@ export function parseConversationChoiceOperation(value: unknown): ConversationCh
     case 'confirm':
       keys(value, ['kind', 'nonce'])
       if (!text(value.nonce, 128)) fail('confirmation')
+      break
+    case 'cancel_appointment':
+      keys(value, ['kind', 'confirm', 'nonce', 'fingerprint'])
+      if (typeof value.confirm !== 'boolean' || typeof value.nonce !== 'string' ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.nonce) ||
+          typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) fail('appointment cancellation')
+      break
+    case 'confirm_reschedule_appointment':
+      keys(value, ['kind', 'nonce', 'fingerprint'])
+      if (typeof value.nonce !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value.nonce) ||
+          typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(value.fingerprint)) fail('appointment reschedule')
       break
     case 'pending_deposit_reset':
       keys(value, ['kind', 'confirm', 'proposalNonce', 'receiptFingerprint'])

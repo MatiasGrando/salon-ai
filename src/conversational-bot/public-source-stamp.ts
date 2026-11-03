@@ -13,7 +13,7 @@ export async function readPublicSourceSnapshot(client: StampClient, context: Dia
     /* conversational-public-source-stamp */
     SELECT b."id" AS "businessId", settings."timezone", encode(sha256(convert_to(jsonb_build_array(
       jsonb_build_array(b."id", b."name", b."publicAddress", b."publicAddressArea", b."publicMapsUrl", b."publicWhatsapp",
-        b."contactEmail", b."workshopPublicSiteUrl", b."instagramUrl", b."facebookUrl", b."tiktokUrl", b."landingDescription", personality."assistantPersonality"->>'commercialName'),
+        b."contactEmail", b."workshopPublicSiteUrl", b."instagramUrl", b."facebookUrl", b."tiktokUrl", b."landingDescription", b."slug", b."landingEnabled", personality."assistantPersonality"->>'commercialName'),
       settings."timezone", ${context.timezone}::text, ${from}::timestamp, ${to}::timestamp, to_jsonb(personality)->>'serviceCatalogDisplayMode',
       (SELECT COALESCE(jsonb_agg(jsonb_build_array(c."id", c."name", c."sortOrder", c."isActive") ORDER BY c."id"), '[]'::jsonb)
         FROM "ServiceCategory" c WHERE c."businessId" = b."id"),

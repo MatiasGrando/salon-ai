@@ -122,7 +122,14 @@ export function parseDialogueQuestion(value: unknown, state: DialogueState): Dia
   }
   return parsed
 }
-export function expectedDialogueAnswer(state: DialogueState) {
+export function expectedDialogueAnswer(state: DialogueState, timezone='UTC') {
+  const management=state.appointmentManagement
+  if (management && !management.outcome) {
+    const answer=publicAppointmentManagement(state,timezone)
+    const field=management.context.proposal?'proposal':management.date?'time':'date'
+    return {field:field as DialogueField,role:(field==='proposal'?'confirmation':field) as AnswerRole,
+      question:answer!.question!,options:(answer!.offeredTimes ?? []).map(time=>({id:time,label:time})),complete:false,targetServiceId:null}
+  }
   if (state.professionalReference) {
     const reference = parseProfessionalReference(state.professionalReference, state)
     return { field: 'professional' as const, role: 'professional' as const, question: reference.question, options: [], complete: false, targetServiceId: null }
@@ -195,14 +202,18 @@ export function fallbackIdentity(message: string, state: DialogueState, services
 }
 
 /** Public projection only: private snapshots/IDs, consent proofs and phone never leave the server. */
-export function publicAppointmentManagement(state: DialogueState) {
+export function publicAppointmentManagement(state: DialogueState, businessTimezone = 'UTC') {
   const m = state.appointmentManagement
   if (!m) return null
-  const timezone = (state.bookingReservation ?? state.completedBooking)!.presented.terms.timezone
+  const reservation = state.bookingReservation ?? state.completedBooking
+  const matchingReservation=reservation?.receipt && reservation.receipt.appointments.length===m.context.snapshot.members.length &&
+    m.context.snapshot.members.every(member=>reservation.receipt!.appointments.some(item=>item.appointmentId===member.appointmentId))?reservation:undefined
+  const timezone = matchingReservation?.presented.terms.timezone ?? businessTimezone
   const time = (instant: string) => new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(instant))
   return { action: m.context.action, stage: m.outcome ? 'completed' : m.context.proposal ? 'confirmation' : m.date ? 'time' : 'date',
-    date: m.date ?? null, requestedTime: m.selectedTime ?? null,
-    services: (state.bookingReservation ?? state.completedBooking)!.presented.terms.segments.map(segment => ({ name: segment.serviceName, professional: segment.professionalName })),
+    currentAppointment:m.summary ?? null,
+    date: m.date ?? null, requestedTime: m.selectedTime ?? null, timePreference:m.timePreference ?? null,
+    services: matchingReservation?.presented.terms.segments.map(segment => ({ name: segment.serviceName, professional: segment.professionalName })) ?? [],
     offeredTimes: [...new Set(m.context.offers?.map(offer => time([...offer.moves].sort((a,b) => Date.parse(a.newStartAt) - Date.parse(b.newStartAt))[0]!.newStartAt)) ?? [])],
-    question: m.outcome ? null : m.context.proposal ? '¿Confirmás esta gestión del turno?' : m.date ? '¿Qué horario preferís para reprogramar?' : '¿Para qué fecha querés reprogramar?' }
+    question: m.outcome ? null : m.context.proposal ? m.context.action==='CANCEL'?'¿Confirmás la cancelación de este pedido?':'¿Confirmás esta gestión del turno?' : m.timeClarification ? '¿Te referís a '+m.timeClarification.candidateTimes.join(' o ')+'?' : m.date ? '¿Qué horario preferís para reprogramar?' : '¿Para qué fecha querés reprogramar?' }
 }

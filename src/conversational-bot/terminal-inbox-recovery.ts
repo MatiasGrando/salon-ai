@@ -19,8 +19,7 @@ export async function reconcileExhaustedConversationInboxTx(tx: Reader, scope: S
       WHERE i."businessId"=${scope.businessId} AND i."deploymentId"=${scope.deploymentId} AND i."deploymentGeneration"=${scope.generation}
         AND COALESCE(NULLIF(regexp_replace(e."payload"->>'fromPhone','[^0-9]','','g'),''),btrim(e."payload"->>'fromPhone'))=${scope.phone}
         AND e."eventType"::text='MESSAGE' AND e."status"::text='ADMITTED'
-        AND e."payload"->>'messageType'='text' AND COALESCE(e."payload"->>'interactiveReplyId','')=''
-        AND i."actionType" IN ('input.initial','conversation.message') AND i."status"::text='ADMITTED'
+        AND i."actionType" IN ('input.initial','conversation.message','conversation.choice') AND i."status"::text='ADMITTED'
         AND i."operationKey" IS NULL AND i."claimToken" IS NULL AND i."claimedUntil" IS NULL
         AND j."status"::text='POISON' AND j."maxAttempts">0 AND j."attempts">=j."maxAttempts"
         AND j."leaseToken" IS NULL AND j."leasedUntil" IS NULL

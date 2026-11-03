@@ -119,13 +119,17 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
   return { context, cacheDiagnostics, port: {
     /** Uncached server-only presentation proof. The write adapter still revalidates agenda atomically. */
     prepareRuntimeBooking: (previous, scope) => snapshot(async source => {
+      const rejectPreparation = (reason: string): null => {
+        console.info('[barber-local-runtime-booking-preparation]', JSON.stringify({ event: 'runtime_booking_preparation_rejected', reason }))
+        return null
+      }
       try {
-        if(scope.businessId!==businessId || !/^[1-9]\d*$/.test(scope.revision)) return null
+        if(scope.businessId!==businessId || !/^[1-9]\d*$/.test(scope.revision)) return rejectPreparation('scope_invalid')
         const state=parseDialogueState(previous,businessId,context.timezone)
         if(state.pending!=='proposal' || !state.slot || !state.customerName || !state.professional || state.professionalReference ||
-          state.professionalNameHint || state.referral || state.serviceRequest || state.editRequest || state.timeMeaningClarification) return null
+          state.professionalNameHint || state.referral || state.serviceRequest || state.editRequest || state.timeMeaningClarification) return rejectPreparation('draft_invalid')
         const ids=basketServiceIds(state)
-        if(!ids.length || ids.length>8 || new Set(ids).size!==ids.length || state.basket?.members.some(m=>m.mode!=='single' || m.serviceIds.length!==1)) return null
+        if(!ids.length || ids.length>8 || new Set(ids).size!==ids.length || state.basket?.members.some(m=>m.mode!=='single' || m.serviceIds.length!==1)) return rejectPreparation('basket_invalid')
         const scopes=await source.$queryRaw<Array<{phone:string;timezone:string}>>(Prisma.sql`
           /* runtime-booking-presentation-scope */
           SELECT c."phone",s."businessTimezone" AS timezone FROM "BotSession" s
@@ -141,16 +145,17 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
             AND d."legacyDispatchCoverageVersion">=1 AND b."botEnabled"=true
             AND s.state->>'deposit'='NONE' AND s.state->>'handoff'='NONE' AND s.state->>'booking' IN ('NONE','DRAFT')
         `)
-        if(scopes.length!==1 || scopes[0]!.timezone!==context.timezone || !/^\+?[\d\s().-]+$/.test(scopes[0]!.phone)) return null
+        if(scopes.length!==1 || scopes[0]!.timezone!==context.timezone || !/^\+?[\d\s().-]+$/.test(scopes[0]!.phone)) return rejectPreparation('session_scope_invalid')
         const rows=await source.$queryRaw<Prisma.ServiceGetPayload<undefined>[]>(Prisma.sql`
           /* runtime-booking-presentation-services */
-          SELECT s.* FROM "Service" s JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true
+          SELECT s.* FROM "Service" s LEFT JOIN "ServiceCategory" c ON c.id=s."catalogCategoryId" AND c."businessId"=s."businessId" AND c."isActive"=true
           WHERE s."businessId"=${businessId} AND s.id IN (${Prisma.join(ids)}) AND s."isActive"=true AND s."isBookable"=true
+            AND (s."catalogCategoryId" IS NULL OR c.id IS NOT NULL)
         `)
-        if(rows.length!==ids.length || new Set(rows.map(s=>s.id)).size!==ids.length || rows.some(s=>s.businessId!==businessId || !ids.includes(s.id))) return null
+        if(rows.length!==ids.length || new Set(rows.map(s=>s.id)).size!==ids.length || rows.some(s=>s.businessId!==businessId || !ids.includes(s.id))) return rejectPreparation('catalog_service_invalid')
         const ordered=ids.map(id=>rows.find(s=>s.id===id)!)
-        if(!hasBookingPriorityOrder(ids,ordered))return null
-        if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return null
+        if(!hasBookingPriorityOrder(ids,ordered))return rejectPreparation('booking_order_invalid')
+        if(ordered.some(s=>s.requiresPhoto || s.validationEnabled || !['DIRECT_BOOKING','GUIDED_ESTIMATE'].includes(s.attentionMode))) return rejectPreparation('service_booking_mode_invalid')
         const depositRequired=ordered.some(s=>s.depositMode!=='NONE')
         if(depositRequired && !runtimeDepositsEnabled())return {unavailable:'DEPOSITS_DISABLED'}
         let slot=structuredClone(state.slot)
@@ -162,17 +167,17 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           WHERE p."businessId"=${businessId} AND p.id IN (${Prisma.join([...new Set(assigned)])}) AND ps."serviceId" IN (${Prisma.join(ids)})
             AND p."isActive"=true AND p."acceptsBotBookings"=true
         `)
-        if(assigned.length!==ids.length) return null
+        if(assigned.length!==ids.length) return rejectPreparation('slot_assignment_invalid')
         const canonical:CoordinatedSegment[]=[]
         let next=slot.startAt
         for(const [index,s] of ordered.entries()) {
           const p=professionals.filter(p=>p.serviceId===s.id && p.professionalId===assigned[index])
-          if(p.length!==1 || (slot.coordination ? slot.coordination.segments[index]!.professionalName : slot.professionalName)!==p[0]!.professionalName) return null
+          if(p.length!==1 || (slot.coordination ? slot.coordination.segments[index]!.professionalName : slot.professionalName)!==p[0]!.professionalName) return rejectPreparation('professional_assignment_invalid')
           const durations=reservationDurationLimits(s)
           const segment={serviceId:s.id,serviceName:s.name,professionalId:p[0]!.professionalId,professionalName:p[0]!.professionalName,
             startAt:next,endAt:new Date(Date.parse(next)+Math.max(durations.professional,durations.business)*60000).toISOString(),
             durationMinutes:durations.professional,customerDurationMinutes:durations.business}
-          if(slot.coordination && !isDeepStrictEqual(segment,slot.coordination.segments[index])) return null
+          if(slot.coordination && !isDeepStrictEqual(segment,slot.coordination.segments[index])) return rejectPreparation('coordinated_slot_invalid')
           canonical.push(segment);next=segment.endAt
         }
         // occupiedMinutes is the professional's daily load, not this booking's duration.
@@ -182,7 +187,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           const estimate=s.attentionMode==='GUIDED_ESTIMATE' ? resolveServiceEstimate({...s,estimateOptions:parseEstimateOptions(s.estimateOptions)},state.serviceEstimates?.[s.id]?.optionId??null) : null
           if(s.attentionMode==='GUIDED_ESTIMATE') {
             const policy=attachServiceContent({...s,attentionMode:'GUIDED_ESTIMATE' as const,estimateOptions:parseEstimateOptions(s.estimateOptions)},businessId,serviceContent)
-            if(!s.estimateAllowsBooking || !estimate || state.serviceEstimates?.[s.id]?.configurationKey!==serviceConfigurationKey(policy)) return null
+            if(!s.estimateAllowsBooking || !estimate || state.serviceEstimates?.[s.id]?.configurationKey!==serviceConfigurationKey(policy)) return rejectPreparation('estimate_invalid')
           }
           segments.push({...canonical[index]!,priceMinor:estimate?.priceMin??s.price,priceMode:estimate?'STARTING_AT':s.priceMode,
             configurationHash:runtimeServiceConfigurationHash(s),...(estimate?{estimate}:{})})
@@ -191,10 +196,10 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
           preference:state.professional,segments,totalPriceMinor:segments.every(s=>s.priceMode==='FIXED' && s.priceMinor!==null)?segments.reduce((sum,s)=>sum+s.priceMinor!,0):null}
         if(depositRequired){const deposit=await prepareRuntimeDeposit(source,businessId,ordered,segments);if(!deposit)return {unavailable:'PAYMENT_UNAVAILABLE'};terms.deposit=deposit}
         const presented=parseRuntimePresentedBooking({scope,version:1,nonce:randomUUID(),fingerprint:runtimeBookingFingerprint(terms),conditionsPresented:true,terms})
-        return presented ? {presented,slot} : null
+        return presented ? {presented,slot} : rejectPreparation('presentation_invalid')
       } catch(error) {
         if(error instanceof PublicSourceIntegrityError) throw error
-        return null
+        return rejectPreparation('unexpected_error')
       }
     }),
 
@@ -229,7 +234,7 @@ export async function createPrismaDialoguePort(client: DialogueClient, businessI
         const result = await loadPrismaBasketAvailability(source, context, settings, selected as DialogueService[], date, targetProfessionalId, {}, await currentContent(source))
         if (!result.ok) return []
         if (result.durationMinutes !== member.durationMinutes || (result.customerDurationMinutes ?? result.durationMinutes) !== (member.customerDurationMinutes ?? member.durationMinutes)) throw new Error('management duration changed; new review required')
-        return result.slots.filter(slot => slot.date === date && slot.professionalId === targetProfessionalId).map(slot => ({ date, startAt: slot.startAt, professionalId: slot.professionalId, serviceIds: [...member.serviceIds], durationMinutes: result.durationMinutes, customerDurationMinutes: result.customerDurationMinutes ?? result.durationMinutes }))
+        return result.slots.filter(slot => slot.date === date && slot.professionalId === targetProfessionalId).map(slot => ({ date, startAt: slot.startAt, professionalId: slot.professionalId, serviceIds: [...member.serviceIds], durationMinutes: result.durationMinutes, customerDurationMinutes: result.customerDurationMinutes ?? result.durationMinutes,band:slot.band }))
       }, professionalChange)
     }),    availabilityBasket: (services, date, professionalId, estimates, temporal) => snapshot(async source => loadPrismaBasketAvailability(source, context, settings, services, date, professionalId, estimates, await currentContent(source), temporal)),
     async availability(selected: DialogueService, date: string, professionalId?: string, temporal?: import('./prisma-basket-availability.js').VerifiedDateTemporal) {

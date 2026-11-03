@@ -2,7 +2,7 @@ import { DATE_PREFERENCES_JSON_SCHEMA, parseDatePreferenceCandidates, type DateP
 import { parseServiceRequest, type ServiceRequest } from './service-request.js'
 import { isCustomerText } from './customer-text.js'
 import { INFORMATION_TARGET_JSON_SCHEMA, parseInformationTarget, SERVICE_INFORMATION_ASPECTS } from './information-contract.js'
-import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, literalClockMeaning, timePreferenceMatchesEvidence, timeOperationMatchesEvidence, type TimePreference } from './time-preference.js'
+import { TIME_PREFERENCE_JSON_SCHEMA, parseTimePreference, type TimePreference } from './time-preference.js'
 import { parseTimeClarification } from './temporal-grounding.js'
 import { ACTION_REGISTRY, type InformationAction } from './actions.js'
 import type { InformationTarget } from './engine.js'
@@ -123,13 +123,13 @@ export function validTurnPlanDate(value: unknown): value is string {
 }
 /** Strict structural/evidence validation; catalogIds, when provided, are the trusted tenant catalog. */
 export function parseTurnPlan(value: unknown, message: string, catalogIds?: readonly string[]): TurnPlan {
-  return parseTurnPlanCore(value, message, catalogIds, true)
+  return parseTurnPlanCore(value, message, catalogIds)
 }
-/** Server validation before deny-only semantic filtering; never an input flag on a model schema. */
+/** Structural/evidence validation before semantic act admission; no lexical interpretation veto. */
 export function parseTurnPlanStructure(value: unknown, message: string, catalogIds?: readonly string[]): TurnPlan {
-  return parseTurnPlanCore(value, message, catalogIds, false)
+  return parseTurnPlanCore(value, message, catalogIds)
 }
-function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly string[] | undefined, semantic: boolean): TurnPlan {
+function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly string[] | undefined): TurnPlan {
   if (!object(value)) fail('object')
   let serialized: string
   try { serialized = JSON.stringify(value) } catch { return fail('serialization') }
@@ -218,15 +218,10 @@ function parseTurnPlanCore(value: unknown, message: string, catalogIds: readonly
     } else if (raw.kind === 'time') {
       exactKeys(raw, [...common, 'value'])
       if (typeof raw.value !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw.value)) fail('time')
-      if (semantic) {
-        const meaning = literalClockMeaning(message, raw.evidence)
-        if (meaning.kind === 'alternatives' || meaning.kind === 'single' && meaning.time !== raw.value) fail('clock value evidence')
-        if (!timeOperationMatchesEvidence({ kind: 'time', value: raw.value }, message, raw.evidence)) fail('preference is not exact time')
-      }
+      // The interpreter owns temporal meaning; validate the typed clock, not its wording.
     } else if (raw.kind === 'time_preference') {
       exactKeys(raw, [...common, 'preference'])
-      const preference = parseTimePreference(raw.preference)
-      if (semantic && !timePreferenceMatchesEvidence(preference, message, raw.evidence)) fail('incomplete range evidence')
+      parseTimePreference(raw.preference)
       identity = 'time'
     } else if (raw.kind === 'time_clarification') {
       exactKeys(raw, [...common, 'candidateTimes'])

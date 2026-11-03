@@ -16174,6 +16174,90 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     #account-create-dialog .account-create-dialog .dialog-actions .secondary { color: #fff !important; }
     #account-create-dialog .account-create-dialog .dialog-actions .primary { background: #e2b85f !important; }
     .support-business-badge { border: 0; cursor: pointer; }
+    /* Chat mobile has its own layout; generic form stacking must not affect it. */
+    @media (max-width: 767px) {
+      body[data-current-section="conversations"] { min-height:0; height:var(--crm-mobile-viewport,100dvh); }
+      body[data-current-section="conversations"] .app {
+        height:calc(var(--crm-mobile-viewport,100dvh) - var(--mobile-nav-height) - var(--mobile-view-tabs-height) - env(safe-area-inset-bottom)) !important;
+      }
+      body[data-current-section="conversations"] .mobile-top-row { width:100%; }
+      body[data-current-section="conversations"] .mobile-current-title { display:flex; flex-direction:column; flex:1; }
+      body[data-current-section="conversations"] .mobile-current-title span { order:-1; color:#0f1836; font-size:25px; font-weight:800; line-height:1; }
+      body[data-current-section="conversations"] .mobile-current-title strong { display:none; }
+      body[data-current-section="conversations"] .mobile-view-nav {
+        left:0; right:0; bottom:0; height:calc(var(--mobile-view-tabs-height) + env(safe-area-inset-bottom)) !important;
+        padding:4px 10px calc(4px + env(safe-area-inset-bottom)); border-radius:16px 16px 0 0; box-shadow:0 -3px 18px rgba(25,50,90,.05);
+      }
+      body[data-current-section="conversations"] .mobile-view-nav button {
+        display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+        height:44px !important; font-size:11px !important;
+      }
+      body[data-current-section="conversations"] .mobile-view-nav .ti { width:20px; height:20px; }
+      body[data-current-section="conversations"] .chat { display:flex; flex-direction:column; min-height:0; padding-bottom:0; }
+      body[data-current-section="conversations"] .chat-header {
+        flex:0 0 auto; min-height:66px; padding:10px 12px; border-bottom:1px solid #e1e8f2; background:#fff;
+      }
+      body[data-current-section="conversations"] .chat-title { flex:1; gap:9px; overflow:hidden; }
+      body[data-current-section="conversations"] .chat-title > div:last-child { min-width:0; }
+      body[data-current-section="conversations"] .chat-title .avatar { width:40px; height:40px; flex:0 0 40px; font-size:18px; }
+      body[data-current-section="conversations"] .chat-contact-name { display:flex; align-items:center; gap:6px; font-size:16px; }
+      body[data-current-section="conversations"] #chat-phone { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      body[data-current-section="conversations"] .whatsapp-chip { flex:0 0 auto; padding:4px 7px; font-size:10px; }
+      body[data-current-section="conversations"] #chat-status { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+      body[data-current-section="conversations"] .chat-actions { display:flex !important; flex-direction:row; gap:5px; align-items:center; }
+      body[data-current-section="conversations"] .chat-actions > .chip { display:none; }
+      body[data-current-section="conversations"] .messages {
+        flex:1 1 0; min-height:0; padding:18px 12px; gap:13px; overflow-y:auto; overscroll-behavior:contain;
+        background-color:#f3f7fc;
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cg fill='none' stroke='%235f80ad' stroke-width='1.5' opacity='.07'%3E%3Ccircle cx='28' cy='28' r='12'/%3E%3Cpath d='M28 20v9l6 3M88 20h27v20H99l-9 7v-7h-2zM18 90h26v22H18zM24 85v10m14-10v10m-20 6h26M95 90l20 20m-20 0l20-20'/%3E%3Ccircle cx='92' cy='87' r='5'/%3E%3Ccircle cx='92' cy='113' r='5'/%3E%3C/g%3E%3C/svg%3E");
+      }
+      body[data-current-section="conversations"] .message { max-width:88%; padding:11px 12px 8px; border-radius:14px; font-size:14px; line-height:1.5; overflow-wrap:anywhere; box-shadow:0 2px 6px rgba(30,60,100,.025); }
+      body[data-current-section="conversations"] .message.inbound { background:#fff; border-color:#dce5f1; border-bottom-left-radius:4px; }
+      body[data-current-section="conversations"] .message.outbound:not(.failed) { background:#e8f2ff; border-color:#c7dcff; border-bottom-right-radius:4px; }
+      body[data-current-section="conversations"] .message-time { margin-top:5px; font-size:10px; }
+      body[data-current-section="conversations"] .message-day { padding:5px 13px; background:#e4ebf5; font-size:11px; }
+      body[data-current-section="conversations"] #reply-form {
+        flex:0 0 auto; display:grid; grid-template-columns:38px minmax(0,1fr) 34px 44px !important;
+        align-items:end; gap:7px; margin:0; padding:8px 10px 10px; border:0; border-top:1px solid #e4ebf5;
+        border-radius:16px 16px 0 0; background:#fff;
+      }
+      body[data-current-section="conversations"] #reply-form .composer-tools { display:contents !important; }
+      body[data-current-section="conversations"] #reply-text {
+        grid-column:2 / 4; grid-row:2; width:100%; min-width:0; min-height:44px; max-height:112px;
+        margin:0; padding:11px 38px 10px 13px; border:1px solid #d6e0ee; border-radius:23px;
+        resize:none; overflow-y:auto; font-size:16px; line-height:21px; background:#fff;
+      }
+      body[data-current-section="conversations"] #reply-form .composer-icon {
+        width:36px; height:44px; margin:0; padding:6px; border-radius:12px;
+      }
+      body[data-current-section="conversations"] #reply-form .composer-icon[data-icon="paperclip"] { grid-column:1; grid-row:2; background:#f1f5fb; }
+      body[data-current-section="conversations"] #reply-form .composer-icon[data-icon="smile"] { grid-column:3; grid-row:2; z-index:1; background:transparent; }
+      body[data-current-section="conversations"] #reply-form .composer-icon .ti { width:22px; height:22px; }
+      body[data-current-section="conversations"] #send-button {
+        grid-column:4; grid-row:2; display:grid; place-items:center; width:44px; min-width:44px; height:44px;
+        margin:0; padding:0; border-radius:50%; background:#2563eb;
+      }
+      body[data-current-section="conversations"] #send-button .ti { width:22px; height:22px; }
+      body[data-current-section="conversations"] #send-button .send-label { display:none; }
+      body[data-current-section="conversations"] #quick-replies-trigger {
+        grid-column:1 / -1; grid-row:1; justify-self:start; width:auto; min-height:32px; margin:0 0 2px;
+        padding:6px 12px; border:1px solid #dce5f2; border-radius:18px; color:#2456a6; background:#f8fbff; font-size:12px;
+      }
+      body[data-current-section="conversations"] #composer-window-notice { grid-column:1 / -1; grid-row:3; font-size:11px; }
+      body[data-current-section="conversations"] #quick-replies-selector { position:absolute; left:8px; right:8px; bottom:100%; width:auto; max-height:min(45dvh,320px); overflow:auto; z-index:30; border-radius:15px; }
+      body[data-current-section="conversations"] #reply-text:focus { outline:0; border-color:#8ab1ff; box-shadow:0 0 0 2px #e6efff; }
+      body[data-current-section="conversations"] #reply-form button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+      body[data-current-section="conversations"][data-mobile-keyboard="open"] .app { height:calc(var(--crm-mobile-viewport,100dvh) - var(--mobile-nav-height)) !important; }
+      body[data-current-section="conversations"][data-mobile-keyboard="open"] .mobile-view-nav { display:none !important; }
+      body[data-current-section="conversations"][data-mobile-keyboard="open"] #reply-form { padding-bottom:max(7px,env(safe-area-inset-bottom)); }
+      body[data-current-section="conversations"][data-mobile-keyboard="open"] #quick-replies-trigger { min-height:27px; padding:4px 10px; }
+      @media (max-width:359px) {
+        body[data-current-section="conversations"] .whatsapp-chip { display:none; }
+        body[data-current-section="conversations"] #reply-form { grid-template-columns:32px minmax(0,1fr) 30px 40px !important; gap:5px; padding-right:8px; padding-left:8px; }
+        body[data-current-section="conversations"] #send-button { width:40px; min-width:40px; height:44px; }
+        body[data-current-section="conversations"] #reply-form .composer-icon { width:30px; }
+      }
+    }
     ${cashRegisterEnabled ? cashRegisterStyles : ''}
   </style>
 </head>
@@ -16228,9 +16312,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button class="mobile-logout" id="mobile-logout-button" type="button" data-logout-button>Salir</button>
     </div>
     <div class="mobile-view-nav" aria-label="Vistas de conversacion">
-      <button class="active" id="mobile-inbox" type="button">Chats</button>
-      <button id="mobile-chat" type="button">Conversacion</button>
-      <button id="mobile-details" type="button">Cliente</button>
+      <button class="active" id="mobile-inbox" type="button"><span data-icon="message" aria-hidden="true"></span><span>Chats</span></button>
+      <button id="mobile-chat" type="button"><span data-icon="message" aria-hidden="true"></span><span>Conversaci&oacute;n</span></button>
+      <button id="mobile-details" type="button"><span data-icon="user" aria-hidden="true"></span><span>Cliente</span></button>
     </div>
   </nav>
 
@@ -16347,7 +16431,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <span><span data-icon="clock"></span><span id="composer-window-text">La ventana de WhatsApp vencio.</span></span>
           <a id="composer-window-whatsapp" href="#">Abrir WhatsApp</a>
         </div>
-        <textarea id="reply-text" placeholder="Escribir mensaje..." disabled></textarea>
+        <textarea id="reply-text" rows="1" aria-label="Escribir mensaje" placeholder="Escribir mensaje..." disabled></textarea>
         <section class="quick-replies-picker" id="quick-replies-selector" aria-label="Respuestas r&aacute;pidas" hidden>
           <div class="quick-replies-picker-head"><strong>Respuestas r&aacute;pidas</strong><button id="quick-replies-selector-close" type="button">Cerrar</button></div>
           <div class="quick-replies-picker-list" id="quick-replies-selector-list"><div class="quick-replies-empty">Cargando respuestas...</div></div>
@@ -16357,7 +16441,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           <button class="composer-icon" type="button" title="Emoji" data-icon="smile"></button>
           <button class="composer-icon" type="button" title="Adjuntar archivo" data-icon="paperclip"></button>
           <button class="quick-replies-button" id="quick-replies-trigger" type="button" disabled>Respuestas r&aacute;pidas</button>
-          <button class="primary" id="send-button" type="submit" disabled><span data-icon="send"></span>Enviar</button>
+          <button class="primary" id="send-button" type="submit" aria-label="Enviar mensaje" disabled><span data-icon="send"></span><span class="send-label">Enviar</span></button>
         </div>
       </form>
     </section>
@@ -22502,6 +22586,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const start = Number.isInteger(els.replyText.selectionStart) ? els.replyText.selectionStart : els.replyText.value.length
       const end = Number.isInteger(els.replyText.selectionEnd) ? els.replyText.selectionEnd : start
       els.replyText.setRangeText(reply.message, start, end, 'end')
+      resizeMobileReplyInput()
       closeQuickReplySelector()
       els.replyText.focus()
     }
@@ -27555,6 +27640,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       state.manualReplyQueue.push(item)
       els.replyText.value = ''
+      resizeMobileReplyInput()
       els.replyText.focus()
       renderMessages()
       void drainManualReplies(item.conversationId, item.businessId)
@@ -37459,7 +37545,63 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.mobileInbox.classList.toggle('active', view === 'inbox')
       els.mobileChat.classList.toggle('active', view === 'chat')
       els.mobileDetails.classList.toggle('active', view === 'details')
+      scheduleMobileChatLayout()
     }
+
+    let mobileChatFrame = 0
+    let mobileChatViewportWidth = 0
+    let mobileChatViewportBaseline = 0
+
+    function resizeMobileReplyInput() {
+      if (!window.matchMedia('(max-width: 767px)').matches) {
+        els.replyText.style.removeProperty('height')
+        return
+      }
+      els.replyText.style.height = 'auto'
+      els.replyText.style.height = Math.min(112, Math.max(44, els.replyText.scrollHeight + 2)) + 'px'
+    }
+
+    function syncMobileChatLayout() {
+      mobileChatFrame = 0
+      const mobile = window.matchMedia('(max-width: 767px)').matches
+      const conversations = document.body.dataset.currentSection === 'conversations'
+      if (!mobile || !conversations) {
+        document.documentElement.style.removeProperty('--crm-mobile-viewport')
+        delete document.body.dataset.mobileKeyboard
+        mobileChatViewportBaseline = 0
+        resizeMobileReplyInput()
+        return
+      }
+      const viewport = window.visualViewport
+      const height = Math.round(viewport?.height || window.innerHeight)
+      const width = Math.round(viewport?.width || window.innerWidth)
+      // Pinch zoom is not an on-screen keyboard and must not resize the workspace.
+      if (viewport && Math.abs(viewport.scale - 1) > 0.05) return
+      if (Math.abs(width - mobileChatViewportWidth) > 80) mobileChatViewportBaseline = 0
+      mobileChatViewportWidth = width
+      const active = document.activeElement
+      const editing = active instanceof HTMLElement && (active.matches('input, textarea') || active.isContentEditable)
+      if (!editing) mobileChatViewportBaseline = Math.max(height, window.innerHeight)
+      else mobileChatViewportBaseline = Math.max(mobileChatViewportBaseline, window.innerHeight, height)
+      document.documentElement.style.setProperty('--crm-mobile-viewport', height + 'px')
+      document.body.dataset.mobileKeyboard = editing && mobileChatViewportBaseline - height > 120 ? 'open' : 'closed'
+      resizeMobileReplyInput()
+    }
+
+    function scheduleMobileChatLayout() {
+      if (!mobileChatFrame) mobileChatFrame = window.requestAnimationFrame(syncMobileChatLayout)
+    }
+
+    window.addEventListener('resize', scheduleMobileChatLayout)
+    window.visualViewport?.addEventListener('resize', scheduleMobileChatLayout)
+    window.visualViewport?.addEventListener('scroll', scheduleMobileChatLayout)
+    document.addEventListener('focusin', scheduleMobileChatLayout)
+    document.addEventListener('focusout', scheduleMobileChatLayout)
+    new MutationObserver(scheduleMobileChatLayout).observe(document.body, {
+      attributes: true, attributeFilter: ['data-current-section', 'data-mobile-view']
+    })
+    els.replyText.addEventListener('input', resizeMobileReplyInput)
+    scheduleMobileChatLayout()
 
     hydrateWorkspaceNav()
     syncConversationActionLayout()

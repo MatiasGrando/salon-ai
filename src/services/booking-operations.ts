@@ -378,13 +378,14 @@ async function createBookingVisit(
   const activeCatalogCount = await tx.$queryRaw<Array<{ count: number }>>(Prisma.sql`
     SELECT count(*)::int AS "count"
     FROM "Service" s
-    JOIN "ServiceCategory" c
+    LEFT JOIN "ServiceCategory" c
       ON c."id" = s."catalogCategoryId"
      AND c."businessId" = s."businessId"
      AND c."isActive" = true
     WHERE s."businessId" = ${input.businessId}
       AND s."id" IN (${Prisma.join(serviceIds)})
       AND s."isBookable" = true
+      AND (s."catalogCategoryId" IS NULL OR c."id" IS NOT NULL)
       AND (s."attentionMode" = 'DIRECT_BOOKING'::"ServiceAttentionMode"
         OR (s."attentionMode" = 'GUIDED_ESTIMATE'::"ServiceAttentionMode" AND s."estimateAllowsBooking" = true))
   `)

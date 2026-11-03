@@ -9,6 +9,10 @@ export type ReplyContract = {
   introduction: 'server_pending' | 'server_complete' | 'none'
   continuation: 'next' | null
   neutral: boolean
+  /** Current public candidates for a question, never commercial or booking authority. */
+  serviceClarification?: { serviceNames: readonly string[] }
+  /** Qualitative acknowledgment of an accepted partial request; no new booking facts. */
+  bookingAcknowledgment?: true
 }
 export type ReplyRejection =
   | 'missing_draft' | 'invalid_shape' | 'fact_membership' | 'fact_order' | 'continuation_conflict'
@@ -35,12 +39,13 @@ export type ReplyValidation = {
   discardedFramingReason?: ReplyRejection
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation; rejections?: ReplyRejectionDiagnostic[] }
-export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
+export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; clarificationQuestion?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
-  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer'],
+  type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer', 'clarificationQuestion'],
   properties: {
     catalogAnswer: CATALOG_ANSWER_SCHEMA,
+    clarificationQuestion: { type: ['string', 'null'], maxLength: 240 },
     salutation: { type: ['string', 'null'], enum: ['greeting', null] },
     opening: { type: ['string', 'null'] },
     factIds: { type: 'null' },
@@ -53,10 +58,11 @@ export const REPLY_COMPOSITION_GUIDE = [
   'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
   'Reconocimiento cualitativo: en opening respondé la cortesía y reconocé que vas a ayudar con el pedido sin repetir sus valores concretos. Fecha, hora, cifras, nombres de prestaciones y otros datos solicitados pertenecen a las operaciones y al cuerpo verificado por el servidor, no al encuadre libre, aunque provengan del cliente. No anticipes disponibilidad ni resumas esos valores en opening/closing; una transición breve basta antes de la pregunta pertinente.',
+  'Pedido parcial de reserva: cuando replyContract.bookingAcknowledgment es true, opening reconoce brevemente la intención actual de conseguir un turno y enlaza con el dato que falta en el cuerpo. Redactá ese reconocimiento según el mensaje, sin plantilla ni repetición de saludo o presentación; un saludo solo no cumple este objetivo. Conservá todos los hechos y opciones del servidor, no afirmes disponibilidad ni repitas sus valores en el encuadre. No añadas otra pregunta: el cuerpo ya pide el dato faltante. Fuera de este objetivo no hace falta reconocer el pedido en cada respuesta.',
   'Cuerpo material: devolvé factIds:null para indicar cuerpo completo del servidor. No enumeres, selecciones ni copies los IDs obligatorios: el servidor inserta siempre TODOS los hechos recibidos exactamente una vez, en su orden, incluidos precios, condiciones y next, con sus textos o la variante revisada elegida por ID. variantChoices es null o una lista de factId/variantId presentes en variants del hecho; no contiene texto libre. Hechos sin variants son inmutables, excepto el cuerpo descriptivo catalog que puede recibir catalogAnswer con origen general orientativo o procedencia publicada vigente validados por separado; los demás hechos, condiciones y next no se reemplazan. opening/closing no contienen cifras, URLs, entidades del catálogo, hechos del negocio ni acciones ejecutadas.',
   'Continuación pertinente: si hay next debe ir al final y closing es null. No agregues otra pregunta operativa en opening; next ya es la única continuación. Podés preguntar ¿Vos? como cortesía, sin sumar otra adquisición, consulta o confirmación. No afirmes ni prometas consultar, contactar, enviar o derivar al equipo desde el encuadre. Si neutral es true, opening es null: el cuerpo ya contiene el encuadre verificado. Si no necesitás encuadre, salutation/opening/closing son null: el servidor puede entregar el cuerpo verificado sin otra llamada.'
 ] as const
-export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ') + ' ' + CATALOG_ANSWER_INSTRUCTIONS
+export const REPLY_CONTRACT_INSTRUCTIONS = REPLY_COMPOSITION_GUIDE.join(' ') + ' ' + CATALOG_ANSWER_INSTRUCTIONS + ' Excepción acotada: si replyContract.serviceClarification existe, redactá clarificationQuestion como una aclaración natural breve con una pregunta para confirmar el servicio o precisar el resultado. Podés presentar antes los candidatos publicados sin añadir atributos no documentados. Usá todos sus serviceNames exactos como candidatos, sin declarar desconocido el pedido por diferencias de palabras. No hay frase obligatoria: procedure y next son fallback, no texto a copiar; la pregunta válida los reemplaza. No afirmes oferta de variantes, composición, productos, precios, duración, agenda, acciones ni reservas. Conservá salutation/opening sólo para trato social sin repetir la pregunta; closing y catalogAnswer son null. Fuera de ese scope clarificationQuestion es null.'
 
 /** A social turn always carries one server-owned help or recoverable next. */
 export function socialContinuationFacts(next: string): ReplyFact[] {
@@ -142,21 +148,26 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   let opening = value?.opening
   let closing = value?.closing
   let catalogText: string | null = null
+  let clarificationQuestion: string | undefined
   let discardedFramingReason: ReplyRejection | undefined
   let detail: ReplyShapeDetail | undefined
   // A typed act is rendered by the server; no free greeting string is trimmed or rescued.
   let salutation = value?.salutation === 'greeting' && contract.introduction !== 'server_pending' ? '¡Hola!' : null
   const result = (reason: ReplyRejection | null, text: string | null = null): ReplyValidationResult => ({
     text,
-    ...(!reason && !discardedFramingReason ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
+    ...(!reason && clarificationQuestion ? { clarificationQuestion } : {}),
+    ...(!reason && (!discardedFramingReason || discardedFramingReason === 'identity_in_frame') ? { openingText: [salutation, opening].filter(part => typeof part === 'string' && part.trim()).join('\n'),
       validatedFraming: { salutation, opening: typeof opening === 'string' ? opening : null } } : {}),
     modelFraming: Boolean(text && [opening, closing]
-      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText)),
+      .some(part => typeof part === 'string' && part.trim()) || text && (selectedVariants.size || salutation || catalogText || clarificationQuestion)),
     validation: { status: reason ? 'rejected' : 'accepted', reason, factCount: Math.min(facts.length, 101), providedCount,
       ...(detail ? { detail } : {}), ...(!reason && discardedFramingReason ? { discardedFramingReason } : {}) }
   })
   const assembled = (): ReplyValidationResult => {
-    const text = [salutation, opening, ...facts.map(fact => fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text), closing]
+    const body = facts.flatMap(fact => clarificationQuestion && fact.id === 'procedure' ? []
+      : [clarificationQuestion && fact.id === 'next' ? clarificationQuestion
+        : fact.id === 'catalog' && catalogText ? catalogText : selectedVariants.get(fact.id) ?? fact.text])
+    const text = [salutation, opening, ...body, closing]
       .filter(part => typeof part === 'string' && part.trim()).join('\n')
     return !text ? result('empty_text') : text.length > 5000 ? result('reply_bounds') : result(null, text)
   }
@@ -172,7 +183,7 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     return result('invalid_shape')
   }
   if (raw == null) return result('missing_draft')
-  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
+  if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer' && key !== 'clarificationQuestion').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return rejectShape('salutation_shape')
   // Explicit null assigns the complete material body to the server. Legacy lists
   // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
@@ -193,8 +204,22 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
       selectedVariants.set(choice.factId, variant.text)
     }
   }
-  if (contract.continuation && (factIds.at(-1) !== 'next' || value.closing !== null)) return result('continuation_conflict')
-  if (contract.neutral && value.opening !== null) return result('neutral_frame')
+  if (value.clarificationQuestion != null) {
+    const scope = contract.serviceClarification
+    const question = value.clarificationQuestion
+    if (!scope || !facts.some(fact => fact.id === 'procedure') || !facts.some(fact => fact.id === 'next') ||
+        value.catalogAnswer != null ||
+        typeof question !== 'string' || question.length > 240 || /[\u0000-\u001f]/.test(question) ||
+        !question.trim().endsWith('?') || (question.match(/\?/g) ?? []).length !== 1) return result('continuation_conflict')
+    let material = normalized(question)
+    for (const name of scope.serviceNames) {
+      if (!material.includes(normalized(name))) return result('fact_membership')
+      material = material.replaceAll(normalized(name), '')
+    }
+    if (protectedReplyClaim(material) || /\b(?:soy|me llamo|mi nombre)\b/.test(material) ||
+        catalogNames.some(name => !scope.serviceNames.includes(name) && words(material).includes(words(name)))) return result('unverified_value')
+    clarificationQuestion = question.trim()
+  }
   const framing = [value.opening, value.closing]
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part)))) return result('frame_bounds')
   // Validate the complete explanatory body independently before optional frame rejection.
@@ -208,13 +233,21 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (framing.some(part => typeof part === 'string' && catalogNames.some(name => words(part).includes(words(name))))) return rejectFrame('catalog_in_frame')
   if (framing.some(part => typeof part === 'string' && /\b(?:reserve|agende|confirme|guarde|actualice|cambie|modifique|asigne|asignado|seleccione|seleccionado|anote|anotado|reservado|agendado|confirmado|disponible|disponibilidad|agotado|gratis)\b/.test(normalized(part)))) return rejectFrame('unverified_action')
   if (framing.some(part => typeof part === 'string' && claimsTeamAction(part))) return rejectFrame('unverified_action')
-  if ((contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part)))) return rejectFrame('identity_in_frame')
-  if ((contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))) return rejectFrame('identity_in_frame')
+  const identityInFrame = (contract.introduction !== 'none' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && /\b(?:soy|me llamo|mi nombre)\b/.test(normalized(part))) ||
+    (contract.introduction === 'server_pending' || Object.hasOwn(value, 'salutation')) && framing.some(part => typeof part === 'string' && hasSalutationAct(part))
+  if (identityInFrame) {
+    // Drop the entire optional frame, never fragments. The body and material frame
+    // checks above already passed; continue validating its final continuation below.
+    opening = null; closing = null; salutation = null
+    discardedFramingReason = 'identity_in_frame'
+  }
+  if (contract.continuation && (factIds.at(-1) !== 'next' || closing !== null)) return result('continuation_conflict')
+  if (contract.neutral && opening !== null) return result('neutral_frame')
   // Shape, membership, order and every original safety fence above remain decisive.
   // A copied business value or action is never cleaned first to rescue unsafe framing.
   const next = contract.continuation ? facts.find(fact => fact.id === contract.continuation) : undefined
   if (next && typeof opening === 'string') {
-    const adjusted = uniqueContinuationOpening(opening, selectedVariants.get(next.id) ?? next.text)
+    const adjusted = uniqueContinuationOpening(opening, clarificationQuestion ?? selectedVariants.get(next.id) ?? next.text)
     if (adjusted === null) return rejectFrame('continuation_conflict')
     opening = adjusted
     if (typeof opening === 'string' && extraOperationalQuestion(opening)) return rejectFrame('continuation_conflict')

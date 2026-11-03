@@ -25,6 +25,8 @@ export type ServiceRequestContext = ServiceRequest & {
     detail?: string;
     /** Server-rendered candidate name; a renamed catalog entry requires fresh clarification. */
     candidateName?: string;
+    /** Actual AI-authored question bound to this current request, never selection authority. */
+    clarificationQuestion?: string;
     /** Server-confirmed catalog reference only; never proof of a requested variant. */
     referenceConfirmed?: true;
 };
@@ -65,8 +67,9 @@ export function parseServiceRequest(value: unknown, catalogIds?: readonly string
 export function parseServiceRequestContext(value: unknown, businessId: string): ServiceRequestContext {
     const item = value as Record<string, unknown>;
     const keys = 'basis,businessId,continuation,correction,disposition,purpose,request,serviceIds,sourceQuote';
-    if (!item || Object.keys(item).filter(key => !['candidateName', 'detail', 'referenceConfirmed', 'subject', 'aspect'].includes(key)).sort().join(',') !== keys ||
+    if (!item || Object.keys(item).filter(key => !['candidateName', 'clarificationQuestion', 'detail', 'referenceConfirmed', 'subject', 'aspect'].includes(key)).sort().join(',') !== keys ||
         item.candidateName !== undefined && !bounded(item.candidateName, 200) ||
+        item.clarificationQuestion !== undefined && (!isCustomerText(item.clarificationQuestion, 240) || !item.clarificationQuestion.endsWith('?')) ||
         item.detail !== undefined && !isCustomerText(item.detail, 300) ||
         item.referenceConfirmed !== undefined && (item.referenceConfirmed !== true || !bounded(item.candidateName, 200) ||
             !Array.isArray(item.serviceIds) || item.serviceIds.length !== 1 || item.basis !== 'related_category' ||
@@ -77,6 +80,7 @@ export function parseServiceRequestContext(value: unknown, businessId: string): 
     }
     return { ...parseServiceRequest(item), businessId, request: item.request,
         ...(item.candidateName !== undefined ? { candidateName: item.candidateName as string } : {}),
+        ...(item.clarificationQuestion !== undefined ? { clarificationQuestion: item.clarificationQuestion as string } : {}),
         ...(item.detail !== undefined ? { detail: item.detail as string } : {}),
         ...(item.referenceConfirmed === true ? { referenceConfirmed: true as const } : {}) };
 }
@@ -136,7 +140,7 @@ export function assessServiceIdentity(evidence: string, proposedId: string, conf
     return unproven;
 }
 /** Interpretation proposes meaning; a category ID alone never proves a documented variant. */
-export function resolveServiceRequest(raw: ServiceRequest, evidence: string, confidence: number, services: readonly DialogueService[], previous?: ServiceRequestContext): ServiceRequest {
+export function resolveServiceRequest(raw: ServiceRequest, evidence: string, confidence: number, services: readonly DialogueService[], previous?: ServiceRequestContext, semanticInterpretation = false): ServiceRequest {
     const request = parseServiceRequest(raw, services.map(service => service.id));
     if (confidence < 0.85)
         return { ...request, disposition: 'needs_detail' };
@@ -152,6 +156,9 @@ export function resolveServiceRequest(raw: ServiceRequest, evidence: string, con
     }
     if (request.disposition !== 'clear')
         return request;
+    // Current typed IA ownership establishes equivalence, not a local synonym parser.
+    // A related category still cannot certify a specific undocumented technique.
+    if (semanticInterpretation && ['exact_public_name', 'semantic_equivalent'].includes(request.basis)) return request;
     const assessment = assessServiceIdentity(evidence, request.serviceIds[0]!, confidence, services);
     if (assessment.kind === 'unproven') return { ...request, disposition: 'needs_detail', serviceIds: [] };
     if (assessment.kind === 'alternatives') return { ...request, disposition: 'alternatives', serviceIds: assessment.serviceIds };
@@ -195,6 +202,7 @@ export function serviceSelectionNote(request: ServiceRequestContext, names: read
 /** Short actual question; catalog options remain context, not matching or selection authority. */
 export function serviceRequestQuestion(request: ServiceRequestContext): string {
     if (request.referenceConfirmed) return '¿Querés elegir el servicio publicado o consultar esa técnica con el equipo?';
+    if (request.clarificationQuestion) return request.clarificationQuestion;
     if (request.disposition === 'alternatives') return '¿Cuál de estas opciones te interesa?';
     if (['needs_detail', 'unverified_variant'].includes(request.disposition) && request.basis === 'semantic_equivalent' && request.candidateName) {
         return '¿Te referís al servicio publicado ' + request.candidateName + ' o buscás un procedimiento distinto?';

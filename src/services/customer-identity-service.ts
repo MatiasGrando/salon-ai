@@ -18,6 +18,7 @@ type FindOrCreateCustomerInput = {
   email?: string | null | undefined
   businessId: string
   defaultAreaCode?: string | null | undefined
+  registerMarketingPreference?: boolean
 }
 
 type CreateProvisionalCustomerInput = {
@@ -113,7 +114,7 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
           data: { businessId, name, phone: canonicalPhone, normalizedPhone: canonicalPhone, email: email ?? null }
         })
 
-    await transaction.customerMarketingPreference.upsert({
+    if (input.registerMarketingPreference !== false) await transaction.customerMarketingPreference.upsert({
       where: { businessId_customerId: { businessId, customerId: customer.id } },
       create: {
         businessId,

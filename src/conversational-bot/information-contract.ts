@@ -11,7 +11,7 @@ export type ProfessionalInformationTarget = {
 export type InformationTarget =
   | { kind: 'business'; actions: readonly InformationAction[]; subject?: BusinessInformationSubject }
   | { kind: 'presented_offer'; actions: readonly [] }
-  | { kind: 'service'; actions: readonly []; serviceIds: readonly string[]; aspect: ServiceInformationAspect; estimateOptionId?: string }
+  | { kind: 'service'; actions: readonly []; serviceIds: readonly string[]; aspect: ServiceInformationAspect; estimateOptionId?: string; subject?: string | null }
   | ProfessionalInformationTarget
 export type ProfessionalInformationFacts = {
   businessId: string; complete: boolean
@@ -21,6 +21,8 @@ export type InformationFocus = {
   version: 1; businessId: string; topic: 'price' | 'details'; aspect: ServiceInformationAspect
   serviceId: string | null; awaitingChoice: boolean; candidateId: string | null
   options: { id: string; label: string }[]
+  /** Informational topic only, never local facts or booking authority. */
+  subject?: string
 }
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && !!value.trim() && value.length <= max && !/[\u0000-\u001f]/.test(value)
@@ -40,7 +42,7 @@ export function parseInformationTarget(value: unknown, catalogIds?: readonly str
     if (value.kind === 'presented_offer') {
       if (!keys(value, ['kind', 'actions'])) throw new Error('invalid information offer')
     } else if (value.kind === 'service') {
-      if (!keys(value, ['kind', 'actions', 'serviceIds', 'aspect'], ['estimateOptionId']) || !ids(value.serviceIds) ||
+      if (!keys(value, ['kind', 'actions', 'serviceIds', 'aspect'], ['estimateOptionId', 'subject']) || value.subject != null && !text(value.subject, 200) || !ids(value.serviceIds) ||
           !SERVICE_INFORMATION_ASPECTS.includes(value.aspect as ServiceInformationAspect) || value.estimateOptionId !== undefined && (!text(value.estimateOptionId, 128) || value.aspect !== 'price' || value.serviceIds.length !== 1)) throw new Error('invalid information service')
     } else if (value.kind === 'professional') {
       if (!keys(value, ['kind', 'actions', 'mention', 'serviceIds', 'date', 'weekday', 'aspect']) || !ids(value.serviceIds) ||
@@ -54,7 +56,7 @@ export function parseInformationTarget(value: unknown, catalogIds?: readonly str
   return structuredClone(value) as unknown as InformationTarget
 }
 export function parseInformationFocus(value: unknown, businessId: string): InformationFocus {
-  if (!object(value) || !keys(value, ['version', 'businessId', 'topic', 'aspect', 'serviceId', 'awaitingChoice', 'candidateId', 'options']) ||
+  if (!object(value) || !keys(value, ['version', 'businessId', 'topic', 'aspect', 'serviceId', 'awaitingChoice', 'candidateId', 'options'], ['subject']) || value.subject !== undefined && !text(value.subject, 200) ||
       value.version !== 1 || value.businessId !== businessId || JSON.stringify(value).length > 4096 ||
       !['price', 'details'].includes(String(value.topic)) || !SERVICE_INFORMATION_ASPECTS.includes(value.aspect as ServiceInformationAspect) ||
       typeof value.awaitingChoice !== 'boolean' || !Array.isArray(value.options) || value.options.length > 10 ||
@@ -75,8 +77,8 @@ export const INFORMATION_TARGET_JSON_SCHEMA = { anyOf: [
   schema(businessProperties),
   schema({ ...businessProperties, subject: { type: 'string', enum: BUSINESS_INFORMATION_SUBJECTS } }),
   schema({ kind: { type: 'string', enum: ['presented_offer'] }, actions: emptyActions }),
-  schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: array, aspect: { type: 'string', enum: SERVICE_INFORMATION_ASPECTS } }),
-  schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: { ...array, minItems: 1, maxItems: 1 }, aspect: { type: 'string', enum: ['price'] }, estimateOptionId: string }),
+  schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: array, aspect: { type: 'string', enum: SERVICE_INFORMATION_ASPECTS }, subject: { type: ['string', 'null'], maxLength: 200 } }),
+  schema({ kind: { type: 'string', enum: ['service'] }, actions: emptyActions, serviceIds: { ...array, minItems: 1, maxItems: 1 }, aspect: { type: 'string', enum: ['price'] }, estimateOptionId: string, subject: { type: ['string', 'null'], maxLength: 200 } }),
   schema({ kind: { type: 'string', enum: ['professional'] }, actions: emptyActions, mention: { type: ['string', 'null'], minLength: 1, maxLength: 100 },
     serviceIds: array, date: { type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, weekday: { type: ['integer', 'null'], minimum: 0, maximum: 6 },
     aspect: { type: 'string', enum: ['overview', 'services', 'schedule', 'availability'] } })
