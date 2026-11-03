@@ -20,11 +20,18 @@ no requiere una migración de esquema.
    usa `admittedAt`. No usa el momento en que finalmente corre el worker.
    Duplicados y eventos anteriores no retroceden el reloj.
 3. Si el siguiente mensaje llega exactamente al vencimiento o después,
-   un contexto no protegido vuelve al menú inicial. Una selección de un botón
-   anterior que dispara esa expiración no se ejecuta contra el nuevo contexto.
-4. La respuesta explica que pasaron 24 horas y que los turnos y datos siguen
-   guardados, y ofrece el menú con nuevos botones.
-5. El reinicio aumenta la revisión e invalida los prompts anteriores.
+   un contexto no protegido limpia su borrador. En un comercio con política
+   conversacional vigente, un texto nuevo continúa hacia su interpretación
+   sobre ese estado limpio, con el cuerpo original del mensaje. No se pierde
+   un pedido de cancelar, reprogramar, reservar o conversar por haber vencido
+   el contexto anterior.
+4. Para ese texto conversacional no se envía un saludo de reinicio adicional
+   ni se marca el evento como procesado antes de interpretarlo. La IA redacta
+   la respuesta habitual. Una selección de un botón anterior no se ejecuta
+   contra el nuevo contexto: conserva el reinicio y la respuesta inicial.
+   El motor de opciones legacy también conserva su reinicio con saludo/menú.
+5. El reinicio aumenta la revisión e invalida los prompts anteriores, incluso
+   cuando el texto conversacional continúa sin crear un menú nuevo.
    Los trabajos conversacionales anteriores elegibles quedan retirados como
    `DONE / CONTEXT_EXPIRED`; sus entradas como `STALE`, y los envíos seguros
    todavía no realizados como `SKIPPED`. No se eliminan filas de auditoría.
@@ -51,6 +58,10 @@ no requiere una migración de esquema.
 - En flujos protegidos, la actividad puede renovar la ventana, pero no extiende
   el vencimiento financiero de la seña ni quita una derivación humana.
 - No reemplaza la recuperación general de POISON ni soluciona estados corruptos.
+- La continuación exige texto no vacío, sin identificador interactivo ni elección
+  de una propuesta anterior, y una política conversacional activa del mismo
+  comercio, despliegue, generación y canal. La política se comprueba sólo al
+  vencer el contexto, dentro de la transacción y sus bloqueos existentes.
 
 ## Compatibilidad inicial e idempotencia
 
@@ -58,8 +69,15 @@ no requiere una migración de esquema.
   sin descartar de golpe el contexto existente. Se necesitan otras 24 horas
   de inactividad para que esta ventana lo expire.
 - Sesiones nuevas inicializan ambas fechas desde el evento que las originó.
-- Expiración, invalidación, nuevo menú y auditoría `system.context_expired`
-  se escriben en una transacción. Ante fallo se revierte todo ese conjunto.
+- Expiración, invalidación y auditoría `system.context_expired` se escriben
+  en una transacción. El saludo/menú y el consumo del evento se añaden sólo
+  al recorrido que no continúa con texto conversacional. Ante fallo se revierte
+  el conjunto. El evento que continúa sigue admitido; su clasificación y
+  procesamiento normales conservan sus garantías de idempotencia.
+- Un número sin sesión previa continúa por la admisión normal sin inventar
+  un contexto vencido. Los comandos explícitos de reinicio conservan su
+  manejador; el vencimiento no consume primero su texto. No cambia el
+  significado de `/reset` ni se convierte un botón anterior en texto nuevo.
 - La proyección entrante del CRM mantiene su commit independiente anterior:
   un fallo posterior de clasificación no elimina el mensaje recibido.
 - El webhook conserva journal durable y ACK después de commit; la nueva
@@ -70,6 +88,9 @@ no requiere una migración de esquema.
 
 - `npm run test:bot-options-context-window`: límites temporales, reloj móvil,
   orden de eventos, flujos protegidos y ejecución del worker con dobles de DB.
+  El contrato worker cubre también la continuación del texto original tras
+  vencer, su única clasificación, política vigente, invalidación de botones,
+  comandos de reinicio y primer contacto sin sesión.
 - `npm run test:bot-options-context-window-sql`: SQL real con PostgreSQL/WASM
   (PGlite), transacciones y rollback, unicidad de prompt, aislamiento entre
   comercios, leases y protección financiera. Datos sintéticos en memoria;

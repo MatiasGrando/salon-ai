@@ -1,5 +1,5 @@
 import type { InstagramConversationSubject } from '../../conversational-bot/conversation-subject.js'
-import { resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
+import { loadConversationPolicy, resolveConversationPolicy, type PolicyRow } from '../../conversational-bot/runtime-policy.js'
 import { textView } from '../domain/views.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import { createInitialBotOptionsState, parseBotOptionsState } from '../domain/state.js'
@@ -11,6 +11,8 @@ import { normalizePhone, phoneSearchVariants } from '../../services/phone-normal
 type WindowInput = {
   businessId: string; deploymentId: string; generation: number; providerEventId: string
   phone: string; admittedAt: Date; providerOccurredAt: Date | null; isMedia: boolean
+  /** Current plain text only; policy is independently checked before continuing after expiry. */
+  isFreeText?: boolean
   processingInboxId?: string
   subject?: InstagramConversationSubject
   currentJobId?: string
@@ -122,6 +124,11 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     return { kind: 'CONTINUE', evaluated: true }
   }
 
+  const continueText = input.isFreeText === true && Boolean(await loadConversationPolicy(tx, {
+    businessId: input.businessId, deploymentId: input.deploymentId, generation: input.generation,
+    channel: input.subject ? 'INSTAGRAM' : 'WHATSAPP'
+  }))
+
   // No financial/system job is included. Keep inbox/journal rows as evidence.
   await tx.$executeRaw(Prisma.sql`
     UPDATE "BotJob" j SET "status" = 'DONE'::"BotJobStatus", "leaseToken" = NULL, "leasedUntil" = NULL,
@@ -167,6 +174,18 @@ export async function applyLazyContextWindowTx(tx: Prisma.TransactionClient, inp
     VALUES (${transitionId}, ${input.businessId}, ${session.id}, ${input.deploymentId}, ${input.generation},
       ${session.revision}, ${nextRevision}, 'system.context_expired', 'APPLIED', ${input.providerEventId})
   `)
+  if (continueText) {
+    // persistView normally retires prompts. Continuing without a greeting must do it here.
+    await tx.$executeRaw(Prisma.sql`
+      /* lazy-context:invalidate-prompts */
+      UPDATE "BotPrompt" p SET "status" = 'INVALIDATED'::"BotPromptStatus", "resolvedAt" = clock_timestamp()
+      FROM "BotSession" s
+      WHERE p."sessionId" = ${session.id} AND s."id" = p."sessionId" AND s."businessId" = ${input.businessId}
+        AND p."status" IN ('OPEN'::"BotPromptStatus", 'STABILIZING'::"BotPromptStatus")
+    `)
+    // The current message has not been interpreted or settled; callers continue on the fresh state.
+    return { kind: 'CONTINUE', evaluated: true }
+  }
   const menu = input.subject?textView('Hola. Empecemos de nuevo. ¿Qué servicio necesitás?'):await loadConversationGreetingView(tx, input)
   await writeView(tx, { businessId: input.businessId, sessionId: session.id, revision: nextRevision,
     transitionId, toPhone: input.phone, view: menu, dbNow: session.dbNow })

@@ -18,17 +18,27 @@ const original = {
   dbNow: admittedAt, hasInbox: false, durableProtection: false
 }
 type Statement = { sql: string; values: readonly unknown[] }
-function fixture(overrides: Record<string, unknown> = {}, guard = { busy: false, protectedDelivery: false }, customerName: string | null = 'Martina') {
+type FixtureOptions = { conversational?: boolean; noSession?: boolean; invalidPolicy?: boolean }
+const conversationPolicyRow = {
+  businessId: input.businessId, deploymentId: input.deploymentId, generation: input.generation,
+  customerCode: 'test', configurationId: 'configuration-a', configurationBusinessId: input.businessId,
+  configurationStatus: 'ACTIVE', engineKey: 'deterministic-options',
+  definition: { conversation: { engine: 'conversational-booking-v1', schemaVersion: 1 } }
+}
+function fixture(overrides: Record<string, unknown> = {}, guard = { busy: false, protectedDelivery: false }, customerName: string | null = 'Martina', options: FixtureOptions = {}) {
   const statements: Statement[] = []
   let failOnReset = false
   const tx = {
     async $queryRaw(q: { strings: readonly string[]; values: readonly unknown[] }) {
       const sql = q.strings.join('?')
       statements.push({ sql, values: q.values })
-      if (sql.includes('lazy-context:session')) return [{ ...original, ...overrides }]
+      if (sql.includes('lazy-context:session')) return options.noSession ? [] : [{ ...original, ...overrides }]
       if (sql.includes('lazy-context:guard')) return [guard]
-      if (sql.includes('lazy-context:greeting')) return [{ businessName: 'Glow', customerName }]
-      if (sql.includes('inserted_choices')) return [{ choiceCount: 5n, outboxCount: 1n }]
+      if (sql.includes('conversation-policy')) return [{ ...conversationPolicyRow,
+        ...(options.invalidPolicy ? { configurationBusinessId: 'another-business' } : {}),
+        ...(!options.conversational ? { definition: {} } : {}) }]
+      if (sql.includes('lazy-context:greeting')) return [{ ...(options.conversational ? conversationPolicyRow : {}), businessName: 'Glow', customerName }]
+      if (sql.includes('inserted_choices')) return [{ choiceCount: sql.includes('INSERT INTO "BotPromptChoice"') ? 5n : 0n, outboxCount: 1n }]
       throw new Error(`unhandled query ${sql}`)
     },
     async $executeRaw(q: { strings: readonly string[]; values: readonly unknown[] }) {
@@ -95,6 +105,26 @@ failing.failReset()
 await assert.rejects(() => applyLazyContextWindowTx(failing.tx as never, input, persistView), /simulated rollback/)
 assert.ok(!failing.statements.some(s => s.sql.includes('UPDATE "BotProviderEvent"')), 'failure must propagate into transaction rollback')
 
+const continued = fixture({}, undefined, undefined, { conversational: true })
+assert.deepEqual(await applyLazyContextWindowTx(continued.tx as never, { ...input, isFreeText: true }, persistView), { kind: 'CONTINUE', evaluated: true })
+assert.ok(continued.statements.some(s => s.sql.includes('lazy-context:reset') && s.values.includes(9n)))
+assert.ok(continued.statements.some(s => s.sql.includes('lazy-context:invalidate-prompts') && s.sql.includes('INVALIDATED') && s.values.includes(input.businessId)))
+assert.ok(continued.statements.some(s => s.sql.includes('system.context_expired')))
+assert.ok(!continued.statements.some(s => s.sql.includes('INSERT INTO "BotOutbox"')), 'fresh text receives its interpreted reply, not an extra restart greeting')
+assert.ok(!continued.statements.some(s => s.sql.includes('UPDATE "BotProviderEvent"')), 'the current message remains admitted for normal processing')
+const resetState = continued.statements.find(s => s.sql.includes('/* lazy-context:reset */'))!
+assert.ok(resetState.values.some(v => typeof v === 'string' && v === JSON.stringify(createInitialBotOptionsState())), 'continuation reads an initial state without the expired sidecar')
+const policyQuery = continued.statements.find(s => s.sql.includes('conversation-policy'))!
+assert.ok(policyQuery.values.includes(input.businessId) && policyQuery.values.includes(input.deploymentId) && policyQuery.values.includes(input.generation), 'continuation checks the current tenant/deployment policy')
+const legacyText = fixture()
+assert.equal((await applyLazyContextWindowTx(legacyText.tx as never, { ...input, isFreeText: true }, persistView)).kind, 'EXPIRED', 'text alone cannot opt a legacy business into conversation')
+const conversationalButton = fixture({}, undefined, undefined, { conversational: true })
+assert.equal((await applyLazyContextWindowTx(conversationalButton.tx as never, input, persistView)).kind, 'EXPIRED', 'a button never resumes as plain text under conversational policy')
+assert.ok(!conversationalButton.statements.some(s => s.sql.includes('conversation-policy')), 'no continuation policy lookup without current plain text')
+const invalidPolicy = fixture({}, undefined, undefined, { conversational: true, invalidPolicy: true })
+await assert.rejects(() => applyLazyContextWindowTx(invalidPolicy.tx as never, { ...input, isFreeText: true }, persistView), /invalid conversational runtime policy/)
+assert.ok(!invalidPolicy.statements.some(s => s.sql.includes('lazy-context:reset')), 'invalid policy cannot partially reset and continue')
+
 const source = readFileSync(new URL('../src/bot-options/application/lazy-context-window.ts', import.meta.url), 'utf8')
 assert.match(source, /FOR UPDATE OF s/, 'session reset must serialize with confirmation')
 assert.match(source, /FOR UPDATE OF j SKIP LOCKED/, 'never wait for a job already holding a lock and waiting for session')
@@ -105,9 +135,9 @@ assert.doesNotMatch(source, /setInterval|setTimeout/, 'lazy only, no periodic ti
 // Run the production worker boundary as well: ACK/journal projection is already
 // committed before this transaction, and the old button must never reach the
 // classifier when expiry consumed it. Mocks only replace the database transport.
-async function workerScenario(options: { busy?: boolean; statusCallback?: boolean; processed?: boolean } = {}) {
+async function workerScenario(options: FixtureOptions & { busy?: boolean; statusCallback?: boolean; processed?: boolean; text?: string; interactiveText?: boolean } = {}) {
   const operations: Statement[][] = []
-  const f = fixture({}, { busy: options.busy ?? false, protectedDelivery: false })
+  const f = fixture({}, { busy: options.busy ?? false, protectedDelivery: false }, undefined, options)
   const job: ClaimedBotJob = {
     id: 'worker-job', kind: 'PROCESS_PROVIDER_EVENT', aggregateId: 'event-a', businessId: input.businessId,
     deploymentId: input.deploymentId, deploymentGeneration: 1, expectedRevision: null, attempts: 5,
@@ -117,8 +147,9 @@ async function workerScenario(options: { busy?: boolean; statusCallback?: boolea
     eventType: options.statusCallback ? 'STATUS' : 'MESSAGE', phoneNumberId: 'phone', providerMessageId: 'wamid-test',
     status: options.processed ? 'PROCESSED' : 'ADMITTED', admittedAt, providerOccurredAt: admittedAt,
     payload: options.statusCallback ? { kind: 'status', status: 'delivered', errorMessage: null }
-      : { kind: 'message', messageType: 'interactive', fromPhone: input.phone, textBody: 'Confirmar turno',
-          interactiveReplyId: 'b1.AAAAAAAAAAAAAAAA.BBBBBBBBBBB' } }
+      : { kind: 'message', messageType: options.text !== undefined ? 'text' : 'interactive', fromPhone: input.phone,
+          textBody: options.text ?? 'Confirmar turno',
+          interactiveReplyId: options.text !== undefined && !options.interactiveText ? null : 'b1.AAAAAAAAAAAAAAAA.BBBBBBBBBBB' } }
   const client = {
     async $transaction<T>(operation: (tx: unknown) => Promise<T>) {
       const statements: Statement[] = []
@@ -131,7 +162,9 @@ async function workerScenario(options: { busy?: boolean; statusCallback?: boolea
         async $queryRaw(q: { strings: readonly string[]; values: readonly unknown[] }) {
           const sql = q.strings.join('?')
           statements.push({ sql, values: q.values })
-          if (sql.includes('lazy-context:') || sql.includes('inserted_choices')) return f.tx.$queryRaw(q)
+          if (sql.includes('lazy-context:') || sql.includes('inserted_choices') || sql.includes('conversation-policy')) return f.tx.$queryRaw(q)
+          if (sql.includes('AS "handoffId"') && sql.includes("'HUMAN_TAKEN'")) return []
+          if (sql.includes('initial-classification-batch')) return [{ inboxCount: 1n, jobCount: 1n }]
           if (sql.includes('SELECT j."id" FROM "BotJob"')) return [{ id: job.id }]
           if (sql.includes('"BotProviderEvent" e')) return [event]
           if (sql.includes('SELECT d."id", d."generation"')) return [{ id: input.deploymentId, generation: 1 }]
@@ -154,6 +187,22 @@ assert.equal(actualExpired.outcome, 'PROCESSED')
 assert.equal(actualExpired.operations.length, 2)
 assert.ok(actualExpired.operations[1]!.some(s => s.sql.includes('lazy-context:reset')))
 assert.ok(!actualExpired.operations[1]!.some(s => s.sql.includes('INSERT INTO "BotActionInbox"')), 'expired confirm never reaches classification')
+for (const text of ['hola quiero cancelar mi turno', '/reset', 'reiniciar']) {
+  const currentText = await workerScenario({ conversational: true, text })
+  assert.equal(currentText.outcome, 'PROCESSED')
+  const classified = currentText.operations[1]!.filter(s => s.sql.includes('initial-classification-batch'))
+  assert.equal(classified.length, 1, 'the current text is classified once after expiry, including explicit reset commands')
+  assert.ok(currentText.operations[1]!.some(s => s.sql.includes('lazy-context:invalidate-prompts')))
+  assert.ok(!currentText.operations[1]!.some(s => s.sql.includes('INSERT INTO "BotOutbox"')))
+  assert.ok(!currentText.operations[1]!.some(s => s.sql.includes('UPDATE "BotProviderEvent"') && s.sql.includes('PROCESSED')))
+  const payloads = classified[0]!.values.filter((value): value is string => typeof value === 'string' && value.startsWith('{')).map(value => JSON.parse(value) as Record<string, unknown>)
+  assert.ok(payloads.some(payload => payload.textBody === text && payload.contextWindowEvaluated === true), 'original text is forwarded unchanged with the evaluated marker')
+}
+const firstContact = await workerScenario({ conversational: true, noSession: true, text: 'quiero cancelar mi turno' })
+assert.ok(firstContact.operations[1]!.some(s => s.sql.includes('initial-classification-batch')), 'a new contact still reaches classification')
+assert.ok(!firstContact.operations[1]!.some(s => s.sql.includes('lazy-context:reset')), 'no old state is invented for a new contact')
+const buttonDisguisedAsText = await workerScenario({ conversational: true, text: 'Confirmar turno', interactiveText: true })
+assert.ok(!buttonDisguisedAsText.operations[1]!.some(s => s.sql.includes('initial-classification-batch')), 'an interactive reply ID cannot be replayed through text continuation')
 const actualWait = await workerScenario({ busy: true })
 assert.equal(actualWait.outcome, 'DEFERRED')
 assert.ok(actualWait.operations[1]!.some(s => s.sql.includes('GREATEST("attempts" - 1, 0)') && s.values.includes(true)), 'waiting does not exhaust attempts/POISON')

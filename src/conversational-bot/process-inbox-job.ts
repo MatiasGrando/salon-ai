@@ -373,7 +373,7 @@ export async function processConversationInbox(input: {
       const currentPolicy = resolveConversationPolicy(row)
       if (JSON.stringify(currentPolicy) !== JSON.stringify(policy)) { await retry(tx, row, 'POLICY_CHANGED'); return null }
       if (row.status !== 'ADMITTED') { await measureAttemptStage('conversation_dispatch_complete', () => completeDispatchClaimTx(tx, token)); await measureAttemptStage('conversation_job_complete', () => completeClaimedBotJobTx(tx, input.job)); return null }
-      const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; conversationChoice?:unknown }
+      const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; contextWindowEvaluated?: unknown; conversationChoice?:unknown; interactiveReplyId?: unknown }
       if(!subject&&(typeof payload.fromPhone!=='string'||!payload.fromPhone))throw new Error('conversation phone unavailable')
       const phone=subject?subject.externalUserId:payload.fromPhone as string
       if(subject?conversationSubjectKey(instagramSubjectFromPayload(payload))!==conversationSubjectKey(subject):canonicalConversationPhone(phone)!==canonicalConversationPhone(targetPhone))throw new Error('conversation computation identity changed')
@@ -455,7 +455,10 @@ export async function processConversationInbox(input: {
       if (subject || payload.contextWindowEvaluated !== true) {
         const window = await measureAttemptStage('conversation_context_window', () => applyLazyContextWindowTx(tx, { businessId: row.businessId, deploymentId: row.deploymentId,
           generation: row.generation, providerEventId: row.providerEventId, phone, ...(subject?{subject}:{}), admittedAt: row.admittedAt,
-          providerOccurredAt: row.providerOccurredAt, isMedia: payload.messageType !== 'text', processingInboxId: row.id, currentJobId: input.job.id }, writeView))
+          providerOccurredAt: row.providerOccurredAt, isMedia: payload.messageType !== 'text',
+          isFreeText: !isChoice && !payload.conversationChoice && !payload.interactiveReplyId && payload.messageType === 'text' &&
+            typeof payload.textBody === 'string' && payload.textBody.trim().length > 0,
+          processingInboxId: row.id, currentJobId: input.job.id }, writeView))
         if (window.kind === 'WAIT') { await retry(tx, row, 'CONTEXT_WINDOW_BUSY'); return null }
         if (window.kind === 'EXPIRED' || window.kind === 'REPLAY') { await finish(tx, row); return null }
       }

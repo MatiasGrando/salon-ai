@@ -290,7 +290,9 @@ export async function processProviderEventJob(input: {
           businessId: activeJob.businessId, deploymentId: activeJob.deploymentId,
           generation: activeJob.deploymentGeneration, providerEventId: row.id,
           phone: event.fromPhone, admittedAt: row.admittedAt, providerOccurredAt: row.providerOccurredAt,
-          isMedia: event.messageType === 'image' || event.messageType === 'document'
+          isMedia: event.messageType === 'image' || event.messageType === 'document',
+          isFreeText: event.messageType === 'text' && !event.interactiveReplyId &&
+            typeof event.textBody === 'string' && event.textBody.trim().length > 0
         }, persistView))
       : null
     if (window?.kind === 'WAIT') {

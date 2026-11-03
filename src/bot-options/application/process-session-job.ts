@@ -1218,7 +1218,7 @@ async function processInitialInboxUnderClaim(
       await completeClaimedBotJobTx(tx, input.job)
       return 'PROCESSED'
     }
-    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; mediaId?: unknown; contextWindowEvaluated?: unknown; stalePromptClassification?: unknown }
+    const payload = row.payload as { fromPhone?: unknown; textBody?: unknown; messageType?: unknown; mediaId?: unknown; contextWindowEvaluated?: unknown; stalePromptClassification?: unknown; interactiveReplyId?: unknown; conversationChoice?: unknown }
     if (typeof payload.fromPhone !== 'string' || !payload.fromPhone) throw new Error('initial inbound has no phone')
     // A session may have been created by another inbox after journal classification.
     // Old/pre-feature inboxes also pass here. Never let that race bypass expiry.
@@ -1228,6 +1228,8 @@ async function processInitialInboxUnderClaim(
         providerEventId: row.providerEventId, phone: payload.fromPhone,
         admittedAt: row.admittedAt, providerOccurredAt: row.providerOccurredAt,
         isMedia: payload.messageType === 'image' || payload.messageType === 'document',
+        isFreeText: payload.messageType === 'text' && !payload.interactiveReplyId && !payload.conversationChoice &&
+          typeof payload.textBody === 'string' && payload.textBody.trim().length > 0,
         processingInboxId: row.id, currentJobId: input.job.id
       }, persistView)
       if (window.kind === 'WAIT') {
