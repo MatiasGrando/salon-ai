@@ -4246,16 +4246,18 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
   const bookingUrl = basePath === '/' ? '/reservar' : `${basePath}/reservar`
+  const bookingTheme = resolveBookingTheme(business.bookingTheme, normalizeLandingTemplate(business.landingTemplate))
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
+    bodyClass: `booking-theme-${bookingTheme}`,
     body: `
       <main class="account-page" data-account-slug="${escapeAttribute(slug)}">
         <section class="account-shell" id="account-shell">
           <aside class="account-sidebar">
             <a class="account-brand" href="${escapeAttribute(basePath)}">
-              <span class="account-brand-mark">${escapeHtml(initialsText)}</span>
+              <span class="account-brand-mark">${escapeHtml(initialsText)}${business.logoUrl ? `<img src="${escapeAttribute(business.logoUrl)}" alt="">` : ''}</span>
               <span>
                 <strong>${escapeHtml(business.name)}</strong>
                 <small>Reservas Weex</small>
@@ -4289,6 +4291,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               <div class="google-button-wrap" id="google-button-wrap"></div>
               ${googleClientId ? '' : '<div class="account-feedback visible error">Falta configurar GOOGLE_CLIENT_ID para activar el login real.</div>'}
               <div class="account-feedback" id="account-login-feedback" role="status" aria-live="polite"></div>
+              <button class="account-login-back" id="account-login-back" type="button">Ver mis turnos</button>
             </div>
 
             <div class="account-workspace" id="account-workspace" hidden>
@@ -4302,7 +4305,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   <span class="account-kicker">Mi cuenta</span>
                   <h1 id="account-title">Mis turnos</h1>
                 </div>
-                <a class="account-book" href="${escapeAttribute(bookingUrl)}">
+                <a class="account-book" href="${escapeAttribute(bookingUrl)}?reservationView=new">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg>
                   Reservar
                 </a>
@@ -4354,7 +4357,11 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   </div>
                   <div id="upcoming-state"></div>
                   <div id="history-items" hidden></div>
-                  <a class="account-new-booking" href="${escapeAttribute(bookingUrl)}">Reservar otro turno</a>
+                  <section class="account-guest-access" id="account-guest-access" hidden aria-label="Turnos de este navegador">
+                    <p>Estos turnos est&aacute;n disponibles durante 7 d&iacute;as desde su creaci&oacute;n, mientras conserves las cookies de este navegador. Si perdiste el acceso, consult&aacute; al local: tu turno se conserva.</p>
+                    <button type="button" id="account-guest-register">Registrarme o ingresar con Google</button>
+                  </section>
+                  <a class="account-new-booking" href="${escapeAttribute(bookingUrl)}?reservationView=new">Reservar otro turno</a>
                 </div>
                 <aside class="history-detail" id="history-detail"></aside>
               </section>
@@ -4444,8 +4451,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             const logged = Boolean(state.user)
             document.getElementById('account-navigation-label').textContent = state.tab === 'profile' ? 'Mi perfil' : 'Mis turnos'
             document.getElementById('account-shell').dataset.accountView = state.tab
-            els.login.hidden = logged
-            els.workspace.hidden = !logged
+            const guestHistory = !logged && state.booted && state.tab === 'history'
+            els.login.hidden = logged || guestHistory || !state.booted
+            els.workspace.hidden = !logged && !guestHistory
+            document.getElementById('account-guest-access').hidden = logged
             els.logout.hidden = !logged
             document.querySelectorAll('.account-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === state.tab))
             if (!logged) {
@@ -4455,6 +4464,10 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               els.avatar.textContent = 'G'
               els.name.textContent = 'Invitado'
               els.email.textContent = 'Inicia sesion con Google'
+              els.title.textContent = 'Mis turnos'
+              els.profilePanel.hidden = true
+              els.historyPanel.hidden = !guestHistory
+              if (guestHistory) renderHistory()
               if (!state.booted) {
                 els.login.hidden = true
               }
@@ -4506,6 +4519,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               state.booted = true
               renderShell()
               renderGoogleButton()
+              await loadGuestHistory()
             }
           }
 
@@ -4635,6 +4649,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           }
 
           async function loadHistory({ background = false } = {}) {
+            if (!state.user) return loadGuestHistory({ background })
             if (!state.user?.phone || normalizePhone(state.user.phone).length < 8) {
               state.appointments = []
               state.selectedId = null
@@ -4663,6 +4678,32 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             }
           }
 
+          async function loadGuestHistory({ background = false } = {}) {
+            const account = state.user
+            if (account) return
+            if (!background) setFeedback('Cargando los turnos de este navegador...', 'info')
+            try {
+              const result = await getJson('/public/booking/' + encodeURIComponent(slug) + '/guest-booking')
+              if (state.user !== account) return
+              const bookings = Array.isArray(result.bookings) ? result.bookings : [result]
+              const overrides = state.appointmentOverrides || {}
+              state.appointments = bookings.flatMap((booking) => booking.appointments || []).map((item) => overrides[item.id] || item)
+              if (!state.appointments.some((item) => item.id === state.selectedId)) state.selectedId = null
+              if (!background) setFeedback('', '')
+              renderHistory(background)
+            } catch (error) {
+              if (state.user !== account) return
+              if (background && error.status !== 401) return
+              state.appointments = []
+              state.selectedId = null
+              state.detailSession?.controller?.dispose()
+              state.detailSession = null
+              els.historyDetail.innerHTML = ''
+              setFeedback(error.status === 401 ? 'No hay turnos con acceso vigente en este navegador. Podés ingresar con Google o consultar al local.' : error.message, error.status === 401 ? 'info' : 'error')
+              renderHistory()
+            }
+          }
+
           function appointmentGroups() {
             const now = Date.now()
             const terminal = (item) => ['CANCELLED', 'COMPLETED', 'NO_SHOW'].includes(item.status)
@@ -4684,7 +4725,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           }
 
           function renderHistory(preserveDetail = false) {
-            if (!state.user) return
+            if (!state.user && !state.booted) return
             const { upcoming, history: past } = appointmentGroups()
             if (!state.selectedId) state.selectedId = (upcoming[0] || past[0])?.id || null
             els.historyCount.textContent = String(past.length)
@@ -4788,7 +4829,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               '<div data-account-detail-summary></div>' +
               '<div class="appointment-management-host" id="account-appointment-management"></div>' +
               '<div class="detail-actions">' +
-                '<a class="primary" href="${escapeAttribute(bookingUrl)}">Reservar otro turno</a>' +
+                '<a class="primary" href="${escapeAttribute(bookingUrl)}?reservationView=new">Reservar otro turno</a>' +
                 '<a href="${escapeAttribute(basePath)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
               '</div>' +
               '</div>'
@@ -4837,7 +4878,11 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           async function getJson(url) {
             const response = await fetch(url)
             const body = await response.json().catch(() => ({}))
-            if (!response.ok) throw new Error(body.message || 'No pude cargar la informacion')
+            if (!response.ok) {
+              const error = new Error(body.message || 'No pude cargar la informacion')
+              error.status = response.status
+              throw error
+            }
             return body
           }
 
@@ -4915,6 +4960,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             setFeedback('', '')
             renderShell()
             renderGoogleButton()
+            void loadGuestHistory()
           })
 
           els.phoneForm.addEventListener('submit', (event) => {
@@ -4988,6 +5034,18 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           document.getElementById('account-profile-toggle').addEventListener('click', () => {
             if (state.managerBusy) return
             state.tab = state.tab === 'profile' ? 'history' : 'profile'
+            renderShell()
+          })
+
+          document.getElementById('account-guest-register').addEventListener('click', () => {
+            if (state.managerBusy) return
+            state.tab = 'profile'
+            renderShell()
+            renderGoogleButton()
+          })
+
+          document.getElementById('account-login-back').addEventListener('click', () => {
+            state.tab = 'history'
             renderShell()
           })
 
@@ -8957,6 +9015,25 @@ function htmlPage(input: {
     .account-page { background: var(--booking-bg, #FAFAF8); color: var(--booking-ink, #17171B); }
     .account-page [hidden] { display: none !important; }
     .account-page .account-brand { min-height: 44px; }
+    .account-page .account-brand-mark { position:relative; flex-shrink:0; overflow:hidden; color:var(--booking-on-cta); background:var(--booking-cta); border-color:var(--booking-border); }
+    .account-page .account-brand-mark img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; background:var(--booking-surface); }
+    .account-page .account-avatar, .account-page .large-avatar, .account-page .google-orb { color:var(--booking-on-cta); background:var(--booking-cta); border-color:var(--booking-border); }
+    .account-page .account-login { color:var(--booking-ink); background:var(--booking-surface); border-color:var(--booking-border); }
+    .account-page .account-login h1 { color:var(--booking-ink); }
+    .account-page .account-login p { color:var(--booking-secondary-ink); line-height:1.5; }
+    .account-guest-access { margin-top:18px; padding:16px; border:1px solid var(--booking-border); border-radius:12px; background:var(--booking-surface); }
+    .account-guest-access p { margin:0 0 12px; color:var(--booking-secondary-ink); font-size:13px; line-height:1.5; }
+    .account-guest-access button, .account-login-back { min-height:44px; width:100%; padding:10px 14px; border:1px solid var(--booking-border); border-radius:10px; color:var(--booking-ink); background:var(--booking-accent-soft); font:inherit; font-weight:700; cursor:pointer; }
+    .account-login-back { margin-top:18px; }
+    body.booking-theme-yellow-black .account-sidebar { background:linear-gradient(103deg,var(--booking-cta) 0 76%,#111111 76%); }
+    body.booking-theme-yellow-black .account-brand-mark,
+    body.booking-theme-yellow-black .account-brand-mark img { color:#111111; background:var(--booking-cta); border-color:transparent; }
+    body.booking-theme-yellow-black .account-brand strong,
+    body.booking-theme-yellow-black .account-brand small { color:#111111; }
+    @media (min-width:1151px) {
+      body.booking-theme-yellow-black .account-sidebar { background:var(--booking-cta); }
+      body.booking-theme-yellow-black .account-user small { color:#333333; }
+    }
     .account-page :focus-visible { outline: 3px solid var(--booking-accent, #376DB8); outline-offset: 3px; }
     .account-shell { grid-template-columns: 220px minmax(0, 1fr); }
     .account-sidebar, .account-panel, .history-detail { background: var(--booking-surface, #FFFFFF); border-color: var(--booking-border, #E1DDD4); }

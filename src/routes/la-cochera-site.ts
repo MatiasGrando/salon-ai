@@ -32,7 +32,9 @@ export async function sendLaCocheraLanding(reply: FastifyReply) {
   try {
     const html = await readFile(join(siteDir, 'published-v13.html'))
     const payload = reply.request.url.split('?')[0] === '/lacochera'
-      ? Buffer.from(html.toString('utf8').replaceAll('https://lacochera.weex.com.ar/reservar', '/lacochera/reservar'))
+      ? Buffer.from(html.toString('utf8')
+        .replaceAll('https://lacochera.weex.com.ar/reservar', '/lacochera/reservar')
+        .replaceAll('https://lacochera.weex.com.ar/cuenta', '/lacochera/cuenta'))
       : html
     reply.header('Cache-Control', 'no-cache')
     reply.header('X-Content-Type-Options', 'nosniff')

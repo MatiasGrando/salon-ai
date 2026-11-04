@@ -2973,6 +2973,9 @@ section[id] { scroll-margin-top: 110px; }
   transition: transform .2s, background .2s;
 }
 .hero-reserve:hover { background: #30312d; transform: translateY(-3px); }
+.hero-booking-actions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.hero-appointments { min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:12px 18px; border:1px solid #292b24; border-radius:50px; color:#292b24; font-weight:800; font-size:14px; }
+.hero-appointments:hover { background:#fff7bd; }
 .hero-review-link { width: 100%; border-top: 1px solid #61550040; padding: 18px 0; margin-top: 32px; display: flex; align-items: center; gap: 16px; background: transparent; color: #292b24; }
 .hero-review-avatars { display: flex; flex: 0 0 auto; padding-left: 0; }
 .hero-review-avatar {
@@ -3306,7 +3309,10 @@ section[id] { scroll-margin-top: 110px; }
         <h1 id="heroTitle">LA<br>COCHERA</h1>
         <p class="hero-social">SOCIAL<br>CLUB.</p>
         <p class="hero-intro">CORTE, BARBA Y COLOR EN VILLA URQUIZA.<br>VENÍ A VERTE BIEN, PASAR UN BUEN RATO<br>Y SALIR COMO QUERÉS.</p>
-        <a class="hero-reserve" href="https://lacochera.weex.com.ar/reservar">RESERVAR TURNO <span aria-hidden="true">↗</span></a>
+        <div class="hero-booking-actions">
+          <a class="hero-reserve" href="https://lacochera.weex.com.ar/reservar">RESERVAR TURNO <span aria-hidden="true">↗</span></a>
+          <a class="hero-appointments" href="https://lacochera.weex.com.ar/cuenta">Ver mis turnos</a>
+        </div>
         <a class="hero-review-link" href="#resenas">
           <span class="hero-review-avatars" aria-hidden="true">
             <span class="hero-review-avatar">MB</span>
