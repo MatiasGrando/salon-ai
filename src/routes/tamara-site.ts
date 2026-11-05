@@ -5,6 +5,7 @@ import { sendTamaraContactEmail } from '../services/tamara-contact-email-service
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { centralizePublicBookingLinks } from '../services/public-booking-navigation.js'
 
 const tamaraHost = 'tamaragrando.weex.com.ar'
 const tamaraSiteDir = join(process.cwd(), 'src', 'assets', 'tamara-site')
@@ -45,10 +46,11 @@ const tamaraAssets = [
 
 export async function tamaraSiteRoutes(app: FastifyInstance) {
   app.get('/', { constraints: { host: tamaraHost } }, async (_request, reply) => {
-    if (await customSiteIsUnavailable()) return reply.status(503).type('text/html; charset=utf-8').send(renderUnavailableSite())
-    const html = await readFile(join(tamaraSiteDir, 'index.html'))
+    const business = tamaraBinding ? await businessService.findPublicByCustomerCode(tamaraBinding.businessCustomerCode) : null
+    if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html; charset=utf-8').send(renderUnavailableSite())
+    const html = await readFile(join(tamaraSiteDir, 'index.html'), 'utf8')
     applySiteHeaders(reply)
-    return reply.type('text/html; charset=utf-8').send(html)
+    return reply.type('text/html; charset=utf-8').send(business ? centralizePublicBookingLinks(html, business) : html)
   })
 
   app.post('/contacto', { constraints: { host: tamaraHost } }, async (request, reply) => {

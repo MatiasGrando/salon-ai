@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { normalizeHostname } from '../services/custom-site-profile-binding.js'
+import { centralizePublicBookingLinks, type PublicBusinessNavigation } from '../services/public-booking-navigation.js'
 
 const siteDir = join(process.cwd(), 'sites', 'la-cochera')
 const publicImages = new Map([
@@ -28,14 +29,10 @@ export function isLaCocheraPublicResource(method: string, host: string | undefin
 }
 
 // Called only after the existing public-business account and landingEnabled gates.
-export async function sendLaCocheraLanding(reply: FastifyReply) {
+export async function sendLaCocheraLanding(reply: FastifyReply, business: PublicBusinessNavigation) {
   try {
     const html = await readFile(join(siteDir, 'published-v13.html'))
-    const payload = reply.request.url.split('?')[0] === '/lacochera'
-      ? Buffer.from(html.toString('utf8')
-        .replaceAll('https://lacochera.weex.com.ar/reservar', '/lacochera/reservar')
-        .replaceAll('https://lacochera.weex.com.ar/cuenta', '/lacochera/cuenta'))
-      : html
+    const payload = centralizePublicBookingLinks(html.toString('utf8'), business)
     reply.header('Cache-Control', 'no-cache')
     reply.header('X-Content-Type-Options', 'nosniff')
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin')

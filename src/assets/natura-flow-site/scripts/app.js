@@ -3,6 +3,8 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  const bookingUrl = (document.querySelector('a[href*="/reservar"]')?.getAttribute('href') || '/reservar')
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   // 1. Video Playback Rate (70% speed) & smooth fade-in with zero flash
   const video = document.getElementById("heroVideo");
   if (video) {
@@ -151,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
             </div>
 
-            <a href="/reservar" class="btn-sand text-xs font-bold px-5 py-2.5 rounded-full flex items-center gap-1.5 shadow-sm">
+            <a href="${bookingUrl}" class="btn-sand text-xs font-bold px-5 py-2.5 rounded-full flex items-center gap-1.5 shadow-sm">
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
               <span>AGENDAR</span>
             </a>

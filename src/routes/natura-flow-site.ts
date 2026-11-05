@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { centralizePublicBookingLinks } from '../services/public-booking-navigation.js'
 import { injectSocialPreviewImage, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 
 const naturaFlowHost = 'naturalflow.weex.com.ar'
@@ -31,7 +32,8 @@ export async function naturaFlowSiteRoutes(app: FastifyInstance) {
       logoUrl: null
     }, naturaFlowDefaultSocialImage)
     const source = await readFile(join(naturaFlowSiteDir, 'index.html'), 'utf8')
-    const html = injectSocialPreviewImage(source, socialImageUrl)
+    const preview = injectSocialPreviewImage(source, socialImageUrl)
+    const html = business ? centralizePublicBookingLinks(preview, business) : preview
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })

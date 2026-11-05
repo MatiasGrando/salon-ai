@@ -10,6 +10,7 @@ import { formatCustomerDuration } from '../services/service-duration.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
 import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
+import { publicBookingNavigation } from '../services/public-booking-navigation.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -66,7 +67,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business.landingEnabled && !modelPreview) return reply.status(404).type('text/html').send(renderNotFound())
 
-    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply)
+    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply, business)
 
     return reply.type('text/html').send(renderLanding(business, '', previewLandingTemplate(request), modelPreview))
   })
@@ -114,7 +115,7 @@ export async function landingUiRoutes(app: FastifyInstance) {
     if (business && isBusinessAccountUnavailable(business.accountStatus)) return reply.status(503).type('text/html').send(renderBusinessUnavailable())
     if (!business || (!business.landingEnabled && !modelPreview)) return reply.status(404).type('text/html').send(renderNotFound())
 
-    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply)
+    if (!modelPreview && isLaCocheraLandingRequest(request.headers.host, request.url.split('?')[0] || '/', business.slug)) return sendLaCocheraLanding(reply, business)
 
     return reply.type('text/html').send(renderLanding(business, `/${slug}`, previewLandingTemplate(request), modelPreview))
   })
@@ -666,8 +667,8 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
   const carouselProfessionals = [...visibleProfessionals, ...visibleProfessionals]
   const serviceCarouselItems = Math.max(visibleServices.length, 1)
   const professionalCarouselItems = Math.max(visibleProfessionals.length, 1)
-  const bookingUrl = appendDemoPreview(`${basePath}/reservar`, demoPreview)
-  const accountUrl = demoPreview ? '#plantilla-modelo' : `${basePath}/cuenta`
+  const bookingUrl = appendDemoPreview(demoPreview ? `${basePath}/reservar` : publicBookingNavigation(business).bookingUrl, demoPreview)
+  const accountUrl = demoPreview ? '#plantilla-modelo' : publicBookingNavigation(business).accountUrl
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
   const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
@@ -936,7 +937,7 @@ export function renderLanding(business: LandingBusiness, basePath = '', template
 
 function renderLuxeNailsLanding(business: LandingBusiness, basePath = '', demoPreview = false) {
   const luxeContent = templateSpecificContent(business, 'luxe-nails')
-  const bookingUrl = appendDemoPreview(`${basePath}/reservar?template=luxe-nails`, demoPreview)
+  const bookingUrl = appendDemoPreview(`${demoPreview ? `${basePath}/reservar` : publicBookingNavigation(business).bookingUrl}?template=luxe-nails`, demoPreview)
   const subtitle = luxeContent.subtitle || business.landingSubtitle || 'Nails studio'
   const description = luxeContent.description || business.landingDescription || 'Diseños exclusivos, productos premium y un servicio que cuida cada detalle.'
   const promoText = luxeContent.promoText || '10% off en tu primer servicio reservando online'
@@ -1193,8 +1194,8 @@ function renderSalonWhiteLanding(business: LandingBusiness, basePath = '', demoP
   const displayedServices = demoPreview ? landingServicesForPreview(business, true) : services
   const professionals = landingProfessionalsForPreview(business, demoPreview)
   const galleryImages = landingGalleryForPreview(business, parseLandingGalleryImages(business.landingGalleryImages), demoPreview)
-  const bookingUrl = appendDemoPreview(`${basePath}/reservar?template=salon-white`, demoPreview)
-  const accountUrl = demoPreview ? '#plantilla-modelo' : `${basePath}/cuenta`
+  const bookingUrl = appendDemoPreview(`${demoPreview ? `${basePath}/reservar` : publicBookingNavigation(business).bookingUrl}?template=salon-white`, demoPreview)
+  const accountUrl = demoPreview ? '#plantilla-modelo' : publicBookingNavigation(business).accountUrl
   const whatsappDisplayPhone = publicWhatsappNumber(business)?.trim() || ''
   const whatsappDigits = whatsappDisplayPhone.replace(/\D/g, '')
   const whatsappUrl = whatsappDigits ? `https://wa.me/${whatsappDigits}` : null
@@ -1777,17 +1778,14 @@ function inferAddressArea(value?: string | null) {
 
 function renderBookingPlaceholder(business: LandingBusiness, backPath: string, templateOverride?: string, demoPreview = false) {
   const slug = business.slug || ''
-  // Branded landings are shared, but account/profile routes remain tenant-specific.
-  const landingReturnPath = business.customerCode === 'WX-NPP7HE'
-    ? 'https://glow.weex.com.ar/?sede=canitas'
-    : business.customerCode === 'WX-QG5FQA'
-      ? 'https://glow.weex.com.ar/?sede=urquiza'
-      : backPath
+  const navigation = publicBookingNavigation(business)
+  const landingReturnPath = demoPreview ? backPath : navigation.landingUrl
   const requestedTemplate = normalizeLandingTemplate(templateOverride || business.landingTemplate)
   const bookingTheme = resolveBookingTheme(business.bookingTheme, requestedTemplate)
   const subtitle = templateSpecificContent(business, requestedTemplate).subtitle || business.landingSubtitle || 'Oficio de navaja y tijera'
   const initialsText = initials(business.name) || 'WX'
-  const accountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
+  const accountPath = navigation.accountUrl
+  const managementAccountPath = backPath === '/' ? '/cuenta' : `${backPath}/cuenta`
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
   const addressLabel = formatPublicAddress(business)
@@ -1906,6 +1904,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const slug = ${JSON.stringify(slug)}
           const backPath = ${JSON.stringify(landingReturnPath)}
           const accountPath = ${JSON.stringify(accountPath)}
+          const managementAccountPath = ${JSON.stringify(managementAccountPath)}
           ${appointmentSelfServiceClient()}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
@@ -2630,7 +2629,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
 
           function exitReschedule(newBooking = false) {
             if (state.submitting) return
-            if (!newBooking && state.reschedule?.returnTo === 'account') { window.location.assign(accountPath); return }
+            if (!newBooking && state.reschedule?.returnTo === 'account') { window.location.assign(managementAccountPath); return }
             const target = new URL(window.location.href)
             target.searchParams.delete('reschedule'); target.searchParams.delete('rescheduleFrom'); target.searchParams.delete('reservationView')
             if (newBooking) target.searchParams.set('reservationView', 'new')
@@ -4250,7 +4249,9 @@ function appointmentSelfServiceClient() {
 function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const slug = business.slug || ''
   const initialsText = initials(business.name) || 'WX'
-  const bookingUrl = basePath === '/' ? '/reservar' : `${basePath}/reservar`
+  const navigation = publicBookingNavigation(business)
+  const bookingUrl = navigation.bookingUrl
+  const managementBookingPath = basePath === '/' ? '/reservar' : `${basePath}/reservar`
   const bookingTheme = resolveBookingTheme(business.bookingTheme, normalizeLandingTemplate(business.landingTemplate))
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
@@ -4262,7 +4263,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
       <main class="account-page" data-account-slug="${escapeAttribute(slug)}">
         <section class="account-shell" id="account-shell">
           <aside class="account-sidebar">
-            <a class="account-brand" href="${escapeAttribute(basePath)}">
+            <a class="account-brand" href="${escapeAttribute(navigation.landingUrl)}">
               <span class="account-brand-mark">${escapeHtml(initialsText)}${business.logoUrl ? `<img src="${escapeAttribute(business.logoUrl)}" alt="">` : ''}</span>
               <span>
                 <strong>${escapeHtml(business.name)}</strong>
@@ -4837,7 +4838,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               '<div class="appointment-management-host" id="account-appointment-management"></div>' +
               '<div class="detail-actions">' +
                 '<a class="primary" href="${escapeAttribute(bookingUrl)}?reservationView=new">Reservar otro turno</a>' +
-                '<a href="${escapeAttribute(basePath)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
+                '<a href="${escapeAttribute(navigation.landingUrl)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 21s7-6.6 7-11.5A7 7 0 0 0 5 9.5C5 14.4 12 21 12 21Z"></path><circle cx="12" cy="9.5" r="2.4"></circle></svg>Ver lugar</a>' +
               '</div>' +
               '</div>'
             renderDetailSummary()
@@ -4848,7 +4849,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
               isCurrent: () => state.detailSession === current && state.user === current.account && state.selectedId === appointment.id,
               onLoaded: (result, summary) => { current.rows = result.appointments; current.summary = summary; return renderDetailSummary() },
               onReturnToList: showAppointmentList,
-              onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(bookingUrl)}, appointmentId, 'account'),
+              onReschedule: (appointmentId) => navigateAppointmentReschedule(${JSON.stringify(managementBookingPath)}, appointmentId, 'account'),
               timeZone: state.timezone,
               onTimezone: (timezone) => {
                 if (!timezone || state.selectedId !== appointment.id || state.timezone === timezone) return
@@ -5060,7 +5061,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             if (state.managerBusy) return
             if (state.tab === 'profile') { state.tab = 'history'; renderShell(); return }
             if (state.mobileDetail) { showAppointmentList(); return }
-            window.location.assign(${JSON.stringify(basePath || '/')})
+            window.location.assign(${JSON.stringify(navigation.landingUrl)})
           })
 
           renderShell()

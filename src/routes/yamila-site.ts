@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { BusinessService } from '../services/business-service.js'
 import { findCustomSiteProfileBinding } from '../services/custom-site-profile-binding.js'
 import { isBusinessAccountUnavailable } from '../services/business-account-access.js'
+import { centralizePublicBookingLinks } from '../services/public-booking-navigation.js'
 import { injectSocialPreviewImage, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 
 const yamilaHost = 'yamila-sacco.weex.com.ar'
@@ -51,7 +52,7 @@ export async function yamilaSiteRoutes(app: FastifyInstance) {
       logoUrl: null
     }, yamilaDefaultSocialImage)
     const source = await readFile(join(yamilaSiteDir, 'index.html'), 'utf8')
-    const html = injectSocialPreviewImage(source, socialImageUrl)
+    const html = centralizePublicBookingLinks(injectSocialPreviewImage(source, socialImageUrl), business)
     applySiteHeaders(reply)
     return reply.type('text/html; charset=utf-8').send(html)
   })
