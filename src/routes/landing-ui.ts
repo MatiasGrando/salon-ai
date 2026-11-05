@@ -4254,6 +4254,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const bookingTheme = resolveBookingTheme(business.bookingTheme, normalizeLandingTemplate(business.landingTemplate))
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
+  const googleIcon = '<span class="account-google-symbol" aria-hidden="true"><svg viewBox="0 0 18 18" focusable="false"><path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.258h2.909c1.702-1.567 2.683-3.874 2.683-6.614z"/><path fill="#34A853" d="M9 18c2.43 0 4.468-.806 5.957-2.181l-2.909-2.258c-.806.54-1.835.859-3.048.859-2.344 0-4.328-1.585-5.036-3.714H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.168.282-1.706V4.962H.957A9 9 0 0 0 0 9c0 1.452.347 2.827.957 4.038l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.507.454 3.44 1.346l2.581-2.581C13.464.892 11.426 0 9 0 5.482 0 2.438 2.017.957 4.962l3.007 2.332C4.672 5.165 6.656 3.58 9 3.58z"/></svg></span>'
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
     bodyClass: `booking-theme-${bookingTheme}`,
@@ -4364,7 +4365,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
                   <div id="history-items" hidden></div>
                   <section class="account-guest-access" id="account-guest-access" hidden aria-label="Turnos de este navegador">
                     <p>Estos turnos est&aacute;n disponibles durante 7 d&iacute;as desde su creaci&oacute;n, mientras conserves las cookies de este navegador. Si perdiste el acceso, consult&aacute; al local: tu turno se conserva.</p>
-                    <button type="button" id="account-guest-register">Registrarme o ingresar con Google</button>
+                    <button type="button" id="account-guest-register">${googleIcon}<span>Registrarme o ingresar con Google</span></button>
                   </section>
                   <a class="account-new-booking" href="${escapeAttribute(bookingUrl)}?reservationView=new">Reservar otro turno</a>
                 </div>
@@ -4401,6 +4402,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
           const slug = ${JSON.stringify(slug)}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
+          const googleIcon = ${JSON.stringify(googleIcon)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
           ${appointmentSelfServiceClient()}
@@ -4564,7 +4566,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             els.googleButtonWrap.dataset.rendered = 'true'
             els.googleButtonWrap.innerHTML =
               '<button class="account-google-calendar" type="button">' +
-                '<span class="google-mark">G</span>' +
+                googleIcon +
                 '<span>Continuar con Google</span>' +
               '</button>'
             els.googleButtonWrap.querySelector('button')?.addEventListener('click', () => {
@@ -4589,7 +4591,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
             })
             els.googleButtonWrap.innerHTML =
               '<button class="account-google-calendar" type="button">' +
-                '<span class="google-mark">G</span>' +
+                googleIcon +
                 '<span>Continuar con Google</span>' +
               '</button>'
             els.googleButtonWrap.querySelector('button')?.addEventListener('click', () => {
@@ -9029,6 +9031,9 @@ function htmlPage(input: {
     .account-guest-access { margin-top:18px; padding:16px; border:1px solid var(--booking-border); border-radius:12px; background:var(--booking-surface); }
     .account-guest-access p { margin:0 0 12px; color:var(--booking-secondary-ink); font-size:13px; line-height:1.5; }
     .account-guest-access button, .account-login-back { min-height:44px; width:100%; padding:10px 14px; border:1px solid var(--booking-border); border-radius:10px; color:var(--booking-ink); background:var(--booking-accent-soft); font:inherit; font-weight:700; cursor:pointer; }
+    #account-guest-register { display:flex; align-items:center; justify-content:center; gap:12px; text-align:left; }
+    .account-google-symbol { display:inline-flex; align-items:center; justify-content:center; flex:0 0 32px; width:32px; height:32px; border-radius:50%; background:#FFFFFF; }
+    .account-google-symbol svg { display:block; width:20px; height:20px; }
     .account-login-back { margin-top:18px; }
     body.booking-theme-yellow-black .account-sidebar { background:linear-gradient(103deg,var(--booking-cta) 0 76%,#111111 76%); }
     body.booking-theme-yellow-black .account-brand-mark,
