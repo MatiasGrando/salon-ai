@@ -2025,8 +2025,10 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 const guest = await getJson(bookingApiUrl('/guest-booking')).catch(() => null)
                 if (guest?.guest) {
                   rememberGuestBookings(guest)
-                  state.bookingDraft = bookingDraftSnapshot()
-                  state.bookingView = 'list'
+                  if (state.guestBookings.some(isUpcomingGuestBooking)) {
+                    state.bookingDraft = bookingDraftSnapshot()
+                    state.bookingView = 'list'
+                  }
                 }
               }
               if (pending?.deposit) {
@@ -3266,15 +3268,18 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             return booking.deposit ? 'Esperando seña' : 'Pendiente'
           }
 
+          function isUpcomingGuestBooking(booking) {
+            return !booking.appointments.some((item) => ['CANCELLED', 'NO_SHOW'].includes(item.status)) && !booking.appointments.every((item) => item.status === 'COMPLETED') && !['EXPIRED', 'REJECTED'].includes(booking.deposit?.status) && new Date(booking.appointments[0].startAt).getTime() >= Date.now()
+          }
+
           function renderGuestBookings() {
             els.heading.textContent = 'Mis turnos'
             const formatter = new Intl.DateTimeFormat('es-AR', {
               timeZone: state.catalog?.business?.timezone || 'America/Argentina/Buenos_Aires',
               day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
             })
-            const isUpcoming = (booking) => !booking.appointments.some((item) => ['CANCELLED', 'NO_SHOW'].includes(item.status)) && !booking.appointments.every((item) => item.status === 'COMPLETED') && !['EXPIRED', 'REJECTED'].includes(booking.deposit?.status) && new Date(booking.appointments[0].startAt).getTime() >= Date.now()
-            const upcoming = (state.guestBookings || []).filter(isUpcoming).sort((a, b) => new Date(a.appointments[0].startAt) - new Date(b.appointments[0].startAt))
-            const history = (state.guestBookings || []).filter((booking) => !isUpcoming(booking)).sort((a, b) => new Date(b.appointments[0].startAt) - new Date(a.appointments[0].startAt))
+            const upcoming = (state.guestBookings || []).filter(isUpcomingGuestBooking).sort((a, b) => new Date(a.appointments[0].startAt) - new Date(b.appointments[0].startAt))
+            const history = (state.guestBookings || []).filter((booking) => !isUpcomingGuestBooking(booking)).sort((a, b) => new Date(b.appointments[0].startAt) - new Date(a.appointments[0].startAt))
             const rows = (state.guestReservationFilter === 'history' ? history : upcoming).map((booking) => '<tr data-guest-booking-id="' + escapeHtml(booking.bookingId) + '"><td data-label="Servicio y profesional">' +
               booking.appointments.map((appointment) => '<div class="booking-reservation-segment"><strong>' + escapeHtml(appointment.service.name) + '</strong><span>' + escapeHtml(appointment.professional.name) + '</span></div>').join('') +
               '</td><td data-label="Fecha y hora">' + booking.appointments.map((appointment) => '<div class="booking-reservation-segment">' + escapeHtml(formatter.format(new Date(appointment.startAt))) + '</div>').join('') +
