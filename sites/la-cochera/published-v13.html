@@ -3027,9 +3027,10 @@ section[id] { scroll-margin-top: 110px; }
 .lookbook-visual-col { isolation: isolate; }
 .lookbook-visual-col::before { content: ''; position: absolute; inset: 12% 4% 0; border-radius: 50% 50% 0 0; background: #eae8dc; z-index: -1; }
 .experience-section { background: #eae9e1; }
-.experience-header .section-title { color: #292b24; }
-.experience-header .section-subtitle { color: #565b4d; }
-.experience-header .section-tag { color: #625319; background: #fff5ad; border-color: #d1c77a; }
+.experience-header .section-title { color:#292b24; font:900 clamp(42px,6vw,78px)/.96 var(--font-body); text-transform:uppercase; letter-spacing:-.065em; margin:0; }
+.experience-header .section-title span { display:table; margin:10px auto 0; padding:2px 14px 6px; background:#ffe336; transform:rotate(-2deg); }
+.experience-header .section-subtitle { max-width:38ch; margin:22px auto 0; color:#4c5144; font:500 clamp(15px,1.3vw,18px)/1.55 var(--font-body); letter-spacing:-.02em; }
+.experience-header .section-tag { color:#292b24; background:transparent; border:0; padding:0; margin-bottom:22px; font-weight:800; letter-spacing:.18em; }
 .manifesto-box { background: #20231d; border-color: #383d30; box-shadow: none; }
 .manifesto-sentence { color: #b4b8af; }
 .experience-header { margin-bottom:40px; }
@@ -3040,10 +3041,11 @@ section[id] { scroll-margin-top: 110px; }
 .experience-story .manifesto-box { min-width:0; margin:-24px 12px 0; padding:30px 24px; z-index:1; }
 .experience-story .manifesto-text { font-size:clamp(1.25rem,3vw,1.6rem); }
 @media (min-width:900px) {
-  .experience-story { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); align-items:center; }
-  .experience-front { aspect-ratio:4/5; }
+  .experience-story { grid-template-columns:minmax(0,1fr) minmax(0,1.12fr); align-items:center; }
+  .experience-front { aspect-ratio:auto; height:clamp(420px,39vw,560px); }
   .experience-front figcaption { bottom:24px; }
-  .experience-story .manifesto-box { margin:36px 0 36px -48px; padding:40px 32px; }
+  .experience-story .manifesto-box { margin:24px 0 24px -64px; padding:48px 44px; }
+  .experience-story .manifesto-text { font:700 clamp(1.45rem,1.8vw,1.75rem)/1.45 var(--font-body); letter-spacing:-.035em; }
 }
 .benefit-card { background: #252921; border-color: #424838; box-shadow: none; }
 .benefit-desc { color: #bcc0b4; }
@@ -3478,7 +3480,7 @@ section[id] { scroll-margin-top: 110px; }
       <div class="container">
         <div class="section-header experience-header reveal">
           <span class="section-tag">La Experiencia</span>
-          <h2 class="section-title">El ritual del barrio</h2>
+          <h2 class="section-title">El ritual del <span>barrio</span></h2>
           <p class="section-subtitle">
             Un espacio pensado para que te sientas cómodo desde el primer momento.
           </p>
