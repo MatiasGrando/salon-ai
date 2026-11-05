@@ -204,6 +204,51 @@ export async function businessRoutes(app: FastifyInstance) {
     })
   })
 
+  app.get('/businesses/:id/booking-management-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (!await canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const business = await prisma.business.findUnique({
+      where: { id: params.id },
+      select: { botOptionsSettings: { select: { cancellationLeadMinutes: true } } }
+    })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    return { cancellationLeadMinutes: business.botOptionsSettings?.cancellationLeadMinutes ?? 60 }
+  })
+
+  app.patch('/businesses/:id/booking-management-settings', async (request, reply) => {
+    const params = request.params as { id: string }
+    if (request.auth?.user.role === 'STAFF') {
+      return reply.status(403).send({ message: 'No tenes permiso para modificar las cancelaciones' })
+    }
+    if (!await canAccessBusiness(request.auth, params.id)) {
+      return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
+    }
+    const body = request.body as { cancellationLeadMinutes?: unknown } | null
+    const lead = body?.cancellationLeadMinutes
+    if (typeof lead !== 'number' || !Number.isInteger(lead) || lead < 0 || lead > 2147483647) {
+      return reply.status(400).send({ message: 'La anticipacion debe ser un numero entero de minutos igual o mayor a 0' })
+    }
+    const business = await prisma.business.findUnique({
+      where: { id: params.id }, select: { timezone: true }
+    })
+    if (!business) return reply.status(404).send({ message: 'No encontre ese local' })
+    const existing = await prisma.businessBotOptionsSettings.findUnique({
+      where: { businessId: params.id }, select: { timezone: true }
+    })
+    const settingsTimezone = existing?.timezone || business.timezone
+    if (!settingsTimezone) {
+      return reply.status(409).send({ message: 'Configura primero la zona horaria del comercio' })
+    }
+    return prisma.businessBotOptionsSettings.upsert({
+      where: { businessId: params.id },
+      create: { businessId: params.id, timezone: settingsTimezone, cancellationLeadMinutes: lead },
+      update: { cancellationLeadMinutes: lead },
+      select: { cancellationLeadMinutes: true }
+    })
+  })
+
   app.get('/businesses/:id/payment-settings', async (request, reply) => {
     const params = request.params as { id: string }
     if (!await canAccessBusiness(request.auth, params.id)) {

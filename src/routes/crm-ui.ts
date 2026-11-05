@@ -9172,6 +9172,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     #landing-settings-form #landing-allow-guest-web-booking {
       width: 1em !important; height: 1em; flex: 0 0 1em; margin: 0; font: inherit;
     }
+    #landing-settings-form .landing-cancellation-settings { min-width:0; padding:1.125em; margin-bottom:1.125em; border:1px solid var(--line); border-radius:.625em; background:var(--surface); font:inherit; }
+    #landing-settings-form .landing-cancellation-settings h4 { margin:0 0 .75em; font-size:1.125em; }
+    #landing-settings-form .landing-cancellation-settings label { display:block; margin-bottom:.5em; font-size:1em; font-weight:600; }
+    #landing-settings-form .landing-cancellation-settings input { box-sizing:border-box; width:100%; max-width:24em; height:auto; min-height:max(44px,2.75em); padding:.65em .875em; font:inherit; line-height:1.4; }
+    #landing-settings-form .landing-cancellation-settings input:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
+    #landing-settings-form .landing-cancellation-settings input[aria-invalid="true"] { border-color:var(--danger, #b42318); }
+    #landing-settings-form .landing-cancellation-settings small { display:block; margin-top:.5em; color:var(--muted); font-size:.875em; line-height:1.5; }
     #landing-settings-form .landing-professional-priority-settings {
       min-width: 0; padding: 18px; margin-bottom: 18px;
       border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
@@ -18637,6 +18644,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               </label>
               <p>El cliente completa nombre y tel&eacute;fono en la reserva. Google sigue disponible. El invitado s&oacute;lo puede consultar su reserva actual y enviar su comprobante; no accede al historial.</p>
             </section>
+            <section class="landing-cancellation-settings" aria-labelledby="landing-cancellation-title">
+              <h4 id="landing-cancellation-title">Cancelaciones</h4>
+              <label for="landing-cancellation-lead-minutes">Anticipaci&oacute;n m&iacute;nima para cancelar (minutos)</label>
+              <input class="field" id="landing-cancellation-lead-minutes" type="number" min="0" max="2147483647" step="1" inputmode="numeric" aria-describedby="landing-cancellation-help">
+              <small id="landing-cancellation-help">0 permite cancelar hasta antes del inicio del turno. Por ejemplo, 120 requiere dos horas de anticipaci&oacute;n. No modifica el plazo de reprogramaci&oacute;n.</small>
+            </section>
             <section class="landing-professional-priority-settings" aria-labelledby="landing-professional-priority-title">
               <h4 id="landing-professional-priority-title">Orden de profesionales</h4>
               <label for="landing-professional-priority">
@@ -20351,6 +20364,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       businessMediaPromise: null,
       businessHours: [],
       availabilitySettings: { morningCutTime: '12:30', eveningCutTime: '16:30' },
+      bookingManagementSettings: null,
+      bookingManagementBusinessId: null,
       paymentSettings: null,
       whatsappSettings: null,
       instagramSettings: null,
@@ -21262,6 +21277,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       landingSettingsForm: document.getElementById('landing-settings-form'),
       landingEnabled: document.getElementById('landing-enabled'),
       landingAllowGuestWebBooking: document.getElementById('landing-allow-guest-web-booking'),
+      landingCancellationLeadMinutes: document.getElementById('landing-cancellation-lead-minutes'),
       landingProfessionalPriority: document.getElementById('landing-professional-priority'),
       landingTemplateSelectedThumb: document.getElementById('landing-template-selected-thumb'),
       landingTemplateSelectedName: document.getElementById('landing-template-selected-name'),
@@ -24080,14 +24096,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.businessMediaBusinessId = null
       state.businessMediaPromise = null
       const isSalesAdminDemo = isSalesAccountAdministrator() && state.business?.isDemo === true
-      const [businessHours, availabilitySettings] = state.businessId
+      const managementBusinessId = state.businessId
+      const [businessHours, availabilitySettings, bookingManagementSettings] = state.businessId
         ? await Promise.all([
             getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId)),
-            getJson('/businesses/' + state.businessId + '/availability-settings')
+            getJson('/businesses/' + state.businessId + '/availability-settings'),
+            getJson('/businesses/' + state.businessId + '/booking-management-settings')
           ])
-        : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }]
+        : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }, null]
       state.businessHours = businessHours
       state.availabilitySettings = availabilitySettings
+      if (managementBusinessId === state.businessId) {
+        state.bookingManagementSettings = bookingManagementSettings
+        state.bookingManagementBusinessId = managementBusinessId
+      }
       const isStaff = state.currentUser?.role === 'STAFF'
       state.paymentSettings = state.businessId && !isStaff && !isSalesAdminDemo
         ? await getJson('/businesses/' + state.businessId + '/payment-settings')
@@ -29431,6 +29453,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.landingAllowGuestWebBooking.disabled = state.currentUser?.role === 'STAFF'
       els.landingProfessionalPriority.checked = state.business?.webBookingPrioritizeLeastBooked === true
       els.landingProfessionalPriority.disabled = state.currentUser?.role === 'STAFF'
+      const cancellationLoaded = state.bookingManagementBusinessId === state.businessId && state.bookingManagementSettings !== null
+      els.landingCancellationLeadMinutes.value = cancellationLoaded ? String(state.bookingManagementSettings.cancellationLeadMinutes) : ''
+      els.landingCancellationLeadMinutes.disabled = state.currentUser?.role === 'STAFF' || !cancellationLoaded
+      els.landingCancellationLeadMinutes.removeAttribute('aria-invalid')
       const landingTemplate = state.business?.landingTemplate || 'classic'
       const landingTemplateInput = document.querySelector('input[name="landing-template"][value="' + landingTemplate + '"]')
       if (landingTemplateInput) landingTemplateInput.checked = true
@@ -30515,6 +30541,18 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       if (!state.businessId) return
+      const savingBusinessId = state.businessId
+      const cancellationLoaded = state.bookingManagementBusinessId === savingBusinessId && state.bookingManagementSettings !== null
+      const cancellationText = els.landingCancellationLeadMinutes.value.trim()
+      const cancellationLeadMinutes = Number(cancellationText)
+      if (cancellationLoaded && (!cancellationText || !Number.isInteger(cancellationLeadMinutes) || cancellationLeadMinutes < 0 || cancellationLeadMinutes > 2147483647)) {
+        els.landingCancellationLeadMinutes.setAttribute('aria-invalid', 'true')
+        showLandingSettingsFeedback('La anticipación debe ser un número entero de minutos igual o mayor a 0.', 'error')
+        els.landingCancellationLeadMinutes.focus()
+        return
+      }
+      els.landingCancellationLeadMinutes.removeAttribute('aria-invalid')
+      const cancellationChanged = cancellationLoaded && cancellationLeadMinutes !== state.bookingManagementSettings.cancellationLeadMinutes
 
       const slug = normalizeLandingSlug(els.landingSlug.value)
       if (!slug) {
@@ -30543,7 +30581,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!setButtonLoading(els.landingSettingsSubmit, true, 'Guardando...')) return
 
       try {
-        state.business = await getJson('/businesses/' + state.businessId, {
+        const savedBusiness = await getJson('/businesses/' + savingBusinessId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -30568,7 +30606,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             landingGalleryImages: state.landingGalleryImages
           })
         })
-        state.businessMediaBusinessId = state.businessId
+        let savedManagementSettings = null
+        if (cancellationChanged) {
+          try {
+            savedManagementSettings = await getJson('/businesses/' + savingBusinessId + '/booking-management-settings', {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cancellationLeadMinutes })
+            })
+          } catch (error) {
+            if (state.businessId === savingBusinessId) {
+              state.business = savedBusiness
+              showLandingSettingsFeedback('La landing se guardó, pero no pude actualizar la anticipación de cancelación: ' + error.message, 'error')
+            }
+            return
+          }
+        }
+        if (state.businessId !== savingBusinessId) return
+        state.business = savedBusiness
+        if (savedManagementSettings) state.bookingManagementSettings = savedManagementSettings
+        state.businessMediaBusinessId = savingBusinessId
         renderLandingSettings()
         showLandingSettingsFeedback('Landing guardada correctamente.', 'success')
       } catch (error) {
