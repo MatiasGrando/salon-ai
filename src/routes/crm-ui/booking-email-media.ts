@@ -1,3 +1,5 @@
+import { bookingConfirmationDetailIcons } from '../../services/booking-confirmation-email-service.js'
+
 export const bookingEmailMediaStyles = `
     #booking-email-media { margin-top: 20px; padding: clamp(12px, 2vw, 20px); border: 1px solid #425365; border-radius: 14px; min-width: 0; }
     #booking-email-media > summary { color: inherit; cursor: pointer; font-weight: 700; padding: 6px 0; }
@@ -22,15 +24,19 @@ export const bookingEmailMediaStyles = `
     .booking-email-media-preview { border: 1px solid #e4d9bf; border-radius: 10px; overflow: hidden; margin-top: 8px; background: #fffdf8; color: #2a2117; font-family: Arial, sans-serif; }
     .booking-email-media-preview strong.booking-email-media-masthead { display: block; padding: 10px 14px; background: #141009; color: #e3c877; font-size: 20px; }
     .booking-email-media-preview canvas { display: block; width: 100%; height: auto; }
+    #booking-email-media-preview-banner, .booking-email-media-preview-heading img, .booking-email-media-preview-photos canvas { box-sizing: border-box; border: 1px solid #e4d9bf; border-radius: 8px; }
+    #booking-email-media-preview-banner { width: calc(100% - 24px); margin: 10px 12px 0; border-radius: 12px; }
     .booking-email-media-preview-body { display: grid; gap: 10px; padding: 12px; }
     .booking-email-media-preview-heading { display: grid; gap: 6px; justify-items: center; text-align: center; }
     .booking-email-media-preview-heading strong { overflow-wrap: anywhere; font-size: 20px; }
     .booking-email-media-preview-heading img { width: 48px; height: 48px; object-fit: contain; }
     .booking-email-media-preview-status { background: #6d1f1f; color: #fffdf8; padding: 5px 10px; border-radius: 14px; font-size: 12px; font-weight: 700; }
-    .booking-email-media-preview-details { display: grid; gap: 4px; padding: 10px 0; border-block: 1px solid #e4d9bf; }
+    .booking-email-media-preview-details { display: grid; gap: 6px; padding: 10px 0; border-block: 1px solid #e4d9bf; }
+    .booking-email-media-preview-details > div { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 5px; align-items: start; }
+    .booking-email-media-detail-icon, .booking-email-media-preview-details a { color: #6d1f1f; }
+    .booking-email-media-preview-details a { text-decoration: underline; overflow-wrap: anywhere; }
     .booking-email-media-preview-action { text-align: center; padding: 10px; border-radius: 7px; background: #e3c877; font-weight: 700; }
     .booking-email-media-preview-photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-    .booking-email-media-preview-photos canvas { border-radius: 5px; }
     #booking-email-media .settings-feedback.visible { margin-top: 10px; }
     @media (max-width: 850px) { .booking-email-media-layout { grid-template-columns: minmax(0, 1fr); } }
 `
@@ -87,7 +93,13 @@ export const bookingEmailMediaMarkup = `
                           <span class="booking-email-media-preview-status">Turno confirmado</span>
                         </div>
                         <p>Hola, tu reserva fue confirmada.</p>
-                        <div class="booking-email-media-preview-details"><strong>Servicio de ejemplo</strong><span>S&aacute;bado 14 de noviembre</span><span>15:00 &ndash; 15:30</span><span>Profesional y direcci&oacute;n del negocio</span></div>
+                        <div class="booking-email-media-preview-details">
+                          <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.service}</span><strong>Servicio de ejemplo</strong></div>
+                          <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.date}</span><span>S&aacute;bado 14 de noviembre</span></div>
+                          <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.time}</span><strong>15:00 &ndash; 15:30 hs</strong></div>
+                          <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.professional}</span><span>Con profesional de ejemplo</span></div>
+                          <div id="booking-email-media-preview-location" hidden><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.location}</span><a id="booking-email-media-preview-address" target="_blank" rel="noopener noreferrer"></a></div>
+                        </div>
                         <div class="booking-email-media-preview-action">Ver mi turno</div>
                         <div class="booking-email-media-preview-photos">
                           <canvas data-gallery-preview role="img" aria-label="Foto 1" hidden></canvas>
@@ -223,7 +235,29 @@ export const bookingEmailMediaScript = String.raw`
         return activePhoto === model.banner ? bannerSize : gallerySize
       }
 
+      function renderPreviewAddress() {
+        const { address, mapsUrl } = dependencies.businessLocation()
+        const row = find('preview-location')
+        const link = find('preview-address')
+        row.hidden = !address
+        link.textContent = address
+        if (!address) {
+          link.removeAttribute('href')
+          return
+        }
+        const fallback = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(address)
+        let href = fallback
+        if (typeof mapsUrl === 'string' && /^https:\/\//i.test(mapsUrl) && !/[\s\\]/u.test(mapsUrl)) {
+          try {
+            const url = new URL(mapsUrl)
+            if (!url.username && !url.password) href = url.href
+          } catch {}
+        }
+        link.href = href
+      }
+
       function renderPreview() {
+        renderPreviewAddress()
         if (!model) return
         const version = ++previewVersion
         const logo = find('preview-logo')
@@ -526,7 +560,10 @@ export const bookingEmailMediaScript = String.raw`
       return () => {
         const nextId = dependencies.canEdit() ? dependencies.businessId() : null
         root.hidden = !nextId
-        if (businessId === nextId) return
+        if (businessId === nextId) {
+          if (model) renderPreviewAddress()
+          return
+        }
         businessId = nextId
         loadVersion++
         cropVersion++

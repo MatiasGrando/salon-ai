@@ -39369,6 +39369,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     const renderBookingEmailMediaSettings = bookingEmailMediaEditor(document.getElementById('booking-email-media'), {
       businessId: () => state.businessId,
       businessName: () => state.business?.name,
+      businessLocation: () => ({
+        address: [state.business?.publicAddress, state.business?.publicAddressArea].filter(Boolean).join(', '),
+        mapsUrl: state.business?.publicMapsUrl
+      }),
       canEdit: () => Boolean(state.currentUser && state.currentUser.role !== 'STAFF'),
       getJson,
       optimizeImageFile

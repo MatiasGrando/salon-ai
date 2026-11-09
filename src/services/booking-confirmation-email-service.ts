@@ -24,6 +24,14 @@ type EmailDeliveryResult =
 
 const resendApiUrl = 'https://api.resend.com/emails'
 
+export const bookingConfirmationDetailIcons = {
+  service: '&#9986;&#65038;',
+  date: '&#128197;&#65038;',
+  time: '&#128337;&#65038;',
+  professional: '&#128100;&#65038;',
+  location: '&#128205;&#65038;'
+} as const
+
 export function bookingConfirmationBusinessDetails(
   business: Parameters<typeof resolveBookingEmailMedia>[0] & {
     name: string
@@ -75,6 +83,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
   const timeLabel = formatTime(input.startAt)
   const subject = `Turno confirmado en ${input.businessName} - ${dateLabel} ${timeLabel}`
   const timeRange = input.durationMinutes > 0 ? `${timeLabel} – ${formatTime(endAt)}` : timeLabel
+  const timeRangeLabel = /^\d{1,2}:\d{2}(?: – \d{1,2}:\d{2})?$/.test(timeRange) ? `${timeRange} hs` : timeRange
   const calendar = buildCalendarFile(input, endAt)
   const managementUrl = httpsBookingEmailUrl(input.bookingManagementUrl)
   const mapsUrl = input.businessAddress
@@ -86,7 +95,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
     `Servicio: ${input.serviceName}`,
     `Profesional: ${input.professionalName}`,
     `Fecha: ${dateLabel}`,
-    `Hora: ${timeRange}`,
+    `Hora: ${timeRangeLabel}`,
     input.businessAddress ? `Lugar: ${input.businessAddress}` : null,
     mapsUrl ? `Cómo llegar: ${mapsUrl}` : null,
     managementUrl ? `Ver mi turno: ${managementUrl}` : null,
@@ -98,7 +107,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
   return {
     subject,
     text,
-    html: renderEmailHtml(input, endAt, dateLabel, timeRange, mapsUrl, managementUrl),
+    html: renderEmailHtml(input, endAt, dateLabel, timeRangeLabel, mapsUrl, managementUrl),
     attachments: [{
       filename: 'turno-weex.ics',
       content: Buffer.from(calendar, 'utf8').toString('base64'),
@@ -150,10 +159,10 @@ function renderEmailHtml(
   const logo = httpsBookingEmailUrl(input.emailMedia?.logoUrl)
   const photos = (input.emailMedia?.galleryUrls || []).slice(0, 3)
     .map(httpsBookingEmailUrl).filter((url): url is string => url !== null)
-  const address = input.businessAddress
-    ? `<p style="margin:10px 0 0;color:#2a2117">${escapeHtml(input.businessAddress)}</p>
-       ${mapsUrl ? `<a href="${escapeHtml(mapsUrl)}" style="display:inline-block;margin-top:4px;color:#6d1f1f">C&oacute;mo llegar</a>` : ''}`
-    : ''
+  const addressText = escapeHtml(input.businessAddress || '')
+  const address = mapsUrl
+    ? `<a href="${escapeHtml(mapsUrl)}" target="_blank" rel="noopener noreferrer" style="color:#6d1f1f;text-decoration:underline">${addressText}</a>`
+    : addressText
   const action = managementUrl
     ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:18px">
          <tr><td bgcolor="#e3c877" align="center" style="border-radius:8px">
@@ -176,21 +185,20 @@ function renderEmailHtml(
         <!--[if mso]><table role="presentation" width="600" cellspacing="0" cellpadding="0"><tr><td><![endif]-->
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" bgcolor="#fffdf8" style="max-width:600px;border:1px solid #e4d9bf">
           <tr><td bgcolor="#141009" style="padding:14px 22px;color:#e3c877;font-size:24px;font-weight:bold">Weex</td></tr>
-          ${banner ? `<tr><td>${emailImage(banner, `Portada de ${input.businessName}`, 600, 'width:100%;max-width:600px')}</td></tr>` : ''}
+          ${banner ? `<tr><td style="padding:14px 20px 0">${emailImage(banner, `Portada de ${input.businessName}`, 558, 'width:100%;max-width:558px;border-radius:12px')}</td></tr>` : ''}
           <tr><td align="center" style="padding:18px 16px 0">
-            ${logo ? emailImage(logo, `Logo de ${input.businessName}`, 64, 'margin:0 auto 8px;max-width:64px') : ''}
+            ${logo ? emailImage(logo, `Logo de ${input.businessName}`, 64, 'margin:0 auto 8px;max-width:64px;border-radius:10px') : ''}
             <h1 style="margin:0 0 8px;font-size:28px;color:#2a2117">${businessName}</h1>
             <span style="display:inline-block;padding:5px 10px;border-radius:20px;background:#6d1f1f;color:#fffdf8;font-size:13px;font-weight:bold">Turno confirmado</span>
           </td></tr>
           <tr><td style="padding:18px 20px 0">
             <p style="margin:0 0 14px;color:#766a59">Hola ${escapeHtml(input.recipientName)}, tu reserva fue confirmada.</p>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid #e4d9bf;border-bottom:1px solid #e4d9bf">
-              <tr><td style="padding:14px 0;font-size:16px;line-height:1.45;overflow-wrap:anywhere">
-                <h2 style="margin:0 0 6px;font-size:21px;color:#2a2117">${escapeHtml(input.serviceName)}</h2>
-                <p style="margin:0;color:#2a2117">${escapeHtml(dateLabel)}<br><strong>${escapeHtml(timeRange)}</strong></p>
-                <p style="margin:8px 0 0;color:#2a2117">Con ${escapeHtml(input.professionalName)}</p>
-                ${address}
-              </td></tr>
+              ${emailDetailRow('service', `<h2 style="margin:0;font-size:21px;color:#2a2117">${escapeHtml(input.serviceName)}</h2>`)}
+              ${emailDetailRow('date', escapeHtml(dateLabel))}
+              ${emailDetailRow('time', `<strong>${escapeHtml(timeRange)}</strong>`)}
+              ${emailDetailRow('professional', `Con ${escapeHtml(input.professionalName)}`)}
+              ${address ? emailDetailRow('location', address) : ''}
             </table>
             ${action}${gallery}
           </td></tr>
@@ -206,8 +214,15 @@ function renderEmailHtml(
   </body></html>`
 }
 
+function emailDetailRow(icon: keyof typeof bookingConfirmationDetailIcons, content: string) {
+  return `<tr>
+    <td class="booking-email-detail-icon" width="25" valign="top" aria-hidden="true" style="padding:6px 5px 6px 0;color:#6d1f1f;font-size:16px;line-height:1.45">${bookingConfirmationDetailIcons[icon]}</td>
+    <td valign="top" style="padding:6px 0;color:#2a2117;font-size:16px;line-height:1.45;overflow-wrap:anywhere">${content}</td>
+  </tr>`
+}
+
 function emailImage(url: string, alt: string, width: number, style: string) {
-  return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" width="${width}" style="display:block;height:auto;border:0;${style}">`
+  return `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" width="${width}" style="display:block;height:auto;box-sizing:border-box;border:1px solid #e4d9bf;${style}">`
 }
 
 function buildCalendarFile(input: BookingConfirmationEmailInput, endAt: Date) {

@@ -13,6 +13,7 @@ const input = {
   appointmentId: 'appointment-local',
   businessName: 'La Cochera <local>',
   businessAddress: 'Franklin Delano Roosevelt 5520, Villa Urquiza',
+  businessMapsUrl: 'https://maps.example.test/la-cochera?entry=email&place=5520',
   serviceName: 'Corte',
   professionalName: 'Joaquín',
   startAt: new Date('2026-09-26T18:00:00.000Z'),
@@ -47,19 +48,25 @@ try {
   assert.match(first.html, /corte-2\.jpg[\s\S]+corte-1\.jpg/)
   assert.match(first.html, /María &amp; Tomás/)
   assert.match(first.html, /Corte[\s\S]+Joaquín/)
-  assert.match(first.html, /15:00\s*–\s*15:30/)
+  assert.match(first.html, /15:00\s*–\s*15:30 hs/, 'el correo de 24 horas muestra hs en la ficha')
+  assert.equal((first.html.match(/class="booking-email-detail-icon"/g) || []).length, 5)
+  assert.match(first.html, /href="https:\/\/maps\.example\.test\/la-cochera\?entry=email&amp;place=5520"[^>]*>Franklin Delano Roosevelt 5520, Villa Urquiza<\/a>/)
+  assert.equal((first.html.match(/<img[^>]+border:1px solid #e4d9bf;[^>]+border-radius:/g) || []).length, 3)
   assert.match(first.html, /Franklin Delano Roosevelt 5520/)
   assert.match(first.html, /href="https:\/\/weex\.com\.ar\/la-cochera\/cuenta"[\s\S]*Ver mi turno/)
-  assert.match(first.text, /Corte[\s\S]+Joaquín[\s\S]+15:00\s*–\s*15:30/)
+  assert.match(first.text, /Corte[\s\S]+Joaquín[\s\S]+15:00\s*–\s*15:30 hs/)
   assert.equal(first.attachments[0]?.filename, 'turno-weex.ics')
   const event = Buffer.from(first.attachments[0]!.content, 'base64').toString('utf8')
   assert.match(event, /DTSTART:20260926T180000Z\r\nDTEND:20260926T183000Z/)
 
   const { emailMedia, bookingManagementUrl, ...textOnlyInput } = input
-  await sendBookingConfirmationEmail(textOnlyInput)
+  await sendBookingConfirmationEmail({ ...textOnlyInput, durationMinutes: 0, businessMapsUrl: 'javascript:alert(1)' })
   const textOnly = deliveries[1]!
   assert.doesNotMatch(textOnly.html, /<img\b|Ver mi turno/)
   assert.match(textOnly.html, /Corte[\s\S]+Joaquín/)
+  assert.match(textOnly.html, />15:00 hs<\/strong>/)
+  assert.match(textOnly.html, /href="https:\/\/www\.google\.com\/maps\/search\/\?api=1&amp;query=[^"]+"[^>]*>Franklin Delano Roosevelt 5520, Villa Urquiza<\/a>/)
+  assert.doesNotMatch(textOnly.html, /javascript:/)
   assert.equal(textOnly.attachments[0]?.filename, 'turno-weex.ics')
 
   await sendBookingConfirmationEmail({

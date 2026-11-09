@@ -40,7 +40,9 @@ if (!browserModule) {
   assert.ok(start > 0 && end > start, 'CRM bootstrap boundary must be present')
   const fixtureMarkup = markup.slice(0, start) + `
     state.businessId = 'la-cochera-fixture';
-    state.business = { id: state.businessId, name: 'La Cochera', slug: 'la-cochera', landingEnabled: true };
+    state.business = { id: state.businessId, name: 'La Cochera', slug: 'la-cochera', landingEnabled: true,
+      publicAddress: 'Franklin Delano Roosevelt 5520', publicAddressArea: 'Villa Urquiza',
+      publicMapsUrl: 'https://maps.example.test/la-cochera' };
     state.currentUser = { role: 'BUSINESS_ADMIN' };
     window.bookingEmailFixture = { switchToStaff() { state.currentUser.role = 'STAFF'; renderLandingSettings(); } };
     showApp(); setSettingsView('landing'); setSection('settings'); renderLandingSettings();
@@ -100,6 +102,14 @@ if (!browserModule) {
       const horizontal = editor.getByLabel('Posición horizontal')
       const vertical = editor.getByLabel('Posición vertical')
       await canvas.waitFor({ state: 'visible' })
+      const preview = editor.locator('#booking-email-media-preview')
+      assert.ok(await preview.getByText('15:00 – 15:30 hs', { exact: true }).isVisible())
+      assert.equal(await preview.locator('.booking-email-media-detail-icon').count(), 5)
+      assert.equal(await preview.getByRole('link', { name: 'Franklin Delano Roosevelt 5520, Villa Urquiza' }).getAttribute('href'), 'https://maps.example.test/la-cochera')
+      assert.ok(await preview.locator('#booking-email-media-preview-banner').evaluate((photo: HTMLCanvasElement) => {
+        const style = getComputedStyle(photo)
+        return style.borderTopWidth === '1px' && parseFloat(style.borderTopLeftRadius) > 0
+      }))
       assert.equal(await source.inputValue(), 'cover')
       await source.selectOption('gallery:0')
       await source.selectOption('cover')
@@ -187,6 +197,12 @@ if (!browserModule) {
       })
       await emailPage.setContent(email.html, { waitUntil: 'load' })
       assert.equal(await emailPage.locator('img').count(), 4)
+      assert.ok(await emailPage.getByRole('link', { name: 'Franklin Delano Roosevelt 5520, Villa Urquiza, Buenos Aires' }).isVisible())
+      assert.equal(await emailPage.locator('.booking-email-detail-icon').count(), 5)
+      assert.ok(await emailPage.locator('img').evaluateAll((images: HTMLImageElement[]) => images.every((photo) => {
+        const style = getComputedStyle(photo)
+        return style.borderTopWidth === '1px' && parseFloat(style.borderTopLeftRadius) > 0
+      })))
       assert.ok(await emailPage.locator('img').evaluateAll((images: HTMLImageElement[]) => images.every((image) => image.complete && image.naturalWidth > 0)))
       assert.ok(await emailPage.getByRole('link', { name: 'Ver mi turno' }).isVisible())
       assert.ok(await emailPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))

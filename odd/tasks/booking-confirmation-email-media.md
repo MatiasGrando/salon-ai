@@ -40,4 +40,8 @@ TDD estricto por `openspec/config.yaml`. Verificar los contratos focalizados, si
 
 CEM-5 usa un contrato focalizado `node node_modules/tsx/dist/cli.mjs scripts/booking-confirmation-card-ui-test.ts`, con la vista real y datos ficticios de invitado, cuenta y turno coordinado.
 
-Siguiente paso: registrar el commit de la ficha. Pruebas sin envío ni autenticación reales.
+Commit CEM-5 `e71937e8c7ce0742eca10ef67aa487e80faf4a22`, 340 líneas de autoría. Gentle AI registró `declined_this_candidate` para el tramo Google y CEM-4 por elección del usuario. Evaluó CEM-5 separado desde `08d84d1` y devolvió `under_budget`. Pruebas sin envío ni autenticación reales. Push autorizado y confirmado en `main` de GitHub, por avance directo desde `895a6ca` hasta `e71937e`. El usuario revisará el despliegue y el resultado en La Cochera.
+
+## Detalles visuales del correo y su vista previa
+
+- [x] CEM-6 — Agregar íconos de servicio, fecha, horario, profesional y dirección en el correo y su vista previa. Weex usa 24 horas y muestra `hs`. Bordes finos y esquinas redondeadas en las fotos, dirección visible enlazada al mapa, texto y calendario preservados. Ruta delegada por renderizadores, enlace con el CRM y pruebas. TDD estricto según `openspec/config.yaml`. RED por horario sin `hs` en envío simulado. GREEN en `node node_modules/tsx/dist/cli.mjs scripts/booking-confirmation-email-media-test.ts`, `scripts/booking-email-media-ui-test.ts` a 1366 y 390 px, sintaxis, codificación y diff. La primera pasada móvil agotó la espera de carga del recorte y la segunda pasó completa. Base `e71937e`, rama `codex/booking-email-details` y estrategia `single-pr` si se autoriza entrega. Sin envío real.
