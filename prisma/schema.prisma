@@ -935,6 +935,7 @@ model Business {
   coverImageUrl          String?
   landingSocialImageUrl  String?
   landingGalleryImages   String?
+  bookingEmailMedia      Json?
   publicWhatsapp         String?
   contactName            String?
   contactPhone           String?

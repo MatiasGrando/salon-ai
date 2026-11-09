@@ -1,6 +1,6 @@
 import { parseBusinessType } from '../services/business-type.js'
 import type { FastifyInstance } from 'fastify'
-import type { Prisma } from '../generated/prisma/client.js'
+import { Prisma } from '../generated/prisma/client.js'
 import { prisma } from '../config/prisma.js'
 import { whatsappConfig } from '../config/whatsapp.js'
 import { getBusinessWhatsAppState } from '../services/business-whatsapp-settings.js'
@@ -8,6 +8,12 @@ import { BusinessService } from '../services/business-service.js'
 import { verifyPassword, type AuthContext } from '../services/auth-service.js'
 import { refreshBusinessOnboarding } from '../services/business-onboarding-service.js'
 import { storeBusinessImage } from '../services/media-storage-service.js'
+import {
+  BOOKING_EMAIL_MEDIA_BODY_LIMIT,
+  BookingEmailMediaInputError,
+  bookingEmailMediaSources,
+  storeBookingEmailMedia
+} from '../services/booking-email-media-service.js'
 import { CashDomainError, assertIanaTimezone } from '../services/cash-domain.js'
 import { getBusinessOperationalResetPreview, operationalResetConfirmationMatches, resetBusinessOperationalData } from '../services/business-operational-reset.js'
 import {
@@ -110,7 +116,10 @@ export async function businessRoutes(app: FastifyInstance) {
           ...businessAccessWhere(resolveBusinessScope(request.auth.user)),
           ...(query.q?.trim() ? { name: { contains: query.q.trim(), mode: 'insensitive' } } : {})
         },
-        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
+        omit: {
+          bookingEmailMedia: true,
+          ...(includeImages ? {} : { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true })
+        },
         include: { featureSettings: { select: { pipelineEnabled: true } } },
         orderBy: { name: 'asc' }
       })
@@ -118,7 +127,10 @@ export async function businessRoutes(app: FastifyInstance) {
     if (!request.auth.user.businessId) return []
     const business = await prisma.business.findUnique({
       where: { id: request.auth.user.businessId },
-      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
+      omit: {
+        bookingEmailMedia: true,
+        ...(includeImages ? {} : { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true })
+      },
       include: { featureSettings: { select: { pipelineEnabled: true } } }
     })
     return business ? [business] : []
@@ -129,6 +141,7 @@ export async function businessRoutes(app: FastifyInstance) {
     if (!await canAccessBusiness(request.auth, params.id)) {
       return reply.status(403).send({ message: 'No tenes acceso a ese comercio' })
     }
+    const canEditMedia = request.auth?.user.role !== 'STAFF'
     const media = await prisma.business.findUnique({
       where: { id: params.id },
       select: {
@@ -136,11 +149,44 @@ export async function businessRoutes(app: FastifyInstance) {
         logoUrl: true,
         coverImageUrl: true,
         landingSocialImageUrl: true,
-        landingGalleryImages: true
+        landingGalleryImages: true,
+        bookingEmailMedia: canEditMedia
       }
     })
     if (!media) return reply.status(404).send({ message: 'No encontre ese local' })
-    return media
+    return canEditMedia ? { ...media, bookingEmailMediaSources: bookingEmailMediaSources(media) } : media
+  })
+
+  app.patch('/businesses/:id/booking-email-media', { bodyLimit: BOOKING_EMAIL_MEDIA_BODY_LIMIT }, async (request, reply) => {
+    const actor = request.auth?.user
+    if (!actor || actor.role === 'STAFF') {
+      return reply.status(403).send({ message: 'No tenés permiso para personalizar el correo.' })
+    }
+    const { id } = request.params as { id: string }
+    const business = await requireAuthorizedBusiness(prisma, actor, id)
+    if (!business) return reply.status(404).send({ message: 'Comercio no encontrado.' })
+
+    let bookingEmailMedia
+    try {
+      bookingEmailMedia = await storeBookingEmailMedia(business, request.body)
+    } catch (error) {
+      if (error instanceof BookingEmailMediaInputError) return reply.status(error.status).send({ message: error.message })
+      request.log.error({ err: error, businessId: id }, 'booking_email_media_storage_failed')
+      return reply.status(503).send({ message: 'No pudimos guardar las imágenes del correo. Volvé a intentar.' })
+    }
+
+    const saved = await prisma.business.updateMany({
+      where: {
+        ...businessAccessWhere(resolveBusinessScope(actor), id),
+        logoUrl: business.logoUrl,
+        coverImageUrl: business.coverImageUrl,
+        landingGalleryImages: business.landingGalleryImages,
+        bookingEmailMedia: { equals: business.bookingEmailMedia ?? Prisma.DbNull }
+      },
+      data: { bookingEmailMedia }
+    })
+    if (!saved.count) return reply.status(409).send({ message: 'Las imágenes cambiaron. Volvé a cargar la configuración antes de guardar.' })
+    return { bookingEmailMedia }
   })
 
   app.get('/businesses/:id/availability-settings', async (request, reply) => {

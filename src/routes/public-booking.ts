@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { BusinessService } from '../services/business-service.js'
-import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
+import { bookingConfirmationBusinessDetails, sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { inferDefaultAreaCodeFromPhone, normalizeCustomerPhone, phoneSearchVariants } from '../services/phone-normalization-service.js'
 import { findOrCreateCustomerByPhone, normalizeCustomerEmail } from '../services/customer-identity-service.js'
 import { customerDurationRange, formatCustomerDuration, reservationDurationLimits } from '../services/service-duration.js'
@@ -456,9 +456,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         recipientEmail: customerEmail,
         recipientName: customerName,
         appointmentId: appointment.id,
-        businessName: business.name,
-        businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
-        businessAddressArea: business.publicAddressArea,
+        ...bookingConfirmationBusinessDetails(business, Boolean(weexAuth?.account.emailVerified)),
         serviceName: appointment.service.name,
         professionalName: appointment.professional.name,
         startAt: appointment.startAt,
@@ -711,9 +709,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
             recipientEmail: customerEmail,
             recipientName: customerName,
             appointmentId: appointment.id,
-            businessName: business.name,
-            businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
-            businessAddressArea: business.publicAddressArea,
+            ...bookingConfirmationBusinessDetails(business, Boolean(weexAuth?.account.emailVerified)),
             serviceName: appointment.service.name,
             professionalName: appointment.professional.name,
             startAt: appointment.startAt,

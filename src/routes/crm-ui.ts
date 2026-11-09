@@ -13,6 +13,7 @@ import { pipelineMarkup, pipelineScript, pipelineStyles } from './crm-ui/pipelin
 import { instagramMediaMarkup, instagramMediaScript, instagramMediaStyles } from './crm-ui/instagram-media.js'
 import { instagramPlanningMarkup, instagramPlanningScript, instagramPlanningStyles } from './crm-ui/instagram-planning.js'
 import { instagramStoriesMarkup, instagramStoriesScript, instagramStoriesStyles } from './crm-ui/instagram-stories.js'
+import { bookingEmailMediaMarkup, bookingEmailMediaScript, bookingEmailMediaStyles } from './crm-ui/booking-email-media.js'
 
 export interface CrmUiRoutesOptions {
   readonly pollingMarker: PollingMarkerConfig
@@ -16392,6 +16393,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         body[data-current-section="conversations"] #reply-form .composer-icon { width:30px; }
       }
     }
+    ${bookingEmailMediaStyles}
     ${cashRegisterEnabled ? cashRegisterStyles : ''}
   </style>
 </head>
@@ -18959,6 +18961,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             </div>
             <p class="settings-feedback" id="landing-settings-feedback" role="status" aria-live="polite"></p>
           </form>
+          ${bookingEmailMediaMarkup}
         </section>
 
         <section class="settings-panel" id="super-admin-panel" data-settings-panel="admin" hidden>
@@ -29472,6 +29475,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       setLandingSocialImage(state.business?.landingSocialImageUrl || null)
       setLandingGallery(parseLandingGalleryImages(state.business?.landingGalleryImages))
       renderLandingLinks(slug)
+      renderBookingEmailMediaSettings()
     }
 
     function defaultBookingThemeForTemplate(templateId) {
@@ -39360,6 +39364,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     document.addEventListener('pointerdown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })
     document.addEventListener('keydown', () => { void enableIncomingMessageSound() }, { once: true, capture: true })
     els.testIncomingSound.addEventListener('click', () => { void testIncomingMessageSound() })
+
+    ${bookingEmailMediaScript}
+    const renderBookingEmailMediaSettings = bookingEmailMediaEditor(document.getElementById('booking-email-media'), {
+      businessId: () => state.businessId,
+      businessName: () => state.business?.name,
+      canEdit: () => Boolean(state.currentUser && state.currentUser.role !== 'STAFF'),
+      getJson,
+      optimizeImageFile
+    })
 
     loadSession()
       .then((hasSession) => hasSession ? startCrm() : null)

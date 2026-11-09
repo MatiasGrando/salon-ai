@@ -55,7 +55,7 @@ import {
   resolvedConversationHandoffPatch,
   takenConversationHandoffPatch
 } from '../services/conversation-handoff.js'
-import { sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
+import { bookingConfirmationBusinessDetails, sendBookingConfirmationEmail } from '../services/booking-confirmation-email-service.js'
 import { customerDurationRange } from '../services/service-duration.js'
 import {
   createGoogleCalendarEventForAppointment,
@@ -1444,13 +1444,12 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
     for (const appointment of appointments) {
       const account = appointment.customer.weexLinks[0]?.weexAccount
       if (appointment.customer.email) {
+        const canManage = Boolean(account?.emailVerified && account.email.toLowerCase() === appointment.customer.email.trim().toLowerCase())
         void sendBookingConfirmationEmail({
           recipientEmail: appointment.customer.email,
           recipientName: appointment.customer.name,
           appointmentId: appointment.id,
-          businessName: appointment.professional.business.name,
-          businessAddress: [appointment.professional.business.publicAddress, appointment.professional.business.publicAddressArea].filter(Boolean).join(', ') || null,
-          businessAddressArea: appointment.professional.business.publicAddressArea,
+          ...bookingConfirmationBusinessDetails(appointment.professional.business, canManage),
           serviceName: appointment.service.name,
           professionalName: appointment.professional.name,
           startAt: appointment.startAt,

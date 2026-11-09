@@ -5,6 +5,7 @@ const DEFAULT_BUCKET = 'business-media'
 const DATA_IMAGE_PATTERN = /^data:(image\/(?:png|jpeg|webp|gif));base64,([a-z0-9+/=]+)$/i
 
 export type BusinessMediaKind = 'services' | 'professionals' | 'logos' | 'covers' | 'gallery' | 'social'
+  | 'booking-email-original' | 'booking-email-banner' | 'booking-email-gallery'
 
 export async function storeBusinessImage(input: {
   businessId: string
@@ -104,13 +105,25 @@ async function optimizeImage(bytes: Buffer, kind: BusinessMediaKind) {
       extension: 'jpg'
     }
   }
+  if (kind === 'booking-email-banner' || kind === 'booking-email-gallery') {
+    const width = kind === 'booking-email-banner' ? 1200 : 480
+    return {
+      bytes: await sharp(bytes, { limitInputPixels: 4_000_000 })
+        .rotate()
+        .resize({ width, height: width, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 86, mozjpeg: true })
+        .toBuffer(),
+      contentType: 'image/jpeg',
+      extension: 'jpg'
+    }
+  }
   const maxDimension = {
     services: 1000,
     professionals: 800,
     logos: 512,
     covers: 1600,
     gallery: 1200,
-    social: 1200
+    'booking-email-original': 1600
   }[kind]
   return {
     bytes: await sharp(bytes, { animated: true, limitInputPixels: 40_000_000 })

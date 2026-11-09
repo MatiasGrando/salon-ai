@@ -17,10 +17,10 @@ globalThis.fetch = async (_url, init) => {
   return new Response(JSON.stringify({ id: 'offline-email' }), { status: 200 })
 }
 const [{ prisma }, { publicBookingRoutes }, { businessRoutes }, { BusinessService }, { AppointmentService },
-  { BookingAvailabilitySearchEngine }, { bookingDepositService, BookingDepositService }, { PGlite }, { Prisma }] = await Promise.all([
+  { bookingDepositService, BookingDepositService }, { PGlite }, { Prisma }] = await Promise.all([
   import('../src/config/prisma.js'), import('../src/routes/public-booking.js'), import('../src/routes/business.js'),
   import('../src/services/business-service.js'), import('../src/services/appointment-service.js'),
-  import('../src/services/booking-availability-search.js'), import('../src/services/booking-deposit-service.js'),
+  import('../src/services/booking-deposit-service.js'),
   import('@electric-sql/pglite'), import('../src/generated/prisma/client.js')
 ])
 const db = prisma as any
@@ -57,9 +57,10 @@ const payload = { serviceId: 'cut', professionalId: 'pro-a', date: '2026-10-20',
   customerName: 'Submitted name', customerPhone: '15-6655-3322' }
 const requestBooking = (extra: any = {}, headers: any = {}) => app.inject({ method: 'POST',
   url: '/public/booking/guest-test/book', headers, payload: { ...payload, ...extra } })
+let itineraryId: string
 const groupBooking = (headers: any = {}, extra: any = {}) => app.inject({ method: 'POST', url: '/public/booking/guest-test/book-coordinated', headers,
   payload: { customerName: payload.customerName, customerPhone: payload.customerPhone,
-    date: payload.date, itineraryId: 'itinerary-a', serviceSelections: services.map(s => ({ serviceId: s.id })), ...extra } })
+    date: payload.date, itineraryId, serviceSelections: services.map(s => ({ serviceId: s.id })), ...extra } })
 const cookieHeader = (response: any) => String(response.headers['set-cookie'] || '').split(';')[0]
 function fixtureAppointment(input: any) {
   const row = { id: 'appointment-' + (++bookings), businessId: business.id, customerId: 'customer-a',
@@ -138,8 +139,8 @@ try {
     await options?.afterConfirmInTransaction?.(tx)
     return true
   }))
-  replace(BookingAvailabilitySearchEngine.prototype, 'search', async () => ({ options: [{ id: 'itinerary-a',
-    segments: services.map((s,index) => ({ serviceId: s.id, professionalId: 'pro-a', startTime: index ? '16:30' : '16:00' })) }] }))
+  replace(AppointmentService.prototype, 'findAvailabilityMany', async (requests: unknown[]) =>
+    requests.map(() => ({ ok: true, slots: ['16:00'] })))
   replace(bookingDepositService, 'expireOverdue', async () => {})
   replace(bookingDepositService, 'submitWebProof', async ({ depositId }: any) => { proofCalls++; return { ok: true,
     deposit: { ...deposits.get(depositId), status: 'PROOF_RECEIVED', customer: { phone: 'PRIVATE' } } } })
@@ -148,6 +149,11 @@ try {
   replace(db.businessOnboardingStatus, 'upsert', async ({ create }: any) => ({ ...create, updatedAt: new Date() }))
   admin.addHook('preHandler', async request => { request.auth = { user: { id: 'admin-a', role, businessId: business.id, canCreateBusinesses: false } } as any })
   await admin.register(businessRoutes); await app.register(publicBookingRoutes)
+  const itineraries = await app.inject({ method: 'POST', url: '/public/booking/guest-test/itineraries',
+    payload: { date: payload.date, serviceIds: services.map(service => service.id) } })
+  assert.equal(itineraries.statusCode, 200, itineraries.body)
+  itineraryId = itineraries.json().options.find((option: { startTime: string }) => option.startTime === payload.time)?.id
+  assert.ok(itineraryId, 'the public planner must provide the fixture itinerary')
 
   await check('optional email: blank sends nothing; valid guest email uses existing sender for single and group', async () => {
     business.allowGuestWebBooking = true
@@ -164,6 +170,7 @@ try {
       const emails = sentEmails.slice(before)
       assert.equal(emails.length, multi ? 2 : 1)
       assert.ok(emails.every(email => email.to[0] === 'guest@example.test'))
+      assert.ok(emails.every(email => !email.html.includes('Ver mi turno')), 'guest confirmation must omit the account link')
       assert.ok(emails.every(email => email.attachments[0].filename === 'turno-weex.ics'))
       assert.ok(customerUpdates.slice(writes).some(data => data.email === 'guest@example.test'))
     }
@@ -187,9 +194,16 @@ try {
   await check('Google keeps verified recipient and pending deposits do not send confirmation', async () => {
     account.emailVerified = true
     try {
-      const before = sentEmails.length
-      assert.equal((await requestBooking({ customerEmail: 'bad' }, { cookie: 'weex_account_session=synthetic' })).statusCode, 200)
-      assert.equal(sentEmails[before]?.to[0], account.email)
+      const headers = { cookie: 'weex_account_session=synthetic' }
+      for (const multi of [false, true]) {
+        const before = sentEmails.length
+        const response = await (multi ? groupBooking(headers, { customerEmail: 'bad' }) : requestBooking({ customerEmail: 'bad' }, headers))
+        assert.equal(response.statusCode, 200, response.body)
+        const emails = sentEmails.slice(before)
+        assert.equal(emails.length, multi ? 2 : 1)
+        assert.ok(emails.every(email => email.to[0] === account.email))
+        assert.ok(emails.every(email => email.html.includes('/guest-test/cuenta') && email.html.includes('Ver mi turno')))
+      }
     } finally { account.emailVerified = false }
     services[0].depositMode = 'FIXED'; services[0].depositValue = 5000
     try {

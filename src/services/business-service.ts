@@ -108,7 +108,10 @@ export class BusinessService {
     const search = query?.trim()
     if (!search) {
       return prisma.business.findMany({
-        ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
+        omit: {
+          bookingEmailMedia: true,
+          ...(includeImages ? {} : { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true })
+        },
         include: { featureSettings: { select: { pipelineEnabled: true } } },
         orderBy: { name: 'asc' }
       })
@@ -121,7 +124,10 @@ export class BusinessService {
           { customerCode: { contains: search.toUpperCase(), mode: 'insensitive' } }
         ]
       },
-      ...(includeImages ? {} : { omit: { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true } }),
+      omit: {
+        bookingEmailMedia: true,
+        ...(includeImages ? {} : { logoUrl: true, coverImageUrl: true, landingSocialImageUrl: true, landingGalleryImages: true })
+      },
       include: { featureSettings: { select: { pipelineEnabled: true } } },
       orderBy: { name: 'asc' }
     })
