@@ -32,15 +32,16 @@ const business = {
 const sources = bookingEmailMediaSources(business)
 assert.deepEqual(sources.gallery.map(source => source?.split(':')[0] || null), ['https', 'data-sha256', null])
 assert.deepEqual(resolveBookingEmailMedia(business), {
-  bannerUrl: business.coverImageUrl,
+  bannerUrl: null,
   logoUrl: business.logoUrl,
   galleryUrls: []
 })
+const fullFrame = { x: 0, y: 0, width: 1, height: 1, fillRatio: 0 }
 const body = {
   logoUrl: sources.logo,
   banner: { source: 'cover', sourceUrl: sources.cover, crop, imageDataUrl },
   gallery: [
-    { sourceUrl: sources.gallery[1], crop, imageDataUrl },
+    { sourceUrl: sources.gallery[1], crop: fullFrame, imageDataUrl },
     { sourceUrl: galleryImage, crop, imageDataUrl }
   ]
 }
@@ -115,13 +116,17 @@ try {
   await assert.rejects(storeBookingEmailMedia(business, {
     ...body, banner: { ...body.banner, crop: { ...crop, x: 0.9 } }
   }), /encuadre/)
+  await assert.rejects(storeBookingEmailMedia(business, {
+    ...body, banner: { ...body.banner, crop: { ...crop, fillRatio: -0.1 } }
+  }), /encuadre/)
   assert.deepEqual([uploads.length, writes], [0, 0])
 
   const saved = await app.inject({ method: 'PATCH', url: route, headers: authHeaders, payload: body })
   assert.equal(saved.statusCode, 200, saved.body)
   const settings = saved.json<{ bookingEmailMedia: BookingEmailMediaSettings }>().bookingEmailMedia
   assert.deepEqual(settings.gallery.map(photo => photo.sourceUrl), [sources.gallery[1], galleryImage])
-  assert.deepEqual(settings.banner?.crop, crop)
+  assert.deepEqual(settings.banner?.crop, crop, 'legacy crops keep their shape')
+  assert.deepEqual(settings.gallery[0]?.crop, fullFrame, 'full-image fit survives storage')
   assert.equal(settings.banner?.sourceUrl, business.coverImageUrl)
   assert.deepEqual([uploads.length, writes], [3, 1])
   assert.deepEqual(resolveBookingEmailMedia(business), {
@@ -134,9 +139,9 @@ try {
   const changed = resolveBookingEmailMedia({
     ...business, logoUrl: null, coverImageUrl: 'https://images.example.com/nueva.jpg', landingGalleryImages: JSON.stringify([galleryImage])
   })
-  assert.deepEqual(changed, { bannerUrl: 'https://images.example.com/nueva.jpg', logoUrl: null, galleryUrls: [settings.gallery[1]?.imageUrl] })
+  assert.deepEqual(changed, { bannerUrl: null, logoUrl: null, galleryUrls: [settings.gallery[1]?.imageUrl] })
   const changedLogo = resolveBookingEmailMedia({ ...business, logoUrl: 'https://images.example.com/logo-nuevo.jpg' })
-  assert.deepEqual([changedLogo.bannerUrl, changedLogo.logoUrl], [business.coverImageUrl, 'https://images.example.com/logo-nuevo.jpg'])
+  assert.deepEqual([changedLogo.bannerUrl, changedLogo.logoUrl], [null, 'https://images.example.com/logo-nuevo.jpg'])
 
   conflict = true
   const concurrent = await app.inject({

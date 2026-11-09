@@ -154,16 +154,28 @@ if (!browserModule) {
       assert.equal(await source.inputValue(), 'cover')
       assert.equal(await zoom.inputValue(), '300', 'saved crop reopens at the previous zoom')
 
-      // Use a less cropped photo selection for the presentation than the max-zoom regression above.
+      // Zooming out to the minimum preserves the full banner and portrait.
       await zoom.press('Home')
+      assert.equal(await zoom.inputValue(), '0', 'banner can zoom out below fill')
+      assert.ok(await horizontal.isDisabled() && await vertical.isDisabled())
       await vertical.evaluate((control: HTMLInputElement) => {
         control.value = '30'
         control.dispatchEvent(new Event('input', { bubbles: true }))
       })
       await editor.getByRole('button', { name: 'Ajustar foto 1' }).click()
       await zoom.press('Home')
+      assert.equal(await zoom.inputValue(), '0', 'portrait can zoom out below fill')
+      assert.ok(await horizontal.isDisabled() && await vertical.isDisabled())
       await save.click()
       await editor.getByText('Imágenes del correo guardadas.').waitFor()
+
+      const fullFrame = { x: 0, y: 0, width: 1, height: 1, fillRatio: 0 }
+      assert.deepEqual(settings.banner.crop, fullFrame)
+      assert.deepEqual(settings.gallery[0].crop, fullFrame)
+      const padding = await sharp(rendered.get('/rendered/gallery-0')!).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer()
+      assert.ok([...padding].every((channel, index) => Math.abs(channel - [255, 253, 248][index]!) < 4), 'portrait padding matches the email background')
+      await editor.getByRole('button', { name: 'Ajustar foto 1' }).click()
+      assert.equal(await zoom.inputValue(), '0', 'full portrait reopens at minimum zoom')
 
       const emailPage = await context.newPage()
       const email = renderBookingConfirmationEmail({

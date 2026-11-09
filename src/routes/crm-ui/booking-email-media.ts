@@ -66,10 +66,10 @@ export const bookingEmailMediaMarkup = `
                     </section>
                     <section class="booking-email-media-block" id="booking-email-media-crop" aria-labelledby="booking-email-media-crop-title" hidden>
                       <h4 id="booking-email-media-crop-title" tabindex="-1">Ajustar encuadre</h4>
-                      <small>Arrastr&aacute; la imagen o us&aacute; los controles de posici&oacute;n.</small>
+                      <small>Alej&aacute; para mostrar la foto completa. Arrastr&aacute; la imagen o us&aacute; los controles de posici&oacute;n.</small>
                       <canvas id="booking-email-media-canvas" role="img" aria-label="Encuadre seleccionado"></canvas>
                       <div class="booking-email-media-ranges">
-                        <label>Zoom <input id="booking-email-media-zoom" type="range" min="100" max="300" value="100"></label>
+                        <label>Zoom <input id="booking-email-media-zoom" type="range" min="0" max="300" value="100"></label>
                         <label>Posici&oacute;n horizontal <input id="booking-email-media-horizontal" type="range" min="0" max="100" value="50"></label>
                         <label>Posici&oacute;n vertical <input id="booking-email-media-vertical" type="range" min="0" max="100" value="50"></label>
                       </div>
@@ -161,9 +161,23 @@ export const bookingEmailMediaScript = String.raw`
         return loadedImages.get(url)
       }
 
+      function cropScale(element, size, factor) {
+        const horizontalScale = size.width / element.naturalWidth
+        const verticalScale = size.height / element.naturalHeight
+        const cover = Math.max(horizontalScale, verticalScale)
+        if (factor >= 1) return cover * factor
+        const contain = Math.min(horizontalScale, verticalScale)
+        return contain + (cover - contain) * factor
+      }
+
       function cropBounds(element, size, factor) {
-        const scale = Math.max(size.width / element.naturalWidth, size.height / element.naturalHeight) * factor
-        return { width: Math.min(1, size.width / scale / element.naturalWidth), height: Math.min(1, size.height / scale / element.naturalHeight) }
+        if (factor === 0) return { width: 1, height: 1, fillRatio: 0 }
+        const scale = cropScale(element, size, factor)
+        const bounds = {
+          width: Math.min(1, size.width / (scale * element.naturalWidth)),
+          height: Math.min(1, size.height / (scale * element.naturalHeight))
+        }
+        return factor < 1 ? { ...bounds, fillRatio: factor } : bounds
       }
 
       function cropAt(bounds, x = 50, y = 50) {
@@ -185,8 +199,13 @@ export const bookingEmailMediaScript = String.raw`
         context.fillStyle = '#fffdf8'
         context.fillRect(0, 0, canvas.width, canvas.height)
         const { crop, original, logo } = picture
+        const sourceWidth = crop.width * original.naturalWidth
+        const sourceHeight = crop.height * original.naturalHeight
+        const scale = crop.fillRatio === undefined ? null : cropScale(original, size, crop.fillRatio)
+        const width = scale === null ? size.width : Math.min(size.width, sourceWidth * scale)
+        const height = scale === null ? size.height : Math.min(size.height, sourceHeight * scale)
         context.drawImage(original, crop.x * original.naturalWidth, crop.y * original.naturalHeight,
-          crop.width * original.naturalWidth, crop.height * original.naturalHeight, 0, 0, size.width, size.height)
+          sourceWidth, sourceHeight, (size.width - width) / 2, (size.height - height) / 2, width, height)
         if (logo) {
           const radius = 70
           const center = size.width / 2
@@ -238,7 +257,8 @@ export const bookingEmailMediaScript = String.raw`
           activeDimensions = picture
           const fit = cropBounds(picture.original, size, 1)
           const crop = picture.crop
-          zoom.value = String(Math.round(clamp(fit.width / crop.width, 1, 3) * 100))
+          const factor = crop.fillRatio ?? clamp(fit.width / crop.width, 1, 3)
+          zoom.value = String(Math.round(factor * 100))
           horizontal.value = String(crop.width < 1 ? Math.round(100 * crop.x / (1 - crop.width)) : 50)
           vertical.value = String(crop.height < 1 ? Math.round(100 * crop.y / (1 - crop.height)) : 50)
           horizontal.disabled = crop.width >= 1

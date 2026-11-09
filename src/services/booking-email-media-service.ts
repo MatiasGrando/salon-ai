@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { isIP } from 'node:net'
 import { parseImageDataUrl, storeBusinessImage } from './media-storage-service.js'
 
-type Crop = { x: number; y: number; width: number; height: number }
+type Crop = { x: number; y: number; width: number; height: number; fillRatio?: number }
 type BannerSource = 'cover' | 'gallery' | 'upload'
 type SavedPhoto = { sourceUrl: string; crop: Crop; imageUrl: string }
 type BusinessSources = {
@@ -73,10 +73,9 @@ export function bookingEmailMediaSources(business: BusinessSources) {
 }
 
 export function resolveBookingEmailMedia(business: BusinessSources): BookingEmailMedia {
-  const defaultBannerUrl = httpsBookingEmailUrl(business.coverImageUrl)
   const logoUrl = httpsBookingEmailUrl(business.logoUrl)
   const settings = record(business.bookingEmailMedia)
-  if (!settings || !Array.isArray(settings.gallery)) return { bannerUrl: defaultBannerUrl, logoUrl, galleryUrls: [] }
+  if (!settings || !Array.isArray(settings.gallery)) return { bannerUrl: null, logoUrl, galleryUrls: [] }
 
   const sources = bookingEmailMediaSources(business)
   const banner = record(settings.banner)
@@ -86,10 +85,7 @@ export function resolveBookingEmailMedia(business: BusinessSources): BookingEmai
     (banner?.source === 'gallery' && sources.gallery.includes(bannerSource)) ||
     (banner?.source === 'upload' && Boolean(httpsBookingEmailUrl(bannerSource)))
   )
-  const composed = isCurrentSource && settings.logoUrl === sources.logo ? httpsBookingEmailUrl(banner?.imageUrl) : null
-  const bannerUrl = settings.banner === null
-    ? null
-    : composed || (isCurrentSource ? httpsBookingEmailUrl(bannerSource) : defaultBannerUrl)
+  const bannerUrl = isCurrentSource && settings.logoUrl === sources.logo ? httpsBookingEmailUrl(banner?.imageUrl) : null
 
   const galleryUrls = settings.gallery.slice(0, 3).flatMap((value: unknown) => {
     const photo = record(value)
@@ -97,7 +93,7 @@ export function resolveBookingEmailMedia(business: BusinessSources): BookingEmai
     const url = httpsBookingEmailUrl(photo.imageUrl)
     return url ? [url] : []
   })
-  return { bannerUrl, logoUrl: composed ? null : logoUrl, galleryUrls }
+  return { bannerUrl, logoUrl: bannerUrl ? null : logoUrl, galleryUrls }
 }
 
 export async function storeBookingEmailMedia(
@@ -192,13 +188,14 @@ function prepareBanner(value: unknown, business: BusinessSources, sources: Retur
 
 function crop(value: unknown): Crop {
   const data = record(value)
-  const { x, y, width, height } = data || {}
+  const { x, y, width, height, fillRatio } = data || {}
   if (typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number' || typeof height !== 'number' ||
     ![x, y, width, height].every(Number.isFinite) || x < 0 || y < 0 || width <= 0 || height <= 0 ||
-    x >= 1 || y >= 1 || x + width > 1.000001 || y + height > 1.000001) {
+    x >= 1 || y >= 1 || x + width > 1.000001 || y + height > 1.000001 ||
+    (fillRatio !== undefined && (typeof fillRatio !== 'number' || !Number.isFinite(fillRatio) || fillRatio < 0 || fillRatio >= 1))) {
     throw new BookingEmailMediaInputError('El encuadre no es válido. Ajustá la imagen y volvé a guardar.')
   }
-  return { x, y, width: Math.min(width, 1 - x), height: Math.min(height, 1 - y) }
+  return { x, y, width: Math.min(width, 1 - x), height: Math.min(height, 1 - y), ...(fillRatio === undefined ? {} : { fillRatio }) }
 }
 
 function imageData(value: unknown, maxBytes: number, label: string, jpegOnly = false) {
