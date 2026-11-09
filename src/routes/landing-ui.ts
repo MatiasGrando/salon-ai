@@ -11,6 +11,7 @@ import { isBusinessAccountUnavailable } from '../services/business-account-acces
 import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
 import { publicBookingNavigation } from '../services/public-booking-navigation.js'
+import { httpsBookingEmailUrl, resolveBookingEmailMedia } from '../services/booking-email-media-service.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -1790,6 +1791,16 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
   const addressLabel = formatPublicAddress(business)
+  const bookingConfirmationBusiness = {
+    name: business.name,
+    initials: initialsText,
+    address: addressLabel,
+    mapsUrl: addressLabel
+      ? httpsBookingEmailUrl(business.publicMapsUrl) || 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(addressLabel)
+      : null,
+    timezone: business.timezone || 'America/Argentina/Buenos_Aires',
+    ...resolveBookingEmailMedia(business)
+  }
   return htmlPage({
     title: `Reservar en ${business.name}`,
     bodyClass: `booking-template-${requestedTemplate} booking-theme-${bookingTheme}`,
@@ -1906,6 +1917,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const backPath = ${JSON.stringify(landingReturnPath)}
           const accountPath = ${JSON.stringify(accountPath)}
           const managementAccountPath = ${JSON.stringify(managementAccountPath)}
+          const bookingConfirmationBusiness = ${JSON.stringify(bookingConfirmationBusiness).replace(/</g, '\\u003c')}
           ${appointmentSelfServiceClient()}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
@@ -2639,12 +2651,97 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             window.location.assign(target.pathname + target.search + target.hash)
           }
 
-          function persistedBookingActions() {
+          function persistedBookingActions(confirmation = false) {
             const disabled = state.submitting || state.uploadingProof ? ' disabled' : ''
-            return '<button class="success-link" id="booking-new-reservation" type="button"' + disabled + '>Reservar otro turno</button>' +
-              (state.guestBooking
-                ? '<button class="success-link secondary" id="booking-view-reservations" type="button"' + disabled + '>Ver mis reservas</button><button class="success-link secondary" id="booking-guest-refresh" type="button"' + disabled + '>Actualizar estado</button>'
-                : '<a class="success-link secondary" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>')
+            const newClass = confirmation ? 'success-link secondary' : 'success-link'
+            const manageClass = confirmation ? 'success-link' : 'success-link secondary'
+            const next = '<button class="' + newClass + '" id="booking-new-reservation" type="button"' + disabled + '>Reservar otro turno</button>'
+            const manage = state.guestBooking
+              ? '<button class="' + manageClass + '" id="booking-view-reservations" type="button"' + disabled + '>Ver mis reservas</button>'
+              : '<a class="' + manageClass + '" href="' + escapeHtml(accountPath) + '">Ver mis reservas</a>'
+            const refresh = state.guestBooking
+              ? '<button class="success-link secondary" id="booking-guest-refresh" type="button"' + disabled + '>Actualizar estado</button>'
+              : ''
+            return (confirmation ? manage + next : next + manage) + refresh
+          }
+
+          function bookingConfirmationAppointments() {
+            const appointments = state.guestAppointments || []
+            const segments = state.itinerary?.segments || []
+            const services = selectedServices()
+            const timeZone = bookingConfirmationBusiness.timezone
+            const date = new Intl.DateTimeFormat('es-AR', { timeZone, weekday: 'long', day: 'numeric', month: 'long' })
+            const time = new Intl.DateTimeFormat('es-AR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+            return Array.from({ length: appointments.length || segments.length || services.length }, (_, index) => {
+              const appointment = appointments[index]
+              const segment = segments[index]
+              const service = appointment?.service || services[index]
+              const start = appointment?.startAt ? new Date(appointment.startAt) : null
+              const hasStart = start && Number.isFinite(start.getTime())
+              const duration = appointment?.totalDurationMinutes ?? service?.duration
+              const end = hasStart && Number.isFinite(duration) && duration > 0
+                ? new Date(start.getTime() + duration * 60000)
+                : null
+              const professionalId = appointment?.professionalId || state.slot?.professionalId || state.professionalId
+              return {
+                name: service?.name || segment?.serviceName || 'Servicio reservado',
+                professional: appointment?.professional?.name || segment?.professionalName ||
+                  (professionalId ? professionalName(professionalId) : ''),
+                date: hasStart ? date.format(start) : state.dateLabel,
+                start: hasStart ? time.format(start) : segment?.startTime || state.slot?.time,
+                end: end && Number.isFinite(end.getTime()) ? time.format(end) : segment?.endTime,
+                price: appointment ? appointment.quotedPrice : service?.price,
+                priceLabel: appointment
+                  ? Number.isFinite(appointment.quotedPrice) ? '' : 'Precio a consultar'
+                  : service ? serviceDisplayPrice(service) : ''
+              }
+            })
+          }
+
+          function renderBookingConfirmationCard() {
+            const brand = bookingConfirmationBusiness
+            const appointments = bookingConfirmationAppointments()
+            const hasTotal = appointments.length && appointments.every((item) => Number.isFinite(item.price))
+            const total = state.guestAppointments?.length
+              ? hasTotal ? formatPrice(appointments.reduce((sum, item) => sum + item.price, 0)) : 'A consultar'
+              : appointments.length ? combinedDisplayPrice() : ''
+            const deposit = Number.isFinite(state.deposit?.amount) ? formatPrice(state.deposit.amount) : ''
+            const banner = brand.bannerUrl
+              ? '<img class="booking-confirmation-banner" src="' + escapeHtml(brand.bannerUrl) + '" alt="">'
+              : ''
+            const logo = brand.logoUrl
+              ? '<img class="booking-confirmation-logo" src="' + escapeHtml(brand.logoUrl) + '" alt="">'
+              : banner ? '' : '<span class="booking-confirmation-logo" aria-hidden="true">' + escapeHtml(brand.initials) + '</span>'
+            const photos = brand.galleryUrls.map((photo) =>
+              '<img src="' + escapeHtml(photo) + '" alt="" loading="lazy" decoding="async">').join('')
+            const location = brand.address
+              ? '<p class="booking-confirmation-address">' + escapeHtml(brand.address) +
+                (brand.mapsUrl ? ' <a href="' + escapeHtml(brand.mapsUrl) + '" target="_blank" rel="noopener noreferrer">C&oacute;mo llegar</a>' : '') + '</p>'
+              : ''
+            const rows = appointments.map((item) => {
+              const schedule = [item.date, [item.start, item.end].filter(Boolean).join(' – ')].filter(Boolean)
+              const price = item.priceLabel || (Number.isFinite(item.price) ? formatPrice(item.price) : '')
+              return '<li class="booking-confirmation-item"><div>' +
+                '<strong>' + escapeHtml(item.name) + '</strong>' +
+                (item.professional ? '<p>Con ' + escapeHtml(item.professional) + '</p>' : '') +
+                (schedule.length ? '<p data-booking-date>' + schedule.map((part) => escapeHtml(part)).join(' &middot; ') + '</p>' : '') +
+                '</div>' + (price ? '<strong>' + escapeHtml(price) + '</strong>' : '') + '</li>'
+            }).join('')
+            const calendar = state.calendarSync?.ok
+              ? '<p class="success-calendar ok">Lo agregamos a tu Google Calendar.</p>'
+              : state.calendarSync
+                ? '<p class="success-calendar warn">Tu turno est&aacute; confirmado. Pod&eacute;s verlo en tus reservas si no aparece en Google Calendar.</p>'
+                : ''
+            return '<article class="booking-confirmation-card" aria-label="Detalle del turno">' + banner +
+              '<div class="booking-confirmation-details">' +
+                '<header class="booking-confirmation-brand">' + logo + '<div><h2>' + escapeHtml(brand.name) + '</h2>' + location + '</div></header>' +
+                (rows ? '<ul class="booking-confirmation-items">' + rows + '</ul>' : '') +
+                (deposit ? '<p class="booking-confirmation-total"><span>Se&ntilde;a de la reserva</span><strong>' + escapeHtml(deposit) + '</strong></p>' : '') +
+                (total ? '<p class="booking-confirmation-total"><span>Total</span><strong>' + escapeHtml(total) + '</strong></p>' : '') +
+                calendar + '<div class="success-actions">' + persistedBookingActions(true) +
+                  '<a class="booking-confirmation-back" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(brand.name) + '</a></div>' +
+                (photos ? '<div class="booking-confirmation-gallery">' + photos + '</div>' : '') +
+              '</div></article>'
           }
 
           function renderConfirmStep() {
@@ -2681,23 +2778,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               return
             }
             if (state.confirmed) {
-              const accountName = state.weexAccount?.name || state.guestName || 'tu reserva'
-              const calendarMessage = state.calendarSync?.ok
-                ? '<p class="success-calendar ok">Tambien lo agregamos a tu Google Calendar.</p>'
-                : state.calendarSync
-                  ? '<p class="success-calendar warn">Tu turno quedo confirmado, pero no pudimos cargarlo en Google Calendar. Podes verlo igual desde tus reservas.</p>'
-                  : ''
-              els.content.innerHTML =
-                '<div class="booking-success">' +
-                  '<div class="success-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg></div>' +
-                  '<h2>' + (state.guestCompleted ? 'Turno realizado' : state.guestBooking ? 'Turno confirmado' : (isMultiService() ? 'Reservas coordinadas exitosas, ' : 'Reserva exitosa, ') + escapeHtml(accountName)) + '</h2>' +
-                  '<p data-booking-date>' + escapeHtml(state.dateLabel || '') + ' a las ' + escapeHtml(state.itinerary?.startTime || state.slot?.time || '') + '.</p>' +
-                  calendarMessage +
-                  '<div class="success-actions">' +
-                    '<a class="success-link secondary" href="' + escapeHtml(backPath) + '">Volver a ' + escapeHtml(state.catalog?.business?.name || 'comercio') + '</a>' +
-                    guestActions +
-                  '</div>' +
-                '</div>'
+              els.content.innerHTML = renderBookingConfirmationCard()
               updateContinue(false)
               els.continue.hidden = true
               return
@@ -3691,6 +3772,9 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             setFeedback('', '')
             const summary = document.querySelector('.fresha-summary')
             summary?.classList.remove('guest-reservation-detail')
+            els.content.closest('.fresha-body')?.classList.toggle('booking-confirmation-layout', Boolean(
+              state.catalog && currentStepId() === 'confirm' && state.confirmed && !state.guestClosed && !state.reschedule && state.bookingView !== 'list'
+            ))
             summary?.classList.toggle('draft-confirmation-summary', Boolean(state.catalog && currentStepId() === 'confirm' &&
               !state.bookingView && !state.confirmed && !state.deposit && !state.proofSent && !state.guestClosed))
             els.back.disabled = Boolean(state.submitting || state.uploadingProof || state.managingAppointment)
@@ -7040,6 +7124,70 @@ function htmlPage(input: {
       background: #FFF1F2;
       border: 1px solid #FECACA;
     }
+    body[class*="booking-theme-"] .fresha-body.booking-confirmation-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    body[class*="booking-theme-"] .booking-confirmation-layout .fresha-main {
+      width: min(100%, 720px);
+      margin-inline: auto;
+    }
+    body[class*="booking-theme-"] .booking-confirmation-layout .fresha-summary { display: none; }
+    .booking-confirmation-card {
+      overflow: hidden;
+      border: 1px solid var(--booking-border);
+      border-radius: 16px;
+      background: var(--booking-surface);
+      color: var(--booking-ink);
+    }
+    .booking-confirmation-banner { display: block; width: 100%; height: auto; }
+    .booking-confirmation-details { padding: clamp(16px, 4vw, 28px); }
+    .booking-confirmation-brand { display: flex; align-items: center; gap: 12px; }
+    .booking-confirmation-brand h2 { margin: 0; color: inherit; font-size: clamp(20px, 4vw, 25px); }
+    .booking-confirmation-logo {
+      display: grid;
+      flex: 0 0 52px;
+      width: 52px;
+      height: 52px;
+      place-items: center;
+      object-fit: contain;
+      border-radius: 10px;
+      background: var(--booking-accent-soft);
+      color: var(--booking-ink);
+      font-weight: 800;
+    }
+    .booking-confirmation-address { margin: 4px 0 0; color: var(--booking-muted); line-height: 1.5; }
+    .booking-confirmation-address a, .booking-confirmation-back {
+      color: var(--booking-ink);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .booking-confirmation-address a { display: inline-block; margin-left: 4px; }
+    .booking-confirmation-items { margin: 20px 0 0; padding: 0; list-style: none; }
+    .booking-confirmation-item, .booking-confirmation-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+      border-top: 1px solid var(--booking-border);
+      padding: 12px 0;
+    }
+    .booking-confirmation-item > div { min-width: 0; overflow-wrap: anywhere; }
+    .booking-confirmation-item p { margin: 4px 0 0; color: var(--booking-muted); line-height: 1.45; }
+    .booking-confirmation-total { margin: 0; }
+    .booking-confirmation-card .success-actions { justify-content: flex-start; margin-top: 16px; }
+    .booking-confirmation-back { padding: 8px 4px; }
+    .booking-confirmation-gallery { display: flex; gap: 8px; margin-top: 20px; }
+    .booking-confirmation-gallery img {
+      display: block;
+      width: calc((100% - 16px) / 3);
+      aspect-ratio: 3 / 2;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+    @media (max-width: 560px) {
+      .booking-confirmation-card .success-actions { align-items: stretch; flex-direction: column; }
+      .booking-confirmation-back { text-align: center; }
+    }
     .booking-success {
       padding: 58px 20px;
       text-align: center;
@@ -7074,6 +7222,7 @@ function htmlPage(input: {
       font-size: 14px;
       line-height: 1.55;
     }
+    .booking-confirmation-card .success-calendar,
     .booking-success .success-calendar {
       width: min(420px, 100%);
       margin-top: 12px;
@@ -7082,11 +7231,13 @@ function htmlPage(input: {
       font-size: 13px;
       font-weight: 800;
     }
+    .booking-confirmation-card .success-calendar.ok,
     .booking-success .success-calendar.ok {
       color: #166534;
       background: #F0FDF4;
       border: 1px solid #BBF7D0;
     }
+    .booking-confirmation-card .success-calendar.warn,
     .booking-success .success-calendar.warn {
       color: #92400E;
       background: #FFFBEB;
