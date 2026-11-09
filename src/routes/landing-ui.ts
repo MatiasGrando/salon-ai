@@ -14,6 +14,7 @@ import { publicBookingNavigation } from '../services/public-booking-navigation.j
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
+const googleSignInIcon = '<span class="account-google-symbol" aria-hidden="true"><svg viewBox="0 0 18 18" focusable="false"><path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.258h2.909c1.702-1.567 2.683-3.874 2.683-6.614z"/><path fill="#34A853" d="M9 18c2.43 0 4.468-.806 5.957-2.181l-2.909-2.258c-.806.54-1.835.859-3.048.859-2.344 0-4.328-1.585-5.036-3.714H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.168.282-1.706V4.962H.957A9 9 0 0 0 0 9c0 1.452.347 2.827.957 4.038l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.507.454 3.44 1.346l2.581-2.581C13.464.892 11.426 0 9 0 5.482 0 2.438 2.017.957 4.962l3.007 2.332C4.672 5.165 6.656 3.58 9 3.58z"/></svg></span>'
 const landingAssetNames = new Set([
   'barber-gallery-tools.png',
   'barber-hero-interior.png',
@@ -1910,6 +1911,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
           const baseDomain = ${JSON.stringify(baseDomain)}
           const centralLoginBaseUrl = ${JSON.stringify(`https://${baseDomain}`)}
+          const googleSignInIcon = ${JSON.stringify(googleSignInIcon)}
           const previewQuery = ${JSON.stringify(demoPreview ? 'preview=1' : '')}
           const bookingApiUrl = (path, query = '') => {
             const parameters = [query, previewQuery].filter(Boolean).join('&')
@@ -2760,13 +2762,16 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                   '</div>' +
                   '<p class="booking-guest-help" id="booking-guest-help">Para un tel&eacute;fono de otro pa&iacute;s, inclu&iacute; + y el c&oacute;digo de pa&iacute;s.</p>' +
                   '<p class="booking-guest-help">Podr&aacute;s consultar la reserva y enviar su comprobante desde este navegador. Esto no da acceso a turnos anteriores.</p>' +
-                  '<div class="booking-guest-google-row"><span>O us&aacute; tu cuenta</span><button id="booking-guest-google" type="button">Continuar con Google</button></div>' +
+                  '<div class="booking-guest-google-row"><span>O us&aacute; tu cuenta</span><div id="booking-guest-google"></div></div>' +
+                  '<p class="booking-gate-feedback" id="booking-guest-google-feedback" role="status" aria-live="polite"></p>' +
                 '</section>'
               :
               '<div class="booking-account-ready">' +
                 '<div class="account-mini-avatar">' + escapeHtml(initials(state.weexAccount?.name || 'Reserva')) + '</div>' +
                 '<div><h2>Reserva para ' + escapeHtml(state.weexAccount?.name || 'vos') + '</h2></div>' +
               '</div>'
+            const guestGoogle = els.content.querySelector('#booking-guest-google')
+            if (guestGoogle) renderBookingGoogleButton(guestGoogle, setGuestGoogleFeedback)
             updateContinue(isMultiService()
               ? Boolean(state.itinerary)
               : Boolean(state.service && state.professionalId && state.slot), 'Reservar turno')
@@ -3389,77 +3394,93 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             els.gateFeedback.className = 'booking-gate-feedback' + (message ? ' visible ' + type : '')
           }
 
-          function renderBookingGoogleButton() {
+          function setGuestGoogleFeedback(message, type) {
+            const feedback = document.getElementById('booking-guest-google-feedback')
+            if (!feedback) return
+            feedback.textContent = message
+            feedback.className = 'booking-gate-feedback' + (message ? ' visible ' + type : '')
+          }
+
+          function renderBookingGoogleButton(target = els.gateGoogle, setLocalFeedback = setGateFeedback, attempts = 0) {
+            if (!target?.isConnected || target.dataset.rendered === 'true') return
             if (!googleClientId) {
-              setGateFeedback('Falta configurar GOOGLE_CLIENT_ID para iniciar sesion con Google.', 'error')
+              setLocalFeedback('El acceso con Google no est\u00e1 disponible en este momento.', 'error')
               return
+            }
+            const prepareSignIn = () => {
+              state.bookingGoogleFeedback = setLocalFeedback
+              setLocalFeedback('', '')
+            }
+            const begin = (start) => {
+              prepareSignIn()
+              try {
+                start()
+              } catch {
+                setLocalFeedback('No pudimos abrir Google. Volv\u00e9 a intentar.', 'error')
+              }
             }
             if (usesCentralWeexLogin()) {
-              renderBookingCentralLoginButton()
+              renderBookingGoogleAction(target, () => begin(() => openCentralWeexLogin(setLocalFeedback)))
+              target.dataset.rendered = 'true'
               return
             }
-            if (googleCalendarEnabled) {
-              renderBookingGoogleCalendarButton()
+            const provider = googleCalendarEnabled ? window.google?.accounts?.oauth2 : window.google?.accounts?.id
+            if (!provider) {
+              if (attempts >= 20) {
+                setLocalFeedback('No pudimos cargar el acceso con Google. Volv\u00e9 a intentar.', 'error')
+                return
+              }
+              if (target.dataset.waiting === 'true') return
+              target.dataset.waiting = 'true'
+              window.setTimeout(() => {
+                delete target.dataset.waiting
+                if (target === els.gateGoogle && (els.gate.hidden || els.gateLogin.hidden)) return
+                renderBookingGoogleButton(target, setLocalFeedback, attempts + 1)
+              }, 250)
               return
             }
-            if (!window.google?.accounts?.id) {
-              window.setTimeout(renderBookingGoogleButton, 250)
-              return
+            try {
+              if (googleCalendarEnabled) {
+                state.bookingGoogleCodeClient ||= provider.initCodeClient({
+                  client_id: googleClientId,
+                  scope: 'openid email profile https://www.googleapis.com/auth/calendar.events.owned',
+                  ux_mode: 'popup',
+                  include_granted_scopes: true,
+                  prompt: 'consent',
+                  callback: handleBookingGoogleCode,
+                  error_callback: () => {
+                    const feedback = state.bookingGoogleFeedback || setGateFeedback
+                    feedback('No se complet\u00f3 el acceso con Google. Volv\u00e9 a intentar.', 'error')
+                  }
+                })
+                renderBookingGoogleAction(target, () => begin(() => state.bookingGoogleCodeClient.requestCode()))
+              } else {
+                if (!state.bookingGoogleCredentialReady) {
+                  provider.initialize({ client_id: googleClientId, callback: handleBookingGoogleCredential })
+                  state.bookingGoogleCredentialReady = true
+                }
+                provider.renderButton(target, {
+                  type: 'standard',
+                  theme: 'outline',
+                  size: 'large',
+                  text: 'continue_with',
+                  shape: 'pill',
+                  logo_alignment: 'left',
+                  locale: 'es',
+                  width: Math.min(384, target.clientWidth || 240),
+                  click_listener: prepareSignIn
+                })
+              }
+              target.dataset.rendered = 'true'
+            } catch {
+              setLocalFeedback('No pudimos preparar el acceso con Google. Volv\u00e9 a intentar.', 'error')
             }
-            if (els.gateGoogle.dataset.rendered === 'true') return
-            els.gateGoogle.dataset.rendered = 'true'
-            window.google.accounts.id.initialize({
-              client_id: googleClientId,
-              callback: handleBookingGoogleCredential
-            })
-            window.google.accounts.id.renderButton(els.gateGoogle, {
-              type: 'standard',
-              theme: 'outline',
-              size: 'large',
-              text: 'continue_with',
-              shape: 'pill',
-              logo_alignment: 'left',
-              width: Math.min(384, els.gateGoogle.clientWidth || 384)
-            })
           }
 
-          function renderBookingCentralLoginButton() {
-            if (els.gateGoogle.dataset.rendered === 'true') return
-            els.gateGoogle.dataset.rendered = 'true'
-            els.gateGoogle.innerHTML =
-              '<button class="booking-gate-google-action" type="button">' +
-                '<span class="google-mark">G</span>' +
-                '<span>Continuar con Google</span>' +
-              '</button>'
-            els.gateGoogle.querySelector('button')?.addEventListener('click', () => {
-              openCentralWeexLogin(setGateFeedback)
-            })
-          }
-
-          function renderBookingGoogleCalendarButton() {
-            if (!window.google?.accounts?.oauth2) {
-              window.setTimeout(renderBookingGoogleButton, 250)
-              return
-            }
-            if (els.gateGoogle.dataset.rendered === 'true') return
-            els.gateGoogle.dataset.rendered = 'true'
-            const codeClient = window.google.accounts.oauth2.initCodeClient({
-              client_id: googleClientId,
-              scope: 'openid email profile https://www.googleapis.com/auth/calendar.events.owned',
-              ux_mode: 'popup',
-              include_granted_scopes: true,
-              prompt: 'consent',
-              callback: handleBookingGoogleCode
-            })
-            els.gateGoogle.innerHTML =
-              '<button class="booking-gate-google-action" type="button">' +
-                '<span class="google-mark">G</span>' +
-                '<span>Continuar con Google</span>' +
-              '</button>'
-            els.gateGoogle.querySelector('button')?.addEventListener('click', () => {
-              setGateFeedback('', '')
-              codeClient.requestCode()
-            })
+          function renderBookingGoogleAction(target, onClick) {
+            target.innerHTML = '<button class="booking-gate-google-action booking-google-sign-in" type="button">' +
+              googleSignInIcon + '<span>Continuar con Google</span></button>'
+            target.querySelector('button')?.addEventListener('click', onClick)
           }
 
           function usesCentralWeexLogin() {
@@ -3477,41 +3498,44 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             window.location.assign(loginUrl)
           }
 
-          async function handleBookingGoogleCode(response) {
+          function handleBookingGoogleCode(response) {
+            const feedback = state.bookingGoogleFeedback || setGateFeedback
             if (!response?.code) {
-              setGateFeedback('Google no devolvio una autorizacion valida.', 'error')
+              feedback('Google no devolvi\u00f3 una autorizaci\u00f3n v\u00e1lida.', 'error')
               return
             }
-            setGateFeedback('Autorizando Google Calendar...', 'info')
-            try {
-              const result = await postJson('/public/weex/auth/google-code', { code: response.code })
-              state.weexAccount = result.account
-              if (!state.weexAccount.phone) {
-                showBookingGate('phone')
-                return
-              }
-              proceedToConfirm()
-            } catch (error) {
-              setGateFeedback(error.message, 'error')
-            }
+            return finishBookingGoogleLogin('/public/weex/auth/google-code', { code: response.code }, feedback, 'Autorizando Google Calendar...')
           }
 
-          async function handleBookingGoogleCredential(response) {
+          function handleBookingGoogleCredential(response) {
+            const feedback = state.bookingGoogleFeedback || setGateFeedback
             if (!response?.credential) {
-              setGateFeedback('Google no devolvio una credencial valida.', 'error')
+              feedback('Google no devolvi\u00f3 una credencial v\u00e1lida.', 'error')
               return
             }
-            setGateFeedback('Validando Google...', 'info')
+            return finishBookingGoogleLogin('/public/weex/auth/google', { credential: response.credential }, feedback, 'Validando Google...')
+          }
+
+          async function finishBookingGoogleLogin(url, payload, feedback, pendingMessage) {
+            if (state.bookingGoogleAuthenticating) return
+            state.bookingGoogleAuthenticating = true
+            feedback(pendingMessage, 'info')
             try {
-              const result = await postJson('/public/weex/auth/google', { credential: response.credential })
+              const result = await postJson(url, payload)
               state.weexAccount = result.account
+              if (state.bookingView || !['time', 'confirm'].includes(currentStepId())) {
+                render()
+                return
+              }
               if (!state.weexAccount.phone) {
                 showBookingGate('phone')
                 return
               }
               proceedToConfirm()
             } catch (error) {
-              setGateFeedback(error.message, 'error')
+              feedback(error.message, 'error')
+            } finally {
+              state.bookingGoogleAuthenticating = false
             }
           }
 
@@ -3803,10 +3827,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               }
               return
             }
-            if (event.target.closest('#booking-guest-google')) {
-              showBookingGate('login')
-              return
-            }
+
             if (event.target.closest('#booking-guest-refresh')) {
               void refreshGuestBooking()
               return
@@ -4255,7 +4276,7 @@ function renderCustomerAccount(business: LandingBusiness, basePath: string) {
   const bookingTheme = resolveBookingTheme(business.bookingTheme, normalizeLandingTemplate(business.landingTemplate))
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
-  const googleIcon = '<span class="account-google-symbol" aria-hidden="true"><svg viewBox="0 0 18 18" focusable="false"><path fill="#4285F4" d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.258h2.909c1.702-1.567 2.683-3.874 2.683-6.614z"/><path fill="#34A853" d="M9 18c2.43 0 4.468-.806 5.957-2.181l-2.909-2.258c-.806.54-1.835.859-3.048.859-2.344 0-4.328-1.585-5.036-3.714H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.168.282-1.706V4.962H.957A9 9 0 0 0 0 9c0 1.452.347 2.827.957 4.038l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.507.454 3.44 1.346l2.581-2.581C13.464.892 11.426 0 9 0 5.482 0 2.438 2.017.957 4.962l3.007 2.332C4.672 5.165 6.656 3.58 9 3.58z"/></svg></span>'
+  const googleIcon = googleSignInIcon
   return htmlPage({
     title: `Mi perfil | ${business.name}`,
     bodyClass: `booking-theme-${bookingTheme}`,
@@ -9035,6 +9056,14 @@ function htmlPage(input: {
     #account-guest-register { display:flex; align-items:center; justify-content:center; gap:12px; text-align:left; }
     .account-google-symbol { display:inline-flex; align-items:center; justify-content:center; flex:0 0 32px; width:32px; height:32px; border-radius:50%; background:#FFFFFF; }
     .account-google-symbol svg { display:block; width:20px; height:20px; }
+    #booking-guest-google { width:min(100%, 240px); min-height:44px; }
+    .fresha-booking .booking-google-sign-in.booking-gate-google-action {
+      width:100%; min-height:44px; border:1px solid #747775; border-radius:999px;
+      background:#fff; color:#1f1f1f; font:500 14px Arial,sans-serif;
+    }
+    .fresha-booking .booking-google-sign-in.booking-gate-google-action:hover { background:#f8faff; color:#1f1f1f; }
+    .booking-google-sign-in .account-google-symbol,
+    .booking-google-sign-in .account-google-symbol svg { width:18px; height:18px; flex-basis:18px; background:transparent; }
     .account-login-back { margin-top:18px; }
     body.booking-theme-yellow-black .account-sidebar { background:linear-gradient(103deg,var(--booking-cta) 0 76%,#111111 76%); }
     body.booking-theme-yellow-black .account-brand-mark,
