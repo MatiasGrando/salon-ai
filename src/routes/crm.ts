@@ -1453,7 +1453,9 @@ export async function crmRoutes(app: FastifyInstance, options: CrmRoutesOptions)
           serviceName: appointment.service.name,
           professionalName: appointment.professional.name,
           startAt: appointment.startAt,
-          durationMinutes: customerDurationRange(appointment.service).max
+          durationMinutes: customerDurationRange(appointment.service).max,
+          quotedPrice: appointment.quotedPrice,
+          priceMode: appointment.service.priceMode
         }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion'))
       }
       if (account && weexGoogleCalendarEnabled()) {

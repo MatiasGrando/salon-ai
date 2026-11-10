@@ -35,7 +35,7 @@ async function check(name: string, run: () => any) {
 }
 const services: any[] = ['cut', 'color'].map(id => ({
   id, name: id, businessId: 'business-a', duration: 30, price: 15000, isActive: true, isBookable: true,
-  attentionMode: 'DIRECT_BOOKING', estimateAllowsBooking: true, bookingOrderPriority: 1,
+  attentionMode: 'DIRECT_BOOKING', priceMode: 'FIXED', estimateAllowsBooking: true, bookingOrderPriority: 1,
   depositMode: 'NONE', depositValue: null, depositHoldMinutes: 60, validationEnabled: false,
   professionalLinks: [{ professional: { id: 'pro-a', name: 'Professional' } }]
 }))
@@ -167,13 +167,33 @@ try {
       const before = sentEmails.length, writes = customerUpdates.length
       const response = await book({ customerEmail: '  Guest@Example.test  ' })
       assert.equal(response.statusCode, 200, response.body)
+      const result = response.json()
+      const saved = multi ? result.appointments : [result.appointment]
+      assert.deepEqual(saved.map((appointment: { quotedPrice: number }) => appointment.quotedPrice), multi ? [15000, 15000] : [15000])
       const emails = sentEmails.slice(before)
       assert.equal(emails.length, multi ? 2 : 1)
-      assert.ok(emails.every(email => email.to[0] === 'guest@example.test'))
+      assert.ok(emails.every(email => email.to[0] === 'guest@example.test' && /Precio:.*15[.]000/.test(email.text)))
       assert.ok(emails.every(email => !email.html.includes('Ver mi turno')), 'guest confirmation must omit the account link')
       assert.ok(emails.every(email => email.attachments[0].filename === 'turno-weex.ics'))
       assert.ok(customerUpdates.slice(writes).some(data => data.email === 'guest@example.test'))
     }
+  })
+  await check('confirmation preserves free, unknown and starting-at amounts', async () => {
+    const service = services[0]
+    const before = { price: service.price, priceMode: service.priceMode }
+    try {
+      for (const [price, priceMode, label] of [
+        [0, 'FIXED', /Precio:.*\$\s*0/],
+        [null, 'FIXED', /Precio: A consultar/],
+        [18000, 'STARTING_AT', /Precio: Desde.*18[.]000/]
+      ] as const) {
+        Object.assign(service, { price, priceMode })
+        const response = await requestBooking({ customerEmail: 'guest@example.test' })
+        assert.equal(response.statusCode, 200, response.body)
+        assert.equal(response.json().appointment.quotedPrice, price)
+        assert.match(sentEmails.at(-1)!.text, label)
+      }
+    } finally { Object.assign(service, before) }
   })
   await check('invalid optional emails fail before customer, reservation or grant effects', async () => {
     for (const customerEmail of ['bad', 'a@b', 'a b@example.test', 'a@example.test\r\nBcc:x@y.test', 'a'.repeat(250) + '@b.test', 42, {}, []]) {
@@ -199,9 +219,12 @@ try {
         const before = sentEmails.length
         const response = await (multi ? groupBooking(headers, { customerEmail: 'bad' }) : requestBooking({ customerEmail: 'bad' }, headers))
         assert.equal(response.statusCode, 200, response.body)
+        const result = response.json()
+        const saved = multi ? result.appointments : [result.appointment]
+        assert.deepEqual(saved.map((appointment: { quotedPrice: number }) => appointment.quotedPrice), multi ? [15000, 15000] : [15000])
         const emails = sentEmails.slice(before)
         assert.equal(emails.length, multi ? 2 : 1)
-        assert.ok(emails.every(email => email.to[0] === account.email))
+        assert.ok(emails.every(email => email.to[0] === account.email && /Precio:.*15[.]000/.test(email.text)))
         assert.ok(emails.every(email => email.html.includes('/guest-test/cuenta') && email.html.includes('Ver mi turno')))
       }
     } finally { account.emailVerified = false }

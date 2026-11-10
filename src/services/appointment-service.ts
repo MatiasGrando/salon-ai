@@ -2219,7 +2219,7 @@ export function normalizeAppointmentAttentionColor(value: string | null | undefi
 
 function normalizeQuotedPrice(value: number | null | undefined) {
   if (value === null || value === undefined) return null
-  return Number.isInteger(value) && value > 0 ? value : null
+  return Number.isInteger(value) && value >= 0 ? value : null
 }
 
 function normalizedServiceIds(primaryServiceId: string, serviceIds?: string[]) {

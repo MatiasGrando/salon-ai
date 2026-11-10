@@ -18,6 +18,7 @@ const input = {
   professionalName: 'Joaquín',
   startAt: new Date('2026-09-26T18:00:00.000Z'),
   durationMinutes: 30,
+  quotedPrice: 25000,
   bookingManagementUrl: 'https://weex.com.ar/la-cochera/cuenta',
   emailMedia: {
     bannerUrl: 'https://example.com/media/header.jpg',
@@ -48,6 +49,8 @@ try {
   assert.match(first.html, /corte-2\.jpg[\s\S]+corte-1\.jpg/)
   assert.match(first.html, /María &amp; Tomás/)
   assert.match(first.html, /Corte[\s\S]+Joaquín/)
+  assert.match(first.html, /Precio:[^<]*\$\s*25[.]000/, 'el precio de la reserva se muestra en el correo')
+  assert.match(first.text, /Precio:.*25[.]000/)
   assert.match(first.html, /15:00\s*–\s*15:30 hs/, 'el correo de 24 horas muestra hs en la ficha')
   assert.equal((first.html.match(/class="booking-email-detail-icon"/g) || []).length, 5)
   assert.match(first.html, /href="https:\/\/maps\.example\.test\/la-cochera\?entry=email&amp;place=5520"[^>]*>Franklin Delano Roosevelt 5520, Villa Urquiza<\/a>/)
@@ -60,10 +63,12 @@ try {
   assert.match(event, /DTSTART:20260926T180000Z\r\nDTEND:20260926T183000Z/)
 
   const { emailMedia, bookingManagementUrl, ...textOnlyInput } = input
-  await sendBookingConfirmationEmail({ ...textOnlyInput, durationMinutes: 0, businessMapsUrl: 'javascript:alert(1)' })
+  await sendBookingConfirmationEmail({ ...textOnlyInput, durationMinutes: 0, quotedPrice: null, businessMapsUrl: 'javascript:alert(1)' })
   const textOnly = deliveries[1]!
   assert.doesNotMatch(textOnly.html, /<img\b|Ver mi turno/)
   assert.match(textOnly.html, /Corte[\s\S]+Joaquín/)
+  assert.match(textOnly.text, /Precio: A consultar/)
+  assert.doesNotMatch(textOnly.html, /25[.]000/)
   assert.match(textOnly.html, />15:00 hs<\/strong>/)
   assert.match(textOnly.html, /href="https:\/\/www\.google\.com\/maps\/search\/\?api=1&amp;query=[^"]+"[^>]*>Franklin Delano Roosevelt 5520, Villa Urquiza<\/a>/)
   assert.doesNotMatch(textOnly.html, /javascript:/)

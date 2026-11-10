@@ -48,10 +48,13 @@ try {
       const end = script.indexOf('\n          }', start)
       return script.slice(start, end + '\n          }'.length)
     }
-    const constants = script.match(/^          const bookingConfirmationBusiness = .+$/m)?.[0] || ''
+    const constants = [
+      script.match(/^          const bookingConfirmationBusiness = .+$/m)?.[0] || '',
+      script.match(/^          const bookingConfirmationDetailIcons = .+$/m)?.[0] || ''
+    ].join('\n')
     const functions = [
       'guestBookingAllowed', 'persistedBookingActions', 'guestBookingStatus', 'bookingConfirmationAppointments',
-      'renderBookingConfirmationCard', 'renderConfirmStep'
+      'bookingConfirmationPriceLabel', 'bookingConfirmationDetailRow', 'renderBookingConfirmationCard', 'renderConfirmStep'
     ].map(source).join('\n')
     const content = { innerHTML: '' }
     const heading = { textContent: '' }
@@ -88,9 +91,11 @@ try {
   assert.equal(account.title, 'Turno confirmado')
   assert.match(account.html, /Ana López/)
   assert.match(account.html, /jueves, 10 de octubre/)
-  assert.match(account.html, /15:30[^<]+16:00/, 'el rango usa la hora local y la duración reservada')
+  assert.match(account.html, /15:30[^<]+16:00 hs/, 'el rango usa la hora local, la duración reservada y el sufijo del correo')
+  assert.equal((account.html.match(/class="booking-confirmation-detail-icon"/g) || []).length, 5)
+  assert.match(account.html, /&#9986;&#65038;/)
   assert.match(account.html, /Av\. Prueba 123/)
-  assert.match(account.html, /https:\/\/maps\.example\.test\/\?place=123/)
+  assert.match(account.html, /href="https:\/\/maps\.example\.test\/\?place=123"[^>]*>Av\. Prueba 123<\/a>/)
   assert.match(account.html, /\$1200/)
   assert.match(account.html, /href="\/card-fixture\/cuenta"/)
   assert.match(account.html, /banner-composed\.jpg/)
@@ -99,8 +104,15 @@ try {
 
   const unquoted = render(script, { guestAppointments: [{ ...account.appointment, quotedPrice: null }] })
   assert.doesNotMatch(unquoted.html, /\$200/, 'un turno sin importe reservado no debe mostrar el precio de catálogo')
-  assert.match(unquoted.html, /Precio a consultar/)
+  assert.match(unquoted.html, /Precio: A consultar/)
   assert.match(unquoted.html, /<span>Total<\/span><strong>A consultar<\/strong>/)
+
+  const free = render(script, { guestAppointments: [{ ...account.appointment, quotedPrice: 0 }] })
+  assert.match(free.html, /<span>Total<\/span><strong>\$0<\/strong>/)
+  const startingAt = render(script, { guestAppointments: [{ ...account.appointment,
+    service: { ...account.appointment.service, priceMode: 'STARTING_AT' }
+  }] })
+  assert.match(startingAt.html, /<span>Total<\/span><strong>Desde \$1200<\/strong>/)
 
   const group = render(script, {
     guestBooking: true, weexAccount: null, guestCompleted: true,

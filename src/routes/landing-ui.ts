@@ -12,6 +12,7 @@ import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../servi
 import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
 import { publicBookingNavigation } from '../services/public-booking-navigation.js'
 import { httpsBookingEmailUrl, resolveBookingEmailMedia } from '../services/booking-email-media-service.js'
+import { bookingConfirmationDetailIcons } from '../services/booking-confirmation-email-service.js'
 
 const businessService = new BusinessService()
 const baseDomain = (process.env.PUBLIC_BASE_DOMAIN || 'weex.com.ar').toLowerCase()
@@ -1918,6 +1919,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const accountPath = ${JSON.stringify(accountPath)}
           const managementAccountPath = ${JSON.stringify(managementAccountPath)}
           const bookingConfirmationBusiness = ${JSON.stringify(bookingConfirmationBusiness).replace(/</g, '\\u003c')}
+          const bookingConfirmationDetailIcons = ${JSON.stringify(bookingConfirmationDetailIcons).replace(/</g, '\\u003c')}
           ${appointmentSelfServiceClient()}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}
@@ -2691,11 +2693,20 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
                 start: hasStart ? time.format(start) : segment?.startTime || state.slot?.time,
                 end: end && Number.isFinite(end.getTime()) ? time.format(end) : segment?.endTime,
                 price: appointment ? appointment.quotedPrice : service?.price,
-                priceLabel: appointment
-                  ? Number.isFinite(appointment.quotedPrice) ? '' : 'Precio a consultar'
-                  : service ? serviceDisplayPrice(service) : ''
+                priceMode: appointment?.service?.priceMode || service?.priceMode
               }
             })
+          }
+
+          function bookingConfirmationPriceLabel(price, priceMode) {
+            if (!Number.isFinite(price) || price < 0) return 'Precio a consultar'
+            const formatted = formatPrice(price)
+            return priceMode === 'STARTING_AT' ? 'Desde ' + formatted : formatted
+          }
+
+          function bookingConfirmationDetailRow(icon, content) {
+            return '<li class="booking-confirmation-item"><span class="booking-confirmation-detail-icon" aria-hidden="true">' +
+              bookingConfirmationDetailIcons[icon] + '</span><div>' + content + '</div></li>'
           }
 
           function renderBookingConfirmationCard() {
@@ -2703,7 +2714,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
             const appointments = bookingConfirmationAppointments()
             const hasTotal = appointments.length && appointments.every((item) => Number.isFinite(item.price))
             const total = state.guestAppointments?.length
-              ? hasTotal ? formatPrice(appointments.reduce((sum, item) => sum + item.price, 0)) : 'A consultar'
+              ? hasTotal ? (appointments.some((item) => item.priceMode === 'STARTING_AT') ? 'Desde ' : '') + formatPrice(appointments.reduce((sum, item) => sum + item.price, 0)) : 'A consultar'
               : appointments.length ? combinedDisplayPrice() : ''
             const deposit = Number.isFinite(state.deposit?.amount) ? formatPrice(state.deposit.amount) : ''
             const banner = brand.bannerUrl
@@ -2714,28 +2725,34 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
               : banner ? '' : '<span class="booking-confirmation-logo" aria-hidden="true">' + escapeHtml(brand.initials) + '</span>'
             const photos = brand.galleryUrls.map((photo) =>
               '<img src="' + escapeHtml(photo) + '" alt="" loading="lazy" decoding="async">').join('')
-            const location = brand.address
-              ? '<p class="booking-confirmation-address">' + escapeHtml(brand.address) +
-                (brand.mapsUrl ? ' <a href="' + escapeHtml(brand.mapsUrl) + '" target="_blank" rel="noopener noreferrer">C&oacute;mo llegar</a>' : '') + '</p>'
-              : ''
             const rows = appointments.map((item) => {
-              const schedule = [item.date, [item.start, item.end].filter(Boolean).join(' – ')].filter(Boolean)
-              const price = item.priceLabel || (Number.isFinite(item.price) ? formatPrice(item.price) : '')
-              return '<li class="booking-confirmation-item"><div>' +
-                '<strong>' + escapeHtml(item.name) + '</strong>' +
-                (item.professional ? '<p>Con ' + escapeHtml(item.professional) + '</p>' : '') +
-                (schedule.length ? '<p data-booking-date>' + schedule.map((part) => escapeHtml(part)).join(' &middot; ') + '</p>' : '') +
-                '</div>' + (price ? '<strong>' + escapeHtml(price) + '</strong>' : '') + '</li>'
+              const timeRange = [item.start, item.end].filter(Boolean).join(' – ')
+              const time = timeRange ? escapeHtml(timeRange + ' hs') : ''
+              const address = brand.address
+                ? brand.mapsUrl
+                  ? '<a href="' + escapeHtml(brand.mapsUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(brand.address) + '</a>'
+                  : escapeHtml(brand.address)
+                : ''
+              return '<ul class="booking-confirmation-items">' +
+                bookingConfirmationDetailRow('service', '<h2>' + escapeHtml(item.name) + '</h2>') +
+                (item.date ? bookingConfirmationDetailRow('date', escapeHtml(item.date)) : '') +
+                (time ? bookingConfirmationDetailRow('time', '<strong>' + time + '</strong>') : '') +
+                (item.professional ? bookingConfirmationDetailRow('professional', 'Con ' + escapeHtml(item.professional)) : '') +
+                (address ? bookingConfirmationDetailRow('location', address) : '') +
+                '<li class="booking-confirmation-price"><strong>Precio: ' + escapeHtml(bookingConfirmationPriceLabel(item.price, item.priceMode).replace('Precio a consultar', 'A consultar')) + '</strong></li>' +
+              '</ul>'
             }).join('')
             const calendar = state.calendarSync?.ok
               ? '<p class="success-calendar ok">Lo agregamos a tu Google Calendar.</p>'
               : state.calendarSync
                 ? '<p class="success-calendar warn">Tu turno est&aacute; confirmado. Pod&eacute;s verlo en tus reservas si no aparece en Google Calendar.</p>'
                 : ''
+            const recipientName = state.weexAccount?.name || [state.guestName, state.guestSurname].filter(Boolean).join(' ')
             return '<article class="booking-confirmation-card" aria-label="Detalle del turno">' + banner +
               '<div class="booking-confirmation-details">' +
-                '<header class="booking-confirmation-brand">' + logo + '<div><h2>' + escapeHtml(brand.name) + '</h2>' + location + '</div></header>' +
-                (rows ? '<ul class="booking-confirmation-items">' + rows + '</ul>' : '') +
+                '<header class="booking-confirmation-brand">' + logo + '<h2>' + escapeHtml(brand.name) + '</h2><span>Turno confirmado</span></header>' +
+                '<p class="booking-confirmation-greeting">Hola' + (recipientName ? ' ' + escapeHtml(recipientName) : '') + ', tu reserva fue confirmada.</p>' +
+                rows +
                 (deposit ? '<p class="booking-confirmation-total"><span>Se&ntilde;a de la reserva</span><strong>' + escapeHtml(deposit) + '</strong></p>' : '') +
                 (total ? '<p class="booking-confirmation-total"><span>Total</span><strong>' + escapeHtml(total) + '</strong></p>' : '') +
                 calendar + '<div class="success-actions">' + persistedBookingActions(true) +
@@ -7139,10 +7156,11 @@ function htmlPage(input: {
       background: var(--booking-surface);
       color: var(--booking-ink);
     }
-    .booking-confirmation-banner { display: block; width: 100%; height: auto; }
+    .booking-confirmation-banner { display: block; width: calc(100% - 40px); height: auto; margin: 14px 20px 0; border: 1px solid var(--booking-border); border-radius: 12px; }
     .booking-confirmation-details { padding: clamp(16px, 4vw, 28px); }
-    .booking-confirmation-brand { display: flex; align-items: center; gap: 12px; }
+    .booking-confirmation-brand { display: flex; flex-direction: column; align-items: center; gap: 7px; text-align: center; }
     .booking-confirmation-brand h2 { margin: 0; color: inherit; font-size: clamp(20px, 4vw, 25px); }
+    .booking-confirmation-brand > span { display: inline-block; padding: 5px 10px; border-radius: 20px; color: var(--booking-surface); background: var(--burgundy); font-size: 13px; font-weight: 800; }
     .booking-confirmation-logo {
       display: grid;
       flex: 0 0 52px;
@@ -7155,25 +7173,27 @@ function htmlPage(input: {
       color: var(--booking-ink);
       font-weight: 800;
     }
-    .booking-confirmation-address { margin: 4px 0 0; color: var(--booking-muted); line-height: 1.5; }
-    .booking-confirmation-address a, .booking-confirmation-back {
+    .booking-confirmation-banner + .booking-confirmation-details .booking-confirmation-logo { margin-top: -48px; background: var(--booking-surface); }
+    .booking-confirmation-greeting { margin: 18px 0 14px; color: var(--booking-muted); line-height: 1.45; }
+    .booking-confirmation-back {
       color: var(--booking-ink);
       text-decoration: underline;
       text-underline-offset: 3px;
     }
-    .booking-confirmation-address a { display: inline-block; margin-left: 4px; }
-    .booking-confirmation-items { margin: 20px 0 0; padding: 0; list-style: none; }
-    .booking-confirmation-item, .booking-confirmation-total {
-      display: flex;
-      justify-content: space-between;
+    .booking-confirmation-items { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--booking-border); border-bottom: 1px solid var(--booking-border); }
+    .booking-confirmation-item {
+      display: grid;
+      grid-template-columns: 25px minmax(0, 1fr);
       align-items: start;
-      gap: 12px;
-      border-top: 1px solid var(--booking-border);
-      padding: 12px 0;
+      gap: 5px;
+      padding: 6px 0;
     }
-    .booking-confirmation-item > div { min-width: 0; overflow-wrap: anywhere; }
-    .booking-confirmation-item p { margin: 4px 0 0; color: var(--booking-muted); line-height: 1.45; }
-    .booking-confirmation-total { margin: 0; }
+    .booking-confirmation-detail-icon { color: var(--burgundy); font-size: 16px; line-height: 1.45; }
+    .booking-confirmation-item > div { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+    .booking-confirmation-item h2 { margin: 0; font-size: 21px; color: inherit; }
+    .booking-confirmation-item a { color: var(--burgundy); text-decoration: underline; text-underline-offset: 3px; }
+    .booking-confirmation-price { padding: 8px 0 10px; list-style: none; line-height: 1.45; }
+    .booking-confirmation-total { display: flex; justify-content: space-between; gap: 12px; margin: 0; border-bottom: 1px solid var(--booking-border); padding: 12px 0; }
     .booking-confirmation-card .success-actions { justify-content: flex-start; margin-top: 16px; }
     .booking-confirmation-back { padding: 8px 4px; }
     .booking-confirmation-gallery { display: flex; gap: 8px; margin-top: 20px; }
@@ -9640,7 +9660,7 @@ function formatServiceMeta(duration: number | string, category?: string | null) 
 }
 
 function formatPrice(price?: number | null, priceMode?: 'FIXED' | 'STARTING_AT') {
-  if (!price) return 'Consultar'
+  if (price === null || price === undefined || !Number.isFinite(price) || price < 0) return 'Consultar'
   const formatted = new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',

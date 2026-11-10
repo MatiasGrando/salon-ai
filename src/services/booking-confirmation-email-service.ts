@@ -14,6 +14,8 @@ type BookingConfirmationEmailInput = {
   professionalName: string
   startAt: Date
   durationMinutes: number
+  quotedPrice?: number | null
+  priceMode?: 'FIXED' | 'STARTING_AT' | null
   bookingManagementUrl?: string | null
   emailMedia?: BookingEmailMedia
 }
@@ -84,6 +86,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
   const subject = `Turno confirmado en ${input.businessName} - ${dateLabel} ${timeLabel}`
   const timeRange = input.durationMinutes > 0 ? `${timeLabel} – ${formatTime(endAt)}` : timeLabel
   const timeRangeLabel = /^\d{1,2}:\d{2}(?: – \d{1,2}:\d{2})?$/.test(timeRange) ? `${timeRange} hs` : timeRange
+  const priceLabel = bookingPriceLabel(input.quotedPrice, input.priceMode)
   const calendar = buildCalendarFile(input, endAt)
   const managementUrl = httpsBookingEmailUrl(input.bookingManagementUrl)
   const mapsUrl = input.businessAddress
@@ -96,6 +99,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
     `Profesional: ${input.professionalName}`,
     `Fecha: ${dateLabel}`,
     `Hora: ${timeRangeLabel}`,
+    `Precio: ${priceLabel}`,
     input.businessAddress ? `Lugar: ${input.businessAddress}` : null,
     mapsUrl ? `Cómo llegar: ${mapsUrl}` : null,
     managementUrl ? `Ver mi turno: ${managementUrl}` : null,
@@ -107,7 +111,7 @@ export function renderBookingConfirmationEmail(input: BookingConfirmationEmailIn
   return {
     subject,
     text,
-    html: renderEmailHtml(input, endAt, dateLabel, timeRangeLabel, mapsUrl, managementUrl),
+    html: renderEmailHtml(input, endAt, dateLabel, timeRangeLabel, priceLabel, mapsUrl, managementUrl),
     attachments: [{
       filename: 'turno-weex.ics',
       content: Buffer.from(calendar, 'utf8').toString('base64'),
@@ -121,6 +125,7 @@ function renderEmailHtml(
   endAt: Date,
   dateLabel: string,
   timeRange: string,
+  priceLabel: string,
   mapsUrl: string | null,
   managementUrl: string | null
 ) {
@@ -199,6 +204,7 @@ function renderEmailHtml(
               ${emailDetailRow('time', `<strong>${escapeHtml(timeRange)}</strong>`)}
               ${emailDetailRow('professional', `Con ${escapeHtml(input.professionalName)}`)}
               ${address ? emailDetailRow('location', address) : ''}
+              <tr><td colspan="2" style="padding:8px 0 10px;color:#2a2117;font-size:16px;line-height:1.45"><strong>Precio: ${escapeHtml(priceLabel)}</strong></td></tr>
             </table>
             ${action}${gallery}
           </td></tr>
@@ -212,6 +218,14 @@ function renderEmailHtml(
       </td></tr>
     </table>
   </body></html>`
+}
+
+function bookingPriceLabel(quotedPrice: number | null | undefined, priceMode: BookingConfirmationEmailInput['priceMode']) {
+  if (!Number.isFinite(quotedPrice) || (quotedPrice ?? 0) < 0) return 'A consultar'
+  const formatted = new Intl.NumberFormat('es-AR', {
+    style: 'currency', currency: 'ARS', maximumFractionDigits: 0
+  }).format(quotedPrice)
+  return priceMode === 'STARTING_AT' ? `Desde ${formatted}` : formatted
 }
 
 function emailDetailRow(icon: keyof typeof bookingConfirmationDetailIcons, content: string) {

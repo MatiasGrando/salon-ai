@@ -380,7 +380,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
       startAt: `${date}T${time}:00`,
       origin: 'WEB',
       status: depositCalculation ? 'PENDING' : 'CONFIRMED',
-      quotedPrice: estimateSelection.priceMin,
+      quotedPrice: publicBookingQuotedPrice(service, estimateSelection.priceMin),
       deposit: depositCalculation && depositExpiresAt ? {
         mode: depositCalculation.mode,
         configuredValue: depositCalculation.configuredValue,
@@ -460,7 +460,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
         serviceName: appointment.service.name,
         professionalName: appointment.professional.name,
         startAt: appointment.startAt,
-        durationMinutes: customerDurationRange(appointment.service).max
+        durationMinutes: customerDurationRange(appointment.service).max,
+        quotedPrice: appointment.quotedPrice,
+        priceMode: appointment.service.priceMode
       }).catch((error) => {
         request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion')
       })
@@ -606,7 +608,7 @@ export async function publicBookingRoutes(app: FastifyInstance) {
           startAt: `${date}T${segment.startTime}:00`,
           origin: 'WEB',
           status: 'PENDING',
-          quotedPrice: resolved.estimate.priceMin,
+          quotedPrice: publicBookingQuotedPrice(resolved.service, resolved.estimate.priceMin),
           coordinationGroupId
         }, undefined, { skipDefaultMarketingPreference: !weexAuth,
           afterCreateInTransaction: async ({ transaction, appointment }) => {
@@ -713,7 +715,9 @@ export async function publicBookingRoutes(app: FastifyInstance) {
             serviceName: appointment.service.name,
             professionalName: appointment.professional.name,
             startAt: appointment.startAt,
-            durationMinutes: customerDurationRange(appointment.service).max
+            durationMinutes: customerDurationRange(appointment.service).max,
+            quotedPrice: appointment.quotedPrice,
+            priceMode: appointment.service.priceMode
           }).catch((error) => request.log.error({ error, appointmentId: appointment.id }, 'No se pudo enviar el correo de confirmacion'))
         }
       }
@@ -1020,7 +1024,7 @@ function optionalGuestEmail(value: unknown) {
 type GuestAppointmentSummary = {
   id: string; startAt: Date; status: string; serviceId: string; professionalId: string;
   quotedPrice?: number | null; totalDurationMinutes?: number | null;
-  service: { id: string; name: string; duration: number; price: number | null;
+  service: { id: string; name: string; duration: number; price: number | null; priceMode?: 'FIXED' | 'STARTING_AT';
     customerDurationMin?: number | null; customerDurationMax?: number | null };
   professional: { id: string; name: string }
 }
@@ -1031,6 +1035,7 @@ function publicGuestAppointment(appointment: GuestAppointmentSummary) {
     serviceId: appointment.serviceId, professionalId: appointment.professionalId,
     quotedPrice: appointment.quotedPrice ?? null, totalDurationMinutes: appointment.totalDurationMinutes ?? null,
     service: { id: appointment.service.id, name: appointment.service.name, duration: appointment.service.duration,
+      priceMode: appointment.service.priceMode,
       displayDuration: formatCustomerDuration(appointment.service), price: appointment.quotedPrice ?? appointment.service.price },
     professional: { id: appointment.professional.id, name: appointment.professional.name }
   }
@@ -1322,6 +1327,14 @@ function resolvePublicEstimateSelection(service: {
     }
   }
   return { ok: false as const, message: 'Este servicio necesita una estimacion valida antes de reservar' }
+}
+
+function publicBookingQuotedPrice(
+  service: { attentionMode: WebBookableService['attentionMode']; price: number | null },
+  estimatePriceMin: number | null
+) {
+  if (service.attentionMode === 'GUIDED_ESTIMATE') return estimatePriceMin
+  return Number.isInteger(service.price) && service.price >= 0 ? service.price : null
 }
 
 // Preserve uploaded raster data and existing public URLs without exposing active
