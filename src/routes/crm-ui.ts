@@ -16264,7 +16264,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr 1fr; }
 
     @media (max-width: 760px) {
-      .agenda-gcal-top { min-height: 0; min-width: 0; padding: 6px 10px; display: grid; gap: 4px; }
+      .agenda-gcal-top {
+        min-height: 0;
+        min-width: 0;
+        padding: 6px 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4px;
+      }
       .agenda-gcal-toolbar {
         display: flex;
         align-items: center;
