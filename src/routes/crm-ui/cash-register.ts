@@ -851,7 +851,10 @@ export const cashRegisterScript = `
       createSummaryPrice: document.getElementById('appointment-create-summary-price'), createSummaryDiscount: document.getElementById('appointment-create-summary-discount'), createSummaryTotal: document.getElementById('appointment-create-summary-total'), createSummaryPaid: document.getElementById('appointment-create-summary-paid'), createSummaryDue: document.getElementById('appointment-create-summary-due'), createCashRequired: document.getElementById('appointment-create-cash-required'), createOpenCash: document.getElementById('appointment-create-open-cash'), createPaymentFeedback: document.getElementById('appointment-create-payment-feedback'),
       finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeServiceSubtotal: document.getElementById('appointment-finance-service-subtotal'), financeProductSubtotal: document.getElementById('appointment-finance-product-subtotal'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalToggle: document.getElementById('appointment-adjust-total-toggle'), totalSubmit: document.getElementById('appointment-total-submit'), totalCancel: document.getElementById('appointment-total-cancel'), estimatedTotal: document.getElementById('appointment-estimated-total'), totalReason: document.getElementById('appointment-total-reason'), originalTotal: document.getElementById('appointment-original-total'), minimumTotal: document.getElementById('appointment-minimum-total'), minimumTotalRow: document.getElementById('appointment-minimum-total-row'), totalHelp: document.getElementById('appointment-total-help'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentCompleteRow: document.getElementById('appointment-payment-complete-row'), paymentComplete: document.getElementById('appointment-payment-complete'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
-    state.cashRegister = { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+    function createCashRegisterWorkspace() {
+      return { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+    }
+    state.cashRegister = createCashRegisterWorkspace()
 
     function cashCollection(payload, collectionKey) {
       if (Array.isArray(payload)) return payload
@@ -1079,6 +1082,7 @@ export const cashRegisterScript = `
     function stopCashRealtimeEvents() {
       state.cashRegister.eventSource?.close()
       state.cashRegister.eventSource = null
+      state.cashRegister.loadedAt = 0
     }
 
     function startCashRealtimeEvents() {
@@ -1089,7 +1093,8 @@ export const cashRegisterScript = `
       source.addEventListener('cash_changed', (event) => {
         let payload
         try { payload = JSON.parse(event.data) } catch { return }
-        if (payload.businessId !== state.businessId || !payload.entityId) return
+        if (state.cashRegister.eventSource !== source || payload.businessId !== state.businessId || !payload.entityId) return
+        invalidateCashRegister()
         if (document.body.dataset.currentSection === 'cash') loadCashRegister({ preserve: true }).catch((error) => showCrmToast(error.message, 'error'))
         refreshVisibleAppointmentFinanceSummaries()
         if (state.editingAppointmentId && cashUi.finance.open && !cashUi.finance.hidden) loadAppointmentFinance({ force: true, preserve: true })
@@ -1117,9 +1122,20 @@ export const cashRegisterScript = `
     }
 
     function refreshVisibleAppointmentFinanceSummaries() {
-      clearTimeout(state.cashRegister.financeSummaryRefreshTimer)
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      clearTimeout(register.financeSummaryRefreshTimer)
       if (!state.businessId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
-      state.cashRegister.financeSummaryRefreshTimer = setTimeout(async () => {
+      const revision = (register.financeSummaryRefreshRevision || 0) + 1
+      register.financeSummaryRefreshRevision = revision
+      const date = state.agendaSelectedDate?.getTime()
+      const days = state.agendaViewDays
+      const professional = els.agendaProfessional.value
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.financeSummaryRefreshRevision === revision &&
+        state.agendaSelectedDate?.getTime() === date &&
+        state.agendaViewDays === days && els.agendaProfessional.value === professional
+      register.financeSummaryRefreshTimer = setTimeout(async () => {
+        if (!isCurrent()) return
         const businessId = state.businessId
         const rangeStart = startOfDay(state.agendaSelectedDate || new Date())
         const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
@@ -1131,7 +1147,7 @@ export const cashRegisterScript = `
         if (els.agendaProfessional.value) params.set('professionalId', els.agendaProfessional.value)
         try {
           const rows = await getJson('/appointments/finance-summaries?' + params.toString())
-          if (state.businessId !== businessId) return
+          if (!isCurrent()) return
           for (const row of rows) {
             cacheAppointmentFinanceSummary(row.appointmentId, row.financeSummary)
             delete state.cashRegister.appointmentFinanceCache[appointmentFinanceCacheKey(row.appointmentId)]
@@ -1328,12 +1344,15 @@ export const cashRegisterScript = `
     }
 
     async function loadCashExpenseCategories() {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
       const params = new URLSearchParams({ includeInactive: 'true' })
       if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
       const [result, subcategories] = await Promise.all([
         getJson('/cash-register/expense-categories?' + params.toString()),
         getJson('/cash-register/expense-subcategories?' + params.toString())
       ])
+      if (!cashRegisterScopeIsCurrent(register, scope)) return
       state.cashRegister.expenseCategories = result.categories || []
       state.cashRegister.expenseSubcategories = subcategories.subcategories || []
       renderCashExpenseCategoryOptions()
@@ -1508,11 +1527,11 @@ export const cashRegisterScript = `
       cashUi.nextPage.hidden = !state.cashRegister.nextCursor
     }
 
-    async function loadCashEntries(options = {}) {
+    function loadCashEntries(options = {}) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
       const dayId = state.cashRegister.selectedDayId
-      const businessId = state.businessId
       if (!dayId) return
-      if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
       const params = new URLSearchParams({ limit: '40' })
       if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
       if (options.append && state.cashRegister.nextCursor) params.set('cursor', state.cashRegister.nextCursor)
@@ -1522,25 +1541,40 @@ export const cashRegisterScript = `
       if (cashUi.subcategoryFilter.value) params.set('subcategoryId', cashUi.subcategoryFilter.value)
       if (cashUi.sessionFilter.value) params.set('sessionId', cashUi.sessionFilter.value)
       if (cashUi.search.value.trim()) params.set('q', cashUi.search.value.trim())
-      try {
-        const page = await getJson('/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString())
-        if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
+      const url = '/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString()
+      const revision = register.revision
+      if (register.entriesRequest?.url === url && register.entriesRequest.revision === revision) return register.entriesRequest.promise
+      if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.entriesRequest?.promise === promise &&
+        dayId === register.selectedDayId && revision === register.revision
+      const promise = getJson(url).then((page) => {
+        if (!isCurrent()) return false
         state.cashRegister.entries = options.append ? state.cashRegister.entries.concat(page.entries || []) : (page.entries || [])
         state.cashRegister.nextCursor = page.nextCursor || null
         renderCashEntries()
-      } catch (error) {
-        if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
-        cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
-      }
+        return true
+      }).catch((error) => {
+        if (!isCurrent()) return false
+        if (options.preserve) showCrmToast(error.message, 'error')
+        else cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
+        register.loadedAt = 0
+        return false
+      }).finally(() => {
+        if (register.entriesRequest?.promise === promise) register.entriesRequest = null
+      })
+      register.entriesRequest = { url, revision, promise }
+      return promise
     }
 
-    async function selectCashDay(dayId) {
-      const businessId = state.businessId
+    async function selectCashDay(dayId, options = {}) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const revision = register.revision
       state.cashRegister.selectedDayId = dayId
       const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
-      if (businessId !== state.businessId || dayId !== state.cashRegister.selectedDayId) return
+      if (!cashRegisterScopeIsCurrent(register, scope) || revision !== register.revision || dayId !== register.selectedDayId) return false
       renderCashSummary(result.day, result.summary, result.sessions)
-      await loadCashEntries()
+      return loadCashEntries(options)
     }
 
     function cashIsoDate(date) {
@@ -2242,7 +2276,7 @@ export const cashRegisterScript = `
       cashUi.professionalView.hidden = !showingProfessionals
       renderCashCurrent()
       if (showingPeriod && !state.cashRegister.periodLoaded) loadCashPeriod({ page: 1 })
-      if (showingProfessionals) { ensureFinancialDateDefaults(); syncProfessionalPaymentSource(); loadProfessionalSettlements() }
+      if (showingProfessionals) { ensureFinancialDateDefaults(); syncProfessionalPaymentSource(); return loadProfessionalSettlements() }
       if (showingTreasury) { ensureFinancialDateDefaults(); loadTreasury(); loadTreasuryConsolidated() }
     }
 
@@ -2273,6 +2307,8 @@ export const cashRegisterScript = `
     }
 
     async function loadCashPaymentMethods(options = {}) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
       const businessId = state.businessId
       if (!options.force && state.cashRegister.paymentMethodsBusinessId === businessId && state.cashRegister.paymentMethods.length) return state.cashRegister.paymentMethods
       const inFlight = state.cashRegister.paymentMethodsInFlight ||= {}
@@ -2280,7 +2316,7 @@ export const cashRegisterScript = `
       try {
         const methods = await pending
         if (!methods.length) throw new Error('No hay medios de pago activos para este local.')
-        if (businessId === state.businessId) {
+        if (cashRegisterScopeIsCurrent(register, scope)) {
           state.cashRegister.paymentMethods = methods
           state.cashRegister.paymentMethodsBusinessId = businessId
           renderConfiguredPaymentMethods()
@@ -2291,9 +2327,88 @@ export const cashRegisterScript = `
       }
     }
 
-    async function loadCashRegister(options = {}) {
+    function cashRegisterScopeKey() {
+      return JSON.stringify([state.businessId || null, state.currentUser?.id || null, state.currentUser?.role || null])
+    }
+
+    function cashRegisterScopeIsCurrent(register, scope) {
+      return register === state.cashRegister && scope === cashRegisterScopeKey()
+    }
+
+    function resetCashRegisterWorkspace() {
+      stopCashRealtimeEvents()
+      clearTimeout(state.cashRegister.financeSummaryRefreshTimer)
+      clearTimeout(state.cashRegister.searchTimer)
+      state.cashRegister = createCashRegisterWorkspace()
+      for (const filter of [cashUi.typeFilter, cashUi.methodFilter, cashUi.categoryFilter, cashUi.subcategoryFilter, cashUi.sessionFilter, cashUi.search]) filter.value = ''
+      for (const view of [cashUi.dashboard, cashUi.empty, cashUi.sessionStrip, cashUi.openToolbar, cashUi.periodView, cashUi.professionalView, cashUi.treasuryView]) view.hidden = true
+      cashUi.daySelect.innerHTML = ''
+      cashUi.entryList.innerHTML = ''
+      cashUi.status.textContent = 'Cargando caja…'
+      cashUi.status.classList.remove('open')
+    }
+
+    function invalidateCashRegister() {
+      const register = state.cashRegister
+      register.revision = (register.revision || 0) + 1
+      register.loadedAt = 0
+      register.currentSnapshot = null
+    }
+
+    function cashRegisterFresh(at) {
+      return Boolean(at && Date.now() - at < 60000)
+    }
+
+    function preloadCashCurrent() {
+      if (!state.businessId || !canUseCashPermission('canViewCashRegister')) return Promise.resolve(null)
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const revision = register.revision
+      const cached = register.currentSnapshot
+      if (cached?.scope === scope && cashRegisterFresh(cached.at)) return Promise.resolve(cached.current)
+      const pending = register.currentRequest
+      if (pending?.scope === scope && pending.revision === revision) return pending.promise
+      const promise = getJson(cashScoped('/cash-register/current')).then((current) => {
+        if (!cashRegisterScopeIsCurrent(register, scope) || register.revision !== revision) return null
+        register.currentSnapshot = { scope, at: Date.now(), current }
+        return current
+      }).finally(() => {
+        if (register.currentRequest?.promise === promise) register.currentRequest = null
+      })
+      register.currentRequest = { scope, revision, promise }
+      return promise
+    }
+
+    function enterCashRegister() {
+      const register = state.cashRegister
+      if (canUseCashPermission('canViewCashRegister') && register.loadedScope === cashRegisterScopeKey() && cashRegisterFresh(register.loadedAt)) return Promise.resolve()
+      return loadCashRegister({ reuseCurrent: true, preserve: register.loadedScope === cashRegisterScopeKey() && register.loaded })
+    }
+
+    function loadCashRegister(options = {}) {
       if (!state.businessId) return
       if (els.appShell.dataset.section === 'settlements') return loadStaffSettlements()
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      if (!options.reuseCurrent) invalidateCashRegister()
+      const revision = register.revision
+      const pending = register.workspaceRequest
+      if (pending?.scope === scope && pending.revision === revision) return pending.promise
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.revision === revision
+      const promise = refreshCashRegister(options, isCurrent).then((loaded) => {
+        if (loaded !== false && isCurrent()) {
+          register.loaded = true
+          register.loadedScope = scope
+          register.loadedAt = Date.now()
+        }
+      }).finally(() => {
+        if (register.workspaceRequest?.promise === promise) register.workspaceRequest = null
+      })
+      register.workspaceRequest = { scope, revision, promise }
+      return promise
+    }
+
+    async function refreshCashRegister(options, isCurrent) {
       const isStaffCash = state.currentUser?.role === 'STAFF'
       if (isStaffCash && state.cashRegister.viewMode === 'period') {
         state.cashRegister.viewMode = 'day'
@@ -2308,27 +2423,31 @@ export const cashRegisterScript = `
       cashUi.viewProfessionals.hidden = !canViewSettlements
       cashUi.viewTreasury.hidden = state.currentUser?.role === 'STAFF'
       if (!canViewCash && canViewSettlements) {
-        setCashView('professionals')
-        state.cashRegister.loaded = true
-        return
+        await setCashView('professionals')
+        return false
       }
-      if (!canViewCash) return
+      if (!canViewCash) return false
       const preserve = options.preserve ?? state.cashRegister.loaded
-      const [current, daysResult] = await Promise.all([getJson(cashScoped('/cash-register/current')), getJson(cashScoped('/cash-register/days')), loadCashPaymentMethods({ force: true })])
+      if (!preserve) cashUi.status.textContent = 'Cargando caja…'
+      const [current, daysResult] = await Promise.all([preloadCashCurrent(), getJson(cashScoped('/cash-register/days'))])
+      if (!current || !isCurrent()) return false
       state.cashRegister.current = current
       state.cashRegister.permissions = current.permissions || {}
-      await loadCashExpenseCategories()
       state.cashRegister.days = daysResult.days || []
-      state.cashRegister.selectedDayId = isStaffCash ? (current.day?.id || null) : (current.day?.id || state.cashRegister.selectedDayId || state.cashRegister.days[0]?.id || null)
+      const selectedDayId = state.cashRegister.selectedDayId
+      const retainedDayId = state.cashRegister.days.some((day) => day.id === selectedDayId) ? selectedDayId : null
+      state.cashRegister.selectedDayId = isStaffCash ? (current.day?.id || null) : (retainedDayId || current.day?.id || state.cashRegister.days[0]?.id || null)
       if (isStaffCash && !current.day) { state.cashRegister.entries = []; state.cashRegister.nextCursor = null; cashUi.entryList.innerHTML = '' }
       renderCashCurrent()
-      if (current.day?.id === state.cashRegister.selectedDayId) {
+      let entries
+      if (current.day && current.day.id === state.cashRegister.selectedDayId) {
         renderCashSummary(current.day, current.summary, current.sessions, current.sessionExpectedCash)
-        await loadCashEntries({ preserve })
+        entries = loadCashEntries({ preserve })
       } else if (state.cashRegister.selectedDayId) {
-        await selectCashDay(state.cashRegister.selectedDayId)
+        entries = selectCashDay(state.cashRegister.selectedDayId, { preserve })
       }
-      state.cashRegister.loaded = true
+      const [entriesLoaded] = await Promise.all([entries, loadCashExpenseCategories(), loadCashPaymentMethods({ force: !options.reuseCurrent })])
+      return entriesLoaded !== false
     }
 
     let cashSessionSaving = false

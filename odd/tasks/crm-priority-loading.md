@@ -1,0 +1,11 @@
+# Carga prioritaria de Agenda, Clientes y Caja
+
+2026-11-12. Autorizado implementar el plan acordado. La captura de apertura en frío muestra /appointments 3,33 s y /schedule-blocks 2,10 s en paralelo, precedidos por ajustes y catálogos secuenciales. Meta operativa: Agenda utilizable en 2–5 s en frío, y retorno inmediato a vistas con datos cargados.
+
+- [ ] A1. Cargar sesión, comercio, permisos y período visible primero. Mostrar carga explícita hasta recibir datos operativos. Diferir ajustes y catálogos. Precargar de forma acotada después de Agenda.
+- [ ] A2. Reutilizar Agenda, Clientes y Caja durante la sesión, por comercio y consulta. Compartir solicitudes en curso, impedir respuestas fuera de contexto, conservar datos visibles al revalidar, invalidar tras mutaciones y eventos existentes.
+- [ ] A3. Verificar contratos y sintaxis de la interfaz, aislamiento y casos de recarga. Medición real en PC y teléfono pendiente de una versión desplegada.
+
+Ruta delegada: mapa de arranque y datos, escritor de CRM y escritor de módulo Caja con archivos separados. Preservar permisos, flujos de cobro, navegación de otros rubros y cambios en tiempo real. Sin publicación ni DB remota. TDD heredado STRICT; priorizar contrato aislado sin aplicación, DB ni red y conservar preferencias anteriores de evitar suites amplias y reinicios. Runners: test:crm-ui-syntax, test:agenda-default-view, test:agenda-business-scope, test:text-encoding, y contrato puntual si hace falta. Forecast inicial 240–390 líneas authored; estrategia ask-on-risk, decisión previa feature-branch-chain, sin PR. RDD evaluar commit local. Base df2ae75. Engram sin herramientas, espejo odd/crm-priority-loading/tasks pendiente.
+
+Caja: unidad delegada para retener jornada y filtros, compartir precarga y solicitudes en curso e invalidar por mutaciones y eventos. Comprobación aislada falló en la base y pasó tras el cambio. Incluyó vuelta con caché vigente, deduplicación, jornada histórica, invalidación, permisos y descarte de respuestas obsoletas. El enlace desde el CRM se guarda con la segunda unidad. El alcance revisado supera el forecast inicial por las protecciones de sesión y las cargas separadas. Se mantienen dos unidades locales en la rama del feature, sin entrega remota.
