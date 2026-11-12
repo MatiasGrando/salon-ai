@@ -303,6 +303,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       from?: string
       to?: string
       professionalId?: string
+      includeFinance?: string
     }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
@@ -312,7 +313,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     const business = await requireAuthorizedBusiness(prisma, authUser, query.businessId)
     if (!business) return sendAuthorizationFailure(reply, 'notFound')
 
-    const canViewFinance = options.cashRegisterEnabled !== false
+    const canViewFinance = query.includeFinance !== 'false' && options.cashRegisterEnabled !== false
       && hasAnyCashPermission(authUser, ['canRecordAppointmentPayments', 'canApplyDiscounts'])
     const appointments = await service.findAll({
       businessId: query.businessId,

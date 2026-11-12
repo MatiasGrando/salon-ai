@@ -15247,6 +15247,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       gap: 6px;
     }
 
+    .agenda-gcal-toolbar { display: contents; }
+    .agenda-gcal-nav { order: -1; }
+    .agenda-gcal-nav [data-agenda-prev] { order: -1; }
+
     .agenda-gcal-actions {
       margin-left: auto;
       flex-wrap: wrap;
@@ -16260,14 +16264,24 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .agenda-block-popover .agenda-block-panel .block-grid { grid-template-columns: 1fr 1fr; }
 
     @media (max-width: 760px) {
-      .agenda-gcal-top { min-height: 58px; padding: 8px 10px; flex-wrap: wrap; }
-      [data-agenda-mobile-menu] { order: 1; }
-      .agenda-gcal-title { order: 2; flex: 1 1 120px; min-width: 0; padding: 0 4px; font-size: 20px; }
-      .agenda-gcal-nav { order: 3; }
-      .agenda-gcal-actions { order: 3; width: 100%; margin-left: 0; flex-wrap: wrap; justify-content: flex-start; padding: 3px; }
-      .agenda-gcal-drag-lock { flex-basis: 100%; }
-      .agenda-gcal-control, .agenda-gcal-filter { padding: 0 10px; }
-      .agenda-gcal-view-select { min-width: 82px; }
+      .agenda-gcal-top { min-height: 0; min-width: 0; padding: 6px 10px; display: grid; gap: 4px; }
+      .agenda-gcal-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        overflow-x: auto;
+        padding: 3px;
+      }
+      .agenda-gcal-toolbar > *, .agenda-gcal-nav > *, .agenda-gcal-actions > * { flex: 0 0 auto; }
+      .agenda-gcal-toolbar button, .agenda-gcal-toolbar select { min-height: 44px; }
+      .agenda-gcal-title { min-width: 0; padding: 0 5px; gap: 3px; font-size: 15px; }
+      .agenda-gcal-title i { margin-left: 2px; border-left-width: 4px; border-right-width: 4px; border-top-width: 5px; }
+      .agenda-gcal-nav, .agenda-gcal-actions { order: 0; gap: 4px; }
+      .agenda-gcal-nav [data-agenda-prev] { order: 0; }
+      .agenda-gcal-actions { width: auto; margin-left: 0; flex-wrap: nowrap; }
+      .agenda-gcal-control, .agenda-gcal-filter { padding: 0 8px; }
+      .agenda-gcal-view-select { min-width: 0; width: auto; padding: 0 4px; }
       .agenda-gcal-frame { --agenda-time-width: 54px; }
       .agenda-gcal-day-head strong { font-size: 11px; }
       .agenda-gcal-day-head span { width: 38px; height: 38px; font-size: 20px; }
@@ -22248,6 +22262,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function showLogin(message) {
+      if (document.body.dataset.auth === 'ready') {
+        resetPriorityWorkspace()
+        stopCrmRealtimeEvents()
+        ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
+        state.agendaAppointments = []
+        state.agendaBlocks = []
+        state.customerOverview = []
+      }
       document.body.dataset.auth = 'login'
       if (message) {
         els.loginFeedback.textContent = message
@@ -22302,8 +22324,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function logoutFromCrm() {
+      resetPriorityWorkspace()
       stopCrmRealtimeEvents()
-      ${cashRegisterEnabled ? 'stopCashRealtimeEvents()' : ''}
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
       await getJson('/auth/logout', { method: 'POST' }).catch(() => null)
       window.location.reload()
     }
@@ -22409,9 +22432,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadDemoProfiles() {
-      state.demoProfiles = canSeeSalesAdministration()
+      const version = crmWorkspaceVersion
+      const profiles = canSeeSalesAdministration()
         ? await getJson('/admin/demo-profiles')
         : []
+      if (version !== crmWorkspaceVersion) return
+      state.demoProfiles = profiles
       renderDemoProfileSelect()
       renderCommercialDemos()
       renderSupportBusinessSwitcher()
@@ -22508,6 +22534,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!isSalesAccountAdministrator()) return
       try {
         const profile = await getJson('/admin/demo-profiles/' + encodeURIComponent(profileId) + '/access')
+        resetPriorityWorkspace()
+        ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
         state.business = profile
         state.businessId = profile.id
         state.instagramReels = []
@@ -22529,6 +22557,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function exitCommercialDemo() {
       if (!isSalesAccountAdministrator()) return
+      resetPriorityWorkspace()
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
       state.business = null
       state.businessId = null
       state.instagramReels = []
@@ -22543,6 +22573,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function returnToAccountAdminBusiness() {
       if (!isSalesAccountAdministrator() || !state.currentSessionBusiness) return
+      resetPriorityWorkspace()
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
       state.business = state.currentSessionBusiness
       state.businessId = state.currentSessionBusiness.id
       state.instagramReels = []
@@ -23570,10 +23602,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.accountAdminCandidates = []
         return
       }
+      const version = crmWorkspaceVersion
       const [admins, candidates] = await Promise.all([
         getJson('/admin/account-admins'),
         getJson('/admin/account-admin-candidates')
       ])
+      if (version !== crmWorkspaceVersion) return
       state.accountAdmins = admins
       state.accountAdminCandidates = candidates
     }
@@ -23883,13 +23917,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     async function loadStaffUsers() {
+      const businessId = state.businessId
+      const version = crmWorkspaceVersion
       if (!canManageStaffUsers() || !state.businessId) {
         state.staffUsers = []
         renderStaffUsers()
         return
       }
-      if (!state.staffPresets.length) state.staffPresets = await getJson('/staff-users/presets')
-      state.staffUsers = await getJson('/staff-users?businessId=' + encodeURIComponent(state.businessId))
+      const [presets, staffUsers] = await Promise.all([
+        state.staffPresets.length ? state.staffPresets : getJson('/staff-users/presets'),
+        getJson('/staff-users?businessId=' + encodeURIComponent(businessId))
+      ])
+      if (version !== crmWorkspaceVersion || businessId !== state.businessId) return
+      state.staffPresets = presets
+      state.staffUsers = staffUsers
       renderStaffUsers()
       if (!els.staffUserId.value) resetStaffUserForm()
     }
@@ -24019,13 +24060,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
     }
 
-    async function loadBasics() {
+    async function loadBasics({ preferAgenda = false } = {}) {
       hydrateWorkspaceNav()
-      await loadAccountAdmins()
+      const version = crmWorkspaceVersion
       const isAccountRole = ['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)
-      const businesses = isAccountRole
+      const businesses = isAccountRole || (preferAgenda && state.currentSessionBusiness)
         ? state.currentSessionBusiness ? [state.currentSessionBusiness] : []
         : await getJson('/businesses?includeImages=false')
+      if (version !== crmWorkspaceVersion) return
       state.businesses = businesses
       state.business = state.currentUser?.role === 'ACCOUNT_ADMIN'
         ? state.currentSessionBusiness || null
@@ -24034,6 +24076,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       // El menu inicial se arma antes de conocer el comercio. Al resolverlo,
       // hay que reconstruirlo para habilitar las opciones operativas del perfil.
       hydrateWorkspaceNav()
+      if (preferAgenda && state.businessId && !isWorkshopBusiness() && staffVisibleSections().includes('agenda')) {
+        renderAuthUi()
+        return true
+      }
+      await loadAccountAdmins()
       await loadDemoProfiles()
       if (isWorkshopBusiness()) {
         setSection('autos')
@@ -24082,12 +24129,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       renderAgenda()
     }
 
-    async function loadBusinessScopedBasics() {
+    async function loadBusinessScopedBasics({ agendaReady = false } = {}) {
       if (isWorkshopBusiness()) return
+      const businessId = state.businessId
+      const version = crmWorkspaceVersion
+      const isCurrent = () => version === crmWorkspaceVersion && businessId === state.businessId
+      const readScoped = async (url) => {
+        const result = await getJson(url)
+        if (!isCurrent()) throw new DOMException('Comercio cambiado', 'AbortError')
+        return result
+      }
       const professionalCatalogScope = agendaProfessionalPreferenceKey()
       const professionalCatalogGeneration = (state.agendaProfessionalCatalogGeneration || 0) + 1
       state.agendaProfessionalCatalogGeneration = professionalCatalogGeneration
-      state.agendaProfessionalCatalogScope = null
+      if (!agendaReady) state.agendaProfessionalCatalogScope = null
       const businessQuery = state.businessId ? '?businessId=' + encodeURIComponent(state.businessId) : ''
       const lightweightCatalogQuery = businessQuery
         ? businessQuery + '&includeImages=false'
@@ -24102,11 +24157,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const managementBusinessId = state.businessId
       const [businessHours, availabilitySettings, bookingManagementSettings] = state.businessId
         ? await Promise.all([
-            getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId)),
+            agendaReady ? state.businessHours : getJson('/business-hours?businessId=' + encodeURIComponent(state.businessId)),
             getJson('/businesses/' + state.businessId + '/availability-settings'),
             getJson('/businesses/' + state.businessId + '/booking-management-settings')
           ])
         : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }, null]
+      if (managementBusinessId !== state.businessId || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
       state.businessHours = businessHours
       state.availabilitySettings = availabilitySettings
       if (managementBusinessId === state.businessId) {
@@ -24114,38 +24170,44 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.bookingManagementBusinessId = managementBusinessId
       }
       const isStaff = state.currentUser?.role === 'STAFF'
-      state.paymentSettings = state.businessId && !isStaff && !isSalesAdminDemo
-        ? await getJson('/businesses/' + state.businessId + '/payment-settings')
+      state.paymentSettings = businessId && !isStaff && !isSalesAdminDemo
+        ? await readScoped('/businesses/' + businessId + '/payment-settings')
         : null
-      state.whatsappSettings = state.businessId && !isStaff && !isSalesAdminDemo
-        ? await getJson('/businesses/' + state.businessId + '/whatsapp-settings')
+      state.whatsappSettings = businessId && !isStaff && !isSalesAdminDemo
+        ? await readScoped('/businesses/' + businessId + '/whatsapp-settings')
         : null
       const instagramSettingsBusinessId = state.businessId
       const instagramSettingsGeneration = state.instagramMediaGeneration || 0
       const instagramSettings = instagramSettingsBusinessId && !isStaff && !isSalesAdminDemo
-        ? await getJson('/businesses/' + instagramSettingsBusinessId + '/instagram-settings')
+        ? await readScoped('/businesses/' + instagramSettingsBusinessId + '/instagram-settings')
         : null
       if (instagramSettingsBusinessId === state.businessId && instagramSettingsGeneration === (state.instagramMediaGeneration || 0)) {
         state.instagramSettings = instagramSettings
         instagramMediaObserveAccount(instagramSettings?.connection?.instagramAccountId || null)
       }
       if (!isStaff) {
-        state.aiSettings = await getJson('/crm/ai-settings' + businessQuery)
-        state.botRouting = state.businessId
-          ? await getJson('/crm/bot-routing?businessId=' + encodeURIComponent(state.businessId)+'&channel='+encodeURIComponent(state.botRoutingChannel||'WHATSAPP'))
+        state.aiSettings = await readScoped('/crm/ai-settings' + businessQuery)
+        state.botRouting = businessId
+          ? await readScoped('/crm/bot-routing?businessId=' + encodeURIComponent(businessId)+'&channel='+encodeURIComponent(state.botRoutingChannel||'WHATSAPP'))
           : null
       }
-      const professionals = await getJson('/professionals' + lightweightCatalogQuery)
+      const professionals = agendaReady ? state.professionals : await readScoped('/professionals' + lightweightCatalogQuery)
       if (professionalCatalogScope !== agendaProfessionalPreferenceKey() || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
       state.professionals = professionals
       state.agendaProfessionalCatalogScope = professionalCatalogScope
       await loadStaffUsers()
-      state.serviceCategories = await getJson('/service-categories' + businessQuery)
-      state.services = await getJson('/services' + lightweightCatalogQuery)
+      if (!isCurrent()) return
+      if (agendaReady && deferredWorkspace) {
+        await ensureAgendaServices()
+        if (!isCurrent()) return
+      } else {
+        state.serviceCategories = await readScoped('/service-categories' + businessQuery)
+        state.services = await readScoped('/services' + lightweightCatalogQuery)
+      }
       state.customers = isSalesAdminDemo
         ? []
         : !isStaff || state.currentUser?.canViewCustomers
-        ? await getJson('/customers' + businessQuery)
+        ? await readScoped('/customers' + businessQuery)
         : []
     }
 
@@ -24229,8 +24291,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!nextBusiness) return
       const wasWorkshop = isWorkshopBusiness()
+      resetPriorityWorkspace()
       stopCrmRealtimeEvents()
-      ${cashRegisterEnabled ? 'stopCashRealtimeEvents()' : ''}
+      ${cashRegisterEnabled ? 'stopCashRealtimeEvents(); resetCashRegisterWorkspace()' : ''}
       state.business = nextBusiness
       state.businessId = nextBusiness.id
       state.professionalMediaBusinessId = null
@@ -24325,9 +24388,168 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
+    let crmWorkspaceVersion = 0
+    let deferredWorkspace = null
+    let workspaceNavigation = 0
+    let agendaRequest = null
+    let agendaDataScope = null
+    let agendaDataProfessional = ''
+    let agendaDataStale = true
+    let agendaDataLoadedAt = 0
+    let agendaMutationVersion = 0
+    const agendaRangeCache = new Map()
+    const customerPageCache = new Map()
+    const customerPageRequests = new Map()
+    let customerPageRequest = 0
+    let customerCacheVersion = 0
+    let customerVisibleQuery = null
+
+    function resetPriorityWorkspace() {
+      crmWorkspaceVersion += 1
+      deferredWorkspace = null
+      state.agendaLoadController?.abort()
+      state.agendaLoadController = null
+      state.agendaLoadRequest += 1
+      agendaRequest = null
+      agendaDataScope = null
+      agendaDataStale = true
+      agendaRangeCache.clear()
+      state.agendaAppointments = []
+      state.agendaBlocks = []
+      state.agendaLoadedRangeStart = null
+      state.agendaLoadedRangeEnd = null
+      state.customerOverview = []
+      state.selectedCustomerId = null
+      state.customers = []
+      state.services = []
+      state.serviceCategories = []
+      state.professionals = []
+      state.businessHours = []
+      state.agendaProfessionalCatalogScope = null
+      invalidateCustomerOverview()
+      customerPageCache.clear()
+      customerVisibleQuery = null
+      customerPageRequest += 1
+    }
+
+    function invalidateCustomerOverview() {
+      customerCacheVersion += 1
+      for (const snapshot of customerPageCache.values()) snapshot.loadedAt = 0
+      customerPageRequests.clear()
+    }
+
+    function ensureWorkspaceDetails() {
+      if (!deferredWorkspace) return Promise.resolve()
+      const workspace = deferredWorkspace
+      if (!workspace.details) {
+        workspace.details = (async () => {
+          await loadBusinessScopedBasics({ agendaReady: true })
+          if (deferredWorkspace !== workspace) return
+          renderBusinessSettings()
+          renderWhatsappSettings()
+          renderInstagramSettings()
+          applyProfessionalBusinessHourLimits()
+          renderAiControls()
+          renderProfessionals()
+          renderStaffUsers()
+          renderServices()
+          renderAgendaFilters()
+          renderProductionProfessionalOptions()
+          renderAppointmentFormOptions()
+          if (!['SUPER_ADMIN', 'ACCOUNT_ADMIN'].includes(state.currentUser?.role)) {
+            const businesses = await getJson('/businesses?includeImages=false')
+            if (deferredWorkspace === workspace) state.businesses = businesses
+          }
+          if (deferredWorkspace !== workspace) return
+          await Promise.all([loadAccountAdmins(), loadDemoProfiles()])
+          if (deferredWorkspace === workspace) {
+            workspace.detailsReady = true
+            renderAuthUi()
+          }
+        })().catch((error) => {
+          workspace.details = null
+          if (deferredWorkspace === workspace && error.name !== 'AbortError') throw error
+        })
+      }
+      return workspace.details
+    }
+
+    function ensureAgendaServices() {
+      const workspace = deferredWorkspace
+      if (!workspace) return Promise.resolve()
+      if (!workspace.services) {
+        const query = '?businessId=' + encodeURIComponent(state.businessId)
+        workspace.services = Promise.all([
+          getJson('/service-categories' + query),
+          getJson('/services' + query + '&includeImages=false')
+        ]).then(([categories, services]) => {
+          if (deferredWorkspace !== workspace) return
+          state.serviceCategories = categories
+          state.services = services
+          workspace.servicesReady = true
+          renderAgendaFilters()
+          renderAppointmentFormOptions()
+        }).catch((error) => { workspace.services = null; throw error })
+      }
+      return workspace.services
+    }
+
+    async function prepareAgendaWorkspace() {
+      const businessId = state.businessId
+      const scope = agendaProfessionalPreferenceKey()
+      const version = crmWorkspaceVersion
+      const query = '?businessId=' + encodeURIComponent(businessId)
+      const [businessHours, professionals] = await Promise.all([
+        getJson('/business-hours' + query),
+        getJson('/professionals' + query + '&includeImages=false')
+      ])
+      if (version !== crmWorkspaceVersion || state.businessId !== businessId) return
+      state.businessHours = businessHours
+      state.professionals = professionals
+      state.agendaProfessionalCatalogScope = scope
+      renderAgendaFilters()
+      renderAppointmentFormOptions()
+    }
+
+    async function warmAgendaWorkspace(workspace) {
+      if (deferredWorkspace !== workspace) return
+      if (els.appShell.dataset.section === 'agenda') {
+        await loadAgenda({ buffer: true, preferCached: true }).catch(console.error)
+      }
+      if (deferredWorkspace !== workspace) return
+      const sections = staffVisibleSections()
+      if (sections.includes('customers')) await loadCustomerOverview({ page: 1, preferCached: true, preload: true })
+      if (deferredWorkspace !== workspace) return
+      ${cashRegisterEnabled ? "if (sections.includes('cash')) await preloadCashCurrent().catch(console.error)" : ''}
+    }
+
+    function activateAgendaWorkspace(workspace) {
+      if (!workspace || deferredWorkspace !== workspace || workspace.active || agendaDataScope !== agendaProfessionalPreferenceKey()) return
+      workspace.active = true
+      startCrmRealtimeEvents()
+      ${cashRegisterEnabled ? 'startCashRealtimeEvents()' : ''}
+      void warmAgendaWorkspace(workspace).catch(console.error)
+    }
+
     async function startCrm() {
-      await loadBasics()
+      resetPriorityWorkspace()
+      const version = crmWorkspaceVersion
+      const agendaFirst = await loadBasics({ preferAgenda: true })
+      if (version !== crmWorkspaceVersion) return
       if (isWorkshopBusiness()) { setSection('autos'); return }
+      if (agendaFirst) {
+        const workspace = { details: null, conversations: null }
+        deferredWorkspace = workspace
+        setSection('agenda', { deferAgenda: true })
+        try {
+          await loadAgenda({ initial: true })
+        } catch (error) {
+          if (deferredWorkspace === workspace) showAgendaLoadError(error)
+          return
+        }
+        activateAgendaWorkspace(workspace)
+        return
+      }
       ${cashRegisterEnabled ? 'startCashRealtimeEvents()' : ''}
       if (state.currentUser?.role === 'ACCOUNT_ADMIN') {
         if (state.business) {
@@ -24354,10 +24576,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       params.set('inactiveDays', String(state.customerInactiveDays))
       if (state.businessId) params.set('businessId', state.businessId)
       if (state.customerSearch) params.set('q', state.customerSearch)
-      els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">Cargando clientes...</div></td></tr>'
-
-      try {
-        const result = await getJson('/customers/overview?' + params.toString())
+      if (!options.preferCached) invalidateCustomerOverview()
+      const query = params.toString()
+      const version = customerCacheVersion
+      const requestId = options.preload ? null : ++customerPageRequest
+      const selection = JSON.stringify([state.businessId, state.customerFilter, state.customerInactiveDays, state.customerSearch])
+      const isCurrent = () => requestId === customerPageRequest && version === customerCacheVersion &&
+        selection === JSON.stringify([state.businessId, state.customerFilter, state.customerInactiveDays, state.customerSearch])
+      const apply = (result) => {
+        if (!isCurrent()) return
+        customerVisibleQuery = query
         state.customerOverview = result.items || []
         state.customerOverviewCounts = result.counts || state.customerOverviewCounts
         state.customerOverviewPagination = result.pagination || state.customerOverviewPagination
@@ -24365,8 +24593,35 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           state.selectedCustomerId = isCustomerMobileLayout() ? null : state.customerOverview[0]?.id || null
         }
         renderCustomerOverview()
+      }
+      const cached = customerPageCache.get(query)
+      if (cached) {
+        if (customerVisibleQuery !== query) apply(cached.result)
+        if (Date.now() - cached.loadedAt < 60_000) return
+      }
+      if (!options.preload && !cached && customerVisibleQuery !== query) {
+        els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">Cargando clientes...</div></td></tr>'
+      }
+
+      try {
+        let request = customerPageRequests.get(query)
+        if (!request) {
+          request = getJson('/customers/overview?' + query).then((result) => {
+            if (version === customerCacheVersion) {
+              if (customerPageCache.size >= 20) customerPageCache.delete(customerPageCache.keys().next().value)
+              customerPageCache.set(query, { result, loadedAt: Date.now() })
+            }
+            return result
+          }).finally(() => {
+            if (customerPageRequests.get(query) === request) customerPageRequests.delete(query)
+          })
+          customerPageRequests.set(query, request)
+        }
+        apply(await request)
       } catch (error) {
-        els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">' + escapeHtml(error.message) + '</div></td></tr>'
+        if (!isCurrent()) return
+        if (customerVisibleQuery === query) showCrmToast(error.message, 'error')
+        else els.customerTableBody.innerHTML = '<tr><td colspan="6"><div class="customer-list-empty">' + escapeHtml(error.message) + '</div></td></tr>'
       }
     }
 
@@ -25370,12 +25625,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (payload.businessId !== state.businessId || !payload.publicationId) return
         refreshInstagramPublication(payload.publicationId).catch((error) => console.error(error))
       })
+      let opened = false
       source.addEventListener('open', () => {
         if (state.realtimeEventSource !== source) return
         stopCrmRealtimeFallback()
         queueCrmRealtimeMetadataRefresh({ refreshCounts: true, refreshDeposits: true })
         if (state.selected?.id) queueConversationRealtimeRefresh(state.selected.id)
-        queueAgendaRealtimeRefresh()
+        if (opened || !deferredWorkspace?.active) queueAgendaRealtimeRefresh()
+        opened = true
       })
       source.addEventListener('error', () => {
         if (state.realtimeEventSource === source) {
@@ -25415,11 +25672,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       scheduleConversationStateRefresh()
     }
 
+    function invalidateAgendaRanges() {
+      agendaMutationVersion += 1
+      agendaDataStale = true
+      agendaRangeCache.clear()
+    }
+
     function queueAgendaRealtimeRefresh() {
+      invalidateAgendaRanges()
+      invalidateCustomerOverview()
+      if (document.body.dataset.currentSection === 'customers') {
+        void loadCustomerOverview({ preferCached: true })
+      }
       if (document.body.dataset.currentSection !== 'agenda') return
       if (state.agendaRealtimeRefreshTimer) clearTimeout(state.agendaRealtimeRefreshTimer)
-      state.agendaRealtimeRefreshTimer = setTimeout(() => {
+      state.agendaRealtimeRefreshTimer = setTimeout(async () => {
         state.agendaRealtimeRefreshTimer = null
+        const version = crmWorkspaceVersion
+        if (agendaRequest) await agendaRequest.promise.catch(() => {})
+        if (version !== crmWorkspaceVersion) return
         if (document.body.dataset.currentSection !== 'agenda') return
         loadAgenda().catch((error) => console.error(error))
       }, CRM_REALTIME_DEBOUNCE_MS)
@@ -28792,6 +29063,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       try {
         await getJson('/schedule-blocks/' + blockId, { method: 'DELETE' })
+        state.agendaLoadController?.abort()
+        state.agendaLoadController = null
+        state.agendaLoadRequest += 1
+        agendaRequest = null
+        invalidateAgendaRanges()
         state.agendaBlocks = state.agendaBlocks.filter((item) => item.id !== blockId)
         renderAgenda()
         showCrmToast('Bloqueo eliminado.', 'success')
@@ -31474,6 +31750,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.appointmentCustomerSearchTimer = setTimeout(() => loadAppointmentCustomerResults(query), 250)
     }
 
+    function showAgendaLoadError(error) {
+      if (els.appShell.dataset.section !== 'agenda') return
+      const selected = startOfDay(state.agendaSelectedDate)
+      if (agendaRangeContains(selected, addDays(selected, Number(state.agendaViewDays) || 1))) {
+        showCrmToast(error.message, 'error')
+        return
+      }
+      els.agendaGridWrap.innerHTML = '<div class="error" role="alert">' + escapeHtml(error.message) + '</div>'
+    }
+
     async function loadAgenda(options = {}) {
       if (!state.businessId) {
         state.agendaAppointments = []
@@ -31484,51 +31770,92 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       const businessId = state.businessId
-      state.agendaLoadController?.abort()
-      const controller = new AbortController()
-      const requestId = ++state.agendaLoadRequest
-      state.agendaLoadController = controller
+      const version = crmWorkspaceVersion
+      const scope = agendaProfessionalPreferenceKey()
       const monthRange = options.monthView
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
-      const rangeStart = monthRange
-        ? startOfMondayWeek(monthStart)
-        : addDays(startOfDay(state.agendaSelectedDate), -7)
-      const rangeEnd = addDays(rangeStart, monthRange ? 42 : 15)
+      const selected = startOfDay(state.agendaSelectedDate)
+      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
+      const rangeStart = monthRange ? startOfMondayWeek(monthStart) : options.buffer ? addDays(selected, -7) : selected
+      const rangeEnd = addDays(rangeStart, monthRange ? 42 : options.buffer ? 15 : viewDays)
+      const professionalId = options.initial ? (isOwnAgendaScope() ? state.currentUser.professionalId || '' : '') : els.agendaProfessional.value || ''
+      const noAssignedProfessional = isOwnAgendaScope() && !professionalId
       const params = new URLSearchParams({
         businessId,
         from: rangeStart.toISOString(),
         to: rangeEnd.toISOString()
       })
-
-      if (els.agendaProfessional.value) {
-        params.set('professionalId', els.agendaProfessional.value)
-      }
-
-      try {
-        const [appointments, blocks] = await Promise.all([
-          getJson('/appointments?' + params.toString(), { signal: controller.signal }),
-          getJson('/schedule-blocks?' + params.toString(), { signal: controller.signal })
-        ])
-        if (requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
-        state.agendaAppointments = appointments.filter((appointment) => {
-          return !state.agendaDeletingAppointmentIds.has(appointment.id)
-        })
-        ${cashRegisterEnabled ? 'cacheAgendaAppointmentFinanceSummaries(state.agendaAppointments)' : ''}
+      if (professionalId) params.set('professionalId', professionalId)
+      const key = params.toString()
+      const apply = ({ appointments, blocks, from, to, professional, loadedAt, mutationVersion }) => {
+        state.agendaAppointments = appointments.filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
         state.agendaBlocks = blocks
-        state.agendaLoadedRangeStart = new Date(rangeStart)
-        state.agendaLoadedRangeEnd = new Date(rangeEnd)
-        renderProfessionals()
-        renderAgenda()
-      } catch (error) {
-        if (error.name === 'AbortError') return
-        throw error
-      } finally {
-        if (requestId === state.agendaLoadRequest) state.agendaLoadController = null
+        state.agendaLoadedRangeStart = from
+        state.agendaLoadedRangeEnd = to
+        agendaDataScope = scope
+        agendaDataProfessional = professional
+        agendaDataLoadedAt = loadedAt
+        agendaDataStale = agendaMutationVersion !== mutationVersion
+        if (els.appShell.dataset.section === 'agenda' && (!options.buffer || !state.agendaPointerDrag && !state.agendaRangeSelection)) {
+          renderAgenda()
+          ${cashRegisterEnabled ? "if (!options.buffer) refreshVisibleAppointmentFinanceSummaries()" : ''}
+        }
       }
+      if (options.preferCached && !agendaDataStale && Date.now() - agendaDataLoadedAt < 60_000 && agendaRangeContains(rangeStart, rangeEnd)) {
+        renderAgenda()
+        return Promise.resolve()
+      }
+      if (options.preferCached && agendaRequest?.key === key) return agendaRequest.promise
+      const cached = agendaRangeCache.get(key)
+      if (options.preferCached && cached && Date.now() - cached.loadedAt < 60_000) {
+        state.agendaLoadController?.abort()
+        state.agendaLoadRequest += 1
+        state.agendaLoadController = null
+        agendaRequest = null
+        apply(cached)
+        return Promise.resolve()
+      }
+      if (!options.preferCached) invalidateAgendaRanges()
+      if (options.buffer && agendaRequest) return agendaRequest.promise
+      state.agendaLoadController?.abort()
+      const controller = new AbortController()
+      const requestId = ++state.agendaLoadRequest
+      const mutationVersion = agendaMutationVersion
+      state.agendaLoadController = controller
+      if (els.appShell.dataset.section === 'agenda' && !options.buffer && !agendaRangeContains(selected, addDays(selected, viewDays))) {
+        els.agendaGridWrap.innerHTML = '<div class="agenda-empty" role="status">Cargando turnos y bloqueos...</div>'
+      }
+      const request = (async () => {
+        try {
+          const [appointments, blocks] = await Promise.all([
+            noAssignedProfessional ? [] : getJson('/appointments?' + key + '&includeFinance=false', { signal: controller.signal }),
+            noAssignedProfessional ? [] : getJson('/schedule-blocks?' + key, { signal: controller.signal }),
+            options.initial ? prepareAgendaWorkspace() : null
+          ])
+          if (version !== crmWorkspaceVersion || requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
+          const result = { appointments, blocks, from: rangeStart, to: rangeEnd, professional: professionalId, loadedAt: Date.now(), mutationVersion }
+          if (mutationVersion === agendaMutationVersion) {
+            if (agendaRangeCache.size >= 12) agendaRangeCache.delete(agendaRangeCache.keys().next().value)
+            agendaRangeCache.set(key, result)
+          }
+          apply(result)
+        } catch (error) {
+          if (error.name !== 'AbortError') throw error
+        } finally {
+          if (requestId === state.agendaLoadRequest) {
+            state.agendaLoadController = null
+            agendaRequest = null
+          }
+        }
+      })()
+      agendaRequest = { key, promise: request }
+      return request
     }
 
     function agendaRangeContains(visibleStart, visibleEnd) {
       return Boolean(
+        agendaDataScope === agendaProfessionalPreferenceKey() &&
+        (!agendaDataProfessional || agendaDataProfessional === (els.agendaProfessional.value || '')) &&
         state.agendaLoadedRangeStart &&
         state.agendaLoadedRangeEnd &&
         visibleStart >= state.agendaLoadedRangeStart &&
@@ -31551,14 +31878,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       state.agendaSelectedDate = selectedDate
       state.agendaMonthDate = new Date(selectedDate)
 
-      if (agendaRangeContains(visibleStart, visibleEnd)) {
+      if (!agendaDataStale && Date.now() - agendaDataLoadedAt < 60_000 && agendaRangeContains(visibleStart, visibleEnd)) {
         renderAgenda()
+        ${cashRegisterEnabled ? 'refreshVisibleAppointmentFinanceSummaries()' : ''}
         if (agendaShouldRefreshBuffer(visibleStart, visibleEnd) && !state.agendaLoadController) {
-          void loadAgenda().catch((error) => console.error(error))
+          void loadAgenda({ buffer: true, preferCached: true }).catch((error) => console.error(error))
         }
         return
       }
-      await loadAgenda()
+      await loadAgenda({ preferCached: true })
     }
 
     function renderAgenda() {
@@ -31581,8 +31909,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const selectedKey = dateKey(state.agendaSelectedDate)
       const appointmentKeys = new Set(filteredAgendaAppointments().map((appointment) => dateKey(new Date(appointment.startAt))))
       for (const block of filteredAgendaBlocksForRange(first, addDays(first, 42))) {
-        const blockStart = startOfDay(new Date(block.startAt))
-        const blockEnd = startOfDay(new Date(new Date(block.endAt).getTime() - 1))
+        const blockStart = new Date(Math.max(first.getTime(), startOfDay(new Date(block.startAt)).getTime()))
+        const blockEnd = new Date(Math.min(addDays(first, 41).getTime(), startOfDay(new Date(new Date(block.endAt).getTime() - 1)).getTime()))
         for (let day = new Date(blockStart); day <= blockEnd; day = addDays(day, 1)) {
           appointmentKeys.add(dateKey(day))
         }
@@ -31874,14 +32202,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
       els.agendaRange.textContent = formatAgendaRange(currentDays[0], currentDays[currentDays.length - 1])
       els.agendaToday.textContent = visibleToday ? 'Hoy' : 'Ir a hoy'
+      const toolbarScroll = els.agendaGridWrap.querySelector('.agenda-gcal-toolbar')?.scrollLeft || 0
       els.agendaGridWrap.innerHTML =
         '<div class="agenda-gcal">' +
           '<header class="agenda-gcal-top">' +
-            '<div class="agenda-gcal-nav">' +
-              '<button class="agenda-gcal-icon" type="button" data-agenda-prev aria-label="Periodo anterior">&#8249;</button>' +
-              '<button class="agenda-gcal-control" type="button" data-agenda-mobile-today>' + (visibleToday ? 'Hoy' : 'Ir a hoy') + '</button>' +
-              '<button class="agenda-gcal-icon" type="button" data-agenda-next aria-label="Periodo siguiente">&#8250;</button>' +
-            '</div>' +
+            '<div class="agenda-gcal-toolbar" role="group" aria-label="Controles de agenda">' +
             '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
             '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><i aria-hidden="true"></i></button>' +
             '<div class="agenda-gcal-actions">' +
@@ -31890,9 +32215,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               '</select>' +
             '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
-            '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
             '</div>' +
-            '<button class="agenda-gcal-icon agenda-gcal-today" type="button" data-agenda-mobile-today aria-label="Hoy">' + today.getDate() + '</button>' +
+            '<div class="agenda-gcal-nav">' +
+              '<button class="agenda-gcal-control" type="button" data-agenda-mobile-today>' + (visibleToday ? 'Hoy' : 'Ir a hoy') + '</button>' +
+              '<button class="agenda-gcal-icon" type="button" data-agenda-prev aria-label="Periodo anterior">&#8249;</button>' +
+              '<button class="agenda-gcal-icon" type="button" data-agenda-next aria-label="Periodo siguiente">&#8250;</button>' +
+            '</div>' +
+            '</div>' +
+            '<label class="agenda-gcal-drag-lock" title="Desmarc&aacute; para mover turnos arrastr&aacute;ndolos. Pod&eacute;s abrirlos y editarlos con el bloqueo activo."><input type="checkbox" data-agenda-drag-lock' + (!canDragAgendaAppointments() ? ' checked' : '') + (!canEditAppointments() || !state.agendaDragLockScope ? ' disabled' : '') + '>Bloquear arrastre de turnos</label>' +
           '</header>' +
           monthPanel +
           filtersPanel +
@@ -31922,6 +32252,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           '<button class="agenda-gcal-fab" type="button" data-agenda-mobile-new aria-label="Nuevo turno">+</button>' +
         '</div>'
 
+      const toolbar = els.agendaGridWrap.querySelector('.agenda-gcal-toolbar')
+      if (toolbar) toolbar.scrollLeft = toolbarScroll
       bindAgendaMobileControls(hourHeight, displayRange)
       scrollAgendaMobileToWorkingTime(hourHeight, displayRange)
     }
@@ -32564,7 +32896,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
       els.agendaGridWrap.querySelector('[data-agenda-view-days]')?.addEventListener('change', (event) => {
         state.agendaViewDays = Number(event.target.value || 1)
-        renderAgenda()
+        loadAgenda({ preferCached: true }).catch(showAgendaLoadError)
       })
       els.agendaGridWrap.querySelector('[data-agenda-block-toggle]')?.addEventListener('click', openAgendaBlockPopover)
       els.agendaGridWrap.querySelector('[data-agenda-mobile-month-toggle]')?.addEventListener('click', async () => {
@@ -33439,6 +33771,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
 
         if (agendaDragLockPreferenceKey() !== moveScope) return
+        invalidateAgendaRanges()
+        invalidateCustomerOverview()
         state.agendaAppointments = state.agendaAppointments.map((item) => {
           return item.id === appointmentId ? { ...item, ...saved } : item
         })
@@ -33791,6 +34125,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
     function openAppointmentDialog(input = {}) {
+      if (deferredWorkspace && !deferredWorkspace.servicesReady) {
+        const workspace = deferredWorkspace
+        ensureAgendaServices().then(() => {
+          if (deferredWorkspace === workspace) openAppointmentDialog(input)
+        }).catch((error) => {
+          if (deferredWorkspace === workspace) showCrmToast(error.message, 'error')
+        })
+        return
+      }
       renderAppointmentFormOptions()
       els.appointmentFeedback.textContent = ''
       const appointment = input.appointment
@@ -34077,6 +34420,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         state.customers.push(updatedCustomer)
       }
       state.appointmentCustomerResultsData = state.appointmentCustomerResultsData.map(replaceCustomer)
+      invalidateAgendaRanges()
+      invalidateCustomerOverview()
       state.agendaAppointments = state.agendaAppointments.map(replaceAppointmentCustomer)
       state.appointments = state.appointments.map(replaceAppointmentCustomer)
     }
@@ -36943,9 +37288,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function setSection(section) {
+    function setSection(section, { deferAgenda = false } = {}) {
       if (!staffVisibleSections().includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
+      const navigation = ++workspaceNavigation
+      const workspace = deferredWorkspace
+      if (workspace && !workspace.detailsReady && ['settings', 'campaigns', 'accounts'].includes(section)) {
+        showCrmToast('Cargando ' + ({ settings: 'ajustes', campaigns: 'marketing', accounts: 'cuentas' }[section]) + '...', 'info')
+        ensureWorkspaceDetails().then(() => {
+          if (deferredWorkspace === workspace && workspaceNavigation === navigation) setSection(section)
+        }).catch((error) => {
+          if (deferredWorkspace === workspace && workspaceNavigation === navigation) showCrmToast(error.message, 'error')
+        })
+        return
+      }
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
         return
@@ -36987,24 +37343,26 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
 
       if (section === 'agenda') {
-        renderAgenda()
         startAgendaNowLineTimer()
-        loadAgenda().catch((error) => {
-          els.agendaGridWrap.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>'
-        })
+        if (!deferAgenda) {
+          const workspace = deferredWorkspace
+          loadAgenda({ preferCached: true, initial: Boolean(workspace && !workspace.active) })
+            .then(() => activateAgendaWorkspace(workspace))
+            .catch(showAgendaLoadError)
+        }
       } else {
         stopAgendaNowLineTimer()
       }
 
       if (${cashRegisterEnabled ? "section === 'cash'" : 'false'}) {
-        loadCashRegister({ preserve: Boolean(state.cashRegister?.loaded) }).catch((error) => showCrmToast(error.message, 'error'))
+        ${cashRegisterEnabled ? "enterCashRegister().catch((error) => showCrmToast(error.message, 'error'))" : ''}
       }
       if (${cashRegisterEnabled ? "section === 'settlements'" : 'false'}) {
         loadStaffSettlements().catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'customers') {
-        loadCustomerOverview().catch(() => {})
+        loadCustomerOverview({ preferCached: true }).catch(() => {})
       }
 
       if (section === 'pipeline') {
@@ -37032,7 +37390,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
 
       if (section === 'services') {
-        ensureServiceMedia().catch((error) => showCrmToast(error.message, 'error'))
+        ensureAgendaServices().then(ensureServiceMedia).catch((error) => showCrmToast(error.message, 'error'))
       }
 
       if (section === 'reports') {
@@ -37050,7 +37408,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         setSettingsView(state.settingsView)
         ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
       }
-      if (section === 'conversations' && isMobile()) setMobileView('inbox')
+      if (deferredWorkspace && ['conversations', 'professionals', 'services', 'reports'].includes(section)) {
+        ensureWorkspaceDetails().catch((error) => showCrmToast(error.message, 'error'))
+      }
+      if (section === 'conversations') {
+        const workspace = deferredWorkspace
+        if (workspace && !workspace.conversations) {
+          workspace.conversations = loadConversations().catch((error) => {
+            workspace.conversations = null
+            if (deferredWorkspace === workspace) showCrmToast(error.message, 'error')
+          })
+        }
+        if (isMobile()) setMobileView('inbox')
+      }
       closeMobileDrawer()
     }
 
@@ -39197,22 +39567,22 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const button = event.target.closest('[data-customer-filter]')
       if (!button) return
       state.customerFilter = button.dataset.customerFilter
-      loadCustomerOverview({ page: 1 })
+      loadCustomerOverview({ page: 1, preferCached: true })
     })
     els.customerInactiveDays.addEventListener('change', () => {
       state.customerInactiveDays = Number(els.customerInactiveDays.value || 60)
-      loadCustomerOverview({ page: 1 })
+      loadCustomerOverview({ page: 1, preferCached: true })
     })
     els.customersSearch.addEventListener('input', () => {
       state.customerSearch = els.customersSearch.value.trim()
       clearTimeout(state.customerSearchTimer)
-      state.customerSearchTimer = setTimeout(() => loadCustomerOverview({ page: 1 }), 250)
+      state.customerSearchTimer = setTimeout(() => loadCustomerOverview({ page: 1, preferCached: true }), 250)
     })
     els.customerPagePrev.addEventListener('click', () => {
-      loadCustomerOverview({ page: Math.max(1, state.customerOverviewPagination.page - 1) })
+      loadCustomerOverview({ page: Math.max(1, state.customerOverviewPagination.page - 1), preferCached: true })
     })
     els.customerPageNext.addEventListener('click', () => {
-      loadCustomerOverview({ page: Math.min(state.customerOverviewPagination.totalPages, state.customerOverviewPagination.page + 1) })
+      loadCustomerOverview({ page: Math.min(state.customerOverviewPagination.totalPages, state.customerOverviewPagination.page + 1), preferCached: true })
     })
     els.reportsRange.addEventListener('change', loadReports)
     els.reportsFutureDays.addEventListener('change', loadReports)

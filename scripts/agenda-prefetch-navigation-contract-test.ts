@@ -7,17 +7,17 @@ assert.match(source, /function agendaRangeContains\(/, 'debe centralizar la vali
 assert.match(source, /function navigateAgendaToDate\(/, 'debe centralizar toda navegacion de fecha')
 assert.match(
   source,
-  /: addDays\(startOfDay\(state\.agendaSelectedDate\), -7\)[\s\S]*const rangeEnd = addDays\(rangeStart, monthRange \? 42 : 15\)/,
-  'la vista operativa debe precargar quince dias: siete anteriores, el actual y siete siguientes'
+  /options\.buffer \? addDays\(selected, -7\) : selected\s+const rangeEnd = addDays\(rangeStart, monthRange \? 42 : options\.buffer \? 15 : viewDays\)/,
+  'la vista operativa pide los días visibles y reserva quince días para la precarga explícita'
 )
 assert.match(
   source,
-  /if \(agendaRangeContains\(visibleStart, visibleEnd\)\) \{[\s\S]*renderAgenda\(\)[\s\S]*agendaShouldRefreshBuffer/,
+  /if \([^\r\n]*agendaRangeContains\(visibleStart, visibleEnd\)\) \{\s*renderAgenda\(\)[\s\S]{0,260}agendaShouldRefreshBuffer/,
   'un dia precargado debe renderizarse antes de renovar el buffer'
 )
 assert.match(
   source,
-  /void loadAgenda\(\)\.catch/,
+  /void loadAgenda\(\{ buffer: true, preferCached: true \}\)\.catch/,
   'la renovacion cercana al borde debe ejecutarse en segundo plano'
 )
 assert.match(
