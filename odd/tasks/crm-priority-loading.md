@@ -1,5 +1,13 @@
 # Carga prioritaria de Agenda, Clientes y Caja
 
+### Continuidad de la precarga de Agenda
+
+- [x] A5. Mantener la primera carga acotada y la navegación inmediata sobre rangos ya consultados. Consultar los días vecinos al llegar a un período sin datos, compartir solicitudes en curso y conservar la invalidación tras cambios reales. Verificar aislamiento entre profesionales y comercios.
+
+Ruta delegada directa para el diagnóstico y el contrato funcional, con edición acotada de la lógica CRM. TDD STRICT heredado. Runner: `node node_modules/tsx/dist/cli.mjs scripts/agenda-prefetch-navigation-contract-test.ts`. Comprobaciones adicionales de sintaxis CRM, alcance y codificación. Forecast 120–230 líneas, misma estrategia de entrega. Espejo Engram pendiente.
+
+RED: la navegación durante una precarga compatible duplicó el par de consultas. GREEN: retorno inmediato a fechas cargadas, ventana en curso compartida, reutilización por profesional, recuperación tras actualización y salto semanal. Sintaxis CRM, vista inicial, alcance de negocio, UTF-8 y diff verificados. Sin medición en producción. Próximo paso: validar al publicar. Espejo pendiente por acceso a la base local de Engram.
+
 2026-11-12. Autorizado implementar el plan acordado. La captura de apertura en frío muestra /appointments 3,33 s y /schedule-blocks 2,10 s en paralelo, precedidos por ajustes y catálogos secuenciales. Meta operativa: Agenda utilizable en 2–5 s en frío, y retorno inmediato a vistas con datos cargados.
 
 - [x] A1. Cargar sesión, comercio, permisos y período visible primero. Mostrar carga explícita hasta recibir datos operativos. Diferir ajustes y catálogos. Precargar de forma acotada después de Agenda.

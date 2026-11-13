@@ -24409,7 +24409,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     let agendaDataScope = null
     let agendaDataProfessional = ''
     let agendaDataStale = true
-    let agendaDataLoadedAt = 0
     let agendaMutationVersion = 0
     const agendaRangeCache = new Map()
     const customerPageCache = new Map()
@@ -31628,7 +31627,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           els.agendaProfessional.value = button.dataset.agendaProTab || ''
           rememberAgendaProfessionalFilter()
           renderAgendaProfessionalControls()
-          await loadAgenda()
+          await loadAgenda({ preferCached: true })
         })
       }
 
@@ -31790,10 +31789,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const monthStart = new Date(state.agendaMonthDate.getFullYear(), state.agendaMonthDate.getMonth(), 1)
       const selected = startOfDay(state.agendaSelectedDate)
       const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
-      const rangeStart = monthRange ? startOfMondayWeek(monthStart) : options.buffer ? addDays(selected, -7) : selected
-      const rangeEnd = addDays(rangeStart, monthRange ? 42 : options.buffer ? 15 : viewDays)
       const professionalId = options.initial ? (isOwnAgendaScope() ? state.currentUser.professionalId || '' : '') : els.agendaProfessional.value || ''
       const noAssignedProfessional = isOwnAgendaScope() && !professionalId
+      const visibleEnd = addDays(selected, viewDays)
+      const requestedStart = monthRange ? startOfMondayWeek(monthStart) : options.buffer ? addDays(selected, -7) : selected
+      const requestedEnd = monthRange ? addDays(requestedStart, 42) : options.buffer ? addDays(visibleEnd, 7) : visibleEnd
+      const coversRequest = (range) => range.scope === scope &&
+        (!range.professional || range.professional === professionalId) &&
+        range.from <= requestedStart && range.to >= requestedEnd && range.mutationVersion === agendaMutationVersion
+      const refreshBufferAtEdge = () => {
+        if (!options.buffer && !monthRange && !state.agendaLoadController && agendaShouldRefreshBuffer(selected, visibleEnd)) {
+          void loadAgenda({ buffer: true, preferCached: true }).catch(console.error)
+        }
+      }
+      if (options.preferCached && !options.initial && !agendaDataStale && agendaRangeContains(requestedStart, requestedEnd)) {
+        if (!options.buffer) {
+          renderAgenda()
+          ${cashRegisterEnabled ? 'refreshVisibleAppointmentFinanceSummaries()' : ''}
+          refreshBufferAtEdge()
+        }
+        return
+      }
+      const apply = ({ appointments, blocks, from, to, professional, mutationVersion }, background = false) => {
+        state.agendaAppointments = appointments.filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
+        state.agendaBlocks = blocks
+        state.agendaLoadedRangeStart = from
+        state.agendaLoadedRangeEnd = to
+        agendaDataScope = scope
+        agendaDataProfessional = professional
+        agendaDataStale = agendaMutationVersion !== mutationVersion
+        if (els.appShell.dataset.section === 'agenda' && (!background || !state.agendaPointerDrag && !state.agendaRangeSelection)) {
+          renderAgenda()
+          ${cashRegisterEnabled ? "if (!background) refreshVisibleAppointmentFinanceSummaries()" : ''}
+        }
+      }
+      if (options.preferCached && !options.initial) {
+        const cached = [...agendaRangeCache.values()].reverse().find(coversRequest)
+        if (cached) {
+          apply(cached, options.buffer)
+          refreshBufferAtEdge()
+          return
+        }
+        if (agendaRequest && coversRequest(agendaRequest)) {
+          if (!options.buffer) agendaRequest.foreground = true
+          return agendaRequest.promise
+        }
+      }
+      if (options.buffer && agendaRequest) return agendaRequest.promise
+      const rangeStart = monthRange || options.initial ? requestedStart : addDays(selected, -7)
+      const rangeEnd = monthRange || options.initial ? requestedEnd : addDays(visibleEnd, 7)
       const params = new URLSearchParams({
         businessId,
         from: rangeStart.toISOString(),
@@ -31801,40 +31845,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       })
       if (professionalId) params.set('professionalId', professionalId)
       const key = params.toString()
-      const apply = ({ appointments, blocks, from, to, professional, loadedAt, mutationVersion }) => {
-        state.agendaAppointments = appointments.filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
-        state.agendaBlocks = blocks
-        state.agendaLoadedRangeStart = from
-        state.agendaLoadedRangeEnd = to
-        agendaDataScope = scope
-        agendaDataProfessional = professional
-        agendaDataLoadedAt = loadedAt
-        agendaDataStale = agendaMutationVersion !== mutationVersion
-        if (els.appShell.dataset.section === 'agenda' && (!options.buffer || !state.agendaPointerDrag && !state.agendaRangeSelection)) {
-          renderAgenda()
-          ${cashRegisterEnabled ? "if (!options.buffer) refreshVisibleAppointmentFinanceSummaries()" : ''}
-        }
-      }
-      if (options.preferCached && !agendaDataStale && Date.now() - agendaDataLoadedAt < 60_000 && agendaRangeContains(rangeStart, rangeEnd)) {
-        renderAgenda()
-        return Promise.resolve()
-      }
-      if (options.preferCached && agendaRequest?.key === key) return agendaRequest.promise
-      const cached = agendaRangeCache.get(key)
-      if (options.preferCached && cached && Date.now() - cached.loadedAt < 60_000) {
-        state.agendaLoadController?.abort()
-        state.agendaLoadRequest += 1
-        state.agendaLoadController = null
-        agendaRequest = null
-        apply(cached)
-        return Promise.resolve()
-      }
+      if (options.initial && options.preferCached && agendaRequest?.key === key) return agendaRequest.promise
       if (!options.preferCached) invalidateAgendaRanges()
-      if (options.buffer && agendaRequest) return agendaRequest.promise
       state.agendaLoadController?.abort()
       const controller = new AbortController()
       const requestId = ++state.agendaLoadRequest
-      const mutationVersion = agendaMutationVersion
+      const requestRange = { scope, from: rangeStart, to: rangeEnd, professional: professionalId, mutationVersion: agendaMutationVersion, foreground: !options.buffer }
       state.agendaLoadController = controller
       if (els.appShell.dataset.section === 'agenda' && !options.buffer && !agendaRangeContains(selected, addDays(selected, viewDays))) {
         els.agendaGridWrap.innerHTML = '<div class="agenda-empty" role="status">Cargando turnos y bloqueos...</div>'
@@ -31847,12 +31863,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             options.initial ? prepareAgendaWorkspace() : null
           ])
           if (version !== crmWorkspaceVersion || requestId !== state.agendaLoadRequest || state.businessId !== businessId) return
-          const result = { appointments, blocks, from: rangeStart, to: rangeEnd, professional: professionalId, loadedAt: Date.now(), mutationVersion }
-          if (mutationVersion === agendaMutationVersion) {
+          const result = { ...requestRange, appointments, blocks }
+          if (requestRange.mutationVersion === agendaMutationVersion) {
+            agendaRangeCache.delete(key)
             if (agendaRangeCache.size >= 12) agendaRangeCache.delete(agendaRangeCache.keys().next().value)
             agendaRangeCache.set(key, result)
           }
-          apply(result)
+          const currentDate = startOfDay(state.agendaSelectedDate)
+          const currentEnd = addDays(currentDate, Number(state.agendaViewDays) || 1)
+          if (requestRange.mutationVersion === agendaMutationVersion && (options.initial || scope === agendaProfessionalPreferenceKey() &&
+              (!professionalId || professionalId === (els.agendaProfessional.value || '')) &&
+              (monthRange || currentDate >= rangeStart && currentEnd <= rangeEnd))) {
+            apply(result, !requestRange.foreground)
+          }
         } catch (error) {
           if (error.name !== 'AbortError') throw error
         } finally {
@@ -31862,7 +31885,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           }
         }
       })()
-      agendaRequest = { key, promise: request }
+      agendaRequest = Object.assign(requestRange, { key, promise: request })
       return request
     }
 
@@ -31886,20 +31909,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function navigateAgendaToDate(nextDate) {
       const selectedDate = startOfDay(nextDate)
-      const viewDays = [1, 3, 7].includes(Number(state.agendaViewDays)) ? Number(state.agendaViewDays) : 1
-      const visibleStart = selectedDate
-      const visibleEnd = addDays(selectedDate, viewDays)
       state.agendaSelectedDate = selectedDate
       state.agendaMonthDate = new Date(selectedDate)
-
-      if (!agendaDataStale && Date.now() - agendaDataLoadedAt < 60_000 && agendaRangeContains(visibleStart, visibleEnd)) {
-        renderAgenda()
-        ${cashRegisterEnabled ? 'refreshVisibleAppointmentFinanceSummaries()' : ''}
-        if (agendaShouldRefreshBuffer(visibleStart, visibleEnd) && !state.agendaLoadController) {
-          void loadAgenda({ buffer: true, preferCached: true }).catch((error) => console.error(error))
-        }
-        return
-      }
       await loadAgenda({ preferCached: true })
     }
 
@@ -32953,7 +32964,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.agendaProfessional.value = event.target.value || ''
         rememberAgendaProfessionalFilter()
         renderAgendaProfessionalControls()
-        await loadAgenda()
+        await loadAgenda({ preferCached: true })
       })
 
       els.agendaGridWrap.querySelector('[data-agenda-mobile-service]')?.addEventListener('change', (event) => {
@@ -39626,7 +39637,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     els.agendaProfessional.addEventListener('change', async () => {
       rememberAgendaProfessionalFilter()
       renderAgendaProfessionalControls()
-      await loadAgenda()
+      await loadAgenda({ preferCached: true })
     })
     els.agendaService.addEventListener('change', renderAgenda)
     els.agendaStep.addEventListener('change', renderAgenda)
