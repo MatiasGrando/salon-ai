@@ -1,5 +1,71 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { runInNewContext } from 'node:vm'
+
+process.env.DOTENV_CONFIG_PATH = '__offline_agenda_range_selection__'
+process.env.DATABASE_URL = 'postgresql://offline:offline@127.0.0.1:1/offline_agenda_range_selection'
+const { renderCrmHtml } = await import('../src/routes/crm-ui.js')
+const { DISABLED_POLLING_MARKER } = await import('../src/observability/egress-baseline/types.js')
+const html = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })
+const openBlock = html.match(/\n    function openAgendaBlockPopover\([\s\S]+?(?=\n    function closeAgendaBlockPopover\()/)?.[0]
+const professionalOptions = html.match(/<select id="block-professional">([\s\S]*?)<\/select>/)?.[1]
+assert.ok(openBlock && professionalOptions, 'el CRM renderiza el formulario y la apertura de bloqueos')
+
+let professionalMarkup: string = professionalOptions
+let selectedProfessional = ''
+const blockProfessional = {
+  get innerHTML() { return professionalMarkup },
+  set innerHTML(value: string) { professionalMarkup = value; selectedProfessional = '' },
+  get value() { return selectedProfessional },
+  set value(value: string) {
+    selectedProfessional = [...professionalMarkup.matchAll(/<option value="([^"]*)"/g)]
+      .some((option) => option[1] === value) ? value : ''
+  }
+}
+const professionals = [{ id: 'pro-a', name: 'Mauro' }, { id: 'pro-b', name: 'Blas' }]
+let ownProfessionalId: string | null = null
+const state = { businessId: 'test-business', agendaProfessionalCatalogScope: 'test-scope', agendaBlockOpen: false }
+const els = {
+  blockProfessional, agendaBlockPopover: { hidden: true },
+  blockReason: { value: '' }, blockStart: { value: '', focus() {} }, blockEnd: { value: '' },
+  blockRepeat: { checked: false }, blockRepeatUntil: { value: '' }
+}
+const feedback: string[] = []
+const openPopover = runInNewContext(openBlock + '\nopenAgendaBlockPopover', {
+  els, state, canManageScheduleBlocks: () => true,
+  agendaProfessionalPreferenceKey: () => 'test-scope',
+  activeProfessionals: () => professionals,
+  agendaVisibleProfessionals: () => professionals.filter(({ id }) => ownProfessionalId === null || id === ownProfessionalId),
+  agendaOwnProfessionalId: () => ownProfessionalId, isOwnAgendaScope: () => ownProfessionalId !== null,
+  showCrmToast: (message: string) => feedback.push(message),
+  syncBlockRepeatControls() {}, escapeHtml: (value: string) => value,
+  toDatetimeLocalValue: (value: string) => value,
+  getJson: () => assert.fail('abrir el panel no consulta la red')
+}) as (input?: { professionalId?: string; startAt?: string; endAt?: string }) => void
+
+openPopover({ professionalId: 'pro-b', startAt: '2026-11-13T10:00', endAt: '2026-11-13T10:30' })
+assert.equal(els.agendaBlockPopover.hidden, false, 'se puede abrir en cuanto el catálogo de Agenda está listo')
+assert.equal(blockProfessional.value, 'pro-b', 'la primera apertura conserva el profesional del rango elegido')
+assert.match(blockProfessional.innerHTML, /value="pro-a">Mauro<\/option>/)
+assert.equal(els.blockStart.value, '2026-11-13T10:00')
+assert.equal(els.blockEnd.value, '2026-11-13T10:30')
+
+els.agendaBlockPopover.hidden = true
+state.agendaBlockOpen = false
+openPopover({ professionalId: 'missing' })
+assert.equal(els.agendaBlockPopover.hidden, true, 'un profesional inexistente no se convierte en todo el salón')
+
+state.agendaProfessionalCatalogScope = 'old-scope'
+openPopover()
+assert.equal(els.agendaBlockPopover.hidden, true, 'el panel espera al catálogo del negocio activo')
+assert.match(feedback.at(-1) ?? '', /profesionales/)
+
+state.agendaProfessionalCatalogScope = 'test-scope'
+ownProfessionalId = 'pro-a'
+openPopover()
+assert.equal(els.agendaBlockPopover.hidden, false)
+assert.equal(blockProfessional.value, 'pro-a', 'el personal con alcance propio tiene su profesional preseleccionado')
+assert.doesNotMatch(blockProfessional.innerHTML, /value="(?:pro-b)?"/, 'el alcance propio solo permite bloquear la propia agenda')
 
 const source = await readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
 

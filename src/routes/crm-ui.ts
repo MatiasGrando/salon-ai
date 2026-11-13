@@ -16955,7 +16955,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <option value="OTHER" selected>Otro</option>
             </select>
             <select id="block-professional">
-              <option value="">Todo el salon</option>
+              <option value="">Todo el sal&oacute;n</option>
             </select>
             <div class="block-grid">
               <label>
@@ -24420,6 +24420,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function resetPriorityWorkspace() {
       crmWorkspaceVersion += 1
       deferredWorkspace = null
+      closeAgendaBlockPopover()
       state.agendaLoadController?.abort()
       state.agendaLoadController = null
       state.agendaLoadRequest += 1
@@ -26894,11 +26895,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function renderProfessionals() {
-      const options = ['<option value="">Todo el salon</option>']
-      for (const professional of activeProfessionals()) {
-        options.push('<option value="' + professional.id + '">' + escapeHtml(professional.name) + '</option>')
-      }
-      els.blockProfessional.innerHTML = options.join('')
       const activeCount = activeProfessionals().length
       const professionalMetrics = getProfessionalMetrics()
       els.professionalCount.textContent = String(activeCount)
@@ -29004,6 +29000,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
       if (!state.businessId) {
         els.blockFeedback.textContent = 'No encontre un negocio cargado.'
+        return
+      }
+      const scope = agendaProfessionalPreferenceKey()
+      if (!scope || state.agendaProfessionalCatalogScope !== scope) {
+        els.blockFeedback.textContent = 'Esperá a que se carguen los profesionales para bloquear la agenda.'
         return
       }
 
@@ -31999,10 +32000,27 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         showCrmToast('No tenes permiso para bloquear la agenda.', 'error')
         return
       }
+      const scope = agendaProfessionalPreferenceKey()
+      if (!scope || state.agendaProfessionalCatalogScope !== scope) {
+        showCrmToast('Esperá a que se carguen los profesionales para bloquear la agenda.', 'info')
+        return
+      }
+      const ownAgenda = isOwnAgendaScope()
+      const professionals = agendaVisibleProfessionals()
+      const professionalId = input.professionalId || (ownAgenda ? agendaOwnProfessionalId() : '')
+      if ((professionalId || ownAgenda) && !professionals.some((professional) => professional.id === professionalId)) {
+        showCrmToast('El profesional elegido no está disponible para este bloqueo.', 'error')
+        return
+      }
+      const options = ownAgenda ? [] : ['<option value="">Todo el sal&oacute;n</option>']
+      for (const professional of professionals) {
+        options.push('<option value="' + escapeHtml(professional.id) + '">' + escapeHtml(professional.name) + '</option>')
+      }
+      els.blockProfessional.innerHTML = options.join('')
+      els.blockProfessional.value = professionalId
       els.blockReason.value = input.reason || 'OTHER'
       if (input.startAt) els.blockStart.value = toDatetimeLocalValue(input.startAt)
       if (input.endAt) els.blockEnd.value = toDatetimeLocalValue(input.endAt)
-      if (input.professionalId !== undefined) els.blockProfessional.value = input.professionalId || ''
       els.blockRepeat.checked = false
       els.blockRepeatUntil.value = ''
       syncBlockRepeatControls({ resetUntil: true })

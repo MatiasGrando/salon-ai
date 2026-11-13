@@ -1,5 +1,13 @@
 # Carga prioritaria de Agenda, Clientes y Caja
 
+### Selector de profesionales al bloquear agenda
+
+- [x] A6. Abrir «Bloquear agenda» desde el arranque en frío con el catálogo que ya carga Agenda. Conservar la preselección desde una columna y respetar los permisos. Comprobar que el panel espera si falta el catálogo, sin agregar consultas.
+
+Ruta delegada directa para el mapa y la regresión. TDD STRICT heredado. Runner: `npm run test:agenda-range-selection`. Forecast 60–120 líneas. Espejo Engram pendiente por acceso a la base local.
+
+RED: el selector inicial descartaba el profesional de la columna. GREEN: apertura en frío, preselección y horario, permiso limitado, catálogo aún no disponible y ausencia de nuevas consultas. Siguiente paso: validar en producción tras publicación autorizada.
+
 ### Continuidad de la precarga de Agenda
 
 - [x] A5. Mantener la primera carga acotada y la navegación inmediata sobre rangos ya consultados. Consultar los días vecinos al llegar a un período sin datos, compartir solicitudes en curso y conservar la invalidación tras cambios reales. Verificar aislamiento entre profesionales y comercios.
