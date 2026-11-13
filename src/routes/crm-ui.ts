@@ -16288,7 +16288,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .agenda-gcal-nav [data-agenda-prev] { order: 0; }
       .agenda-gcal-actions { width: auto; margin-left: 0; flex-wrap: nowrap; }
       .agenda-gcal-control, .agenda-gcal-filter { padding: 0 8px; }
-      .agenda-gcal-view-select { min-width: 0; width: auto; padding: 0 4px; }
+      .agenda-gcal-toolbar .agenda-gcal-view-select {
+        box-sizing: border-box;
+        flex: 0 0 66px;
+        width: 66px;
+        min-width: 0;
+        max-width: 66px;
+        padding: 0 4px;
+      }
       .agenda-gcal-frame { --agenda-time-width: 54px; }
       .agenda-gcal-day-head strong { font-size: 11px; }
       .agenda-gcal-day-head span { width: 38px; height: 38px; font-size: 20px; }
@@ -32217,8 +32224,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             '<button class="agenda-gcal-icon" type="button" data-agenda-mobile-menu aria-label="Menu">☰</button>' +
             '<button class="agenda-gcal-title" type="button" data-agenda-mobile-month-toggle aria-expanded="' + String(state.agendaMobileMonthOpen) + '"><span>' + escapeHtml(monthTitle) + '</span><i aria-hidden="true"></i></button>' +
             '<div class="agenda-gcal-actions">' +
-              '<select class="agenda-gcal-view-select" data-agenda-view-days aria-label="Dias visibles">' +
-                [1, 3, 7].map((count) => '<option value="' + count + '"' + (count === viewDays ? ' selected' : '') + '>' + count + (count === 1 ? ' dia' : ' dias') + '</option>').join('') +
+              '<select class="agenda-gcal-view-select" data-agenda-view-days aria-label="D&iacute;as visibles">' +
+                [1, 3, 7].map((count) => '<option value="' + count + '"' + (count === viewDays ? ' selected' : '') + '>' + count + (count === 1 ? ' d&iacute;a' : ' d&iacute;as') + '</option>').join('') +
               '</select>' +
             '<button class="agenda-gcal-filter' + (filtersActive ? ' active' : '') + '" type="button" data-agenda-mobile-filters aria-expanded="' + String(state.agendaMobileFiltersOpen) + '">Filtros</button>' +
             (canManageScheduleBlocks() ? '<button class="agenda-gcal-control' + (state.agendaBlockOpen ? ' active' : '') + '" type="button" data-agenda-block-toggle>Bloquear</button>' : '') +
