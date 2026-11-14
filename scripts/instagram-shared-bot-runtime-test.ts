@@ -227,12 +227,12 @@ INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps'
   const actualRead=await createPrismaDialoguePort(bridge(db) as never,'biz')
   const slotsFor=(date:string)=>[10,11].map(hour=>({professionalId:'pro',professionalName:'Elisa',date,band:'MORNING' as const,time:String(hour)+':00',startAt:date+'T'+hour+':00:00.000Z',occupiedMinutes:30}))
   let turnNumber=0
-  const turn=async(text:string)=>{
+  const turn=async(text:string,conversationalAi?:Parameters<typeof processSessionJob>[0]['conversationalAi'])=>{
     for(let i=0;i<30;i++) {const send=await claimOutbox(client as never,30000,undefined,{businessId:'biz',channels:['INSTAGRAM']});if(!send)break;assert.equal(await sendClaimedOutbox({client:client as never,item:send,provider:{send:async()=>({kind:'accepted',providerMessageId:'multi-out-'+crypto.randomUUID()})}}),'ACCEPTED')}
     const messageId='multi-'+(++turnNumber)
     await admission.admit({businessId:'biz',accountId:'account',signatureVerified:true,event:{senderId:subject.externalUserId,messageId,text,timestamp:Date.now(),instagramAccountIds:['account']} as never})
     const next=await claimBotJob(client as never,30000,undefined,instagramScope);assert.ok(next)
-    await processSessionJob({client:client as never,job:next!,dialogueFactory:async()=>({context:{businessId:'biz',timezone:'UTC',dbNow:new Date()},port:{prepareRuntimeBooking:actualRead.port.prepareRuntimeBooking,managementRescheduleOffers:(snapshot:any,date:string)=>prepareGroupRescheduleOffers(snapshot,date,async(member:any)=>slotsFor(date).map(slot=>({date,startAt:slot.startAt,professionalId:slot.professionalId,serviceIds:member.serviceIds,durationMinutes:member.durationMinutes,customerDurationMinutes:member.customerDurationMinutes??member.durationMinutes}))),catalog:async()=>[{id:'cut',name:'Corte',durationMinutes:30,requiresConsultation:false,price:1000},{id:'color',name:'Color',durationMinutes:60,requiresConsultation:false,price:2000}],availability:async(_service:any,date:string)=>({professionals:[{id:'pro',name:'Elisa',priority:0}],slots:slotsFor(date)}),availabilityBasket:async(services:any,date:string)=>({ok:true as const,services,durationMinutes:30,customerDurationMinutes:30,totalPrice:1000,professionals:[{id:'pro',name:'Elisa',priority:0}],slots:slotsFor(date)})}})})
+    await processSessionJob({client:client as never,job:next!,conversationalAi,dialogueFactory:async()=>({context:{businessId:'biz',timezone:'UTC',dbNow:new Date()},port:{prepareRuntimeBooking:actualRead.port.prepareRuntimeBooking,managementRescheduleOffers:(snapshot:any,date:string)=>prepareGroupRescheduleOffers(snapshot,date,async(member:any)=>slotsFor(date).map(slot=>({date,startAt:slot.startAt,professionalId:slot.professionalId,serviceIds:member.serviceIds,durationMinutes:member.durationMinutes,customerDurationMinutes:member.customerDurationMinutes??member.durationMinutes}))),catalog:async()=>[{id:'cut',name:'Corte',durationMinutes:30,requiresConsultation:false,price:1000},{id:'color',name:'Color',durationMinutes:60,requiresConsultation:false,price:2000}],availability:async(_service:any,date:string)=>({professionals:[{id:'pro',name:'Elisa',priority:0}],slots:slotsFor(date)}),availabilityBasket:async(services:any,date:string)=>({ok:true as const,services,durationMinutes:30,customerDurationMinutes:30,totalPrice:1000,professionals:[{id:'pro',name:'Elisa',priority:0}],slots:slotsFor(date)})}})})
     return (await db.query<{payload:any}>('SELECT payload FROM "BotOutbox" WHERE "sessionId"=$1 ORDER BY "createdAt",sequence',[session.id])).rows
   }
   const choicesOut=await turn('quiero reservar')
@@ -269,10 +269,23 @@ INSERT INTO "ProfessionalService" (id,"professionalId","serviceId") VALUES ('ps'
   await turn('quiero reprogramar mi turno para mañana a las 11:00')
   const management=(await db.query<{state:any}>('SELECT state FROM "BotSession" WHERE id=$1',[session.id])).rows[0]!.state.conversationDraft.dialogue.appointmentManagement
   assert.ok(management?.context.proposal,'The current IG appointment must receive a freshly checked reschedule proposal')
-  await turn('si confirmo')
+  await turn('1')
+  assert.equal((await db.query<{actionType:string}>('SELECT "actionType" FROM "BotActionInbox" WHERE "providerMessageId"=$1',['multi-'+turnNumber])).rows[0]?.actionType,'conversation.choice','Instagram must bind the numbered confirmation to the displayed reschedule proposal')
   const moved=(await db.query<{startAt:Date;status:string}>('SELECT "startAt",status FROM "Appointment" WHERE id=$1',[booked.id])).rows[0]!
   assert.equal(moved.startAt.toISOString().slice(11,16),'11:00','Real IG messages confirm the reschedule through the current shared domain')
   assert.equal(moved.status,'CONFIRMED')
+  await turn('quiero reprogramar mi turno para mañana a las 10:00')
+  const affirmation='Sí, dale de una'
+  await turn(affirmation,{
+    timeoutMs:15000,
+    provider:async()=>({
+      intent:'other',serviceId:null,serviceEvidence:null,professionalMention:null,
+      turnPlan:{version:1,operations:[]},
+      communicativeActs:{version:1,acts:[{kind:'answer',field:'general',evidence:affirmation,confidence:.99,mention:null,operationIndexes:[]}]}
+    })
+  })
+  const movedByText=(await db.query<{startAt:Date}>('SELECT "startAt" FROM "Appointment" WHERE id=$1',[booked.id])).rows[0]!
+  assert.equal(movedByText.startAt.toISOString().slice(11,16),'10:00','An interpreted free-text affirmation confirms the current Instagram reschedule proposal')
   const beforeCancellation=(await db.query('SELECT * FROM "Appointment" WHERE id=$1',[booked.id])).rows[0]
   await turn('quiero cancelar mi turno')
   assert.deepEqual((await db.query('SELECT * FROM "Appointment" WHERE id=$1',[booked.id])).rows[0],beforeCancellation,'Referral must not mutate the appointment, version, time or money')

@@ -1,5 +1,7 @@
 # Nuevo bot predeterminado para Instagram
 
+- [x] IG2. Corregir el contrato de reprogramación de Instagram. RED en main con texto libre sin intérprete. GREEN con confirmación numerada y con «Sí, dale de una» interpretado mediante IA simulada, ambos con cambio persistido. Ruta delegada directa. Runner focalizado `node --import tsx scripts/instagram-shared-bot-runtime-test.ts`.
+
 Autorizado el 14/11/2026. El comercio ya conectado y las cuentas que se conecten después deben poder reservar con el Nuevo bot de Instagram sin configurar WhatsApp ni agregar cada comercio a una lista.
 
 - [x] IG1. Preparar y asignar la configuración inicial de Instagram automáticamente para cuentas conectadas y aptas. Cubrir la conexión ya existente y las nuevas. Conservar asignaciones activas, permisos, pausas, estados protegidos y el alcance de los trabajadores. Actualizar el mapa del módulo y verificar regresiones de los dos canales.

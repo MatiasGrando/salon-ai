@@ -31,6 +31,8 @@ Si el comercio está seleccionado para el bot nuevo pero le falta procesador, de
 
 ## Registro de cambios
 
+- **14/11/2026, verificación de reprogramación.** El contrato confirma el cambio de 10:00 a 11:00 con la opción numerada y la vuelta a 10:00 con «Sí, dale de una» interpretado por IA simulada. Ambos cambios se comprueban en la base aislada. Queda pendiente la prueba con un DM en producción.
+
 - **14/11/2026, diagnóstico de reprogramación.** El contrato `instagram-shared-bot-runtime-test.ts` confirma con «si confirmo» sin pasar un intérprete al trabajador. El texto entra como mensaje libre. El motor requiere interpretación semántica de la aceptación o una selección de la propuesta vigente (por ejemplo, «Confirmar cambio»). La prueba anterior falla en ambas ramas de código comparadas. Pendiente verificar confirmación semántica con IA simulada y selección explícita en el contrato, y una prueba real para confirmar el comportamiento desplegado.
 
 - **14/11/2026**. Se trazaron los dos recorridos en el código. El enlace de WhatsApp reportado coincide con la regla anterior de derivación. Falta identificar qué proceso y configuración atendieron la prueba. La verificación se limitó al código local.
