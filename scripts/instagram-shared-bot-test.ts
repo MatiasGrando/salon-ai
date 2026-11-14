@@ -43,8 +43,8 @@ INSERT INTO "BusinessInstagramConfig" VALUES ('business','ig-account',true);`)
   const admissionClient={...orm(database),$transaction:async(fn:any)=>database.transaction(tx=>fn(orm(tx)))}
   const { PrismaInstagramBotAdmission }=await import('../src/services/instagram-bot-admission.js')
   const { resolveInstagramBotConfig }=await import('../src/config/instagram-bot.js')
-  assert.equal(resolveInstagramBotConfig({}).enabled,false)
-  assert.throws(()=>resolveInstagramBotConfig({INSTAGRAM_CONVERSATIONAL_BOT_ENABLED:'true'}),/allowlist/)
+  assert.equal(resolveInstagramBotConfig({}).enabled,true)
+  assert.equal(resolveInstagramBotConfig({INSTAGRAM_CONVERSATIONAL_BOT_ENABLED:'true'}).enabled,true,'explicit enablement without IDs applies to all Instagram businesses')
   const admission=new PrismaInstagramBotAdmission(admissionClient as never,{enabled:true,businessIds:['business']},true)
   const event={kind:'messaging' as const,instagramAccountIds:['ig-account'],senderId:'5491112345678',messageId:'ig-message',text:'quiero reservar',timestamp:Date.now()}
   await assert.rejects(admission.admit({businessId:'business',accountId:'ig-account',event,signatureVerified:false}),/authenticated/)

@@ -1,4 +1,4 @@
-import { resolveInstagramBotConfig, instagramBotWorkerScope, type InstagramBotConfig } from './config/instagram-bot.js'
+import { resolveInstagramBotConfig, instagramBotAiReady, instagramBotWorkerScope, instagramBotScopeIncludes, type InstagramBotConfig } from './config/instagram-bot.js'
 import { PrismaInstagramBotAdmission } from './services/instagram-bot-admission.js'
 import { InstagramOutboxProvider } from './bot-options/infrastructure/instagram-outbox-provider.js'
 import { resolveWhatsAppConversationAi,resolveInstagramConversationAi } from './conversational-bot/whatsapp-ai.js'
@@ -123,8 +123,9 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
   const workerScope = botWorkerScopeFromEnv(process.env)
   const instagramBotConfig=options.instagramBotConfig??resolveInstagramBotConfig(process.env)
-  const instagramWorkerScope=instagramBotWorkerScope(instagramBotConfig,workerScope)
-  const instagramReadyBusinesses=instagramWorkerScope?.businessIds??[]
+  const instagramWorkerScope=instagramBotConfig.businessIds!==undefined||instagramBotAiReady(process.env)
+    ? instagramBotWorkerScope(instagramBotConfig,workerScope) : undefined
+  const instagramProcessingReady=(businessId:string)=>instagramBotScopeIncludes(instagramWorkerScope,businessId)
   const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
   const instagramReelsRuntime = options.instagramReelsRuntime ?? await createInstagramReelsRuntime({
     config: resolveInstagramReelsRuntimeConfig(process.env),
@@ -177,7 +178,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
       : {})
   })
   await app.register(instagramWebhookRoutes, {
-    conversationalAdmission:new PrismaInstagramBotAdmission(prisma,instagramBotConfig,instagramReadyBusinesses),
+    conversationalAdmission:new PrismaInstagramBotAdmission(prisma,instagramBotConfig,instagramProcessingReady),
     commentsRuntimeReady: instagramReelsRuntime.commentsReady ?? instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []
   })
@@ -257,7 +258,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
           await processDepositProofJob({
             client: prisma,
             job,
-            capabilityEnabled: job.channel==='INSTAGRAM'?instagramReadyBusinesses.includes(job.businessId):botOptionsConfig.depositsCapabilityEnabled,
+            capabilityEnabled: job.channel==='INSTAGRAM'?instagramProcessingReady(job.businessId):botOptionsConfig.depositsCapabilityEnabled,
             onDiagnostic: value => { console.info('[bot-options-deposit-proof]', JSON.stringify(value)) }
           })
           return

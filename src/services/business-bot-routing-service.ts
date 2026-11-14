@@ -1,4 +1,5 @@
 import { PrismaInstagramBotRouting } from './instagram-bot-routing.js'
+import { INSTAGRAM_DEFAULT_BOT_KEY } from '../config/instagram-bot.js'
 import { prisma } from '../config/prisma.js'
 import {
   assertActivatableConfiguration,
@@ -40,7 +41,7 @@ function conversationAiReady() {
 }
 async function assertCommercialTarget(businessId: string, target: string) {
   if (target === 'legacy-whatsapp') throw new Error('El bot heredado ya no está disponible para nuevas selecciones')
-  const configuration = await prisma.businessBotConfiguration.findFirst({ where: { id: target, businessId }, select: configurationSelect })
+  const configuration = await prisma.businessBotConfiguration.findFirst({ where: { id: target, businessId, botKey: { not: INSTAGRAM_DEFAULT_BOT_KEY } }, select: configurationSelect })
   const variant = configuration && variantOf(configuration)
   if (!configuration || !variant) throw new Error('La configuración seleccionada no corresponde a un bot comercial preparado')
   if (variant === 'conversational' && !conversationAiReady()) throw new Error('El Nuevo bot requiere la IA de WhatsApp habilitada y configurada en el servidor')
@@ -56,7 +57,7 @@ export const businessBotRoutingService = {
         select: { id: true, engineKey: true, activeConfigurationId: true, generation: true, claimsPausedAt: true }
       }),
       prisma.businessBotConfiguration.findMany({
-        where: { businessId: input.businessId, status: 'ACTIVE', routingMode: 'EXCLUSIVE' },
+        where: { businessId: input.businessId, status: 'ACTIVE', routingMode: 'EXCLUSIVE', botKey: { not: INSTAGRAM_DEFAULT_BOT_KEY } },
         select: configurationSelect,
         orderBy: [{ name: 'asc' }, { version: 'asc' }]
       }),
@@ -108,7 +109,7 @@ export const businessBotRoutingService = {
       await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`bot-cutover:${input.businessId}:WHATSAPP`}, 0))`)
       const pointer = await tx.botChannelDeployment.findUnique({ where: { businessId_channel: { businessId: input.businessId, channel: 'WHATSAPP' } }, select: { activeConfigurationId: true, claimsPausedAt: true } })
       if (pointer?.claimsPausedAt) throw new Error('El bot está pausado para un cambio; resolvé esa operación antes de preparar otra configuración')
-      const configurations = await tx.businessBotConfiguration.findMany({ where: { businessId: input.businessId, status: 'ACTIVE', routingMode: 'EXCLUSIVE' }, select: configurationSelect, orderBy: [{ name: 'asc' }, { version: 'asc' }] })
+      const configurations = await tx.businessBotConfiguration.findMany({ where: { businessId: input.businessId, status: 'ACTIVE', routingMode: 'EXCLUSIVE', botKey: { not: INSTAGRAM_DEFAULT_BOT_KEY } }, select: configurationSelect, orderBy: [{ name: 'asc' }, { version: 'asc' }] })
       const keyed = await tx.businessBotConfiguration.findUnique({ where: { businessId_botKey: { businessId: input.businessId, botKey: commercialKeys[variant] } }, select: configurationSelect })
       if (keyed && variantOf(keyed) !== variant) throw new Error('La configuración comercial existente no coincide con la variante solicitada; no se modificó')
       const active = configurations.find(configuration => configuration.id === pointer?.activeConfigurationId)

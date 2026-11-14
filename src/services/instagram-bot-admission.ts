@@ -2,36 +2,51 @@ import {explicitReferralAction} from '../conversational-bot/conversational-refer
 import { resolveInstagramChoiceAdmissionTx } from './instagram-choice-admission.js'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { Prisma } from '../generated/prisma/client.js'
-import { resolveInstagramBotConfig, type InstagramBotConfig } from '../config/instagram-bot.js'
+import { instagramBotSelected, resolveInstagramBotConfig, type InstagramBotConfig } from '../config/instagram-bot.js'
 import { loadConversationPolicy } from '../conversational-bot/runtime-policy.js'
 import { createInitialBotOptionsState } from '../bot-options/domain/state.js'
 import { upsertJob } from '../bot-options/infrastructure/prisma-admission.js'
 import type { InstagramMessagingWebhookEvent } from './instagram-webhook-parser.js'
+import { activateFirstInstagramBot } from './instagram-bot-routing.js'
 type Client=Pick<Prisma.TransactionClient,'$queryRaw'|'$executeRaw'> & { $transaction<T>(operation:(tx:Prisma.TransactionClient)=>Promise<T>,options?:{maxWait?:number;timeout?:number}):Promise<T> }
 export type InstagramBotAdmissionResult={route:'legacy'}|{route:'new';status:'admitted'|'duplicate'|'paused'|'outside_window'|'rejected_choice';leadId:string;messageId:string|null}
 /** Called only after the webhook route authenticated the exact raw body. */
 export class PrismaInstagramBotAdmission {
-  constructor(private readonly client:Client,private readonly rollout:InstagramBotConfig=resolveInstagramBotConfig(process.env),private readonly processingReady:boolean|readonly string[]=false){}
-  selected(businessId:string){return this.rollout.enabled&&this.rollout.businessIds.includes(businessId)}
+  constructor(private readonly client:Client,private readonly rollout:InstagramBotConfig=resolveInstagramBotConfig(process.env),private readonly processingReady:boolean|readonly string[]|((businessId:string)=>boolean)=false,private readonly env:Record<string,string|undefined>=process.env){}
+  selected(businessId:string){return instagramBotSelected(this.rollout,businessId)}
   async admit(input:{businessId:string;accountId:string;event:InstagramMessagingWebhookEvent;signatureVerified:boolean}):Promise<InstagramBotAdmissionResult> {
     if(!this.selected(input.businessId))return {route:'legacy'}
-    if(!(this.processingReady===true||Array.isArray(this.processingReady)&&this.processingReady.includes(input.businessId)))throw new Error('Instagram conversational processor unavailable')
+    const processingReady=typeof this.processingReady==='function' ? this.processingReady(input.businessId) : this.processingReady===true||Array.isArray(this.processingReady)&&this.processingReady.includes(input.businessId)
+    if(!processingReady)throw new Error('Instagram conversational processor unavailable')
     if(!input.signatureVerified||!input.event.messageId||!input.event.instagramAccountIds.includes(input.accountId))throw new Error('Instagram bot requires an authenticated account-bound message')
     return this.client.$transaction(async tx=>{
-      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${'bot-cutover:'+input.businessId+':INSTAGRAM'},0))`)
-      const config=await tx.$queryRaw<Array<{accountId:string;timezone:string;deploymentId:string;generation:number;enabled:boolean}>>(Prisma.sql`
+      const automatic=this.rollout.businessIds===undefined
+      const fence='bot-cutover:'+input.businessId+':INSTAGRAM'
+      const active=automatic?await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`SELECT id FROM "BotChannelDeployment"
+        WHERE "businessId"=${input.businessId} AND channel='INSTAGRAM' AND "activeConfigurationId" IS NOT NULL`):[]
+      const first=automatic&&!active.length
+      await tx.$executeRaw(first?Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${fence},0))`:Prisma.sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${fence},0))`)
+      const config=await tx.$queryRaw<Array<{accountId:string;timezone:string;deploymentId:string|null;generation:number|null;enabled:boolean;engineKey?:string|null;pausedAt?:Date|null;coverage?:number|null}>>(Prisma.sql`
+        ${automatic?Prisma.sql`SELECT config."instagramAccountId" AS "accountId",COALESCE(settings.timezone,business.timezone) AS timezone,
+          d.id AS "deploymentId",d.generation,d."engineKey",d."claimsPausedAt" AS "pausedAt",d."legacyDispatchCoverageVersion" AS coverage,
+          business."botEnabled" AND COALESCE(features."botEnabled",true) AND config.enabled AS "enabled"
+          FROM "BusinessInstagramConfig" config JOIN "Business" business ON business.id=config."businessId"
+          LEFT JOIN "BotChannelDeployment" d ON d."businessId"=business.id AND d.channel='INSTAGRAM'
+          LEFT JOIN "BusinessBotOptionsSettings" settings ON settings."businessId"=business.id
+          LEFT JOIN "BusinessFeatureSettings" features ON features."businessId"=business.id
+          WHERE config."businessId"=${input.businessId} AND config."instagramAccountId"=${input.accountId} AND business."accountStatus"='ACTIVE'
+          FOR SHARE OF config,business`:Prisma.sql`
         /* instagram-bot-admission-config */ SELECT config."instagramAccountId" AS "accountId",business."timezone",d."id" AS "deploymentId",d."generation",COALESCE(features."botEnabled",true) AS "enabled"
         FROM "BusinessInstagramConfig" config JOIN "Business" business ON business."id"=config."businessId"
         JOIN "BotChannelDeployment" d ON d."businessId"=business."id" AND d."channel"='INSTAGRAM'::"BotChannel"
         LEFT JOIN "BusinessFeatureSettings" features ON features."businessId"=business."id"
         WHERE config."businessId"=${input.businessId} AND config."instagramAccountId"=${input.accountId} AND config."enabled"=true
           AND business."accountStatus"='ACTIVE' AND d."activeConfigurationId" IS NOT NULL AND d."claimsPausedAt" IS NULL AND d."legacyDispatchCoverageVersion">=1
-        FOR SHARE OF config,d
+        FOR SHARE OF config,d`}
       `)
-      if(config.length!==1||!config[0]!.timezone)throw new Error('Instagram conversational deployment unavailable')
+      if(config.length!==1||!automatic&&!config[0]!.timezone)throw new Error('Instagram conversational deployment unavailable')
       const current=config[0]!
-      const policy=await loadConversationPolicy(tx,{businessId:input.businessId,deploymentId:current.deploymentId,generation:current.generation,channel:'INSTAGRAM'})
-      if(!policy)throw new Error('Instagram conversational policy unavailable')
+      if(current.pausedAt)throw new Error('Instagram conversational deployment is paused')
       const leads=await tx.$queryRaw<Array<{id:string;aiEnabled:boolean;botPausedByUserId:string|null}>>(Prisma.sql`
         INSERT INTO "InstagramLead" ("id","businessId","instagramUserId","referralCode","lastMessage","createdAt","updatedAt")
         VALUES (${randomUUID()},${input.businessId},${input.event.senderId},${randomBytes(12).toString('hex')},${input.event.text},clock_timestamp(),clock_timestamp())
@@ -66,16 +81,28 @@ export class PrismaInstagramBotAdmission {
       if(!signedEventTimeValid){await tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET "status"='PROCESSED' WHERE "id"=${eventId}`);return {route:'new',status:'outside_window',leadId:lead.id,messageId}}
       const queuedResume=!lead.aiEnabled&&lead.botPausedByUserId===null&&explicitReferralAction(input.event.text)==='resume'
       if((!lead.aiEnabled&&!queuedResume)||!current.enabled){await tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET "status"='PROCESSED' WHERE "id"=${eventId}`);return {route:'new',status:'paused',leadId:lead.id,messageId}}
+      let deploymentId=current.deploymentId,generation=current.generation,coverage=current.coverage
+      if(first&&(!deploymentId||current.engineKey==='legacy-instagram'&&generation===0)){
+        if(queuedResume){await tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET status='PROCESSED' WHERE id=${eventId}`);return {route:'new',status:'paused',leadId:lead.id,messageId}}
+        if(!current.timezone)throw new Error('Instagram conversational timezone unavailable')
+        const deployment=await activateFirstInstagramBot(tx,{businessId:input.businessId,accountId:input.accountId,deploymentId,timezone:current.timezone,env:this.env})
+        deploymentId=deployment.id
+        generation=deployment.generation
+        coverage=1
+      }
+      if(!deploymentId||!generation||!current.timezone||automatic&&(coverage??0)<1)throw new Error('Instagram conversational deployment unavailable')
+      const policy=await loadConversationPolicy(tx,{businessId:input.businessId,deploymentId,generation,channel:'INSTAGRAM'})
+      if(!policy)throw new Error('Instagram conversational policy unavailable')
       const sessions=await tx.$queryRaw<Array<{id:string;revision:bigint;instagramAccountId:string;deploymentGeneration:number;state:Prisma.JsonValue;draftTouchedAt:Date|null}>>(Prisma.sql`
         SELECT "id","revision","instagramAccountId","deploymentGeneration",state,"draftTouchedAt" FROM "BotSession"
-        WHERE "businessId"=${input.businessId} AND "deploymentId"=${current.deploymentId} AND "instagramLeadId"=${lead.id} AND "status"<>'CLOSED'::"BotSessionStatus" FOR UPDATE
+        WHERE "businessId"=${input.businessId} AND "deploymentId"=${deploymentId} AND "instagramLeadId"=${lead.id} AND "status"<>'CLOSED'::"BotSessionStatus" FOR UPDATE
       `)
       let session=sessions[0]
-      if(session&&(session.instagramAccountId!==input.accountId||session.deploymentGeneration!==current.generation))throw new Error('Instagram session requires explicit cutover')
+      if(session&&(session.instagramAccountId!==input.accountId||session.deploymentGeneration!==generation))throw new Error('Instagram session requires explicit cutover')
       if(queuedResume&&!session){await tx.$executeRaw(Prisma.sql`UPDATE "BotProviderEvent" SET status='PROCESSED' WHERE id=${eventId}`);return {route:'new',status:'paused',leadId:lead.id,messageId}}
       if(!session){const id=randomUUID();const created=await tx.$queryRaw<Array<{id:string;revision:bigint;instagramAccountId:string;deploymentGeneration:number;state:Prisma.JsonValue;draftTouchedAt:Date|null}>>(Prisma.sql`
         INSERT INTO "BotSession" ("id","businessId","deploymentId","deploymentGeneration","channel","instagramLeadId","instagramAccountId","businessTimezone","state","revision","createdAt","updatedAt","draftTouchedAt","draftExpiresAt")
-        VALUES (${id},${input.businessId},${current.deploymentId},${current.generation},'INSTAGRAM',${lead.id},${input.accountId},${current.timezone},${JSON.stringify(createInitialBotOptionsState())}::jsonb,0,clock_timestamp(),clock_timestamp(),${occurred}::timestamptz,${occurred}::timestamptz+interval '24 hours')
+        VALUES (${id},${input.businessId},${deploymentId},${generation},'INSTAGRAM',${lead.id},${input.accountId},${current.timezone},${JSON.stringify(createInitialBotOptionsState())}::jsonb,0,clock_timestamp(),clock_timestamp(),${occurred}::timestamptz,${occurred}::timestamptz+interval '24 hours')
         RETURNING "id","revision","instagramAccountId","deploymentGeneration",state,"draftTouchedAt"
       `);session=created[0]}
       if(!session)throw new Error('Instagram session unavailable')
@@ -86,9 +113,9 @@ export class PrismaInstagramBotAdmission {
       const inboxId=randomUUID()
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO "BotActionInbox" ("id","businessId","providerEventId","sessionId","providerMessageId","actionType","deploymentId","deploymentGeneration","payload","expectedRevision","promptId","choiceToken","status")
-        VALUES (${inboxId},${input.businessId},${eventId},${session.id},${input.event.messageId},${choice.kind==='choice'?'conversation.choice':'conversation.message'},${current.deploymentId},${current.generation},${JSON.stringify(inboxPayload)}::jsonb,${session.revision},${choice.kind==='choice'?choice.promptId:null},${choice.kind==='choice'?choice.choiceToken:null},'ADMITTED')
+        VALUES (${inboxId},${input.businessId},${eventId},${session.id},${input.event.messageId},${choice.kind==='choice'?'conversation.choice':'conversation.message'},${deploymentId},${generation},${JSON.stringify(inboxPayload)}::jsonb,${session.revision},${choice.kind==='choice'?choice.promptId:null},${choice.kind==='choice'?choice.choiceToken:null},'ADMITTED')
       `)
-      await upsertJob(tx,'PROCESS_INBOX',inboxId,input.businessId,current.deploymentId,current.generation,null,'immediate')
+      await upsertJob(tx,'PROCESS_INBOX',inboxId,input.businessId,deploymentId,generation,null,'immediate')
       return {route:'new',status:'admitted',leadId:lead.id,messageId}
     },{maxWait:2000,timeout:10000})
   }

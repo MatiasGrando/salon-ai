@@ -6,7 +6,7 @@ process.env.DATABASE_URL='postgresql://offline:offline@127.0.0.1:1/offline'
 const { Prisma }=await import('../src/generated/prisma/client.js')
 const { PrismaInstagramBotAdmission }=await import('../src/services/instagram-bot-admission.js')
 const { PrismaInstagramBotRouting }=await import('../src/services/instagram-bot-routing.js')
-const { instagramBotWorkerScope }=await import('../src/config/instagram-bot.js')
+const { instagramBotWorkerScope, resolveInstagramBotConfig }=await import('../src/config/instagram-bot.js')
 const { claimBotJob }=await import('../src/bot-options/infrastructure/postgres-worker.js')
 const { InstagramOutboxProvider }=await import('../src/bot-options/infrastructure/instagram-outbox-provider.js')
 const { InstagramApi }=await import('../src/integrations/instagram-api.js')
@@ -33,6 +33,7 @@ for(const name of models){
   });await db.exec('CREATE TABLE "'+name+'" ('+columns.join(',')+')')
 }
 await db.exec('CREATE UNIQUE INDEX deployment_channel ON "BotChannelDeployment" ("businessId",channel);CREATE UNIQUE INDEX lead_identity ON "InstagramLead" ("businessId","instagramUserId"); CREATE UNIQUE INDEX event_identity ON "BotProviderEvent" (provider,"eventKey"); CREATE UNIQUE INDEX ig_message ON "InstagramMessage" ("providerMessageId"); CREATE UNIQUE INDEX job_identity ON "BotJob" (kind,"aggregateId"); CREATE UNIQUE INDEX operation_identity ON "BotOperation" ("operationKey"); CREATE UNIQUE INDEX handoff_audit_key ON "BotHandoffAudit" ("handoffId","operationKey",action); CREATE UNIQUE INDEX outbox_identity ON "BotOutbox" ("idempotencyKey")')
+await db.exec('CREATE UNIQUE INDEX config_identity ON "BusinessBotConfiguration" ("businessId","botKey")')
 await db.exec('CREATE FUNCTION pg_advisory_xact_lock_shared(bigint) RETURNS void LANGUAGE sql AS '+"'SELECT NULL::void'"+'; CREATE FUNCTION pg_advisory_xact_lock(bigint) RETURNS void LANGUAGE sql AS '+"'SELECT NULL::void'")
 const definition={schemaVersion:1,engineKey:'deterministic-options',conversation:{schemaVersion:1,engine:'conversational-booking-v1'},serviceContent:{version:1,businessId:'biz',services:[]}}
 await db.query('INSERT INTO "Business" (id,name,"accountStatus","botEnabled",timezone) VALUES ($1,$2,$3,true,$4)',['biz','Salon','ACTIVE','UTC'])
@@ -43,6 +44,10 @@ await db.query('INSERT INTO "BotChannelDeployment" (id,"businessId",channel,gene
 await db.query('INSERT INTO "BotChannelDeployment" (id,"businessId",channel,generation,"dispatchFenceEpoch","activeConfigurationId","legacyDispatchCoverageVersion","engineKey") VALUES ($1,$2,$3,1,1,$4,1,$5)',['wa-dep','biz','WHATSAPP','cfg','deterministic-options'])
 await db.query('INSERT INTO "BotJob" (id,kind,"aggregateId","businessId","deploymentId","deploymentGeneration","availableAt","createdAt") VALUES ($1,$2,$3,$4,$5,1,clock_timestamp()-interval \'1 day\',clock_timestamp()-interval \'1 day\')',['wa-off-job','PROCESS_INBOX','wa-inbox','biz','wa-dep'])
 const instagramScope=instagramBotWorkerScope({enabled:true,businessIds:['biz']})
+const defaultRollout=resolveInstagramBotConfig({})
+assert.deepEqual(instagramBotWorkerScope(defaultRollout),{channels:['INSTAGRAM']},'Instagram is selected globally if no rollout overrides are supplied')
+assert.deepEqual(instagramBotWorkerScope(defaultRollout,{businessId:'biz',mode:'exclude'}),{businessId:'biz',mode:'exclude',channels:['INSTAGRAM']})
+assert.equal(instagramBotWorkerScope(resolveInstagramBotConfig({INSTAGRAM_CONVERSATIONAL_BOT_ENABLED:'false'})),undefined)
 assert.deepEqual(instagramScope,{businessIds:['biz'],channels:['INSTAGRAM']})
 assert.equal(instagramBotWorkerScope({enabled:false,businessIds:['biz']}),undefined)
 assert.equal(instagramBotWorkerScope({enabled:true,businessIds:['biz']},{businessId:'biz',mode:'exclude'}),undefined)
@@ -78,6 +83,28 @@ function bridge(pg:Pick<PGlite,'query'>){
   return {...delegates,$queryRaw:async(q:Parameters<typeof query>[0])=>(await query(q)).rows,$executeRaw:async(q:Parameters<typeof query>[0])=>(await query(q)).affectedRows??0}
 }
 const client={...bridge(db),$transaction:async<T>(operation:(tx:unknown)=>Promise<T>)=>db.transaction(tx=>operation(bridge(tx)))}
+{
+  const env={CONVERSATIONAL_INSTAGRAM_AI_ENABLED:'true',OPENAI_API_KEY:'offline-no-call'}
+  const auto=new PrismaInstagramBotAdmission(client as never,defaultRollout,businessId=>businessId==='ig-only',env)
+  await db.exec(`INSERT INTO "Business" (id,name,"accountStatus","botEnabled",timezone) VALUES ('ig-only','Instagram Only','ACTIVE',true,'UTC');
+  INSERT INTO "BusinessInstagramConfig" (id,"businessId","instagramAccountId",enabled,"accessToken","appSecret") VALUES ('ig-only-config','ig-only','solo-account',true,'offline-token','offline-secret');
+  INSERT INTO "InstagramLead" (id,"businessId","instagramUserId","referralCode","aiEnabled") VALUES ('solo-paused','ig-only','paused-user','solo-paused-ref',false);`)
+  const admit=(messageId:string,senderId='solo-user',signatureVerified=true)=>auto.admit({businessId:'ig-only',accountId:'solo-account',signatureVerified,event:{senderId,messageId,text:'quiero reservar',timestamp:Date.now(),instagramAccountIds:['solo-account']} as never})
+  await assert.rejects(admit('unauthenticated','solo-user',false),/authenticated/)
+  assert.equal((await admit('solo-paused-mid','paused-user') as any).status,'paused')
+  assert.equal((await db.query(`SELECT id FROM "BotChannelDeployment" WHERE "businessId"='ig-only'`)).rows.length,0)
+  assert.equal((await admit('solo-mid') as any).status,'admitted')
+  assert.equal((await admit('solo-mid') as any).status,'duplicate')
+  assert.equal((await admit('solo-follow-up') as any).status,'admitted')
+  const deployments=(await db.query(`SELECT channel,generation,"activeConfigurationId" FROM "BotChannelDeployment" WHERE "businessId"='ig-only'`)).rows
+  const configurations=(await db.query<{id:string}>(`SELECT id FROM "BusinessBotConfiguration" WHERE "businessId"='ig-only' AND "phoneNumberId" IS NULL`)).rows
+  assert.equal(configurations.length,1)
+  assert.deepEqual(deployments,[{channel:'INSTAGRAM',generation:1,activeConfigurationId:configurations[0]!.id}])
+  assert.deepEqual((await db.query(`SELECT timezone FROM "BusinessBotOptionsSettings" WHERE "businessId"='ig-only'`)).rows,[{timezone:'UTC'}])
+  assert.equal((await db.query(`SELECT id FROM "BotDeploymentAudit" WHERE "businessId"='ig-only'`)).rows.length,1)
+  assert.equal((await db.query(`SELECT id FROM "BotJob" WHERE "businessId"='ig-only'`)).rows.length,2)
+  console.log('IG first native activation without WhatsApp, scope, pause and idempotent admission: PASS')
+}
 await db.query('UPDATE "BusinessInstagramConfig" SET "appSecret"=$1',['offline-secret'])
 await db.query('UPDATE "BusinessBotConfiguration" SET mode=$1,"routingMode"=$2,version=$3,name=$4,"phoneNumberId"=$5',['OPTIONS_ONLY','EXCLUSIVE','v1','Bot publicado','wa-phone'])
 const routing=new PrismaInstagramBotRouting(client as never,{INSTAGRAM_CONVERSATIONAL_BOT_ENABLED:'true',INSTAGRAM_CONVERSATIONAL_BOT_BUSINESS_IDS:'biz',CONVERSATIONAL_INSTAGRAM_AI_ENABLED:'true',OPENAI_API_KEY:'offline-no-call'})
@@ -92,6 +119,17 @@ assert.equal(assigned.activeConfigurationId,'cfg')
 assert.deepEqual((await db.query('SELECT * FROM "BusinessBotConfiguration"')).rows,beforeCfg,'assignment never rewrites, clones or archives the shared published configuration')
 assert.deepEqual((await db.query('SELECT * FROM "BotChannelDeployment" WHERE channel=$1',['WHATSAPP'])).rows,beforeWa,'IG generation/fences never change WhatsApp')
 console.log('IG assignment/preflight/commit same immutable WA-published version: PASS')
+{
+  const auto=new PrismaInstagramBotAdmission(client as never,defaultRollout,true,{CONVERSATIONAL_INSTAGRAM_AI_ENABLED:'true',OPENAI_API_KEY:'offline-no-call'})
+  const pending=(await db.query(`SELECT * FROM "BotChannelDeployment" WHERE id='dep'`)).rows
+  const event={senderId:'existing-user',messageId:'existing-automatic',text:'hola',timestamp:Date.now(),instagramAccountIds:['account']} as never
+  await db.query(`UPDATE "BotChannelDeployment" SET "claimsPausedAt"=clock_timestamp() WHERE id='dep'`)
+  await assert.rejects(auto.admit({businessId:'biz',accountId:'account',signatureVerified:true,event}),/paused/)
+  await db.query(`UPDATE "BotChannelDeployment" SET "claimsPausedAt"=NULL WHERE id='dep'`)
+  assert.equal((await auto.admit({businessId:'biz',accountId:'account',signatureVerified:true,event}) as any).status,'admitted')
+  assert.deepEqual((await db.query(`SELECT * FROM "BotChannelDeployment" WHERE id='dep'`)).rows,pending,'an active assignment is never switched or regenerated')
+  await db.query(`UPDATE "BotJob" SET status='DONE' WHERE "aggregateId" IN (SELECT id FROM "BotActionInbox" WHERE "providerMessageId"='existing-automatic')`)
+}
 const admission=new PrismaInstagramBotAdmission(client as never,{enabled:true,businessIds:['biz']},true)
 const now=(await db.query<{now:Date}>('SELECT clock_timestamp() now')).rows[0]!.now
 try{

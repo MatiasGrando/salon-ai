@@ -1,7 +1,7 @@
 
 import {randomUUID} from 'node:crypto'
 import {Prisma,type PrismaClient} from '../generated/prisma/client.js'
-import {resolveInstagramBotConfig} from '../config/instagram-bot.js'
+import {instagramBotAiReady,instagramBotSelected,INSTAGRAM_DEFAULT_BOT_KEY,resolveInstagramBotConfig} from '../config/instagram-bot.js'
 import {resolveConversationPolicy} from '../conversational-bot/runtime-policy.js'
 import type {DispatchPauseHandle,ActivationPreflightSnapshot} from '../bot-options/infrastructure/prisma-activation.js'
 type Client=Pick<PrismaClient,'$queryRaw'|'$transaction'>
@@ -10,15 +10,86 @@ function published(configuration:Configuration){
   if(configuration.status!=='ACTIVE'||configuration.mode!=='OPTIONS_ONLY'||configuration.routingMode!=='EXCLUSIVE')return false
   try{return !!resolveConversationPolicy({businessId:configuration.businessId,customerCode:'',deploymentId:'validation',generation:1,configurationId:configuration.id,configurationBusinessId:configuration.businessId,configurationStatus:configuration.status,engineKey:'deterministic-options',definition:configuration.definition,channel:'INSTAGRAM'})}catch{return false}
 }
+const instagramConfigurationOrder=Prisma.sql`ORDER BY (cfg.id=wa."activeConfigurationId") DESC NULLS LAST,cfg.name,cfg.version DESC,cfg.id`
+const instagramDefaultDefinition={schemaVersion:1,engineKey:'deterministic-options',conversation:{schemaVersion:1,engine:'conversational-booking-v1'}}
+
+/** Caller holds the exclusive Instagram cutover lock and has authenticated the incoming account. */
+export async function activateFirstInstagramBot(tx:Prisma.TransactionClient,input:{businessId:string;accountId:string;deploymentId:string|null;timezone:string;env:Record<string,string|undefined>}) {
+  const {businessId,accountId,deploymentId,timezone,env}=input
+  if(!instagramBotAiReady(env))throw new Error('Instagram conversational AI unavailable')
+  try { new Intl.DateTimeFormat('en-US',{timeZone:timezone}).format() }
+  catch { throw new Error('Instagram conversational timezone unavailable') }
+  const users=await tx.$queryRaw<Array<{ready:boolean}>>(Prisma.sql`
+    SELECT (NULLIF(BTRIM(config."accessToken"),'') IS NOT NULL
+      AND (config."tokenExpiresAt" IS NULL OR config."tokenExpiresAt">clock_timestamp())
+      AND (NULLIF(BTRIM(config."appSecret"),'') IS NOT NULL OR ${Boolean(env.INSTAGRAM_APP_SECRET?.trim()||env.META_APP_SECRET?.trim())})) AS ready
+    FROM "BusinessInstagramConfig" config WHERE config."businessId"=${businessId}
+      AND config."instagramAccountId"=${accountId} AND config.enabled=true FOR SHARE
+  `)
+  if(users[0]?.ready!==true)throw new Error('Instagram conversational connection unavailable')
+  const pending=await tx.$queryRaw<Array<{blocked:boolean}>>(Prisma.sql`
+    SELECT EXISTS (SELECT 1 FROM "InstagramMessage" m JOIN "InstagramLead" l ON l.id=m."leadId"
+      WHERE l."businessId"=${businessId} AND m.direction='OUTBOUND' AND m.status IN ('pending','queued','sending','unknown'))
+      OR EXISTS (SELECT 1 FROM "BotSession" s WHERE s."businessId"=${businessId} AND s."deploymentId"=${deploymentId} AND s.status<>'CLOSED')
+      OR EXISTS (SELECT 1 FROM "BotActionInbox" i WHERE i."businessId"=${businessId} AND i."deploymentId"=${deploymentId} AND i.status IN ('ADMITTED','CLAIMED','SELECTED','CONFLICT'))
+      OR EXISTS (SELECT 1 FROM "BotJob" j WHERE j."businessId"=${businessId} AND j."deploymentId"=${deploymentId} AND j.status IN ('READY','RETRY','LEASED','POISON'))
+      OR EXISTS (SELECT 1 FROM "BotOutbox" o JOIN "BotSession" s ON s.id=o."sessionId" AND s."businessId"=o."businessId"
+        WHERE s."businessId"=${businessId} AND s."deploymentId"=${deploymentId} AND o.status IN ('PENDING','CLAIMED','RETRY','SENDING','UNKNOWN','POISON'))
+      OR EXISTS (SELECT 1 FROM "BookingVisit" v JOIN "BotSession" s ON s.id=v."sessionId" AND s."businessId"=v."businessId"
+        WHERE s."businessId"=${businessId} AND s."deploymentId"=${deploymentId} AND v.status IN ('HELD','PENDING_PAYMENT_REVIEW'))
+      OR EXISTS (SELECT 1 FROM "BookingDeposit" b JOIN "BookingVisit" v ON v.id=b."visitId" AND v."businessId"=b."businessId"
+        JOIN "BotSession" s ON s.id=v."sessionId" AND s."businessId"=v."businessId"
+        WHERE s."businessId"=${businessId} AND s."deploymentId"=${deploymentId} AND b.status IN ('PENDING_PROOF','PENDING_RESUBMISSION','PROOF_RECEIVED'))
+      OR EXISTS (SELECT 1 FROM "BotHandoff" h JOIN "BotSession" s ON s.id=h."sessionId" AND s."businessId"=h."businessId"
+        WHERE s."businessId"=${businessId} AND s."deploymentId"=${deploymentId} AND h.status IN ('QUEUED','TAKEN'))
+      OR EXISTS (SELECT 1 FROM "BotDispatchClaim" d WHERE d."businessId"=${businessId} AND d.channel='INSTAGRAM'
+        AND (d.status IN ('SENDING','UNKNOWN') OR d.status='CLAIMED' AND d."claimedUntil">clock_timestamp())) AS blocked
+  `)
+  if(pending[0]?.blocked!==false)throw new Error('Instagram first activation is blocked by protected state')
+  const configurations=await tx.$queryRaw<Configuration[]>(Prisma.sql`
+    SELECT cfg.id,cfg."businessId",cfg.name,cfg.version,cfg.status,cfg.mode,cfg."routingMode",cfg.definition
+    FROM "BusinessBotConfiguration" cfg LEFT JOIN "BotChannelDeployment" wa ON wa."businessId"=cfg."businessId" AND wa.channel='WHATSAPP'
+    WHERE cfg."businessId"=${businessId} AND cfg.status='ACTIVE' AND cfg.mode='OPTIONS_ONLY' AND cfg."routingMode"='EXCLUSIVE'
+    ${instagramConfigurationOrder} FOR SHARE OF cfg
+  `)
+  let configurationId=configurations.find(published)?.id
+  if(!configurationId){
+    const [created]=await tx.$queryRaw<Array<{id:string}>>(Prisma.sql`
+      INSERT INTO "BusinessBotConfiguration" (id,"businessId","botKey",name,version,status,definition,"updatedAt")
+      VALUES (${randomUUID()},${businessId},${INSTAGRAM_DEFAULT_BOT_KEY},'Nuevo bot de Instagram','v1','ACTIVE',${JSON.stringify(instagramDefaultDefinition)}::jsonb,clock_timestamp())
+      ON CONFLICT ("businessId","botKey") DO NOTHING RETURNING id
+    `)
+    if(!created)throw new Error('Instagram default conversational configuration is occupied')
+    configurationId=created.id
+  }
+  await tx.$executeRaw(Prisma.sql`INSERT INTO "BusinessBotOptionsSettings" ("businessId",timezone,"updatedAt")
+    VALUES (${businessId},${timezone},clock_timestamp()) ON CONFLICT ("businessId") DO NOTHING`)
+  const [deployment]=await tx.$queryRaw<Array<{id:string;generation:number}>>(Prisma.sql`
+    INSERT INTO "BotChannelDeployment" (id,"businessId",channel,"engineKey",generation,"activeConfigurationId","activatedAt","dispatchFenceEpoch","legacyDispatchCoverageVersion","updatedAt")
+    VALUES (${deploymentId??randomUUID()},${businessId},'INSTAGRAM','deterministic-options',1,${configurationId},clock_timestamp(),1,1,clock_timestamp())
+    ON CONFLICT ("businessId",channel) DO UPDATE SET "engineKey"=EXCLUDED."engineKey",generation=1,
+      "activeConfigurationId"=EXCLUDED."activeConfigurationId","activatedAt"=clock_timestamp(),
+      "dispatchFenceEpoch"="BotChannelDeployment"."dispatchFenceEpoch"+1,"legacyDispatchCoverageVersion"=1,"updatedAt"=clock_timestamp()
+    WHERE "BotChannelDeployment".id=${deploymentId} AND "BotChannelDeployment".generation=0
+      AND "BotChannelDeployment"."engineKey"='legacy-instagram' AND "BotChannelDeployment"."activeConfigurationId" IS NULL
+      AND "BotChannelDeployment"."claimsPausedAt" IS NULL
+    RETURNING id,generation
+  `)
+  if(!deployment)throw new Error('Instagram first activation is no longer available')
+  const detail={channel:'INSTAGRAM',deploymentId:deployment.id,configurationId,source:'first_inbound'}
+  await tx.$executeRaw(Prisma.sql`INSERT INTO "BotDeploymentAudit" (id,"businessId",action,generation,detail)
+    VALUES (${randomUUID()},${businessId},'ACTIVATE',${deployment.generation},${JSON.stringify(detail)}::jsonb)`)
+  return deployment
+}
 const summary=(row:Configuration)=>({id:row.id,name:row.name,version:row.version,variant:'conversational' as const})
 export class PrismaInstagramBotRouting {
   constructor(private readonly client:Client,private readonly env:Record<string,string|undefined>=process.env){}
   private async preparation(businessId:string){
     const rows=await this.client.$queryRaw<Array<{instagramAccountId:string;accessToken:string|null;appSecret:string|null;enabled:boolean;timezone:string|null}>>(Prisma.sql`SELECT config."instagramAccountId",config."accessToken",config."appSecret",config.enabled,settings.timezone FROM "BusinessInstagramConfig" config LEFT JOIN "BusinessBotOptionsSettings" settings ON settings."businessId"=config."businessId" WHERE config."businessId"=${businessId}`)
     const row=rows[0],rollout=resolveInstagramBotConfig(this.env)
-    const enabled=rollout.enabled&&rollout.businessIds.includes(businessId)
+    const enabled=instagramBotSelected(rollout,businessId)
     const hasAppSecret=!!(row?.appSecret||this.env.INSTAGRAM_APP_SECRET||this.env.META_APP_SECRET)
-    const conversationalAiReady=this.env.CONVERSATIONAL_INSTAGRAM_AI_ENABLED==='true'&&!!this.env.OPENAI_API_KEY?.trim()
+    const conversationalAiReady=instagramBotAiReady(this.env)
     const instagramReady=!!(row?.enabled&&row.instagramAccountId&&row.accessToken)
     return {hasAppSecret,hasTimezone:!!row?.timezone,timezone:row?.timezone??null,conversationalAiReady,instagramReady,rolloutReady:enabled,ready:hasAppSecret&&instagramReady&&enabled&&conversationalAiReady&&!!row?.timezone}
   }

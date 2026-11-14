@@ -1,4 +1,4 @@
-import { resolveInstagramBotConfig } from '../config/instagram-bot.js'
+import { instagramBotSelected, resolveInstagramBotConfig } from '../config/instagram-bot.js'
 import { lockInstagramRuntimeActorTx, runtimeChannelIdentityRecord, validRuntimeChannelIdentity, type RuntimeChannelIdentity } from './conversation-subject.js'
 import { resolveBotOptionsConfig } from '../config/bot-options.js'
 import { calculateBookingDepositTerms, hasCompleteDepositPaymentConfiguration, type BookingDepositTerms } from '../services/deposit-operations.js'
@@ -23,7 +23,7 @@ export type RuntimeDepositPresentation = { financial:BookingDepositTerms; paymen
 export type RuntimeBookingPreparation = {presented:RuntimePresentedBooking;slot:import('./coordinated-booking.js').DialogueAvailabilitySlot} | {unavailable:'DEPOSITS_DISABLED'|'DEPOSIT_MULTISERVICE'|'PAYMENT_UNAVAILABLE'} | null
 /** Server configuration, never an input/model authorization flag. */
 export function runtimeDepositsEnabled(origin?:Pick<RuntimeBookingOrigin,'businessId'|'subject'>):boolean {
-  if(origin?.subject){const instagram=resolveInstagramBotConfig(process.env);return instagram.enabled&&instagram.businessIds.includes(origin.businessId)}
+  if(origin?.subject)return instagramBotSelected(resolveInstagramBotConfig(process.env),origin.businessId)
   return resolveBotOptionsConfig(process.env).depositsCapabilityEnabled
 }
 export type RuntimeBookingTerms = {

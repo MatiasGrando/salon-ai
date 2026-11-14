@@ -23,12 +23,13 @@ function stub(target: any, key: string, value: any) {
   target[key] = value
   originals.push(() => { target[key] = original })
 }
+let publicWhatsapp: string | null = '5491100000000'
 function configured() {
   return { businessId: 'business-a', instagramAccountId: 'professional-account', apiAccountId: 'app-scoped-account', username: 'salon', accessToken: secret, appSecret,
     tokenExpiresAt: null, enabled: true, connectedAt: new Date('2026-01-01'), lastError: 'Falta WhatsApp publico' }
 }
 stub(prisma.business, 'findUnique', async ({ where }: any) => where.id === 'missing' ? null : ({
-  id: where.id, publicWhatsapp: '5491100000000', instagramConfig: settings
+  id: where.id, publicWhatsapp, instagramConfig: settings
 }))
 stub(prisma.business, 'findFirst', async ({ where }: any) => where.accountAdminId === 'admin' && where.id === 'business-a' ? { id: where.id } : null)
 stub(prisma.businessInstagramConfig, 'findUnique', async () => settings)
@@ -98,6 +99,11 @@ try {
   assert.equal(result.statusCode, 200)
   assert.equal(result.json().connection.verification.status, 'verified')
   assert.equal(calls.at(-1)?.accountId, 'professional-account')
+  publicWhatsapp = null
+  const withoutWhatsapp = await app.inject({ method: 'PATCH', url: '/businesses/business-a/instagram-settings', payload: { enabled: true } })
+  assert.equal(withoutWhatsapp.statusCode, 200)
+  assert.equal(withoutWhatsapp.json().connection.lastError, null, 'Instagram can connect without a public WhatsApp number')
+  publicWhatsapp = '5491100000000'
   for (const response of [result, await app.inject({ method: 'GET', url: '/businesses/business-a/instagram-settings' })]) {
     assert.ok(!response.body.includes(secret) && !response.body.includes(appSecret))
   }

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { instagramConfig } from '../config/instagram.js'
+import { instagramBotSelected, resolveInstagramBotConfig } from '../config/instagram-bot.js'
 import { prisma } from '../config/prisma.js'
 import { InstagramApi } from '../integrations/instagram-api.js'
 
@@ -56,6 +57,10 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ message: 'La fecha de vencimiento del token no es valida.' })
     }
     const username = account.username ?? normalizeText(body.username) ?? business.instagramConfig?.username ?? null
+    const usesNewBot = instagramBotSelected(resolveInstagramBotConfig(process.env), business.id)
+    const lastError = usesNewBot || business.publicWhatsapp
+      ? null
+      : 'Falta cargar el WhatsApp publico del comercio para derivar reservas.'
     const settings = await prisma.businessInstagramConfig.upsert({
       where: { businessId: params.id },
       update: {
@@ -68,7 +73,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
         ...(body.tokenExpiresAt !== undefined ? { tokenExpiresAt: tokenExpiresAt ?? null } : {}),
         ...(body.enabled !== undefined ? { enabled: Boolean(body.enabled) } : {}),
         connectedAt: new Date(),
-        lastError: business.publicWhatsapp ? null : 'Falta cargar el WhatsApp publico del comercio para derivar reservas.'
+        lastError
       },
       create: {
         businessId: params.id,
@@ -80,7 +85,7 @@ export async function instagramSettingsRoutes(app: FastifyInstance) {
         tokenExpiresAt: tokenExpiresAt ?? null,
         enabled: body.enabled ?? true,
         connectedAt: new Date(),
-        lastError: business.publicWhatsapp ? null : 'Falta cargar el WhatsApp publico del comercio para derivar reservas.'
+        lastError
       }
     }).catch(() => null)
     if (!settings) {
