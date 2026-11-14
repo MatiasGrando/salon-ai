@@ -74,6 +74,10 @@ if (!browserModule) {
             rejectNextSave = false
             return route.fulfill({ status: 503, json: { message: 'No pudimos guardar las imágenes. Volvé a intentar.' } })
           }
+          if (!Object.hasOwn(payload, 'banner')) {
+            settings = { ...settings, serviceIcon: payload.serviceIcon, showAddress: payload.showAddress }
+            return route.fulfill({ json: { bookingEmailMedia: settings } })
+          }
           const persist = ({ imageDataUrl, originalDataUrl, ...photo }: any, label: string) => {
             const imagePath = '/rendered/' + label
             rendered.set(imagePath, Buffer.from(imageDataUrl.split(',')[1], 'base64'))
@@ -85,6 +89,8 @@ if (!browserModule) {
           }
           settings = {
             logoUrl: payload.logoUrl,
+            serviceIcon: payload.serviceIcon,
+            showAddress: payload.showAddress,
             banner: payload.banner ? persist(payload.banner, 'banner') : null,
             gallery: payload.gallery.map((photo: any, index: number) => persist(photo, 'gallery-' + index))
           }
@@ -236,6 +242,13 @@ if (!browserModule) {
       assert.equal(saves.at(-1).banner, null)
       assert.deepEqual(saves.at(-1).gallery, [])
       assert.ok(await editor.getByRole('img', { name: 'Logo del negocio' }).isVisible())
+      await editor.getByLabel('Icono de servicio').selectOption('scissors')
+      await editor.getByLabel('Mostrar dirección').uncheck()
+      assert.equal(await editor.locator('#booking-email-media-preview-service-icon').textContent(), '\u2702\uFE0E')
+      assert.ok(await editor.locator('#booking-email-media-preview-location').isHidden())
+      await save.click()
+      await editor.getByText('Confirmación guardada.').waitFor()
+      assert.deepEqual(saves.at(-1), { serviceIcon: 'scissors', showAddress: false })
       await page.evaluate(() => (window as any).bookingEmailFixture.switchToStaff())
       assert.ok(await editor.isHidden())
       assert.deepEqual(errors, [], 'CRM handlers have no browser exceptions')
