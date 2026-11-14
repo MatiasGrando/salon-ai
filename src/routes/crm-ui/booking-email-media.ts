@@ -1,4 +1,5 @@
 import { bookingConfirmationDetailIcons } from '../../services/booking-confirmation-email-service.js'
+import { bookingServiceIcons } from '../../services/booking-email-media-service.js'
 
 export const bookingEmailMediaStyles = `
     #booking-email-media { margin-top: 20px; padding: clamp(12px, 2vw, 20px); border: 1px solid #425365; border-radius: 14px; min-width: 0; }
@@ -43,12 +44,24 @@ export const bookingEmailMediaStyles = `
 
 export const bookingEmailMediaMarkup = `
           <details id="booking-email-media" hidden>
-            <summary>Im&aacute;genes del correo de confirmaci&oacute;n</summary>
-            <p class="booking-email-media-help">Eleg&iacute; qu&eacute; fotos aparecen en el correo del turno. Los cambios se guardan solo para el correo.</p>
+            <summary>Confirmaci&oacute;n de reserva</summary>
+            <p class="booking-email-media-help">Personaliz&aacute; el correo y el detalle web que se muestran al confirmar el turno.</p>
             <form id="booking-email-media-form" hidden>
               <fieldset class="booking-email-media-fields">
                 <div class="booking-email-media-layout">
                   <div class="booking-email-media-controls">
+                    <section class="booking-email-media-block" aria-labelledby="booking-email-media-appearance-title">
+                      <h4 id="booking-email-media-appearance-title">Detalle del turno</h4>
+                      <label for="booking-email-media-service-icon">Icono de servicio</label>
+                      <select class="field" id="booking-email-media-service-icon">
+                        <option value="calendar">Calendario</option>
+                        <option value="scissors">Tijeras</option>
+                        <option value="sparkle">Destellos</option>
+                        <option value="briefcase">Malet&iacute;n</option>
+                        <option value="none">Sin icono</option>
+                      </select>
+                      <label><input type="checkbox" id="booking-email-media-show-address" checked> Mostrar direcci&oacute;n</label>
+                    </section>
                     <section class="booking-email-media-block" aria-labelledby="booking-email-media-banner-title">
                       <h4 id="booking-email-media-banner-title">Portada</h4>
                       <label for="booking-email-media-source">Portada del correo</label>
@@ -94,7 +107,7 @@ export const bookingEmailMediaMarkup = `
                         </div>
                         <p>Hola, tu reserva fue confirmada.</p>
                         <div class="booking-email-media-preview-details">
-                          <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.service}</span><strong>Servicio de ejemplo</strong></div>
+                          <div><span class="booking-email-media-detail-icon" id="booking-email-media-preview-service-icon" aria-hidden="true">${bookingConfirmationDetailIcons.service}</span><strong>Servicio de ejemplo</strong></div>
                           <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.date}</span><span>S&aacute;bado 14 de noviembre</span></div>
                           <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.time}</span><strong>15:00 &ndash; 15:30 hs</strong></div>
                           <div><span class="booking-email-media-detail-icon" aria-hidden="true">${bookingConfirmationDetailIcons.professional}</span><span>Con profesional de ejemplo</span></div>
@@ -112,7 +125,7 @@ export const bookingEmailMediaMarkup = `
                   </section>
                 </div>
                 <div class="booking-email-media-actions">
-                  <button class="primary" id="booking-email-media-save" type="submit">Guardar im&aacute;genes del correo</button>
+                  <button class="primary" id="booking-email-media-save" type="submit">Guardar confirmaci&oacute;n</button>
                   <button class="secondary" id="booking-email-media-reload" type="button">Recargar im&aacute;genes guardadas</button>
                 </div>
               </fieldset>
@@ -124,6 +137,7 @@ export const bookingEmailMediaMarkup = `
 
 export const bookingEmailMediaScript = String.raw`
     function bookingEmailMediaEditor(root, dependencies) {
+      const serviceIcons = ${JSON.stringify(bookingServiceIcons)}
       const find = (suffix) => root.querySelector('#booking-email-media-' + suffix)
       const form = find('form')
       const fields = form.querySelector('fieldset')
@@ -145,6 +159,7 @@ export const bookingEmailMediaScript = String.raw`
       let activePhoto = null
       let activeDimensions = null
       let draftChanged = false
+      let appearanceChanged = false
       let busy = false
       let loadVersion = 0
       let cropVersion = 0
@@ -236,7 +251,9 @@ export const bookingEmailMediaScript = String.raw`
       }
 
       function renderPreviewAddress() {
-        const { address, mapsUrl } = dependencies.businessLocation()
+        const location = dependencies.businessLocation()
+        const address = find('show-address').checked ? location.address : ''
+        const { mapsUrl } = location
         const row = find('preview-location')
         const link = find('preview-address')
         row.hidden = !address
@@ -257,6 +274,7 @@ export const bookingEmailMediaScript = String.raw`
       }
 
       function renderPreview() {
+        find('preview-service-icon').innerHTML = serviceIcons[find('service-icon').value] || ''
         renderPreviewAddress()
         if (!model) return
         const version = ++previewVersion
@@ -405,9 +423,12 @@ export const bookingEmailMediaScript = String.raw`
         source.replaceChildren(new Option('Sin portada', 'none'), ...sources.map((photo) => new Option(photo.label, photo.key)),
           new Option('Imagen exclusiva del correo', 'upload'))
         source.value = model.banner?.key || 'none'
+        find('service-icon').value = Object.hasOwn(serviceIcons, saved?.serviceIcon) ? saved.serviceIcon : 'calendar'
+        find('show-address').checked = saved?.showAddress !== false
         find('upload').value = ''
         find('preview-name').textContent = dependencies.businessName() || 'Tu negocio'
         draftChanged = false
+        appearanceChanged = false
         updateBannerControls()
         renderGallery()
         renderPreview()
@@ -454,7 +475,14 @@ export const bookingEmailMediaScript = String.raw`
         throw new Error('No pudimos reducir el tamaño de una imagen. Elegí otra foto.')
       }
 
-      root.addEventListener('toggle', () => { if (root.open && !draftChanged && !busy) void load() })
+      root.addEventListener('toggle', () => { if (root.open && !draftChanged && !appearanceChanged && !busy) void load() })
+      for (const field of ['service-icon', 'show-address']) {
+        find(field).addEventListener('change', () => {
+          appearanceChanged = true
+          find('preview-service-icon').innerHTML = serviceIcons[find('service-icon').value] || ''
+          renderPreviewAddress()
+        })
+      }
       find('reload').addEventListener('click', () => { void load() })
       find('retry').addEventListener('click', () => { void load() })
       find('edit-banner').addEventListener('click', () => { void edit(model.banner, true) })
@@ -530,24 +558,28 @@ export const bookingEmailMediaScript = String.raw`
         busy = true
         fields.disabled = true
         form.setAttribute('aria-busy', 'true')
-        message('Guardando imágenes…')
+        message('Guardando confirmación…')
         try {
-          const [banner, gallery] = await Promise.all([
-            model.banner ? renderPhoto(model.banner, bannerSize, model.logo.url, 600 * 1024) : null,
-            Promise.all(model.gallery.map((photo) => renderPhoto(photo, gallerySize, null, 250 * 1024)))
-          ])
-          if (model !== currentModel) return
-          if (banner) {
-            banner.source = model.banner.source
-            if (model.banner.originalDataUrl) banner.originalDataUrl = model.banner.originalDataUrl
+          const payload = { serviceIcon: find('service-icon').value, showAddress: find('show-address').checked }
+          if (draftChanged || !appearanceChanged) {
+            const [banner, gallery] = await Promise.all([
+              model.banner ? renderPhoto(model.banner, bannerSize, model.logo.url, 600 * 1024) : null,
+              Promise.all(model.gallery.map((photo) => renderPhoto(photo, gallerySize, null, 250 * 1024)))
+            ])
+            if (model !== currentModel) return
+            if (banner) {
+              banner.source = model.banner.source
+              if (model.banner.originalDataUrl) banner.originalDataUrl = model.banner.originalDataUrl
+            }
+            Object.assign(payload, { banner, gallery, logoUrl: model.logo.ref })
           }
           const result = await dependencies.getJson(path, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ banner, gallery, logoUrl: model.logo.ref })
+            body: JSON.stringify(payload)
           })
           if (model !== currentModel) return
           applyMedia({ ...model.media, bookingEmailMedia: result.bookingEmailMedia })
-          message('Imágenes del correo guardadas.', 'success')
+          message('Confirmación guardada.', 'success')
         } catch (error) {
           if (model === currentModel) message(error.message, 'error')
         } finally {

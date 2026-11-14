@@ -4,6 +4,7 @@ import sharp from 'sharp'
 import type { AuthContext } from '../src/services/auth-service.js'
 import {
   bookingEmailMediaSources,
+  resolveBookingConfirmationAppearance,
   resolveBookingEmailMedia,
   storeBookingEmailMedia,
   type BookingEmailMediaSettings
@@ -30,6 +31,14 @@ const business = {
   bookingEmailMedia: null as BookingEmailMediaSettings | null
 }
 const sources = bookingEmailMediaSources(business)
+assert.deepEqual(resolveBookingConfirmationAppearance(business), { serviceIcon: 'calendar', showAddress: true })
+const existingMedia = { logoUrl: business.logoUrl, banner: null, gallery: [] }
+const updatedAppearance = await storeBookingEmailMedia({ ...business, bookingEmailMedia: existingMedia },
+  { serviceIcon: 'sparkle', showAddress: false }, async () => assert.fail('Appearance-only changes must not upload images'))
+assert.deepEqual(updatedAppearance, { ...existingMedia, serviceIcon: 'sparkle', showAddress: false })
+assert.deepEqual(resolveBookingConfirmationAppearance({ ...business, bookingEmailMedia: updatedAppearance }), { serviceIcon: 'sparkle', showAddress: false })
+await assert.rejects(storeBookingEmailMedia(business, { serviceIcon: '<svg>', showAddress: false }), /icono/)
+await assert.rejects(storeBookingEmailMedia(business, { serviceIcon: 'calendar', showAddress: 'false' }), /direcci/)
 assert.deepEqual(sources.gallery.map(source => source?.split(':')[0] || null), ['https', 'data-sha256', null])
 assert.deepEqual(resolveBookingEmailMedia(business), {
   bannerUrl: null,

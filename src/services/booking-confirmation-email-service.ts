@@ -1,6 +1,6 @@
 import { isSimulatorAppointmentId } from './simulator-booking-scope.js'
 import { publicBookingNavigation } from './public-booking-navigation.js'
-import { httpsBookingEmailUrl, resolveBookingEmailMedia, type BookingEmailMedia } from './booking-email-media-service.js'
+import { bookingServiceIcons, httpsBookingEmailUrl, resolveBookingConfirmationAppearance, resolveBookingEmailMedia, type BookingEmailMedia } from './booking-email-media-service.js'
 
 type BookingConfirmationEmailInput = {
   recipientEmail: string
@@ -18,6 +18,7 @@ type BookingConfirmationEmailInput = {
   priceMode?: 'FIXED' | 'STARTING_AT' | null
   bookingManagementUrl?: string | null
   emailMedia?: BookingEmailMedia
+  serviceIcon?: keyof typeof bookingServiceIcons
 }
 
 type EmailDeliveryResult =
@@ -27,7 +28,7 @@ type EmailDeliveryResult =
 const resendApiUrl = 'https://api.resend.com/emails'
 
 export const bookingConfirmationDetailIcons = {
-  service: '&#9986;&#65038;',
+  service: bookingServiceIcons.calendar,
   date: '&#128197;&#65038;',
   time: '&#128337;&#65038;',
   professional: '&#128100;&#65038;',
@@ -50,11 +51,13 @@ export function bookingConfirmationBusinessDetails(
   const bookingManagementUrl = canManage && business.landingEnabled && slug && /^[a-z0-9-]+$/.test(slug) && /^[a-z0-9.-]+$/.test(domain)
     ? httpsBookingEmailUrl(publicBookingNavigation(business).accountUrl)
     : null
+  const { serviceIcon, showAddress } = resolveBookingConfirmationAppearance(business)
   return {
     businessName: business.name,
-    businessAddress: [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null,
-    businessAddressArea: business.publicAddressArea ?? null,
-    businessMapsUrl: business.publicMapsUrl ?? null,
+    businessAddress: showAddress ? [business.publicAddress, business.publicAddressArea].filter(Boolean).join(', ') || null : null,
+    businessAddressArea: showAddress ? business.publicAddressArea ?? null : null,
+    businessMapsUrl: showAddress ? business.publicMapsUrl ?? null : null,
+    serviceIcon,
     bookingManagementUrl,
     emailMedia: resolveBookingEmailMedia(business)
   }
@@ -149,13 +152,12 @@ function renderEmailHtml(
       location: {
         '@type': 'Place',
         name: input.businessName,
-        address: {
+        ...(input.businessAddress ? { address: {
           '@type': 'PostalAddress',
-          streetAddress: input.businessAddress || input.businessName,
-          addressLocality: input.businessAddressArea || 'Buenos Aires',
-          addressRegion: 'Buenos Aires',
+          streetAddress: input.businessAddress,
+          ...(input.businessAddressArea ? { addressLocality: input.businessAddressArea } : {}),
           addressCountry: 'AR'
-        }
+        } } : {})
       }
     }
   }).replace(/</g, '\\u003c')
@@ -199,7 +201,7 @@ function renderEmailHtml(
           <tr><td style="padding:18px 20px 0">
             <p style="margin:0 0 14px;color:#766a59">Hola ${escapeHtml(input.recipientName)}, tu reserva fue confirmada.</p>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid #e4d9bf;border-bottom:1px solid #e4d9bf">
-              ${emailDetailRow('service', `<h2 style="margin:0;font-size:21px;color:#2a2117">${escapeHtml(input.serviceName)}</h2>`)}
+              ${emailDetailRow('service', `<h2 style="margin:0;font-size:21px;color:#2a2117">${escapeHtml(input.serviceName)}</h2>`, input.serviceIcon)}
               ${emailDetailRow('date', escapeHtml(dateLabel))}
               ${emailDetailRow('time', `<strong>${escapeHtml(timeRange)}</strong>`)}
               ${emailDetailRow('professional', `Con ${escapeHtml(input.professionalName)}`)}
@@ -228,9 +230,11 @@ function bookingPriceLabel(quotedPrice: number | null | undefined, priceMode: Bo
   return priceMode === 'STARTING_AT' ? `Desde ${formatted}` : formatted
 }
 
-function emailDetailRow(icon: keyof typeof bookingConfirmationDetailIcons, content: string) {
+function emailDetailRow(icon: keyof typeof bookingConfirmationDetailIcons, content: string, serviceIcon?: keyof typeof bookingServiceIcons) {
+  const glyph = icon === 'service' && serviceIcon && Object.hasOwn(bookingServiceIcons, serviceIcon)
+    ? bookingServiceIcons[serviceIcon] : bookingConfirmationDetailIcons[icon]
   return `<tr>
-    <td class="booking-email-detail-icon" width="25" valign="top" aria-hidden="true" style="padding:6px 5px 6px 0;color:#6d1f1f;font-size:16px;line-height:1.45">${bookingConfirmationDetailIcons[icon]}</td>
+    <td class="booking-email-detail-icon" width="25" valign="top" aria-hidden="true" style="padding:6px 5px 6px 0;color:#6d1f1f;font-size:16px;line-height:1.45">${glyph}</td>
     <td valign="top" style="padding:6px 0;color:#2a2117;font-size:16px;line-height:1.45;overflow-wrap:anywhere">${content}</td>
   </tr>`
 }

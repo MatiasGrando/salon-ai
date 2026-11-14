@@ -11,7 +11,7 @@ import { renderBookingConfirmationEmail } from '../src/services/booking-confirma
 const markup = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })
 assert.ok(markup.includes('id="booking-email-media"'), 'the Landing settings must expose the email image editor')
 assert.ok(/id="booking-email-media-feedback"[^>]*aria-live="polite"/.test(markup))
-assert.ok(/booking-email-media[^<]{0,80}Guardar im&aacute;genes del correo/.test(markup))
+assert.ok(/booking-email-media[^<]{0,80}Guardar confirmaci&oacute;n/.test(markup))
 
 const browserModule = process.env.CRM_QA_BROWSER_MODULE
 if (!browserModule) {
@@ -142,11 +142,11 @@ if (!browserModule) {
       await editor.getByRole('button', { name: 'Mover foto 2 arriba' }).click()
       await editor.getByRole('button', { name: 'Ajustar foto 1' }).click()
       await zoom.press('End')
-      const save = editor.getByRole('button', { name: 'Guardar imágenes del correo' })
+      const save = editor.getByRole('button', { name: 'Guardar confirmación' })
       await save.click()
       await editor.getByText('No pudimos guardar las imágenes. Volvé a intentar.').waitFor()
       await save.click()
-      await editor.getByText('Imágenes del correo guardadas.').waitFor()
+      await editor.getByText('Confirmación guardada.').waitFor()
       assert.equal(saves.length, 2)
       assert.deepEqual(saves[0], saves[1], 'retries preserve the draft')
       const payload = saves[1]
@@ -177,7 +177,7 @@ if (!browserModule) {
       assert.equal(await zoom.inputValue(), '0', 'portrait can zoom out below fill')
       assert.ok(await horizontal.isDisabled() && await vertical.isDisabled())
       await save.click()
-      await editor.getByText('Imágenes del correo guardadas.').waitFor()
+      await editor.getByText('Confirmación guardada.').waitFor()
 
       const fullFrame = { x: 0, y: 0, width: 1, height: 1, fillRatio: 0 }
       assert.deepEqual(settings.banner.crop, fullFrame)
@@ -226,13 +226,13 @@ if (!browserModule) {
       await editor.getByLabel('Subir una portada').setInputFiles({ name: 'portada.png', mimeType: 'image/png', buffer: pictures[0]! })
       await canvas.waitFor({ state: 'visible' })
       await save.click()
-      await editor.getByText('Imágenes del correo guardadas.').waitFor()
+      await editor.getByText('Confirmación guardada.').waitFor()
       assert.equal(saves.at(-1).banner.source, 'upload')
       assert.match(saves.at(-1).banner.originalDataUrl, /^data:image\//)
       await source.selectOption('none')
       for (const index of [3, 2, 1]) await editor.getByRole('button', { name: 'Quitar foto ' + index }).click()
       await save.click()
-      await editor.getByText('Imágenes del correo guardadas.').waitFor()
+      await editor.getByText('Confirmación guardada.').waitFor()
       assert.equal(saves.at(-1).banner, null)
       assert.deepEqual(saves.at(-1).gallery, [])
       assert.ok(await editor.getByRole('img', { name: 'Logo del negocio' }).isVisible())

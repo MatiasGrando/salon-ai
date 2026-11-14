@@ -31,6 +31,8 @@ Si el comercio está seleccionado para el bot nuevo pero le falta procesador, de
 
 ## Registro de cambios
 
+- **14/11/2026, diagnóstico de reprogramación.** El contrato `instagram-shared-bot-runtime-test.ts` confirma con «si confirmo» sin pasar un intérprete al trabajador. El texto entra como mensaje libre. El motor requiere interpretación semántica de la aceptación o una selección de la propuesta vigente (por ejemplo, «Confirmar cambio»). La prueba anterior falla en ambas ramas de código comparadas. Pendiente verificar confirmación semántica con IA simulada y selección explícita en el contrato, y una prueba real para confirmar el comportamiento desplegado.
+
 - **14/11/2026**. Se trazaron los dos recorridos en el código. El enlace de WhatsApp reportado coincide con la regla anterior de derivación. Falta identificar qué proceso y configuración atendieron la prueba. La verificación se limitó al código local.
 - **14/11/2026**. Se agregó la activación predeterminada de primera admisión para Instagram, con reutilización de configuración publicada y un perfil propio para comercios sin WhatsApp. Se verificaron localmente la activación sin WhatsApp, la deduplicación y las pausas mediante la suite del canal.
 - Al modificar este módulo, registrar acá el punto que cambió, su configuración y cómo se comprobó. La suite del canal se ejecuta con `npm run test:instagram-shared-bot`.

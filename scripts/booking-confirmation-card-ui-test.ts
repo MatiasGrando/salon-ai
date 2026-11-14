@@ -93,7 +93,8 @@ try {
   assert.match(account.html, /jueves, 10 de octubre/)
   assert.match(account.html, /15:30[^<]+16:00 hs/, 'el rango usa la hora local, la duración reservada y el sufijo del correo')
   assert.equal((account.html.match(/class="booking-confirmation-detail-icon"/g) || []).length, 5)
-  assert.match(account.html, /&#9986;&#65038;/)
+  assert.match(account.html, /&#128197;&#65038;<\/span><div><h2>Corte/)
+  assert.doesNotMatch(account.html, /&#9986;&#65038;/)
   assert.match(account.html, /Av\. Prueba 123/)
   assert.match(account.html, /href="https:\/\/maps\.example\.test\/\?place=123"[^>]*>Av\. Prueba 123<\/a>/)
   assert.match(account.html, /\$1200/)
@@ -101,6 +102,13 @@ try {
   assert.match(account.html, /banner-composed\.jpg/)
   assert.match(account.html, /thumb\.jpg/)
   assert.doesNotMatch(account.html, /logo\.png|square-cover\.png|full-photo\.jpg|Profesional del borrador/)
+
+  media = { ...configured, serviceIcon: 'scissors', showAddress: false }
+  const customized = render(await visit())
+  assert.match(customized.html, /&#9986;&#65038;<\/span><div><h2>Corte/)
+  assert.doesNotMatch(customized.html, /Av\. Prueba 123|maps\.example\.test/)
+  assert.match(customized.html, /banner-composed\.jpg/)
+  media = configured
 
   const unquoted = render(script, { guestAppointments: [{ ...account.appointment, quotedPrice: null }] })
   assert.doesNotMatch(unquoted.html, /\$200/, 'un turno sin importe reservado no debe mostrar el precio de catálogo')

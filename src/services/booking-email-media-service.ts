@@ -16,6 +16,30 @@ export type BookingEmailMediaSettings = {
   logoUrl: string | null
   banner: (SavedPhoto & { source: BannerSource }) | null
   gallery: SavedPhoto[]
+  serviceIcon?: BookingServiceIcon
+  showAddress?: boolean
+}
+
+export const bookingServiceIcons = {
+  calendar: '&#128197;&#65038;',
+  scissors: '&#9986;&#65038;',
+  sparkle: '&#10024;&#65038;',
+  briefcase: '&#128188;&#65038;',
+  none: ''
+} as const
+
+type BookingServiceIcon = keyof typeof bookingServiceIcons
+
+function validServiceIcon(value: unknown): value is BookingServiceIcon {
+  return typeof value === 'string' && Object.hasOwn(bookingServiceIcons, value)
+}
+
+export function resolveBookingConfirmationAppearance(business: BusinessSources) {
+  const settings = record(business.bookingEmailMedia)
+  return {
+    serviceIcon: validServiceIcon(settings?.serviceIcon) ? settings.serviceIcon : 'calendar' as const,
+    showAddress: settings?.showAddress !== false
+  }
 }
 
 export type BookingEmailMedia = {
@@ -102,7 +126,23 @@ export async function storeBookingEmailMedia(
   store = storeBusinessImage
 ): Promise<BookingEmailMediaSettings> {
   const input = record(value)
-  if (!input || !Array.isArray(input.gallery) || input.gallery.length > 3 || input.banner === undefined) {
+  if (!input) {
+    throw new BookingEmailMediaInputError('Elegí una portada y hasta tres fotos de la galería.')
+  }
+  if (input.serviceIcon !== undefined && !validServiceIcon(input.serviceIcon)) {
+    throw new BookingEmailMediaInputError('Elegí un icono de servicio de la lista.')
+  }
+  if (input.showAddress !== undefined && typeof input.showAddress !== 'boolean') {
+    throw new BookingEmailMediaInputError('Indicá si se muestra la dirección.')
+  }
+  if (input.banner === undefined && input.gallery === undefined && validServiceIcon(input.serviceIcon) && typeof input.showAddress === 'boolean') {
+    const previous = record(business.bookingEmailMedia)
+    return {
+      logoUrl: null, banner: null, gallery: [],
+      ...previous, serviceIcon: input.serviceIcon, showAddress: input.showAddress
+    }
+  }
+  if (!Array.isArray(input.gallery) || input.gallery.length > 3 || input.banner === undefined) {
     throw new BookingEmailMediaInputError('Elegí una portada y hasta tres fotos de la galería.')
   }
   const sources = bookingEmailMediaSources(business)
@@ -150,7 +190,14 @@ export async function storeBookingEmailMedia(
     crop: photo.crop,
     imageUrl: await save('booking-email-gallery', photo.imageDataUrl, GALLERY_MAX_BYTES)
   })))
-  return { logoUrl: sources.logo, banner: savedBanner, gallery: savedGallery }
+  const previous = record(business.bookingEmailMedia)
+  const serviceIcon = input.serviceIcon ?? previous?.serviceIcon
+  const showAddress = input.showAddress ?? previous?.showAddress
+  return {
+    logoUrl: sources.logo, banner: savedBanner, gallery: savedGallery,
+    ...(validServiceIcon(serviceIcon) ? { serviceIcon } : {}),
+    ...(typeof showAddress === 'boolean' ? { showAddress } : {})
+  }
 }
 
 function prepareBanner(value: unknown, business: BusinessSources, sources: ReturnType<typeof bookingEmailMediaSources>): {

@@ -11,7 +11,7 @@ import { isBusinessAccountUnavailable } from '../services/business-account-acces
 import { renderSocialPreviewMetadata, resolveSocialPreviewImage } from '../services/landing-social-preview.js'
 import { isLaCocheraLandingRequest, sendLaCocheraLanding } from './la-cochera-site.js'
 import { publicBookingNavigation } from '../services/public-booking-navigation.js'
-import { httpsBookingEmailUrl, resolveBookingEmailMedia } from '../services/booking-email-media-service.js'
+import { bookingServiceIcons, httpsBookingEmailUrl, resolveBookingConfirmationAppearance, resolveBookingEmailMedia } from '../services/booking-email-media-service.js'
 import { bookingConfirmationDetailIcons } from '../services/booking-confirmation-email-service.js'
 
 const businessService = new BusinessService()
@@ -1792,12 +1792,14 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
   const googleClientId = weexGoogleClientId()
   const googleCalendarEnabled = weexGoogleCalendarEnabled()
   const addressLabel = formatPublicAddress(business)
+  const confirmationAppearance = resolveBookingConfirmationAppearance(business)
+  const confirmationAddress = confirmationAppearance.showAddress ? addressLabel : null
   const bookingConfirmationBusiness = {
     name: business.name,
     initials: initialsText,
-    address: addressLabel,
-    mapsUrl: addressLabel
-      ? httpsBookingEmailUrl(business.publicMapsUrl) || 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(addressLabel)
+    address: confirmationAddress,
+    mapsUrl: confirmationAddress
+      ? httpsBookingEmailUrl(business.publicMapsUrl) || 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(confirmationAddress)
       : null,
     timezone: business.timezone || 'America/Argentina/Buenos_Aires',
     ...resolveBookingEmailMedia(business)
@@ -1919,7 +1921,7 @@ function renderBookingPlaceholder(business: LandingBusiness, backPath: string, t
           const accountPath = ${JSON.stringify(accountPath)}
           const managementAccountPath = ${JSON.stringify(managementAccountPath)}
           const bookingConfirmationBusiness = ${JSON.stringify(bookingConfirmationBusiness).replace(/</g, '\\u003c')}
-          const bookingConfirmationDetailIcons = ${JSON.stringify(bookingConfirmationDetailIcons).replace(/</g, '\\u003c')}
+          const bookingConfirmationDetailIcons = ${JSON.stringify({ ...bookingConfirmationDetailIcons, service: bookingServiceIcons[confirmationAppearance.serviceIcon] }).replace(/</g, '\\u003c')}
           ${appointmentSelfServiceClient()}
           const googleClientId = ${JSON.stringify(googleClientId)}
           const googleCalendarEnabled = ${JSON.stringify(googleCalendarEnabled)}

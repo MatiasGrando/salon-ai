@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { sendBookingConfirmationEmail } from '../src/services/booking-confirmation-email-service.js'
+import { bookingConfirmationBusinessDetails, renderBookingConfirmationEmail, sendBookingConfirmationEmail } from '../src/services/booking-confirmation-email-service.js'
 
 const originalFetch = globalThis.fetch
 const originalApiKey = process.env.RESEND_API_KEY
@@ -42,6 +42,11 @@ globalThis.fetch = async (url, options) => {
 }
 
 try {
+  const business = { name: 'Comercio', publicAddress: 'Calle Oculta 123', publicAddressArea: 'Zona Oculta', publicMapsUrl: 'https://maps.example.test/oculta', bookingEmailMedia: { serviceIcon: 'none', showAddress: false } }
+  const hidden = renderBookingConfirmationEmail({ ...input, ...bookingConfirmationBusinessDetails(business, false) })
+  assert.doesNotMatch(hidden.html, /Calle Oculta|Zona Oculta|maps\.example\.test|PostalAddress|&#9986;/)
+  assert.doesNotMatch(hidden.text, /Calle Oculta|Zona Oculta/)
+  assert.doesNotMatch(Buffer.from(hidden.attachments[0]!.content, 'base64').toString('utf8'), /LOCATION:/)
   assert.deepEqual(await sendBookingConfirmationEmail(input), { ok: true, providerId: 'local-delivery' })
   const first = deliveries[0]!
   assert.match(first.html, /src="https:\/\/example\.com\/media\/header\.jpg"/)
