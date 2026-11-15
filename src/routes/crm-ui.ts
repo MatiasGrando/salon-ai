@@ -18333,7 +18333,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
           <nav class="instagram-workspace-tabs" aria-label="Contenido de Instagram">
-            <button type="button" data-instagram-workspace-tab="published" aria-pressed="true" aria-controls="instagram-workspace-published">Publicados</button>
+            <button type="button" data-instagram-workspace-tab="published" aria-pressed="true" aria-controls="instagram-workspace-published">Reels</button>
             <button type="button" data-instagram-workspace-tab="stories" aria-pressed="false" aria-controls="instagram-workspace-stories">Historias</button>
             <button type="button" data-instagram-workspace-tab="calendar" aria-pressed="false" aria-controls="instagram-workspace-calendar">Calendario</button>
             <button type="button" data-instagram-workspace-tab="drafts" aria-pressed="false" aria-controls="instagram-workspace-drafts">Borradores</button>
