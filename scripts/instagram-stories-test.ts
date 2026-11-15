@@ -13,20 +13,20 @@ assert.equal(saved.mediaKind, 'IMAGE')
 console.log('OK: a manual JPEG Story draft is accepted independently of Reel automation')
 
 const { InstagramApi, InstagramApiRequestError } = await import('../src/integrations/instagram-api.js')
-const { hasStoryDeclaration, storyCredentialFingerprint } = await import('../src/services/instagram-stories-domain.js')
+const { hasStoryConnection, instagramPublicationWorkerScope } = await import('../src/services/instagram-stories-domain.js')
 const { InstagramStoriesService } = await import('../src/services/instagram-stories-service.js')
 const { InstagramPublicationWorker } = await import('../src/services/instagram-publication-worker.js')
 const { default: sharp } = await import('sharp')
-const config: any = {businessId:'a',enabled:true,instagramAccountId:'professional',apiAccountId:'app',accessToken:'fake-token',storiesDeclaredAt:new Date(),storiesDeclaredBy:'admin'}
-config.storiesDeclarationFingerprint=storyCredentialFingerprint(config)
-assert.equal(hasStoryDeclaration(config),true)
-for(const patch of [{accessToken:'changed'},{instagramAccountId:'other'},{apiAccountId:'other'},{enabled:false},{storiesDeclaredBy:null}])assert.equal(hasStoryDeclaration({...config,...patch}),false)
+const config = {businessId:'a',enabled:true,instagramAccountId:'professional',apiAccountId:'app',accessToken:'fake-token'}
+assert.equal(hasStoryConnection(config),true)
+for(const patch of [{accessToken:''},{instagramAccountId:''},{enabled:false},{tokenExpiresAt:new Date(0)}])assert.equal(hasStoryConnection({...config,...patch}),false)
+assert.deepEqual(instagramPublicationWorkerScope(['reels-only'],true),{OR:[{publicationType:'REEL',businessId:{in:['reels-only']}},{publicationType:'STORY'}]})
 const requests: any[]=[]
 const api=new InstagramApi(async(url,options)=>{requests.push({url:String(url),body:options?.body?JSON.parse(String(options.body)):null});return Response.json({id:'container'})})
 for(const mediaKind of ['IMAGE','VIDEO'] as const)await api.createStoryContainer({accountId:'app',accessToken:'fake-token',mediaUrl:'https://example.invalid/source',mediaKind})
 assert.deepEqual(requests.map(r=>r.body),[{media_type:'STORIES',image_url:'https://example.invalid/source'},{media_type:'STORIES',video_url:'https://example.invalid/source'}])
 assert.ok(requests.every(r=>!('caption'in r.body)&&!('share_to_feed'in r.body)))
-console.log('OK: Story declarations bind account/credential and provider container omits Reel options')
+console.log('OK: Stories use the current credential independently of Reel scope, and their containers omit Reel options')
 const previousFetch=globalThis.fetch
 process.env.SUPABASE_URL='https://storage.invalid';process.env.SUPABASE_SERVICE_ROLE_KEY='offline-service-key'
 const storage=await import('../src/services/instagram-video-storage-service.js')
@@ -60,7 +60,7 @@ const client:any={businessInstagramConfig:{findUnique:async()=>config,updateMany
 }}
 const stories=new InstagramStoriesService(client,()=>now)
 const capability=await stories.capability('a')
-assert.equal(capability.source,'operator_declared');assert.ok(!JSON.stringify(capability).includes(config.accessToken));assert.ok(!JSON.stringify(capability).includes(config.storiesDeclarationFingerprint))
+assert.equal(capability.source,'connection');assert.equal(capability.automatic,true);assert.ok(!JSON.stringify(capability).includes(config.accessToken))
 await assert.rejects(stories.completeManual('b','s',1),/cambió/)
 await assert.rejects(stories.completeManual('a','s',0),/cambió/)
 const complete=await stories.completeManual('a','s',1)
@@ -74,7 +74,7 @@ const { resolveInstagramAutomationTarget } = await import('../src/services/insta
 await assert.rejects(resolveInstagramAutomationTarget({$queryRaw:async()=>[],businessInstagramConfig:{findUnique:async()=>({instagramAccountId:'professional'})},instagramPublication:{findFirst:async()=>({...row,publicationType:'STORY',status:'PUBLISHED'})}},'a',{publicationId:'s'}),/Reel publicado/)
 console.log('OK: manual completion has its own date/status, rejects stale/foreign/uncertain rows and never dispatches; Story comments are rejected server-side')
 const {resolveInstagramReelsRuntimeConfig}=await import('../src/services/instagram-reels-runtime.js')
-assert.equal(resolveInstagramReelsRuntimeConfig({INSTAGRAM_REELS_ENABLED:'true'}).storiesEnabled,false,'Stories rollout must remain OFF even when Reels are already enabled')
+assert.equal(resolveInstagramReelsRuntimeConfig({}).storiesEnabled,true,'Stories are available independently of the Reel rollout')
 for (const scenario of ['ambiguous', 'rotation']) {
   let posts = 0, token = 'credential-1'
   const row: any = { id:'story',businessId:'a',publicationType:'STORY',mediaKind:'IMAGE',deliveryMode:'AUTO',status:'READY',videoObjectPath:'a/instagram/stories/source.jpg',videoMimeType:'image/jpeg',videoSizeBytes:100,caption:'Internal note only',shareToFeed:false,metaContainerId:null,metaMediaId:null,attempts:0,maxAttempts:5,availableAt:now,claimToken:null,claimedUntil:null,lastError:null,instagramAccountId:'app',accessToken:token,destinationInstagramAccountId:'professional',destinationApiAccountId:'app' }
@@ -97,4 +97,3 @@ for (const scenario of ['ambiguous', 'rotation']) {
 }
 
 console.log('OK: permanent Story dispatch regressions cover credential rotation and ambiguous no-resend')
-assert.equal(resolveInstagramReelsRuntimeConfig({INSTAGRAM_REELS_ENABLED:'true',INSTAGRAM_STORIES_ENABLED:'true'}).storiesEnabled,true)

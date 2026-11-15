@@ -3,23 +3,19 @@ import { InstagramDuplicationService } from '../services/instagram-duplication-s
 import { InstagramStoriesService } from '../services/instagram-stories-service.js'
 import { InstagramPublicationConflictError, InstagramPublicationValidationError, InstagramPublicationNotFoundError } from '../services/instagram-publication-service.js'
 import { createInstagramReelUpload, verifyAndSignInstagramReelVideo } from '../services/instagram-video-storage-service.js'
-export async function instagramStoriesRoutes(app: FastifyInstance, options: { service?: InstagramStoriesService; runtimeReady?: boolean; allowedBusinessIds?: readonly string[]; storage?: { createUpload: typeof createInstagramReelUpload; verify: typeof verifyAndSignInstagramReelVideo } } = {}) {
+export async function instagramStoriesRoutes(app: FastifyInstance, options: { service?: InstagramStoriesService; runtimeReady?: boolean; storage?: { createUpload: typeof createInstagramReelUpload; verify: typeof verifyAndSignInstagramReelVideo } } = {}) {
   const service = options.service ?? new InstagramStoriesService()
   const storage = options.storage ?? { createUpload: createInstagramReelUpload, verify: verifyAndSignInstagramReelVideo }
   app.addHook('preHandler',async (request,reply)=>{
     if(request.method==='GET')return
     if(!options.runtimeReady)return reply.status(503).send({message:'La preparación de historias no está habilitada o falta su almacenamiento.'})
-    if(options.allowedBusinessIds && !options.allowedBusinessIds.includes((request.params as any).businessId))return reply.status(404).send({message:'Historias no disponibles para este comercio.'})
   })
   const base='/businesses/:businessId/instagram-stories'
-  app.get(base+'/capability',async(request,reply)=>{try{return {...await service.capability((request.params as any).businessId),runtimeReady:!!options.runtimeReady}}catch(error){return failure(reply,error)}})
-  app.post(base+'/capability',async(request,reply)=>{
-    const user=request.auth?.user
-    if(!user || !['SUPER_ADMIN','ACCOUNT_ADMIN','BUSINESS_ADMIN'].includes(user.role))return reply.status(403).send({message:'Sólo un administrador puede habilitar historias automáticas.'})
-    const body=object(request.body)
-    if(typeof body.enabled!=='boolean' || (body.enabled && body.acknowledged!==true))return reply.status(400).send({message:'Confirmá expresamente la habilitación declarada.'})
-    try{return await service.declare((request.params as any).businessId,user.id,body.enabled)}catch(error){return failure(reply,error)}
-  })
+  app.get(base+'/capability',async(request,reply)=>{try{
+    const capability=await service.capability((request.params as any).businessId)
+    const runtimeReady=!!options.runtimeReady
+    return {...capability,runtimeReady,message:runtimeReady?capability.message:'El servidor todavía no puede guardar historias. Revisá la base de datos y el almacenamiento.'}
+  }catch(error){return failure(reply,error)}})
   app.get(base,async(request,reply)=>{try{return (await service.list((request.params as any).businessId)).map(dto)}catch(error){return failure(reply,error)}})
   app.get(base+'/:storyId',async(request,reply)=>{const p=request.params as any;try{return dto(await service.get(p.businessId,p.storyId))}catch(error){return failure(reply,error)}})
   app.post(base+'/uploads',async(request,reply)=>{const p=request.params as any,body=object(request.body);try{return await storage.createUpload({businessId:p.businessId,publicationType:'STORY',mimeType:body.mimeType as string,sizeBytes:body.sizeBytes as number})}catch{return reply.status(400).send({message:'Elegí una foto JPEG de hasta 8 MB o un video MP4/MOV dentro del límite del CRM.'})}})

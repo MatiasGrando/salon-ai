@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma.js'
-import { hasStoryDeclaration } from './instagram-stories-domain.js'
+import { hasStoryConnection } from './instagram-stories-domain.js'
 import { assertIanaTimezone } from './cash-domain.js'
 import { validateAutomation } from './instagram-comment-automation-service.js'
 import {
@@ -333,7 +333,7 @@ export class PrismaInstagramPublicationRepository implements InstagramPublicatio
 
   private destination(config: any, row: any) {
     if (row.publicationType === 'STORY' && row.deliveryMode === 'MANUAL') return { destinationInstagramAccountId: config?.instagramAccountId ?? null, destinationApiAccountId: config?.apiAccountId || config?.instagramAccountId || null }
-    if (row.publicationType === 'STORY' && !hasStoryDeclaration(config)) throw new InstagramPublicationConflictError('El administrador debe habilitar las historias automáticas para esta cuenta y credencial.')
+    if (row.publicationType === 'STORY' && !hasStoryConnection(config)) throw new InstagramPublicationConflictError('Conectá una cuenta de Instagram vigente desde Ajustes para publicar historias.')
     if (!config?.enabled || !config.accessToken || !config.instagramAccountId) throw new InstagramPublicationConflictError('Instagram no está conectado y habilitado para publicar.')
     return { destinationInstagramAccountId: config.instagramAccountId, destinationApiAccountId: config.apiAccountId || config.instagramAccountId }
   }

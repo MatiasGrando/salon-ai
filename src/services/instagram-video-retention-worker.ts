@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { publishInstagramPublicationChanged } from './crm-realtime-events.js'
+import { instagramPublicationWorkerScope } from './instagram-stories-domain.js'
 
 export const INSTAGRAM_REEL_VIDEO_RETENTION_MS = 24 * 60 * 60 * 1000
 const DEFAULT_LEASE_MS = 60_000
@@ -93,14 +94,15 @@ type PrismaLike = Record<string, any>
 export class PrismaInstagramVideoRetentionRepository implements InstagramVideoRetentionRepository {
   constructor(
     private readonly client: PrismaLike = prisma as unknown as PrismaLike,
-    private readonly businessIds: readonly string[] = []
+    private readonly businessIds: readonly string[] = [],
+    private readonly storiesEnabled = false
   ) {}
 
   async claimNext(input: Parameters<InstagramVideoRetentionRepository['claimNext']>[0]) {
     return this.client.$transaction(async (tx: PrismaLike) => {
       for (const status of ['PUBLISHED','MANUALLY_COMPLETED'] as const) {
         const field = status === 'PUBLISHED' ? 'publishedAt' : 'manuallyCompletedAt'
-        const where = { businessId: { in: [...this.businessIds] }, status, [field]: { lte: input.cutoff }, videoDeletedAt: null,
+        const where = { AND: [instagramPublicationWorkerScope(this.businessIds, this.storiesEnabled)], status, [field]: { lte: input.cutoff }, videoDeletedAt: null,
           OR: [{claimToken:null},{claimedUntil:{lte:input.now}}] }
         const row = await tx.instagramPublication.findFirst({ where, orderBy:[{[field]:'asc'},{id:'asc'}],
           select:{id:true,businessId:true,videoObjectPath:true,[field]:true,videoDeletedAt:true,claimToken:true,claimedUntil:true} })

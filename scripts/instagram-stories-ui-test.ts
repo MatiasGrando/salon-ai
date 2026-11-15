@@ -22,7 +22,7 @@ context={state,els:{appShell:{dataset:{section:'campaigns'}}},URL:TestURL,URLSea
  document:{activeElement:null,getElementById:(id:string)=>nodes[id]??=element(),createElement:()=>({...element(),click(){}})},
  fetch:async(url:string,options:any={})=>{requests.push({url,method:options.method||'GET',body:options.body?JSON.parse(options.body):null});const payload=options.body?JSON.parse(options.body):{};
    if(deferred){const callback=deferred;deferred=null;return new Promise(resolve=>callback(resolve))}
-   if(url.endsWith('/capability'))return json({automatic:true,accountId:'account-a',source:'operator_declared',runtimeReady:true,message:'Declarado'})
+   if(url.endsWith('/capability'))return json({automatic:true,accountId:'account-a',source:'connection',runtimeReady:true,message:'Cuenta conectada'})
    if(url.endsWith('/uploads'))return json({uploadUrl:'https://storage.invalid/file',objectPath:'a/instagram/stories/file.jpg',uploadHeaders:{}})
    if(url.endsWith('/verify'))return json({verified:true,objectPath:'a/instagram/stories/file.jpg',mimeType:'image/jpeg',sizeBytes:100})
    if(url.endsWith('/publish')){if(publishFails)return json({message:'fake failure'},503);row={...row,status:'READY',revision:row.revision+1};return json(row)}
@@ -38,6 +38,12 @@ runInNewContext(['getJson','escapeHtml','instagramMediaHtml','uploadInstagramRee
 runInNewContext('bindInstagramStoriesControls()',context)
 await node('new').listeners.click[0]({currentTarget:node('new')})
 assert.equal(node('mode').value,'MANUAL','new stories default to manual, independent of the schema legacy default')
+assert.equal(node('now-label').textContent,'Preparar ahora')
+assert.equal(node('schedule-fields').hidden,true)
+node('mode').value='AUTO';node('mode').listeners.change[0]()
+assert.equal(node('now-label').textContent,'Publicar ahora')
+assert.equal(node('schedule-label').textContent,'Programar publicación')
+node('mode').value='MANUAL';node('mode').listeners.change[0]()
 node('file').files=[{name:'photo.jpg',type:'image/jpeg',size:100}];node('file').listeners.change[0]()
 await node('form').listeners.submit[0]({preventDefault(){}})
 assert.equal(xhrCount,1);assert.equal(requests.filter(r=>r.url.endsWith('/instagram-stories')&&r.method==='POST').length,1)
