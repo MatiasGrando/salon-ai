@@ -9,6 +9,12 @@ assert.match(ui, /id="instagram-reels-manager"/)
 assert.match(ui, /<table class="instagram-reels-table"/)
 assert.match(ui, /id="instagram-reels-table-body"/)
 assert.match(ui, /id="instagram-reel-new"/)
+for (const tab of ['published', 'stories', 'calendar', 'drafts']) {
+  assert.match(ui, new RegExp('data-instagram-workspace-tab="' + tab + '"'))
+  assert.match(ui, new RegExp('data-instagram-workspace-panel="' + tab + '"'))
+}
+assert.match(readFileSync('src/routes/crm-ui/instagram-media.ts', 'utf8'), /data-instagram-media-detail/)
+assert.match(readFileSync('src/routes/crm-ui/instagram-stories.ts', 'utf8'), /data-instagram-story-detail/)
 
 assert.match(ui, /class="dialog instagram-reel-dialog"/)
 assert.match(ui, /id="instagram-reel-dialog"/)

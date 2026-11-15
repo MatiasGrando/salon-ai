@@ -70,4 +70,11 @@ const pending=node('form').listeners.submit[0]({preventDefault(){}}),editor=stat
 node('close').listeners.click[0]();assert.equal(editor.controller.signal.aborted,true)
 release(json({uploadUrl:'https://storage.invalid/file',objectPath:'a/file',uploadHeaders:{}}));await pending
 assert.equal(xhrCount,1);assert.equal(state.instagramStories.editor,null)
+const storyBody=nodes['instagram-stories-body']
+storyBody.listeners.click[0]({target:{closest:()=>({dataset:{instagramStoryDetail:'s'}})}})
+assert.match(storyBody.innerHTML,/data-selected="true"/)
+assert.match(node('detail').innerHTML,/Cancelar horario/)
+assert.match(node('status-filter').innerHTML,/value="SCHEDULED"/)
+assert.equal(node('detail').hidden,false)
+assert.equal(context.document.activeElement,node('detail-title'))
 console.log('OK: shipped Story events, manual default, real XHR helper, retained source/draft retry, READY no-resend, explicit completion/DST choice and late-close abort')

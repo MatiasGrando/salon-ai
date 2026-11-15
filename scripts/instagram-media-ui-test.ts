@@ -13,12 +13,13 @@ function fn(name: string) {
 function node() {
   return { innerHTML: '', textContent: '', className: '', value: '', hidden: false, disabled: false, dataset: {},
     listeners: {} as Record<string, Function>, addEventListener(name: string, listener: Function) { this.listeners[name] = listener },
-    classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, removeAttribute() {}, querySelectorAll() { return [] } }
+    classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, removeAttribute() {}, querySelector() { return null }, querySelectorAll() { return [] } }
 }
 const nodes: Record<string, any> = {}
 const els: any = new Proxy({}, { get(target: any, key) { return target[key] ??= node() } })
 const state: any = { businessId: 'business-a', instagramReels: [], instagramReelsLoaded: false, marketingView: 'instagram-reels',
   instagramSettings: { connection: { instagramAccountId: 'account-a' } } }
+els.appShell.dataset.section = 'campaigns'
 const row = { id: 'media-a', accountId: 'account-a', providerMediaId: 'provider-a', caption: 'Corte observado', mediaProductType: 'REELS', publishedAt: '2026-01-01T12:00:00Z',
   permalink: 'https://www.instagram.com/reel/abc/', insightsStatus: 'partial', lastInsightAttemptAt: '2026-10-25T12:00:00Z',
   latestMetrics: { values: { reach: 0, views: null, likes: 10 }, observedAtByMetric: { reach: '2026-10-24T10:00:00Z', likes: '2026-10-25T11:00:00Z' } } }
@@ -30,7 +31,7 @@ const requests: Array<{ url: string; method: string; body?: any }> = []
 let fetchHandler: ((url: string, options: any) => Promise<Response>) | null = null
 const context: any = { state, els, URL, URLSearchParams, Date, Intl,
   window: { location: { origin: 'https://fixture.invalid' } }, toDatetimeLocalValue: (value: string) => value.slice(0, 16), setButtonLoading: () => true,
-  document: { hidden: false, visibilityState: 'visible', getElementById: (id: string) => nodes[id] ??= node(), querySelectorAll: () => [] },
+  document: { hidden: false, visibilityState: 'visible', getElementById: (id: string) => nodes[id] ??= node(), querySelector: () => null, querySelectorAll: () => [] },
   sessionStorage: { getItem() { return null }, setItem() {}, removeItem() {} },
   buildGetJsonRequestOptions: (options: any) => options,
   fetch: async (url: string, options: any = {}) => {
@@ -61,7 +62,8 @@ call('bindInstagramMediaControls()')
 assert.ok(nodes['instagram-media-body'].innerHTML.includes('<strong>0</strong>'))
 assert.ok(nodes['instagram-media-body'].innerHTML.includes('Sin datos'))
 assert.ok(nodes['instagram-media-body'].innerHTML.includes(call('instagramMediaDate("2026-10-24T10:00:00Z")')))
-assert.ok(nodes['instagram-media-body'].innerHTML.includes(call('instagramMediaDate("2026-10-25T11:00:00Z")')))
+nodes['instagram-media-body'].listeners.click({ target: { closest: () => ({ dataset: { instagramMediaDetail: 'media-a' } }) } })
+assert.ok(nodes['instagram-media-detail'].innerHTML.includes(call('instagramMediaDate("2026-10-25T11:00:00Z")')))
 assert.ok(!requests.some((request) => request.url.includes('/history')), 'history is fetched only on demand')
 localStatus = 200
 await call('loadInstagramReels()')
@@ -106,12 +108,13 @@ catalogue.items[0].caption = '<img src=x onerror=alert(1)> 👀'
 for (const unsafe of ['javascript:alert(1)', 'http://instagram.com/reel/a', 'https://user:secret@instagram.com/reel/a', 'https://instagram.com.evil.test/reel/a']) {
   catalogue.items[0].permalink = unsafe
   await call('loadInstagramMediaCatalogue()')
-  assert.ok(!nodes['instagram-media-body'].innerHTML.includes('<a '))
+  call('instagramMediaContext().detailId = "media-a"; renderInstagramMediaCatalogue()')
+  assert.ok(!nodes['instagram-media-detail'].innerHTML.includes('<a '))
   assert.ok(!nodes['instagram-media-body'].innerHTML.includes('<img'))
 }
 catalogue.items[0].permalink = 'https://www.instagram.com/reel/a/'
 await call('loadInstagramMediaCatalogue()')
-assert.ok(nodes['instagram-media-body'].innerHTML.includes('rel="noopener noreferrer"'))
+assert.ok(nodes['instagram-media-detail'].innerHTML.includes('rel="noopener noreferrer"'))
 assert.ok(nodes['instagram-media-body'].innerHTML.includes('&#128064;'), 'non-ASCII generated HTML uses entities without breaking emoji')
 
 await fresh()
@@ -258,7 +261,7 @@ for (const transition of transitions) {
   for (const name of ['loadBusinessScopedBasics', 'hydrateWorkspaceNav', 'renderLandingSettings', 'renderAiControls',
     'renderProfessionals', 'renderServices', 'renderAuthUi', 'setSection', 'showCrmToast', 'setSettingsView',
     'renderBusinessSettings', 'renderWhatsappSettings', 'renderInstagramSettings', 'loadConversations',
-    'stopCrmRealtimeEvents', 'stopCashRealtimeEvents']) isolated[name] = () => {}
+    'stopCrmRealtimeEvents', 'stopCashRealtimeEvents', 'resetPriorityWorkspace', 'resetCashRegisterWorkspace']) isolated[name] = () => {}
   runInNewContext(['resetInstagramMediaState', ...transitions].map(fn).join('\n'), isolated)
   await runInNewContext(transition + '("new-business")', isolated)
   assert.equal(transitionState.instagramMedia, null, transition + ' clears history, filters and continuation')

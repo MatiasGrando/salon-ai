@@ -15,7 +15,7 @@ const requests: any[] = [], nodes: any = {}
 function element() {
   return { value: '', checked: false, disabled: false, hidden: false, isConnected: true, dataset: {} as any, style: {}, textContent: '', innerHTML: '', files: [] as any[],
     listeners: {} as Record<string, Function[]>, focus() { context.document.activeElement = this }, reset() {}, scrollIntoView() {},
-    removeAttribute(name: string) { if(name==='hidden')this.hidden=false }, setAttribute(name: string) { if(name==='hidden')this.hidden=true }, addEventListener(type: string, callback: Function) { (this.listeners[type] ??= []).push(callback) }, querySelectorAll() { return [] } }
+    removeAttribute(name: string) { if(name==='hidden')this.hidden=false }, setAttribute(name: string) { if(name==='hidden')this.hidden=true }, addEventListener(type: string, callback: Function) { (this.listeners[type] ??= []).push(callback) }, querySelector() { return null }, querySelectorAll() { return [] } }
 }
 const els: any = new Proxy({}, { get(target: any, key: string) { const id=key.replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()); return target[key] ??= nodes[id] ??= element() } })
 els.appShell.dataset.section = 'campaigns'
@@ -49,6 +49,7 @@ class XHR {
   abort() { this.listeners.abort?.() }
 }
 const context: any = { els, state, URL, URLSearchParams, Date, Intl, AbortController, encodeURIComponent, XMLHttpRequest: XHR,
+  workspaceNavigation: 0, deferredWorkspace: null,
   requestAnimationFrame: (fn: Function) => fn(), setButtonLoading: () => true, buildGetJsonRequestOptions: (value: any) => value,
   document: { activeElement: null, body:{dataset:{}}, getElementById: (id: string) => nodes[id] ??= element(), querySelectorAll: () => [], querySelector:()=>element() },
   staffVisibleSections:()=>['campaigns','conversations'],isWorkshopBusiness:()=>false,staffSettlementsLabel:()=>'Liquidaciones',stopAgendaNowLineTimer(){},closeMobileDrawer(){},isMobile:()=>false,
