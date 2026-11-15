@@ -1,5 +1,6 @@
 import { CATALOG_ANSWER_SCHEMA, CATALOG_ANSWER_INSTRUCTIONS, validateCatalogAnswer, type CatalogInformationContext } from './catalog-information-answer.js'
 import type { CommunicativeField } from './communicative-act.js'
+import type { DialogueIdentity } from './dialogue-identity.js'
 
 /** Shared server-owned reply policy. Diagnostics contain no chat text, catalog IDs or names. */
 export type ReplyFact = { id: string; text: string; variants?: readonly { id: string; text: string }[] }
@@ -11,6 +12,8 @@ export type ReplyContract = {
   introduction: 'server_pending' | 'server_complete' | 'none'
   continuation: 'next' | null
   neutral: boolean
+  /** Trusted identity supplied only for a first social answer without operational facts. */
+  initialGreeting?: Pick<DialogueIdentity, 'assistantName' | 'businessName' | 'treatment'> & { emoji: string | null }
   /** Current public candidates for a question, never commercial or booking authority. */
   serviceClarification?: { serviceNames: readonly string[] }
   /** A question only: no acquisition, unsupported business fact or effect authority. */
@@ -46,7 +49,7 @@ export type ReplyValidation = {
   discardedFramingReason?: ReplyRejection
 }
 export type ReplyValidationTrace = { firstCall: ReplyValidation; secondCall: ReplyValidation; rejections?: ReplyRejectionDiagnostic[] }
-export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; clarificationQuestion?: string; conversationalBody?: true; conversationalQuestion?: string; validatedFraming?: { salutation: string | null; opening: string | null } }
+export type ReplyValidationResult = { validation: ReplyValidation; text: string | null; modelFraming: boolean; openingText?: string; clarificationQuestion?: string; conversationalBody?: true; conversationalQuestion?: string; initialGreeting?: true; validatedFraming?: { salutation: string | null; opening: string | null } }
 
 export const REPLY_DRAFT_SCHEMA = {
   type: ['object', 'null'], additionalProperties: false, required: ['salutation', 'opening', 'factIds', 'closing', 'variantChoices', 'catalogAnswer', 'clarificationQuestion', 'conversationalAnswer'],
@@ -65,10 +68,11 @@ export const REPLY_DRAFT_SCHEMA = {
 } as const
 /** Shared writing guide: the model owns framing choices, not identity, facts or effects. */
 export const REPLY_COMPOSITION_GUIDE = [
-  'Contenido y regreso son piezas independientes: con conversational.body generated escribe el contenido completo solicitado en text; una aceptación vacía no responde al pedido. Con conversational.body server, conserva el cálculo verificado en facts, usa kind general y text null, sin copiar ni recalcular el resultado; redacta igualmente returnQuestion para volver al local. En saludos o cortesía, salutation sigue siendo el saludo del servidor y text aporta la respuesta humana sin repetir la identidad. En ambos casos la invitación final la redactas según continuation, no copiando una frase fija.',
-  'Conversación independiente: sólo con replyContract.conversational, responde el pedido concreto en conversationalAnswer (kind creative o general, text completo y returnQuestion); no te limites a decir Claro. text admite saltos de línea y conocimiento general o creatividad, hasta maxCharacters. No atribuyas al local servicios, condiciones, precios, horarios, resultados, contacto al equipo ni acciones ejecutadas; esas consultas siguen su ruta comercial verificada. Siempre escribe al final una única returnQuestion natural para volver a ayudar con el local o una reserva, sin frase fija ni copiar next. Con continuation pending retoma el mismo dato que pregunta next/expectedAnswer, sin cambiar el objetivo ni pedir confirmación o datos ya aceptados; con help_or_booking ofrece ayuda pertinente. No incluyas cifras, nombres propios, URLs, precios ni afirmaciones de disponibilidad en esa invitación. No repitas presentación, saludo ni invitación dentro de text, opening o closing. factIds null, closing null, catalogAnswer y clarificationQuestion null. Fuera de este permiso, conversationalAnswer es null. Nunca emitas operaciones ni deduzcas consentimiento por este contenido.',
+  'Primer saludo social: sólo si replyContract.initialGreeting está presente y el mensaje es un saludo o cortesía sin otro pedido, escribí en opening toda la respuesta con un único saludo, el nombre de asistente y el comercio exactos de initialGreeting, y una invitación natural y breve. Usá esa identidad como datos, respetá el tratamiento y, si suma, el emoji. Usá factIds:null y el resto de los campos en null, incluido conversationalAnswer. En este caso next es un respaldo, no lo copies como una segunda pregunta. Evitá muletillas como «con el local».',
+  'Contenido y regreso son piezas independientes: con conversational.body generated escribe el contenido completo solicitado en text; una aceptación vacía no responde al pedido. Con conversational.body server, conserva el cálculo verificado en facts, usa kind general y text null, sin copiar ni recalcular el resultado; redacta igualmente returnQuestion para continuar la charla. Fuera del permiso initialGreeting, salutation expresa el saludo y text aporta la respuesta humana sin repetirlo ni repetir la identidad. La invitación final la redactas según continuation, no copiando una frase fija.',
+  'Conversación independiente: sólo con replyContract.conversational, responde el pedido concreto en conversationalAnswer (kind creative o general, text completo y returnQuestion); no te limites a decir Claro. text admite saltos de línea y conocimiento general o creatividad, hasta maxCharacters. No atribuyas al local servicios, condiciones, precios, horarios, resultados, contacto al equipo ni acciones ejecutadas; esas consultas siguen su ruta comercial verificada. Escribí una única returnQuestion natural y pertinente, sin frase fija, sin copiar next y sin coletillas como «con el local». Con continuation pending retoma el mismo dato que pregunta next/expectedAnswer, sin cambiar el objetivo ni pedir confirmación o datos ya aceptados; con help_or_booking ofrece ayuda según lo que dijo el cliente. No incluyas cifras, nombres propios, URLs, precios ni afirmaciones de disponibilidad en esa invitación. No repitas presentación, saludo ni invitación dentro de text, opening o closing. factIds null, closing null, catalogAnswer y clarificationQuestion null. Fuera de este permiso, conversationalAnswer es null. Nunca emitas operaciones ni deduzcas consentimiento por este contenido.',
   'Aclaración semántica: si replyContract.semanticClarification está presente, clarificationQuestion es una única pregunta natural sobre su field, ligada al mensaje actual. Puede guiar mediante sus categoryNames vigentes o sus serviceNames, sin exigir nombrarlos todos. El catálogo limita lo que ofrece el local: no prometas un servicio integral, una prestación ausente ni resultados, precios, agenda, inclusiones o acciones. Con categorías presentadas invita a explorar una de ellas; las opciones son navegación, no una adquisición. procedure y next son respaldo, no frases obligatorias: la pregunta válida los reemplaza. No repitas la pregunta en opening/closing; catalogAnswer es null. Si no puedes formularla con seguridad, conserva la continuación de respaldo. La presentación configurada del servidor sigue siendo única.',
-  'Presentación del servidor: replyContract define el rol y la propiedad de la presentación. salutation es null o greeting, nunca texto libre. Con server_pending, greeting expresa saludar pero el servidor lo integra en su presentación configurada una sola vez. Con server_complete, greeting produce sólo un saludo del servidor, sin repetir identidad; con none produce sólo ese saludo. opening/closing no repiten el saludo si usás el contrato con salutation. No escribas identidad propia con server_pending ni server_complete.',
+  'Saludo y presentación fuera del permiso initialGreeting: salutation es null o greeting, nunca texto libre. Con server_pending, el servidor integra el saludo en la presentación configurada una sola vez. Con server_complete o none, greeting produce sólo un saludo, sin repetir identidad. En este formato opening/closing no repiten el saludo ni redactan una presentación propia.',
   'Respuesta social y reconocimiento: opening atiende la charla concreta y reconoce la intención antes del cuerpo material, sin otra presentación. Podés variar naturalmente respuesta social y transición según el mensaje y el rol, sin frases obligatorias ni inventar hechos o estados del negocio. Ante una pregunta explícita de cortesía, opening incluye una respuesta social breve y natural antes de reconocer el pedido y continuar. El saludo no sustituye esa respuesta, ni la pregunta de ayuda responde por sí sola a la cortesía. No repitas un saludo en opening como respuesta social. Redactá libremente dentro de ese orden, sin copiar una frase obligatoria. Un saludo no obliga a preguntar cómo está el cliente. Las preguntas sociales no están prohibidas globalmente.',
   'Reconocimiento cualitativo: en opening respondé la cortesía y reconocé que vas a ayudar con el pedido sin repetir sus valores concretos. Fecha, hora, cifras, nombres de prestaciones y otros datos solicitados pertenecen a las operaciones y al cuerpo verificado por el servidor, no al encuadre libre, aunque provengan del cliente. No anticipes disponibilidad ni resumas esos valores en opening/closing; una transición breve basta antes de la pregunta pertinente.',
   'Pedido parcial de reserva: cuando replyContract.bookingAcknowledgment es true, opening reconoce brevemente la intención actual de conseguir un turno y enlaza con el dato que falta en el cuerpo. Redactá ese reconocimiento según el mensaje, sin plantilla ni repetición de saludo o presentación; un saludo solo no cumple este objetivo. Conservá todos los hechos y opciones del servidor, no afirmes disponibilidad ni repitas sus valores en el encuadre. No añadas otra pregunta: el cuerpo ya pide el dato faltante. Fuera de este objetivo no hace falta reconocer el pedido en cada respuesta.',
@@ -85,9 +89,9 @@ export function socialContinuationFacts(next: string): ReplyFact[] {
 
 /** Interpretation shares the writing policy, but its facts precede semantic updates. */
 export const FIRST_CALL_COMPOSITION_INSTRUCTIONS =
-  'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá el encuadre firstReply que corresponde al mensaje junto con la interpretación. Incluye charla, información, booking con operations vacío y pedidos combinados con cambios. Separá salutation de opening: respondé la charla y reconocé la intención concreta sin otra identidad ni saludo libre. La respuesta a cortesía explícita no se omite por una reserva, una consulta lateral o un cambio de datos; después va la pregunta pertinente del servidor. ' +
-  'Usá factIds:null y closing null cuando hay next; el servidor conserva todos los hechos originales en orden. El servidor valida el borrador completo; si el motor prepara otro cuerpo reutiliza sólo el encuadre validado y reemplaza los hechos y la continuación por los verificados. No copies ni anticipes hechos posteriores; no es necesario predecir la nueva pregunta. Si firstReplyFacts no está presente, firstReply es null salvo una explicación descriptiva catalogAnswer con bloques general orientativos y published sustentados en el catálogo actual; el servidor valida el objeto y añade su next vigente sin otra llamada. ' +
-  'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante conversación independiente usa conversationalAnswer sólo si su permiso está presente; entrega el contenido pedido y una invitación contextual de regreso al local. Con borrador retoma el mismo dato pendiente con redacción natural. '
+  'Primera llamada, cualquier intención: si firstReplyFacts está presente, redactá firstReply junto con la interpretación. Para un primer saludo sin otro pedido, seguí la regla initialGreeting y redactá el mensaje completo en opening. En los demás casos separá salutation de opening. Respondé la cortesía y reconocé la intención concreta, también si hay una reserva, consulta lateral o cambio de datos. ' +
+  'Usá factIds:null y closing null cuando hay next. Fuera del permiso initialGreeting, el servidor conserva los hechos en orden y añade la continuación que corresponda. Si el motor prepara otro cuerpo, reutiliza sólo el encuadre validado. No copies ni anticipes hechos posteriores. Si firstReplyFacts no está presente, firstReply es null salvo una explicación descriptiva catalogAnswer con bloques general orientativos y published sustentados en el catálogo actual. ' +
+  'intakeReply se conserva sólo para el adaptador sin plan: si intakeReplyAllowed y no hay corrección podés anticipar pregunta de servicio o fecha, con pending/serviceId/candidateIds del próximo estado esperado; el servidor verificará e insertará hechos. Si no podés anticiparlo, intakeReply null. Con plan, intakeReply null. Ante conversación independiente usa conversationalAnswer sólo si su permiso está presente; entrega el contenido pedido y una pregunta contextual para continuar la charla. Con borrador retoma el mismo dato pendiente con redacción natural. '
 
 export function replyContract(role: ReplyRole, identityAvailable: boolean, introduced: boolean,
   facts: readonly ReplyFact[], neutral = false): ReplyContract {
@@ -167,10 +171,28 @@ function protectedConversationalClaim(text: string, catalogNames: readonly strin
 function usableConversationalReturn(value: unknown, catalogNames: readonly string[]): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 240 &&
     !/[\u0000-\u001f\d$€]|https?:|www\./i.test(value) && value.trim().endsWith('?') && (value.match(/\?/g) ?? []).length === 1 &&
-    !/\b(?:confirm\w*|cancel\w*|reprogram\w*|soy|me llamo|mi nombre)\b/.test(normalized(value)) &&
+    !hasSalutationAct(value) && !/\b(?:confirm\w*|cancel\w*|reprogram\w*|soy|me llamo|mi nombre|con el local)\b/.test(normalized(value)) &&
     !/\b(?:consultar|contactar|enviar|derivar|avisar)\b[^?]*\b(?:equipo|persona|profesional|operador)\b/.test(normalized(value)) &&
     !/\b(?:tenemos|ofrecemos|cobramos|abrimos|cerramos|disponible|disponibilidad|cupos|gratis|garantizado|reservado|agendado)\b/.test(normalized(value)) &&
     !/\bya\b[^?]*\b(?:reserve|agende|modifique)\b/.test(normalized(value)) && !catalogNames.some(name => words(value).includes(words(name)))
+}
+
+function validInitialGreeting(text: string, identity: NonNullable<ReplyContract['initialGreeting']>, catalogNames: readonly string[]): boolean {
+  if (text.length > 240 || /[\u0000-\u001f]/.test(text)) return false
+  const plain = normalized(text)
+  const [assistant, business] = [identity.assistantName, identity.businessName].map(name => normalized(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const presentation = new RegExp('(?<![a-z0-9])(?:(?:soy|me llamo|te saluda|te habla|te escribe) )?' +
+    assistant + ',? (?:de|del|desde) ' + business + '(?![a-z0-9])')
+  const identityMatch = presentation.exec(plain)
+  if (!identityMatch || plain.slice(0, identityMatch.index).includes('?')) return false
+  const body = plain.replace(presentation, ' ')
+  const greeting = /\b(?:hol+a+|buenas(?: tardes| noches)?|buen(?:os dias| dia))\b/g
+  const greetings = [...body.matchAll(greeting)]
+  const invitation = plain.slice(identityMatch.index + identityMatch[0].length)
+  return greetings.length === 1 && greetings[0]!.index <= 2 &&
+    !/\b(?:soy|me llamo|mi nombre|con el local)\b/.test(body) &&
+    !protectedReplyClaim(body.replace(/\bhoy\b/g, '')) && !protectedConversationalClaim(body, catalogNames) &&
+    /\b(?:ayud\w*|doy una mano|necesita\w*|puedo hacer por)\b/.test(invitation)
 }
 
 /** Model frames are optional. Fact membership, order and material fragments always belong to the server. */
@@ -223,7 +245,6 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (raw == null) return result('missing_draft')
   if (!value || !['closing,factIds,opening', 'closing,factIds,opening,variantChoices'].includes(Object.keys(value).filter(key => key !== 'salutation' && key !== 'catalogAnswer' && key !== 'clarificationQuestion' && key !== 'conversationalAnswer').sort().join(',')) || value.factIds !== null && !Array.isArray(value.factIds)) return rejectShape('draft_structure')
   if (Object.hasOwn(value, 'salutation') && value.salutation !== null && value.salutation !== 'greeting') return rejectShape('salutation_shape')
-  if (contract.conversational && value.conversationalAnswer == null) return rejectShape('conversational_body_missing')
   // Explicit null assigns the complete material body to the server. Legacy lists
   // remain strict: never repair omissions, duplicates, foreign IDs or wrong order.
   // providedCount above stays zero for null; these IDs were not supplied by the model.
@@ -231,6 +252,15 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
   if (factIds.length !== facts.length || new Set(factIds).size !== facts.length ||
       factIds.some(id => typeof id !== 'string' || !facts.some(fact => fact.id === id))) return result('fact_membership')
   if (JSON.stringify(factIds) !== JSON.stringify(facts.map(fact => fact.id))) return result('fact_order')
+  if (contract.initialGreeting && contract.role === 'social' && contract.introduction === 'server_pending' &&
+      facts.length === 1 && facts[0]?.id === 'next' && typeof opening === 'string' && value.salutation == null &&
+      value.closing == null && value.variantChoices == null && value.catalogAnswer == null &&
+      value.clarificationQuestion == null && value.conversationalAnswer == null &&
+      validInitialGreeting(opening.trim(), contract.initialGreeting, catalogNames)) {
+    const validated = result(null, opening.trim())
+    return { ...validated, initialGreeting: true, openingText: '', validatedFraming: { salutation: null, opening: null } }
+  }
+  if (contract.conversational && value.conversationalAnswer == null) return rejectShape('conversational_body_missing')
   if (value.conversationalAnswer != null) {
     const answer = value.conversationalAnswer as Record<string, unknown>, permission = contract.conversational
     if (!permission || !Number.isInteger(permission.maxCharacters) || permission.maxCharacters < 1 || permission.maxCharacters > CONVERSATIONAL_REPLY_LIMIT ||
@@ -243,7 +273,8 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     } else {
       if (permission.body !== 'generated' || typeof answer.text !== 'string' || !answer.text.trim() || answer.text.length > permission.maxCharacters ||
           /[\u0000-\u0008\u000b-\u001f]/.test(answer.text.replace(/\r\n/g, '\n')) || protectedConversationalClaim(answer.text, catalogNames) ||
-          answer.kind === 'general' && /\b(?:soy|me llamo|mi nombre es)\b/.test(normalized(answer.text))) return result('unverified_value')
+          answer.kind === 'general' && (/\b(?:soy|me llamo|mi nombre es|con el local)\b/.test(normalized(answer.text)) ||
+            /^[¡!\s]*(?:hol+a+|buenas(?: tardes| noches)?|buen(?:os dias| dia))[!.,\n]/.test(normalized(answer.text)))) return result('unverified_value')
       conversationalText = answer.text.replace(/\r\n/g, '\n').trim()
     }
     conversationalAccepted = true
@@ -280,6 +311,9 @@ export function validateReplyDraft(raw: unknown, facts: readonly ReplyFact[], co
     clarificationQuestion = question.trim()
   }
   const framing = [value.opening, value.closing]
+  if (contract.role === 'social' && framing.some(part => typeof part === 'string' && /\bcon el local\b/.test(normalized(part)))) {
+    return rejectFrame('unverified_value')
+  }
   if (framing.some(part => part !== null && (typeof part !== 'string' || part.length > 180 || /[\u0000-\u001f]/.test(part))))
     return conversationalAccepted ? rejectFrame('frame_bounds') : result('frame_bounds')
   // Validate the complete explanatory body independently before optional frame rejection.
