@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PGlite, type Transaction } from '@electric-sql/pglite'
+
+const server = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8')
+assert.match(server, /instagramBotWorkerScope\(instagramBotConfig\)/,
+  'Railway must start Instagram for businesses excluded only from its WhatsApp worker')
+assert.match(server, /\.\.\.whatsappWorkerScope,\s*channels:\s*\['WHATSAPP' as const\]/,
+  'the configured tenant boundary must still apply to WhatsApp')
+
 process.env.DOTENV_CONFIG_PATH='__instagram_runtime_no_env__'
 process.env.DATABASE_URL='postgresql://offline:offline@127.0.0.1:1/offline'
 const { Prisma }=await import('../src/generated/prisma/client.js')

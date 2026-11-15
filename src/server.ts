@@ -121,10 +121,10 @@ export async function buildApp(options: BuildAppOptions = {}) {
   const baseline = installEgressBaseline(app, resolveEgressBaselineConfig(process.env))
   installAuthorizationProviders(app, options)
   const botOptionsConfig = options.botOptionsConfig ?? resolveBotOptionsConfig(process.env)
-  const workerScope = botWorkerScopeFromEnv(process.env)
+  const whatsappWorkerScope = botWorkerScopeFromEnv(process.env)
   const instagramBotConfig=options.instagramBotConfig??resolveInstagramBotConfig(process.env)
   const instagramWorkerScope=instagramBotConfig.businessIds!==undefined||instagramBotAiReady(process.env)
-    ? instagramBotWorkerScope(instagramBotConfig,workerScope) : undefined
+    ? instagramBotWorkerScope(instagramBotConfig) : undefined
   const instagramProcessingReady=(businessId:string)=>instagramBotScopeIncludes(instagramWorkerScope,businessId)
   const cashRegisterConfig = options.cashRegisterConfig ?? resolveCashRegisterConfig(process.env)
   const instagramReelsRuntime = options.instagramReelsRuntime ?? await createInstagramReelsRuntime({
@@ -295,7 +295,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
     // Every successful branch above settles its own lease in the same business
     // transaction (DONE, READY after reschedule, or POISON). Exceptions are the
     // only branches intentionally left leased for the loop's fenced retry.
-    for(const scope of [...(botOptionsConfig.workersEnabled?[{...workerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
+    for(const scope of [...(botOptionsConfig.workersEnabled?[{...whatsappWorkerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
     loops.push(startPostgresWorkerLoop({
       client: prisma, handle: handler, handlerSettlesJob: true, scope,
       onError: (error) => app.log.error(error), onDiagnostic: onWorkerDiagnostic
@@ -309,7 +309,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   if (botOptionsConfig.senderEnabled||instagramWorkerScope) {
     const whatsappProvider=new MetaOutboxProvider(),instagramProvider=new InstagramOutboxProvider({client:prisma})
     const provider:OutboxProvider=options.outboxProvider??{send:(value,signal,diagnostic)=>(value.payload as {channel?:unknown})?.channel==='INSTAGRAM'?instagramProvider.send(value,signal):whatsappProvider.send(value,signal,diagnostic)}
-    for(const scope of [...(botOptionsConfig.senderEnabled?[{...workerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
+    for(const scope of [...(botOptionsConfig.senderEnabled?[{...whatsappWorkerScope,channels:['WHATSAPP' as const]}]:[]),...(instagramWorkerScope?[instagramWorkerScope]:[])]) {
     loops.push(startOutboxSenderLoop({
       client: prisma,
       provider,
