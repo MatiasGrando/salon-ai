@@ -114,10 +114,12 @@ export async function instagramWebhookRoutes(
     if (parsed.comments.length > 0 && options.commentsRuntimeReady !== true) {
       return reply.status(503).send({ message: 'Automatizaciones de comentarios de Instagram no disponibles' })
     }
-    const accountIds = [...new Set([
+    const actionableAccountIds = [
       ...parsed.comments.flatMap((event) => event.instagramAccountIds),
       ...parsed.messaging.flatMap((event) => event.instagramAccountIds)
-    ])]
+    ]
+    // Ignored events still carry the provider account in entry.id.
+    const accountIds = [...new Set(actionableAccountIds.length ? actionableAccountIds : parsed.entryAccountIds)]
     let appSecret = options.appSecret === undefined ? null : options.appSecret?.trim() || null
     if (options.appSecret === undefined && appSecretResolver) {
       const resolution = await appSecretResolver.resolve({ instagramAccountIds: accountIds })
@@ -144,6 +146,8 @@ export async function instagramWebhookRoutes(
       // Comment automation must never admit unauthenticated public events.
       return reply.status(503).send({ message: 'Firma de Instagram no configurada' })
     }
+
+    if (signatureVerified && !actionableAccountIds.length) return reply.status(200).send({ received: true })
 
     try {
       // Durable comment ingress comes first. A 200 response is only emitted

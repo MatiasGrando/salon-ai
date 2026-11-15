@@ -108,6 +108,31 @@ async function setup(input: {
   await app.close()
 }
 
+{
+  const app = Fastify()
+  await app.register(instagramWebhookRoutes, {
+    appSecretResolver: {
+      async resolve({ instagramAccountIds }) {
+        return instagramAccountIds.length === 1 && instagramAccountIds[0] === 'ig-business-1'
+          ? { status: 'resolved' as const, appSecret: secret }
+          : { status: 'not_found' as const }
+      }
+    },
+    commentIngress: { async ingest() { throw new Error('echo must not be ingested') } },
+    legacyWebhookService: {
+      verifyWebhook: () => ({ verified: true }),
+      async handleWebhook() { throw new Error('echo must not trigger a reply') }
+    }
+  })
+  const echo = { object: 'instagram', entry: [{ id: 'ig-business-1', messaging: [{
+    sender: { id: 'ig-business-1' }, recipient: { id: 'customer' },
+    message: { mid: 'outbound-1', text: 'Hola', is_echo: true }
+  }] }] }
+  assert.equal((await app.inject(signedRequest(echo))).statusCode, 200)
+  assert.equal((await app.inject(signedRequest(echo, 'wrong-secret'))).statusCode, 403)
+  await app.close()
+}
+
 for (const resolution of [
   { status: 'missing_secret' as const },
   { status: 'ambiguous' as const },

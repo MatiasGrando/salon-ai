@@ -61,6 +61,6 @@ const ignored = parseInstagramWebhookPayload({
     changes: [{ field: 'likes', value: { id: 'not-a-comment' } }]
   }]
 })
-assert.deepEqual(ignored, { messaging: [], comments: [] })
+assert.deepEqual(ignored, { messaging: [], comments: [], entryAccountIds: ['ig-business-1'] })
 
 console.log('Instagram webhook parser contract: OK')

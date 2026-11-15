@@ -28,6 +28,7 @@ export type InstagramCommentWebhookEvent = {
 export type ParsedInstagramWebhook = {
   messaging: InstagramMessagingWebhookEvent[]
   comments: InstagramCommentWebhookEvent[]
+  entryAccountIds: string[]
 }
 
 /**
@@ -36,7 +37,7 @@ export type ParsedInstagramWebhook = {
  * guessing aliases; sandbox evidence can evolve this adapter independently.
  */
 export function parseInstagramWebhookPayload(payload: unknown): ParsedInstagramWebhook {
-  const result: ParsedInstagramWebhook = { messaging: [], comments: [] }
+  const result: ParsedInstagramWebhook = { messaging: [], comments: [], entryAccountIds: [] }
   const root = record(payload)
   if (!root || (root.object !== undefined && root.object !== 'instagram')) return result
 
@@ -44,6 +45,7 @@ export function parseInstagramWebhookPayload(payload: unknown): ParsedInstagramW
     const entry = record(rawEntry)
     const entryId = text(entry?.id)
     if (!entry || !entryId) continue
+    result.entryAccountIds.push(entryId)
 
     for (const rawEvent of array(entry.messaging)) {
       const event = record(rawEvent)
