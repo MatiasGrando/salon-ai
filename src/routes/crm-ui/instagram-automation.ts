@@ -170,7 +170,7 @@ export const instagramAutomationScript = String.raw`
 
     function instagramMediaAutomationBind() {
       const nodes = instagramMediaAutomationNodes()
-      for (const container of [instagramMediaNodes().body, els.instagramReelsTableBody]) container.addEventListener('click', (event) => {
+      for (const container of [document.getElementById('instagram-media-detail'), els.instagramReelsTableBody]) container.addEventListener('click', (event) => {
         const button = event.target.closest('[data-instagram-automation]')
         if (button) return instagramMediaAutomationOpen(button.dataset.instagramAutomation, button.dataset.instagramAutomationId, button)
       })

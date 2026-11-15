@@ -18329,16 +18329,20 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
         <div class="instagram-reels-manager" id="instagram-reels-manager" hidden>
           <section class="instagram-reels-toolbar">
-            <div>
-              <h3>Instagram: Reels e historias</h3>
-              <p>Consult&aacute; el alcance de tus publicaciones y prepar&aacute; nuevos Reels.</p>
-            </div>
+            <h3>Reels e historias</h3>
             <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
-          ${instagramMediaMarkup}
-          ${instagramPlanningMarkup}
-          ${instagramStoriesMarkup}
-          <div class="instagram-media-local-heading"><h4>Creaciones del CRM pendientes de sincronizar</h4><p>Borradores, publicaciones en proceso y Reels publicados que todav&iacute;a no est&aacute;n en el cat&aacute;logo de arriba.</p></div>
+          <nav class="instagram-workspace-tabs" aria-label="Contenido de Instagram">
+            <button type="button" data-instagram-workspace-tab="published" aria-pressed="true" aria-controls="instagram-workspace-published">Publicados</button>
+            <button type="button" data-instagram-workspace-tab="stories" aria-pressed="false" aria-controls="instagram-workspace-stories">Historias</button>
+            <button type="button" data-instagram-workspace-tab="calendar" aria-pressed="false" aria-controls="instagram-workspace-calendar">Calendario</button>
+            <button type="button" data-instagram-workspace-tab="drafts" aria-pressed="false" aria-controls="instagram-workspace-drafts">Borradores</button>
+          </nav>
+          <div id="instagram-workspace-published" data-instagram-workspace-panel="published">${instagramMediaMarkup}</div>
+          <div id="instagram-workspace-stories" data-instagram-workspace-panel="stories" hidden>${instagramStoriesMarkup}</div>
+          <div id="instagram-workspace-calendar" data-instagram-workspace-panel="calendar" hidden>${instagramPlanningMarkup}</div>
+          <section class="instagram-media-panel" id="instagram-workspace-drafts" data-instagram-workspace-panel="drafts" hidden>
+          <div class="instagram-media-local-heading"><h4>Creaciones del CRM</h4><p>Borradores, publicaciones en proceso y Reels pendientes de sincronizar.</p></div>
           <p class="instagram-reel-feedback" id="instagram-reels-feedback" role="status" aria-live="polite"></p>
           <div class="instagram-reels-table-wrap">
             <table class="instagram-reels-table">
@@ -18346,6 +18350,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
               <tbody id="instagram-reels-table-body"><tr><td colspan="5">Todav&iacute;a no hay Reels preparados.</td></tr></tbody>
             </table>
           </div>
+          </section>
         </div>
       </div>
     </section>
@@ -35088,7 +35093,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         els.instagramReelsFeedback.textContent = ''
         if (!state.instagramReels.length) els.instagramReelsTableBody.innerHTML = '<tr><td colspan="5">Cargando creaciones del CRM...</td></tr>'
       }
-      await Promise.allSettled([loadInstagramMediaCatalogue(), (async () => {
+      await Promise.allSettled([options.catalogue === false ? null : loadInstagramMediaCatalogue(), (async () => {
         try {
           const response = await getJson('/businesses/' + encodeURIComponent(state.businessId) + '/instagram-publications')
           if (!instagramMediaCurrent(context)) return
@@ -35266,13 +35271,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.templateSyncAll.hidden = view !== 'templates'
       if (view === 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
       if (view === 'instagram-reels') {
-        document.querySelector('.campaigns-title h2').textContent = 'Instagram Reels'
-        document.querySelector('.campaigns-title p').textContent = 'Consultá alcance y vistas orgánicas, sincronizá publicaciones y prepará nuevos Reels.'
+        document.querySelector('.campaigns-title h2').textContent = 'Instagram'
+        document.querySelector('.campaigns-title p').textContent = 'Creá contenido, planificá publicaciones y consultá su rendimiento.'
         els.campaignSearch.hidden = true
         els.campaignNew.hidden = true
-        if (!state.instagramReelsLoaded || !state.instagramMedia?.loaded) loadInstagramReels()
-        if (!state.instagramPlanning?.data) instagramMediaPlanLoad()
-        if(typeof instagramStoriesLoad==='function')instagramStoriesLoad()
+        openInstagramWorkspaceTab(instagramMediaContext().workspaceTab)
       } else if (view === 'reminders') {
         els.campaignSearch.hidden = false
         document.querySelector('.campaigns-title h2').textContent = 'Recordatorios de turnos'

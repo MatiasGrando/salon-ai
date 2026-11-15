@@ -15,7 +15,7 @@ function node() {
     className: '', isConnected: true, focus() { context.document.activeElement = this }, scrollIntoView() {},
     listeners: {} as Record<string, Function[]>, addEventListener(event: string, handler: Function) { (this.listeners[event] ??= []).push(handler) },
     setAttribute(name: string, value: string) { if (name === 'hidden') this.hidden = true }, removeAttribute(name: string) { if (name === 'hidden') this.hidden = false },
-    querySelectorAll() { return [] } }
+    querySelector() { return null }, querySelectorAll() { return [] } }
 }
 const nodes: Record<string, any> = {}
 const els: any = new Proxy({ appShell: { dataset: { section: 'campaigns' } }, instagramReelsTableBody: node() } as Record<string, any>, { get(target,key: string) { return target[key] ??= node() } })
@@ -25,6 +25,7 @@ const state: any = { businessId: 'business-a', marketingView: 'instagram-reels',
 const requests: any[] = []
 let handler: (url: string, options: any) => Promise<Response> = async () => new Response('{}')
 const context: any = { state, els, URL, URLSearchParams, Date, AbortController,
+  workspaceNavigation: 0, deferredWorkspace: null,
   document: { activeElement: null, hidden: false, body: { dataset: {} }, getElementById: (id: string) => nodes[id] ??= node(), querySelector: () => node(), querySelectorAll: () => [] },
   staffVisibleSections: () => ['campaigns', 'conversations'], isWorkshopBusiness: () => false,
   staffSettlementsLabel: () => 'Liquidaciones', stopAgendaNowLineTimer() {}, closeMobileDrawer() {}, isMobile: () => false,
@@ -37,8 +38,9 @@ const call = (code: string) => runInNewContext(code, context)
 const media = call('instagramMediaContext()')
 media.accountId = 'account-a'
 media.data = { items: [{ id: 'media-a', caption: 'Importado', accountId: 'account-a' }], total: 1, offset: 0, linkedPublicationIds: [] }
+media.detailId = 'media-a'
 call('renderInstagramMediaCatalogue()')
-assert.ok(nodes['instagram-media-body'].innerHTML.includes('data-instagram-automation'), 'rendered imported Reels must expose the common keyword-automation configuration control')
+assert.ok(nodes['instagram-media-detail'].innerHTML.includes('data-instagram-automation'), 'rendered imported Reels must expose the common keyword-automation configuration control')
 console.log('OK: real catalogue rendering exposes configuration for imported Reels')
 
 const response = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status })
@@ -59,7 +61,7 @@ assert.ok(els.instagramReelsTableBody.innerHTML.split('</tr>').find((row: string
 assert.ok(els.instagramReelsTableBody.innerHTML.includes('data-instagram-automation-id="published-a"'))
 assert.ok(!els.instagramReelsTableBody.innerHTML.includes('data-instagram-automation-id="draft-a"'))
 const origin = { ...node(), dataset: { instagramAutomation: 'media', instagramAutomationId: 'media-a' } }
-const clickRow = async (button = origin, container = nodes['instagram-media-body']) => {
+const clickRow = async (button = origin, container = nodes['instagram-media-detail']) => {
   for (const listener of container.listeners.click) await listener({ target: { closest: (selector: string) => selector === '[data-instagram-automation]' ? button : null } })
 }
 await clickRow()
@@ -119,13 +121,13 @@ for (const type of ['media', 'publications']) {
   const replacement = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: id } }
   const wrongTarget = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: 'other' } }
   handler = async () => response(result(id, type))
-  await clickRow(oldButton, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  await clickRow(oldButton, type === 'media' ? nodes['instagram-media-detail'] : els.instagramReelsTableBody)
   call(type === 'media' ? 'renderInstagramMediaCatalogue()' : 'renderInstagramReels()')
   oldButton.isConnected = false
   context.document.querySelectorAll = () => [wrongTarget, replacement]
   n.close.listeners.click[0]()
   assert.equal(context.document.activeElement, replacement, 'closing after a list refresh restores focus to the replacement control for the same target')
-  await clickRow(oldButton, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  await clickRow(oldButton, type === 'media' ? nodes['instagram-media-detail'] : els.instagramReelsTableBody)
   context.document.querySelectorAll = () => [wrongTarget]
   n.close.listeners.click[0]()
   assert.equal(context.document.activeElement, nodes['instagram-media-refresh'], 'a target removed from the page returns focus to the existing catalogue refresh action')
@@ -136,7 +138,7 @@ for (const type of ['media', 'publications']) {
   currentResponse = result(type === 'media' ? 'media-a' : 'published-a', type)
   handler = async () => response(currentResponse)
   const button = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: type === 'media' ? 'media-a' : 'published-a' } }
-  await clickRow(button, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  await clickRow(button, type === 'media' ? nodes['instagram-media-detail'] : els.instagramReelsTableBody)
   assert.equal(n.panel.hidden, false)
   assert.ok(requests.at(-1).url.includes('/instagram-' + type + '/'))
 }
@@ -217,7 +219,7 @@ for (const type of ['publications', 'media']) {
   const linkedResult = (config: any) => ({ ...result(target, type, config), publicationId: 'published-a' })
   handler = async (_, options) => response(linkedResult(options.method === 'PATCH' ? { id: legacy.id, ...JSON.parse(options.body) } : legacy))
   const button = { ...node(), dataset: { instagramAutomation: type, instagramAutomationId: target } }
-  await clickRow(button, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  await clickRow(button, type === 'media' ? nodes['instagram-media-detail'] : els.instagramReelsTableBody)
   n.keywords.value = 'Nueva oferta, turno'
   const beforeSave: number = requests.length
   await pause()
@@ -245,7 +247,7 @@ for (const type of ['publications', 'media']) {
   assert.equal(context.document.activeElement, replacement, 'reconciliation rerender preserves replacement-trigger focus return')
   context.document.querySelectorAll = () => []
   handler = async () => response(linkedResult(legacy))
-  await clickRow(replacement, type === 'media' ? nodes['instagram-media-body'] : els.instagramReelsTableBody)
+  await clickRow(replacement, type === 'media' ? nodes['instagram-media-detail'] : els.instagramReelsTableBody)
   let releaseRowSave!: (value: Response) => void
   handler = async () => new Promise((resolve) => { releaseRowSave = resolve })
   const lateSave = submit()

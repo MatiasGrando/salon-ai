@@ -3,6 +3,16 @@ export const instagramStoriesStyles = `
     .instagram-stories-header {display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
     .instagram-stories h4,.instagram-stories p {margin:0;overflow-wrap:anywhere}
     .instagram-stories button,.instagram-story-editor button {min-height:40px;padding:10px 14px;border:1px solid #bfcee2;border-radius:8px;background:#fff;color:#243b63;cursor:pointer}
+    .instagram-stories-header > div:last-child {display:flex;gap:8px;flex-wrap:wrap}
+    .instagram-stories #instagram-story-new {background:#1664e9;border-color:#1664e9;color:#fff;font-weight:750}
+    .instagram-story-filter {display:flex;align-items:center;gap:8px;color:#405176;font-size:13px;font-weight:650}
+    .instagram-story-filter select {padding:9px;border:1px solid #bfcee2;border-radius:8px;background:#fff;color:#243b63;font:inherit}
+    .instagram-story-status {display:inline-block;padding:4px 8px;border-radius:20px;background:#edf2f7;color:#405176;font-weight:700}
+    .instagram-story-status:is([data-status=PUBLISHED],[data-status=MANUALLY_COMPLETED]) {background:#e2f5ea;color:#146244}
+    .instagram-story-status[data-status=SCHEDULED] {background:#e6eeff;color:#244ab4}
+    .instagram-story-status:is([data-status=FAILED],[data-status=UNKNOWN]) {background:#fbe9e5;color:#a23a30}
+    .instagram-story-detail-frame {width:min(100%,200px);aspect-ratio:9/16;display:grid;place-items:center;margin-inline:auto;background:#e9eef7;border-radius:12px;overflow:hidden;text-align:center;color:#405176}
+    .instagram-story-detail-frame :is(img,video) {width:100%;height:100%;max-height:none;object-fit:contain}
     .instagram-story-editor {box-sizing:border-box;width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px);display:flex;flex-direction:column;background:#fff;border-radius:16px;overflow:hidden;resize:none}
     .instagram-story-editor header,.instagram-story-editor footer {padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8f0;flex-shrink:0}
     .instagram-story-editor footer {border-top:1px solid #e2e8f0;border-bottom:0;background:#f8fafc}
@@ -24,9 +34,13 @@ export const instagramStoriesStyles = `
 `
 export const instagramStoriesMarkup = `
           <section class="instagram-stories" aria-labelledby="instagram-stories-title">
-            <div class="instagram-stories-header"><div><h4 id="instagram-stories-title">Historias de Instagram</h4><p>Prepar&aacute; fotos o videos. Complet&aacute; los elementos interactivos en Instagram.</p></div><div><button id="instagram-story-refresh" type="button">Releer historias</button><button id="instagram-story-new" type="button">Nueva historia</button></div></div>
+            <div class="instagram-stories-header"><h4 id="instagram-stories-title">Historias de Instagram</h4><div><button id="instagram-story-refresh" type="button">Actualizar</button><button id="instagram-story-new" type="button">+ Nueva historia</button></div></div>
+            <label class="instagram-story-filter">Estado<select id="instagram-story-status-filter"><option value="">Todos los estados</option></select></label>
             <p id="instagram-stories-feedback" role="status" aria-live="polite"></p>
-            <div class="instagram-media-table-wrap"><table class="instagram-media-table"><thead><tr><th>Historia</th><th>Modalidad y estado</th><th>Horario deseado</th><th>Publicaci&oacute;n confirmada</th><th>Finalizaci&oacute;n manual</th><th>Acciones</th></tr></thead><tbody id="instagram-stories-body"></tbody></table></div>
+            <div class="instagram-media-detail-layout">
+              <div class="instagram-media-table-wrap"><table class="instagram-media-table instagram-media-primary-table"><thead><tr><th>Historia</th><th>Estado</th><th>Fecha y hora</th><th>Acciones</th></tr></thead><tbody id="instagram-stories-body"><tr><td colspan="4">Cargando historias&hellip;</td></tr></tbody></table></div>
+              <aside class="instagram-media-detail" id="instagram-story-detail" aria-labelledby="instagram-story-detail-title" hidden></aside>
+            </div>
           </section>
           <div class="dialog-backdrop" id="instagram-story-dialog" hidden>
             <div class="instagram-story-editor" role="dialog" aria-modal="true" aria-labelledby="instagram-story-title">
@@ -69,6 +83,10 @@ export const instagramStoriesScript = String.raw`
     }
     function instagramStoriesReset() {
       instagramStoryClose();state.instagramStories?.controller.abort();state.instagramStories=null
+      instagramStoryNode('detail')?.setAttribute('hidden','')
+      instagramStoryNode('status-filter').value=''
+      document.getElementById('instagram-stories-body').innerHTML='<tr><td colspan="4">Cargando historias&hellip;</td></tr>'
+      document.getElementById('instagram-stories-feedback').textContent=''
     }
     function instagramStoryCurrent(p,editor) {
       return instagramStoryActive(p) && p.editor===editor && !editor.controller.signal.aborted
@@ -83,18 +101,72 @@ export const instagramStoriesScript = String.raw`
         const [rows,capability]=await Promise.all([getJson(base,{signal:p.controller.signal}),getJson(base+'/capability',{signal:p.controller.signal})])
         if(!instagramStoryActive(p)||sequence!==p.sequence)return
         if(!Array.isArray(rows))throw new Error('Respuesta inválida')
-        if(p.capability && p.capability.accountId!==capability.accountId)instagramStoryClose()
-        p.rows=rows;p.capability=capability;instagramStoriesRender()
-      }catch{if(instagramStoryActive(p))document.getElementById('instagram-stories-feedback').textContent='No se pudieron leer las historias guardadas.'}
-      finally{if(instagramStoryActive(p))p.loading=false}
+        if(p.capability && p.capability.accountId!==capability.accountId){instagramStoryClose();p.detailId=null}
+        p.rows=rows;p.capability=capability;p.loaded=true;instagramStoriesRender()
+      }catch{if(instagramStoryActive(p)){instagramStoriesRender();document.getElementById('instagram-stories-feedback').textContent='No se pudieron leer las historias guardadas.'}}
+      finally{p.loading=false}
     }
     function instagramStoriesRender() {
-      const p=instagramStoryContext(),date=value=>value&&p.zone?new Intl.DateTimeFormat('es-AR',{timeZone:p.zone,dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'Sin fecha'
-      document.getElementById('instagram-stories-feedback').textContent='Zona del comercio: '+(p.zone||'pendiente')+'. La finalización manual es declarada por el operador.'
-      document.getElementById('instagram-stories-body').innerHTML=p.rows.map(row=>{
-        const button=(action,label)=>'<button type="button" data-instagram-story-action="'+action+'" data-id="'+instagramMediaHtml(row.id)+'">'+label+'</button>'
-        return '<tr><td>'+instagramMediaHtml(row.note||row.caption||'Historia sin nota')+'</td><td>'+instagramMediaHtml((row.deliveryMode==='MANUAL'?'Manual':'Automática')+' · '+instagramStoryStatus(row.status))+'</td><td>'+instagramMediaHtml(date(row.scheduledAt))+'</td><td>'+instagramMediaHtml(date(row.publishedAt))+'</td><td>'+instagramMediaHtml(date(row.manuallyCompletedAt))+'</td><td>'+button('open','Abrir')+(row.status==='SCHEDULED'?button('cancel','Cancelar horario'):'')+(row.videoAvailable?button('download','Descargar archivo'):'')+(row.videoAvailable&&['DRAFT','CANCELLED','PUBLISHED','MANUALLY_COMPLETED','FAILED'].includes(row.status)?button('duplicate','Duplicar'):'')+'</td></tr>'
-      }).join('')||'<tr><td colspan="6">Todav&iacute;a no hay historias preparadas.</td></tr>'
+      const p=instagramStoryContext(),filter=instagramStoryNode('status-filter'),statuses=[...new Set(p.rows.map(row=>row.status))]
+      const status=statuses.includes(filter.value)?filter.value:''
+      filter.innerHTML='<option value="">Todos los estados</option>'+statuses.map(item=>'<option value="'+instagramMediaHtml(item)+'">'+instagramMediaHtml(instagramStoryStatus(item))+'</option>').join('')
+      filter.value=status
+      const rows=status?p.rows.filter(row=>row.status===status):p.rows
+      const selected=rows.find(row=>row.id===p.detailId)
+      p.detailId=selected?.id
+      document.getElementById('instagram-stories-feedback').textContent=p.zone?'Zona horaria: '+p.zone:''
+      document.getElementById('instagram-stories-body').innerHTML=rows.map(row=>{
+        const date=instagramStoryDate(row.publishedAt||row.manuallyCompletedAt||row.scheduledAt,p.zone)
+        const status=instagramStoryStatus(row.status)
+        const name=row.note||row.caption||'Historia sin nota'
+        return '<tr data-selected="'+(row===selected)+'"><td><strong>'+instagramMediaHtml(name)+'</strong><small>'+ (row.mediaKind==='IMAGE'?'Foto':'Video')+'</small></td><td><span class="instagram-story-status" data-status="'+instagramMediaHtml(row.status)+'">'+instagramMediaHtml(status)+'</span></td><td>'+instagramMediaHtml(date)+'</td><td><button type="button" data-instagram-story-detail="'+instagramMediaHtml(row.id)+'" aria-pressed="'+(row===selected)+'">Ver detalle</button></td></tr>'
+      }).join('')||'<tr><td colspan="4">Todav&iacute;a no hay historias preparadas.</td></tr>'
+      instagramStoryRenderDetail(p,selected)
+    }
+    function instagramStoryDate(value,zone) {
+      return value&&zone?new Intl.DateTimeFormat('es-AR',{timeZone:zone,dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'Sin fecha'
+    }
+    function instagramStoryRenderDetail(p,row) {
+      const panel=instagramStoryNode('detail')
+      panel.hidden=!row
+      if(!row){panel.innerHTML='';return}
+      const name=row.note||row.caption||'Historia sin nota'
+      const button=(action,label)=>'<button type="button" data-instagram-story-action="'+action+'" data-id="'+instagramMediaHtml(row.id)+'">'+label+'</button>'
+      const detail=(label,value)=>'<div><dt>'+label+'</dt><dd>'+instagramMediaHtml(value)+'</dd></div>'
+      panel.innerHTML='<h4 id="instagram-story-detail-title" tabindex="-1">'+instagramMediaHtml(name)+'</h4>'
+        +'<div class="instagram-story-detail-frame" id="instagram-story-detail-frame">'+(row.videoAvailable?button('preview','Cargar vista previa'):'<p>Vista previa no disponible</p>')+'</div>'
+        +'<dl class="instagram-media-secondary">'
+        +detail('Estado',instagramStoryStatus(row.status))+detail('Modalidad',row.deliveryMode==='MANUAL'?'Manual':'Automática')
+        +detail('Horario deseado',instagramStoryDate(row.scheduledAt,p.zone))+detail('Publicaci&oacute;n confirmada',instagramStoryDate(row.publishedAt,p.zone))
+        +detail('Finalizaci&oacute;n manual',instagramStoryDate(row.manuallyCompletedAt,p.zone))+'</dl>'
+        +'<div class="instagram-media-detail-actions">'+button('open','Abrir')
+        +(row.status==='SCHEDULED'?button('cancel','Cancelar horario'):'')
+        +(row.videoAvailable?button('download','Descargar archivo'):'')
+        +(row.videoAvailable&&['DRAFT','CANCELLED','PUBLISHED','MANUALLY_COMPLETED','FAILED'].includes(row.status)?button('duplicate','Duplicar'):'')+'</div>'
+    }
+    async function instagramStoryLoadDetailMedia(p,id,button) {
+      const row=p.rows.find(item=>item.id===id)
+      if(!row?.videoAvailable||button.disabled)return
+      button.disabled=true
+      const current=()=>instagramStoryActive(p)&&p.detailId===id&&button.isConnected
+      try{
+        const result=await getJson('/businesses/'+encodeURIComponent(p.businessId)+'/instagram-stories/'+encodeURIComponent(id)+'/download',{signal:p.controller.signal})
+        if(!current())return
+        const url=new URL(result.url)
+        if(url.protocol!=='https:'||url.username||url.password)throw new Error('Vista previa inválida')
+        const photo=row.mediaKind==='IMAGE'
+        const media=document.createElement(photo?'img':'video')
+        if(photo)media.alt='Vista previa de la historia'
+        else{media.controls=true;media.preload='metadata';media.playsInline=true}
+        media.referrerPolicy='no-referrer'
+        media.addEventListener('error',()=>{
+          const frame=instagramStoryNode('detail-frame')
+          if(frame?.contains(media))frame.textContent='No se pudo reproducir la vista previa.'
+        },{once:true})
+        media.src=url.href
+        instagramStoryNode('detail-frame').replaceChildren(media)
+      }catch{if(current())document.getElementById('instagram-stories-feedback').textContent='No se pudo cargar la vista previa.'}
+      finally{button.disabled=false}
     }
     function instagramStoryStatus(status) {
       return ({DRAFT:'Borrador',READY:'Preparada / en cola',SCHEDULED:'Programada',CANCELLED:'Cancelada',PUBLISHED:'Publicada por Instagram',MANUALLY_COMPLETED:'Finalizada manualmente',UNKNOWN:'Resultado incierto: no reenviar',FAILED:'Fallo al publicar',PROCESSING:'Procesando',CREATING_CONTAINER:'Enviando archivo',PUBLISHING:'Publicando'})[status]||status
@@ -199,6 +271,7 @@ export const instagramStoriesScript = String.raw`
       if(!button)return
       const p=instagramStoryContext(),id=button.dataset.id,action=button.dataset.instagramStoryAction
       if(action==='open')return instagramStoryOpen({id},button)
+      if(action==='preview')return instagramStoryLoadDetailMedia(p,id,button)
       if(p.action)return
       p.action=true
       try{
@@ -238,7 +311,16 @@ export const instagramStoriesScript = String.raw`
       instagramStoryNode('recover').addEventListener('click',instagramStoryRecover)
       instagramStoryNode('resolve').addEventListener('click',instagramStoryResolve)
       instagramStoryNode('manual-complete').addEventListener('click',instagramStoryComplete)
-      document.getElementById('instagram-stories-body').addEventListener('click',instagramStoryAction)
+      instagramStoryNode('status-filter').addEventListener('change',instagramStoriesRender)
+      instagramStoryNode('detail').addEventListener('click',instagramStoryAction)
+      document.getElementById('instagram-stories-body').addEventListener('click',event=>{
+        const button=event.target.closest('[data-instagram-story-detail]')
+        if(!button)return
+        const p=instagramStoryContext()
+        p.detailId=button.dataset.instagramStoryDetail
+        instagramStoriesRender()
+        instagramStoryNode('detail-title')?.focus()
+      })
       instagramStoryNode('dialog').addEventListener('keydown',event=>{
         if(event.key==='Escape'){event.preventDefault();instagramStoryClose();return}
         if(event.key!=='Tab')return

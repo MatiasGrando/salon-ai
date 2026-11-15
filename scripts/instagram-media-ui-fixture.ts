@@ -37,6 +37,7 @@ let storyDeclared = false;
 const state = { businessId: 'qa-business', business:{timezone:'America/New_York'}, marketingView: 'instagram-reels', instagramReels: [], instagramReelsLoaded: false, instagramMedia: null, instagramMediaGeneration: 0, instagramReelKeywords:[],instagramReelPreviewUrl:null };
 const els = new Proxy({ appShell: document.getElementById('qa-shell'), instagramReelsManager: document.getElementById('instagram-reels-manager'), instagramReelsTableBody: document.getElementById('instagram-reels-table-body'), instagramReelsFeedback: document.getElementById('instagram-reels-feedback'),instagramReelProgress:document.querySelector('#instagram-reel-progress span') },{get(target,key){return target[key]??=document.getElementById(String(key).replace(/[A-Z]/g,letter=>'-'+letter.toLowerCase()))||document.createElement('div')}});
 const staffVisibleSections=()=>['campaigns','cash','accounts'];const isWorkshopBusiness=()=>false;const staffSettlementsLabel=()=>'Liquidaciones';const stopAgendaNowLineTimer=()=>{};const closeMobileDrawer=()=>{};const loadCashRegister=async()=>{};const loadManagedAccounts=async()=>{};const renderManagedAccountsLoadError=()=>{};
+let workspaceNavigation=0,deferredWorkspace=null;
 state.templatesLoaded=true;state.campaignsLoaded=true;
 const buildGetJsonRequestOptions = value => value;
 const requests = [];
@@ -64,7 +65,7 @@ const qa = window.__qa = { state, els, requests, mode:'normal', automationMode:'
   },
   historyTarget() {
     const minimum=innerWidth<=720?44:38;
-    const buttons=[...document.querySelectorAll('#instagram-media-body [data-instagram-media-history]')];
+    const buttons=[...document.querySelectorAll('#instagram-media-detail [data-instagram-media-history]')];
     if(!buttons.length) throw new Error('Expected rendered history controls');
     const measurements=buttons.map(button=>({height:button.getBoundingClientRect().height,minHeight:getComputedStyle(button).minHeight}));
     if(measurements.some(button=>button.height<minimum)) throw new Error('History target below '+minimum+'px: '+JSON.stringify(measurements));

@@ -5,7 +5,23 @@ export const instagramMediaStyles = `
     .instagram-media-panel { min-width: 0; display: grid; gap: 14px; padding: 18px; border: 1px solid #dce3ef; border-radius: 14px; background: #fff; }
     .instagram-media-panel h4, .instagram-media-history h4 { margin: 0; color: #17213a; font-size: 16px; }
     .instagram-media-panel p { margin: 0; color: #52617b; font-size: 13px; line-height: 1.5; }
-    .instagram-media-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 14px; border-radius: 10px; background: #f8faff; }
+    .instagram-workspace-tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid #dce3ef; }
+    .instagram-workspace-tabs button { flex: 0 0 auto; min-height: 44px; padding: 9px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #405176; cursor: pointer; font-weight: 750; }
+    .instagram-workspace-tabs button[aria-pressed="true"] { border-bottom-color: #2563eb; color: #1d4ed8; }
+    .instagram-workspace-tabs button:focus-visible { outline: 2px solid #2563eb; outline-offset: -3px; }
+    #instagram-reels-manager [data-instagram-workspace-panel][hidden], .instagram-media-detail[hidden] { display: none; }
+    .instagram-media-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 12px; border-radius: 10px; background: #f8faff; }
+    .instagram-media-filters label { flex: 1 1 135px; max-width: 230px; }
+    .instagram-media-detail-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 14px; align-items: start; min-width: 0; }
+    .instagram-media-detail { display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid #dce3ef; border-radius: 12px; background: #f8faff; overflow-wrap: anywhere; }
+    .instagram-media-detail img, .instagram-media-detail video { width: 100%; max-height: 380px; border-radius: 10px; object-fit: contain; background: #e9eef7; }
+    .instagram-media-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .instagram-media-detail-actions button { min-height: 38px; padding: 8px 12px; border: 1px solid #ccd6e5; border-radius: 8px; background: #fff; color: #243b63; font: inherit; cursor: pointer; }
+    @media (max-width: 720px) { .instagram-media-detail-actions button { min-height: 44px; } }
+    .instagram-media-primary-table { min-width: 480px !important; }
+    .instagram-media-thumb { display: inline-block; width: 38px; height: 48px; object-fit: cover; border-radius: 6px; margin-right: 8px; vertical-align: middle; }
+    .instagram-media-primary-table tr[data-selected="true"] td { background: #eff6ff; }
+    @media (min-width: 1100px) { .instagram-media-detail-layout:has(.instagram-media-detail:not([hidden])) { grid-template-columns: minmax(0,2fr) minmax(230px,1fr); } }
     .instagram-media-filters label { min-width: 0; display: grid; gap: 6px; color: #405176; font-size: 12px; font-weight: 750; }
     .instagram-media-filters input, .instagram-media-filters select { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #17213a; font: inherit; }
     .instagram-media-filters :is(input, select):focus { border-color: #2563eb; outline: 3px solid #dbeafe; }
@@ -42,7 +58,10 @@ export const instagramMediaMarkup = `
             </form>
             <p>Los filtros seleccionan fechas de publicaci&oacute;n; no cambian el per&iacute;odo de las m&eacute;tricas. Cada valor muestra su propia fecha de lectura.</p>
             <p class="instagram-media-feedback" id="instagram-media-feedback" role="status" aria-live="polite"></p>
-            <div class="instagram-media-table-wrap"><table class="instagram-media-table"><thead><tr><th>Reel</th><th>Publicado</th><th>Alcance org&aacute;nico</th><th>Vistas org&aacute;nicas</th><th>Otras m&eacute;tricas</th><th>&Uacute;ltimo intento</th><th>Observaciones</th></tr></thead><tbody id="instagram-media-body"><tr><td colspan="7">Carg&aacute; los datos guardados de Instagram.</td></tr></tbody></table></div>
+            <div class="instagram-media-detail-layout">
+              <div class="instagram-media-table-wrap"><table class="instagram-media-table instagram-media-primary-table"><thead><tr><th>Reel</th><th>Publicado</th><th>Alcance</th><th>Vistas</th><th>Acciones</th></tr></thead><tbody id="instagram-media-body"><tr><td colspan="5">Carg&aacute; los datos guardados de Instagram.</td></tr></tbody></table></div>
+              <aside class="instagram-media-detail" id="instagram-media-detail" aria-labelledby="instagram-media-detail-title" hidden></aside>
+            </div>
             <div class="instagram-media-pagination"><button id="instagram-media-prev" type="button">Anterior</button><span id="instagram-media-summary"></span><button id="instagram-media-next" type="button">Siguiente</button></div>
             <section class="instagram-media-history" id="instagram-media-history" hidden aria-labelledby="instagram-media-history-title">
               <div class="instagram-media-actions"><h4 id="instagram-media-history-title">Historial de observaciones</h4><button id="instagram-media-history-close" type="button">Cerrar historial</button></div>
@@ -57,6 +76,26 @@ export const instagramMediaMarkup = `
 
 export const instagramMediaScript = String.raw`
     ${instagramAutomationScript}
+    function openInstagramWorkspaceTab(tab = 'published') {
+      const manager = els.instagramReelsManager
+      if (!manager?.querySelector('[data-instagram-workspace-tab="' + tab + '"]')) return
+      const context = instagramMediaContext()
+      context.workspaceTab = tab
+      for (const button of manager.querySelectorAll('[data-instagram-workspace-tab]')) {
+        button.setAttribute('aria-pressed', String(button.dataset.instagramWorkspaceTab === tab))
+      }
+      for (const panel of manager.querySelectorAll('[data-instagram-workspace-panel]')) {
+        panel.hidden = panel.dataset.instagramWorkspacePanel !== tab
+      }
+      if (tab === 'published') {
+        renderInstagramMediaCatalogue()
+        if (!context.loaded && !context.loading) void loadInstagramMediaCatalogue()
+      }
+      if (tab === 'drafts' && !state.instagramReelsLoaded) void loadInstagramReels({ catalogue: !context.loaded && !context.loading })
+      if (tab === 'calendar' && !state.instagramPlanning?.data) void instagramMediaPlanLoad()
+      if (tab === 'stories' && !state.instagramStories?.loaded) void instagramStoriesLoad()
+    }
+
     function resetInstagramMediaState() {
       if(typeof instagramStoriesReset==='function')instagramStoriesReset()
       state.instagramPlanning?.controller.abort()
@@ -64,6 +103,7 @@ export const instagramMediaScript = String.raw`
       state.instagramPlanning = null
       document.getElementById('instagram-reel-dialog')?.setAttribute('hidden', '')
       state.instagramMedia?.automation?.controller.abort()
+      document.getElementById('instagram-media-detail')?.setAttribute('hidden', '')
       document.getElementById('instagram-automation-panel')?.setAttribute('hidden', '')
       state.instagramMedia = null
       state.instagramMediaGeneration = (state.instagramMediaGeneration || 0) + 1
@@ -119,6 +159,38 @@ export const instagramMediaScript = String.raw`
         ? '<small>Observado: ' + instagramMediaHtml(instagramMediaDate(row.latestMetrics?.observedAtByMetric?.[name])) + '</small>' : '')
     }
 
+    function instagramMediaThumbnail(value) {
+      try {
+        const url = new URL(value)
+        const host = url.hostname
+        return url.protocol === 'https:' && !url.username && !url.password &&
+          (host === 'instagram.com' || host.endsWith('.instagram.com') || host.endsWith('.cdninstagram.com') || host.endsWith('.fbcdn.net'))
+          ? url.href : null
+      } catch { return null }
+    }
+
+    function renderInstagramMediaDetail() {
+      const media = instagramMediaContext()
+      const panel = document.getElementById('instagram-media-detail')
+      if (!panel) return
+      const item = media.data?.items.find((row) => row.id === media.detailId)
+      panel.hidden = !item
+      if (!item) { panel.innerHTML = ''; return }
+      const link = instagramMediaLink(item.permalink)
+      const thumbnail = instagramMediaThumbnail(item.thumbnailUrl)
+      const metrics = [['reach', 'Alcance'], ['views', 'Vistas'], ['likes', 'Me gusta'], ['comments', 'Comentarios'], ['shares', 'Compartidos'], ['saved', 'Guardados'], ['total_interactions', 'Interacciones']]
+        .map(([name, label]) => '<div><dt>' + label + '</dt><dd>' + instagramMediaMetric(item, name) + '</dd></div>').join('')
+      panel.innerHTML = '<div class="instagram-media-detail-actions"><h4 id="instagram-media-detail-title">' + instagramMediaHtml(item.caption || 'Reel sin descripción') +
+        '</h4><button type="button" data-instagram-media-detail-close>Cerrar detalle</button></div>' +
+        (thumbnail ? '<img src="' + instagramMediaHtml(thumbnail) + '" alt="Vista previa del Reel" referrerpolicy="no-referrer">' : '') +
+        '<p>Publicado: ' + instagramMediaHtml(instagramMediaDate(item.publishedAt)) + '</p><p>' + instagramMediaHtml(instagramMediaStatus(item.insightsStatus)) +
+        ' · &Uacute;ltimo intento: ' + instagramMediaHtml(instagramMediaDate(item.lastInsightAttemptAt)) +
+        '</p><dl class="instagram-media-secondary">' + metrics + '</dl><div class="instagram-media-detail-actions">' +
+        (link ? '<a href="' + instagramMediaHtml(link) + '" target="_blank" rel="noopener noreferrer">Ver en Instagram</a>' : '') +
+        '<button type="button" data-instagram-media-history="' + instagramMediaHtml(item.id) + '">Ver historial</button>' +
+        '<button type="button" data-instagram-automation="media" data-instagram-automation-id="' + instagramMediaHtml(item.id) + '">Configurar respuestas</button></div>'
+    }
+
     function instagramMediaStatus(status) {
       return ({ complete: 'Completo', partial: 'Parcial; revisá la fecha de cada dato', unavailable: 'Métricas no disponibles', not_applicable: 'Sin medición de Reels' })[status] || 'Sin medición'
     }
@@ -134,16 +206,13 @@ export const instagramMediaScript = String.raw`
       }
       const items = m.data?.items || []
       nodes.body.innerHTML = items.length ? items.map((row) => {
-        const link = instagramMediaLink(row.permalink)
+        const thumbnail = instagramMediaThumbnail(row.thumbnailUrl)
         const caption = instagramMediaHtml(row.caption || 'Reel sin descripción')
-        const secondary = [['likes', 'Me gusta'], ['comments', 'Comentarios'], ['shares', 'Compartidos'], ['saved', 'Guardados'], ['total_interactions', 'Interacciones']]
-          .map(([name, label]) => '<div><dt>' + label + '</dt><dd>' + instagramMediaMetric(row, name) + '</dd></div>').join('')
-        return '<tr><td>' + (link ? '<a href="' + instagramMediaHtml(link) + '" target="_blank" rel="noopener noreferrer">' + caption + '</a>' : caption) + '</td>' +
+        return '<tr data-selected="' + String(m.detailId === row.id) + '"><td>' +
+          (thumbnail ? '<img class="instagram-media-thumb" src="' + instagramMediaHtml(thumbnail) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') + caption + '</td>' +
           '<td>' + instagramMediaHtml(instagramMediaDate(row.publishedAt)) + '</td><td>' + instagramMediaMetric(row, 'reach') + '</td><td>' + instagramMediaMetric(row, 'views') + '</td>' +
-          '<td><details><summary>Ver interacciones</summary><dl class="instagram-media-secondary">' + secondary + '</dl></details></td>' +
-          '<td>' + instagramMediaHtml(instagramMediaStatus(row.insightsStatus)) + '<small>Intento: ' + instagramMediaHtml(instagramMediaDate(row.lastInsightAttemptAt)) + '</small></td>' +
-          '<td><button type="button" data-instagram-media-history="' + instagramMediaHtml(row.id) + '">Ver historial</button> <button type="button" data-instagram-automation="media" data-instagram-automation-id="' + instagramMediaHtml(row.id) + '">Configurar respuestas</button></td></tr>'
-      }).join('') : '<tr><td colspan="7">' + (m.loading ? 'Cargando datos guardados...' : m.accountId ? 'Sin Reels para estas fechas. Pod&eacute;s sincronizar Instagram.' : 'Conect&aacute; Instagram en Ajustes para importar tus Reels.') + '</td></tr>'
+          '<td><button type="button" data-instagram-media-detail="' + instagramMediaHtml(row.id) + '" aria-controls="instagram-media-detail" aria-expanded="' + String(m.detailId === row.id) + '">Ver detalle</button></td></tr>'
+      }).join('') : '<tr><td colspan="5">' + (m.loading ? 'Cargando datos guardados...' : m.accountId ? 'Sin Reels para estas fechas. Pod&eacute;s sincronizar Instagram.' : 'Conect&aacute; Instagram en Ajustes para importar tus Reels.') + '</td></tr>'
       nodes.feedback.textContent = m.error || m.message || (m.loading ? 'Leyendo datos guardados...' : 'Los datos guardados se actualizan solo con Sincronizar Instagram.')
       nodes.feedback.className = 'instagram-media-feedback' + (m.error ? ' error' : '')
       nodes.sync.disabled = m.syncing || !m.accountId
@@ -154,6 +223,7 @@ export const instagramMediaScript = String.raw`
       nodes.prev.disabled = m.loading || Boolean(m.error) || displayedOffset === 0
       nodes.next.disabled = m.loading || Boolean(m.error) || displayedOffset + 25 >= (m.data?.total || 0)
       nodes.summary.textContent = items.length ? (displayedOffset + 1) + '–' + (displayedOffset + items.length) + ' de ' + m.data.total + ' Reels' : '0 Reels en este filtro'
+      renderInstagramMediaDetail()
       renderInstagramMediaHistory()
     }
 
@@ -294,13 +364,35 @@ export const instagramMediaScript = String.raw`
     function bindInstagramMediaControls() {
       instagramMediaAutomationBind()
       const nodes = instagramMediaNodes()
+      els.instagramReelsManager?.querySelector('.instagram-workspace-tabs')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-instagram-workspace-tab]')
+        if (button) openInstagramWorkspaceTab(button.dataset.instagramWorkspaceTab)
+      })
       nodes.filters.addEventListener('submit', applyInstagramMediaFilters)
       nodes.refresh.addEventListener('click', () => loadInstagramMediaCatalogue())
       nodes.sync.addEventListener('click', syncInstagramMediaCatalogue)
       nodes.pause.addEventListener('click', pauseInstagramMediaSync)
       nodes.prev.addEventListener('click', () => { const m = instagramMediaContext(); m.offset = Math.max(0, m.offset - 25); loadInstagramMediaCatalogue() })
       nodes.next.addEventListener('click', () => { const m = instagramMediaContext(); if (m.offset + 25 < (m.data?.total || 0)) { m.offset += 25; loadInstagramMediaCatalogue() } })
-      nodes.body.addEventListener('click', (event) => { const button = event.target.closest('[data-instagram-media-history]'); if (button) openInstagramMediaHistory(button.dataset.instagramMediaHistory) })
+      const openDetail = (id, moveFocus) => {
+        const context = instagramMediaContext()
+        context.detailId = id
+        renderInstagramMediaCatalogue()
+        if (moveFocus) document.querySelector('[data-instagram-media-detail-close]')?.focus()
+      }
+      nodes.body.addEventListener('click', (event) => {
+        const detail = event.target.closest('[data-instagram-media-detail]')
+        if (detail) openDetail(detail.dataset.instagramMediaDetail, true)
+      })
+      document.getElementById('instagram-media-detail')?.addEventListener('click', (event) => {
+        const history = event.target.closest('[data-instagram-media-history]')
+        if (history) openInstagramMediaHistory(history.dataset.instagramMediaHistory)
+        if (event.target.closest('[data-instagram-media-detail-close]')) {
+          const previous = instagramMediaContext().detailId
+          openDetail(null, false)
+          Array.from(nodes.body.querySelectorAll('[data-instagram-media-detail]')).find((button) => button.dataset.instagramMediaDetail === previous)?.focus()
+        }
+      })
       nodes['history-close'].addEventListener('click', () => { instagramMediaContext().history = null; renderInstagramMediaHistory() })
       nodes['history-prev'].addEventListener('click', () => { const history = instagramMediaContext().history; if (history) openInstagramMediaHistory(history.id, Math.max(0, history.offset - 5)) })
       nodes['history-next'].addEventListener('click', () => { const history = instagramMediaContext().history; if (history && history.offset + 5 < (history.data?.total || 0)) openInstagramMediaHistory(history.id, history.offset + 5) })
