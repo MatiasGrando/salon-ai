@@ -5,6 +5,7 @@ export const instagramMediaStyles = `
     .instagram-media-panel { min-width: 0; display: grid; gap: 14px; padding: 18px; border: 1px solid #dce3ef; border-radius: 14px; background: #fff; }
     .instagram-media-panel h4, .instagram-media-history h4 { margin: 0; color: #17213a; font-size: 16px; }
     .instagram-media-panel p { margin: 0; color: #52617b; font-size: 13px; line-height: 1.5; }
+    .instagram-media-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
     .instagram-workspace-tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid #dce3ef; }
     .instagram-workspace-tabs button { flex: 0 0 auto; min-height: 44px; padding: 9px 14px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: #405176; cursor: pointer; font-weight: 750; }
     .instagram-workspace-tabs button[aria-pressed="true"] { border-bottom-color: #2563eb; color: #1d4ed8; }
@@ -49,7 +50,10 @@ export const instagramMediaStyles = `
 
 export const instagramMediaMarkup = `
           <section class="instagram-media-panel" id="instagram-media-catalogue" aria-labelledby="instagram-media-title">
-            <div><h4 id="instagram-media-title">Reels publicados y alcance org&aacute;nico</h4><p>Totales observados de cada Reel, sin sumar personas entre publicaciones. Las mediciones comienzan al sincronizar.</p></div>
+            <div class="instagram-media-header">
+              <div><h4 id="instagram-media-title">Reels publicados y alcance org&aacute;nico</h4><p>Totales observados de cada Reel, sin sumar personas entre publicaciones. Las mediciones comienzan al sincronizar.</p></div>
+              <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus" aria-hidden="true">+</span>Nuevo Reel</button>
+            </div>
             <form class="instagram-media-filters" id="instagram-media-filters" novalidate>
               <label>Publicado desde<input id="instagram-media-from" type="date"></label>
               <label>Publicado hasta<input id="instagram-media-to" type="date"></label>

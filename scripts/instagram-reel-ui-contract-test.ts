@@ -2,18 +2,20 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 const ui = readFileSync('src/routes/crm-ui.ts', 'utf8')
+const media = readFileSync('src/routes/crm-ui/instagram-media.ts', 'utf8')
 
 assert.match(ui, /data-marketing-view="instagram-reels"/)
 assert.match(ui, /data-marketing-nav="instagram-reels"/)
 assert.match(ui, /id="instagram-reels-manager"/)
 assert.match(ui, /<table class="instagram-reels-table"/)
 assert.match(ui, /id="instagram-reels-table-body"/)
-assert.match(ui, /id="instagram-reel-new"/)
+assert.doesNotMatch(ui, /id="instagram-reel-new"/)
+assert.match(media, /id="instagram-media-catalogue"[\s\S]*?id="instagram-reel-new"/)
 for (const tab of ['published', 'stories', 'calendar', 'drafts']) {
   assert.match(ui, new RegExp('data-instagram-workspace-tab="' + tab + '"'))
   assert.match(ui, new RegExp('data-instagram-workspace-panel="' + tab + '"'))
 }
-assert.match(readFileSync('src/routes/crm-ui/instagram-media.ts', 'utf8'), /data-instagram-media-detail/)
+assert.match(media, /data-instagram-media-detail/)
 assert.match(readFileSync('src/routes/crm-ui/instagram-stories.ts', 'utf8'), /data-instagram-story-detail/)
 
 assert.match(ui, /class="dialog instagram-reel-dialog"/)

@@ -16,4 +16,13 @@ assert.match(ui, /\.instagram-reels-table-wrap\s*\{[^}]*overflow-x:\s*auto/s)
 assert.match(ui, /\.instagram-reels-table\s*\{[^}]*min-width:/s)
 assert.doesNotMatch(ui, /(?:\.dialog)?\.instagram-reel-dialog\s*\{[^}]*resize:\s*(?:both|horizontal|vertical)/s)
 
+const stepNames = ['content', 'automation', 'destination', 'review']
+assert.deepEqual([...ui.matchAll(/data-reel-step-indicator="([^"]+)"/g)].map(([, step]) => step), stepNames)
+assert.deepEqual([...ui.matchAll(/<section class="instagram-reel-section" data-reel-section="(\w+)"( hidden)?>/g)].map(([, step, hidden]) => [step, !!hidden]), stepNames.map((step, index) => [step, index > 0]))
+assert.match(ui, /\.instagram-reel-section\[hidden\]\s*\{\s*display:\s*none/)
+assert.match(ui, /id="instagram-reel-message-preview"/)
+assert.match(ui, /id="instagram-reel-draft" type="button"/)
+assert.match(ui, /id="instagram-reel-back" type="button"/)
+assert.match(ui, /<footer class="instagram-reel-actions">[\s\S]*?id="instagram-reel-submit"/)
+
 console.log('Instagram Reel form layout contract: OK')
