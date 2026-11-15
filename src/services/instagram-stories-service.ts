@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma.js'
 import { InstagramPublicationService, PrismaInstagramPublicationRepository, InstagramPublicationConflictError, InstagramPublicationNotFoundError, InstagramPublicationValidationError } from './instagram-publication-service.js'
-import { hasStoryDeclaration, storyCredentialFingerprint } from './instagram-stories-domain.js'
+import { hasStoryConnection } from './instagram-stories-domain.js'
 type Client = Record<string, any>
 export class InstagramStoriesService {
   private readonly publications: InstagramPublicationService
@@ -9,14 +9,9 @@ export class InstagramStoriesService {
   }
   async capability(businessId: string) {
     const config = await this.client.businessInstagramConfig.findUnique({ where: { businessId } })
-    return { accountId: config?.instagramAccountId ?? null, automatic: hasStoryDeclaration(config), source: hasStoryDeclaration(config) ? 'operator_declared' : 'unknown', declaredAt: hasStoryDeclaration(config) ? config.storiesDeclaredAt : null, message: 'Habilitado por el administrador; Instagram comprobará el permiso al publicar' }
-  }
-  async declare(businessId: string, actorId: string, enabled: boolean) {
-    const config = await this.client.businessInstagramConfig.findUnique({ where: { businessId } })
-    if (!config?.accessToken || !config.enabled || !config.instagramAccountId) throw new InstagramPublicationConflictError('Conectá Instagram antes de habilitar la publicación automática.')
-    const changed = await this.client.businessInstagramConfig.updateMany({ where: { businessId, accessToken: config.accessToken, instagramAccountId: config.instagramAccountId, apiAccountId: config.apiAccountId }, data: { storiesDeclarationFingerprint: enabled ? storyCredentialFingerprint(config) : null, storiesDeclaredAt: enabled ? this.clock() : null, storiesDeclaredBy: enabled ? actorId : null } })
-    if (changed.count !== 1) throw new InstagramPublicationConflictError('La cuenta cambió durante la habilitación.')
-    return this.capability(businessId)
+    const automatic = hasStoryConnection(config)
+    return { accountId: config?.instagramAccountId ?? null, automatic, source: automatic ? 'connection' : 'unknown',
+      message: automatic ? 'Instagram comprobará los permisos de la cuenta al publicar.' : 'Conectá o renová tu cuenta en Ajustes → Instagram para publicar desde Weex.' }
   }
   list(businessId: string) { return this.publications.list(businessId) }
   get(businessId: string, id: string) { return this.publications.get(businessId, id) }

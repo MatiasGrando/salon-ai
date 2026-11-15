@@ -9,11 +9,19 @@ import {
 
 assert.deepEqual(resolveInstagramReelsRuntimeConfig({}), {
   enabled: false,
-  storiesEnabled: false,
+  storiesEnabled: true,
   intervalMs: 5000,
   businessIds: []
 })
 assert.equal(resolveInstagramReelsRuntimeConfig({ INSTAGRAM_REELS_ENABLED: 'true' }).enabled, true)
+const storiesOnly = await createInstagramReelsRuntime({
+  config: resolveInstagramReelsRuntimeConfig({}),
+  storageReady: true,
+  client: { instagramPublication: { async count() { return 0 } } },
+  onError(error) { throw error }
+})
+assert.equal(storiesOnly.storiesReady, true)
+assert.equal(storiesOnly.ready, false)
 
 const disabledApp = Fastify()
 await disabledApp.register(instagramPublicationRoutes, { runtimeReady: false })

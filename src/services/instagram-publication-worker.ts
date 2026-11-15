@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { hasStoryDeclaration } from './instagram-stories-domain.js'
+import { hasStoryConnection, instagramPublicationWorkerScope } from './instagram-stories-domain.js'
 import { prisma } from '../config/prisma.js'
 import { InstagramApi, InstagramApiRequestError } from '../integrations/instagram-api.js'
 import type { InstagramPublicationStatus } from './instagram-automation-domain.js'
@@ -302,7 +302,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
   async recoverExpiredAmbiguousPhases(now: Date) {
     const result = await this.client.instagramPublication.updateMany({
       where: {
-        ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
+        ...instagramPublicationWorkerScope(this.businessIds, this.storiesEnabled),
         status: { in: ['CREATING_CONTAINER', 'PUBLISHING'] }, claimedUntil: { lte: now }
       },
       data: {
@@ -317,8 +317,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
     return this.client.$transaction(async (tx: PrismaLike) => {
       const candidate = await tx.instagramPublication.findFirst({
         where: {
-          ...(this.businessIds ? { businessId: { in: this.businessIds } } : {}),
-          ...(!this.storiesEnabled ? { publicationType: 'REEL' } : {}),
+          ...instagramPublicationWorkerScope(this.businessIds, this.storiesEnabled),
           deliveryMode: 'AUTO',
           status: { in: ['SCHEDULED', 'READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING'] },
           availableAt: { lte: input.now },
@@ -333,7 +332,8 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
       const now = this.clock()
       const claimed = await tx.instagramPublication.updateMany({
         where: {
-          id: candidate.id, businessId: candidate.businessId, status: candidate.status, revision: candidate.revision, deliveryMode: 'AUTO', ...(!this.storiesEnabled ? {publicationType:'REEL'} : {}),
+          ...instagramPublicationWorkerScope(this.businessIds, this.storiesEnabled),
+          id: candidate.id, businessId: candidate.businessId, status: candidate.status, revision: candidate.revision, deliveryMode: 'AUTO',
           availableAt: { lte: now }, videoDeletedAt: null, videoDeleteRequestedAt: null,
           AND: [{ OR: [{ scheduledAt: null }, { scheduledAt: { lte: now } }] },
             { OR: [{ claimedUntil: null }, { claimedUntil: { lte: now } }] }]
@@ -366,7 +366,7 @@ export class PrismaInstagramPublicationWorkerRepository implements InstagramPubl
       const config = await tx.businessInstagramConfig.findUnique({ where: { businessId: input.businessId } })
       const row = await tx.instagramPublication.findFirst({ where: { businessId: input.businessId, id: input.id } })
       const now = this.clock()
-      if (!row || (row.publicationType === 'STORY' && !this.storiesEnabled) || row.deliveryMode === 'MANUAL' || (row.publicationType === 'STORY' && !hasStoryDeclaration(config)) || !config?.enabled || !config.accessToken || !row.destinationInstagramAccountId || !row.destinationApiAccountId ||
+      if (!row || (row.publicationType === 'STORY' && !this.storiesEnabled) || row.deliveryMode === 'MANUAL' || (row.publicationType === 'STORY' && !hasStoryConnection(config)) || !config?.enabled || !config.accessToken || !row.destinationInstagramAccountId || !row.destinationApiAccountId ||
         row.destinationInstagramAccountId !== config.instagramAccountId || row.destinationApiAccountId !== (config.apiAccountId || config.instagramAccountId) ||
         row.videoDeletedAt || row.videoDeleteRequestedAt || !['SCHEDULED', 'READY', 'CREATING_CONTAINER', 'PROCESSING', 'PUBLISHING'].includes(row.status)) return null
       const renewed = await tx.instagramPublication.updateMany({

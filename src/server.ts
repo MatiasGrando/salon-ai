@@ -188,7 +188,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(workshopRoutes)
   await app.register(instagramSettingsRoutes)
   await app.register(instagramMediaRoutes)
-  await app.register(instagramStoriesRoutes, { runtimeReady: instagramReelsRuntime.storiesReady === true, allowedBusinessIds: instagramReelsRuntime.businessIds ?? [] })
+  await app.register(instagramStoriesRoutes, { runtimeReady: instagramReelsRuntime.storiesReady === true })
   await app.register(instagramCalendarRoutes, {
     runtimeReady: instagramReelsRuntime.ready,
     allowedBusinessIds: instagramReelsRuntime.businessIds ?? []

@@ -51,10 +51,12 @@ export const instagramStoriesMarkup = `
                 <div class="instagram-story-preview"><img id="instagram-story-image" alt="Vista previa de la historia" hidden><video id="instagram-story-video" controls hidden></video></div>
                 <label>Nota interna<textarea id="instagram-story-note" rows="3" maxlength="2200"></textarea></label><small>La nota ayuda a organizarte; no se agrega como texto dentro de la historia.</small>
                 <label>Modalidad<select id="instagram-story-mode"><option value="MANUAL">Preparar y completar en Instagram</option><option value="AUTO">Publicaci&oacute;n autom&aacute;tica</option></select></label>
-                <p id="instagram-story-capability"></p><label class="instagram-story-check"><input id="instagram-story-declaration" type="checkbox"><span>Como administrador, declaro que esta cuenta puede publicar historias y concedi&oacute; el permiso correspondiente. Instagram lo comprobar&aacute; al publicar.</span></label><button id="instagram-story-declare" type="button">Guardar habilitaci&oacute;n declarada</button>
-                <label>Acci&oacute;n al guardar<select id="instagram-story-destination"><option value="draft">Guardar borrador</option><option value="now">Preparar o publicar ahora</option><option value="schedule">Programar horario</option></select></label>
+                <p id="instagram-story-capability"></p>
+                <label>Acci&oacute;n al guardar<select id="instagram-story-destination"><option value="draft">Guardar borrador</option><option id="instagram-story-now-label" value="now">Preparar ahora</option><option id="instagram-story-schedule-label" value="schedule">Programar preparaci&oacute;n</option></select></label>
+                <div class="instagram-story-fields" id="instagram-story-schedule-fields" hidden>
                 <div class="instagram-story-time"><label>Fecha del comercio<input id="instagram-story-date" type="date"></label><label>Hora del comercio<input id="instagram-story-time" type="time"></label></div>
                 <button id="instagram-story-resolve" type="button">Verificar horario</button><label>Opci&oacute;n horaria<select id="instagram-story-time-options"><option value="">Eleg&iacute; un horario y verificalo</option></select></label>
+                </div>
                 <label class="instagram-story-check"><input id="instagram-story-manual-confirm" type="checkbox"><span>Confirmo que complet&eacute; esta historia manualmente en Instagram. Se registrar&aacute; mi confirmaci&oacute;n, sin afirmar una verificaci&oacute;n de Instagram.</span></label>
                 <label class="instagram-story-check" id="instagram-story-recover-label" hidden><input id="instagram-story-recover-confirm" type="checkbox"><span>Quiero preparar manualmente esta historia tras el rechazo de la publicaci&oacute;n autom&aacute;tica.</span></label><button id="instagram-story-recover" type="button" hidden>Pasar a preparaci&oacute;n manual</button><p class="instagram-story-feedback" id="instagram-story-feedback" role="status" aria-live="polite"></p>
               </div><footer><button type="button" id="instagram-story-cancel">Cerrar</button><button type="button" id="instagram-story-manual-complete" hidden>Registrar finalizaci&oacute;n manual</button><button type="submit" id="instagram-story-save">Guardar historia</button></footer></form>
@@ -176,7 +178,8 @@ export const instagramStoriesScript = String.raw`
       const editor=p.editor={controller:new AbortController(),origin:origin||instagramStoryNode('new'),row:null,verified:null,file:null,preview:null,saving:false,loading:!!row,sequence:0}
       instagramStoryNode('form').reset();for(const name of ['file','note','mode','destination'])instagramStoryNode(name).disabled=false;instagramStoryNode('mode').value='MANUAL';instagramStoryNode('destination').value='draft';instagramStoryNode('note').value='';instagramStoryNode('file').value=''
       instagramStoryNode('image').hidden=true;instagramStoryNode('video').hidden=true;instagramStoryNode('dialog').removeAttribute('hidden');instagramStoryFeedback('')
-      instagramStoryNode('capability').textContent=p.capability?.automatic?p.capability.message:'Automatización sin habilitación declarada. Podés preparar la historia manualmente.'
+      instagramStoryNode('capability').textContent=p.capability?.runtimeReady===false?'El servidor todavía no puede guardar historias.':p.capability?.message||''
+      instagramStoryUpdateDestination()
       instagramStoryNode('save').disabled=!!row;instagramStoryNode('manual-complete').hidden=true;instagramStoryNode('manual-confirm').checked=false;instagramStoryNode('recover').hidden=true;instagramStoryNode('recover-label').hidden=true;instagramStoryNode('recover-confirm').checked=false
       instagramStoryNode('title').textContent=row?'Historia guardada':'Nueva historia'
       instagramStoryNode('file').focus()
@@ -187,6 +190,7 @@ export const instagramStoriesScript = String.raw`
         if(result.businessId!==p.businessId || result.publicationType!=='STORY' || result.id!==row.id)throw new Error('Contexto cambiado')
         editor.row=result;instagramStoryNode('recover').hidden=!(result.status==='FAILED'&&result.deliveryMode==='AUTO');instagramStoryNode('recover-label').hidden=instagramStoryNode('recover').hidden;instagramStoryNode('note').value=result.note??result.caption;instagramStoryNode('mode').value=result.deliveryMode
         const editable=['DRAFT','CANCELLED'].includes(result.status);editor.reprogram=result.status==='SCHEDULED';if(editor.reprogram)instagramStoryNode('destination').value='schedule'
+        instagramStoryUpdateDestination()
         for(const name of ['file','note','mode','destination'])instagramStoryNode(name).disabled=!editable
         instagramStoryNode('save').disabled=!(editable||editor.reprogram);instagramStoryNode('manual-complete').hidden=!(result.deliveryMode==='MANUAL'&&['DRAFT','CANCELLED','READY','SCHEDULED'].includes(result.status))
         instagramStoryFeedback(instagramStoryStatus(result.status)+(result.status==='UNKNOWN'?'. No se reenvía ni se marca como confirmada.':''))
@@ -227,7 +231,8 @@ export const instagramStoriesScript = String.raw`
       const file=instagramStoryNode('file').files?.[0],mode=instagramStoryNode('mode').value,destination=instagramStoryNode('destination').value
       const fail=(message,name)=>{instagramStoryFeedback(message,true);instagramStoryNode(name).focus()}
       if(!editor.row&&!editor.verified&&(!file||!['image/jpeg','video/mp4','video/quicktime'].includes(file.type)))return fail('Seleccioná una foto JPEG o un video MP4/MOV.','file')
-      if(mode==='AUTO'&&!p.capability?.automatic)return fail('Un administrador debe guardar la habilitación declarada antes de elegir publicación automática.','mode')
+      if(p.capability?.runtimeReady===false)return fail(p.capability.message||'El servidor todavía no puede guardar historias.','mode')
+      if(mode==='AUTO'&&destination!=='draft'&&!p.capability?.automatic)return fail('Conectá o renová tu cuenta en Ajustes → Instagram para publicar desde Weex.','mode')
       const scheduledAt=instagramStoryNode('time-options').value
       if(destination==='schedule'&&(!scheduledAt||editor.wall!==instagramStoryNode('date').value+'T'+instagramStoryNode('time').value))return fail('Verificá y elegí la opción horaria del comercio.','time-options')
       editor.saving=true;instagramStoryNode('save').disabled=true
@@ -254,17 +259,17 @@ export const instagramStoriesScript = String.raw`
         if(!instagramStoryCurrent(p,editor))return
         instagramStoryFeedback(destination==='draft'?'Borrador guardado.':destination==='schedule'?'Horario guardado. Las historias manuales requieren completar el paso en Instagram.':mode==='MANUAL'?'Historia preparada. Descargala y completala en Instagram.':'Historia en cola: todavía no confirma una publicación real.')
         instagramStoryNode('manual-complete').hidden=mode!=='MANUAL';await instagramStoriesLoad();await instagramMediaPlanLoad()
-      }catch{if(instagramStoryCurrent(p,editor))instagramStoryFeedback(editor.row?'El borrador sigue guardado. No se confirmó el último paso. Actualizá el estado antes de reintentar.':'No se pudo guardar. Conservamos el archivo y tus cambios.',true)}
+      }catch(error){if(instagramStoryCurrent(p,editor)){
+        const message=[400,403,404,409,503].includes(error.status)&&error.body?.message
+        instagramStoryFeedback((message?message+' ':'')+(editor.row?'El borrador sigue guardado. No se confirmó el último paso. Actualizá el estado antes de reintentar.':'No se pudo guardar. Conservamos el archivo y tus cambios.'),true)
+      }}
       finally{if(instagramStoryCurrent(p,editor)){editor.saving=false;instagramStoryNode('save').disabled=false}}
     }
-    async function instagramStoryDeclare() {
-      const p=instagramStoryContext(),editor=p.editor
-      if(!editor||editor.saving)return
-      if(!instagramStoryNode('declaration').checked){instagramStoryFeedback('Marcá la declaración explícita del administrador.',true);return}
-      editor.saving=true
-      try{const result=await getJson('/businesses/'+encodeURIComponent(p.businessId)+'/instagram-stories/capability',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:true,acknowledged:true}),signal:editor.controller.signal});if(instagramStoryCurrent(p,editor)){p.capability=result;instagramStoryNode('capability').textContent=result.message;instagramStoryFeedback('Habilitación declarada guardada. Elegí modalidad y acción; todavía no se publicó nada.')}}
-      catch{if(instagramStoryCurrent(p,editor))instagramStoryFeedback('No se pudo guardar la habilitación. Sólo un administrador puede declararla.',true)}
-      finally{if(instagramStoryCurrent(p,editor))editor.saving=false}
+    function instagramStoryUpdateDestination() {
+      const automatic = instagramStoryNode('mode').value === 'AUTO'
+      instagramStoryNode('now-label').textContent = automatic ? 'Publicar ahora' : 'Preparar ahora'
+      instagramStoryNode('schedule-label').textContent = automatic ? 'Programar publicación' : 'Programar preparación'
+      instagramStoryNode('schedule-fields').hidden = instagramStoryNode('destination').value !== 'schedule'
     }
     async function instagramStoryAction(event) {
       const button=event.target.closest('[data-instagram-story-action]')
@@ -307,7 +312,8 @@ export const instagramStoriesScript = String.raw`
       for(const name of ['close','cancel'])instagramStoryNode(name).addEventListener('click',instagramStoryClose)
       instagramStoryNode('file').addEventListener('change',instagramStoryPreview)
       instagramStoryNode('form').addEventListener('submit',instagramStorySubmit)
-      instagramStoryNode('declare').addEventListener('click',instagramStoryDeclare)
+      instagramStoryNode('mode').addEventListener('change',instagramStoryUpdateDestination)
+      instagramStoryNode('destination').addEventListener('change',instagramStoryUpdateDestination)
       instagramStoryNode('recover').addEventListener('click',instagramStoryRecover)
       instagramStoryNode('resolve').addEventListener('click',instagramStoryResolve)
       instagramStoryNode('manual-complete').addEventListener('click',instagramStoryComplete)

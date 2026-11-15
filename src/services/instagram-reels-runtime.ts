@@ -24,7 +24,7 @@ type RetentionWorker = { runOnce(): Promise<unknown> }
 export function resolveInstagramReelsRuntimeConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined>) {
   return {
     enabled: env.INSTAGRAM_REELS_ENABLED?.trim().toLowerCase() === 'true',
-    storiesEnabled: env.INSTAGRAM_STORIES_ENABLED?.trim().toLowerCase() === 'true',
+    storiesEnabled: true,
     intervalMs: positiveInteger(env.INSTAGRAM_REELS_WORKER_INTERVAL_MS, DEFAULT_INTERVAL_MS),
     businessIds: uniqueCsv(env.INSTAGRAM_REELS_BUSINESS_IDS)
   }
@@ -86,40 +86,45 @@ export async function createInstagramReelsRuntime(input: {
   onError(error: Error): void
 }) {
   const config = input.config ?? resolveInstagramReelsRuntimeConfig(process.env)
-  if (!config.enabled) {
+  const businessIds = config.enabled ? config.businessIds ?? [] : []
+  const reelsEnabled = businessIds.length > 0
+  const storiesEnabled = config.storiesEnabled === true
+  if (config.enabled && !reelsEnabled) {
+    input.onError(new Error('Instagram Reels está habilitado, pero no tiene comercios autorizados.'))
+  }
+  if (!reelsEnabled && !storiesEnabled) {
     return { ready: false as const, storiesReady: false as const, businessIds: [] as string[], start: () => undefined, stop: async () => undefined }
   }
 
-  const businessIds = config.businessIds ?? []
-  if (!businessIds.length) {
-    input.onError(new Error('Instagram Reels está habilitado, pero no tiene comercios autorizados.'))
-    return { ready: false as const, storiesReady: false as const, businessIds, start: () => undefined, stop: async () => undefined }
-  }
-
   const storageReady = input.storageReady ?? Boolean(instagramReelStorageConfig())
-  if (!storageReady) {
+  if (!storageReady && !reelsEnabled) {
+    return { ready: false, storiesReady: false, businessIds, start: () => undefined, stop: async () => undefined }
+  }
+  if (!storageReady && reelsEnabled) {
     input.onError(new Error('Instagram Reels está habilitado, pero su almacenamiento no está listo.'))
   }
 
   const client = input.client ?? prisma as unknown as Record<string, any>
   try {
-    if (!client.instagramPublication?.count || !client.instagramCommentExecution?.count || !client.instagramCommentAction?.count) {
-      throw new Error('Prisma no contiene los modelos de Instagram Reels.')
-    }
-    await Promise.all([
-      client.instagramPublication.count(),
-      client.instagramCommentExecution.count(),
-      client.instagramCommentAction.count()
-    ])
+    await client.instagramPublication.count()
   } catch {
     input.onError(new Error('Instagram Reels está habilitado, pero su base de datos no está lista.'))
     return { ready: false as const, storiesReady: false as const, businessIds, start: () => undefined, stop: async () => undefined }
   }
+  let commentsReady = false
+  if (reelsEnabled) {
+    try {
+      await Promise.all([client.instagramCommentExecution.count(), client.instagramCommentAction.count()])
+      commentsReady = true
+    } catch {
+      input.onError(new Error('La base de datos de comentarios de Instagram no está lista.'))
+    }
+  }
 
   const api = input.api ?? new InstagramApi()
   const publicationWorker = new InstagramPublicationWorker({
-    repository: new PrismaInstagramPublicationWorkerRepository(client, businessIds, () => new Date(), config.storiesEnabled === true),
-    storiesEnabled: config.storiesEnabled === true,
+    repository: new PrismaInstagramPublicationWorkerRepository(client, businessIds, () => new Date(), storiesEnabled),
+    storiesEnabled,
     api,
     videoUrls: {
       async createTemporaryHttpsUrl(video) {
@@ -138,7 +143,7 @@ export async function createInstagramReelsRuntime(input: {
     api
   )
   const retentionWorker = new InstagramVideoRetentionWorker({
-    repository: new PrismaInstagramVideoRetentionRepository(client, businessIds),
+    repository: new PrismaInstagramVideoRetentionRepository(client, businessIds, storiesEnabled),
     storage: {
       delete(video) {
         return deleteInstagramReelVideo({ businessId: video.businessId, objectPath: video.objectPath })
@@ -147,15 +152,15 @@ export async function createInstagramReelsRuntime(input: {
   })
   let loop: ReturnType<typeof startInstagramReelsWorkerRuntime> | null = null
   return {
-    ready: storageReady,
-    storiesReady: storageReady && config.storiesEnabled === true,
-    commentsReady: true,
+    ready: storageReady && reelsEnabled,
+    storiesReady: storageReady && storiesEnabled,
+    commentsReady,
     businessIds,
     start() {
       loop ??= startInstagramReelsWorkerRuntime({
         intervalMs: config.intervalMs,
         publicationWorker: storageReady ? publicationWorker : { async runOnce() {} },
-        commentWorker,
+        commentWorker: commentsReady ? commentWorker : { async processOne() {} },
         retentionWorker: storageReady ? retentionWorker : { async runOnce() {} },
         onError: input.onError
       })

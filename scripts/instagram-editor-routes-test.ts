@@ -29,9 +29,8 @@ const service: any = { async createDraft(input: any) { calls.push(['create', inp
 await app.register(instagramPublicationRoutes, { service, storage: { async verifyUpload() { calls.push(['verify']); return {} } } as any })
 const storyCalls: any[] = []
 const storyRow = {id:'s',businessId:'a',publicationType:'STORY',deliveryMode:'MANUAL',mediaKind:'IMAGE',status:'DRAFT',revision:0,videoObjectPath:'a/instagram/stories/12345678-1234-4234-8234-123456789abc.jpg',videoMimeType:'image/jpeg',videoSizeBytes:100,caption:'Nota',videoAvailable:true}
-await app.register(instagramStoriesRoutes,{runtimeReady:true,allowedBusinessIds:['a'],service:{
+await app.register(instagramStoriesRoutes,{runtimeReady:true,service:{
  async capability(...args:any[]){storyCalls.push(['capability',...args]);return{automatic:false,source:'unknown'}},
- async declare(...args:any[]){storyCalls.push(['declare',...args]);return{automatic:true,source:'operator_declared'}},
  async list(...args:any[]){storyCalls.push(['list',...args]);return[storyRow]},async get(...args:any[]){storyCalls.push(['get',...args]);return storyRow},
  async create(...args:any[]){storyCalls.push(['create',...args]);return storyRow},async update(...args:any[]){storyCalls.push(['update',...args]);return storyRow},
  async publish(...args:any[]){storyCalls.push(['publish',...args]);return{...storyRow,status:'READY'}},
@@ -69,9 +68,7 @@ try {
     assert.equal((await request(method,url.replace('/a/','/b/'))).statusCode,403)
     assert.equal(storyCalls.length,before,'authorization runs before Story storage/service')
   }
-  assert.equal((await request('POST','/businesses/a/instagram-stories/capability','admin',{enabled:true})).statusCode,400)
-  assert.equal((await request('POST','/businesses/a/instagram-stories/capability','admin',{enabled:true,acknowledged:true,declaredBy:'spoof',storiesDeclarationFingerprint:'spoof'})).statusCode,200)
-  assert.deepEqual(storyCalls.at(-1),['declare','a','admin',true],'actor comes exclusively from the authenticated session')
+  assert.equal((await request('POST','/businesses/a/instagram-stories/capability','admin',{enabled:true})).statusCode,404)
   assert.equal((await request('POST','/businesses/a/instagram-stories/s/complete-manual','admin',{expectedRevision:0})).statusCode,400)
   assert.equal((await request('POST','/businesses/a/instagram-stories/s/complete-manual','admin',{expectedRevision:0,confirmed:true})).statusCode,200)
   const downloaded=await request('GET','/businesses/a/instagram-stories/s/download')
@@ -81,7 +78,7 @@ try {
   assert.equal((await disabled.inject('/businesses/a/instagram-stories')).statusCode,200)
   assert.equal((await disabled.inject({method:'POST',url:'/businesses/a/instagram-stories',payload:{}})).statusCode,503)
   await disabled.close()
-  console.log('OK: actual Stories route guards, tenant/read/write gates, authenticated declaration and private download')
+  console.log('OK: actual Stories route guards, tenant/read/write gates and private download')
   fail = true
   const failed = await request('POST', '/businesses/a/instagram-publications/p/duplicate')
   assert.equal(failed.statusCode, 503); assert.ok(!failed.body.includes('secret-provider-token'))
