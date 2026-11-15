@@ -1227,6 +1227,34 @@ try {
     }
   })
 
+  await check('first social greeting uses complete validated AI copy without a prefixed second greeting', async () => {
+    const identityPort: DialoguePort = { ...port, identity: async () => ({ businessId: context.businessId,
+      businessName: 'Barber Demo', assistantName: 'Cami', treatment: 'vos', greetingEmoji: '😊' }) }
+    const message = 'Hola'
+    const opening = '¡Buenas! 😊 Te saluda Cami de Barber Demo. ¿Cómo puedo ayudarte?'
+    const output = (text: string) => ({ ...acted([], [act('social', 'general', message)], 'other'),
+      firstReply: { salutation: null, opening: text, factIds: null, closing: null, variantChoices: null } })
+    const result = await respondWithAiInterpreter(context, { ...initial, introduced: false }, message, identityPort,
+      async input => {
+        assert.deepEqual(input.replyContract?.initialGreeting, { assistantName: 'Cami', businessName: 'Barber Demo',
+          treatment: 'vos', emoji: '😊' })
+        return output(opening)
+      })
+    assert.equal(result.reply, opening)
+    assert.equal(result.state.introduced, true)
+    assert.equal(result.interpretation.aiCalls, 1)
+    for (const text of [
+      '¡Hola! ¡Hola! Soy Cami de Barber Demo. ¿Cómo puedo ayudarte?',
+      '¡Hola! Soy Cami de Barber Demo. ¿En qué te puedo ayudar con el local?',
+      '¡Hola! Soy Cami de Otro Negocio. ¿Cómo puedo ayudarte?',
+      '¡Hola! Soy Cami de Barber Demo. Te agendé para mañana. ¿Cómo puedo ayudarte?'
+    ]) {
+      const fallback = await say({ ...initial, introduced: false }, message, output(text), identityPort)
+      assert.match(fallback.reply, /Soy Cami, de Barber Demo/)
+      assert.doesNotMatch(fallback.reply, /Hola! ¡Hola|con el local|Otro Negocio|agendé/)
+    }
+  })
+
   await check('P13 social initiation and name retain a useful next in one call', async () => {
     const identityPort: DialoguePort = { ...port, identity: async () => ({ businessId: context.businessId,
       businessName: 'Barber Demo', assistantName: 'Cami', treatment: 'vos', greetingEmoji: '😊' }) }

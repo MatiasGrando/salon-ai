@@ -408,6 +408,12 @@ export async function respondWithAiInterpreter(
     !pureInformation && !route.information.length && !route.pendingAction
   const conversationalContinuation = hasActiveBooking(state) || state.serviceRequest || state.catalogNavigation || state.informationFocus
     ? 'pending' as const : 'help_or_booking' as const
+  const greetingIdentity = !state.introduced && conversationalPossible && conversationalContinuation === 'help_or_booking' &&
+    firstReplyFacts?.length === 1 && firstReplyFacts[0]?.id === 'next' ? await cachedPort.identity?.() : undefined
+  if (greetingIdentity && greetingIdentity.businessId !== context.businessId) throw new Error('invalid identity scope')
+  if (greetingIdentity) cachedPort.identity = async () => greetingIdentity
+  const initialGreeting = greetingIdentity ? { assistantName: greetingIdentity.assistantName, businessName: greetingIdentity.businessName,
+    treatment: greetingIdentity.treatment, emoji: greetingIdentity.greetingEmoji ?? null } : undefined
   const interpretationInput: AiInterpretationInput = { message, state: structuredClone(state), services: structuredClone(services),
     ...(catalogNavigation ? { catalogNavigation: structuredClone(catalogNavigation) } : {}),
     ...(context.serverOwnAppointments ? { ownAppointments: context.serverOwnAppointments.items.map(({key,label})=>({key,label})) } : {}),
@@ -417,6 +423,7 @@ export async function respondWithAiInterpreter(
     expectedAnswer: expectedDialogueAnswer(state,context.timezone), businessDate, timezone: context.timezone,
     replyContract: replyContract(managementActive?'continuation':preparedInformation || pureInformation ? 'information' : hasActiveBooking(state) ? 'continuation' : 'social', Boolean(port.identity), state.introduced === true, firstReplyFacts ?? []),
     intakeReplyAllowed, ...(firstReplyFacts !== undefined ? { firstReplyFacts } : {}) }
+  if (initialGreeting) interpretationInput.replyContract!.initialGreeting = initialGreeting
   if (conversationalPossible && firstReplyFacts?.some(fact => fact.id === 'next')) interpretationInput.replyContract!.conversational = {
     maxCharacters: CONVERSATIONAL_REPLY_LIMIT, continuation: conversationalContinuation, body: arithmetic ? 'server' : 'generated'
   }
@@ -648,6 +655,7 @@ export async function respondWithAiInterpreter(
     !response.catalogInformation && JSON.stringify(response.state) === JSON.stringify(state))
   const responseProvider = options.responseProvider ?? provider.respond
   let authored: string | null = null
+  let authoredIntroduction = false
   let modelFraming = false
   let authoredClarification: string | undefined
   let authoredConversationalQuestion: string | undefined
@@ -688,6 +696,11 @@ export async function respondWithAiInterpreter(
       !route.pendingAction && replyIntent === 'other' && !candidate?.serviceId && !candidate?.serviceEvidence &&
       !candidate?.professionalMention) && JSON.stringify(finalFacts) === JSON.stringify(firstReplyFacts)
   const finalContract = replyContract(managementActive || managementReadOnly ? 'continuation' : replyIntent === 'information' ? 'information' : hasActiveBooking(response.state) ? 'continuation' : 'social', Boolean(port.identity), response.state.introduced === true, finalFacts, presentedOfferRead || response.replyFacts?.[0]?.id === 'acknowledgment')
+  if (initialGreeting && candidate?.communicative?.social && replyIntent === 'other' && !reason &&
+      !planHasUpdates && !planHasInformation && !canonicalOnly && !finalContract.neutral && !response.managementCommand &&
+      !response.handoffCommand && availabilityCalls === 0 && finalFacts.length === 1 && finalFacts[0]?.id === 'next') {
+    finalContract.initialGreeting = initialGreeting
+  }
   if (conversationalEligible && finalFacts.at(-1)?.id === 'next') finalContract.conversational = {
     maxCharacters: CONVERSATIONAL_REPLY_LIMIT, continuation: conversationalContinuation, body: arithmetic ? 'server' : 'generated'
   }
@@ -715,16 +728,17 @@ export async function respondWithAiInterpreter(
     !Array.isArray(raw) && (raw as Record<string, unknown>).catalogAnswer != null &&
     (!response.catalogInformation?.answerGoal ||
       ((raw as Record<string, unknown>).catalogAnswer as { assessment?: { sufficient?: unknown } }).assessment?.sufficient === true)
-  if (!authored && (conversationalEligible || eligibleFirstReply || catalogCopyEligible || serviceClarificationEligible)) {
+  if (!authored && (finalContract.initialGreeting || conversationalEligible || eligibleFirstReply || catalogCopyEligible || serviceClarificationEligible)) {
     const validated = validateReplyDraft(candidate?.firstReply, finalFacts, finalContract, services.map(service => service.name), response.catalogInformation)
     replyValidation.firstCall = validated.validation
     recordReplyValidation('first_reply', validated.validation)
     // Accepted framing alone is not an explanatory body. Keep its original trace,
     // but compose the missing explanation from the proved scope rather than a menu.
-    authored = conversationalEligible ? validated.conversationalBody ? validated.text : null
+    authored = validated.initialGreeting ? validated.text : conversationalEligible ? validated.conversationalBody ? validated.text : null
       : serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
       : !catalogCopyEligible || hasExplanatoryBody(candidate?.firstReply, validated) ? validated.text : null
     if (validated.validation.discardedFramingReason === 'identity_in_frame' && !validated.modelFraming) authored = null
+    authoredIntroduction = Boolean(authored && validated.initialGreeting)
     authoredClarification = authored ? validated.clarificationQuestion : undefined
     authoredConversationalQuestion = authored ? validated.conversationalQuestion : undefined
     modelFraming = validated.modelFraming
@@ -783,11 +797,12 @@ export async function respondWithAiInterpreter(
       const validated = validateReplyDraft(output, facts, finalContract, services.map(service => service.name), response.catalogInformation)
       replyValidation.secondCall = validated.validation
       recordReplyValidation('second_reply', validated.validation)
-      authored = conversationalEligible ? validated.conversationalBody ? validated.text : null
+      authored = validated.initialGreeting ? validated.text : conversationalEligible ? validated.conversationalBody ? validated.text : null
         : serviceClarificationEligible ? validated.clarificationQuestion ? validated.text : null
         : !catalogCopyEligible || hasExplanatoryBody(output, validated) ? validated.text : null
       authoredClarification = authored ? validated.clarificationQuestion : undefined
       authoredConversationalQuestion = authored ? validated.conversationalQuestion : undefined
+      authoredIntroduction = Boolean(authored && validated.initialGreeting)
       modelFraming = validated.modelFraming
       copyReason = authored ? modelFraming ? null : 'canonical_only' : 'invalid_response'
     } catch (error) {
@@ -842,6 +857,7 @@ export async function respondWithAiInterpreter(
     if (response.state.dialogueContext) response.state.dialogueContext.lastQuestion = authoredConversationalQuestion
   }
   const availability = summarizeAvailability(response.availability)
+  if (authoredIntroduction) response.state.introduced = true
   return finalizeDialogueIntroduction(context, { ...response, reply: authored ?? (!newVerifiedFacts && finalFacts.length ? finalFacts.map(fact => fact.text).join('\n') : safeReply), interpretation: {
     decision: decisionTrace, replyValidation,
     ...(candidate?.temporalGrounding ? { temporalGrounding: candidate.temporalGrounding } : {}),
