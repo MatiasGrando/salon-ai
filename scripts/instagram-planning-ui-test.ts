@@ -89,7 +89,12 @@ els.instagramReelVideo.files = [{ name: 'test.mp4', type: 'video/mp4', size: 100
 els.instagramReelCaption.value = 'Caption saved through back'
 await submit()
 expectStep('automation')
-els.instagramReelAutomationEnabled.checked = true
+assert.equal(nodes['instagram-reel-activation'].hidden,false)
+assert.equal(nodes['instagram-reel-automation-fields'].hidden,true)
+nodes['instagram-reel-activate'].listeners.click[0]()
+assert.equal(els.instagramReelAutomationEnabled.checked,true)
+assert.equal(nodes['instagram-reel-activation'].hidden,true)
+assert.equal(nodes['instagram-reel-automation-fields'].hidden,false)
 await submit()
 expectStep('automation')
 assert.equal(context.document.activeElement,els.instagramReelKeywordInput)
@@ -103,7 +108,9 @@ assert.equal(els.instagramReelCaption.value,'Caption saved through back')
 assert.equal(els.instagramReelVideo.files[0].name,'test.mp4')
 await submit()
 assert.equal(els.instagramReelPrivateReply.value,'Un mensaje de prueba')
-els.instagramReelAutomationEnabled.checked = false
+nodes['instagram-reel-deactivate'].listeners.click[0]()
+assert.equal(nodes['instagram-reel-activation'].hidden,false)
+assert.equal(els.instagramReelPrivateReply.value,'Un mensaje de prueba')
 await submit()
 expectStep('destination')
 nodes['instagram-reel-destination'].value = 'schedule'
