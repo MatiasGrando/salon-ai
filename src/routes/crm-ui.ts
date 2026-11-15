@@ -4048,8 +4048,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .instagram-reel-status.failed { color: #b42318; background: #fff1f2; }
 
     .dialog.instagram-reel-dialog {
-      width: min(920px, calc(100vw - 32px));
-      height: min(860px, calc(100dvh - 40px));
+      width: min(1120px, calc(100vw - 32px));
+      height: min(790px, calc(100dvh - 40px));
       max-height: calc(100dvh - 40px);
       resize: none;
       grid-template-rows: auto minmax(0, 1fr);
@@ -4060,12 +4060,28 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .instagram-reel-form {
       min-height: 0;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
       overflow: hidden;
     }
 
-    .instagram-reel-form-scroll { min-height: 0; padding: 20px 24px; display: grid; gap: 18px; overflow: auto; }
+    .instagram-reel-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 14px 24px; list-style: none; border-bottom: 1px solid #e2e8f0; }
+    .instagram-reel-steps li { position: relative; display: grid; justify-items: center; gap: 6px; text-align: center; color: #52617f; font-size: 13px; font-weight: 700; }
+    .instagram-reel-steps li:not(:last-child)::after { content: ''; position: absolute; top: 13px; inset-inline-start: calc(50% + 18px); width: calc(100% - 28px); height: 2px; background: #dce3ef; }
+    .instagram-reel-steps li[data-complete]::after { background: #2563eb; }
+    .instagram-reel-steps span { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e9eef7; }
+    .instagram-reel-steps li[aria-current="step"] { color: #1d4ed8; }
+    .instagram-reel-steps li[aria-current="step"] span, .instagram-reel-steps li[data-complete] span { color: #fff; background: #2563eb; }
+    .instagram-reel-form-scroll { min-height: 0; padding: 20px 24px; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 18px; overflow: auto; }
     .instagram-reel-section { padding: 18px; display: grid; gap: 15px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; }
+    .instagram-reel-section[hidden] { display: none; }
+    .instagram-reel-automation-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; gap: 16px; }
+    .instagram-reel-automation-fields { display: grid; min-width: 0; gap: 12px; }
+    .instagram-reel-automation-fields textarea { min-height: 68px; }
+    .instagram-reel-preview { display: grid; justify-items: start; gap: 12px; padding: 16px; border-radius: 12px; background: #f1f5fb; }
+    .instagram-reel-preview-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+    .instagram-reel-preview-controls button[aria-pressed="true"] { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+    .instagram-reel-preview-message { width: 100%; display: grid; gap: 10px; padding: 14px; border: 1px solid #dce3ef; border-radius: 12px; background: #fff; }
+    .instagram-reel-preview-message p { padding: 10px 12px; border-radius: 12px; background: #eef2f7; color: #17213a; white-space: pre-wrap; overflow-wrap: anywhere; }
     .instagram-reel-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
     .instagram-reel-section h4 { margin: 0 0 4px; color: #17213a; font-size: 16px; }
     .instagram-reel-section p { margin: 0; color: #687790; font-size: 12.5px; line-height: 1.45; }
@@ -4079,18 +4095,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     .instagram-reel-video-card { min-height: 250px; padding: 14px; display: grid; place-items: center; border: 1px dashed #bfcaDA; border-radius: 12px; color: #64748b; background: #f8fafc; text-align: center; }
     .instagram-reel-video-card video { width: min(230px, 100%); max-height: 330px; border-radius: 10px; background: #111827; }
     .instagram-reel-switch { display: flex; align-items: center; gap: 10px; color: #334155; font-size: 13px; font-weight: 700; }
+    .instagram-reel-switch input { flex: none; width: auto; margin: 0; }
+    .instagram-reel-section-head .instagram-reel-switch { flex: none; }
     .instagram-reel-keyword-entry { display: flex; gap: 8px; }
-    .instagram-reel-keyword-entry input { flex: 1; }
+    .instagram-reel-keyword-entry input { flex: 1; min-width: 0; }
     .instagram-reel-keyword-chips { min-height: 35px; display: flex; flex-wrap: wrap; gap: 7px; }
     .instagram-reel-keyword-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border-radius: 999px; color: #4338ca; background: #eef2ff; font-size: 12px; font-weight: 750; }
     .instagram-reel-keyword-chip button { padding: 0; color: inherit; background: transparent; font-weight: 900; }
     .instagram-reel-review { padding: 13px 15px; display: grid; gap: 6px; border-radius: 10px; color: #334155; background: #f8fafc; font-size: 13px; line-height: 1.45; }
+    .instagram-reel-review > div { display: flex; flex-wrap: wrap; gap: 4px 12px; overflow-wrap: anywhere; }
     .instagram-reel-progress { height: 8px; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
     .instagram-reel-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: #2563eb; transition: width 180ms ease; }
     .instagram-reel-feedback { min-height: 20px; margin: 0; color: #52617f; font-size: 13px; }
     .instagram-reel-feedback.error { color: #b42318; }
     .instagram-reel-feedback.success { color: #166534; }
-    .instagram-reel-actions { position: sticky; bottom: 0; padding: 14px 24px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid #e2e8f0; background: #fff; box-shadow: 0 -8px 20px rgba(15, 23, 42, .04); }
+    .instagram-reel-form > .instagram-reel-feedback:not(:empty) { padding: 8px 24px; }
+    .instagram-reel-actions { position: sticky; bottom: 0; padding: 14px 24px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; border-top: 1px solid #e2e8f0; background: #fff; box-shadow: 0 -8px 20px rgba(15, 23, 42, .04); }
+    #instagram-reel-back, #instagram-reel-cancel { margin-right: auto; }
 
     @media (max-width: 720px) {
       .campaign-delivery-options { grid-template-columns: 1fr; }
@@ -4099,10 +4120,13 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       .instagram-reels-toolbar button { width: 100%; }
       .dialog.instagram-reel-dialog { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
       .instagram-reel-form-scroll { padding: 14px; }
+      .instagram-reel-steps { padding: 12px 8px; gap: 3px; }
+      .instagram-reel-steps li { font-size: 11px; }
       .instagram-reel-section { padding: 14px; }
       .instagram-reel-form-grid { grid-template-columns: 1fr; }
+      .instagram-reel-automation-grid { grid-template-columns: minmax(0, 1fr); }
       .instagram-reel-actions { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
-      .instagram-reel-actions button { flex: 1; }
+      .instagram-reel-actions button { min-height: 44px; }
     }
 
     .dialog.campaign-dialog {
@@ -16501,7 +16525,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       <button type="button" data-nav-section="campaigns" data-marketing-nav="templates"><span>📣</span><strong>Marketing</strong></button>
       <div class="nav-subitems" aria-label="Marketing">
         <button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>
-        <button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram Reels</button>
+        <button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram</button>
         <button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>
         <button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campañas</button>
       </div>
@@ -18006,7 +18030,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <nav class="campaigns-main-tabs" id="marketing-main-tabs" aria-label="Tipos de comunicaci&oacute;n">
           <button type="button" data-marketing-view="templates">Plantillas de Meta</button>
           <button class="active" type="button" data-marketing-view="campaigns">Campa&ntilde;as</button>
-          <button type="button" data-marketing-view="instagram-reels">Instagram Reels</button>
+          <button type="button" data-marketing-view="instagram-reels">Instagram</button>
           <button type="button" data-marketing-view="reminders">Recordatorios de turnos</button>
           <button type="button" data-marketing-view="post-sale">Postventa</button>
         </nav>
@@ -18330,7 +18354,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         <div class="instagram-reels-manager" id="instagram-reels-manager" hidden>
           <section class="instagram-reels-toolbar">
             <h3>Reels e historias</h3>
-            <button class="campaigns-new" id="instagram-reel-new" type="button"><span class="campaign-new-plus">+</span>Nuevo Reel</button>
           </section>
           <nav class="instagram-workspace-tabs" aria-label="Contenido de Instagram">
             <button type="button" data-instagram-workspace-tab="published" aria-pressed="true" aria-controls="instagram-workspace-published">Reels</button>
@@ -18358,13 +18381,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     <div class="dialog-backdrop" id="instagram-reel-dialog" hidden>
       <section class="dialog instagram-reel-dialog" role="dialog" aria-modal="true" aria-labelledby="instagram-reel-dialog-title">
         <header class="dialog-header">
-          <div><h3 id="instagram-reel-dialog-title">Nuevo Reel</h3><p class="hint">El video se sube directamente al almacenamiento seguro y luego se env&iacute;a a la cola de publicaci&oacute;n.</p></div>
+          <h3 id="instagram-reel-dialog-title">Nuevo Reel</h3>
           <button class="icon-button" id="instagram-reel-close" type="button" title="Cerrar" aria-label="Cerrar">X</button>
         </header>
         <form class="instagram-reel-form" id="instagram-reel-form" novalidate>
+          <ol class="instagram-reel-steps" aria-label="Pasos de creaci&oacute;n">
+            <li data-reel-step-indicator="content" aria-current="step"><span aria-hidden="true">1</span>Contenido</li>
+            <li data-reel-step-indicator="automation"><span aria-hidden="true">2</span>Automatizaci&oacute;n</li>
+            <li data-reel-step-indicator="destination"><span aria-hidden="true">3</span>Publicaci&oacute;n</li>
+            <li data-reel-step-indicator="review"><span aria-hidden="true">4</span>Revisar</li>
+          </ol>
           <div class="instagram-reel-form-scroll">
             <section class="instagram-reel-section" data-reel-section="content">
-              <div><h4>1. Contenido</h4><p>Eleg&iacute; un archivo MP4 o MOV y complet&aacute; el texto de la publicaci&oacute;n.</p></div>
+              <div><h4 tabindex="-1">Contenido</h4><p>Eleg&iacute; un archivo MP4 o MOV y complet&aacute; el texto de la publicaci&oacute;n.</p></div>
               <div class="instagram-reel-form-grid">
                 <div class="instagram-reel-video-card"><div id="instagram-reel-video-empty"><strong>Vista previa del Reel</strong><br><small>Seleccion&aacute; un video para verlo ac&aacute;.</small></div><video id="instagram-reel-video-preview" controls playsinline hidden></video></div>
                 <div class="instagram-reel-section">
@@ -18374,35 +18403,59 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 </div>
               </div>
             </section>
-            <section class="instagram-reel-section" data-reel-section="automation">
-              <div class="instagram-reel-section-head"><div><h4>2. Automatizaci&oacute;n opcional</h4><p>Publicar no requiere respuestas autom&aacute;ticas. Cada acci&oacute;n conserva su propio resultado.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox"> Activa</label></div>
-              <label class="instagram-reel-field">Palabras clave
-                <span class="instagram-reel-keyword-entry"><input id="instagram-reel-keyword-input" autocomplete="off" placeholder="Ej: precio"><button class="secondary" id="instagram-reel-keyword-add" type="button">Agregar</button></span>
-              </label>
-              <div class="instagram-reel-keyword-chips" id="instagram-reel-keyword-chips" aria-live="polite"></div>
-              <label class="instagram-reel-switch"><input id="instagram-reel-public-enabled" type="checkbox"> Responder comentario p&uacute;blico</label>
-              <label class="instagram-reel-field">Texto p&uacute;blico<textarea id="instagram-reel-public-reply" maxlength="1000"></textarea></label>
-              <label class="instagram-reel-switch"><input id="instagram-reel-private-enabled" type="checkbox" checked> Enviar mensaje privado</label>
-              <label class="instagram-reel-field">Texto privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
-            </section>
-            <section class="instagram-reel-section" data-reel-section="destination">
-              <div><h4>3. Destino y horario</h4><p>La programaci&oacute;n usa la zona horaria del comercio.</p></div>
-              <div class="instagram-reel-time-grid">
-                <label class="instagram-reel-field" for="instagram-reel-destination">Al guardar<select id="instagram-reel-destination"><option value="draft">Guardar borrador</option><option value="now">Publicar ahora</option><option value="schedule">Programar</option></select></label>
-                <label class="instagram-reel-field" for="instagram-reel-schedule-date">Fecha local<input id="instagram-reel-schedule-date" type="date"></label>
-                <label class="instagram-reel-field" for="instagram-reel-schedule-time">Hora local<input id="instagram-reel-schedule-time" type="time"></label>
-                <button type="button" class="secondary" id="instagram-reel-resolve-time">Verificar horario</button>
-                <label class="instagram-reel-field" for="instagram-reel-time-options">Opci&oacute;n horaria<select id="instagram-reel-time-options"><option value="">Verific&aacute; fecha y hora</option></select></label>
+            <section class="instagram-reel-section" data-reel-section="automation" hidden>
+              <div class="instagram-reel-section-head"><div><h4 tabindex="-1">Respuestas autom&aacute;ticas</h4><p>Opcional. Configur&aacute; qu&eacute; responder cuando comenten tu Reel.</p></div><label class="instagram-reel-switch"><input id="instagram-reel-automation-enabled" type="checkbox"> Activa</label></div>
+              <div class="instagram-reel-automation-grid">
+                <div class="instagram-reel-automation-fields" id="instagram-reel-automation-fields" hidden>
+                  <label class="instagram-reel-field">Palabras clave
+                    <span class="instagram-reel-keyword-entry"><input id="instagram-reel-keyword-input" autocomplete="off" placeholder="Ej: precio"><button class="secondary" id="instagram-reel-keyword-add" type="button">Agregar</button></span>
+                  </label>
+                  <div class="instagram-reel-keyword-chips" id="instagram-reel-keyword-chips" aria-live="polite"></div>
+                  <label class="instagram-reel-switch"><input id="instagram-reel-public-enabled" type="checkbox"> Responder comentario p&uacute;blico</label>
+                  <label class="instagram-reel-field">Texto p&uacute;blico<textarea id="instagram-reel-public-reply" maxlength="1000"></textarea></label>
+                  <label class="instagram-reel-switch"><input id="instagram-reel-private-enabled" type="checkbox" checked> Enviar mensaje privado</label>
+                  <label class="instagram-reel-field">Texto privado<textarea id="instagram-reel-private-reply" placeholder="Ej: &iexcl;Hola! Te paso la informaci&oacute;n por privado."></textarea></label>
+                </div>
+                <aside class="instagram-reel-preview" aria-label="Vista previa">
+                  <h4>Vista previa</h4>
+                  <div class="instagram-reel-preview-controls">
+                    <button class="secondary" type="button" data-reel-preview="video" aria-pressed="false">Reel</button>
+                    <button class="secondary" type="button" data-reel-preview="message" aria-pressed="true">Mensaje</button>
+                  </div>
+                  <div class="instagram-reel-video-card" id="instagram-reel-automation-video-panel" hidden>
+                    <video id="instagram-reel-automation-video" controls playsinline hidden></video>
+                    <p id="instagram-reel-automation-video-empty">Seleccion&aacute; un video en Contenido para verlo ac&aacute;.</p>
+                  </div>
+                  <div class="instagram-reel-preview-message" id="instagram-reel-preview-message">
+                    <strong>Instagram &middot; Mensaje directo</strong>
+                    <p id="instagram-reel-message-preview">Activ&aacute; el mensaje privado para ver c&oacute;mo queda.</p>
+                  </div>
+                </aside>
               </div>
             </section>
-            <section class="instagram-reel-section" data-reel-section="review">
-              <div><h4>4. Revisi&oacute;n y estado</h4><p>Guardar confirma el paso elegido; estar en cola no significa que ya est&eacute; publicado.</p></div>
+            <section class="instagram-reel-section" data-reel-section="destination" hidden>
+              <div><h4 tabindex="-1">Publicaci&oacute;n</h4><p>La programaci&oacute;n usa la zona horaria del comercio.</p></div>
+              <div class="instagram-reel-time-grid">
+                <label class="instagram-reel-field" for="instagram-reel-destination">Al guardar<select id="instagram-reel-destination"><option value="draft">Guardar borrador</option><option value="now">Publicar ahora</option><option value="schedule">Programar</option></select></label>
+                <label class="instagram-reel-field" data-reel-schedule-field hidden for="instagram-reel-schedule-date">Fecha local<input id="instagram-reel-schedule-date" type="date"></label>
+                <label class="instagram-reel-field" data-reel-schedule-field hidden for="instagram-reel-schedule-time">Hora local<input id="instagram-reel-schedule-time" type="time"></label>
+                <button type="button" class="secondary" data-reel-schedule-field hidden id="instagram-reel-resolve-time">Verificar horario</button>
+                <label class="instagram-reel-field" data-reel-schedule-field hidden for="instagram-reel-time-options">Opci&oacute;n horaria<select id="instagram-reel-time-options"><option value="">Verific&aacute; fecha y hora</option></select></label>
+              </div>
+            </section>
+            <section class="instagram-reel-section" data-reel-section="review" hidden>
+              <div><h4 tabindex="-1">Revis&aacute; tu Reel</h4><p>Verific&aacute; el contenido y la acci&oacute;n antes de confirmar.</p></div>
               <div class="instagram-reel-review" id="instagram-reel-review"></div>
               <div class="instagram-reel-progress" id="instagram-reel-progress" aria-label="Progreso de preparaci&oacute;n"><span></span></div>
-              <p class="instagram-reel-feedback" id="instagram-reel-feedback" role="status" aria-live="polite"></p>
             </section>
           </div>
-          <footer class="instagram-reel-actions"><button class="secondary" id="instagram-reel-cancel" type="button">Cerrar</button><button class="primary" id="instagram-reel-submit" type="submit">Guardar</button></footer>
+          <p class="instagram-reel-feedback" id="instagram-reel-feedback" role="status" aria-live="polite"></p>
+          <footer class="instagram-reel-actions">
+            <button class="secondary" id="instagram-reel-cancel" type="button">Cancelar</button>
+            <button class="secondary" id="instagram-reel-back" type="button" hidden>Atr&aacute;s</button>
+            <button class="secondary" id="instagram-reel-draft" type="button">Guardar borrador</button>
+            <button class="primary" id="instagram-reel-submit" type="submit">Continuar</button>
+          </footer>
         </form>
       </section>
     </div>
@@ -21667,7 +21720,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           return button +
             '<div class="nav-subitems" aria-label="Marketing">' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="templates">Plantillas</button>' +
-              '<button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram Reels</button>' +
+              '<button type="button" data-nav-section="campaigns" data-marketing-nav="instagram-reels">Instagram</button>' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="campaigns">Campa&ntilde;as</button>' +
               '<button type="button" data-nav-section="campaigns" data-marketing-nav="post-sale">Postventa</button>' +
             '</div>'
@@ -35133,12 +35186,75 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     function renderInstagramReelReview() {
       const file = els.instagramReelVideo.files?.[0]
       const size = file ? Math.max(0.01, file.size / (1024 * 1024)).toFixed(2) + ' MB' : 'Pendiente'
-      const keywordSummary = state.instagramReelKeywords.length ? state.instagramReelKeywords.map(escapeHtml).join(', ') : 'Pendientes'
+      const editor = state.instagramPlanning?.editor
+      const destination = document.getElementById('instagram-reel-destination').value
+      const keywordSummary = state.instagramReelKeywords.length ? state.instagramReelKeywords.map(escapeHtml).join(', ') : 'Sin palabras clave'
+      const schedule = document.getElementById('instagram-reel-time-options')
       els.instagramReelReview.innerHTML =
-        '<div><span>Video</span><strong>' + (file ? escapeHtml(file.name) + ' &middot; ' + size : 'Seleccion&aacute; un archivo') + '</strong></div>' +
-        '<div><span>Publicaci&oacute;n</span><strong>' + (els.instagramReelShareToFeed.checked ? 'Reel y feed' : 'Solo Reels') + '</strong></div>' +
-        '<div><span>Automatizaci&oacute;n</span><strong>' + (els.instagramReelAutomationEnabled.checked ? 'Activa' : 'Pausada') + '</strong></div>' +
-        '<div><span>Palabras clave</span><strong>' + keywordSummary + '</strong></div>'
+        '<div><span>Video</span><strong>' + (file ? escapeHtml(file.name) + ' &middot; ' + size : editor?.publication ? 'Video guardado' : 'Seleccion&aacute; un archivo') + '</strong></div>' +
+        '<div><span>Descripci&oacute;n</span><strong>' + escapeHtml(els.instagramReelCaption.value.trim() || 'Sin descripción') + '</strong></div>' +
+        '<div><span>Formato</span><strong>' + (els.instagramReelShareToFeed.checked ? 'Reel y feed' : 'Solo Reel') + '</strong></div>' +
+        '<div><span>Automatizaci&oacute;n</span><strong>' + (els.instagramReelAutomationEnabled.checked ? keywordSummary : 'Desactivada') + '</strong></div>' +
+        '<div><span>Publicaci&oacute;n</span><strong>' + (destination === 'schedule' ? escapeHtml((schedule.selectedOptions?.[0]?.textContent || '') + ' · ' + document.getElementById('instagram-reel-schedule-date').value) : destination === 'now' ? 'Enviar a la cola de publicaci&oacute;n' : 'Guardar borrador') + '</strong></div>'
+    }
+
+    function renderInstagramReelWizardPreview(mode) {
+      const form = els.instagramReelForm
+      const active = els.instagramReelAutomationEnabled.checked
+      const publicReply = document.getElementById('instagram-reel-public-reply')
+      const publicEnabled = document.getElementById('instagram-reel-public-enabled').checked
+      const privateEnabled = document.getElementById('instagram-reel-private-enabled').checked
+      document.getElementById('instagram-reel-automation-fields').hidden = !active && !(publicEnabled && /{{weex_form:|[?&]ref=/i.test(publicReply.value))
+      document.getElementById('instagram-reel-message-preview').textContent = active && privateEnabled
+        ? els.instagramReelPrivateReply.value.trim() || 'Tu mensaje aparece acá mientras escribís.'
+        : 'Activá el mensaje privado para ver cómo queda.'
+      if (!mode) return
+      for (const tab of form.querySelectorAll('[data-reel-preview]')) tab.setAttribute('aria-pressed', String(tab.dataset.reelPreview === mode))
+      document.getElementById('instagram-reel-preview-message').hidden = mode !== 'message'
+      document.getElementById('instagram-reel-automation-video-panel').hidden = mode !== 'video'
+      if (mode !== 'video') document.getElementById('instagram-reel-automation-video').pause?.()
+    }
+
+    function renderInstagramReelWizardActions() {
+      const form = els.instagramReelForm
+      const editor = state.instagramPlanning?.editor
+      const step = form.dataset.reelStep
+      const destination = document.getElementById('instagram-reel-destination').value
+      const atStart = step === (editor?.reprogram ? 'destination' : 'content')
+      const busy = !!(editor?.loading || editor?.saving || editor?.failedLoad)
+      els.instagramReelCancel.hidden = !atStart
+      const back = document.getElementById('instagram-reel-back')
+      back.hidden = atStart
+      back.disabled = busy
+      const draft = document.getElementById('instagram-reel-draft')
+      draft.hidden = !!editor?.reprogram || step === 'review' && destination === 'draft'
+      draft.disabled = busy
+      els.instagramReelSubmit.disabled = busy
+      if (!editor?.saving) {
+        els.instagramReelSubmit.textContent = step !== 'review' ? 'Continuar'
+          : destination === 'now' ? 'Publicar ahora' : destination === 'schedule' ? 'Programar' : 'Guardar borrador'
+      }
+      for (const field of form.querySelectorAll('[data-reel-schedule-field]')) field.hidden = destination !== 'schedule'
+    }
+
+    function showInstagramReelWizardStep(step, focus = true) {
+      const form = els.instagramReelForm
+      const steps = ['content', 'automation', 'destination', 'review']
+      form.dataset.reelStep = step
+      for (const item of form.querySelectorAll('[data-reel-step-indicator]')) {
+        const index = steps.indexOf(item.dataset.reelStepIndicator)
+        item.toggleAttribute('data-complete', index < steps.indexOf(step))
+        if (item.dataset.reelStepIndicator === step) item.setAttribute('aria-current', 'step')
+        else item.removeAttribute('aria-current')
+      }
+      for (const panel of form.querySelectorAll('[data-reel-section]')) panel.hidden = panel.dataset.reelSection !== step
+      els.instagramReelVideoPreview.pause?.()
+      document.getElementById('instagram-reel-automation-video').pause?.()
+      form.querySelector('.instagram-reel-form-scroll')?.scrollTo(0, 0)
+      renderInstagramReelWizardActions()
+      renderInstagramReelWizardPreview()
+      if (step === 'review') renderInstagramReelReview()
+      if (focus) form.querySelector('[data-reel-section="' + step + '"] h4')?.focus()
     }
 
     function setInstagramReelFeedback(message, tone = '') {
@@ -35173,6 +35289,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function resetInstagramReelForm() {
+      setButtonLoading(els.instagramReelSubmit, false)
       if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
       state.instagramReelPreviewUrl = null
       state.instagramReelKeywords = []
@@ -35183,9 +35300,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramReelVideoPreview.removeAttribute('src')
       els.instagramReelVideoPreview.hidden = true
       els.instagramReelVideoEmpty.hidden = false
-      els.instagramReelCancel.textContent = 'Cancelar'
-      els.instagramReelSubmit.disabled = false
-      els.instagramReelSubmit.textContent = 'Guardar'
+      document.getElementById('instagram-reel-automation-video').removeAttribute('src')
+      document.getElementById('instagram-reel-automation-video').hidden = true
+      document.getElementById('instagram-reel-automation-video-empty').hidden = false
       setInstagramReelProgress(0)
       setInstagramReelFeedback('')
       renderInstagramReelKeywords()
@@ -35196,7 +35313,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       resetInstagramReelForm()
       instagramMediaPlanNew()
       els.instagramReelDialog.hidden = false
-      requestAnimationFrame(() => els.instagramReelVideo.focus())
+      renderInstagramReelWizardPreview('message')
+      showInstagramReelWizardStep('content')
     }
 
     function closeInstagramReelDialog() {
@@ -35206,6 +35324,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramReelDialog.hidden = true
       if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
       state.instagramReelPreviewUrl = null
+      els.instagramReelVideoPreview.pause?.()
+      document.getElementById('instagram-reel-automation-video').pause?.()
       if (editor?.origin?.isConnected) editor.origin.focus()
     }
 
@@ -35229,12 +35349,17 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     function readInstagramReelVideo() {
       const file = els.instagramReelVideo.files?.[0]
+      const automationVideo = document.getElementById('instagram-reel-automation-video')
+      const automationEmpty = document.getElementById('instagram-reel-automation-video-empty')
       if (state.instagramReelPreviewUrl) URL.revokeObjectURL(state.instagramReelPreviewUrl)
       state.instagramReelPreviewUrl = null
       if (!file || !instagramReelMimeType(file)) {
         els.instagramReelVideoPreview.removeAttribute('src')
         els.instagramReelVideoPreview.hidden = true
         els.instagramReelVideoEmpty.hidden = false
+        automationVideo.removeAttribute('src')
+        automationVideo.hidden = true
+        automationEmpty.hidden = false
         if (file) setInstagramReelFeedback('Elegí un video MP4 o MOV.', 'error')
         renderInstagramReelReview()
         return
@@ -35243,11 +35368,25 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.instagramReelVideoPreview.src = state.instagramReelPreviewUrl
       els.instagramReelVideoPreview.hidden = false
       els.instagramReelVideoEmpty.hidden = true
+      automationVideo.src = state.instagramReelPreviewUrl
+      automationVideo.hidden = false
+      automationEmpty.hidden = true
       setInstagramReelFeedback('')
       renderInstagramReelReview()
     }
 
     async function submitInstagramReel(event) {
+      event.preventDefault()
+      const editor = state.instagramPlanning?.editor
+      if (!editor || editor.loading || editor.saving || editor.failedLoad) return
+      const step = els.instagramReelForm.dataset.reelStep
+      const next = { content: 'automation', automation: 'destination', destination: 'review' }[step]
+      if (next) {
+        const destination = document.getElementById('instagram-reel-destination').value
+        if (!instagramMediaPlanValidateReelStep(step, editor, destination)) return
+        setInstagramReelFeedback('')
+        return showInstagramReelWizardStep(next)
+      }
       return instagramMediaPlanSubmit(event)
     }
 
@@ -38827,6 +38966,23 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (event.target === els.instagramReelDialog) closeInstagramReelDialog()
     })
     els.instagramReelForm.addEventListener('submit', submitInstagramReel)
+    document.getElementById('instagram-reel-back').addEventListener('click', () => {
+      const editor = state.instagramPlanning?.editor
+      if (!editor || editor.loading || editor.saving || editor.failedLoad) return
+      const previous = { automation: 'content', destination: 'automation', review: 'destination' }[els.instagramReelForm.dataset.reelStep]
+      if (!previous || editor.reprogram && previous !== 'destination') return
+      setInstagramReelFeedback('')
+      showInstagramReelWizardStep(previous)
+    })
+    document.getElementById('instagram-reel-draft').addEventListener('click', (event) => instagramMediaPlanSubmit(event, 'draft'))
+    document.getElementById('instagram-reel-destination').addEventListener('change', () => {
+      setInstagramReelFeedback('')
+      renderInstagramReelWizardActions()
+    })
+    els.instagramReelForm.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-reel-preview]')
+      if (button) renderInstagramReelWizardPreview(button.dataset.reelPreview)
+    })
     bindInstagramMediaControls()
     bindInstagramPlanningControls()
     if(typeof bindInstagramStoriesControls==='function')bindInstagramStoriesControls()
@@ -38849,9 +39005,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (!button || button.disabled) return
       deleteInstagramReelVideo(button.dataset.instagramReelDelete)
     })
-    for (const input of [els.instagramReelCaption, els.instagramReelShareToFeed, els.instagramReelAutomationEnabled, els.instagramReelPrivateReply]) {
-      input.addEventListener('input', renderInstagramReelReview)
-      input.addEventListener('change', renderInstagramReelReview)
+    for (const input of [els.instagramReelAutomationEnabled, els.instagramReelPrivateReply, document.getElementById('instagram-reel-private-enabled'), document.getElementById('instagram-reel-public-enabled'), document.getElementById('instagram-reel-public-reply')]) {
+      input.addEventListener('input', () => renderInstagramReelWizardPreview())
     }
     els.marketingMainTabs.addEventListener('click', (event) => {
       const button = event.target.closest('[data-marketing-view]')

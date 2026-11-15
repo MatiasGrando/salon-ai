@@ -29,7 +29,8 @@ assert.ok(panel.includes('id="qa-photo"') && dialog.includes('id="qa-video"'), '
 const editorBindings = inline.slice(inline.indexOf("    els.instagramReelNew.addEventListener"),inline.indexOf("    els.marketingMainTabs.addEventListener",inline.indexOf("    els.instagramReelNew.addEventListener")))
 const code = ['escapeHtml', 'getJson', 'setButtonLoading', 'instagramReelStatusMeta', 'renderInstagramReels', 'loadInstagramReels', 'refreshInstagramPublication', 'normalizeInstagramReelKeyword', 'setSection', 'setMarketingView',
   'submitInstagramReel','instagramReelMimeType','setInstagramReelFeedback','setInstagramReelProgress','resetInstagramReelForm','openInstagramReelDialog','closeInstagramReelDialog',
-  'renderInstagramReelReview','renderInstagramReelKeywords','addInstagramReelKeyword','readInstagramReelVideo','uploadInstagramReelFile'].map(fn).join('\n') + '\n' + instagramMediaScript + '\n' + instagramPlanningScript + '\n' + instagramStoriesScript
+  'renderInstagramReelReview','renderInstagramReelKeywords','addInstagramReelKeyword','readInstagramReelVideo','uploadInstagramReelFile',
+  'renderInstagramReelWizardPreview','renderInstagramReelWizardActions','showInstagramReelWizardStep'].map(fn).join('\n') + '\n' + instagramMediaScript + '\n' + instagramPlanningScript + '\n' + instagramStoriesScript
 const fixture = String.raw`
 const qaJpegBase64 = '__QA_REAL_JPEG__';
 const storyRows = [];

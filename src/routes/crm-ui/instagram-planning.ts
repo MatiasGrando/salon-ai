@@ -150,6 +150,7 @@ export const instagramPlanningScript = String.raw`
       p.editor = { controller:new AbortController(), origin:origin || els.instagramReelNew, publication:null, verified:null, saving:false, sequence:0 }
       document.getElementById('instagram-reel-dialog-title').textContent = 'Nuevo Reel'
       document.getElementById('instagram-reel-destination').value = 'draft'
+      document.getElementById('instagram-reel-destination').disabled = false
       document.getElementById('instagram-reel-time-options').innerHTML = '<option value="">Eleg&iacute; un horario y verific&aacute; sus opciones</option>'
       document.getElementById('instagram-reel-public-enabled').checked = false
       document.getElementById('instagram-reel-private-enabled').checked = true
@@ -170,7 +171,8 @@ export const instagramPlanningScript = String.raw`
       openInstagramReelDialog()
       const p = instagramMediaPlanContext(), editor = p.editor
       editor.origin = origin
-      editor.loading = true; els.instagramReelSubmit.disabled = true
+      editor.loading = true
+      renderInstagramReelWizardActions()
       try {
         const base = '/businesses/'+encodeURIComponent(p.businessId)+'/instagram-'+(row.kind==='media'?'media':'publications')+'/'+encodeURIComponent(row.id)
         const result = await getJson(base+(action==='duplicate'?'/duplicate':''),action==='duplicate'?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedRevision:row.revision}),signal:editor.controller.signal}:{signal:editor.controller.signal})
@@ -188,11 +190,14 @@ export const instagramPlanningScript = String.raw`
         document.getElementById('instagram-reel-dialog-title').textContent = action==='duplicate'?'Duplicar Reel':action==='reprogram'?'Reprogramar Reel':'Editar Reel'
         document.getElementById('instagram-reel-destination').value = action==='reprogram'?'schedule':'draft'
         editor.reprogram = action==='reprogram'
+        document.getElementById('instagram-reel-destination').disabled = editor.reprogram
         for (const field of [els.instagramReelVideo,els.instagramReelCaption,els.instagramReelShareToFeed,els.instagramReelAutomationEnabled,els.instagramReelPrivateReply,els.instagramReelKeywordInput,els.instagramReelKeywordAdd,document.getElementById('instagram-reel-public-reply'),document.getElementById('instagram-reel-public-enabled'),document.getElementById('instagram-reel-private-enabled')]) field.disabled = editor.reprogram
+        if (editor.reprogram) showInstagramReelWizardStep('destination')
+        renderInstagramReelWizardPreview()
         setInstagramReelFeedback(result.requiresFile?'Esta copia necesita un video propio. Seleccionalo para guardar.':editor.reprogram?'El contenido programado se conserva; elegí otro horario.':'Archivo guardado. Sólo se subirá otro si lo seleccionás.')
         renderInstagramReelKeywords(); renderInstagramReelReview()
       } catch { if (instagramMediaPlanEditorCurrent(p,editor)) { editor.failedLoad=true; setInstagramReelFeedback('No pudimos abrir este Reel. Actualizá su estado e intentá nuevamente.','error') } }
-      finally { if (instagramMediaPlanEditorCurrent(p,editor)) { editor.loading=false; els.instagramReelSubmit.disabled=!!editor.failedLoad } }
+      finally { if (instagramMediaPlanEditorCurrent(p,editor)) { editor.loading=false; renderInstagramReelWizardActions() } }
     }
 
     async function instagramMediaPlanResolve() {
@@ -212,24 +217,58 @@ export const instagramPlanningScript = String.raw`
       } catch { if (instagramMediaPlanEditorCurrent(p,editor)) { select.innerHTML='<option value="">Horario no v&aacute;lido</option>'; setInstagramReelFeedback('Ese horario no existe o no pudo verificarse en la zona del comercio.','error'); select.focus() } }
     }
 
-    async function instagramMediaPlanSubmit(event) {
-      event.preventDefault()
-      const p = instagramMediaPlanContext(), editor = p.editor || instagramMediaPlanNew()
-      if (editor.saving || editor.loading || editor.failedLoad || !instagramMediaPlanEditorCurrent(p,editor)) return
-      const file = els.instagramReelVideo.files?.[0], mimeType = instagramReelMimeType(file)
-      const destination = document.getElementById('instagram-reel-destination').value
-      const automation = { enabled:els.instagramReelAutomationEnabled.checked, keywords:state.instagramReelKeywords,
+    function instagramMediaPlanReelAutomation() {
+      return { enabled:els.instagramReelAutomationEnabled.checked, keywords:state.instagramReelKeywords,
         privateReplyEnabled:document.getElementById('instagram-reel-private-enabled').checked,privateReplyText:els.instagramReelPrivateReply.value.trim(),
         publicReplyEnabled:document.getElementById('instagram-reel-public-enabled').checked,publicReplyText:document.getElementById('instagram-reel-public-reply').value.trim() }
-      const fail = (message,field) => { setInstagramReelFeedback(message,'error'); field.focus() }
-      if (!editor.publication && !editor.verified && (!file || !mimeType)) return fail('Elegí un video MP4 o MOV.',els.instagramReelVideo)
-      if (automation.enabled && !automation.keywords.length) return fail('Agregá al menos una palabra clave.',els.instagramReelKeywordInput)
-      if (automation.enabled && automation.privateReplyEnabled && !automation.privateReplyText) return fail('Escribí el mensaje privado.',els.instagramReelPrivateReply)
-      if (automation.enabled && ((!automation.publicReplyEnabled && !automation.privateReplyEnabled) || (automation.publicReplyEnabled && !automation.publicReplyText))) return fail('Seleccioná una acción y completá su texto.',document.getElementById('instagram-reel-public-reply'))
-      if (automation.publicReplyEnabled && /{{weex_form:|[?&]ref=/i.test(automation.publicReplyText)) return fail('Los enlaces privados no van en comentarios públicos.',document.getElementById('instagram-reel-public-reply'))
+    }
+
+    function instagramMediaPlanValidateReelStep(step, editor, destination) {
+      const fail = (message, field) => {
+        showInstagramReelWizardStep(step, false)
+        setInstagramReelFeedback(message, 'error')
+        field.focus()
+        return false
+      }
+      if (step === 'content' && !editor.reprogram) {
+        const file = els.instagramReelVideo.files?.[0]
+        if (file ? !instagramReelMimeType(file) : !editor.publication && !editor.verified) return fail('Elegí un video MP4 o MOV.', els.instagramReelVideo)
+      }
+      if (step === 'automation' && !editor.reprogram) {
+        const automation = instagramMediaPlanReelAutomation()
+        const publicReply = document.getElementById('instagram-reel-public-reply')
+        if (automation.enabled && !automation.keywords.length) return fail('Agregá al menos una palabra clave.', els.instagramReelKeywordInput)
+        if (automation.enabled && automation.privateReplyEnabled && !automation.privateReplyText) return fail('Escribí el mensaje privado.', els.instagramReelPrivateReply)
+        if (automation.enabled && !automation.publicReplyEnabled && !automation.privateReplyEnabled) return fail('Seleccioná una acción para la automatización.', document.getElementById('instagram-reel-public-enabled'))
+        if (automation.enabled && automation.publicReplyEnabled && !automation.publicReplyText) return fail('Escribí el comentario público.', publicReply)
+        if (automation.publicReplyEnabled && /{{weex_form:|[?&]ref=/i.test(automation.publicReplyText)) return fail('Los enlaces privados no van en comentarios públicos.', publicReply)
+      }
+      if (step === 'destination' && destination === 'schedule') {
+        const options = document.getElementById('instagram-reel-time-options')
+        const wall = document.getElementById('instagram-reel-schedule-date').value + 'T' + document.getElementById('instagram-reel-schedule-time').value
+        if (!options.value || editor.wall !== wall) return fail('Verificá y elegí la opción horaria.', options)
+      }
+      return true
+    }
+
+    async function instagramMediaPlanSubmit(event, destinationOverride) {
+      event.preventDefault()
+      const p = instagramMediaPlanContext(), editor = p.editor
+      if (!editor || editor.saving || editor.loading || editor.failedLoad || !instagramMediaPlanEditorCurrent(p,editor)) return
+      if (destinationOverride && editor.reprogram) return
+      const destinationField = document.getElementById('instagram-reel-destination')
+      const destination = destinationOverride || destinationField.value
+      if (!['content', 'automation', 'destination'].every((step) => instagramMediaPlanValidateReelStep(step, editor, destination))) return
+      const file = els.instagramReelVideo.files?.[0], mimeType = instagramReelMimeType(file)
+      const automation = instagramMediaPlanReelAutomation()
       const scheduledAt = document.getElementById('instagram-reel-time-options').value
-      if (destination==='schedule' && (!scheduledAt || editor.wall!==document.getElementById('instagram-reel-schedule-date').value+'T'+document.getElementById('instagram-reel-schedule-time').value)) return fail('Verificá y elegí la opción horaria.',document.getElementById('instagram-reel-time-options'))
-      editor.saving = true; setButtonLoading(els.instagramReelSubmit,true,'Guardando...')
+      destinationField.value = destination
+      if (els.instagramReelForm.dataset.reelStep !== 'review' || destinationOverride) showInstagramReelWizardStep('review')
+      setInstagramReelFeedback('')
+      setInstagramReelProgress(0)
+      editor.saving = true
+      setButtonLoading(els.instagramReelSubmit,true,'Guardando...')
+      renderInstagramReelWizardActions()
       const basePath = '/businesses/'+encodeURIComponent(p.businessId)+'/instagram-publications'
       const request = (url,method,body) => getJson(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:editor.controller.signal})
       try {
@@ -264,7 +303,7 @@ export const instagramPlanningScript = String.raw`
         setInstagramReelProgress(100); setInstagramReelFeedback(destination==='draft'?'Borrador guardado.':destination==='schedule'?'Programación guardada.':'Publicación en cola; todavía no confirma publicación real.')
         await loadInstagramReels(); await instagramMediaPlanLoad()
       } catch { if (instagramMediaPlanEditorCurrent(p,editor)) setInstagramReelFeedback(editor.publication?'El borrador sigue guardado. No se confirmó el último paso; podés actualizar e intentar nuevamente.':'No se pudo guardar. Conservamos el archivo y tus cambios.','error') }
-      finally { if (instagramMediaPlanEditorCurrent(p,editor)) { editor.saving=false; setButtonLoading(els.instagramReelSubmit,false); els.instagramReelSubmit.textContent='Guardar' } }
+      finally { if (instagramMediaPlanEditorCurrent(p,editor)) { editor.saving=false; setButtonLoading(els.instagramReelSubmit,false); renderInstagramReelWizardActions() } }
     }
 
     async function instagramMediaPlanAction(event) {
