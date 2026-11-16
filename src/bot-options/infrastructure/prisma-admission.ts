@@ -809,25 +809,35 @@ export async function applyStatusCallbackTx(
   let matched = 0
   if (rank > 0) {
     matched = await tx.$executeRaw(Prisma.sql`
-      UPDATE "BotOutbox" SET
+      UPDATE "BotOutbox" o SET
         "status" = CASE
           WHEN ${rank} = 3 THEN 'READ'::"BotOutboxStatus"
-          WHEN ${rank} = 2 AND "status" NOT IN ('READ'::"BotOutboxStatus") THEN 'DELIVERED'::"BotOutboxStatus"
-          WHEN ${rank} = 1 AND "status" IN ('SENDING'::"BotOutboxStatus", 'UNKNOWN'::"BotOutboxStatus", 'ACCEPTED'::"BotOutboxStatus") THEN 'ACCEPTED'::"BotOutboxStatus"
-          ELSE "status" END,
-        "sentAt" = CASE WHEN ${rank} >= 1 THEN COALESCE("sentAt", clock_timestamp()) ELSE "sentAt" END,
-        "deliveredAt" = CASE WHEN ${rank} >= 2 THEN COALESCE("deliveredAt", clock_timestamp()) ELSE "deliveredAt" END,
-        "readAt" = CASE WHEN ${rank} >= 3 THEN COALESCE("readAt", clock_timestamp()) ELSE "readAt" END,
+          WHEN ${rank} = 2 AND o."status" NOT IN ('READ'::"BotOutboxStatus") THEN 'DELIVERED'::"BotOutboxStatus"
+          WHEN ${rank} = 1 AND o."status" IN ('SENDING'::"BotOutboxStatus", 'UNKNOWN'::"BotOutboxStatus", 'ACCEPTED'::"BotOutboxStatus") THEN 'ACCEPTED'::"BotOutboxStatus"
+          ELSE o."status" END,
+        "sentAt" = CASE WHEN ${rank} >= 1 THEN COALESCE(o."sentAt", clock_timestamp()) ELSE o."sentAt" END,
+        "deliveredAt" = CASE WHEN ${rank} >= 2 THEN COALESCE(o."deliveredAt", clock_timestamp()) ELSE o."deliveredAt" END,
+        "readAt" = CASE WHEN ${rank} >= 3 THEN COALESCE(o."readAt", clock_timestamp()) ELSE o."readAt" END,
         "updatedAt" = clock_timestamp()
-      WHERE "businessId" = ${businessId} AND "providerMessageId" = ${providerMessageId}
-        AND "status" NOT IN ('POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+      WHERE o."businessId" = ${businessId} AND o."providerMessageId" = ${providerMessageId}
+        AND o."status" NOT IN ('POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+        AND EXISTS (
+          SELECT 1 FROM "BotSession" s
+          WHERE s."businessId" = o."businessId" AND s."id" = o."sessionId"
+            AND s."channel" = 'WHATSAPP'::"BotChannel"
+        )
     `)
   } else if (status === 'failed') {
     matched = await tx.$executeRaw(Prisma.sql`
-      UPDATE "BotOutbox" SET "status" = 'FAILED'::"BotOutboxStatus",
+      UPDATE "BotOutbox" o SET "status" = 'FAILED'::"BotOutboxStatus",
         "errorCode" = ${error ?? 'provider_failed'}, "updatedAt" = clock_timestamp()
-      WHERE "businessId" = ${businessId} AND "providerMessageId" = ${providerMessageId}
-        AND "status" NOT IN ('DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+      WHERE o."businessId" = ${businessId} AND o."providerMessageId" = ${providerMessageId}
+        AND o."status" NOT IN ('DELIVERED'::"BotOutboxStatus", 'READ'::"BotOutboxStatus", 'POISON'::"BotOutboxStatus", 'SKIPPED'::"BotOutboxStatus")
+        AND EXISTS (
+          SELECT 1 FROM "BotSession" s
+          WHERE s."businessId" = o."businessId" AND s."id" = o."sessionId"
+            AND s."channel" = 'WHATSAPP'::"BotChannel"
+        )
     `)
   }
   if (matched > 0) {
