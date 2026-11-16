@@ -4,8 +4,12 @@ import { applyStatusCallbackTx, reconcileManualMessageReceipts } from '../src/bo
 
 for (const status of ['sent', 'delivered', 'read', 'failed'] as const) {
   const queries: any[] = []
+  const outboxQueries: any[] = []
   const tx = {
-    $executeRaw: async () => 0, // Manual messages have no BotOutbox row.
+    $executeRaw: async (query: any) => {
+      outboxQueries.push(query)
+      return 0 // Manual messages have no BotOutbox row.
+    },
     $queryRaw: async (query: any) => { queries.push(query); return [{ conversationId: 'conversation', messageId: 'message' }] }
   }
   const result = await applyStatusCallbackTx(tx as any, 'business', 'provider-id', status, null)
@@ -15,6 +19,9 @@ for (const status of ['sent', 'delivered', 'read', 'failed'] as const) {
   assert.ok(queries[0].values.includes('provider-id'))
   assert.match(queries[0].sql, /m\."status" = 'read'/, 'Read receipt cannot regress')
   assert.match(queries[0].sql, /m\."status" = 'delivered'/, 'Delivered receipt cannot regress')
+  const outboxUpdate = outboxQueries[0]?.sql ?? ''
+  assert.match(outboxUpdate, /"BotSession"/, 'WhatsApp receipts must target only WhatsApp BotOutbox sessions')
+  assert.match(outboxUpdate, /'WHATSAPP'::"BotChannel"/, 'WhatsApp receipts must not affect Instagram BotOutbox sessions')
 }
 const absent = await applyStatusCallbackTx({ $executeRaw: async () => 0, $queryRaw: async () => [] } as any, 'other', 'missing', 'read', null)
 assert.equal(absent.matched, false)
