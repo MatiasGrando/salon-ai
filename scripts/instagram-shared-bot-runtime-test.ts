@@ -177,6 +177,8 @@ try{
   assert.ok(rendered.outboxRows.every(row=>row.item.type==='informative_text'&&row.item.body.length<=900),'IG never receives WhatsApp lists or oversized bodies')
   assert.ok(rendered.outboxRows.slice(1).every((row,index)=>row.dependsOnSequence===index),'every IG part depends on acceptance of the previous part')
   let sends=0
+  const localWhatsAppClaim=await claimOutbox(client as never,30000,undefined,{businessId:'biz',channels:['WHATSAPP']})
+  assert.equal(localWhatsAppClaim,null,'Barber local WhatsApp scope leaves queued Instagram output for Railway')
   const pending=await claimOutbox(client as never,30000,undefined,{businessId:'biz',channels:['INSTAGRAM']})
   assert.ok(pending)
   const delivery=await sendClaimedOutbox({client:client as never,item:pending!,provider:new InstagramOutboxProvider({client:client as never,api:new InstagramApi(async(url,init)=>{sends++;assert.ok(String(url).includes('/account/messages'));assert.equal(JSON.parse(String(init?.body)).recipient.id,subject.externalUserId);assert.equal(new Headers(init?.headers).get('Authorization'),'Bearer offline-token');return new Response(JSON.stringify({message_id:'outbound-mid',recipient_id:subject.externalUserId}),{status:200})})})})

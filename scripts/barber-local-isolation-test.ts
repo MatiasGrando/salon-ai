@@ -107,7 +107,7 @@ const loops = await startBarberWorkerLoops({
   startWorker: (input) => { scopes.push(input.scope); return { async stop() {} } },
   startSender: (input) => { scopes.push(input.scope); return { async stop() {} } }
 })
-assert.deepEqual(scopes, Array.from({ length: 3 }, () => ({ mode: 'include', businessId: barber })))
+assert.deepEqual(scopes, Array.from({ length: 3 }, () => ({ mode: 'include', businessId: barber, channels: ['WHATSAPP'] })))
 await loops.stop()
 const entrypoint = await readFile(new URL('../src/barber-local.ts', import.meta.url), 'utf8')
 for (const forbidden of ['startServer(', 'buildApp(', 'startMarketingScheduler(', 'ensureBootstrapSuperAdmin(', 'startAppointmentRealtimeListener(', 'startCashRealtimeListener(']) {
