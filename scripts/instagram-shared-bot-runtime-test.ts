@@ -7,6 +7,10 @@ assert.match(server, /instagramBotWorkerScope\(instagramBotConfig\)/,
   'Railway must start Instagram for businesses excluded only from its WhatsApp worker')
 assert.match(server, /\.\.\.whatsappWorkerScope,\s*channels:\s*\['WHATSAPP' as const\]/,
   'the configured tenant boundary must still apply to WhatsApp')
+assert.match(server, /value\.context\s*\?\s*instagramProvider\.send\(value,signal\)/,
+  'the sender MUST select the Instagram provider from the claimed deployment channel, never from mutable payload data')
+assert.doesNotMatch(server, /value\.payload as \{channel\?:unknown\}/,
+  'the sender MUST NOT select a provider from the persisted message payload')
 
 process.env.DOTENV_CONFIG_PATH='__instagram_runtime_no_env__'
 process.env.DATABASE_URL='postgresql://offline:offline@127.0.0.1:1/offline'
