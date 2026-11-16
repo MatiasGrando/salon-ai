@@ -8,6 +8,8 @@ El bloqueo ocurre en `setSection`, que espera `ensureWorkspaceDetails` antes de 
 
 RED: el contrato VM con `setSection` real del HTML servido dejó Ajustes en Agenda mientras `ensureWorkspaceDetails` estaba pendiente. GREEN: activa en el momento la sección, muestra estado accesible con contenido protegido y reintento, solo ejecuta sus cargas al completar los datos y descarta una activación obsoleta por navegación/comercio. La entrada lista limpia estados viejos; la pestaña de Marketing se inicializa una vez y conserva su subvista. Se conserva el indicador propio de Caja y se evita que datos antiguos de horarios sobrescriban los cargados por Agenda. Pasaron el contrato A7, sintaxis CRM, vista inicial y alcance de Agenda. Espejo Engram pendiente.
 
+A7 quedó en `1cbfe1a`. Se verificó la transición Ajustes → Instagram → Caja con la carga común pendiente y la recepción tardía sin saltos. Pasaron también los contratos de precarga de Agenda, alcance y carga de Caja, interfaz de Instagram, sintaxis e interactividad del CRM, UTF-8 y `git diff --check`. Evaluación local media, 245 líneas, por debajo del umbral. Pendiente comprobar en producción cuando se autorice la publicación.
+
 ### Selector de profesionales al bloquear agenda
 
 - [x] A6. Abrir «Bloquear agenda» desde el arranque en frío con el catálogo que ya carga Agenda. Conservar la preselección desde una columna y respetar los permisos. Comprobar que el panel espera si falta el catálogo, sin agregar consultas.
