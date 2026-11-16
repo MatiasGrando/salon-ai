@@ -1,5 +1,13 @@
 # Carga prioritaria de Agenda, Clientes y Caja
 
+### Navegación durante la carga inicial
+
+- [x] A7. Activar de inmediato la sección autorizada que el usuario elija mientras se carga Agenda. Mostrar la carga dentro de Ajustes, Marketing/Instagram o Cuentas, y reutilizar el indicador existente de Caja. Evitar que una respuesta tardía cambie la sección o el comercio activo.
+
+El bloqueo ocurre en `setSection`, que espera `ensureWorkspaceDetails` antes de actualizar la interfaz. El cambio conserva Agenda como vista inicial y mantiene la preparación compartida de datos antes de habilitar los controles que la requieren. Ruta delegada directa por mapa de CRM, agenda y Caja y por cambio de fuente y prueba. TDD estricto según `openspec/config.yaml`; contrato VM de navegación con promesas retenidas, sintaxis CRM, vista inicial de Agenda, alcance de Caja y UTF-8. Forecast A7: 60–180 líneas. Entrega `ask-on-risk`, basada en el HEAD actual de la rama de trabajo. Espejo Engram pendiente.
+
+RED: el contrato VM con `setSection` real del HTML servido dejó Ajustes en Agenda mientras `ensureWorkspaceDetails` estaba pendiente. GREEN: activa en el momento la sección, muestra estado accesible con contenido protegido y reintento, solo ejecuta sus cargas al completar los datos y descarta una activación obsoleta por navegación/comercio. La entrada lista limpia estados viejos; la pestaña de Marketing se inicializa una vez y conserva su subvista. Se conserva el indicador propio de Caja y se evita que datos antiguos de horarios sobrescriban los cargados por Agenda. Pasaron el contrato A7, sintaxis CRM, vista inicial y alcance de Agenda. Espejo Engram pendiente.
+
 ### Selector de profesionales al bloquear agenda
 
 - [x] A6. Abrir «Bloquear agenda» desde el arranque en frío con el catálogo que ya carga Agenda. Conservar la preselección desde una columna y respetar los permisos. Comprobar que el panel espera si falta el catálogo, sin agregar consultas.

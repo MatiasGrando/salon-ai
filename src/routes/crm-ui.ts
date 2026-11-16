@@ -9228,6 +9228,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       font-size: 13px;
       line-height: 1.4;
     }
+    .workspace-details-loading { margin: 0; padding: 14px 18px; color: #31527e; background: #eef4ff; border-bottom: 1px solid #d8e3f3; font-weight: 600; }
+    .workspace-details-loading button { margin-left: 10px; padding: 6px 10px; border: 1px solid #b9cbe5; border-radius: 7px; color: #123d7a; background: #fff; font: inherit; cursor: pointer; }
+    .workspace-details-pending { visibility: hidden; }
 
     .settings-feedback.visible {
       display: block;
@@ -21758,8 +21761,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       bindLogoutButton()
       nav.querySelectorAll('button[data-nav-section]').forEach((button) => {
         button.addEventListener('click', () => {
-          if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
-          setSection(button.dataset.navSection)
+          setSection(button.dataset.navSection, { marketingView: button.dataset.marketingNav })
         })
       })
     }
@@ -24250,7 +24252,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           ])
         : [[], { morningCutTime: '12:30', eveningCutTime: '16:30' }, null]
       if (managementBusinessId !== state.businessId || professionalCatalogGeneration !== state.agendaProfessionalCatalogGeneration) return
-      state.businessHours = businessHours
+      if (!agendaReady) state.businessHours = businessHours
       state.availabilitySettings = availabilitySettings
       if (managementBusinessId === state.businessId) {
         state.bookingManagementSettings = bookingManagementSettings
@@ -37490,25 +37492,89 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       }
     }
 
-    function setSection(section, { deferAgenda = false } = {}) {
+    function setWorkspaceDetailsLoading(section, loading, message = '', marketingView) {
+      const targetId = { settings: 'settings-view', campaigns: 'campaigns-view', accounts: 'accounts-view' }[section]
+      const target = targetId ? document.getElementById(targetId) : null
+      if (!target) return
+      const content = target.querySelector('.' + section + '-shell')
+      if (content) {
+        content.setAttribute('aria-busy', loading ? 'true' : 'false')
+        content.inert = loading || Boolean(message)
+        content.classList.toggle('workspace-details-pending', loading || Boolean(message))
+      }
+      let status = target.querySelector('[data-workspace-details-status]')
+      if (!loading && !message) {
+        status?.remove()
+        return
+      }
+      if (!status) {
+        status = document.createElement('p')
+        status.dataset.workspaceDetailsStatus = 'true'
+        status.setAttribute('role', 'status')
+        status.setAttribute('aria-live', 'polite')
+        status.className = 'workspace-details-loading'
+        target.prepend(status)
+      }
+      const label = section === 'settings' ? 'Ajustes' : section === 'accounts' ? 'Cuentas' : (marketingView || state.marketingView) === 'instagram-reels' ? 'Instagram' : 'Marketing'
+      status.textContent = message || 'Cargando ' + label + '…'
+    }
+
+    function activateDeferredWorkspaceSection(section, marketingView) {
+      if (section === 'accounts') loadManagedAccounts().catch(renderManagedAccountsLoadError)
+      if (section === 'campaigns') {
+        setMarketingView(marketingView || state.marketingView)
+        if (!state.campaignsLoaded) loadCampaigns()
+        if (state.marketingView !== 'templates' && !state.templatesLoaded) loadWhatsappTemplates()
+      }
+      if (section === 'settings') {
+        setSettingsView(state.settingsView)
+        ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
+      }
+    }
+
+    function loadDeferredWorkspaceSection(section, workspace, navigation, marketingView) {
+      const isCurrent = () => deferredWorkspace === workspace && workspaceNavigation === navigation && els.appShell.dataset.section === section
+      const run = () => {
+        setWorkspaceDetailsLoading(section, true, '', marketingView)
+        ensureWorkspaceDetails().then(() => {
+          if (!isCurrent()) return
+          setWorkspaceDetailsLoading(section, false)
+          activateDeferredWorkspaceSection(section, marketingView)
+        }).catch((error) => {
+          if (!isCurrent()) return
+          setWorkspaceDetailsLoading(section, false, error.message, marketingView)
+          const target = document.getElementById(({ settings: 'settings-view', campaigns: 'campaigns-view', accounts: 'accounts-view' })[section])
+          const status = target?.querySelector('[data-workspace-details-status]')
+          if (status) {
+            const retry = document.createElement('button')
+            retry.type = 'button'
+            retry.textContent = 'Reintentar'
+            retry.addEventListener('click', run)
+            status.appendChild(retry)
+          }
+          showCrmToast(error.message, 'error')
+        })
+      }
+      run()
+    }
+
+    function setSection(section, { deferAgenda = false, marketingView } = {}) {
       if (!staffVisibleSections().includes(section)) section = staffVisibleSections()[0] || 'accounts'
       if (!isWorkshopBusiness() && ['autos', 'workshop-jobs', 'workshop-services', 'workshop-personnel'].includes(section)) section = staffVisibleSections()[0] || 'accounts'
       const navigation = ++workspaceNavigation
       const workspace = deferredWorkspace
-      if (workspace && !workspace.detailsReady && ['settings', 'campaigns', 'accounts'].includes(section)) {
-        showCrmToast('Cargando ' + ({ settings: 'ajustes', campaigns: 'marketing', accounts: 'cuentas' }[section]) + '...', 'info')
-        ensureWorkspaceDetails().then(() => {
-          if (deferredWorkspace === workspace && workspaceNavigation === navigation) setSection(section)
-        }).catch((error) => {
-          if (deferredWorkspace === workspace && workspaceNavigation === navigation) showCrmToast(error.message, 'error')
-        })
-        return
+      const waitForWorkspaceDetails = Boolean(workspace && !workspace.detailsReady && ['settings', 'campaigns', 'accounts'].includes(section))
+      const previousSection = els.appShell.dataset.section
+      if (previousSection && previousSection !== section && ['settings', 'campaigns', 'accounts'].includes(previousSection)) {
+        setWorkspaceDetailsLoading(previousSection, false)
       }
+      if (!waitForWorkspaceDetails && ['settings', 'campaigns', 'accounts'].includes(section)) setWorkspaceDetailsLoading(section, false)
       if (section === 'agenda' && !state.businessId) {
         showCrmToast('Esperá a que termine de cargar el negocio antes de abrir la agenda.', 'error')
         return
       }
       els.appShell.dataset.section = section
+      if (section === 'campaigns' && marketingView) state.marketingView = marketingView
       if (section !== 'campaigns') { instagramMediaPlanLeave(); if(typeof instagramStoriesReset==='function')instagramStoriesReset() }
       if (section !== 'campaigns') instagramMediaAutomationClose(false)
       document.body.dataset.currentSection = section
@@ -37582,9 +37648,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (section === 'workshop-services') wsLoad().catch((error)=>showCrmToast(error.message,'error'))
       if (section === 'workshop-personnel') wpLoad().catch((error)=>showCrmToast(error.message,'error'))
 
-      if (section === 'accounts') {
-        loadManagedAccounts().catch(renderManagedAccountsLoadError)
-      }
+      if (section === 'accounts' && !waitForWorkspaceDetails) activateDeferredWorkspaceSection(section, marketingView)
 
       if (section === 'professionals') {
         ensureProfessionalMedia().catch((error) => showCrmToast(error.message, 'error'))
@@ -37601,14 +37665,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
       }
 
-      if (section === 'campaigns' && !state.campaignsLoaded) {
-        loadCampaigns()
+      if (section === 'campaigns' && !waitForWorkspaceDetails) {
+        activateDeferredWorkspaceSection(section, marketingView)
       }
-      if (section === 'campaigns') setMarketingView(state.marketingView)
-      if (section === 'campaigns' && !state.templatesLoaded) loadWhatsappTemplates()
-      if (section === 'settings') {
-        setSettingsView(state.settingsView)
-        ensureBusinessMedia().catch((error) => showCrmToast(error.message, 'error'))
+      if (section === 'settings' && !waitForWorkspaceDetails) {
+        activateDeferredWorkspaceSection(section, marketingView)
       }
       if (deferredWorkspace && ['conversations', 'professionals', 'services', 'reports'].includes(section)) {
         ensureWorkspaceDetails().catch((error) => showCrmToast(error.message, 'error'))
@@ -37624,6 +37685,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         if (isMobile()) setMobileView('inbox')
       }
       closeMobileDrawer()
+      if (waitForWorkspaceDetails) {
+        loadDeferredWorkspaceSection(section, workspace, navigation, marketingView)
+      }
     }
 
     function startOfWeek(date) {
@@ -38794,8 +38858,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     document.getElementById('mobile-nav-overlay')?.addEventListener('click', closeMobileDrawer)
     document.querySelectorAll('[data-mobile-section]').forEach((button) => {
       button.addEventListener('click', () => {
-        if (button.dataset.marketingNav) setMarketingView(button.dataset.marketingNav)
-        setSection(button.dataset.mobileSection)
+        setSection(button.dataset.mobileSection, { marketingView: button.dataset.marketingNav })
       })
     })
 
