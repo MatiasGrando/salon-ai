@@ -1094,8 +1094,10 @@ export const cashRegisterScript = `
         let payload
         try { payload = JSON.parse(event.data) } catch { return }
         if (state.cashRegister.eventSource !== source || payload.businessId !== state.businessId || !payload.entityId) return
+        const ownEntry = payload.entity === 'ENTRY' && state.cashRegister.ownAppointmentPaymentEntries?.delete(payload.entityId)
         invalidateCashRegister()
         if (document.body.dataset.currentSection === 'cash') loadCashRegister({ preserve: true }).catch((error) => showCrmToast(error.message, 'error'))
+        if (ownEntry) return
         refreshVisibleAppointmentFinanceSummaries()
         if (state.editingAppointmentId && cashUi.finance.open && !cashUi.finance.hidden) loadAppointmentFinance({ force: true, preserve: true })
       })
@@ -3157,36 +3159,39 @@ export const cashRegisterScript = `
 
     async function loadAppointmentFinance(options = {}) {
       const appointmentId = state.editingAppointmentId
-      const businessId = state.businessId
       if (!appointmentId || !(canUseCashPermission('canRecordAppointmentPayments') || canUseCashPermission('canApplyDiscounts'))) return
-      const requestId = ++state.cashRegister.appointmentFinanceRequestId
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const requestId = ++register.appointmentFinanceRequestId
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && appointmentId === state.editingAppointmentId && requestId === register.appointmentFinanceRequestId
       const key = appointmentFinanceCacheKey(appointmentId)
-      const cached = state.cashRegister.appointmentFinanceCache[key]
-      const preserve = options.preserve !== false && Boolean(state.cashRegister.appointmentFinance)
+      const cached = register.appointmentFinanceCache[key]
+      const preserve = options.preserve !== false && Boolean(register.appointmentFinance)
       if (!preserve) resetAppointmentFinanceView()
-      else {
+      else if (!options.silent) {
         cashUi.financeFeedback.textContent = 'Actualizando...'
         cashUi.financeFeedback.className = 'appointment-finance-feedback'
       }
+      let pending
       try {
         if (canUseCashPermission('canRecordAppointmentPayments')) await loadCashPaymentMethods()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
+        if (!isCurrent()) return
         if (cached && options.force === false) {
           renderAppointmentFinance(cached)
           cashUi.financeFeedback.textContent = ''
           return cached
         }
-        let pending = state.cashRegister.appointmentFinanceInFlight[key]
+        pending = register.appointmentFinanceInFlight[key]
         if (!pending) {
           const paymentContext = canUseCashPermission('canRecordAppointmentPayments')
-            ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null }))
-            : Promise.resolve({ day: null, session: null })
+            && !options.silent ? getJson(cashScoped('/cash-register/payment-context')).catch(() => ({ day: null, session: null })) : null
           pending = Promise.all([getJson(cashScoped('/appointments/' + encodeURIComponent(appointmentId) + '/finance')), paymentContext])
-          state.cashRegister.appointmentFinanceInFlight[key] = pending
+          register.appointmentFinanceInFlight[key] = pending
         }
         const [finance, current] = await pending
-        if (state.cashRegister.appointmentFinanceInFlight[key] === pending) delete state.cashRegister.appointmentFinanceInFlight[key]
-        state.cashRegister.appointmentFinanceCache[key] = finance
+        if (!cashRegisterScopeIsCurrent(register, scope) || (register.appointmentFinanceInFlight[key] !== pending && register.appointmentFinanceCache[key] !== finance)) return
+        delete register.appointmentFinanceInFlight[key]
+        register.appointmentFinanceCache[key] = finance
         cacheAppointmentFinanceSummary(appointmentId, {
           accountId: finance.accountId,
           pricingMode: finance.pricingMode,
@@ -3199,15 +3204,14 @@ export const cashRegisterScript = `
           balanceAmount: finance.balanceAmount
         })
         if (els.appShell.dataset.section === 'agenda') renderAgenda()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
-        state.cashRegister.current = current
+        if (!isCurrent()) return
+        if (current) register.current = current
         renderAppointmentFinance(finance)
-        cashUi.financeFeedback.textContent = ''
+        if (!options.silent) cashUi.financeFeedback.textContent = ''
         return finance
       } catch (error) {
-        delete state.cashRegister.appointmentFinanceInFlight[key]
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId || requestId !== state.cashRegister.appointmentFinanceRequestId) return
-        showAppointmentFinanceError(error.message)
+        if (pending && register.appointmentFinanceInFlight[key] === pending) delete register.appointmentFinanceInFlight[key]
+        if (isCurrent() && !options.silent) showAppointmentFinanceError(error.message)
       }
     }
 
@@ -3320,15 +3324,21 @@ export const cashRegisterScript = `
       const businessId = state.businessId
       if (!appointmentId || !businessId) return
       const key = appointmentPaymentOperationKey()
-      const operations = state.cashRegister.appointmentPaymentOperations ||= {}
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && appointmentId === state.editingAppointmentId
+      const financeKey = appointmentFinanceCacheKey(appointmentId)
+      const operations = register.appointmentPaymentOperations ||= {}
       if (operations[key]) return
       const completedWithPayment = !cashUi.paymentCompleteRow.hidden && cashUi.paymentComplete.checked
       const operation = { completedWithPayment }
       operations[key] = operation
       syncAppointmentPaymentLoading()
+      let paymentRequested = false
+      let paymentConfirmed = false
       try {
         await loadCashPaymentMethods()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        if (!isCurrent()) return
         const lines = [configuredPaymentLine(cashUi.paymentMethod, Number(cashUi.paymentAmount.value))]
         if (!cashUi.paymentLineTwo.hidden) lines.push(configuredPaymentLine(cashUi.paymentMethodTwo, Number(cashUi.paymentAmountTwo.value)))
         if (lines.some((line) => !Number.isSafeInteger(line.amount) || line.amount <= 0)) {
@@ -3340,8 +3350,36 @@ export const cashRegisterScript = `
           showAppointmentFinanceError('Los medios de pago deben completar exactamente el saldo pendiente.')
           return
         }
-        await getJson('/appointments/' + encodeURIComponent(state.editingAppointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: state.cashRegister.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId: state.businessId } : {}) }) })
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        paymentRequested = true
+        const result = await getJson('/appointments/' + encodeURIComponent(appointmentId) + '/payments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cashSessionId: register.current?.session?.id, lines, completeAppointment: completedWithPayment, observation: cashUi.paymentObservation.value.trim() || undefined, ...(isCashBusinessScopedRole() ? { businessId } : {}) }) })
+        paymentConfirmed = true
+        if (!cashRegisterScopeIsCurrent(register, scope)) return
+        invalidateCashRegister()
+        delete register.appointmentFinanceInFlight[financeKey]
+        const appointment = state.agendaAppointments.find((item) => item.id === appointmentId) || (isCurrent() ? editingAgendaAppointment() : null)
+        const summary = { ...(register.appointmentFinanceSummaryCache[financeKey] || appointment?.financeSummary), ...result.finance }
+        const { appointmentId: _completedId, previousStatus: _previousStatus, ...completion } = result.completion || {}
+        if (appointment) applyAgendaAppointmentResult(appointmentId, { ...appointment, ...completion, financeSummary: summary })
+        if (isCurrent() && state.editingAppointmentSnapshot?.id === appointmentId) {
+          state.editingAppointmentSnapshot = { ...state.editingAppointmentSnapshot, ...completion, financeSummary: summary }
+        }
+        cacheAppointmentFinanceSummary(appointmentId, summary)
+        const cached = register.appointmentFinanceCache[financeKey]
+        const newEntries = result.entries.map((entry) => ({ ...entry, type: 'PAYMENT', direction: 'INFLOW' }))
+        const hasNewHistory = cached?.entries && newEntries.every((entry) => entry.effectiveAt && !cached.entries.some((previous) => previous.id === entry.id)) &&
+          cached.agreedAmount === result.finance.agreedAmount && cached.discountAmount === result.finance.discountAmount &&
+          cached.paidAmount + newEntries.reduce((total, entry) => total + entry.amount, 0) === result.finance.paidAmount
+        const finance = { ...(cached || (isCurrent() ? register.appointmentFinance : summary)), ...result.finance }
+        if (hasNewHistory) {
+          finance.entries = [...newEntries, ...cached.entries]
+          register.appointmentFinanceCache[financeKey] = finance
+          if (appointment) {
+            const ownEntries = register.ownAppointmentPaymentEntries ||= new Set()
+            for (const entry of newEntries) ownEntries.add(entry.id)
+            while (ownEntries.size > 50) ownEntries.delete(ownEntries.values().next().value)
+          }
+        } else delete register.appointmentFinanceCache[financeKey]
+        if (!isCurrent()) return
         cashUi.paymentAmount.value = ''
         selectDefaultPaymentMethod(cashUi.paymentMethod, 'CASH')
         cashUi.paymentAmountTwo.value = ''
@@ -3349,23 +3387,39 @@ export const cashRegisterScript = `
         cashUi.paymentObservation.value = ''
         cashUi.paymentLineTwo.hidden = true
         cashUi.paymentComplete.checked = false
-        state.cashRegister.editFinance.collectTotal = false
-        await loadAppointmentFinance()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        if (completedWithPayment) {
-          cashUi.financeFeedback.textContent = 'Pago registrado. Actualizando Agenda...'
-          await loadAgenda()
-          if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
+        register.editFinance.collectTotal = false
+        if (result.completion) {
+          els.appointmentTitle.textContent = 'Detalle del turno realizado'
+          els.appointmentComplete.hidden = true
+          els.appointmentNoShow.hidden = true
         }
-        const message = completedWithPayment ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.'
+        if (hasNewHistory) renderAppointmentFinance(finance)
+        else {
+          renderAppointmentFinanceSummary(finance)
+          void loadAppointmentFinance({ force: true, preserve: true, silent: true })
+        }
+        const message = result.completion ? 'Pago registrado y turno marcado como realizado.' : 'Pago registrado.'
         cashUi.financeFeedback.textContent = message
         cashUi.financeFeedback.className = 'appointment-finance-feedback success'
         showCrmToast(message, 'success')
       } catch (error) {
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        if (error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') await loadAppointmentFinance()
-        if (businessId !== state.businessId || appointmentId !== state.editingAppointmentId) return
-        showAppointmentFinanceError(error.message)
+        if (!isCurrent()) return
+        if (paymentConfirmed) {
+          await Promise.all([loadAppointmentFinance(), refreshAgendaAppointment(appointmentId)])
+          if (isCurrent()) {
+            const message = 'Pago registrado. Podés volver a abrir el turno para revisar el saldo y los movimientos.'
+            cashUi.financeFeedback.textContent = message
+            cashUi.financeFeedback.className = 'appointment-finance-feedback success'
+            showCrmToast('Pago registrado.', 'success')
+          }
+          return
+        }
+        const unconfirmed = paymentRequested && (!error.status || error.status >= 500)
+        if (unconfirmed || error.body?.code === 'CASH_CLOSED' || error.body?.code === 'STALE_SESSION') {
+          delete register.appointmentFinanceInFlight[financeKey]
+          await loadAppointmentFinance()
+        }
+        if (isCurrent()) showAppointmentFinanceError(unconfirmed ? 'No se pudo confirmar el cobro. Revisá el saldo y los movimientos antes de volver a intentar.' : error.message)
       } finally {
         if (operations[key] === operation) delete operations[key]
         syncAppointmentPaymentLoading()
