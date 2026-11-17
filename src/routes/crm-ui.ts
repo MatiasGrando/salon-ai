@@ -24486,6 +24486,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     let agendaDataStale = true
     let agendaMutationVersion = 0
     const agendaRangeCache = new Map()
+    const agendaAppointmentRefreshes = new Map()
     const customerPageCache = new Map()
     const customerPageRequests = new Map()
     let customerPageRequest = 0
@@ -24503,6 +24504,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaDataScope = null
       agendaDataStale = true
       agendaRangeCache.clear()
+      agendaAppointmentRefreshes.clear()
       state.agendaAppointments = []
       state.agendaBlocks = []
       state.agendaLoadedRangeStart = null
@@ -25701,8 +25703,12 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         } catch {
           return
         }
-        if (payload.businessId !== state.businessId || !payload.appointmentId) return
-        queueAgendaRealtimeRefresh()
+        if (payload.businessId !== state.businessId) return
+        if (!payload.appointmentId) {
+          queueAgendaRealtimeRefresh()
+          return
+        }
+        refreshAgendaAppointment(payload.appointmentId).catch((error) => console.error(error))
       })
       source.addEventListener('instagram_publication_changed', (event) => {
         let payload
@@ -25765,6 +25771,112 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       agendaMutationVersion += 1
       agendaDataStale = true
       agendaRangeCache.clear()
+    }
+
+    function appointmentFitsAgendaRange(appointment, from, to, professional) {
+      if (!appointment || !from || !to) return false
+      const start = new Date(appointment.startAt)
+      return start >= from && start < to && (!professional || appointment.professionalId === professional)
+    }
+
+    function mergeAgendaAppointmentInRange(appointments, appointmentId, appointment, from, to, professional) {
+      const previous = appointments.find((item) => item.id === appointmentId)
+      const hasFinanceSummary = appointment && Object.prototype.hasOwnProperty.call(appointment, 'financeSummary')
+      const next = appointmentFitsAgendaRange(appointment, from, to, professional)
+        ? { ...appointment, ...(!hasFinanceSummary && previous?.financeSummary ? { financeSummary: previous.financeSummary } : {}) }
+        : null
+      const currentIndex = appointments.findIndex((item) => item.id === appointmentId)
+      if (currentIndex < 0 && !next) return { appointments, changed: false, previous, next }
+      if (currentIndex >= 0 && next && JSON.stringify(appointments[currentIndex]) === JSON.stringify(next)) {
+        return { appointments, changed: false, previous, next }
+      }
+      const updated = appointments.filter((item) => item.id !== appointmentId)
+      if (next) updated.push(next)
+      updated.sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+      return { appointments: updated, changed: true, previous, next }
+    }
+
+    function applyAgendaAppointmentResult(appointmentId, appointment, businessId = state.businessId, workspaceVersion = crmWorkspaceVersion) {
+      if (!appointmentId || state.businessId !== businessId || crmWorkspaceVersion !== workspaceVersion) return false
+      const scope = agendaProfessionalPreferenceKey()
+      let changed = false
+      let visibleChanged = false
+      const selectedStart = startOfDay(state.agendaSelectedDate)
+      const selectedEnd = addDays(selectedStart, Number(state.agendaViewDays) || 1)
+      const visibleProfessional = els.agendaProfessional.value || ''
+      const currentScopeMatches = agendaDataScope === scope
+      if (currentScopeMatches && state.agendaLoadedRangeStart && state.agendaLoadedRangeEnd) {
+        const merged = mergeAgendaAppointmentInRange(
+          state.agendaAppointments,
+          appointmentId,
+          appointment,
+          state.agendaLoadedRangeStart,
+          state.agendaLoadedRangeEnd,
+          agendaDataProfessional
+        )
+        if (merged.changed) {
+          state.agendaAppointments = merged.appointments.filter((item) => !state.agendaDeletingAppointmentIds.has(item.id))
+          changed = true
+          visibleChanged = appointmentFitsAgendaRange(merged.previous, selectedStart, selectedEnd, visibleProfessional) ||
+            appointmentFitsAgendaRange(merged.next, selectedStart, selectedEnd, visibleProfessional)
+        }
+      }
+
+      for (const range of agendaRangeCache.values()) {
+        if (range.scope !== scope) continue
+        const merged = mergeAgendaAppointmentInRange(range.appointments, appointmentId, appointment, range.from, range.to, range.professional)
+        if (merged.changed) {
+          range.appointments = merged.appointments
+          changed = true
+        }
+      }
+      if (!changed) return false
+
+      if (currentScopeMatches && visibleChanged && els.appShell.dataset.section === 'agenda' && !state.agendaPointerDrag && !state.agendaRangeSelection) {
+        const scrollTop = els.agendaGridWrap.scrollTop
+        renderAgenda()
+        els.agendaGridWrap.scrollTop = scrollTop
+      }
+      return true
+    }
+
+    function refreshAgendaAppointment(appointmentId) {
+      if (!appointmentId || !state.businessId) return Promise.resolve()
+      const existing = agendaAppointmentRefreshes.get(appointmentId)
+      if (existing) {
+        existing.queued = true
+        return existing.promise
+      }
+      invalidateCustomerOverview()
+      if (document.body.dataset.currentSection === 'customers') {
+        void loadCustomerOverview({ preferCached: true })
+      }
+      const refresh = { queued: false, promise: null }
+      refresh.promise = (async () => {
+        do {
+          refresh.queued = false
+          const businessId = state.businessId
+          const workspaceVersion = crmWorkspaceVersion
+          const pendingRange = agendaRequest
+          if (pendingRange) await pendingRange.promise.catch(() => {})
+          if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return
+          const params = new URLSearchParams({ businessId, appointmentId })
+          const appointments = await getJson('/appointments?' + params.toString())
+          if (businessId !== state.businessId || workspaceVersion !== crmWorkspaceVersion) return
+          if (!Array.isArray(appointments)) throw new Error('La respuesta de turnos no tiene el formato esperado.')
+          if (agendaRequest && agendaRequest !== pendingRange) {
+            await agendaRequest.promise.catch(() => {})
+            refresh.queued = true
+            continue
+          }
+          const appointment = appointments.find((item) => item.id === appointmentId) || null
+          applyAgendaAppointmentResult(appointmentId, appointment, businessId, workspaceVersion)
+        } while (refresh.queued)
+      })().finally(() => {
+        if (agendaAppointmentRefreshes.get(appointmentId) === refresh) agendaAppointmentRefreshes.delete(appointmentId)
+      })
+      agendaAppointmentRefreshes.set(appointmentId, refresh)
+      return refresh.promise
     }
 
     function queueAgendaRealtimeRefresh() {
@@ -31887,7 +31999,15 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         return
       }
       const apply = ({ appointments, blocks, from, to, professional, mutationVersion }, background = false) => {
-        state.agendaAppointments = appointments.filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
+        const preserveExistingFinance = agendaDataScope === scope &&
+          (!agendaDataProfessional || !professional || agendaDataProfessional === professional)
+        const previousById = new Map((preserveExistingFinance ? state.agendaAppointments : []).map((appointment) => [appointment.id, appointment]))
+        state.agendaAppointments = appointments.map((appointment) => {
+          const previous = previousById.get(appointment.id)
+          return !Object.prototype.hasOwnProperty.call(appointment, 'financeSummary') && previous?.financeSummary
+            ? { ...appointment, financeSummary: previous.financeSummary }
+            : appointment
+        }).filter((appointment) => !state.agendaDeletingAppointmentIds.has(appointment.id))
         state.agendaBlocks = blocks
         state.agendaLoadedRangeStart = from
         state.agendaLoadedRangeEnd = to
@@ -33889,13 +34009,19 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         }
 
         if (agendaDragLockPreferenceKey() !== moveScope) return
-        invalidateAgendaRanges()
         invalidateCustomerOverview()
-        state.agendaAppointments = state.agendaAppointments.map((item) => {
-          return item.id === appointmentId ? { ...item, ...saved } : item
-        })
         state.agendaSelectedDate = target
         state.agendaMonthDate = new Date(target)
+        const previousAppointment = state.agendaAppointments.find((item) => item.id === appointmentId)
+        applyAgendaAppointmentResult(
+          appointmentId,
+          { ...previousAppointment, ...saved, id: appointmentId },
+          state.businessId,
+          crmWorkspaceVersion
+        )
+        if (!agendaRangeContains(startOfDay(target), addDays(startOfDay(target), Number(state.agendaViewDays) || 1))) {
+          await loadAgenda({ preferCached: true })
+        }
         showCrmToast('Turno movido a ' + (targetProfessional?.name || 'la nueva agenda') + '.', 'success')
       } catch (error) {
         showCrmToast(error.message, 'error')
@@ -34665,6 +34791,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
 
     async function saveManualAppointment(event) {
       event.preventDefault()
+      const saveBusinessId = state.businessId
+      const saveWorkspaceVersion = crmWorkspaceVersion
+      const isSaveContextCurrent = () => state.businessId === saveBusinessId && crmWorkspaceVersion === saveWorkspaceVersion
       els.appointmentFeedback.textContent = ''
       if (editingAgendaAppointment()?.status === 'COMPLETED') {
         els.appointmentFeedback.textContent = 'El turno está realizado. El administrador del local puede usar Corregir servicio realizado.'
@@ -34835,6 +34964,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           }
         }
 
+        if (!isSaveContextCurrent()) return
         const appointmentId = state.editingAppointmentId
         const appointmentPath = appointmentId ? '/appointments/' + appointmentId : '/appointments'
         const appointmentPayload = {
@@ -34854,8 +34984,9 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...appointmentPayload, force: forceOverride })
         })
+        let savedAppointment
         try {
-          await submitAppointment(force)
+          savedAppointment = await submitAppointment(force)
         } catch (error) {
           const writeConflicts = Array.isArray(error.body?.conflicts) ? error.body.conflicts : []
           const canRetryAsOverride = !force &&
@@ -34867,15 +34998,21 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             writeConflicts,
             { startAt, professionalId, serviceId }
           )
-          if (!confirmedOverride) return
-          await submitAppointment(true)
+          if (!confirmedOverride || !isSaveContextCurrent()) return
+          savedAppointment = await submitAppointment(true)
         }
 
+        if (!isSaveContextCurrent()) return
         closeAppointmentDialog()
-        await loadAgenda()
+        const savedAppointmentId = savedAppointment?.id || appointmentId
+        if (savedAppointmentId) {
+          void refreshAgendaAppointment(savedAppointmentId).catch((error) => {
+            console.error('No se pudo actualizar el turno guardado en la Agenda.', error)
+            if (isSaveContextCurrent()) showCrmToast('El turno se guardó, pero no se pudo actualizar su vista. Revisá la Agenda en unos instantes.', 'error')
+          })
+        }
         if (state.selected) {
-          await loadAppointments()
-          renderAppointments()
+          void loadAppointments().then(() => renderAppointments()).catch((error) => console.error(error))
         }
       } catch (error) {
         const suggestion = error.message.includes('horario') || error.message.includes('disponible') || error.message.includes('bloqueado')
@@ -34921,9 +35058,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         })
         state.agendaDeletingAppointmentIds.delete(appointmentId)
         showCrmToast('Turno eliminado.', 'success')
-        const refreshes = [loadAgenda()]
-        if (state.selected) refreshes.push(loadAppointments().then(() => renderAppointments()))
-        void Promise.allSettled(refreshes)
+        void refreshAgendaAppointment(appointmentId).catch((refreshError) => console.error(refreshError))
+        if (state.selected) void loadAppointments().then(() => renderAppointments()).catch(console.error)
       } catch (error) {
         state.agendaDeletingAppointmentIds.delete(appointmentId)
         if (state.businessId === businessId && appointmentIndex >= 0 && !state.agendaAppointments.some((item) => item.id === appointmentId)) {
@@ -34970,7 +35106,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           body: JSON.stringify({ status: 'COMPLETED' })
         })
         closeAppointmentDialog()
-        await loadAgenda()
+        void refreshAgendaAppointment(appointmentId).catch((error) => console.error(error))
         if (state.selected) {
           await loadAppointments()
           renderAppointments()
@@ -35009,7 +35145,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
           })
         })
         closeAppointmentDialog()
-        await loadAgenda()
+        void refreshAgendaAppointment(appointmentId).catch((error) => console.error(error))
         if (state.selected) {
           await loadAppointments()
           renderAppointments()

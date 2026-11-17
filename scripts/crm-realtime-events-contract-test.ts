@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import {
   publishAppointmentChanged,
   publishConversationUpdated,
@@ -169,8 +170,113 @@ assert.match(
 )
 assert.match(
   crmUiSource,
-  /source\.addEventListener\('appointment_changed',[\s\S]*?queueAgendaRealtimeRefresh\(\)/,
-  'los cambios de turnos deben solicitar una actualización de la Agenda por SSE'
+  /source\.addEventListener\('appointment_changed',[\s\S]*?refreshAgendaAppointment\(payload\.appointmentId\)/,
+  'los cambios de turnos deben actualizar solo el turno identificado por SSE'
+)
+assert.match(
+  crmUiSource,
+  /function refreshAgendaAppointment\(appointmentId\)[\s\S]*?agendaAppointmentRefreshes/,
+  'la actualización puntual debe compartir consultas en curso por turno'
+)
+const incrementalAgendaFunctions = crmUiSource.match(
+  /function appointmentFitsAgendaRange\([\s\S]*?(?=\n    function queueAgendaRealtimeRefresh\()/
+)?.[0]
+assert.ok(incrementalAgendaFunctions, 'la Agenda debe incluir reconciliación puntual de un turno')
+const appointmentDay = new Date('2026-11-16T00:00:00.000Z')
+const originalAppointment = {
+  id: 'appointment-1', professionalId: 'professional-1', startAt: '2026-11-16T15:00:00.000Z',
+  status: 'CONFIRMED', financeSummary: { accountId: 'account-1', pendingAmount: 1200 }
+}
+const unrelatedAppointment = {
+  id: 'appointment-2', professionalId: 'professional-2', startAt: '2026-11-16T16:00:00.000Z',
+  status: 'CONFIRMED', financeSummary: { accountId: 'account-2', pendingAmount: 500 }
+}
+const rangeFrom = new Date('2026-11-09T00:00:00.000Z')
+const rangeTo = new Date('2026-11-23T00:00:00.000Z')
+const state = {
+  businessId: 'business-1', agendaSelectedDate: appointmentDay, agendaViewDays: 1,
+  agendaDeletingAppointmentIds: new Set(), agendaAppointments: [originalAppointment, unrelatedAppointment],
+  agendaLoadedRangeStart: rangeFrom, agendaLoadedRangeEnd: rangeTo, agendaPointerDrag: false, agendaRangeSelection: false
+}
+const requestResolvers: ((value: unknown[]) => void)[] = []
+const requestRejectors: ((error: Error) => void)[] = []
+const agendaRequests: URL[] = []
+let agendaRenderCount = 0
+const agendaRefreshContext = {
+  state,
+  originalAppointment,
+  unrelatedAppointment,
+  els: { agendaProfessional: { value: '' }, appShell: { dataset: { section: 'agenda' } }, agendaGridWrap: { scrollTop: 88 } },
+  URLSearchParams,
+  document: { body: { dataset: { currentSection: 'agenda' } } },
+  invalidateCustomerOverview: () => {},
+  loadCustomerOverview: async () => {},
+  agendaProfessionalPreferenceKey: () => 'business-scope',
+  startOfDay: (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())),
+  addDays: (date: Date, count: number) => new Date(date.getTime() + count * 86_400_000),
+  renderAgenda: () => { agendaRenderCount += 1 },
+  getJson: (url: string) => {
+    agendaRequests.push(new URL(url, 'https://agenda.invalid'))
+    return new Promise<unknown[]>((resolve, reject) => {
+      requestResolvers.push(resolve)
+      requestRejectors.push(reject)
+    })
+  }
+}
+const agendaRefreshApi = runInNewContext(`
+  let crmWorkspaceVersion = 7, agendaRequest = null, agendaDataScope = 'business-scope',
+    agendaDataProfessional = '', agendaDataStale = false, agendaMutationVersion = 2
+  const agendaRangeCache = new Map([['all-professionals', {
+    scope: 'business-scope', from: new Date('2026-11-09T00:00:00.000Z'), to: new Date('2026-11-23T00:00:00.000Z'),
+    professional: '', mutationVersion: 2, appointments: [originalAppointment, unrelatedAppointment]
+  }]])
+  const agendaAppointmentRefreshes = new Map()
+  ${incrementalAgendaFunctions}
+  ;({ refreshAgendaAppointment, setWorkspaceVersion: (version) => { crmWorkspaceVersion = version } })
+`, agendaRefreshContext) as {
+  refreshAgendaAppointment: (id: string) => Promise<void>
+  setWorkspaceVersion: (version: number) => void
+}
+const firstRefresh = agendaRefreshApi.refreshAgendaAppointment('appointment-1')
+const duplicateRefresh = agendaRefreshApi.refreshAgendaAppointment('appointment-1')
+assert.equal(agendaRequests.length, 1, 'los avisos concurrentes del mismo turno comparten su primera consulta')
+assert.equal(agendaRequests[0].pathname, '/appointments')
+assert.equal(agendaRequests[0].searchParams.get('businessId'), 'business-1')
+assert.equal(agendaRequests[0].searchParams.get('appointmentId'), 'appointment-1')
+assert.equal(agendaRequests.some(({ pathname }) => pathname === '/schedule-blocks'), false)
+const { financeSummary: omittedFinance, ...appointmentWithoutFinance } = originalAppointment
+void omittedFinance
+requestResolvers[0]([{
+  ...appointmentWithoutFinance, status: 'COMPLETED', updatedAt: '2026-11-16T16:00:00.000Z'
+}])
+await new Promise<void>((resolve) => setImmediate(resolve))
+assert.equal(agendaRequests.length, 2, 'un aviso recibido mientras la consulta está en curso programa una sola lectura posterior')
+assert.deepEqual(state.agendaAppointments.find((item) => item.id === 'appointment-1')?.financeSummary, originalAppointment.financeSummary)
+assert.deepEqual(state.agendaAppointments.find((item) => item.id === 'appointment-2'), unrelatedAppointment)
+requestResolvers[1]([{ ...originalAppointment, status: 'COMPLETED', financeSummary: null }])
+await Promise.all([firstRefresh, duplicateRefresh])
+assert.equal(state.agendaAppointments.find((item) => item.id === 'appointment-1')?.financeSummary, null)
+assert.equal(state.agendaAppointments.find((item) => item.id === 'appointment-2')?.financeSummary.pendingAmount, 500)
+assert.equal(agendaRenderCount, 2, 'solo se redibuja cuando cambió el turno visible')
+const failedRefresh = agendaRefreshApi.refreshAgendaAppointment('appointment-2')
+requestRejectors[2](new Error('offline'))
+await assert.rejects(failedRefresh, /offline/)
+assert.equal(state.agendaAppointments.some((item) => item.id === 'appointment-2'), true, 'un fallo puntual conserva el turno y su resumen')
+const lateRefresh = agendaRefreshApi.refreshAgendaAppointment('appointment-1')
+state.businessId = 'business-2'
+agendaRefreshApi.setWorkspaceVersion(8)
+requestResolvers[3]([{ ...appointmentWithoutFinance, status: 'NO_SHOW' }])
+await lateRefresh
+assert.equal(state.agendaAppointments.find((item) => item.id === 'appointment-1')?.status, 'COMPLETED', 'una respuesta tardía de otro comercio se descarta')
+assert.match(
+  crmUiSource.slice(crmUiSource.indexOf('async function saveManualAppointment('), crmUiSource.indexOf('async function deleteManualAppointment(')),
+  /refreshAgendaAppointment\(savedAppointmentId\)/,
+  'el guardado actualiza su turno por ID'
+)
+assert.doesNotMatch(
+  crmUiSource.slice(crmUiSource.indexOf('async function saveManualAppointment('), crmUiSource.indexOf('async function deleteManualAppointment(')),
+  /await loadAgenda\(\)/,
+  'el guardado no vuelve a cargar el rango completo'
 )
 assert.match(
   crmUiSource,

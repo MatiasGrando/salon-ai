@@ -1,5 +1,15 @@
 # Carga prioritaria de Agenda, Clientes y Caja
 
+### Cambios de turnos sin recargar la Agenda
+
+- [x] A8. Al crear, editar, mover, cancelar o cambiar el estado de un turno y al recibir un aviso `appointment_changed`, actualizar el turno identificado. Conservar los estados de pago ya visibles, el rango, el filtro de profesional y los demás turnos. Probar el resultado con una consulta puntual lenta o fallida y con avisos repetidos o tardíos.
+
+El guardado actual descarta la respuesta, espera una recarga de turnos y bloqueos y el aviso en tiempo real puede pedir otro rango. El rango llega sin resumen de pagos y pierde temporalmente las etiquetas. Mantener la primera carga liviana. Reusar la consulta autorizada de turnos y su filtro interno por ID para pedir un solo resultado canónico con sus permisos de Caja. Ajustar las copias del rango cargado sin borrar el resto y preservar el refresco completo en recuperación de conexión o cambios cuya identidad de turno no se conoce. El fallo de cobro en reservas de Instagram queda para un trabajo aparte.
+
+Ruta directa delegada, por mapa de interfaz, servicio, ruta y eventos, y escritores acotados de servidor e interfaz. TDD estricto según `openspec/config.yaml`, contratos offline de ruta y navegación/actualización de Agenda, sintaxis CRM, estados de turno, precarga, alcance y UTF-8. Forecast 230–390 líneas, estrategia de entrega `ask-on-risk`, base `740c094`. Espejo Engram pendiente.
+
+RED: el contrato de eventos detectó que `appointment_changed` todavía recargaba el rango. El contrato de ruta detectó que la consulta omitía `appointmentId`. GREEN: consulta puntual con permisos existentes, caché por rango actualizada sin descartar los demás turnos, resumen financiero conservado cuando falta ese campo y descarte de respuestas fuera del comercio. La prueba con diferimientos verificó avisos repetidos, fallos de red y cambio de comercio. Pasaron también precarga, arrastre, borrado optimista, estados de turno, alcance y arranque de Agenda. Validación en producción pendiente.
+
 ### Navegación durante la carga inicial
 
 - [x] A7. Activar de inmediato la sección autorizada que el usuario elija mientras se carga Agenda. Mostrar la carga dentro de Ajustes, Marketing/Instagram o Cuentas, y reutilizar el indicador existente de Caja. Evitar que una respuesta tardía cambie la sección o el comercio activo.

@@ -304,9 +304,14 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       to?: string
       professionalId?: string
       includeFinance?: string
+      appointmentId?: unknown
     }
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const hasAppointmentId = Object.prototype.hasOwnProperty.call(query, 'appointmentId')
+    if (hasAppointmentId && (typeof query.appointmentId !== 'string' || !query.appointmentId.trim() || query.appointmentId !== query.appointmentId.trim())) {
+      return reply.status(400).send({ message: 'appointmentId debe ser un identificador válido' })
+    }
     if (!query.businessId) {
       return reply.status(400).send({ message: 'businessId es requerido para consultar turnos' })
     }
@@ -317,6 +322,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
       && hasAnyCashPermission(authUser, ['canRecordAppointmentPayments', 'canApplyDiscounts'])
     const appointments = await service.findAll({
       businessId: query.businessId,
+      ...(hasAppointmentId ? { appointmentId: query.appointmentId as string } : {}),
       ...(query.customerId ? { customerId: query.customerId } : {}),
       ...(query.customerPhone ? { customerPhone: query.customerPhone } : {}),
       ...(query.from ? { from: query.from } : {}),
