@@ -34,12 +34,14 @@ const { DISABLED_POLLING_MARKER } = await import('../src/observability/egress-ba
 const html = renderCrmHtml({ pollingMarker: DISABLED_POLLING_MARKER, cashRegisterEnabled: false })
 const handlers = html.match(/\n    function showAgendaLoadError\([\s\S]+?(?=\n    function renderAgenda\()/)?.[0]
 assert.ok(handlers, 'la agenda renderizada contiene los controladores de carga y navegación')
+const targetedUpdates = html.match(/\n    function appointmentFitsAgendaRange\([\s\S]+?(?=\n    function refreshAgendaAppointment\()/)?.[0]
+assert.ok(targetedUpdates)
 
 const day = (number: number) => new Date(Date.UTC(2026, 10, number))
 const state = {
   businessId: 'test-business', currentUser: {},
   agendaMonthDate: day(12), agendaSelectedDate: day(12), agendaViewDays: 1,
-  agendaDeletingAppointmentIds: new Set<string>(), agendaAppointments: [], agendaBlocks: [],
+  agendaDeletingAppointmentIds: new Set<string>(), agendaAppointments: [] as { id: string; startAt: string }[], agendaBlocks: [],
   agendaLoadController: null, agendaLoadRequest: 0
 }
 const els = { agendaProfessional: { value: '' }, agendaGridWrap: { innerHTML: '' }, appShell: { dataset: { section: 'agenda' } } }
@@ -71,10 +73,12 @@ const agenda = runInNewContext(`
     agendaRangeCache.clear()
   }
   ${handlers}
-  ;({ loadAgenda, navigateAgendaToDate })
+  ${targetedUpdates}
+  ;({ loadAgenda, navigateAgendaToDate, applyAgendaAppointmentResult })
 `, context) as {
   loadAgenda: (options?: { initial?: boolean; preferCached?: boolean; buffer?: boolean }) => Promise<void>
   navigateAgendaToDate: (date: Date) => Promise<void>
+  applyAgendaAppointmentResult: (id: string, appointment: { id: string; startAt: string }) => boolean
 }
 
 function expectRange(index: number, from: number, to: number, professional: string | null) {
@@ -89,7 +93,10 @@ function expectRange(index: number, from: number, to: number, professional: stri
 }
 
 const initial = agenda.loadAgenda({ initial: true })
-expectRange(0, 12, 13, null).forEach(({ resolve }) => resolve([]))
+const originalAppointment = { id: 'appointment-1', startAt: day(12).toISOString() }
+const initialRange = expectRange(0, 12, 13, null)
+initialRange[0].resolve([originalAppointment])
+initialRange[1].resolve([])
 await initial
 assert.equal(requests.length, 2, 'la primera carga solo pide el día visible')
 assert.equal(renders.at(-1), 12)
@@ -99,9 +106,13 @@ const buffer = expectRange(2, 5, 20, null)
 const nextDay = agenda.navigateAgendaToDate(day(13))
 assert.equal(requests.length, 4, 'la navegación reutiliza una precarga que cubre el día en curso')
 assert.ok(buffer.every(({ signal }) => !signal.aborted), 'la navegación conserva la consulta en curso')
-buffer.forEach(({ resolve }) => resolve([]))
+const movedAppointment = { ...originalAppointment, startAt: day(13).toISOString() }
+agenda.applyAgendaAppointmentResult(movedAppointment.id, movedAppointment)
+buffer[0].resolve([originalAppointment])
+buffer[1].resolve([])
 await Promise.all([warming, nextDay])
 assert.equal(renders.at(-1), 13)
+assert.equal(state.agendaAppointments[0].startAt, movedAppointment.startAt, 'una precarga anterior al movimiento preserva el horario confirmado')
 
 const previousDay = agenda.navigateAgendaToDate(day(12))
 assert.equal(renders.at(-1), 12, 'un día cubierto se muestra de inmediato')
