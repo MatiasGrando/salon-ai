@@ -99,7 +99,8 @@ export const cashRegisterStyles = `
     .cash-entry-amount { font-weight: 900; text-align: right; }
     .cash-entry-amount.outflow { color: var(--danger); }
     .cash-entry-amount.inflow { color: #047857; }
-    .cash-load-more { width: 100%; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 14px; background: var(--surface-soft); }
+    .cash-entry-pagination { color: var(--muted); font-size: 13px; }
+    .cash-entry-pagination[hidden] { display: none; }
     .cash-inline-state { padding: 34px; text-align: center; color: var(--muted); }
     .cash-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; background: rgba(17,19,24,.52); }
     .cash-dialog-backdrop[hidden] { display: none; }
@@ -426,6 +427,9 @@ export const cashRegisterStyles = `
     .cash-day-metric .cash-day-icon { color: var(--cash-icon-color, #1859ce); }
     .cash-dashboard .cash-summary-card > strong { font-size: clamp(1.65rem, 2.55vw, 2.2rem); line-height: 1.15; }
     .cash-dashboard .cash-method-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 5px; }
+    @media (max-width: 380px) {
+      .cash-dashboard .cash-method-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
     .cash-dashboard .cash-method-total { padding: 7px; border-color: #c7d4e55e; background: #ffffff9e; }
     .cash-dashboard .cash-method-total span { font-size: 11px; }
     .cash-dashboard .cash-method-total strong { font-size: 13px; }
@@ -667,7 +671,13 @@ export const cashRegisterMarkup = `
               </div>
             </div>
             <div class="cash-entry-list" id="cash-entry-list"><div class="cash-inline-state">Cargando movimientos...</div></div>
-            <button class="cash-load-more" id="cash-next-page" type="button" hidden>Cargar m&aacute;s movimientos</button>
+            <nav class="cash-pagination cash-entry-pagination" id="cash-entry-pagination" aria-label="Paginaci&oacute;n de movimientos" hidden>
+              <span id="cash-entry-page-info" aria-live="polite"></span>
+              <div class="cash-pagination-controls">
+                <button class="secondary" id="cash-previous-page" type="button" disabled>Anterior</button>
+                <button class="secondary" id="cash-next-page" type="button" disabled>Siguiente</button>
+              </div>
+            </nav>
           </section>
         </div>
       </div>
@@ -910,7 +920,8 @@ export const cashRegisterScript = `
       professionalFilterField: document.getElementById('cash-professional-filter-field'), professionalFilter: document.getElementById('cash-professional-filter'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
       gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), unknownCollected: document.getElementById('cash-unknown-collected'), unknownCollectedRow: document.getElementById('cash-unknown-collected-row'), unknownOutgoing: document.getElementById('cash-unknown-outgoing'), unknownOutgoingRow: document.getElementById('cash-unknown-outgoing-row'), unknownTotal: document.getElementById('cash-unknown-total'), unknownTotalRow: document.getElementById('cash-unknown-total-row'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), outgoingCash: document.getElementById('cash-outgoing-cash'), outgoingTransfer: document.getElementById('cash-outgoing-transfer'), outgoingCard: document.getElementById('cash-outgoing-card'), totalCash: document.getElementById('cash-total-cash'), totalTransfer: document.getElementById('cash-total-transfer'), totalCard: document.getElementById('cash-total-card'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
-      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), subcategoryFilter: document.getElementById('cash-subcategory-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'), nextPage: document.getElementById('cash-next-page'),
+      typeFilter: document.getElementById('cash-type-filter'), methodFilter: document.getElementById('cash-method-filter'), categoryFilter: document.getElementById('cash-category-filter'), subcategoryFilter: document.getElementById('cash-subcategory-filter'), sessionFilter: document.getElementById('cash-session-filter'), categoryManage: document.getElementById('cash-expense-category-manage'), search: document.getElementById('cash-search'), entryList: document.getElementById('cash-entry-list'),
+      entryPagination: document.getElementById('cash-entry-pagination'), entryPageInfo: document.getElementById('cash-entry-page-info'), previousPage: document.getElementById('cash-previous-page'), nextPage: document.getElementById('cash-next-page'),
       periodFrom: document.getElementById('cash-period-from'), periodTo: document.getElementById('cash-period-to'), periodApply: document.getElementById('cash-period-apply'), periodFeedback: document.getElementById('cash-period-feedback'), periodGross: document.getElementById('cash-period-gross'), periodCash: document.getElementById('cash-period-cash'), periodTransfer: document.getElementById('cash-period-transfer'), periodCard: document.getElementById('cash-period-card'), periodUnknownCollected: document.getElementById('cash-period-unknown-collected'), periodUnknownCollectedRow: document.getElementById('cash-period-unknown-collected-row'), periodUnknownOutgoing: document.getElementById('cash-period-unknown-outgoing'), periodUnknownOutgoingRow: document.getElementById('cash-period-unknown-outgoing-row'), periodUnknownTotal: document.getElementById('cash-period-unknown-total'), periodUnknownTotalRow: document.getElementById('cash-period-unknown-total-row'), periodRefunds: document.getElementById('cash-period-refunds'), periodExpensesTotal: document.getElementById('cash-period-expenses-total'), periodOutgoingCash: document.getElementById('cash-period-outgoing-cash'), periodOutgoingTransfer: document.getElementById('cash-period-outgoing-transfer'), periodOutgoingCard: document.getElementById('cash-period-outgoing-card'), periodResult: document.getElementById('cash-period-result'), periodTotalCash: document.getElementById('cash-period-total-cash'), periodTotalTransfer: document.getElementById('cash-period-total-transfer'), periodTotalCard: document.getElementById('cash-period-total-card'), periodWithdrawals: document.getElementById('cash-period-withdrawals'), periodAdjustments: document.getElementById('cash-period-adjustments'), periodCategoryList: document.getElementById('cash-period-category-list'), periodCategoryFilter: document.getElementById('cash-period-category-filter'), periodSubcategoryFilter: document.getElementById('cash-period-subcategory-filter'), periodMethodFilter: document.getElementById('cash-period-method-filter'), periodSearch: document.getElementById('cash-period-search'), periodPageSize: document.getElementById('cash-period-page-size'), periodExpenseList: document.getElementById('cash-period-expense-list'), periodExpenseCount: document.getElementById('cash-period-expense-count'), periodPageInfo: document.getElementById('cash-period-page-info'), periodPrevious: document.getElementById('cash-period-previous'), periodNext: document.getElementById('cash-period-next'),
       sessionDialog: document.getElementById('cash-session-dialog'), sessionTitle: document.getElementById('cash-session-title'), sessionForm: document.getElementById('cash-session-form'), sessionX: document.getElementById('cash-session-x'), sessionCancel: document.getElementById('cash-session-cancel'), sessionSubmit: document.getElementById('cash-session-submit'), sessionResponsible: document.getElementById('cash-session-responsible'), sessionHelp: document.getElementById('cash-session-help'), responsibleField: document.getElementById('cash-responsible-field'), openingField: document.getElementById('cash-opening-field'), openingLabel: document.getElementById('cash-opening-label'), countedField: document.getElementById('cash-counted-field'), countedLabel: document.getElementById('cash-counted-label'), openingCash: document.getElementById('cash-opening-cash'), countedCash: document.getElementById('cash-counted-cash'), sessionReconciliation: document.getElementById('cash-session-reconciliation'), sessionExpected: document.getElementById('cash-session-expected'), sessionCounted: document.getElementById('cash-session-counted'), sessionDifference: document.getElementById('cash-session-difference'), differenceConfirmField: document.getElementById('cash-difference-confirm-field'), differenceConfirm: document.getElementById('cash-difference-confirm'), differenceConfirmCopy: document.getElementById('cash-difference-confirm-copy'), closeChangeSection: document.getElementById('cash-close-change-section'), closeLeaveChange: document.getElementById('cash-close-leave-change'), closeChangeField: document.getElementById('cash-close-change-field'), closeCashToLeave: document.getElementById('cash-close-cash-to-leave'), closeChangePreview: document.getElementById('cash-close-change-preview'), closeNextOpening: document.getElementById('cash-close-next-opening'), closeTransferAmount: document.getElementById('cash-close-transfer-amount'), sessionFeedback: document.getElementById('cash-session-feedback'), sessionLoading: document.getElementById('cash-session-loading'),
       operationDialog: document.getElementById('cash-operation-dialog'), operationForm: document.getElementById('cash-operation-form'), operationX: document.getElementById('cash-operation-x'), operationCancel: document.getElementById('cash-operation-cancel'), operationType: document.getElementById('cash-operation-type'), operationMethod: document.getElementById('cash-operation-method'), operationMethodField: document.getElementById('cash-operation-method-field'), operationCategory: document.getElementById('cash-operation-category'), operationSubcategory: document.getElementById('cash-operation-subcategory'), operationCategoryField: document.getElementById('cash-operation-category-field'), operationAmount: document.getElementById('cash-operation-amount'), operationAmountField: document.getElementById('cash-operation-amount-field'), operationDelta: document.getElementById('cash-operation-delta'), operationDeltaField: document.getElementById('cash-operation-delta-field'), operationDescription: document.getElementById('cash-operation-description'), operationDescriptionField: document.getElementById('cash-operation-description-field'), operationCounterparty: document.getElementById('cash-operation-counterparty'), operationCounterpartyField: document.getElementById('cash-operation-counterparty-field'), operationObservation: document.getElementById('cash-operation-observation'), operationFeedback: document.getElementById('cash-operation-feedback'), operationSubmit: document.getElementById('cash-operation-submit'),
@@ -926,7 +937,7 @@ export const cashRegisterScript = `
       finance: document.getElementById('appointment-finance'), financeBalance: document.getElementById('appointment-finance-balance'), financeServiceSubtotal: document.getElementById('appointment-finance-service-subtotal'), financeProductSubtotal: document.getElementById('appointment-finance-product-subtotal'), financeDiscount: document.getElementById('appointment-finance-discount'), financeTotal: document.getElementById('appointment-finance-total'), financePaid: document.getElementById('appointment-finance-paid'), financeDue: document.getElementById('appointment-finance-due'), financeHistory: document.getElementById('appointment-finance-history'), financeFeedback: document.getElementById('appointment-finance-feedback'), totalForm: document.getElementById('appointment-total-form'), totalToggle: document.getElementById('appointment-adjust-total-toggle'), totalSubmit: document.getElementById('appointment-total-submit'), totalCancel: document.getElementById('appointment-total-cancel'), estimatedTotal: document.getElementById('appointment-estimated-total'), totalReason: document.getElementById('appointment-total-reason'), originalTotal: document.getElementById('appointment-original-total'), minimumTotal: document.getElementById('appointment-minimum-total'), minimumTotalRow: document.getElementById('appointment-minimum-total-row'), totalHelp: document.getElementById('appointment-total-help'), editCollectTotal: document.getElementById('appointment-edit-collect-total'), editDeposit: document.getElementById('appointment-edit-deposit'), editDiscountToggle: document.getElementById('appointment-edit-discount-toggle'), discountForm: document.getElementById('appointment-discount-form'), discountSubmit: document.getElementById('appointment-discount-submit'), discountType: document.getElementById('appointment-discount-type'), discountValue: document.getElementById('appointment-discount-value'), discountValueLabel: document.getElementById('appointment-discount-value-label'), discountHelp: document.getElementById('appointment-discount-help'), editDepositPanel: document.getElementById('appointment-edit-deposit-panel'), editDepositAmount: document.getElementById('appointment-edit-deposit-amount'), editDepositMethod: document.getElementById('appointment-edit-deposit-method'), editDepositSubmit: document.getElementById('appointment-edit-deposit-submit'), paymentForm: document.getElementById('appointment-edit-payment-panel'), paymentSubmit: document.getElementById('appointment-payment-submit'), paymentAmount: document.getElementById('appointment-payment-amount'), paymentMethod: document.getElementById('appointment-payment-method'), paymentLineTwo: document.getElementById('appointment-payment-line-two'), paymentAmountTwo: document.getElementById('appointment-payment-amount-two'), paymentMethodTwo: document.getElementById('appointment-payment-method-two'), addPaymentLine: document.getElementById('appointment-add-payment-line'), paymentCompleteRow: document.getElementById('appointment-payment-complete-row'), paymentComplete: document.getElementById('appointment-payment-complete'), editObservationRow: document.getElementById('appointment-edit-observation-row'), paymentObservation: document.getElementById('appointment-payment-observation'), cashRequired: document.getElementById('appointment-cash-required'), appointmentOpenCash: document.getElementById('appointment-open-cash')
     }
     function createCashRegisterWorkspace() {
-      return { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], nextCursor: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
+      return { viewMode: 'day', periodPreset: 'month', periodPage: 1, periodTotalPages: 1, periodLoaded: false, professionalPeriodPreset: 'week', professionalPage: 1, professionalTotalPages: 1, professionalExpandedIds: new Set(), professionalSummaryResult: null, current: null, days: [], selectedDayId: null, entries: [], entryPage: null, permissions: {}, responsibleUsers: [], expenseCategories: [], expenseSubcategories: [], paymentMethods: [], treasuryAccounts: [], treasuryMovements: [], treasuryCounterparties: [], treasuryPaymentMethods: [], editingExpenseCategoryId: null, editingExpenseSubcategoryId: null, productCategories: [], products: [], editingProductCategoryId: null, editingProductId: null, productSaleItems: [], productSaleIdempotencyKey: null, appointmentProductItems: [], appointmentProductRemovalId: null, sessionMode: 'open', returnToAppointment: false, searchTimer: null, eventSource: null, loaded: false, appointmentFinance: null, appointmentFinanceRequestId: 0, appointmentFinanceSummaryCache: {}, appointmentFinanceCache: {}, appointmentFinanceInFlight: {}, financeSummaryRefreshTimer: null, createFinance: { collectTotal: false, deposit: false, discount: false }, editFinance: { adjust: false, collectTotal: false, deposit: false, discount: false } }
     }
     state.cashRegister = createCashRegisterWorkspace()
 
@@ -1613,45 +1624,91 @@ export const cashRegisterScript = `
         }).join('')
         cashUi.entryList.innerHTML = '<div class="cash-table-scroll" role="region" aria-label="Movimientos de caja" tabindex="0"><table class="cash-day-table cash-movements-table" aria-label="Detalle de movimientos"><thead><tr><th scope="col">Concepto</th><th scope="col">Medio</th><th scope="col">Fecha y hora</th><th scope="col">Categor&iacute;a</th><th scope="col">Importe</th><th scope="col">Acciones</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       }
-      cashUi.nextPage.hidden = !state.cashRegister.nextCursor
     }
 
-    function loadCashEntries(options = {}) {
-      const register = state.cashRegister
-      const scope = cashRegisterScopeKey()
-      const dayId = state.cashRegister.selectedDayId
-      if (!dayId) return
-      const params = new URLSearchParams({ limit: '40' })
+    const cashEntryPageSize = 25
+
+    function cashEntriesFilterUrl(dayId) {
+      const params = new URLSearchParams({ limit: String(cashEntryPageSize) })
       if (isCashBusinessScopedRole() && state.businessId) params.set('businessId', state.businessId)
-      if (options.append && state.cashRegister.nextCursor) params.set('cursor', state.cashRegister.nextCursor)
       if (cashUi.typeFilter.value) params.set('type', cashUi.typeFilter.value)
       if (cashUi.methodFilter.value) params.set('method', cashUi.methodFilter.value)
       if (cashUi.categoryFilter.value) params.set('categoryId', cashUi.categoryFilter.value)
       if (cashUi.subcategoryFilter.value) params.set('subcategoryId', cashUi.subcategoryFilter.value)
       if (cashUi.sessionFilter.value) params.set('sessionId', cashUi.sessionFilter.value)
       if (cashUi.search.value.trim()) params.set('q', cashUi.search.value.trim())
-      const url = '/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString()
+      return '/cash-register/days/' + encodeURIComponent(dayId) + '/entries?' + params.toString()
+    }
+
+    function renderCashEntryPagination() {
+      const register = state.cashRegister
+      const page = register.entryPage
+      const busy = Boolean(register.entriesRequest)
+      const matchesFilters = page?.filterUrl === cashEntriesFilterUrl(register.selectedDayId)
+      cashUi.entryPagination.hidden = !page
+      cashUi.previousPage.disabled = busy || !matchesFilters || !page?.index
+      cashUi.nextPage.disabled = busy || !matchesFilters || !page?.nextCursor
+      cashUi.entryList.setAttribute('aria-busy', String(busy))
+      const offset = (page?.index || 0) * cashEntryPageSize
+      const range = register.entries.length ? 'Movimientos ' + (offset + 1) + '–' + (offset + register.entries.length) : 'Sin movimientos'
+      cashUi.entryPageInfo.textContent = page ? 'Página ' + (page.index + 1) + ' · ' + range : ''
+    }
+
+    function resetCashEntryPage() {
+      const register = state.cashRegister
+      register.entries = []
+      register.entryPage = null
+      register.entriesRequest = null
+      cashUi.entryList.innerHTML = register.selectedDayId ? '<div class="cash-inline-state" role="status">Cargando movimientos...</div>' : ''
+      renderCashEntryPagination()
+    }
+
+    function loadCashEntries(options = {}) {
+      const register = state.cashRegister
+      const scope = cashRegisterScopeKey()
+      const dayId = register.selectedDayId
+      if (!dayId) return
+      const filterUrl = cashEntriesFilterUrl(dayId)
       const revision = register.revision
-      if (register.entriesRequest?.url === url && register.entriesRequest.revision === revision) return register.entriesRequest.promise
-      if (!options.append && !options.preserve) cashUi.entryList.innerHTML = '<div class="cash-inline-state">Cargando movimientos...</div>'
+      const active = register.entriesRequest
+      const isLoading = active?.filterUrl === filterUrl && active.revision === revision
+      if (isLoading && (options.direction || options.preserve)) return active.promise
+      const page = register.entryPage?.filterUrl === filterUrl ? register.entryPage : null
+      let index = page?.index || 0
+      let cursors = page?.cursors || [null]
+      if (options.direction === 'previous') {
+        if (!index) return
+        index -= 1
+      } else if (options.direction === 'next') {
+        if (!page?.nextCursor) return
+        index += 1
+        cursors = [...cursors, page.nextCursor]
+      }
+      const cursor = cursors[index]
+      const url = cursor ? filterUrl + '&cursor=' + encodeURIComponent(cursor) : filterUrl
+      if (isLoading && active.url === url) return active.promise
+      if (!page) resetCashEntryPage()
       const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && register.entriesRequest?.promise === promise &&
-        dayId === register.selectedDayId && revision === register.revision
-      const promise = getJson(url).then((page) => {
+        dayId === register.selectedDayId && revision === register.revision && filterUrl === cashEntriesFilterUrl(dayId)
+      const promise = getJson(url).then((result) => {
         if (!isCurrent()) return false
-        state.cashRegister.entries = options.append ? state.cashRegister.entries.concat(page.entries || []) : (page.entries || [])
-        state.cashRegister.nextCursor = page.nextCursor || null
+        register.entries = result.entries || []
+        register.entryPage = { filterUrl, index, cursors: cursors.slice(0, index + 1), nextCursor: result.nextCursor || null }
         renderCashEntries()
         return true
       }).catch((error) => {
         if (!isCurrent()) return false
-        if (options.preserve) showCrmToast(error.message, 'error')
+        if (page) showCrmToast(error.message, 'error')
         else cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
         register.loadedAt = 0
         return false
       }).finally(() => {
-        if (register.entriesRequest?.promise === promise) register.entriesRequest = null
+        if (register.entriesRequest?.promise !== promise) return
+        register.entriesRequest = null
+        if (cashRegisterScopeIsCurrent(register, scope)) renderCashEntryPagination()
       })
-      register.entriesRequest = { url, revision, promise }
+      register.entriesRequest = { filterUrl, url, revision, promise }
+      renderCashEntryPagination()
       return promise
     }
 
@@ -1659,11 +1716,21 @@ export const cashRegisterScript = `
       const register = state.cashRegister
       const scope = cashRegisterScopeKey()
       const revision = register.revision
-      state.cashRegister.selectedDayId = dayId
-      const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
-      if (!cashRegisterScopeIsCurrent(register, scope) || revision !== register.revision || dayId !== register.selectedDayId) return false
-      renderCashSummary(result.day, result.summary, result.sessions)
-      return loadCashEntries(options)
+      if (register.selectedDayId !== dayId) {
+        register.selectedDayId = dayId
+        resetCashEntryPage()
+      }
+      const isCurrent = () => cashRegisterScopeIsCurrent(register, scope) && revision === register.revision && dayId === register.selectedDayId
+      try {
+        const result = await getJson(cashScoped('/cash-register/days/' + encodeURIComponent(dayId) + '/summary'))
+        if (!isCurrent()) return false
+        renderCashSummary(result.day, result.summary, result.sessions)
+        return loadCashEntries(options)
+      } catch (error) {
+        if (!isCurrent()) return false
+        if (!register.entryPage) cashUi.entryList.innerHTML = '<div class="cash-inline-state error">' + escapeHtml(error.message) + '</div>'
+        throw error
+      }
     }
 
     function cashIsoDate(date) {
@@ -2432,7 +2499,7 @@ export const cashRegisterScript = `
       for (const filter of [cashUi.typeFilter, cashUi.methodFilter, cashUi.categoryFilter, cashUi.subcategoryFilter, cashUi.sessionFilter, cashUi.search]) filter.value = ''
       for (const view of [cashUi.dashboard, cashUi.empty, cashUi.sessionStrip, cashUi.openToolbar, cashUi.periodView, cashUi.professionalView, cashUi.treasuryView]) view.hidden = true
       cashUi.daySelect.innerHTML = ''
-      cashUi.entryList.innerHTML = ''
+      resetCashEntryPage()
       cashUi.status.textContent = 'Cargando caja…'
       cashUi.status.classList.remove('open')
     }
@@ -2526,7 +2593,7 @@ export const cashRegisterScript = `
       const selectedDayId = state.cashRegister.selectedDayId
       const retainedDayId = state.cashRegister.days.some((day) => day.id === selectedDayId) ? selectedDayId : null
       state.cashRegister.selectedDayId = isStaffCash ? (current.day?.id || null) : (retainedDayId || current.day?.id || state.cashRegister.days[0]?.id || null)
-      if (isStaffCash && !current.day) { state.cashRegister.entries = []; state.cashRegister.nextCursor = null; cashUi.entryList.innerHTML = '' }
+      if (selectedDayId !== state.cashRegister.selectedDayId || !state.cashRegister.selectedDayId) resetCashEntryPage()
       renderCashCurrent()
       let entries
       if (current.day && current.day.id === state.cashRegister.selectedDayId) {
@@ -3703,8 +3770,9 @@ export const cashRegisterScript = `
     cashUi.categoryFilter.addEventListener('change', () => { renderCashExpenseSubcategoryOptions(); loadCashEntries() })
     cashUi.subcategoryFilter.addEventListener('change', () => loadCashEntries())
     cashUi.sessionFilter.addEventListener('change', () => loadCashEntries())
-    cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
-    cashUi.nextPage.addEventListener('click', () => loadCashEntries({ append: true }))
+    cashUi.search.addEventListener('input', () => { clearTimeout(state.cashRegister.searchTimer); renderCashEntryPagination(); state.cashRegister.searchTimer = setTimeout(() => loadCashEntries(), 250) })
+    cashUi.previousPage.addEventListener('click', () => loadCashEntries({ direction: 'previous' }))
+    cashUi.nextPage.addEventListener('click', () => loadCashEntries({ direction: 'next' }))
     cashUi.entryList.addEventListener('click', (event) => {
       const serviceButton = event.target.closest('[data-cash-correct-service]')
       if (serviceButton) {

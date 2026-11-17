@@ -47,7 +47,7 @@ assert.match(ui, /renderCashSummary\(result\.day, result\.summary, result\.sessi
 assert.doesNotMatch(ui, /cashDifference[\s\S]{0,220}type:\s*['"]ADJUSTMENT['"]/, 'una diferencia reconocida no debe crear un ajuste automatico')
 assert.match(ui, /cashUi\.sessionForm\.reset\(\)/, 'cada apertura del dialogo debe limpiar importes anteriores')
 assert.match(shell, /loadCashRegister\(\{ preserve: Boolean\(state\.cashRegister\?\.loaded\) \}\)/, 'volver a Caja debe refrescar sin borrar los datos visibles')
-assert.match(ui, /!options\.append && !options\.preserve/, 'el refresco preservado no debe reemplazar movimientos por un estado de carga')
+assert.match(ui, /if \(!page\) resetCashEntryPage\(\)/, 'el refresco de la misma jornada y filtros conserva los movimientos visibles')
 for (const marker of [
   'data-section="cash"', 'cash-register/current', 'cash-register/days', 'cash-register/entries',
   'new-session', "mode === 'close'", 'cash-next-page', 'cash-empty-state',
