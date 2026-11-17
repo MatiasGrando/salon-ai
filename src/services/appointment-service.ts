@@ -778,7 +778,8 @@ export class AppointmentService {
 
   async update(
     input: UpdateAppointmentInput,
-    authorizationUser?: AppointmentAuthorizationUser
+    authorizationUser?: AppointmentAuthorizationUser,
+    markTiming?: (phase: string) => void
   ): Promise<AppointmentMutationResult> {
     const existing = authorizationUser
       ? await prisma.appointment.findFirst({
@@ -949,77 +950,19 @@ export class AppointmentService {
       }
     }
 
-    const servicesById = new Map(services.map((service) => [service.id, service]))
-    const orderedServices = serviceIds.map((serviceId) => servicesById.get(serviceId)!)
-    const professionalDuration = orderedServices.reduce(
-      (total, service) => total + reservationDurationLimits(service).professional,
-      0
-    )
-    const customerDuration = orderedServices.reduce(
-      (total, service) => total + reservationDurationLimits(service).business,
-      0
-    )
-    const professionalEndAt = addMinutes(startAt, professionalDuration)
-    const customerEndAt = addMinutes(startAt, customerDuration)
-    const [isInsideBusinessHours, isInsideProfessionalHours, hasScheduleBlock, hasOverlap] = await Promise.all([
-      this.isInsideBusinessHours({
-        businessId: professional.businessId,
-        startAt,
-        endAt: customerEndAt
-      }),
-      this.isInsideProfessionalHours({
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt
-      }),
-      this.hasScheduleBlockOverlap({
-        businessId: professional.businessId,
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt
-      }),
-      this.hasAppointmentOverlap({
-        professionalId: input.professionalId,
-        startAt,
-        endAt: professionalEndAt,
-        excludeAppointmentId: input.id
-      })
-    ])
-    const conflicts: AppointmentAvailabilityConflict[] = [
-      ...(!isInsideBusinessHours
-        ? [{ code: 'OUTSIDE_BUSINESS_HOURS' as const, message: 'El turno queda fuera del horario de atencion del local' }]
-        : []),
-      ...(!isInsideProfessionalHours
-        ? [{ code: 'OUTSIDE_PROFESSIONAL_HOURS' as const, message: 'El profesional no trabaja durante todo ese horario' }]
-        : []),
-      ...(hasScheduleBlock
-        ? [{ code: 'SCHEDULE_BLOCK' as const, message: 'El horario esta bloqueado en la agenda' }]
-        : []),
-      ...(hasOverlap
-        ? [{ code: 'APPOINTMENT_OVERLAP' as const, message: 'El profesional ya tiene otro turno en ese horario' }]
-        : [])
-    ]
-
-    if (conflicts.length && !input.force) {
-      return {
-        ok: false,
-        statusCode: 409,
-        message: conflicts[0]!.message,
-        code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
-        forceable: true,
-        conflicts
-      }
-    }
-
+    markTiming?.('precheck')
     const appointment = await prisma.$transaction(async (transaction) => {
+      markTiming?.('transaction-start')
       const validation = await revalidateBookingWrite(transaction, {
         businessId: professional.businessId,
         professionalId: input.professionalId,
         professionalIdsToLock: [existing.professionalId, input.professionalId],
         serviceIds,
         startAt,
-        excludeAppointmentId: input.id
+        excludeAppointmentId: input.id,
+        overlapPolicy: 'appointment-edit'
       })
+      markTiming?.('availability')
       if (await isCompletedAppointmentLocked(transaction, professional.businessId, input.id)) return 'COMPLETED_IMMUTABLE' as const
       if (authorizationUser) {
         const scopedAppointment = await loadAuthorizedAppointment(transaction, authorizationUser, input.id)
@@ -1050,13 +993,15 @@ export class AppointmentService {
       }
       if (validation.conflicts.includes('PROFESSIONAL_INACTIVE')) return 'PROFESSIONAL_INACTIVE' as const
       if (validation.conflicts.includes('PROFESSIONAL_SERVICE_MISMATCH')) return 'SERVICE_CONFLICT' as const
-      if (!input.force && validation.conflicts.some((conflict) => [
-        'OUTSIDE_BUSINESS_HOURS',
-        'OUTSIDE_PROFESSIONAL_HOURS',
-        'SCHEDULE_BLOCK',
-        'APPOINTMENT_OVERLAP'
-      ].includes(conflict))) return null
-      return updateAppointmentRecord(transaction, {
+      const conflicts = appointmentAvailabilityConflicts({
+        insideBusinessHours: !validation.conflicts.includes('OUTSIDE_BUSINESS_HOURS'),
+        insideProfessionalHours: !validation.conflicts.includes('OUTSIDE_PROFESSIONAL_HOURS'),
+        hasBlock: validation.conflicts.includes('SCHEDULE_BLOCK'),
+        hasOverlap: validation.conflicts.includes('APPOINTMENT_OVERLAP')
+      })
+      if (!input.force && conflicts.length) return conflicts
+      markTiming?.('write-checks')
+      const updated = await updateAppointmentRecord(transaction, {
         where: scopedAppointmentMutationWhere(authorizationUser, input.id),
         data: {
           customerId: input.customerId,
@@ -1106,6 +1051,8 @@ export class AppointmentService {
           }
         }
       })
+      markTiming?.('write')
+      return updated
     })
 
     if (appointment === 'AUTHORIZATION_CONFLICT') return appointmentConflict()
@@ -1130,17 +1077,14 @@ export class AppointmentService {
       }
     }
 
-    if (!appointment) {
+    if (Array.isArray(appointment)) {
       return {
         ok: false,
         statusCode: 409,
-        message: 'El profesional ya tiene otro turno en ese horario',
+        message: appointment[0]!.message,
         code: 'APPOINTMENT_AVAILABILITY_CONFLICT',
         forceable: true,
-        conflicts: [{
-          code: 'APPOINTMENT_OVERLAP',
-          message: 'El profesional ya tiene otro turno en ese horario'
-        }]
+        conflicts: appointment
       }
     }
 

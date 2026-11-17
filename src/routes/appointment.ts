@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 import { prisma } from '../config/prisma.js'
 import { AppointmentService } from '../services/appointment-service.js'
 import { sendAuthorizationFailure } from '../services/authorization-response.js'
@@ -16,6 +16,22 @@ import {
 
 const service = new AppointmentService()
 const defaultCashService = new CashService(new PrismaCashRepository(prisma))
+
+function startAppointmentActionTiming(reply: FastifyReply) {
+  const timings: string[] = []
+  let lastMark = performance.now()
+  const mark = (phase: string) => {
+    const now = performance.now()
+    timings.push(phase + ';dur=' + Math.round(now - lastMark))
+    lastMark = now
+  }
+  return {
+    mark,
+    finish: () => {
+      reply.header('Server-Timing', [...timings, 'server;dur=' + Math.round(reply.elapsedTime)].join(', '))
+    }
+  }
+}
 
 export async function appointmentRoutes(app: FastifyInstance, options: { cashService?: CashService; cashRegisterEnabled?: boolean } = {}) {
   const cashService = options.cashService ?? defaultCashService
@@ -445,10 +461,11 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
 
     const authUser = request.auth?.user
     if (!authUser) return sendAuthorizationFailure(reply, 'unauthenticated')
+    const timing = startAppointmentActionTiming(reply)
     const result = await service.update({
       id: params.id,
       ...body
-    }, authUser)
+    }, authUser, timing.mark).finally(timing.finish)
 
     if (!result.ok) {
       return reply.status(result.statusCode).send({
@@ -617,6 +634,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     if (body.completeAppointment && !hasAgendaPermission(request.auth, 'canEditAppointments')) {
       return reply.status(403).send({ code: 'AGENDA_PERMISSION_REQUIRED', message: 'No tenés permiso para marcar el turno como realizado' })
     }
+    const timing = startAppointmentActionTiming(reply)
     try {
       return await cashService.recordAppointmentPayment({
         businessId,
@@ -630,7 +648,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
           actorUserId: request.auth!.user.id,
           actorName: request.auth!.user.name
         } : {})
-      })
+      }, timing.mark).finally(timing.finish)
     } catch (error) {
       return sendCashError(reply, error)
     }

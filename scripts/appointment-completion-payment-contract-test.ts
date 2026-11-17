@@ -37,14 +37,17 @@ const transaction = {
   completeAppointmentFromPayment: async (input: any) => { completionCalls += 1; return { appointmentId: input.appointmentId, previousStatus: 'CONFIRMED', status: 'COMPLETED', completedAt: input.completedAt } }
 }
 const service = new CashService({ transaction: async (work: any) => work(transaction) } as any)
+const phases: string[] = []
 const completed = await service.recordAppointmentPayment({
   businessId: 'business-1', appointmentId: 'appointment-1', cashSessionId: 'session-1', origin: 'AGENDA',
   lines: [{ amount: 10_000, method: 'CASH' }], completeAppointment: true,
   actorUserId: 'user-1', actorName: 'Admin'
-})
+}, (phase) => phases.push(phase))
 assert.equal(completionCalls, 1)
 assert.equal(insertedPayments, 1)
 assert.equal(completed.completion?.status, 'COMPLETED')
+assert.deepEqual(phases, ['precheck', 'transaction-start', 'cash-lock', 'cash-session', 'payment-checks', 'write'])
+assert.deepEqual(completed.entries.map((entry) => entry.effectiveAt), [completed.completion?.completedAt])
 
 await assert.rejects(
   () => service.recordAppointmentPayment({

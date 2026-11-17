@@ -618,7 +618,7 @@ export class CashService {
     completeAppointment?: boolean
     actorUserId?: string
     actorName?: string
-  }) {
+  }, markTiming?: (phase: string) => void) {
     if (!input.lines.length) throw new CashServiceError('PAYMENT_LINES_REQUIRED')
     if (input.completeAppointment && (!input.actorUserId?.trim() || !input.actorName?.trim())) {
       throw new CashServiceError('APPOINTMENT_COMPLETION_ACTOR_REQUIRED')
@@ -627,8 +627,11 @@ export class CashService {
     if (lines.some((line) => !['CASH', 'TRANSFER', 'CARD'].includes(line.method))) {
       throw new CashServiceError('INVALID_PAYMENT_METHOD')
     }
+    markTiming?.('precheck')
     return this.repository.transaction(async (transaction) => {
+      markTiming?.('transaction-start')
       const context = await transaction.lockBusiness(input.businessId)
+      markTiming?.('cash-lock')
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
       for (const line of lines) {
@@ -636,6 +639,7 @@ export class CashService {
         const configured = await transaction.findBusinessPaymentMethod(input.businessId, line.paymentMethodId)
         if (!configured || !configured.isActive || configured.kind !== line.method) throw new CashServiceError('INVALID_PAYMENT_METHOD')
       }
+      markTiming?.('cash-session')
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
       const currentEntries = await transaction.listAccountEntries(input.businessId, account.id)
@@ -645,6 +649,7 @@ export class CashService {
       if (input.completeAppointment && paymentTotal !== current.balanceAmount) {
         throw new CashServiceError('APPOINTMENT_COMPLETION_REQUIRES_FULL_PAYMENT')
       }
+      markTiming?.('payment-checks')
       const entries = await transaction.insertManualPayments({
         ids: lines.map(() => randomUUID()),
         businessId: input.businessId,
@@ -666,8 +671,9 @@ export class CashService {
           })
         : null
       if (input.completeAppointment && !completion) throw new CashServiceError('APPOINTMENT_COMPLETION_NOT_ALLOWED')
+      markTiming?.('write')
       return {
-        entries,
+        entries: entries.map((entry) => ({ ...entry, effectiveAt: context.dbNow })),
         completion,
         finance: calculateAccountTotals({
           agreedAmount: account.agreedAmount,

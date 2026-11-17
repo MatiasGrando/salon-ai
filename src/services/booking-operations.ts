@@ -75,6 +75,7 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
   startAt: Date
   excludeAppointmentId?: string
   excludeAppointmentIds?: readonly string[]
+  overlapPolicy?: 'appointment-edit'
   contractedDurationMinutes?: { professional: number; customer: number }
   timezone?: string
   dbNow?: Date
@@ -140,6 +141,7 @@ export async function revalidateBookingWrite(tx: Prisma.TransactionClient, input
     endAt: professionalEndAt,
     ...(input.excludeAppointmentId ? { excludeAppointmentId: input.excludeAppointmentId } : {}),
     ...(input.excludeAppointmentIds ? { excludeAppointmentIds: input.excludeAppointmentIds } : {}),
+    ...(input.overlapPolicy ? { overlapPolicy: input.overlapPolicy } : {}),
     ...(input.dbNow ? { dbNow: input.dbNow } : {})
   })
 

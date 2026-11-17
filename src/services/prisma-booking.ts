@@ -78,6 +78,7 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
   endAt: Date
   excludeAppointmentId?: string
   excludeAppointmentIds?: readonly string[]
+  overlapPolicy?: 'appointment-edit'
   dbNow?: Date
 }) {
   const excludedIds = [...new Set([...(input.excludeAppointmentIds ?? []), ...(input.excludeAppointmentId ? [input.excludeAppointmentId] : [])])]
@@ -85,6 +86,14 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
     ? Prisma.sql`AND a."id" NOT IN (${Prisma.join(excludedIds)})`
     : input.excludeAppointmentId ? Prisma.sql`AND a."id" <> ${input.excludeAppointmentId}` : Prisma.empty
   const now = input.dbNow ? Prisma.sql`${input.dbNow}` : Prisma.sql`clock_timestamp()`
+  // An edit retains the CRM's existing conflicts with completed turns and held visits.
+  const isAppointmentEdit = input.overlapPolicy === 'appointment-edit'
+  const completedOverlap = isAppointmentEdit
+    ? Prisma.sql`OR a."status" = 'COMPLETED'::"AppointmentStatus"`
+    : Prisma.empty
+  const activeHold = isAppointmentEdit ? Prisma.empty : Prisma.sql`
+    AND NOT EXISTS (SELECT 1 FROM "BookingVisit" held WHERE held.id=a."visitId" AND held."businessId"=a."businessId" AND held.status='HELD'::"BookingVisitStatus" AND held."holdExpiresAt"<=${now})
+  `
   const rows = await tx.$queryRaw<Array<{ overlaps: boolean }>>(Prisma.sql`
     SELECT EXISTS (
       SELECT 1
@@ -96,13 +105,14 @@ export async function hasAppointmentOverlap(tx: BookingRepositoryClient, input: 
         AND a."startAt" + make_interval(mins => a."totalDurationMinutes") > ${input.startAt}
         AND (
           a."status" = 'CONFIRMED'::"AppointmentStatus"
+          ${completedOverlap}
           OR (
             a."status" = 'PENDING'::"AppointmentStatus"
             AND NOT COALESCE((
               d."status" = 'PENDING_PROOF'::"BookingDepositStatus"
               AND d."expiresAt" <= ${now}
             ), false)
-            AND NOT EXISTS (SELECT 1 FROM "BookingVisit" held WHERE held.id=a."visitId" AND held."businessId"=a."businessId" AND held.status='HELD'::"BookingVisitStatus" AND held."holdExpiresAt"<=${now})
+            ${activeHold}
           )
         )
     ) AS "overlaps"

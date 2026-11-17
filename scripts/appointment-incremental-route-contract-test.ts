@@ -8,6 +8,7 @@ const prismaClient = prisma as any
 const appointmentModel = prismaClient.appointment
 const businessModel = prismaClient.business
 const originalFindAll = AppointmentService.prototype.findAll
+const originalUpdate = AppointmentService.prototype.update
 const originalBusinessFindFirst = businessModel.findFirst
 const originalAppointmentFindFirst = appointmentModel.findFirst
 const calls: any[] = []
@@ -18,6 +19,10 @@ try {
   AppointmentService.prototype.findAll = async function (input: any) {
     calls.push(input)
     return []
+  }
+  AppointmentService.prototype.update = async function (_input, _user, mark) {
+    mark?.('precheck')
+    return { ok: false, statusCode: 409, message: 'Conflicto de horario' }
   }
 
   const app = Fastify()
@@ -32,7 +37,23 @@ try {
       }
     }
   })
-  await app.register(appointmentRoutes)
+  await app.register(appointmentRoutes, { cashService: {
+    async recordAppointmentPayment(_input: unknown, mark?: (name: string) => void) {
+      mark?.('cash-lock')
+      return { entries: [] }
+    }
+  } as any })
+
+  const moved = await app.inject({ method: 'PATCH', url: '/appointments/appointment-test', payload: {} })
+  assert.equal(moved.statusCode, 409)
+  assert.match(String(moved.headers['server-timing']), /^precheck;dur=\d+, server;dur=\d+$/)
+  const paid = await app.inject({
+    method: 'POST',
+    url: '/appointments/appointment-test/payments',
+    payload: { businessId: 'business-test', cashSessionId: 'session-test', lines: [] }
+  })
+  assert.equal(paid.statusCode, 200)
+  assert.match(String(paid.headers['server-timing']), /^cash-lock;dur=\d+, server;dur=\d+$/)
 
   const valid = await app.inject({
     method: 'GET',
@@ -63,6 +84,7 @@ try {
   console.log('OK: GET /appointments supports a tenant-scoped incremental lookup without changing filters or response shape.')
 } finally {
   AppointmentService.prototype.findAll = originalFindAll
+  AppointmentService.prototype.update = originalUpdate
   businessModel.findFirst = originalBusinessFindFirst
   appointmentModel.findFirst = originalAppointmentFindFirst
   await prisma.$disconnect()
