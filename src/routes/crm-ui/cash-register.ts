@@ -99,8 +99,13 @@ export const cashRegisterStyles = `
     .cash-entry-amount { font-weight: 900; text-align: right; }
     .cash-entry-amount.outflow { color: var(--danger); }
     .cash-entry-amount.inflow { color: #047857; }
-    .cash-entry-pagination { color: var(--muted); font-size: 13px; }
-    .cash-entry-pagination[hidden] { display: none; }
+    .cash-dashboard .cash-entry-pagination { position: relative; display: flex; justify-content: center; margin: 0 14px 8px; padding: 0; border-top: 0; }
+    .cash-dashboard .cash-entry-pagination[hidden] { display: none; }
+    .cash-entry-pagination > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .cash-entry-pagination > button:not([hidden]) { display: block; width: 100%; min-height: 44px; padding: 12px; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; background: transparent; color: #1859ce; font-size: 13px; font-weight: 600; text-align: center; box-shadow: none; }
+    .cash-entry-pagination > button:not(:disabled):hover { background: #f3f7ff; }
+    .cash-entry-pagination > button:focus-visible { outline: 2px solid #2267ee; outline-offset: -2px; }
+    #cash-entry-list > .cash-table-scroll { padding-bottom: 0; }
     .cash-inline-state { padding: 34px; text-align: center; color: var(--muted); }
     .cash-dialog-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 18px; background: rgba(17,19,24,.52); }
     .cash-dialog-backdrop[hidden] { display: none; }
