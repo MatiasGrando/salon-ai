@@ -73,11 +73,6 @@ export const cashRegisterStyles = `
     .cash-session-history > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 16px; cursor: pointer; font-weight: 800; list-style: none; }
     .cash-session-history > summary::-webkit-details-marker { display: none; }
     .cash-session-history > summary span { color: var(--muted); font-weight: 600; }
-    .cash-session-list { display: grid; border-top: 1px solid var(--line); }
-    .cash-session-row { display: grid; grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(110px, auto)); gap: 14px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-    .cash-session-row:last-child { border-bottom: 0; }
-    .cash-session-row > div { display: grid; gap: 3px; }
-    .cash-session-row span, .cash-session-row small { color: var(--muted); }
     .cash-session-difference.positive { color: #047857; }
     .cash-session-difference.negative { color: var(--danger); }
     .cash-panel { overflow: hidden; }
@@ -100,13 +95,7 @@ export const cashRegisterStyles = `
     .cash-category-row.inactive strong { color: var(--muted); text-decoration: line-through; }
     .cash-category-editor { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: grid; gap: 12px; }
     .cash-category-editor[hidden] { display: none; }
-    .cash-entry-list { display: grid; }
-    .cash-entry { display: grid; grid-template-columns: minmax(180px, 1.2fr) 120px 120px 140px auto auto; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-    .cash-entry:last-child { border-bottom: 0; }
-    .cash-entry-main { display: grid; min-width: 0; gap: 4px; }
-    .cash-entry-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
-    .cash-entry-actions button { white-space: normal; }
-    .cash-entry-main span, .cash-entry small { color: var(--muted); }
+    .cash-entry-actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .cash-entry-amount { font-weight: 900; text-align: right; }
     .cash-entry-amount.outflow { color: var(--danger); }
     .cash-entry-amount.inflow { color: #047857; }
@@ -281,10 +270,6 @@ export const cashRegisterStyles = `
       .cash-period-expense-filters { grid-template-columns: 1fr 1fr; }
       .cash-period-expense-row { grid-template-columns: minmax(160px, 1fr) 120px 120px; }
       .cash-period-expense-row > :nth-child(3) { display: none; }
-      .cash-entry { grid-template-columns: 1fr auto; }
-      .cash-session-row { grid-template-columns: 1fr 1fr; }
-      .cash-entry > :not(.cash-entry-main):not(.cash-entry-amount):not(.cash-entry-action) { display: none; }
-      .cash-entry-action { grid-column: 1 / -1; justify-self:stretch; }
     }
     @media (max-width: 767px) {
       .app[data-section="cash"], .app[data-section="settlements"] { display: block; }
@@ -296,7 +281,7 @@ export const cashRegisterStyles = `
       .cash-header-actions .secondary { flex: 1; }
       .cash-summary-grid, .cash-dialog-grid, .appointment-finance-summary, .appointment-finance-row, .appointment-total-reference, .appointment-total-adjust-grid { grid-template-columns: 1fr; }
       .appointment-total-adjust-actions > button { flex: 1 1 120px; }
-      .cash-session-reconciliation, .cash-session-row, .cash-product-layout { grid-template-columns: 1fr; }
+      .cash-session-reconciliation, .cash-product-layout { grid-template-columns: 1fr; }
       .cash-sale-add-row, .appointment-product-add-row, .cash-sale-item, .appointment-product-item, .cash-product-row { grid-template-columns: 1fr; }
       .cash-operation-category-head { align-items: stretch; flex-direction: column; }
       .appointment-create-actions { flex-direction: column; }
@@ -411,20 +396,109 @@ export const cashRegisterStyles = `
     @media (max-width:1000px) { .cash-professional-payment-form { grid-template-columns:repeat(2, minmax(0,1fr)); } .cash-professional-period-dates { grid-template-columns:repeat(2,minmax(0,1fr)); } .cash-professional-observation { grid-column:auto; } .cash-professional-period-selected { border-left:0; padding-left:0; } }
     @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
     @media (max-width:560px) { .cash-professional-payment-form, .cash-professional-period-dates { grid-template-columns:minmax(0,1fr); } }
+
+    .cash-register-view:has(#cash-view-day.active) { background: #f3f6fc; }
+    .cash-shell:has(#cash-view-day.active) { width: min(1380px, 100%); }
+    .cash-icon { display: block; width: 1.15em; height: 1.15em; flex: none; }
+    .cash-day-heading, .cash-day-labeled-icon { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .cash-day-only-icon { display: none; }
+    .cash-shell:has(#cash-view-day.active) .cash-day-only-icon { display: inline-grid; flex: none; }
+    .cash-shell:has(#cash-view-day.active) .cash-header h2 { font-size: clamp(1.65rem, 3vw, 2.15rem); line-height: 1.1; }
+    .cash-shell:has(#cash-view-day.active) :is(.cash-view-switch, .cash-session-strip, .cash-toolbar, .cash-session-history) { box-shadow: 0 2px 5px #1528480a; }
+    .cash-shell:has(#cash-view-day.active) .cash-view-switch { background: var(--surface); }
+    .cash-shell:has(#cash-view-day.active) .cash-view-tab { display: inline-flex; align-items: center; gap: 8px; }
+    .cash-shell:has(#cash-view-day.active) .cash-view-tab[hidden] { display: none; }
+    .cash-shell:has(#cash-view-day.active) .cash-view-tab.active { background: #e8f1ff; color: #1859ce; box-shadow: inset 0 -3px #2267ee; }
+    .cash-shell:has(#cash-view-day.active) .cash-status { display: inline-flex; align-items: center; gap: 7px; }
+    .cash-shell:has(#cash-view-day.active) .cash-status.open { background: #dcf8ea; color: #08603c; }
+    .cash-shell:has(#cash-view-day.active) .cash-status::before, .cash-session-badge::before { content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; }
+    .cash-day-icon { display: inline-grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px; background: var(--cash-icon-bg, #e4efff); color: var(--cash-icon-color, #1859ce); font-size: 17px; }
+    .cash-day-icon.cash-day-only-icon { display: none; }
+    .cash-shell:has(#cash-view-day.active) .cash-day-heading .cash-day-icon { width: 54px; height: 54px; border-radius: 16px; font-size: 23px; }
+    .cash-dashboard :is(.cash-actions button:not([hidden]), .cash-entry-actions button), .cash-shell:has(#cash-view-day.active) #cash-category-shortcut:not([hidden]) { display: inline-flex; justify-content: center; align-items: center; gap: 7px; }
+    .cash-dashboard .cash-toolbar select { max-width: 420px; }
+    .cash-dashboard .cash-summary-card { align-content: start; gap: 8px; border-color: var(--cash-card-border); background: linear-gradient(145deg, var(--surface), var(--cash-card-tint)); }
+    .cash-day-card--collected { --cash-card-border: #cfe2fb; --cash-card-tint: #ecf5ff; }
+    .cash-day-card--outgoing { --cash-card-border: #f2dce3; --cash-card-tint: #fff1f4; --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-day-card--total { --cash-card-border: #cfe9e1; --cash-card-tint: #eafaf5; --cash-icon-bg: #daf6e8; --cash-icon-color: #057245; }
+    .cash-day-card--expected { --cash-card-border: #e2dcf7; --cash-card-tint: #f4f0ff; --cash-icon-bg: #ebe3ff; --cash-icon-color: #5c35c2; }
+    .cash-day-metric { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 14px; }
+    .cash-day-metric .cash-day-icon { color: var(--cash-icon-color, #1859ce); }
+    .cash-dashboard .cash-summary-card > strong { font-size: clamp(1.65rem, 2.55vw, 2.2rem); line-height: 1.15; }
+    .cash-dashboard .cash-method-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 5px; }
+    .cash-dashboard .cash-method-total { padding: 7px; border-color: #c7d4e55e; background: #ffffff9e; }
+    .cash-dashboard .cash-method-total span { font-size: 11px; }
+    .cash-dashboard .cash-method-total strong { font-size: 13px; }
+    .cash-dashboard :is(.cash-summary-card > strong, .cash-method-total strong, .cash-entry-amount, .cash-session-amount) { white-space: nowrap; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+    .cash-dashboard .cash-section-head { padding: 15px 16px; }
+    .cash-session-count, .cash-session-badge, .cash-entry-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: #edf1f8; color: #394864; font-size: 12px; font-weight: 700; }
+    .cash-session-badge.active { background: #dcf8ea; color: #08603c; }
+    .cash-dashboard .cash-filter-row { padding: 12px 14px; border-bottom: 0; }
+    .cash-dashboard .cash-filter-controls :is(select, input) { flex-basis: 132px; font-size: 13px; }
+    .cash-table-scroll { overflow-x: auto; overscroll-behavior-x: contain; max-width: 100%; padding: 0 14px 12px; }
+    .cash-table-scroll:focus-visible { outline: 2px solid #2267ee; outline-offset: -2px; }
+    .cash-day-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; text-align: left; font-size: 13px; }
+    .cash-sessions-table { min-width: 630px; }
+    .cash-movements-table { min-width: 875px; }
+    .cash-day-table :is(th, td) { padding: 10px; }
+    .cash-day-table thead th { background: #edf1f8; color: #394864; font-size: 12px; }
+    .cash-day-table thead th:first-child { border-radius: 8px 0 0 8px; }
+    .cash-day-table thead th:last-child { border-radius: 0 8px 8px 0; }
+    .cash-day-table tbody :is(th, td) { border-bottom: 1px solid var(--line); }
+    .cash-day-table tbody tr:last-child :is(th, td) { border-bottom: 0; }
+    .cash-day-table tbody tr:hover { background: #f6f9ff; }
+    .cash-sessions-table th:first-child { width: 36%; }
+    .cash-movements-table th:first-child { width: 28%; }
+    .cash-movements-table th:nth-child(3) { width: 13%; }
+    .cash-movements-table th:nth-child(5) { width: 112px; text-align: right; }
+    .cash-movements-table th:last-child { width: 276px; }
+    .cash-day-table .cash-day-labeled-icon > div { display: grid; gap: 3px; min-width: 0; }
+    .cash-day-table small { color: var(--muted); font-weight: 400; }
+    .cash-day-table .cash-day-icon { width: 32px; height: 32px; border-radius: 8px; font-size: 14px; }
+    .cash-entry .cash-day-icon.inflow { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-entry .cash-day-icon.outflow { --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-entry-chip.origin { background: #e4efff; color: #234f99; }
+    #cash-dashboard .cash-entry-actions button { padding: 6px 8px; min-height: 32px; font-size: 11px; white-space: nowrap; }
+    @media (min-width: 901px) and (max-width: 1050px) {
+      .cash-dashboard .cash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
 `
+
+const cashDayIconPaths = {
+  wallet: '<path d="M20 8V5a2 2 0 0 0-2-2L5 6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8H5a2 2 0 0 1 0-4"></path><path d="M21 13h-5v4h5"></path>',
+  tag: '<path d="M3 4h8l10 10-7 7L3 10z"></path><circle cx="7" cy="8" r="1"></circle>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M16 3v4M8 3v4M3 10h18"></path>',
+  layers: '<path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"></path>',
+  bank: '<path d="M3 9h18L12 3zM4 21h16M6 12v6M12 12v6M18 12v6"></path>',
+  user: '<circle cx="12" cy="7" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path>',
+  plus: '<path d="M12 5v14M5 12h14"></path>',
+  box: '<path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7 5.5l9 5"></path>',
+  swap: '<path d="M4 8h16l-4-4M20 16H4l4 4"></path>',
+  play: '<path d="m8 5 11 7-11 7z"></path>',
+  power: '<path d="M12 3v9M5.6 6.4a9 9 0 1 0 12.8 0"></path>',
+  refresh: '<path d="M20 10a8 8 0 1 0 .4 5M20 4v6h-6"></path>',
+  outgoing: '<path d="m6 18 12-12M8 6h10v10"></path>',
+  target: '<circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1"></circle>',
+  receipt: '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle>',
+  edit: '<path d="m4 17-1 4 4-1 13-13-3-3zM14 7l3 3"></path>'
+}
+
+function cashDayIcon(name: keyof typeof cashDayIconPaths) {
+  return '<svg class="cash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + cashDayIconPaths[name] + '</svg>'
+}
 
 export const cashRegisterMarkup = `
     <section class="cash-register-view" id="cash-register-view" data-section="cash">
       <div class="cash-shell">
         <header class="cash-header">
-          <div><h2>Caja</h2><p>Jornadas, cobros y movimientos del negocio</p></div>
-          <div class="cash-header-actions"><button class="secondary" id="cash-category-shortcut" type="button" hidden>Categor&iacute;as y subcategor&iacute;as</button><span class="cash-status" id="cash-status">Caja cerrada</span></div>
+          <div class="cash-day-heading"><span class="cash-day-icon cash-day-only-icon">${cashDayIcon('wallet')}</span><div><h2>Caja</h2><p>Jornadas, cobros y movimientos del negocio</p></div></div>
+          <div class="cash-header-actions"><button class="secondary" id="cash-category-shortcut" type="button" hidden><span class="cash-day-only-icon">${cashDayIcon('tag')}</span>Categor&iacute;as y subcategor&iacute;as</button><span class="cash-status" id="cash-status">Caja cerrada</span></div>
         </header>
         <nav class="cash-view-switch" aria-label="Vista de Caja">
-          <button class="cash-view-tab active" id="cash-view-day" type="button">Caja actual</button>
-          <button class="cash-view-tab" id="cash-view-period" type="button">Historial de caja</button>
-          <button class="cash-view-tab" id="cash-view-professionals" type="button">Liquidaciones</button>
-          <button class="cash-view-tab" id="cash-view-treasury" type="button" hidden>Tesorer&iacute;a</button>
+          <button class="cash-view-tab active" id="cash-view-day" type="button"><span class="cash-day-only-icon">${cashDayIcon('wallet')}</span>Caja actual</button>
+          <button class="cash-view-tab" id="cash-view-period" type="button"><span class="cash-day-only-icon">${cashDayIcon('calendar')}</span>Historial de caja</button>
+          <button class="cash-view-tab" id="cash-view-professionals" type="button"><span class="cash-day-only-icon">${cashDayIcon('layers')}</span>Liquidaciones</button>
+          <button class="cash-view-tab" id="cash-view-treasury" type="button" hidden><span class="cash-day-only-icon">${cashDayIcon('bank')}</span>Tesorer&iacute;a</button>
         </nav>
         <section class="cash-treasury-view" id="cash-treasury-view" hidden>
           <section class="cash-panel cash-treasury-panel">
@@ -554,31 +628,31 @@ export const cashRegisterMarkup = `
         </section>
         <div class="cash-dashboard" id="cash-dashboard" hidden>
           <section class="cash-session-strip" id="cash-session-strip">
-            <div class="cash-session-copy"><strong id="cash-responsible">Sin responsable</strong><span id="cash-session-time">Sesi&oacute;n activa</span></div>
+            <div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><div class="cash-session-copy"><strong id="cash-responsible">Sin responsable</strong><span id="cash-session-time">Sesi&oacute;n activa</span></div></div>
             <div class="cash-actions">
-              <button class="primary" id="cash-product-sale-open" type="button">Nueva venta</button>
-              <button class="secondary" id="cash-product-catalog-open" type="button">Productos</button>
-              <button class="secondary" id="cash-operation-open" type="button">Registrar operaci&oacute;n</button>
-              <button class="secondary" id="cash-new-session" type="button">Nueva sesi&oacute;n</button>
-              <button class="danger" id="cash-close-day" type="button">Cerrar caja</button>
+              <button class="primary" id="cash-product-sale-open" type="button">${cashDayIcon('plus')}Nueva venta</button>
+              <button class="secondary" id="cash-product-catalog-open" type="button">${cashDayIcon('box')}Productos</button>
+              <button class="secondary" id="cash-operation-open" type="button">${cashDayIcon('swap')}Registrar operaci&oacute;n</button>
+              <button class="secondary" id="cash-new-session" type="button">${cashDayIcon('play')}Nueva sesi&oacute;n</button>
+              <button class="danger" id="cash-close-day" type="button">${cashDayIcon('power')}Cerrar caja</button>
             </div>
           </section>
           <section class="cash-toolbar">
-            <label>Jornada <select id="cash-day-select"></select></label>
-            <div class="cash-actions"><button class="primary" id="cash-open-toolbar" type="button" hidden>Abrir caja</button><button class="secondary" id="cash-refresh" type="button">Actualizar</button></div>
+            <label><span class="cash-day-labeled-icon">${cashDayIcon('calendar')}Jornada</span><select id="cash-day-select"></select></label>
+            <div class="cash-actions"><button class="primary" id="cash-open-toolbar" type="button" hidden>Abrir caja</button><button class="secondary" id="cash-refresh" type="button">${cashDayIcon('refresh')}Actualizar</button></div>
           </section>
           <section class="cash-summary-grid" aria-label="Resumen de Caja">
-            <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-method-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-method-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-method-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-unknown-collected">$0</strong></div></div></article>
-            <article class="cash-summary-card"><span>Egresos</span><strong id="cash-outgoing">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-unknown-outgoing">$0</strong></div></div><small id="cash-refunds">Gastos y devoluciones</small></article>
-            <article class="cash-summary-card"><span>Total</span><strong id="cash-net">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-total-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-unknown-total">$0</strong></div></div><small id="cash-incoming">Sin aportes ni retiros internos</small></article>
-            <article class="cash-summary-card"><span id="cash-balance-label">Efectivo esperado</span><strong id="cash-expected">$0</strong><small id="cash-opening">Inicial $0</small></article>
+            <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-method-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-method-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-method-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-unknown-collected">$0</strong></div></div></article>
+            <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-outgoing">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-unknown-outgoing">$0</strong></div></div><small id="cash-refunds">Gastos y devoluciones</small></article>
+            <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-net">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-total-card">$0</strong></div><div class="cash-method-total" id="cash-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-unknown-total">$0</strong></div></div><small id="cash-incoming">Sin aportes ni retiros internos</small></article>
+            <article class="cash-summary-card cash-day-card--expected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('target')}</span><b id="cash-balance-label">Efectivo esperado</b></div><strong id="cash-expected">$0</strong><small id="cash-opening">Inicial $0</small></article>
           </section>
           <section class="cash-reconciliation" id="cash-reconciliation" hidden>
             <div class="cash-reconciliation-copy"><strong>Diferencia de cierre</strong><span id="cash-reconciliation-copy">El efectivo contado no coincide con el esperado.</span></div>
             <strong id="cash-reconciliation-amount">$0</strong>
           </section>
           <section class="cash-session-history" id="cash-session-history">
-            <div class="cash-section-head" style="padding:16px"><div><h3>Historial de sesiones</h3><p>Responsables, conteos y diferencias de la jornada.</p></div><strong id="cash-session-count">0 sesiones</strong></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Historial de sesiones</h3><p>Responsables, conteos y diferencias de la jornada.</p></div></div><strong class="cash-session-count" id="cash-session-count">0 sesiones</strong></div>
             <div class="cash-session-list" id="cash-session-list"></div>
           </section>
           <section class="cash-panel">
@@ -1226,14 +1300,19 @@ export const cashRegisterScript = `
         cashUi.sessionList.innerHTML = '<div class="cash-inline-state">No hay sesiones registradas.</div>'
         return
       }
-      cashUi.sessionList.innerHTML = rows.map((session) => {
+      const sessionRows = rows.map((session) => {
         const expected = session.expectedCash ?? (session.closedAt ? null : currentSessionExpectedCash)
         const counted = session.countedCash
         const difference = session.cashDifference
         const differenceClass = Number(difference) > 0 ? ' positive' : Number(difference) < 0 ? ' negative' : ''
-        const period = cashDate(session.openedAt) + (session.closedAt ? ' — ' + cashDate(session.closedAt) : ' — Activa')
-        return '<article class="cash-session-row"><div><strong>' + escapeHtml(session.responsibleName || 'Responsable') + '</strong><small>' + escapeHtml(period) + '</small></div><div><span>Esperado</span><strong>' + (expected === null || expected === undefined ? '--' : escapeHtml(cashMoney(expected))) + '</strong></div><div><span>Contado</span><strong>' + (counted === null || counted === undefined ? '--' : escapeHtml(cashMoney(counted))) + '</strong></div><div><span>Diferencia</span><strong class="cash-session-difference' + differenceClass + '">' + (difference === null || difference === undefined ? '--' : escapeHtml(cashSignedMoney(difference))) + '</strong></div></article>'
+        const period = cashDate(session.openedAt) + (session.closedAt ? ' — ' + cashDate(session.closedAt) : '')
+        const status = session.closedAt ? '<span class="cash-session-badge">Cerrada</span>' : '<span class="cash-session-badge active">Activa</span>'
+        return '<tr class="cash-session-row"><th scope="row"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><div><strong>' + escapeHtml(session.responsibleName || 'Responsable') + '</strong><small>' + escapeHtml(period) + '</small></div></div></th><td>' + status + '</td>' +
+          '<td><strong class="cash-session-amount">' + (expected == null ? '&mdash;' : escapeHtml(cashMoney(expected))) + '</strong></td>' +
+          '<td><strong class="cash-session-amount">' + (counted == null ? '&mdash;' : escapeHtml(cashMoney(counted))) + '</strong></td>' +
+          '<td><strong class="cash-session-amount cash-session-difference' + differenceClass + '">' + (difference == null ? '&mdash;' : escapeHtml(cashSignedMoney(difference))) + '</strong></td></tr>'
       }).join('')
+      cashUi.sessionList.innerHTML = '<div class="cash-table-scroll" role="region" aria-label="Historial de sesiones" tabindex="0"><table class="cash-day-table cash-sessions-table" aria-label="Sesiones de la jornada"><thead><tr><th scope="col">Responsable</th><th scope="col">Estado</th><th scope="col">Esperado</th><th scope="col">Contado</th><th scope="col">Diferencia</th></tr></thead><tbody>' + sessionRows + '</tbody></table></div>'
     }
 
     function renderCashSummary(day, summary, sessions = [], currentSessionExpectedCash = null) {
@@ -1515,16 +1594,24 @@ export const cashRegisterScript = `
       if (!state.cashRegister.entries.length) {
         cashUi.entryList.innerHTML = '<div class="cash-inline-state">No hay movimientos para estos filtros.</div>'
       } else {
-        cashUi.entryList.innerHTML = state.cashRegister.entries.map((entry) => {
+        const rows = state.cashRegister.entries.map((entry) => {
           const title = entry.description || entry.counterparty || (entry.customerNames || []).join(', ') || cashTypeLabels[entry.type] || entry.type
           const correctionDetail = entry.correctionSourceId ? 'Correcci&oacute;n de fecha' : entry.dateCorrected ? 'Fecha corregida' : ''
-          const details = [cashTypeLabels[entry.type] || entry.type, entry.expenseCategoryName ? 'Categor&iacute;a: ' + escapeHtml(entry.expenseCategoryName) : '', entry.expenseSubcategoryName ? 'Subcategor&iacute;a: ' + escapeHtml(entry.expenseSubcategoryName) : '', entry.observation ? escapeHtml(entry.observation) : '', correctionDetail, entry.correctionReason ? 'Motivo: ' + escapeHtml(entry.correctionReason) : ''].filter(Boolean).join(' · ')
+          const details = [escapeHtml(cashTypeLabels[entry.type] || entry.type), entry.observation ? escapeHtml(entry.observation) : '', correctionDetail, entry.correctionReason ? 'Motivo: ' + escapeHtml(entry.correctionReason) : ''].filter(Boolean).join(' · ')
           const canCorrectDate = ['BUSINESS_ADMIN', 'ACCOUNT_ADMIN', 'SUPER_ADMIN'].includes(state.currentUser?.role) && ['PAYMENT', 'INCOME', 'EXPENSE'].includes(entry.type) && !entry.reversesEntryId && !entry.reversedById && !entry.correctionSourceId && !entry.dateCorrected
-          const dateAction = canCorrectDate ? '<button class="secondary" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : ''
-          const serviceAction = canCorrectCashEntryService(entry) ? '<button class="secondary" type="button" data-cash-correct-service="' + escapeHtml(entry.id) + '">Corregir servicio</button>' : ''
-          const action = '<div class="cash-entry-action cash-entry-actions">' + dateAction + serviceAction + '</div>'
-          return '<article class="cash-entry"><div class="cash-entry-main"><strong>' + escapeHtml(title) + '</strong><span>' + details + '</span></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><small>' + escapeHtml(entry.origin || '') + '</small><strong class="cash-entry-amount ' + entry.direction.toLowerCase() + '">' + (entry.direction === 'OUTFLOW' ? '−' : '+') + cashMoney(entry.amount) + '</strong>' + action + '</article>'
+          const dateAction = canCorrectDate ? '<button class="secondary" type="button" data-cash-correct-date="' + escapeHtml(entry.id) + '">${cashDayIcon('calendar')}Corregir fecha</button>' : ''
+          const serviceAction = canCorrectCashEntryService(entry) ? '<button class="secondary" type="button" data-cash-correct-service="' + escapeHtml(entry.id) + '">${cashDayIcon('edit')}Corregir servicio</button>' : ''
+          const isOutflow = entry.direction === 'OUTFLOW'
+          const direction = isOutflow ? 'outflow' : 'inflow'
+          const movementIcon = isOutflow ? '${cashDayIcon('outgoing')}' : '${cashDayIcon('receipt')}'
+          const category = entry.expenseCategoryName ? escapeHtml(entry.expenseCategoryName) + (entry.expenseSubcategoryName ? ' · ' + escapeHtml(entry.expenseSubcategoryName) : '') : ''
+          const origin = entry.origin ? '<span class="cash-entry-chip origin">' + escapeHtml(entry.origin) + '</span>' : ''
+          return '<tr class="cash-entry"><th scope="row"><div class="cash-day-labeled-icon"><span class="cash-day-icon ' + direction + '">' + movementIcon + '</span><div><strong>' + escapeHtml(title) + '</strong><small>' + details + '</small></div></div></th>' +
+            '<td><span class="cash-entry-chip">' + escapeHtml(cashMethodLabels[entry.method] || entry.method || 'Sin especificar') + '</span></td><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '</td>' +
+            '<td>' + (category ? category + (origin ? '<br>' + origin : '') : origin || '&mdash;') + '</td>' +
+            '<td class="cash-entry-amount ' + direction + '">' + (isOutflow ? '− ' : '+ ') + escapeHtml(cashMoney(entry.amount)) + '</td><td><div class="cash-entry-actions">' + (dateAction + serviceAction || '&mdash;') + '</div></td></tr>'
         }).join('')
+        cashUi.entryList.innerHTML = '<div class="cash-table-scroll" role="region" aria-label="Movimientos de caja" tabindex="0"><table class="cash-day-table cash-movements-table" aria-label="Detalle de movimientos"><thead><tr><th scope="col">Concepto</th><th scope="col">Medio</th><th scope="col">Fecha y hora</th><th scope="col">Categor&iacute;a</th><th scope="col">Importe</th><th scope="col">Acciones</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
       }
       cashUi.nextPage.hidden = !state.cashRegister.nextCursor
     }

@@ -2,8 +2,57 @@ import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import vm from 'node:vm'
 import { renderCrmHtml } from '../src/routes/crm-ui.js'
-import { cashRegisterMarkup } from '../src/routes/crm-ui/cash-register.js'
+import { cashRegisterMarkup, cashRegisterScript } from '../src/routes/crm-ui/cash-register.js'
+
+const summaryCards = [...cashRegisterMarkup.matchAll(/class="cash-summary-card cash-day-card--(\w+)"/g)].map(match => match[1])
+assert.deepEqual(summaryCards, ['collected', 'outgoing', 'total', 'expected'], 'Caja actual distingue sus cuatro indicadores')
+assert.match(cashRegisterScript, /<table class="cash-day-table cash-movements-table"[\s\S]*?<th scope="col">Concepto<\/th>[\s\S]*?<th scope="col">Acciones<\/th>/)
+assert.match(cashRegisterScript, /<table class="cash-day-table cash-sessions-table"[\s\S]*?<th scope="col">Responsable<\/th>[\s\S]*?<th scope="col">Diferencia<\/th>/)
+
+function cashFunction(name: string) {
+  const start = cashRegisterScript.indexOf('    function ' + name + '(')
+  assert.notEqual(start, -1)
+  return cashRegisterScript.slice(start, cashRegisterScript.indexOf('\n    }', start) + 6)
+}
+
+const dayFixture = `
+  const node = id => document.getElementById(id);
+  const cashUi = { entryList: node('cash-entry-list'), nextPage: node('cash-next-page'),
+    sessionCount: node('cash-session-count'), sessionFilter: node('cash-session-filter'), sessionList: node('cash-session-list') };
+  const cashMoney = amount => '$ ' + amount.toLocaleString('es-AR');
+  const cashSignedMoney = amount => (amount < 0 ? '− ' : '+ ') + cashMoney(Math.abs(amount));
+  const cashDate = () => '17/10/26, 10:34 p. m.';
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const cashTypeLabels = { PAYMENT: 'Cobro', REFUND: 'Devolución' };
+  const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago' };
+  const canCorrectCashEntryService = entry => entry.type === 'PAYMENT' && state.currentUser.role !== 'STAFF';
+  const entries = Array.from({ length: 30 }, (_, i) => ({
+    id: 'movement-' + i, description: 'Cliente con nombre largo <Medina Sin Espacio> ' + i,
+    type: i % 2 ? 'REFUND' : 'PAYMENT', direction: i % 2 ? 'OUTFLOW' : 'INFLOW',
+    method: i % 2 ? 'TRANSFER' : 'CASH', amount: 44000 + i, origin: 'AGENDA'
+  }));
+  const state = { currentUser: { role: 'BUSINESS_ADMIN' }, cashRegister: { entries, nextCursor: null } };
+  ${cashFunction('renderCashSessions')}
+  ${cashFunction('renderCashEntries')}
+  renderCashSessions([{ id: 'active-session', responsibleName: 'Matías Grando', openedAt: 1 },
+    { id: 'closed-session', responsibleName: 'Responsable de cierre', openedAt: 1, closedAt: 2, expectedCash: 91000, countedCash: 90000, cashDifference: -1000 }], 482000);
+  renderCashEntries();
+`
+const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string }>()
+const context = vm.createContext({ document: { getElementById(id: string) {
+  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '' })
+  return nodes.get(id)
+} } })
+vm.runInContext(dayFixture, context)
+assert.match(nodes.get('cash-session-list')!.innerHTML, /<tbody><tr[\s\S]*Matías Grando[\s\S]*>Activa<\/[\s\S]*>Cerrada<\//)
+assert.match(nodes.get('cash-entry-list')!.innerHTML, /<tbody><tr[\s\S]*&lt;Medina Sin Espacio>[\s\S]*data-cash-correct-date="movement-0"[\s\S]*data-cash-correct-service="movement-0"/)
+assert.match(nodes.get('cash-entry-list')!.innerHTML, /class="cash-entry-amount outflow">− /)
+vm.runInContext("state.currentUser.role = 'STAFF'; renderCashEntries()", context)
+assert.doesNotMatch(nodes.get('cash-entry-list')!.innerHTML, /data-cash-correct-/)
+console.log('OK Caja actual: indicadores, tablas, datos escapados y acciones según el rol')
+if (process.argv.includes('--contract-only')) process.exit(0)
 
 const modulePath = process.env.CRM_QA_BROWSER_MODULE
 assert.ok(modulePath, 'Definí CRM_QA_BROWSER_MODULE con el módulo Playwright disponible para ejecutar la regresión visual.')
@@ -30,7 +79,15 @@ try {
     for (const select of document.querySelectorAll<HTMLSelectElement>('.cash-shell select')) {
       if (!select.options.length) select.innerHTML = '<option>Profesional y medio de pago del negocio</option>'
     }
-    node('cash-entry-list').innerHTML = Array.from({ length: 30 }, (_, i) => `<div class="cash-entry" data-qa-row="day-${i}"><div class="cash-entry-main"><strong>${longName}</strong><span>Cobro de servicio ${i + 1}</span></div><span>Efectivo</span><span>17/10/2026</span><small>Responsable</small><strong class="cash-entry-amount">$ 44.000</strong><div class="cash-entry-actions cash-entry-action"><button class="secondary" type="button">Corregir fecha</button><button class="secondary" type="button">Corregir servicio</button></div></div>`).join('')
+    node('cash-responsible').textContent = 'Matías Grando'
+    node('cash-session-time').textContent = 'Desde 24/9/26, 10:34 p. m.'
+    node('cash-gross').textContent = '$ 506.000'
+    node('cash-method-cash').textContent = '$ 496.000'
+    node('cash-method-transfer').textContent = '$ 10.000'
+    node('cash-outgoing').textContent = '$ 64.000'
+    node('cash-net').textContent = '$ 442.000'
+    node('cash-expected').textContent = '$ 482.000'
+    node('cash-status').classList.add('open')
     node('cash-period-expense-list').innerHTML = Array.from({ length: 30 }, (_, i) => `<div class="cash-period-expense-row" data-qa-row="period-${i}"><div><strong>Gasto ${i + 1}</strong><p>${longName}</p></div><span>Efectivo</span><span>17/10/2026</span><strong>$ 5.000</strong></div>`).join('')
     node('cash-professional-summary').innerHTML = '<div class="cash-professional-summary-head"><span></span><strong>Profesional</strong><span>Servicios</span><span>Producción</span><span>Comisión</span><span>Pagos</span><strong>Saldo</strong></div>' + Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-summary-row"><button type="button" class="cash-professional-toggle">+</button><strong>Profesional ${i + 1}</strong><span>20</span><span>$ 400.000</span><span>$ 200.000</span><span>$ 100.000</span><strong>$ 100.000</strong></div>`).join('')
     node('cash-professional-entries').innerHTML = Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-movement-row" data-qa-row="professionals-${i}"><span>17/10/2026</span><strong>${longName}</strong><span>Servicio</span><span>Movimiento ${i + 1}</span><strong>$ 20.000</strong><span>Responsable</span></div>`).join('')
@@ -50,6 +107,7 @@ try {
     for (const mode of modes) node('cash-view-' + mode).addEventListener('click', () => activate(mode))
     activate('day')
   })
+  await page.addScriptTag({ content: dayFixture + "document.querySelectorAll('.cash-entry').forEach((row, i) => row.dataset.qaRow = 'day-' + i)" })
   if (output) await mkdir(output, { recursive: true })
   for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height })
@@ -70,14 +128,23 @@ try {
       await page.locator('#cash-view-' + mode).click()
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, mode + ': sin scroll global accidental en ' + label)
       const offscreenControls = await page.locator('.cash-shell :is(input, select, textarea, button)').evaluateAll((elements: HTMLElement[]) => elements.filter(element => {
-        if (!element.getClientRects().length || element.closest('.cash-view-switch, .cash-today-table-wrap, .cash-professional-table')) return false
+        if (!element.getClientRects().length || element.closest('.cash-view-switch, .cash-today-table-wrap, .cash-professional-table, .cash-table-scroll')) return false
         const rect = element.getBoundingClientRect()
         return rect.x < -1 || rect.right > innerWidth + 1
       }).map(element => element.id || element.className))
       assert.deepEqual(offscreenControls, [], mode + ': filtros y acciones dentro del ancho en ' + label)
       const clippedButtons = await page.locator('.cash-shell button').evaluateAll((elements: HTMLElement[]) => elements.filter(element => element.getClientRects().length && !element.closest('.cash-professional-table, .cash-today-table-wrap') && element.scrollWidth > element.clientWidth + 1).map(element => element.id || element.textContent))
       assert.deepEqual(clippedButtons, [], mode + ': los botones conservan el texto legible en ' + label)
-      if (mode === 'day' && width <= 560) assert.ok((await page.locator('.cash-toolbar > label').boundingBox())!.height < 150, 'el selector de jornada no hereda una altura de columna excesiva en ' + label)
+      if (mode === 'day') {
+        if (width <= 560) assert.ok((await page.locator('.cash-toolbar > label').boundingBox())!.height < 150, 'el selector de jornada no hereda una altura de columna excesiva en ' + label)
+        const wrappedAmounts = await page.locator('.cash-dashboard .cash-summary-card strong').evaluateAll((amounts: HTMLElement[]) => amounts.filter(amount => {
+          if (!amount.getClientRects().length) return false
+          const range = document.createRange()
+          range.selectNodeContents(amount)
+          return range.getClientRects().length > 1 || amount.scrollWidth > amount.clientWidth + 1
+        }).map(amount => amount.id))
+        assert.deepEqual(wrappedAmounts, [], 'los importes no se parten en ' + label)
+      }
       const before = await view.evaluate((element: HTMLElement) => element.scrollTop)
       const region = await view.boundingBox()
       await page.mouse.move(region!.x + region!.width / 2, Math.min(height - 20, region!.y + region!.height / 2))
@@ -88,8 +155,8 @@ try {
       const last = await page.locator(`[data-qa-row="${mode}-${rowIndex}"]`).boundingBox()
       assert.ok(last && last.y >= -1 && last.y < height, mode + ': último registro alcanzable con scroll en ' + label)
       assert.ok(await view.evaluate((element: HTMLElement) => element.scrollHeight > element.clientHeight), mode + ': Caja conserva un área de scroll propia en ' + label)
-      if (mode === 'professionals' || mode === 'treasury') {
-        const table = page.locator(mode === 'professionals' ? '#cash-professional-entries' : '#cash-treasury-history-panel .cash-today-table-wrap')
+      if (mode !== 'period') {
+        const table = page.locator(mode === 'day' ? '#cash-entry-list .cash-table-scroll' : mode === 'professionals' ? '#cash-professional-entries' : '#cash-treasury-history-panel .cash-today-table-wrap')
         const overflow = await table.evaluate((element: HTMLElement) => ({ scroll: element.scrollWidth, client: element.clientWidth, overflow: getComputedStyle(element).overflowX }))
         if (overflow.scroll > overflow.client + 1) {
           assert.ok(['auto', 'scroll'].includes(overflow.overflow), mode + ': tabla admite scroll horizontal en ' + label)
