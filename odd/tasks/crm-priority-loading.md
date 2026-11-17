@@ -10,6 +10,8 @@ Ruta directa delegada, por mapa de interfaz, servicio, ruta y eventos, y escrito
 
 RED: el contrato de eventos detectó que `appointment_changed` todavía recargaba el rango. El contrato de ruta detectó que la consulta omitía `appointmentId`. GREEN: consulta puntual con permisos existentes, caché por rango actualizada sin descartar los demás turnos, resumen financiero conservado cuando falta ese campo y descarte de respuestas fuera del comercio. La prueba con diferimientos verificó avisos repetidos, fallos de red y cambio de comercio. Pasaron también precarga, arrastre, borrado optimista, estados de turno, alcance y arranque de Agenda. Validación en producción pendiente.
 
+A8 quedó en `e5f6d7f`. Evaluación local media, 370 líneas, por debajo del umbral. Pasaron sintaxis de CRM, UTF-8 y diff. Las pruebas usaron datos ficticios. Siguiente paso: verificar un alta en producción después de una publicación autorizada.
+
 ### Navegación durante la carga inicial
 
 - [x] A7. Activar de inmediato la sección autorizada que el usuario elija mientras se carga Agenda. Mostrar la carga dentro de Ajustes, Marketing/Instagram o Cuentas, y reutilizar el indicador existente de Caja. Evitar que una respuesta tardía cambie la sección o el comercio activo.
