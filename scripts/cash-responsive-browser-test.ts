@@ -123,9 +123,21 @@ try {
     await page.locator('#cash-view-treasury').focus()
     const focused = await page.locator('#cash-view-treasury').boundingBox()
     assert.ok(focused && focused.x >= tabBounds.x - 1 && focused.x + focused.width <= tabBounds.x + tabBounds.width + 1, 'el foco desplaza y revela la última pestaña en ' + label)
+    let sharedChrome: Record<string, unknown> | undefined
     for (const mode of ['day', 'period', 'professionals', 'treasury']) {
       await view.evaluate((element: HTMLElement) => { element.scrollTop = 0 })
       await page.locator('#cash-view-' + mode).click()
+      const chrome = await page.evaluate(() => {
+        const shell = document.querySelector('.cash-shell') as HTMLElement
+        const title = document.querySelector('.cash-header h2') as HTMLElement
+        const icon = document.querySelector('.cash-header .cash-day-icon') as HTMLElement
+        const tabIcons = Array.from(document.querySelectorAll('.cash-view-switch .cash-day-only-icon')).filter(element => element.getClientRects().length)
+        return { width: shell.getBoundingClientRect().width, titleSize: getComputedStyle(title).fontSize, headerIcon: icon.getBoundingClientRect().width, tabIcons: tabIcons.length }
+      })
+      assert.ok(chrome.headerIcon > 0, mode + ': el icono del encabezado permanece visible en ' + label)
+      assert.equal(chrome.tabIcons, 4, mode + ': las cuatro pestañas conservan sus iconos en ' + label)
+      if (!sharedChrome) sharedChrome = chrome
+      else assert.deepEqual(chrome, sharedChrome, mode + ': Caja conserva ancho, tipografía e iconos al cambiar de pestaña en ' + label)
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, mode + ': sin scroll global accidental en ' + label)
       const offscreenControls = await page.locator('.cash-shell :is(input, select, textarea, button)').evaluateAll((elements: HTMLElement[]) => elements.filter(element => {
         if (!element.getClientRects().length || element.closest('.cash-view-switch, .cash-today-table-wrap, .cash-professional-table, .cash-table-scroll')) return false

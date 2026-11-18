@@ -36,7 +36,7 @@ export const cashRegisterStyles = `
     .cash-settlement-filter[hidden] { display: none; }
     .cash-settlement-filter select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); }
     .cash-settlement-filter select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
-    .cash-shell { width: min(1260px, 100%); min-width: 0; margin: 0 auto; padding: 28px; }
+    .cash-shell { --cash-control-height: 40px; --cash-icon-size: 18px; --cash-section-title-size: 18px; width: min(1380px, 100%); min-width: 0; margin: 0 auto; padding: 28px; }
     .cash-shell :is(section, article, label, form) { min-width: 0; }
     .cash-shell :is(input, select, textarea) { min-width: 0; max-width: 100%; }
     .cash-shell :is(label, strong, p, small) { overflow-wrap: anywhere; }
@@ -352,7 +352,15 @@ export const cashRegisterStyles = `
     .cash-today-table th:last-child, .cash-today-table td:last-child { text-align:right; }
     .cash-professional-period { padding:14px 16px; display:grid; grid-template-columns:minmax(190px,1fr) minmax(0,1.6fr); gap:12px 18px; align-items:end; }
     .cash-professional-period > .cash-settlement-filter { display:grid; gap:6px; padding:0; background:none; border:0; font-size:12px; font-weight:700; }
-    .cash-professional-period > .cash-period-presets { display:flex; flex-wrap:wrap; justify-content:flex-end; margin:0; }
+    .cash-professional-period > .cash-settlement-filter[hidden] { display:none; }
+    .cash-professional-period-control { display:grid; gap:6px; min-width:0; }
+    .cash-professional-period-control > span { color:var(--text); font-size:12px; font-weight:700; }
+    .cash-professional-period .cash-period-presets { display:flex; flex-wrap:wrap; gap:3px; margin:0; padding:3px; border:1px solid var(--line); border-radius:9px; background:#f7f9fc; }
+    .cash-professional-period .cash-period-preset { display:inline-flex; flex:1; align-items:center; justify-content:center; gap:6px; min-height:34px; padding:7px 10px; border:0; border-radius:6px; background:transparent; color:#475569; font-size:13px; font-weight:600; }
+    .cash-professional-period .cash-period-preset.active { background:#e8f1ff; color:#1859ce; box-shadow:none; }
+    .cash-professional-select-wrap { position:relative; display:block; min-width:0; }
+    .cash-professional-select-wrap > .cash-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); width:18px; height:18px; color:#64748b; pointer-events:none; }
+    .cash-professional-select-wrap select { min-height:40px; padding-left:38px; font-size:13px; }
     .cash-professional-period > .cash-professional-period-dates, .cash-professional-period > .cash-feedback { grid-column:1 / -1; }
     .cash-professional-period-dates[hidden] { display:none; }
     .cash-professional-period > .cash-feedback:empty { display:none; }
@@ -410,31 +418,60 @@ export const cashRegisterStyles = `
     @media (max-width:760px) { .cash-professional-row { min-width:650px; } .cash-professional-summary-head, .cash-professional-summary-row { min-width:900px; } }
     @media (max-width:560px) { .cash-professional-payment-form, .cash-professional-period-dates { grid-template-columns:minmax(0,1fr); } }
 
-    .cash-professional-summary-table { width:100%; min-width:900px; border-collapse:collapse; text-align:left; font-size:13px; }
+    .cash-professional-summary-table { width:100%; min-width:900px; border-collapse:separate; border-spacing:0; text-align:left; font-size:13px; }
     .cash-professional-summary-table .cash-professional-summary-head { display:table-row; }
     .cash-professional-summary-table .cash-professional-summary-row { display:table-row; }
-    .cash-professional-summary-table :is(th,td) { padding:12px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
-    .cash-professional-summary-table thead th { color:#536178; font-size:11px; font-weight:700; background:#f7f9fc; }
+    .cash-professional-summary-table :is(th,td) { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+    .cash-professional-summary-table thead th { color:#394864; font-size:12px; font-weight:700; background:#edf1f8; }
+    .cash-professional-summary-table thead th:first-child, .cash-professional-movements-table th:first-child { border-radius:8px 0 0 8px; }
+    .cash-professional-summary-table thead th:last-child, .cash-professional-movements-table th:last-child { border-radius:0 8px 8px 0; }
     .cash-professional-summary-table thead small { display:block; margin-top:3px; font-size:10px; font-weight:400; }
     .cash-professional-summary-table .cash-professional-summary-row > *, .cash-professional-summary-table .cash-professional-summary-head > * { display:table-cell; border-right:0; }
     .cash-professional-summary-table .cash-professional-summary-row:hover { background:#f8faff; }
     .cash-professional-summary-table .cash-professional-current-balance { text-align:right; white-space:nowrap; font-size:14px; background:none; border-left:0 !important; }
     .cash-professional-summary-table .cash-professional-name { font-weight:700; }
+    .cash-professional-identity { display:flex; align-items:center; gap:10px; min-width:0; }
+    .cash-professional-avatar { display:inline-grid; place-items:center; flex:none; width:32px; height:32px; border-radius:50%; background:#e6efff; color:#1859ce; font-size:14px; font-weight:700; }
+    .cash-professional-avatar[data-tone="1"] { background:#eee7ff; color:#6943b9; }
+    .cash-professional-avatar[data-tone="2"] { background:#fff0d6; color:#96620c; }
+    .cash-professional-avatar[data-tone="3"] { background:#def6e9; color:#087546; }
+    .cash-professional-identity > span:last-child { min-width:0; }
+    .cash-professional-summary-table :is(th,td):nth-child(n+3):not(:last-child) { text-align:right; font-variant-numeric:tabular-nums; }
     .cash-professional-summary-table .cash-professional-name small { margin-left:6px; }
     .cash-professional-summary-table .cash-professional-period-balance { color:var(--text); font-weight:600; }
     .cash-professional-summary-table td:last-child { text-align:right; }
-    .cash-professional-summary-table .cash-professional-pay { min-height:34px; padding:6px 12px; white-space:nowrap; }
+    .cash-shell .cash-professional-summary-table .cash-professional-pay { min-height:34px; padding:6px 10px; font-size:12px; white-space:nowrap; }
     .cash-professional-summary-table .cash-professional-toggle { width:26px; min-height:30px; border:0; font-size:16px; }
     .cash-professional-summary-table .cash-professional-services-cell { padding:0; }
-    .cash-professional-movements-table { width:100%; min-width:760px; border-collapse:collapse; text-align:left; font-size:12px; }
-    .cash-professional-movements-table :is(th,td) { padding:12px 10px; border-bottom:1px solid var(--line); }
-    .cash-professional-movements-table th { background:#f7f9fc; color:#536178; font-size:11px; }
+    .cash-professional-movements-table { width:100%; min-width:760px; border-collapse:separate; border-spacing:0; text-align:left; font-size:13px; }
+    .cash-professional-movements-table :is(th,td) { padding:10px; border-bottom:1px solid var(--line); }
+    .cash-professional-movements-table th { background:#edf1f8; color:#394864; font-size:12px; }
     .cash-professional-movements-table th:last-child, .cash-professional-movements-table td:last-child { text-align:right; white-space:nowrap; }
+    .cash-professional-movements-table .negative { color:#b4233c; }
+    .cash-professional-movements-table .cash-settlement-credit { color:#047857; }
     .cash-professional-former { margin-top:12px; border-top:1px solid var(--line); }
     .cash-professional-former > summary { padding:14px 10px; color:#475569; cursor:pointer; font-size:13px; font-weight:600; }
     .cash-professional-former .cash-professional-group-heading { display:none; }
     .cash-professional-heading-actions { display:flex; flex-wrap:wrap; gap:8px; }
-    .cash-professional-summary-title { margin:0 0 14px; font-size:16px; }
+    .cash-professional-summary-title { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:0 0 14px; }
+    .cash-professional-summary-title h3, .cash-professional-heading h3, .cash-professional-movements h3 { margin:0; font-size:var(--cash-section-title-size); }
+    .cash-professional-count { padding:5px 10px; border-radius:999px; background:#edf1f8; color:#394864; font-size:12px; font-weight:650; }
+    .cash-professional-movements .cash-section-head { padding:0 0 14px; }
+    .cash-professional-movements .cash-section-head p { margin:4px 0 0; color:var(--muted); }
+    .cash-settlement-type { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border-radius:7px; background:#edf1f8; color:#475569; white-space:nowrap; font-size:12px; }
+    .cash-settlement-type .cash-icon { width:14px; height:14px; }
+    .cash-settlement-type.earning { background:#e5f7ed; color:#087546; }
+    .cash-settlement-type.payment { background:#e8f1ff; color:#1859ce; }
+    .cash-settlement-type.advance { background:#fff2d9; color:#8d610d; }
+    .cash-settlement-type.reversal { background:#fff0f2; color:#a4384d; }
+    .cash-visually-hidden { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+    @media (max-width:700px) { .cash-professional-period { grid-template-columns:minmax(0,1fr); } }
+    @media (max-width:560px) {
+      .cash-professional-period .cash-period-presets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .cash-professional-period .cash-period-preset { min-width:0; min-height:44px; padding:8px 6px; white-space:normal; }
+      .cash-professional-heading-actions { display:grid; grid-template-columns:minmax(0,1fr); width:100%; }
+      .cash-professional-heading-actions > button { width:100%; white-space:normal; }
+    }
     .cash-professional-drawer { padding:0; gap:0; }
     .cash-professional-drawer .cash-professional-payment-form { display:flex; flex-direction:column; align-items:stretch; flex:1; margin:0; min-height:0; overflow:hidden; }
     .cash-professional-drawer .crm-drawer-body { display:flex; flex-direction:column; gap:16px; }
@@ -452,25 +489,26 @@ export const cashRegisterStyles = `
     .cash-professional-drawer .crm-drawer-footer button { width:100%; min-height:44px; }
     @media (max-width:760px) { .cash-professional-period { grid-template-columns:minmax(0,1fr); } .cash-professional-period > .cash-period-presets { justify-content:flex-start; } }
 
-    .cash-register-view:has(#cash-view-day.active) { background: #f3f6fc; }
-    .cash-shell:has(#cash-view-day.active) { width: min(1380px, 100%); }
+    .cash-register-view { background: #f3f6fc; }
     .cash-icon { display: block; width: 1.15em; height: 1.15em; flex: none; }
     .cash-day-heading, .cash-day-labeled-icon { display: flex; align-items: center; gap: 12px; min-width: 0; }
-    .cash-day-only-icon { display: none; }
-    .cash-shell:has(#cash-view-day.active) .cash-day-only-icon { display: inline-grid; flex: none; }
-    .cash-shell:has(#cash-view-day.active) .cash-header h2 { font-size: clamp(1.65rem, 3vw, 2.15rem); line-height: 1.1; }
-    .cash-shell:has(#cash-view-day.active) :is(.cash-view-switch, .cash-session-strip, .cash-toolbar, .cash-session-history) { box-shadow: 0 2px 5px #1528480a; }
-    .cash-shell:has(#cash-view-day.active) .cash-view-switch { background: var(--surface); }
-    .cash-shell:has(#cash-view-day.active) .cash-view-tab { display: inline-flex; align-items: center; gap: 8px; }
-    .cash-shell:has(#cash-view-day.active) .cash-view-tab[hidden] { display: none; }
-    .cash-shell:has(#cash-view-day.active) .cash-view-tab.active { background: #e8f1ff; color: #1859ce; box-shadow: inset 0 -3px #2267ee; }
-    .cash-shell:has(#cash-view-day.active) .cash-status { display: inline-flex; align-items: center; gap: 7px; }
-    .cash-shell:has(#cash-view-day.active) .cash-status.open { background: #dcf8ea; color: #08603c; }
-    .cash-shell:has(#cash-view-day.active) .cash-status::before, .cash-session-badge::before { content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; }
+    .cash-day-only-icon { display: inline-grid; flex: none; }
+    .cash-shell .cash-header h2 { font-size: clamp(1.65rem, 3vw, 2.15rem); line-height: 1.1; }
+    .cash-shell :is(.cash-view-switch, .cash-session-strip, .cash-toolbar, .cash-session-history) { box-shadow: 0 2px 5px #1528480a; }
+    .cash-shell .cash-view-switch { background: var(--surface); }
+    .cash-shell .cash-view-tab { display: inline-flex; align-items: center; gap: 8px; }
+    .cash-shell .cash-view-tab[hidden] { display: none; }
+    .cash-shell .cash-view-tab .cash-icon { width: var(--cash-icon-size); height: var(--cash-icon-size); }
+    .cash-shell .cash-view-tab.active { background: #e8f1ff; color: #1859ce; box-shadow: inset 0 -3px #2267ee; }
+    .cash-shell .cash-status { display: inline-flex; align-items: center; gap: 7px; }
+    .cash-shell .cash-status.open { background: #dcf8ea; color: #08603c; }
+    .cash-shell .cash-status::before, .cash-session-badge::before { content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; }
     .cash-day-icon { display: inline-grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 11px; background: var(--cash-icon-bg, #e4efff); color: var(--cash-icon-color, #1859ce); font-size: 17px; }
-    .cash-day-icon.cash-day-only-icon { display: none; }
-    .cash-shell:has(#cash-view-day.active) .cash-day-heading .cash-day-icon { width: 54px; height: 54px; border-radius: 16px; font-size: 23px; }
-    .cash-dashboard :is(.cash-actions button:not([hidden]), .cash-entry-actions button), .cash-shell:has(#cash-view-day.active) #cash-category-shortcut:not([hidden]) { display: inline-flex; justify-content: center; align-items: center; gap: 7px; }
+    .cash-shell .cash-day-heading .cash-day-icon { width: 54px; height: 54px; border-radius: 16px; font-size: 23px; }
+    .cash-shell :is(button.primary, button.secondary):not([hidden]) { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--cash-control-height); font-size: 13px; }
+    .cash-shell :is(button.primary, button.secondary) .cash-icon { width: 17px; height: 17px; }
+    .cash-dashboard :is(.cash-actions button:not([hidden]), .cash-entry-actions button), .cash-shell #cash-category-shortcut:not([hidden]) { display: inline-flex; justify-content: center; align-items: center; gap: 7px; }
+    @media (max-width: 560px) { .cash-shell { --cash-control-height: 44px; } }
     .cash-dashboard .cash-session-strip > .cash-actions { border-left: 1px solid #e1e8f2; padding-left: 18px; }
     .cash-dashboard .cash-session-strip .cash-actions > button { min-height: 40px; padding: 9px 13px; gap: 8px; border-radius: 9px; font-size: 13px; line-height: 1.25; font-weight: 600; border: 1px solid #d8e1ef; background: linear-gradient(#fff, #f5f7fc); color: #18243c; box-shadow: 0 1px 2px #172b4d0d, inset 0 1px 0 #ffffffc9; }
     .cash-dashboard .cash-session-strip .cash-actions > button.primary { border-color: #1870ff; background: linear-gradient(180deg, #187aff, #0961f5); color: #fff; box-shadow: 0 2px 4px #1265ea24, inset 0 1px 0 #ffffff38; }
@@ -550,6 +588,7 @@ const cashDayIconPaths = {
   outgoing: '<path d="m6 18 12-12M8 6h10v10"></path>',
   target: '<circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1"></circle>',
   receipt: '<rect x="3" y="6" width="18" height="12" rx="2"></rect><circle cx="12" cy="12" r="3"></circle>',
+  check: '<path d="m5 12 4 4L19 6"></path>',
   edit: '<path d="m4 17-1 4 4-1 13-13-3-3zM14 7l3 3"></path>'
 }
 
@@ -624,16 +663,16 @@ export const cashRegisterMarkup = `
           </section>
         </section>
         <section class="cash-professional-view" id="cash-professional-view" hidden>
-          <section class="cash-panel cash-professional-heading"><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div><div class="cash-professional-heading-actions"><button class="secondary" id="cash-professional-refresh" type="button">Actualizar</button><button class="primary" id="cash-professional-payment-open" type="button" hidden>Registrar pago o adelanto</button></div></section>
+          <section class="cash-panel cash-professional-heading"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('layers')}</span><div><h3>Liquidaciones a profesionales</h3><p>Consult&aacute; servicios realizados por per&iacute;odo sin perder de vista el saldo hist&oacute;rico.</p></div></div><div class="cash-professional-heading-actions"><button class="secondary" id="cash-professional-refresh" type="button">${cashDayIcon('refresh')}Actualizar</button><button class="primary" id="cash-professional-payment-open" type="button" hidden>${cashDayIcon('plus')}Registrar pago o adelanto</button></div></section>
           <section class="cash-panel" id="cash-professional-today-panel" hidden><div class="cash-today-table-wrap" id="cash-professional-today-table"></div></section>
           <section class="cash-panel cash-professional-period">
-            <label class="cash-settlement-filter" id="cash-professional-filter-field" hidden>Profesional<select id="cash-professional-filter"><option value="">Todos los profesionales</option></select></label>
-            <div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
+            <label class="cash-settlement-filter" id="cash-professional-filter-field" hidden>Profesional<span class="cash-professional-select-wrap">${cashDayIcon('user')}<select id="cash-professional-filter"><option value="">Todos los profesionales</option></select></span></label>
+            <div class="cash-professional-period-control"><span>Per&iacute;odo</span><div class="cash-period-presets" role="group" aria-label="Per&iacute;odo de liquidaciones">
               <button class="cash-period-preset" data-cash-professional-preset="today" type="button">Hoy</button>
               <button class="cash-period-preset active" data-cash-professional-preset="week" type="button">Semana</button>
               <button class="cash-period-preset" data-cash-professional-preset="month" type="button">Mes</button>
-              <button class="cash-period-preset" data-cash-professional-preset="custom" type="button">Personalizado</button>
-            </div>
+              <button class="cash-period-preset" data-cash-professional-preset="custom" type="button">${cashDayIcon('calendar')}Personalizado</button>
+            </div></div>
             <div class="cash-professional-period-dates" id="cash-professional-period-dates" hidden>
               <label>Desde<input id="cash-professional-period-from" type="date"></label>
               <label>Hasta<input id="cash-professional-period-to" type="date"></label>
@@ -642,8 +681,8 @@ export const cashRegisterMarkup = `
             </div>
             <p class="cash-feedback" id="cash-professional-period-feedback" role="status"></p>
           </section>
-          <section class="cash-panel cash-professional-panel"><h3 class="cash-professional-summary-title">Resumen por profesional</h3><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
-          <section class="cash-panel cash-professional-panel cash-professional-movements"><div class="cash-section-head"><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes del per&iacute;odo.</p></div></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div><div class="cash-pagination"><span id="cash-professional-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-professional-previous" type="button">Anterior</button><button class="secondary" id="cash-professional-next" type="button">Siguiente</button></div></div></section>
+          <section class="cash-panel cash-professional-panel"><div class="cash-professional-summary-title"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('user')}</span><h3>Resumen por profesional</h3></div><span class="cash-professional-count" id="cash-professional-count" hidden></span></div><div class="cash-professional-table" id="cash-professional-summary"><div class="cash-inline-state">Cargando liquidaciones...</div></div></section>
+          <section class="cash-panel cash-professional-panel cash-professional-movements"><div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Movimientos recientes</h3><p>Servicios realizados, pagos, adelantos y ajustes del per&iacute;odo.</p></div></div></div><div class="cash-professional-table" id="cash-professional-entries"><div class="cash-inline-state">Cargando movimientos...</div></div><div class="cash-pagination"><span id="cash-professional-page-info">P&aacute;gina 1 de 1</span><div class="cash-pagination-controls"><button class="secondary" id="cash-professional-previous" type="button">Anterior</button><button class="secondary" id="cash-professional-next" type="button">Siguiente</button></div></div></section>
         </section>
         <section class="cash-period-view" id="cash-period-view" hidden>
           <section class="cash-panel cash-period-toolbar">
@@ -998,6 +1037,7 @@ export const cashRegisterScript = `
       correction: document.getElementById('appointment-service-correction'), correctionToggle: document.getElementById('appointment-correction-toggle'), correctionPanel: document.getElementById('appointment-correction-panel'), correctionService: document.getElementById('appointment-correction-service'), correctionCurrent: document.getElementById('appointment-correction-current'), correctionPrevious: document.getElementById('appointment-correction-previous'), correctionNext: document.getElementById('appointment-correction-next'), correctionProducts: document.getElementById('appointment-correction-products'), correctionDiscount: document.getElementById('appointment-correction-discount'), correctionPaid: document.getElementById('appointment-correction-paid'), correctionImpact: document.getElementById('appointment-correction-impact'), correctionRefund: document.getElementById('appointment-correction-refund'), correctionSession: document.getElementById('appointment-correction-session'), correctionMethod: document.getElementById('appointment-correction-method'), correctionReason: document.getElementById('appointment-correction-reason'), correctionFeedback: document.getElementById('appointment-correction-feedback'), correctionSubmit: document.getElementById('appointment-correction-submit'), correctionCancel: document.getElementById('appointment-correction-cancel'),
       view: document.getElementById('cash-register-view'), status: document.getElementById('cash-status'), categoryShortcut: document.getElementById('cash-category-shortcut'), empty: document.getElementById('cash-empty-state'), emptyCopy: document.getElementById('cash-empty-copy'), dashboard: document.getElementById('cash-dashboard'), viewDay: document.getElementById('cash-view-day'), viewPeriod: document.getElementById('cash-view-period'), viewProfessionals: document.getElementById('cash-view-professionals'), viewTreasury: document.getElementById('cash-view-treasury'), treasuryView: document.getElementById('cash-treasury-view'), periodView: document.getElementById('cash-period-view'), professionalView: document.getElementById('cash-professional-view'), professionalSummary: document.getElementById('cash-professional-summary'), professionalRefresh: document.getElementById('cash-professional-refresh'), professionalPaymentPanel: document.getElementById('cash-professional-payment-panel'), professionalPaymentForm: document.getElementById('cash-professional-payment-form'), professionalEntries: document.getElementById('cash-professional-entries'), professionalPaymentProfessional: document.getElementById('cash-professional-payment-professional'), professionalPaymentSource: document.getElementById('cash-professional-payment-source'), professionalPaymentType: document.getElementById('cash-professional-payment-type'), professionalPaymentAmount: document.getElementById('cash-professional-payment-amount'), professionalPaymentMethod: document.getElementById('cash-professional-payment-method'), professionalPaymentObservation: document.getElementById('cash-professional-payment-observation'), professionalPaymentFeedback: document.getElementById('cash-professional-payment-feedback'), professionalPeriodFrom: document.getElementById('cash-professional-period-from'), professionalPeriodTo: document.getElementById('cash-professional-period-to'), professionalPeriodApply: document.getElementById('cash-professional-period-apply'), professionalPeriodLabel: document.getElementById('cash-professional-period-label'), professionalPeriodFeedback: document.getElementById('cash-professional-period-feedback'), professionalPageInfo: document.getElementById('cash-professional-page-info'), professionalPrevious: document.getElementById('cash-professional-previous'), professionalNext: document.getElementById('cash-professional-next'),
       professionalPaymentDrawer: document.getElementById('cash-professional-payment-drawer'), professionalPaymentClose: document.getElementById('cash-professional-payment-close'), professionalPaymentOpen: document.getElementById('cash-professional-payment-open'), professionalPaymentBalance: document.getElementById('cash-professional-payment-balance'), professionalPaymentContext: document.getElementById('cash-professional-payment-context'), professionalPaymentSubmit: document.getElementById('cash-professional-payment-submit'), professionalPeriodDates: document.getElementById('cash-professional-period-dates'),
+      professionalCount: document.getElementById('cash-professional-count'),
       professionalFilterField: document.getElementById('cash-professional-filter-field'), professionalFilter: document.getElementById('cash-professional-filter'),
       openEmpty: document.getElementById('cash-open-empty'), openToolbar: document.getElementById('cash-open-toolbar'), sessionStrip: document.getElementById('cash-session-strip'), responsible: document.getElementById('cash-responsible'), sessionTime: document.getElementById('cash-session-time'), operationOpen: document.getElementById('cash-operation-open'), newSession: document.getElementById('cash-new-session'), closeDay: document.getElementById('cash-close-day'), daySelect: document.getElementById('cash-day-select'), refresh: document.getElementById('cash-refresh'),
       gross: document.getElementById('cash-gross'), methodCash: document.getElementById('cash-method-cash'), methodTransfer: document.getElementById('cash-method-transfer'), methodCard: document.getElementById('cash-method-card'), unknownCollected: document.getElementById('cash-unknown-collected'), unknownCollectedRow: document.getElementById('cash-unknown-collected-row'), unknownOutgoing: document.getElementById('cash-unknown-outgoing'), unknownOutgoingRow: document.getElementById('cash-unknown-outgoing-row'), unknownTotal: document.getElementById('cash-unknown-total'), unknownTotalRow: document.getElementById('cash-unknown-total-row'), net: document.getElementById('cash-net'), refunds: document.getElementById('cash-refunds'), outgoing: document.getElementById('cash-outgoing'), outgoingCash: document.getElementById('cash-outgoing-cash'), outgoingTransfer: document.getElementById('cash-outgoing-transfer'), outgoingCard: document.getElementById('cash-outgoing-card'), totalCash: document.getElementById('cash-total-cash'), totalTransfer: document.getElementById('cash-total-transfer'), totalCard: document.getElementById('cash-total-card'), incoming: document.getElementById('cash-incoming'), balanceLabel: document.getElementById('cash-balance-label'), expected: document.getElementById('cash-expected'), opening: document.getElementById('cash-opening'), reconciliation: document.getElementById('cash-reconciliation'), reconciliationCopy: document.getElementById('cash-reconciliation-copy'), reconciliationAmount: document.getElementById('cash-reconciliation-amount'), sessionHistory: document.getElementById('cash-session-history'), sessionCount: document.getElementById('cash-session-count'), sessionList: document.getElementById('cash-session-list'),
@@ -2009,16 +2049,18 @@ export const cashRegisterScript = `
       const expanded = state.cashRegister.professionalExpandedIds.has(item.id)
       const currentBalance = Number(item.currentBalance || 0)
       const periodBalance = Number(item.periodBalance || 0)
+      const initial = Array.from(String(item.name || '').trim())[0] || '?'
       const status = item.archivedAt
         ? '<small class="cash-professional-status former">Desvinculado</small>'
         : (!item.isActive ? '<small class="cash-professional-status">En pausa</small>' : '')
-      const payment = canManageProfessionalPayments() ? '<td><button class="secondary cash-professional-pay" type="button" data-professional-settlement-pay="' + escapeHtml(item.id) + '">Pagar</button></td>' : ''
-      return '<tr class="cash-professional-summary-row"><td><button class="cash-professional-toggle" type="button" data-professional-settlement-toggle="' + escapeHtml(item.id) + '" aria-expanded="' + expanded + '" aria-label="' + (expanded ? 'Ocultar' : 'Ver') + ' servicios de ' + escapeHtml(item.name) + '">' + (expanded ? '⌄' : '›') + '</button></td><td class="cash-professional-name">' + escapeHtml(item.name) + status + '</td><td>' + Number(item.completedServices || 0) + '</td><td>' + escapeHtml(cashMoney(item.periodEarned)) + '</td><td>' + escapeHtml(cashMoney(item.periodPaid)) + '</td><td class="cash-professional-period-balance">' + escapeHtml(cashMoney(periodBalance)) + '</td><td class="cash-professional-current-balance">' + escapeHtml(cashMoney(currentBalance)) + (currentBalance < 0 ? '<small> a favor</small>' : '') + '</td>' + payment + '</tr>' + (expanded ? '<tr><td class="cash-professional-services-cell" colspan="' + (payment ? '8' : '7') + '">' + renderProfessionalServiceDetails(item) + '</td></tr>' : '')
+      const identity = '<span class="cash-professional-identity"><span class="cash-professional-avatar" data-tone="' + (initial.codePointAt(0) % 4) + '" aria-hidden="true">' + escapeHtml(initial.toLocaleUpperCase('es-AR')) + '</span><span>' + escapeHtml(item.name) + status + '</span></span>'
+      const payment = canManageProfessionalPayments() ? '<td><button class="secondary cash-professional-pay" type="button" data-professional-settlement-pay="' + escapeHtml(item.id) + '">${cashDayIcon('receipt')}Pagar</button></td>' : ''
+      return '<tr class="cash-professional-summary-row"><td><button class="cash-professional-toggle" type="button" data-professional-settlement-toggle="' + escapeHtml(item.id) + '" aria-expanded="' + expanded + '" aria-label="' + (expanded ? 'Ocultar' : 'Ver') + ' servicios de ' + escapeHtml(item.name) + '">' + (expanded ? '⌄' : '›') + '</button></td><td class="cash-professional-name">' + identity + '</td><td>' + Number(item.completedServices || 0) + '</td><td>' + escapeHtml(cashMoney(item.periodEarned)) + '</td><td>' + escapeHtml(cashMoney(item.periodPaid)) + '</td><td class="cash-professional-period-balance">' + escapeHtml(cashMoney(periodBalance)) + '</td><td class="cash-professional-current-balance">' + escapeHtml(cashMoney(currentBalance)) + (currentBalance < 0 ? '<small> a favor</small>' : '') + '</td>' + payment + '</tr>' + (expanded ? '<tr><td class="cash-professional-services-cell" colspan="' + (payment ? '8' : '7') + '">' + renderProfessionalServiceDetails(item) + '</td></tr>' : '')
     }
 
     function professionalSettlementGroup(title, description, items, kind, head) {
       if (!items.length) return ''
-      const content = '<div class="cash-professional-group-heading"><strong>' + title + '</strong><span>' + description + '</span></div><table class="cash-professional-summary-table"><thead>' + head + '</thead><tbody>' + items.map((item) => professionalSettlementRow(item)).join('') + '</tbody></table>'
+      const content = '<table class="cash-professional-summary-table"><caption class="cash-visually-hidden">' + title + '. ' + description + '</caption><thead>' + head + '</thead><tbody>' + items.map((item) => professionalSettlementRow(item)).join('') + '</tbody></table>'
       return kind === 'former'
         ? '<details class="cash-professional-former cash-professional-settlement-group former"' + (state.cashRegister.professionalFormerOpen ? ' open' : '') + '><summary>Profesionales desvinculados (' + items.length + ')</summary>' + content + '</details>'
         : '<section class="cash-professional-settlement-group current">' + content + '</section>'
@@ -2029,6 +2071,10 @@ export const cashRegisterScript = `
       const items = result.items || []
       const currentItems = items.filter((item) => !item.archivedAt)
       const formerItems = items.filter((item) => Boolean(item.archivedAt))
+      if (cashUi.professionalCount) {
+        cashUi.professionalCount.textContent = currentItems.length + (currentItems.length === 1 ? ' profesional' : ' profesionales')
+        cashUi.professionalCount.hidden = false
+      }
       const currentProfessionalId = cashUi.professionalPaymentProfessional.value
       const choices = state.cashRegister.professionalFilterOptions?.length ? state.cashRegister.professionalFilterOptions : items
       const option = (item) => '<option value="' + escapeHtml(item.id) + '">' + escapeHtml(item.name) + (item.archivedAt ? ' — Desvinculado' : (item.isActive === false ? ' — En pausa' : '')) + '</option>'
@@ -2052,7 +2098,12 @@ export const cashRegisterScript = `
       const labels = { EARNING: 'Servicio realizado', PAYMENT: 'Pago', ADVANCE: 'Adelanto', ADJUSTMENT: 'Ajuste', REVERSAL: 'Reversión' }
       const head = '<table class="cash-professional-movements-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Profesional</th><th scope="col">Tipo</th><th scope="col">Servicio / detalle</th><th scope="col">Cliente</th><th scope="col">Importe</th></tr></thead><tbody>'
       cashUi.professionalEntries.innerHTML = entries.length
-        ? head + entries.map((entry) => '<tr><td>' + escapeHtml(cashDate(professionalSettlementEntryDate(entry))) + '</td><td><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong></td><td>' + escapeHtml(labels[entry.type] || entry.type) + '</td><td>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + (entry.treasuryMovementId ? ' · Tesorer&iacute;a' : '') + '</td><td>' + escapeHtml(entry.appointment?.customer?.name || '—') + '</td><td><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : '') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></td></tr>').join('') + '</tbody></table>'
+        ? head + entries.map((entry) => {
+          const kind = ({ EARNING: 'earning', PAYMENT: 'payment', ADVANCE: 'advance', ADJUSTMENT: 'adjustment', REVERSAL: 'reversal' })[entry.type] || 'other'
+          const icon = entry.type === 'EARNING' ? '${cashDayIcon('check')}' : '${cashDayIcon('receipt')}'
+          const type = '<span class="cash-settlement-type ' + kind + '">' + icon + escapeHtml(labels[entry.type] || entry.type) + '</span>'
+          return '<tr><td>' + escapeHtml(cashDate(professionalSettlementEntryDate(entry))) + '</td><td><strong>' + escapeHtml(entry.professional?.name || 'Profesional') + '</strong></td><td>' + type + '</td><td>' + escapeHtml(entry.appointment?.service?.name || entry.description || '—') + (entry.treasuryMovementId ? ' · Tesorer&iacute;a' : '') + '</td><td>' + escapeHtml(entry.appointment?.customer?.name || '—') + '</td><td><strong class="' + (entry.direction === 'DEBIT' ? 'negative' : 'cash-settlement-credit') + '">' + (entry.direction === 'DEBIT' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</strong></td></tr>'
+        }).join('') + '</tbody></table>'
         : '<div class="cash-inline-state">Todav&iacute;a no hay movimientos profesionales en el per&iacute;odo.</div>'
       state.cashRegister.professionalPage = Number(result.page || 1)
       state.cashRegister.professionalTotalPages = Number(result.totalPages || 1)

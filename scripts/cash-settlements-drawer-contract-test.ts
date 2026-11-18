@@ -162,6 +162,7 @@ resolvePost({ items: [{ id: 'unknown-2', currentBalance: 93000 }] })
 await editingBalance
 assert.equal(ui.professionalPaymentAmount.value, '7000', 'La sugerencia tardía conserva el importe ya editado')
 
+ui.professionalCount = node()
 vm.runInContext(functions(['renderProfessionalServiceDetails', 'professionalSettlementRow', 'professionalSettlementGroup', 'renderProfessionalSettlements', 'setProfessionalPeriodPreset']), context)
 ui.professionalPaymentProfessional.value = 'p1'
 ui.professionalPaymentAmount.value = '1234'
@@ -172,6 +173,10 @@ assert.match(ui.professionalSummary.innerHTML, /<table class="cash-professional-
 for (const text of ['Realizados', 'Generado per&iacute;odo', 'Pagos/adelantos per&iacute;odo', 'Saldo del per&iacute;odo', 'Saldo actual']) assert.ok(ui.professionalSummary.innerHTML.includes(text), text)
 assert.match(ui.professionalSummary.innerHTML, /<details class="cash-professional-former[^>]*"><summary>/, 'Los desvinculados están cerrados inicialmente')
 assert.match(ui.professionalSummary.innerHTML, /data-professional-settlement-pay="old"/, 'Se conserva el pago de saldos históricos de desvinculados')
+assert.equal((ui.professionalSummary.innerHTML.match(/class="cash-professional-avatar/g) || []).length, 2, 'Cada profesional tiene una inicial visible en el resumen')
+assert.match(ui.professionalSummary.innerHTML, /data-professional-settlement-pay="p1"[^>]*><svg/, 'Pagar reutiliza los iconos lineales de Caja')
+assert.doesNotMatch(ui.professionalSummary.innerHTML, /class="cash-professional-group-heading"/, 'La tabla actual no duplica el encabezado visible')
+assert.equal(ui.professionalCount.textContent, '1 profesional', 'El contador corresponde al equipo actual y mantiene separado el historial')
 assert.match(ui.professionalPaymentProfessional.innerHTML, /Lucas/)
 state.currentUser.role = 'STAFF'
 context.renderProfessionalSettlements({ items: [{ id: 'p1', name: 'Gaspar', currentBalance: 19500 }] })
@@ -182,4 +187,18 @@ context.setProfessionalPeriodPreset('custom')
 assert.equal(ui.professionalPeriodDates.hidden, false)
 context.setProfessionalPeriodPreset('today')
 assert.equal(ui.professionalPeriodDates.hidden, true)
+ui.professionalEntries = node()
+ui.professionalPageInfo = node()
+ui.professionalPrevious = node()
+ui.professionalNext = node()
+context.cashDate = () => '17/11/26'
+vm.runInContext(functions(['professionalSettlementEntryDate', 'renderProfessionalSettlementEntries']), context)
+context.renderProfessionalSettlementEntries({ items: [
+  { id: 'earned', type: 'EARNING', direction: 'CREDIT', amount: 5000, professional: { name: 'Gaspar' } },
+  { id: 'paid', type: 'PAYMENT', direction: 'DEBIT', amount: 2000, professional: { name: 'Gaspar' } }
+], total: 2 })
+assert.match(ui.professionalEntries.innerHTML, /class="cash-settlement-type earning"><svg[\s\S]*Servicio realizado/)
+assert.match(ui.professionalEntries.innerHTML, /class="cash-settlement-type payment"><svg[\s\S]*Pago/)
+assert.match(ui.professionalEntries.innerHTML, /class="cash-settlement-credit">\+\$ 5000/)
+assert.match(ui.professionalEntries.innerHTML, /class="negative">−\$ 2000/)
 console.log('Liquidaciones: Drawer, payloads contables, doble submit, respuesta tardía, borrador y permisos OK')
