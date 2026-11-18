@@ -129,6 +129,8 @@ assert.equal(today.summaryPanel.hidden, true)
 assert.equal(today.cashUi.professionalPaymentPanel.hidden, true)
 assert.match(today.todayTable.innerHTML, /Facturado/)
 const race = harness('SECRETARY', { canViewProfessionalSettlements: true })
+race.state.cashRegister.professionalFilterScope = 'b1:user-1'
+race.state.cashRegister.professionalFilterOptions = [{ id: 'p1', name: 'Ana' }, { id: 'p2', name: 'Luis' }]
 const pending: Array<(value: any) => void> = []
 race.context.getJson = () => new Promise((resolve) => pending.push(resolve))
 race.cashUi.professionalFilter.value = 'p1'
