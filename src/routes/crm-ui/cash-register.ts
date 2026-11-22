@@ -264,10 +264,6 @@ export const cashRegisterStyles = `
     .cash-period-expenses .cash-section-head, .cash-period-expense-filters, .cash-pagination { padding: 16px; }
     .cash-period-expense-filters { display: grid; grid-template-columns: repeat(3, minmax(130px, .8fr)) minmax(200px, 1.2fr) auto; gap: 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
     .cash-period-expense-list { min-height: 120px; }
-    .cash-period-expense-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(120px, .8fr) 150px 130px; gap: 12px; align-items: center; padding: 13px 16px; border-bottom: 1px solid var(--line); }
-    .cash-period-expense-row small { color: var(--muted); }
-    .cash-period-expense-row strong:last-child { text-align: right; }
-    .cash-period-expense-row.reversal strong:last-child { color: #047857; }
     .cash-pagination { border-top: 1px solid var(--line); }
     .cash-pagination-controls { display: flex; gap: 8px; align-items: center; }
     @media (max-width: 900px) {
@@ -276,8 +272,6 @@ export const cashRegisterStyles = `
       .cash-period-summary-grid { grid-template-columns: 1fr 1fr; }
       .cash-period-highlight { grid-column: auto; }
       .cash-period-expense-filters { grid-template-columns: 1fr 1fr; }
-      .cash-period-expense-row { grid-template-columns: minmax(160px, 1fr) 120px 120px; }
-      .cash-period-expense-row > :nth-child(3) { display: none; }
     }
     @media (max-width: 767px) {
       .app[data-section="cash"], .app[data-section="settlements"] { display: block; }
@@ -300,8 +294,6 @@ export const cashRegisterStyles = `
       .cash-view-switch { width: 100%; }
       .cash-period-dates, .cash-period-movements, .cash-period-expense-filters, .cash-method-totals { grid-template-columns: 1fr; }
       .cash-period-highlight { grid-column: auto; }
-      .cash-period-expense-row { grid-template-columns: 1fr auto; }
-      .cash-period-expense-row > :nth-child(2), .cash-period-expense-row > :nth-child(3) { display: none; }
       .cash-category-row { grid-template-columns: 1fr auto; }
       .cash-category-row > :nth-child(2), .cash-category-row > :nth-child(3) { display: none; }
     }
@@ -569,6 +561,82 @@ export const cashRegisterStyles = `
     @media (min-width: 901px) and (max-width: 1050px) {
       .cash-dashboard .cash-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+
+    .cash-period-view, .cash-treasury-view { --cash-section-title-size: 18px; }
+    :is(.cash-period-view, .cash-treasury-view) h3 { margin: 0; font-size: var(--cash-section-title-size); }
+    :is(.cash-period-view, .cash-treasury-view) .cash-day-labeled-icon > div { min-width: 0; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card { align-content: start; gap: 8px; border-color: var(--cash-card-border); background: var(--cash-card-tint); }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card > strong { font-size: clamp(1.65rem, 2.55vw, 2.2rem); line-height: 1.15; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-summary-card small { font-size: 12px; line-height: 1.6; }
+    :is(.cash-period-view, .cash-treasury-view) :is(.cash-summary-card > strong, .cash-method-total strong, .cash-entry-amount, .cash-treasury-account-card > strong) { white-space: nowrap; overflow-wrap: normal; font-variant-numeric: tabular-nums; }
+    .cash-period-view .cash-method-totals { grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr)); gap: 5px; }
+    .cash-period-view .cash-method-total { padding: 7px; border-color: #c7d4e55e; background: #ffffff9e; }
+    .cash-period-view .cash-method-total span { font-size: 11px; }
+    .cash-period-view .cash-method-total strong { font-size: 13px; }
+    .cash-period-toolbar { gap: 16px; }
+    .cash-period-toolbar .cash-period-presets { width: fit-content; max-width: 100%; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 9px; background: #f7f9fc; }
+    .cash-period-toolbar .cash-period-preset { display: inline-flex; flex: 0 0 auto; white-space: nowrap; justify-content: center; align-items: center; gap: 6px; min-height: 34px; padding: 7px 13px; border: 0; border-radius: 6px; background: transparent; color: #475569; font-size: 13px; font-weight: 600; }
+    .cash-period-toolbar .cash-period-preset.active { background: #e8f1ff; color: #1859ce; }
+    .cash-period-dates, .cash-treasury-period-row { grid-template-columns: minmax(0, 210px) minmax(0, 210px) auto; justify-content: start; }
+    :is(.cash-period-dates, .cash-treasury-period-row, .cash-treasury-form, .cash-treasury-filter-row) label { display: grid; gap: 6px; min-width: 0; color: #475569; font-size: 12px; font-weight: 700; }
+    :is(.cash-period-view, .cash-treasury-view) :is(input, select) { width: 100%; min-height: var(--cash-control-height); padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: var(--text); font-size: 13px; }
+    :is(.cash-period-view, .cash-treasury-view) :is(input, select, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    :is(.cash-period-view, .cash-treasury-view) .cash-feedback:empty { display: none; }
+    .cash-period-other { display: grid; gap: 12px; padding: 16px; }
+    .cash-period-movements { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cash-period-movement { padding: 12px 14px; background: #f8faff; }
+    .cash-period-expense-filters { align-items: end; }
+    .cash-period-expense-filters > label { display: grid; gap: 6px; color: #475569; font-size: 12px; font-weight: 700; }
+    .cash-period-expenses .cash-section-head { padding-bottom: 14px; }
+    .cash-period-table { min-width: 850px; }
+    .cash-period-table th:first-child { width: 150px; }
+    .cash-period-table th:nth-child(2) { width: 31%; }
+    .cash-period-table th:nth-child(4) { width: 185px; }
+    .cash-period-table th:last-child { width: 120px; text-align: right; }
+    .cash-period-table .cash-day-icon.inflow { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-period-table .cash-day-icon.outflow { --cash-icon-bg: #ffe4e9; --cash-icon-color: #b92447; }
+    .cash-treasury-account-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .cash-treasury-account-card { gap: 10px; background: #fff; }
+    .cash-treasury-account-card .cash-day-icon { color: var(--cash-icon-color, #1859ce); }
+    .cash-treasury-account-card .cash-day-labeled-icon > span:last-child { color: #394864; font-size: 13px; font-weight: 700; }
+    .cash-treasury-account-card > strong { font-size: 28px; line-height: 1.15; }
+    .cash-treasury-account-card small { font-size: 12px; }
+    .cash-account--cash { --cash-icon-bg: #def7e8; --cash-icon-color: #057245; }
+    .cash-treasury-operations { grid-template-columns: minmax(0, .8fr) minmax(0, 1.6fr); align-items: start; }
+    .cash-treasury-operation-head p, .cash-treasury-panel > small { font-size: 12px; line-height: 1.5; }
+    .cash-treasury-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #cash-treasury-transfer-form { grid-template-columns: minmax(0, 1fr); }
+    .cash-treasury-form > button { grid-column: 1 / -1; justify-self: start; }
+    .cash-treasury-expense-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; background: #f8faff; }
+    .cash-treasury-expense-fields .cash-inline-control, .cash-treasury-detail-field { grid-column: 1 / -1; }
+    .cash-treasury-filter-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #cash-treasury-history-panel .cash-today-table-wrap { padding: 0; }
+    .cash-treasury-table { min-width: 1230px; }
+    .cash-treasury-table th:first-child { width: 160px; }
+    .cash-treasury-table th:nth-child(2) { width: 130px; }
+    .cash-treasury-table th:nth-child(3) { width: 170px; }
+    .cash-treasury-table th:nth-child(4), .cash-treasury-table th:nth-child(5) { width: 140px; }
+    .cash-treasury-table th:nth-child(6) { width: 185px; }
+    .cash-treasury-table th:nth-child(7) { width: 105px; text-align: right; }
+    .cash-treasury-table th:last-child { width: 130px; }
+    .cash-treasury-table .cash-entry-chip { border-radius: 7px; font-size: 11px; }
+    .cash-treasury-table .cash-entry-chip.inflow { background: #e5f7ed; color: #087546; }
+    .cash-treasury-table .cash-entry-chip.outflow { background: #fff0f2; color: #a4384d; }
+    .cash-treasury-table .cash-entry-chip.internal { background: #e8f1ff; color: #1859ce; }
+    .cash-treasury-table button.secondary { min-height: 32px; padding: 6px 8px; font-size: 11px; white-space: nowrap; }
+    @media (max-width: 1100px) {
+      .cash-treasury-operations { grid-template-columns: minmax(0, 1fr); }
+      .cash-treasury-filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .cash-period-toolbar .cash-period-presets { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .cash-period-toolbar .cash-period-preset { min-height: 40px; padding: 8px; }
+      .cash-period-summary-grid, .cash-period-dates, .cash-period-movements, .cash-treasury-period-row, .cash-treasury-form, .cash-treasury-expense-fields, .cash-treasury-filter-row { grid-template-columns: minmax(0, 1fr); }
+      .cash-period-view .cash-method-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .cash-treasury-account-head { align-items: stretch; }
+      .cash-treasury-account-head > button, .cash-treasury-form > button, .cash-treasury-period-row > button { width: 100%; }
+      .cash-treasury-table button.secondary { min-height: 44px; }
+    }
     ${crmDrawerStyles}
 `
 
@@ -611,34 +679,34 @@ export const cashRegisterMarkup = `
         </nav>
         <section class="cash-treasury-view" id="cash-treasury-view" hidden>
           <section class="cash-panel cash-treasury-panel">
-            <div class="cash-treasury-account-head"><div><h3>Cuentas de Tesorer&iacute;a</h3><p>Un saldo separado por cada medio de pago configurado para este negocio.</p></div><button class="secondary" id="cash-treasury-payment-method-add" type="button">+ Medio de pago</button></div>
+            <div class="cash-treasury-account-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('bank')}</span><div><h3>Cuentas de Tesorer&iacute;a</h3><p>Un saldo separado por cada medio de pago configurado para este negocio.</p></div></div><button class="secondary" id="cash-treasury-payment-method-add" type="button">${cashDayIcon('plus')}Medio de pago</button></div>
             <div id="cash-treasury-inactive" hidden><p>Todav&iacute;a no est&aacute habilitada Tesorer&iacute;a.</p><button class="primary" id="cash-treasury-enable" type="button">Habilitar Tesorer&iacute;a</button></div>
             <div class="cash-treasury-account-grid" id="cash-treasury-account-grid"></div>
             <div class="cash-treasury-reserve-card" id="cash-treasury-reserve-card" hidden><span>Efectivo reservado</span><strong id="cash-treasury-balance">$ 0</strong></div>
             <p class="cash-feedback" id="cash-treasury-feedback" role="status"></p>
           </section>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-consolidated">
-            <div class="cash-section-head"><div><h3>Resultado global del local</h3><p>Caja diaria + gastos y pagos de Tesorer&iacute;a. Traspasos y retiros internos no son egresos.</p></div></div>
-            <div class="cash-treasury-period-row"><label>Desde<input id="cash-treasury-period-from" type="date"></label><label>Hasta<input id="cash-treasury-period-to" type="date"></label><button class="secondary" id="cash-treasury-period-apply" type="button">Consultar</button></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('layers')}</span><div><h3>Resultado global del local</h3><p>Caja diaria + gastos y pagos de Tesorer&iacute;a. Traspasos y retiros internos no son egresos.</p></div></div></div>
+            <div class="cash-treasury-period-row"><label>Desde<input id="cash-treasury-period-from" type="date"></label><label>Hasta<input id="cash-treasury-period-to" type="date"></label><button class="secondary" id="cash-treasury-period-apply" type="button">${cashDayIcon('refresh')}Consultar</button></div>
             <p class="cash-feedback" id="cash-treasury-period-feedback" role="status"></p>
             <div class="cash-summary-grid cash-period-summary-grid" aria-label="Resultado global del per&iacute;odo">
-              <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-treasury-consolidated-collected">$0</strong><small id="cash-treasury-consolidated-collected-methods"></small></article>
-              <article class="cash-summary-card"><span>Egresos</span><strong id="cash-treasury-consolidated-outgoing">$0</strong><small id="cash-treasury-consolidated-outgoing-methods"></small><small id="cash-treasury-consolidated-sources"></small></article>
-              <article class="cash-summary-card"><span>Total</span><strong id="cash-treasury-consolidated-total">$0</strong><small id="cash-treasury-consolidated-total-methods"></small></article>
+              <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-treasury-consolidated-collected">$0</strong><small id="cash-treasury-consolidated-collected-methods"></small></article>
+              <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-treasury-consolidated-outgoing">$0</strong><small id="cash-treasury-consolidated-outgoing-methods"></small><small id="cash-treasury-consolidated-sources"></small></article>
+              <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-treasury-consolidated-total">$0</strong><small id="cash-treasury-consolidated-total-methods"></small></article>
             </div>
             <small>Resultado de movimientos del per&iacute;odo, no saldo f&iacute;sico. El efectivo reservado se muestra por separado arriba.</small>
           </section>
           <div class="cash-treasury-operations" id="cash-treasury-operations" hidden>
             <section class="cash-panel cash-treasury-panel" id="cash-treasury-transfer-section" aria-labelledby="cash-treasury-transfer-title">
-              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-transfer-title">Transferir a Tesorer&iacute;a</h3><p>Mov&eacute; efectivo de la Caja diaria a la reserva. Es un movimiento interno, no un gasto.</p></div>
+              <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('swap')}</span><div><h3 id="cash-treasury-transfer-title">Transferir a Tesorer&iacute;a</h3><p>Mov&eacute; efectivo de la Caja diaria a la reserva. Es un movimiento interno, no un gasto.</p></div></div></div>
               <form class="cash-treasury-form" id="cash-treasury-transfer-form">
                 <label>Importe desde Caja diaria<input id="cash-treasury-transfer-amount" type="number" min="1" step="1" required></label>
-                <button class="primary" type="submit">Transferir a Tesorer&iacute;a</button>
+                <button class="primary" type="submit">${cashDayIcon('swap')}Transferir a Tesorer&iacute;a</button>
               </form>
               <small>Requiere una sesi&oacute;n de Caja abierta. Queda un retiro en Caja y un ingreso interno en Tesorer&iacute;a.</small>
             </section>
             <section class="cash-panel cash-treasury-panel" id="cash-treasury-outflow-section" aria-labelledby="cash-treasury-outflow-title">
-              <div class="cash-treasury-operation-head"><h3 id="cash-treasury-outflow-title">Registrar movimiento de Tesorer&iacute;a</h3><p>Eleg&iacute; la cuenta y clasific&aacute; el ingreso, gasto o retiro.</p></div>
+              <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('plus')}</span><div><h3 id="cash-treasury-outflow-title">Registrar movimiento de Tesorer&iacute;a</h3><p>Eleg&iacute; la cuenta y clasific&aacute; el ingreso, gasto o retiro.</p></div></div></div>
               <form class="cash-treasury-form" id="cash-treasury-outflow-form">
                 <label>Cuenta<select id="cash-treasury-outflow-account" required><option value="">Eleg&iacute; una cuenta</option></select></label>
                 <label>Tipo<select id="cash-treasury-outflow-kind"><option value="EXPENSE">Gasto</option><option value="WITHDRAWAL">Retiro</option><option value="INCOME">Ingreso</option></select></label>
@@ -647,18 +715,18 @@ export const cashRegisterMarkup = `
                   <label>Subcategor&iacute;a (opcional)<select id="cash-treasury-outflow-subcategory"><option value="">Sin subcategor&iacute;a</option></select></label>
                   <div class="cash-inline-control"><label>Destinatario (opcional)<select id="cash-treasury-outflow-counterparty"><option value="">Sin destinatario</option></select></label><button class="secondary" id="cash-treasury-counterparty-add" type="button" aria-label="Agregar destinatario" title="Agregar destinatario">+</button></div>
                 </div>
-                <label>Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
+                <label class="cash-treasury-detail-field">Detalle<input id="cash-treasury-outflow-description" maxlength="160" required></label>
                 <label>Importe<input id="cash-treasury-outflow-amount" type="number" min="1" step="1" required></label>
                 <label>Fecha del movimiento<input id="cash-treasury-outflow-date" type="date" required></label>
-                <button class="primary" id="cash-treasury-movement-submit" type="submit">Registrar movimiento</button>
+                <button class="primary" id="cash-treasury-movement-submit" type="submit">${cashDayIcon('plus')}Registrar movimiento</button>
               </form>
             </section>
           </div>
           <section class="cash-panel cash-treasury-panel" id="cash-treasury-history-panel" hidden>
-            <div class="cash-treasury-operation-head"><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div>
+            <div class="cash-treasury-operation-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Movimientos de Tesorer&iacute;a</h3><p>Ingresos internos, pagos, gastos y retiros de la reserva.</p></div></div></div>
             <div class="cash-treasury-filter-row"><label>Tipo<select id="cash-treasury-filter-kind"><option value="">Todos</option><option value="PROFESSIONAL_PAYMENT">Pagos profesionales</option><option value="PROFESSIONAL_ADVANCE">Adelantos profesionales</option><option value="INCOME">Ingresos</option><option value="EXPENSE">Gastos</option><option value="DAILY_TRANSFER">Traspasos internos</option><option value="WITHDRAWAL">Retiros</option></select></label><label>Buscar por detalle o profesional<input id="cash-treasury-filter-search" maxlength="100" placeholder="Ej.: Gaspar"></label><label>Filtrar categor&iacute;a<select id="cash-treasury-filter-category"><option value="">Todas</option></select></label><label>Filtrar subcategor&iacute;a<select id="cash-treasury-filter-subcategory"><option value="">Todas</option></select></label></div>
             <small>Filtr&aacute; pagos por tipo y busc&aacute; al profesional por nombre. Los filtros no alteran el saldo reservado. Hasta 20 movimientos por p&aacute;gina.</small>
-            <div class="cash-today-table-wrap"><table class="cash-today-table"><thead><tr><th>Fecha</th><th>Cuenta</th><th>Movimiento</th><th>Categor&iacute;a</th><th>Destinatario</th><th>Detalle</th><th>Importe</th><th>Acciones</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
+            <div class="cash-table-scroll cash-today-table-wrap" tabindex="0" role="region" aria-label="Movimientos de Tesorer&iacute;a"><table class="cash-day-table cash-treasury-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Cuenta</th><th scope="col">Movimiento</th><th scope="col">Categor&iacute;a</th><th scope="col">Destinatario</th><th scope="col">Detalle</th><th scope="col">Importe</th><th scope="col">Acciones</th></tr></thead><tbody id="cash-treasury-entries"></tbody></table></div>
             <div class="cash-treasury-pagination"><span id="cash-treasury-page-info">0 movimientos</span><div><button class="secondary" id="cash-treasury-previous" type="button" disabled>Anterior</button><button class="secondary" id="cash-treasury-next" type="button" disabled>Siguiente</button></div></div>
           </section>
         </section>
@@ -686,32 +754,32 @@ export const cashRegisterMarkup = `
         </section>
         <section class="cash-period-view" id="cash-period-view" hidden>
           <section class="cash-panel cash-period-toolbar">
-            <div class="cash-period-toolbar-head"><div><h3>Historial de caja</h3><p>Analiz&aacute; ingresos y egresos sin mezclar el efectivo esperado de una jornada.</p></div><span class="cash-period-limit">M&aacute;ximo 31 d&iacute;as</span></div>
+            <div class="cash-period-toolbar-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('calendar')}</span><div><h3>Historial de caja</h3><p>Analiz&aacute; ingresos y egresos sin mezclar el efectivo esperado de una jornada.</p></div></div><span class="cash-period-limit">M&aacute;ximo 31 d&iacute;as</span></div>
             <div class="cash-period-presets" role="group" aria-label="Per&iacute;odos r&aacute;pidos">
               <button class="cash-period-preset" data-cash-period-preset="today" type="button">Hoy</button>
               <button class="cash-period-preset" data-cash-period-preset="week" type="button">Esta semana</button>
               <button class="cash-period-preset active" data-cash-period-preset="month" type="button">Este mes</button>
-              <button class="cash-period-preset" data-cash-period-preset="custom" type="button">Personalizado</button>
+              <button class="cash-period-preset" data-cash-period-preset="custom" type="button">${cashDayIcon('calendar')}Personalizado</button>
             </div>
             <div class="cash-period-dates">
               <label>Desde<input id="cash-period-from" type="date"></label>
               <label>Hasta<input id="cash-period-to" type="date"></label>
-              <button class="primary" id="cash-period-apply" type="button">Consultar</button>
+              <button class="primary" id="cash-period-apply" type="button">${cashDayIcon('refresh')}Consultar</button>
             </div>
             <p class="cash-feedback" id="cash-period-feedback" role="status"></p>
           </section>
           <section class="cash-summary-grid cash-period-summary-grid" aria-label="Resumen del per&iacute;odo">
-            <article class="cash-summary-card"><span>Cobrado</span><strong id="cash-period-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-collected">$0</strong></div></div></article>
-            <article class="cash-summary-card"><span>Egresos</span><strong id="cash-period-expenses-total">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-outgoing">$0</strong></div></div><small id="cash-period-refunds">Gastos y devoluciones</small></article>
-            <article class="cash-summary-card"><span>Total</span><strong id="cash-period-result">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-total-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-total">$0</strong></div></div><small>No incluye retiros internos ni ajustes de caja</small></article>
+            <article class="cash-summary-card cash-day-card--collected"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('wallet')}</span><b>Cobrado</b></div><strong id="cash-period-gross">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-collected-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-collected">$0</strong></div></div></article>
+            <article class="cash-summary-card cash-day-card--outgoing"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('outgoing')}</span><b>Egresos</b></div><strong id="cash-period-expenses-total">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-outgoing-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-outgoing-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-outgoing-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-outgoing-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-outgoing">$0</strong></div></div><small id="cash-period-refunds">Gastos y devoluciones</small></article>
+            <article class="cash-summary-card cash-day-card--total"><div class="cash-day-metric"><span class="cash-day-icon">${cashDayIcon('layers')}</span><b>Total</b></div><strong id="cash-period-result">$0</strong><div class="cash-method-totals"><div class="cash-method-total"><span>Efectivo</span><strong id="cash-period-total-cash">$0</strong></div><div class="cash-method-total"><span>Transferencia</span><strong id="cash-period-total-transfer">$0</strong></div><div class="cash-method-total"><span>Tarjeta</span><strong id="cash-period-total-card">$0</strong></div><div class="cash-method-total" id="cash-period-unknown-total-row" hidden><span>Sin especificar</span><strong id="cash-period-unknown-total">$0</strong></div></div><small>No incluye retiros internos ni ajustes de caja</small></article>
           </section>
-          <section class="cash-panel" style="padding:16px;display:grid;gap:12px">
-            <div class="cash-section-head"><div><h3>Otros movimientos de caja</h3><p>Se muestran separados del resultado operativo.</p></div></div>
+          <section class="cash-panel cash-period-other">
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('swap')}</span><div><h3>Otros movimientos de caja</h3><p>Se muestran separados del resultado operativo.</p></div></div></div>
             <div class="cash-period-movements"><div class="cash-period-movement"><span>Retiros</span><strong id="cash-period-withdrawals">$0</strong></div><div class="cash-period-movement"><span>Ajustes</span><strong id="cash-period-adjustments">$0</strong></div></div>
             <div class="cash-period-category-list" id="cash-period-category-list"></div>
           </section>
           <section class="cash-panel cash-period-expenses">
-            <div class="cash-section-head"><div><h3>Gastos del per&iacute;odo</h3><p id="cash-period-expense-count">0 movimientos</p></div></div>
+            <div class="cash-section-head"><div class="cash-day-labeled-icon"><span class="cash-day-icon">${cashDayIcon('receipt')}</span><div><h3>Gastos del per&iacute;odo</h3><p id="cash-period-expense-count">0 movimientos</p></div></div></div>
             <div class="cash-period-expense-filters">
               <select id="cash-period-category-filter" aria-label="Categor&iacute;a de gasto"><option value="">Todas las categor&iacute;as</option></select>
               <select id="cash-period-subcategory-filter" aria-label="Subcategor&iacute;a de gasto"><option value="">Todas las subcategor&iacute;as</option></select>
@@ -1955,11 +2023,13 @@ export const cashRegisterScript = `
       state.cashRegister.periodPage = result.page || 1
       state.cashRegister.periodTotalPages = result.totalPages || 1
       cashUi.periodExpenseCount.textContent = String(result.total || 0) + ((result.total || 0) === 1 ? ' movimiento' : ' movimientos')
-      cashUi.periodExpenseList.innerHTML = entries.length ? entries.map((entry) => {
+      cashUi.periodExpenseList.innerHTML = entries.length ? '<div class="cash-table-scroll" tabindex="0" role="region" aria-label="Gastos del per&iacute;odo"><table class="cash-day-table cash-period-table"><thead><tr><th scope="col">Fecha</th><th scope="col">Concepto</th><th scope="col">Categor&iacute;a</th><th scope="col">Medio</th><th scope="col">Importe</th></tr></thead><tbody>' + entries.map((entry) => {
         const isReversal = entry.type === 'REVERSAL'
         const title = entry.description || entry.observation || 'Gasto sin descripción'
-        return '<article class="cash-period-expense-row' + (isReversal ? ' reversal' : '') + '"><div><strong>' + escapeHtml(title) + '</strong><br><small>' + escapeHtml(entry.expenseCategoryName || 'Otros') + (entry.expenseSubcategoryName ? ' / ' + escapeHtml(entry.expenseSubcategoryName) : '') + '</small></div><small>' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</small><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small><strong>' + (isReversal ? '+' : '−') + cashMoney(entry.amount) + '</strong></article>'
-      }).join('') : '<div class="cash-inline-state">No hay gastos para estos filtros.</div>'
+        const direction = isReversal ? 'inflow' : 'outflow'
+        const icon = isReversal ? '${cashDayIcon('refresh')}' : '${cashDayIcon('outgoing')}'
+        return '<tr class="cash-period-expense-row' + (isReversal ? ' reversal' : '') + '"><td><small>' + escapeHtml(cashDate(entry.effectiveAt)) + '</small></td><td><div class="cash-day-labeled-icon"><span class="cash-day-icon ' + direction + '">' + icon + '</span><div><strong>' + escapeHtml(title) + '</strong>' + (isReversal ? '<small>Reversi&oacute;n de gasto</small>' : '') + '</div></div></td><td>' + escapeHtml(entry.expenseCategoryName || 'Otros') + (entry.expenseSubcategoryName ? '<br><small>' + escapeHtml(entry.expenseSubcategoryName) + '</small>' : '') + '</td><td><span class="cash-entry-chip">' + escapeHtml(cashMethodLabels[entry.method] || entry.method) + '</span></td><td class="cash-entry-amount ' + direction + '">' + (isReversal ? '+ ' : '− ') + escapeHtml(cashMoney(entry.amount)) + '</td></tr>'
+      }).join('') + '</tbody></table></div>' : '<div class="cash-inline-state">No hay gastos para estos filtros.</div>'
       cashUi.periodPageInfo.textContent = 'Página ' + state.cashRegister.periodPage + ' de ' + state.cashRegister.periodTotalPages
       cashUi.periodPrevious.disabled = state.cashRegister.periodPage <= 1
       cashUi.periodNext.disabled = state.cashRegister.periodPage >= state.cashRegister.periodTotalPages
@@ -2445,7 +2515,10 @@ export const cashRegisterScript = `
         history.hidden = accounts.length === 0
         balance.textContent = cashAccount ? cashMoney(cashAccount.balance) : ''
         document.getElementById('cash-treasury-account-grid').innerHTML = accounts.length
-          ? accounts.map((item) => '<article class="cash-treasury-account-card' + (item.isActive ? '' : ' inactive') + '"><span>' + escapeHtml(item.name) + '</span><strong>' + escapeHtml(cashMoney(item.balance)) + '</strong><small>' + escapeHtml(item.kind === 'CASH' ? 'Efectivo reservado' : item.kind === 'CARD' ? 'Tarjeta / posnet' : 'Transferencia / billetera') + (item.isActive ? '' : ' · Inactivo') + '</small></article>').join('')
+          ? accounts.map((item) => {
+              const icon = item.kind === 'CASH' ? '${cashDayIcon('wallet')}' : item.kind === 'CARD' ? '${cashDayIcon('receipt')}' : '${cashDayIcon('bank')}'
+              return '<article class="cash-treasury-account-card' + (item.kind === 'CASH' ? ' cash-account--cash' : '') + (item.isActive ? '' : ' inactive') + '"><div class="cash-day-labeled-icon"><span class="cash-day-icon">' + icon + '</span><span>' + escapeHtml(item.name) + '</span></div><strong>' + escapeHtml(cashMoney(item.balance)) + '</strong><small>' + escapeHtml(item.kind === 'CASH' ? 'Efectivo reservado' : item.kind === 'CARD' ? 'Tarjeta / posnet' : 'Transferencia / billetera') + (item.isActive ? '' : ' · Inactivo') + '</small></article>'
+            }).join('')
           : ''
         const accountSelect = document.getElementById('cash-treasury-outflow-account')
         const selectedAccount = accountSelect.value
@@ -2469,7 +2542,9 @@ export const cashRegisterScript = `
               const correctionLabel = entry.correctionRole === 'REVERSAL' ? ' · Contrapartida' : entry.correctionRole === 'REPLACEMENT' ? ' · Fecha corregida' : entry.dateCorrected ? ' · Corregido' : ''
               const canCorrectDate = !entry.correctionRole && !entry.dateCorrected && entry.kind !== 'DAILY_TRANSFER'
               const action = canCorrectDate ? '<button class="secondary" type="button" data-treasury-correct-date="' + escapeHtml(entry.id) + '">Corregir fecha</button>' : '—'
-              return '<tr><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '<br><small>Registrado: ' + escapeHtml(cashDate(entry.createdAt)) + '</small></td><td>' + escapeHtml(entry.accountName || '—') + '</td><td>' + escapeHtml((entry.kind === 'DAILY_TRANSFER' ? 'Traspaso interno' : entry.kind === 'PROFESSIONAL_PAYMENT' ? 'Pago profesional' : entry.kind === 'PROFESSIONAL_ADVANCE' ? 'Adelanto profesional' : entry.kind === 'INCOME' ? 'Ingreso' : entry.kind === 'EXPENSE' ? 'Gasto' : 'Retiro') + correctionLabel) + '</td><td>' + escapeHtml([entry.expenseCategoryName, entry.expenseSubcategoryName].filter(Boolean).join(' / ') || '—') + '</td><td>' + escapeHtml(entry.counterparty || '—') + '</td><td>' + escapeHtml(entry.description || '—') + (entry.correctionReason ? '<br><small>Motivo: ' + escapeHtml(entry.correctionReason) + '</small>' : '') + '</td><td>' + (entry.direction === 'OUTFLOW' ? '−' : '+') + escapeHtml(cashMoney(entry.amount)) + '</td><td>' + action + '</td></tr>'
+              const direction = entry.direction === 'OUTFLOW' ? 'outflow' : 'inflow'
+              const kindClass = entry.kind === 'DAILY_TRANSFER' ? ' internal' : ' ' + direction
+              return '<tr><td>' + escapeHtml(cashDate(entry.effectiveAt)) + '<br><small>Registrado: ' + escapeHtml(cashDate(entry.createdAt)) + '</small></td><td>' + escapeHtml(entry.accountName || '—') + '</td><td><span class="cash-entry-chip' + kindClass + '">' + escapeHtml((entry.kind === 'DAILY_TRANSFER' ? 'Traspaso interno' : entry.kind === 'PROFESSIONAL_PAYMENT' ? 'Pago profesional' : entry.kind === 'PROFESSIONAL_ADVANCE' ? 'Adelanto profesional' : entry.kind === 'INCOME' ? 'Ingreso' : entry.kind === 'EXPENSE' ? 'Gasto' : 'Retiro') + correctionLabel) + '</span></td><td>' + escapeHtml([entry.expenseCategoryName, entry.expenseSubcategoryName].filter(Boolean).join(' / ') || '—') + '</td><td>' + escapeHtml(entry.counterparty || '—') + '</td><td>' + escapeHtml(entry.description || '—') + (entry.correctionReason ? '<br><small>Motivo: ' + escapeHtml(entry.correctionReason) + '</small>' : '') + '</td><td class="cash-entry-amount ' + direction + '">' + (entry.direction === 'OUTFLOW' ? '− ' : '+ ') + escapeHtml(cashMoney(entry.amount)) + '</td><td>' + action + '</td></tr>'
             }).join('')
           : '<tr><td colspan="8">Todavía no hay movimientos.</td></tr>'
         feedback.textContent = ''

@@ -6,13 +6,14 @@ import vm from 'node:vm'
 import { renderCrmHtml } from '../src/routes/crm-ui.js'
 import { cashRegisterMarkup, cashRegisterScript } from '../src/routes/crm-ui/cash-register.js'
 
-const summaryCards = [...cashRegisterMarkup.matchAll(/class="cash-summary-card cash-day-card--(\w+)"/g)].map(match => match[1])
+const dayMarkup = cashRegisterMarkup.slice(cashRegisterMarkup.indexOf('id="cash-dashboard"'))
+const summaryCards = [...dayMarkup.matchAll(/class="cash-summary-card cash-day-card--(\w+)"/g)].map(match => match[1])
 assert.deepEqual(summaryCards, ['collected', 'outgoing', 'total', 'expected'], 'Caja actual distingue sus cuatro indicadores')
 assert.match(cashRegisterScript, /<table class="cash-day-table cash-movements-table"[\s\S]*?<th scope="col">Concepto<\/th>[\s\S]*?<th scope="col">Acciones<\/th>/)
 assert.match(cashRegisterScript, /<table class="cash-day-table cash-sessions-table"[\s\S]*?<th scope="col">Responsable<\/th>[\s\S]*?<th scope="col">Diferencia<\/th>/)
 
 function cashFunction(name: string) {
-  const start = cashRegisterScript.indexOf('    function ' + name + '(')
+  const start = cashRegisterScript.search(new RegExp('    (?:async )?function ' + name + '\\('))
   assert.notEqual(start, -1)
   return cashRegisterScript.slice(start, cashRegisterScript.indexOf('\n    }', start) + 6)
 }
@@ -40,9 +41,9 @@ const dayFixture = `
     { id: 'closed-session', responsibleName: 'Responsable de cierre', openedAt: 1, closedAt: 2, expectedCash: 91000, countedCash: 90000, cashDifference: -1000 }], 482000);
   renderCashEntries();
 `
-const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string }>()
-const context = vm.createContext({ document: { getElementById(id: string) {
-  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '' })
+const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string; disabled: boolean }>()
+const context = vm.createContext({ URLSearchParams, document: { getElementById(id: string) {
+  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '', disabled: false })
   return nodes.get(id)
 } } })
 vm.runInContext(dayFixture, context)
@@ -52,6 +53,80 @@ assert.match(nodes.get('cash-entry-list')!.innerHTML, /class="cash-entry-amount 
 vm.runInContext("state.currentUser.role = 'STAFF'; renderCashEntries()", context)
 assert.doesNotMatch(nodes.get('cash-entry-list')!.innerHTML, /data-cash-correct-/)
 console.log('OK Caja actual: indicadores, tablas, datos escapados y acciones según el rol')
+
+const periodFields = ['From', 'To', 'Feedback', 'Gross', 'Cash', 'Transfer', 'Card', 'UnknownCollected', 'UnknownCollectedRow', 'UnknownOutgoing', 'UnknownOutgoingRow', 'UnknownTotal', 'UnknownTotalRow', 'Refunds', 'ExpensesTotal', 'OutgoingCash', 'OutgoingTransfer', 'OutgoingCard', 'Result', 'TotalCash', 'TotalTransfer', 'TotalCard', 'Withdrawals', 'Adjustments', 'CategoryList', 'CategoryFilter', 'SubcategoryFilter', 'MethodFilter', 'Search', 'PageSize', 'ExpenseList', 'ExpenseCount', 'PageInfo', 'Previous', 'Next']
+const financeFixture = `(async () => {
+  const node = id => document.getElementById(id);
+  const cashUi = Object.fromEntries(${JSON.stringify(periodFields)}.map(field => ['period' + field, node('cash-period-' + field.replace(/[A-Z]/g, (letter, i) => (i ? '-' : '') + letter.toLowerCase()))]));
+  const cashMoney = amount => '$ ' + Number(amount || 0).toLocaleString('es-AR');
+  const cashSignedMoney = amount => (amount < 0 ? '− ' : '+ ') + cashMoney(Math.abs(amount));
+  const cashDate = () => '17/10/26, 10:34 p. m.';
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago' };
+  const cashScoped = url => url;
+  const isCashBusinessScopedRole = () => true;
+  const state = { businessId: 'shop', currentUser: { role: 'BUSINESS_ADMIN' }, cashRegister: {} };
+  const requests = [];
+  const periodEntries = Array.from({ length: 30 }, (_, i) => ({ id: 'period-' + i, type: i % 2 ? 'REVERSAL' : 'EXPENSE', amount: 5000 + i, method: i % 2 ? 'TRANSFER' : 'CASH', description: 'Insumos <especiales> ' + i, expenseCategoryName: 'Productos', expenseSubcategoryName: 'Coloración', effectiveAt: 1 }));
+  const movements = Array.from({ length: 20 }, (_, i) => ({ id: 'treasury-' + i, kind: i === 0 ? 'DAILY_TRANSFER' : i % 2 ? 'EXPENSE' : 'INCOME', direction: i % 2 ? 'OUTFLOW' : 'INFLOW', amount: 5000 + i, accountName: 'Cuenta del negocio', description: 'Detalle <especial> ' + i, effectiveAt: 1, createdAt: 2, expenseCategoryName: 'Productos', expenseSubcategoryName: 'Coloración', counterparty: 'Proveedor', correctionRole: i === 2 ? 'REVERSAL' : undefined, dateCorrected: i === 3, correctionReason: i === 2 ? 'Fecha <ajustada>' : '' }));
+  const accounts = [{ id: 'cash', kind: 'CASH', name: 'Efectivo', balance: 85000, isActive: true }, { id: 'bank', kind: 'TRANSFER', name: 'Banco <principal>', balance: 42000, isActive: true }, { id: 'card', kind: 'CARD', name: 'Posnet', balance: 0, isActive: false }];
+  const summary = { grossCollected: 153000, expenses: 20000, refunds: 5000, operatingResult: 128000, withdrawals: 3000, adjustments: -1000, collectedByMethod: { CASH: 100000, TRANSFER: 50000 }, outgoingByMethod: { CASH: 20000, TRANSFER: 5000 }, expenseByCategory: [{ name: 'Productos', amount: 20000 }] };
+  const getJson = async url => {
+    requests.push(url);
+    if (url.startsWith('/cash-register/period/summary')) return { summary };
+    if (url.startsWith('/cash-register/period/expenses')) return { entries: periodEntries, page: 2, totalPages: 2, total: 80 };
+    if (url.startsWith('/treasury/consolidated')) return { summary: { collected: 160000, outgoing: 30000, total: 130000, outgoingCash: 25000, outgoingTreasury: 5000, incomingTreasury: 7000, collectedByMethod: summary.collectedByMethod, outgoingByMethod: summary.outgoingByMethod, totalByMethod: { CASH: 80000, TRANSFER: 45000 } } };
+    return { accounts, counterparties: [{ id: 'supplier', name: 'Proveedor', isActive: true }], movements, page: 2, pageSize: 20, total: 61, totalPages: 4 };
+  };
+  cashUi.periodFrom.value = node('cash-treasury-period-from').value = '2026-10-01';
+  cashUi.periodTo.value = node('cash-treasury-period-to').value = '2026-10-31';
+  cashUi.periodPageSize.value = '50';
+  cashUi.periodCategoryFilter.value = node('cash-treasury-filter-category').value = 'products';
+  cashUi.periodSubcategoryFilter.value = node('cash-treasury-filter-subcategory').value = 'color';
+  cashUi.periodMethodFilter.value = 'CASH';
+  cashUi.periodSearch.value = node('cash-treasury-filter-search').value = 'insumos';
+  node('cash-treasury-filter-kind').value = 'EXPENSE';
+  ${cashFunction('validateCashPeriodDates')}
+  ${cashFunction('renderCashPeriodSummary')}
+  ${cashFunction('renderCashPeriodExpenses')}
+  ${cashFunction('loadCashPeriod')}
+  ${cashFunction('loadTreasury')}
+  ${cashFunction('loadTreasuryConsolidated')}
+  await loadCashPeriod({ page: 2 });
+  await loadTreasury({ page: 2 });
+  await loadTreasuryConsolidated();
+  globalThis.financeRequests = requests;
+})()`
+await vm.runInContext(financeFixture, context)
+const periodHtml = nodes.get('cash-period-expense-list')!.innerHTML
+const treasuryHtml = nodes.get('cash-treasury-entries')!.innerHTML
+assert.match(periodHtml, /<table[\s\S]*?<th scope="col">Fecha<\/th>[\s\S]*?<th scope="col">Importe<\/th>/, 'Historial conserva fechas y todos los campos en una tabla operativa')
+assert.match(periodHtml, /&lt;especiales>[\s\S]*Coloración/)
+assert.match(periodHtml, /cash-entry-amount inflow/)
+assert.equal(nodes.get('cash-period-gross')!.textContent, '$ 153.000')
+assert.equal(nodes.get('cash-period-expenses-total')!.textContent, '$ 25.000')
+assert.equal(nodes.get('cash-period-result')!.textContent, '$ 128.000')
+assert.equal(nodes.get('cash-period-withdrawals')!.textContent, '$ 3.000')
+assert.equal(nodes.get('cash-period-adjustments')!.textContent, '− $ 1.000')
+assert.equal(nodes.get('cash-period-unknown-collected-row')!.hidden, false)
+assert.equal(nodes.get('cash-period-next')!.disabled, true)
+assert.equal(nodes.get('cash-period-previous')!.disabled, false)
+assert.match(nodes.get('cash-treasury-account-grid')!.innerHTML, /cash-icon[\s\S]*Banco &lt;principal>[\s\S]*Inactivo/, 'Cuentas conserva iconos, nombre escapado y estado')
+assert.match(treasuryHtml, /cash-entry-chip[\s\S]*Traspaso interno/)
+assert.match(treasuryHtml, /cash-entry-amount outflow/)
+assert.match(treasuryHtml, /Registrado:[\s\S]*Fecha &lt;ajustada>/)
+assert.match(treasuryHtml, /data-treasury-correct-date="treasury-1"/)
+assert.doesNotMatch(treasuryHtml, /data-treasury-correct-date="treasury-[023]"/)
+assert.equal(nodes.get('cash-treasury-consolidated-total')!.textContent, '$ 130.000')
+assert.match(nodes.get('cash-treasury-page-info')!.textContent, /21–40 de 61/)
+assert.equal(nodes.get('cash-treasury-next')!.disabled, false)
+const financeRequests = vm.runInContext('financeRequests', context) as string[]
+const periodQuery = new URL(financeRequests.find(url => url.startsWith('/cash-register/period/expenses'))!, 'http://local').searchParams
+for (const [key, value] of Object.entries({ businessId: 'shop', page: '2', pageSize: '50', categoryId: 'products', subcategoryId: 'color', method: 'CASH', q: 'insumos' })) assert.equal(periodQuery.get(key), value)
+const treasuryQuery = new URL(financeRequests.find(url => url.startsWith('/treasury?'))!, 'http://local').searchParams
+for (const [key, value] of Object.entries({ page: '2', kind: 'EXPENSE', search: 'insumos', expenseCategoryId: 'products', expenseSubcategoryId: 'color' })) assert.equal(treasuryQuery.get(key), value)
+console.log('OK Historial y Tesorería: render real, cálculos, filtros, paginación, datos escapados y correcciones')
+
 if (process.argv.includes('--contract-only')) process.exit(0)
 
 const modulePath = process.env.CRM_QA_BROWSER_MODULE
@@ -88,13 +163,11 @@ try {
     node('cash-net').textContent = '$ 442.000'
     node('cash-expected').textContent = '$ 482.000'
     node('cash-status').classList.add('open')
-    node('cash-period-expense-list').innerHTML = Array.from({ length: 30 }, (_, i) => `<div class="cash-period-expense-row" data-qa-row="period-${i}"><div><strong>Gasto ${i + 1}</strong><p>${longName}</p></div><span>Efectivo</span><span>17/10/2026</span><strong>$ 5.000</strong></div>`).join('')
     node('cash-professional-summary').innerHTML = '<div class="cash-professional-summary-head"><span></span><strong>Profesional</strong><span>Servicios</span><span>Producción</span><span>Comisión</span><span>Pagos</span><strong>Saldo</strong></div>' + Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-summary-row"><button type="button" class="cash-professional-toggle">+</button><strong>Profesional ${i + 1}</strong><span>20</span><span>$ 400.000</span><span>$ 200.000</span><span>$ 100.000</span><strong>$ 100.000</strong></div>`).join('')
     node('cash-professional-entries').innerHTML = Array.from({ length: 20 }, (_, i) => `<div class="cash-professional-movement-row" data-qa-row="professionals-${i}"><span>17/10/2026</span><strong>${longName}</strong><span>Servicio</span><span>Movimiento ${i + 1}</span><strong>$ 20.000</strong><span>Responsable</span></div>`).join('')
     node('cash-treasury-inactive').hidden = true
     node('cash-treasury-operations').hidden = false
     node('cash-treasury-history-panel').hidden = false
-    node('cash-treasury-entries').innerHTML = Array.from({ length: 30 }, (_, i) => `<tr data-qa-row="treasury-${i}"><td>17/10/2026</td><td>Transferencia</td><td>Gasto ${i + 1}</td><td>Insumos</td><td>Proveedor del negocio</td><td>$ 5.000</td><td><button type="button">Corregir fecha</button></td></tr>`).join('')
     const modes = ['day', 'period', 'professionals', 'treasury']
     const activate = (mode: string) => {
       node('cash-dashboard').hidden = mode !== 'day'
@@ -108,6 +181,12 @@ try {
     activate('day')
   })
   await page.addScriptTag({ content: dayFixture + "document.querySelectorAll('.cash-entry').forEach((row, i) => row.dataset.qaRow = 'day-' + i)" })
+  await page.evaluate(financeFixture)
+  await page.evaluate(() => {
+    for (const [id, prefix] of [['cash-period-expense-list', 'period'], ['cash-treasury-entries', 'treasury']]) {
+      document.getElementById(id)!.querySelectorAll(id === 'cash-treasury-entries' ? 'tr' : 'tbody tr').forEach((row, i) => (row as HTMLElement).dataset.qaRow = prefix + '-' + i)
+    }
+  })
   if (output) await mkdir(output, { recursive: true })
   for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height })
@@ -149,7 +228,8 @@ try {
       assert.deepEqual(clippedButtons, [], mode + ': los botones conservan el texto legible en ' + label)
       if (mode === 'day') {
         if (width <= 560) assert.ok((await page.locator('.cash-toolbar > label').boundingBox())!.height < 150, 'el selector de jornada no hereda una altura de columna excesiva en ' + label)
-        const wrappedAmounts = await page.locator('.cash-dashboard .cash-summary-card strong').evaluateAll((amounts: HTMLElement[]) => amounts.filter(amount => {
+        const metricView = mode === 'day' ? '#cash-dashboard' : mode === 'period' ? '#cash-period-view' : '#cash-treasury-view'
+        const wrappedAmounts = await page.locator(metricView + ' .cash-summary-card strong').evaluateAll((amounts: HTMLElement[]) => amounts.filter(amount => {
           if (!amount.getClientRects().length) return false
           const range = document.createRange()
           range.selectNodeContents(amount)
@@ -163,12 +243,12 @@ try {
       await page.mouse.wheel(0, 2000)
       await page.waitForFunction((start: number) => document.getElementById('cash-register-view')!.scrollTop > start, before)
       await view.evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
-      const rowIndex = mode === 'professionals' ? 19 : 29
+      const rowIndex = ['professionals', 'treasury'].includes(mode) ? 19 : 29
       const last = await page.locator(`[data-qa-row="${mode}-${rowIndex}"]`).boundingBox()
       assert.ok(last && last.y >= -1 && last.y < height, mode + ': último registro alcanzable con scroll en ' + label)
       assert.ok(await view.evaluate((element: HTMLElement) => element.scrollHeight > element.clientHeight), mode + ': Caja conserva un área de scroll propia en ' + label)
-      if (mode !== 'period') {
-        const table = page.locator(mode === 'day' ? '#cash-entry-list .cash-table-scroll' : mode === 'professionals' ? '#cash-professional-entries' : '#cash-treasury-history-panel .cash-today-table-wrap')
+      {
+        const table = page.locator(mode === 'day' ? '#cash-entry-list .cash-table-scroll' : mode === 'professionals' ? '#cash-professional-entries' : mode === 'period' ? '#cash-period-expense-list .cash-table-scroll' : '#cash-treasury-history-panel .cash-today-table-wrap')
         const overflow = await table.evaluate((element: HTMLElement) => ({ scroll: element.scrollWidth, client: element.clientWidth, overflow: getComputedStyle(element).overflowX }))
         if (overflow.scroll > overflow.client + 1) {
           assert.ok(['auto', 'scroll'].includes(overflow.overflow), mode + ': tabla admite scroll horizontal en ' + label)
@@ -176,7 +256,7 @@ try {
           assert.ok(await table.evaluate((element: HTMLElement) => element.scrollLeft > 0), mode + ': últimas columnas accesibles en ' + label)
         }
       }
-      if (output && [390, 768, 1440].includes(width)) {
+      if (output && [390, 1440].includes(width) && ['period', 'treasury'].includes(mode)) {
         await view.evaluate((element: HTMLElement) => { element.scrollTop = 0 })
         await page.screenshot({ path: join(output, `caja-${mode}-${label}.png`) })
       }
