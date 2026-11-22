@@ -32571,6 +32571,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         .map((appointment) => renderAgendaMobileEvent(appointment, hourHeight, displayRange, eventLayout.get(appointment.id)))
         .join('')
       const dayBlocks = filteredAgendaBlocksForRange(day, addDays(day, 1))
+        .filter((block) => ![3, 7].includes(Number(state.agendaViewDays)) || !block.professionalId)
         .map((block) => renderAgendaMobileBlock(block, day, hourHeight, displayRange))
         .join('')
       const actionRail = Number(state.agendaViewDays) > 1 && (canCreateAppointments() || canManageScheduleBlocks())
