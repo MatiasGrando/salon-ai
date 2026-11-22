@@ -41,9 +41,9 @@ const dayFixture = `
     { id: 'closed-session', responsibleName: 'Responsable de cierre', openedAt: 1, closedAt: 2, expectedCash: 91000, countedCash: 90000, cashDifference: -1000 }], 482000);
   renderCashEntries();
 `
-const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string; disabled: boolean }>()
+const nodes = new Map<string, { innerHTML: string; textContent: string; hidden: boolean; value: string; disabled: boolean; setAttribute(...args: any[]): void; insertAdjacentHTML(position: string, html: string): void }>()
 const context = vm.createContext({ URLSearchParams, document: { getElementById(id: string) {
-  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '', disabled: false })
+  if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', hidden: false, value: '', disabled: false, setAttribute() {}, insertAdjacentHTML(_position: string, html: string) { this.innerHTML += html } })
   return nodes.get(id)
 } } })
 vm.runInContext(dayFixture, context)
@@ -65,6 +65,9 @@ const financeFixture = `(async () => {
   const cashMethodLabels = { CASH: 'Efectivo', TRANSFER: 'Transferencia / Mercado Pago' };
   const cashScoped = url => url;
   const isCashBusinessScopedRole = () => true;
+  const cashRegisterScopeKey = () => state.businessId;
+  const cashRegisterScopeIsCurrent = (register, scope) => register === state.cashRegister && scope === state.businessId;
+  const showCrmToast = () => {};
   const state = { businessId: 'shop', currentUser: { role: 'BUSINESS_ADMIN' }, cashRegister: {} };
   const requests = [];
   const periodEntries = Array.from({ length: 30 }, (_, i) => ({ id: 'period-' + i, type: i % 2 ? 'REVERSAL' : 'EXPENSE', amount: 5000 + i, method: i % 2 ? 'TRANSFER' : 'CASH', description: 'Insumos <especiales> ' + i, expenseCategoryName: 'Productos', expenseSubcategoryName: 'Coloración', effectiveAt: 1 }));
@@ -90,12 +93,18 @@ const financeFixture = `(async () => {
   ${cashFunction('renderCashPeriodSummary')}
   ${cashFunction('renderCashPeriodExpenses')}
   ${cashFunction('loadCashPeriod')}
+  ${cashFunction('treasuryFilterUrl')}
+  ${cashFunction('treasuryMovementRows')}
+  ${cashFunction('renderTreasuryPagination')}
+  ${cashFunction('renderTreasuryMovements')}
+  ${cashFunction('renderTreasuryAccounts')}
   ${cashFunction('loadTreasury')}
   ${cashFunction('loadTreasuryConsolidated')}
   await loadCashPeriod({ page: 2 });
-  await loadTreasury({ page: 2 });
+  await loadTreasury();
   await loadTreasuryConsolidated();
   globalThis.financeRequests = requests;
+  globalThis.treasuryQa = { state, loadTreasury, loadTreasuryConsolidated };
 })()`
 await vm.runInContext(financeFixture, context)
 const periodHtml = nodes.get('cash-period-expense-list')!.innerHTML
@@ -118,16 +127,55 @@ assert.match(treasuryHtml, /Registrado:[\s\S]*Fecha &lt;ajustada>/)
 assert.match(treasuryHtml, /data-treasury-correct-date="treasury-1"/)
 assert.doesNotMatch(treasuryHtml, /data-treasury-correct-date="treasury-[023]"/)
 assert.equal(nodes.get('cash-treasury-consolidated-total')!.textContent, '$ 130.000')
-assert.match(nodes.get('cash-treasury-page-info')!.textContent, /21–40 de 61/)
+assert.match(nodes.get('cash-treasury-page-info')!.textContent, /Mostrando 5 de 61/)
 assert.equal(nodes.get('cash-treasury-next')!.disabled, false)
 const financeRequests = vm.runInContext('financeRequests', context) as string[]
 const periodQuery = new URL(financeRequests.find(url => url.startsWith('/cash-register/period/expenses'))!, 'http://local').searchParams
 for (const [key, value] of Object.entries({ businessId: 'shop', page: '2', pageSize: '50', categoryId: 'products', subcategoryId: 'color', method: 'CASH', q: 'insumos' })) assert.equal(periodQuery.get(key), value)
 const treasuryQuery = new URL(financeRequests.find(url => url.startsWith('/treasury?'))!, 'http://local').searchParams
-for (const [key, value] of Object.entries({ page: '2', kind: 'EXPENSE', search: 'insumos', expenseCategoryId: 'products', expenseSubcategoryId: 'color' })) assert.equal(treasuryQuery.get(key), value)
+for (const [key, value] of Object.entries({ page: '1', kind: 'EXPENSE', search: 'insumos', expenseCategoryId: 'products', expenseSubcategoryId: 'color' })) assert.equal(treasuryQuery.get(key), value)
 console.log('OK Historial y Tesorería: render real, cálculos, filtros, paginación, datos escapados y correcciones')
 
 if (process.argv.includes('--contract-only')) process.exit(0)
+
+const treasuryDrawerStart = cashRegisterScript.indexOf('    const treasuryMovementDrawer = createCrmDrawer(')
+const treasuryDrawerBinding = cashRegisterScript.slice(treasuryDrawerStart, cashRegisterScript.indexOf('\n    })', treasuryDrawerStart) + 7)
+const counterpartyKeysStart = cashRegisterScript.indexOf("    document.getElementById('cash-treasury-counterparty-dialog').addEventListener('keydown'")
+const counterpartyKeys = cashRegisterScript.slice(counterpartyKeysStart, cashRegisterScript.indexOf("    document.getElementById('cash-treasury-counterparty-form').addEventListener", counterpartyKeysStart))
+const treasuryDrawerFixture = `(() => {
+  const { state, loadTreasury, loadTreasuryConsolidated } = globalThis.treasuryQa;
+  const qa = globalThis.treasuryQa;
+  if (!window.crypto.randomUUID) Object.defineProperty(window.crypto, 'randomUUID', { value: () => 'qa-idempotency-key' });
+  state.cashRegister.expenseCategories = [{ id: 'products', name: 'Productos', isActive: true }];
+  state.cashRegister.expenseSubcategories = [{ id: 'color', categoryId: 'products', name: 'Coloración', isActive: true }];
+  const els = { confirmationDialog: { hidden: true } };
+  const requestCrmConfirmation = async () => { qa.confirmations = (qa.confirmations || 0) + 1; return false; };
+  const showCrmToast = message => { qa.notice = message; };
+  const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+  const isCashBusinessScopedRole = () => true;
+  const cashRegisterScopeKey = () => state.businessId;
+  const cashRegisterScopeIsCurrent = (register, scope) => register === state.cashRegister && scope === state.businessId;
+  const setButtonLoading = (button, busy, label) => { button.disabled = busy; button.textContent = busy ? label : 'Confirmar movimiento'; };
+  const getJson = async () => { if (qa.failNext) { qa.failNext = false; throw new Error('Saldo insuficiente'); } return {}; };
+  ${cashFunction('createCrmDrawer')}
+  ${cashFunction('cashIsoDate')}
+  ${cashFunction('ensureFinancialDateDefaults')}
+  ${cashFunction('renderTreasuryClassificationOptions')}
+  ${cashFunction('treasuryMovementDraft')}
+  ${treasuryDrawerBinding}
+  ${cashFunction('openTreasuryMovement')}
+  ${cashFunction('submitTreasuryOutflow')}
+  ${cashFunction('openTreasuryCounterpartyDialog')}
+  ${cashFunction('closeTreasuryCounterpartyDialog')}
+  ${counterpartyKeys}
+  document.getElementById('cash-treasury-movement-open').addEventListener('click', event => openTreasuryMovement(event.currentTarget));
+  document.getElementById('cash-treasury-outflow-form').addEventListener('submit', submitTreasuryOutflow);
+  document.getElementById('cash-treasury-outflow-category').addEventListener('change', renderTreasuryClassificationOptions);
+  document.getElementById('cash-treasury-counterparty-add').addEventListener('click', openTreasuryCounterpartyDialog);
+  document.getElementById('cash-treasury-counterparty-x').addEventListener('click', closeTreasuryCounterpartyDialog);
+  document.getElementById('cash-treasury-counterparty-cancel').addEventListener('click', closeTreasuryCounterpartyDialog);
+  qa.drawer = treasuryMovementDrawer;
+})()`
 
 const modulePath = process.env.CRM_QA_BROWSER_MODULE
 assert.ok(modulePath, 'Definí CRM_QA_BROWSER_MODULE con el módulo Playwright disponible para ejecutar la regresión visual.')
@@ -187,8 +235,10 @@ try {
       document.getElementById(id)!.querySelectorAll(id === 'cash-treasury-entries' ? 'tr' : 'tbody tr').forEach((row, i) => (row as HTMLElement).dataset.qaRow = prefix + '-' + i)
     }
   })
+  await page.evaluate(treasuryDrawerFixture)
   if (output) await mkdir(output, { recursive: true })
-  for (const [width, height] of sizes) {
+  const selectedSizes = process.argv.includes('--treasury-only') ? [[390, 844], [1440, 900]] : sizes
+  for (const [width, height] of selectedSizes) {
     await page.setViewportSize({ width, height })
     const label = `${width}x${height}`
     const view = page.locator('#cash-register-view')
@@ -243,7 +293,7 @@ try {
       await page.mouse.wheel(0, 2000)
       await page.waitForFunction((start: number) => document.getElementById('cash-register-view')!.scrollTop > start, before)
       await view.evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
-      const rowIndex = ['professionals', 'treasury'].includes(mode) ? 19 : 29
+      const rowIndex = mode === 'treasury' ? 4 : mode === 'professionals' ? 19 : 29
       const last = await page.locator(`[data-qa-row="${mode}-${rowIndex}"]`).boundingBox()
       assert.ok(last && last.y >= -1 && last.y < height, mode + ': último registro alcanzable con scroll en ' + label)
       assert.ok(await view.evaluate((element: HTMLElement) => element.scrollHeight > element.clientHeight), mode + ': Caja conserva un área de scroll propia en ' + label)
@@ -256,12 +306,76 @@ try {
           assert.ok(await table.evaluate((element: HTMLElement) => element.scrollLeft > 0), mode + ': últimas columnas accesibles en ' + label)
         }
       }
-      if (output && [390, 1440].includes(width) && ['period', 'treasury'].includes(mode)) {
+      if (output && [390, 1440].includes(width) && mode === 'treasury') {
         await view.evaluate((element: HTMLElement) => { element.scrollTop = 0 })
         await page.screenshot({ path: join(output, `caja-${mode}-${label}.png`) })
       }
     }
     console.log('OK Caja adaptable: cuatro pestañas, scroll vertical, tablas y filtros en ' + label)
+  }
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    await page.locator('#cash-view-treasury').click()
+    const view = page.locator('#cash-register-view')
+    const list = page.locator('#cash-treasury-entries tr')
+    assert.equal(await list.count(), 5)
+    await view.evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
+    if (output) await page.screenshot({ path: join(output, 'tesoreria-lista5-' + width + '.png') })
+    await page.evaluate(() => {
+      ;(globalThis as any).firstTreasuryRow = document.querySelector('#cash-treasury-entries tr')
+      ;(globalThis as any).treasuryRequestCount = (globalThis as any).financeRequests.length
+    })
+    await page.evaluate(() => (globalThis as any).treasuryQa.loadTreasury({ append: true }))
+    assert.equal(await list.count(), 15)
+    assert.ok(await page.evaluate(() => (globalThis as any).firstTreasuryRow === document.querySelector('#cash-treasury-entries tr')), 'Ver más conserva el primer nodo')
+    assert.ok(await page.evaluate(() => (globalThis as any).financeRequests.length === (globalThis as any).treasuryRequestCount), '5→15 sin solicitud')
+    const ctaSize = await page.locator('#cash-treasury-movement-open').evaluate(element => {
+      const style = getComputedStyle(element)
+      const canvas = document.createElement('canvas').getContext('2d')!
+      canvas.font = style.font
+      return { width: element.getBoundingClientRect().width, text: canvas.measureText(element.textContent!.trim()).width }
+    })
+    assert.ok(ctaSize.width <= ctaSize.text + 70, 'Registrar movimiento conserva ancho compacto en ' + width + ': ' + JSON.stringify(ctaSize))
+    await page.locator('#cash-treasury-movement-open').click()
+    const panel = page.locator('#cash-treasury-movement-panel')
+    await page.waitForTimeout(260)
+    const bounds = (await panel.boundingBox())!
+    assert.equal(Math.round(bounds.width), width <= 560 ? width : 420)
+    const footer = (await page.locator('#cash-treasury-movement-panel .crm-drawer-footer').boundingBox())!
+    assert.ok(footer.y + footer.height <= height + 1 && footer.y >= 0, 'Confirmación fija dentro del viewport')
+    assert.ok(footer.width >= bounds.width - 1, 'El formulario estira la confirmación a todo el panel')
+    assert.ok((await page.locator('#cash-treasury-movement-panel .crm-drawer-body').boundingBox())!.width >= bounds.width - 1, 'El cuerpo conserva el ancho completo del panel')
+    await page.locator('#cash-treasury-outflow-account').selectOption('cash')
+    await page.locator('#cash-treasury-outflow-category').selectOption('products')
+    await page.locator('#cash-treasury-outflow-subcategory').selectOption('color')
+    await page.locator('#cash-treasury-outflow-description').fill('Insumos de prueba')
+    await page.locator('#cash-treasury-outflow-amount').fill('5000')
+    await page.locator('#cash-treasury-movement-close').click()
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null, 'La guardia conserva el panel')
+    assert.ok(await page.evaluate(() => (globalThis as any).treasuryQa.confirmations > 0))
+    await page.locator('#cash-treasury-counterparty-add').click()
+    assert.ok(await page.locator('#cash-treasury-counterparty-name').evaluate(element => element === document.activeElement))
+    const layers = await page.evaluate(() => ['cash-treasury-movement-drawer', 'cash-treasury-counterparty-dialog'].map(id => Number(getComputedStyle(document.getElementById(id)!).zIndex)))
+    assert.ok(layers[1] > layers[0], 'Destinatario por encima del Drawer')
+    await page.keyboard.press('Escape')
+    assert.equal(await page.locator('#cash-treasury-counterparty-dialog').getAttribute('hidden'), '')
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null)
+    assert.ok(await page.locator('#cash-treasury-counterparty-add').evaluate(element => element === document.activeElement))
+    await page.locator('#cash-treasury-movement-panel .crm-drawer-body').evaluate((element: HTMLElement) => { element.scrollTop = element.scrollHeight })
+    const fixedFooter = (await page.locator('#cash-treasury-movement-panel .crm-drawer-footer').boundingBox())!
+    assert.equal(Math.round(fixedFooter.y), Math.round(footer.y))
+    if (output) await page.screenshot({ path: join(output, 'tesoreria-panel-' + width + '.png') })
+    await page.evaluate(() => { (globalThis as any).treasuryQa.failNext = true })
+    assert.deepEqual(await page.locator('#cash-treasury-outflow-form :invalid').evaluateAll(fields => fields.map(field => (field as HTMLElement).id)), [], 'El formulario conserva sus validaciones y campos completos')
+    await page.locator('#cash-treasury-movement-submit').click()
+    await page.waitForFunction(() => document.getElementById('cash-treasury-outflow-feedback')!.textContent!.includes('Saldo insuficiente'))
+    assert.equal(await page.locator('#cash-treasury-outflow-amount').inputValue(), '5000')
+    assert.equal(await page.locator('#cash-treasury-movement-drawer').getAttribute('hidden'), null)
+    await page.locator('#cash-treasury-movement-submit').click()
+    await page.locator('#cash-treasury-movement-drawer').waitFor({ state: 'hidden' })
+    assert.ok(await page.evaluate(() => (globalThis as any).treasuryQa.notice.includes('registrado')))
+    await page.evaluate(async () => { delete (globalThis as any).treasuryQa.state.cashRegister.treasuryList; await (globalThis as any).treasuryQa.loadTreasury({ refresh: true }) })
+    console.log('OK Tesorería ' + width + ': lista 5/15, Drawer real, guardia, destinatario, footer, error y éxito')
   }
   await page.evaluate(() => {
     document.body.dataset.currentSection = 'settlements'
