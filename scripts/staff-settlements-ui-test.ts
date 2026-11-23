@@ -37,6 +37,7 @@ function harness(profile: string, extra: any = {}) {
   cashUi.professionalSummary.closest = () => summaryPanel
   const todayPanel = element(), todayTable = element()
   const els: any = { appShell: { dataset: { section: 'settlements' } }, staffUserProfile: { value: profile }, staffProfessionalField: element(), staffUserProfessional: element(), staffUserForm: { querySelectorAll: () => [] }, staffPermissionsTitle: element(), staffPermissionsHelp: element(), staffSettlementsPermissionLabel: element(), staffCanViewProfessionalSettlements: element() }
+  els.staffPaymentsPermissionLabel = element()
   const document = { body: { dataset: { currentSection: 'settlements' } }, getElementById: (id: string) => id.endsWith('today-panel') ? todayPanel : todayTable }
   const calls: string[] = [], rendered: any[] = [], sources: any[] = []
   const context: any = vm.createContext({ state, cashUi, els, document, URLSearchParams, isWorkshopBusiness: () => false, isPipelineBusiness: () => false,

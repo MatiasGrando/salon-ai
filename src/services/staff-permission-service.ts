@@ -153,7 +153,6 @@ export function resolveStaffPermissions(input: Partial<StaffPermissions> & {
   if (staffProfile === 'SECRETARY') merged.agendaScope = 'ALL'
   if (staffProfile === 'PROFESSIONAL') merged.agendaScope = 'OWN'
   if (!merged.canViewCustomers) {
-    merged.canCreateCustomers = false
     merged.canEditCustomers = false
     merged.canManageCustomerNotes = false
     merged.canManageCustomerMarketing = false

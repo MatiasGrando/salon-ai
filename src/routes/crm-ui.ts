@@ -19196,7 +19196,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
                   <label><input id="staff-can-force-appointments" type="checkbox"> Forzar horarios, bloqueos o superposiciones</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
+                  <label><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
@@ -34511,7 +34511,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (customerSearchRow) customerSearchRow.hidden = protectsScheduledCustomer || !canViewAppointmentCustomerData()
       if (customerPhoneRow) customerPhoneRow.hidden = protectsScheduledCustomer
       const usesExistingCustomerPhone = !appointment && state.currentUser?.role === 'STAFF' &&
-        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+        state.currentUser?.canCreateCustomers !== true
       els.appointmentCustomerName.readOnly = protectsScheduledCustomer || usesExistingCustomerPhone
       if (usesExistingCustomerPhone && !els.appointmentFeedback.textContent) {
         els.appointmentFeedback.textContent = 'Ingresá el teléfono del cliente registrado. Usaremos su ficha existente, sin crear una nueva.'
@@ -34868,10 +34868,16 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const appointment = editingAgendaAppointment()
       const resolveExistingCustomerByPhone = !appointment && !customerId &&
         state.currentUser?.role === 'STAFF' &&
-        (state.currentUser?.canCreateCustomers !== true || state.currentUser?.canViewCustomers !== true)
+        state.currentUser?.canCreateCustomers !== true
       const existingCustomerPhone = els.appointmentCustomerPhone.value.trim()
       if (resolveExistingCustomerByPhone && !existingCustomerPhone) {
         els.appointmentFeedback.textContent = 'Ingresá el número completo de un cliente registrado para cargarle el turno.'
+        els.appointmentCustomerPhone.focus()
+        return
+      }
+      if (!appointment && state.currentUser?.role === 'STAFF' && state.currentUser?.canCreateCustomers === true &&
+        state.currentUser?.canViewCustomers !== true && !existingCustomerPhone) {
+        els.appointmentFeedback.textContent = 'Ingresá nombre y teléfono completo para crear el cliente.'
         els.appointmentCustomerPhone.focus()
         return
       }
@@ -35003,7 +35009,11 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
             showCrmToast('Turno presencial cargado sin teléfono. Podés completar el contacto más adelante.', 'success')
           }
           customerId = customer.id
-          state.customers = await getJson(businessScopedPath('/customers'))
+          if (state.currentUser?.role !== 'STAFF' || state.currentUser?.canViewCustomers === true) {
+            state.customers = await getJson(businessScopedPath('/customers'))
+          } else {
+            state.customers.push(customer)
+          }
           renderAppointmentFormOptions()
         } else if (customerId) {
           if (customerChanges.changed) {

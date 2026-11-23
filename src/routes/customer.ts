@@ -391,7 +391,11 @@ export async function customerRoutes(app: FastifyInstance) {
       return sendAuthorizationFailure(reply, 'notFound')
     }
 
+    const basicCreation = authUser.role === 'STAFF' && !authUser.canViewCustomers
     try {
+      if (basicCreation && !body.phone?.trim()) {
+        return reply.status(400).send({ message: 'Ingresá nombre y teléfono completo para crear el cliente desde Agenda' })
+      }
       if (!body.phone?.trim()) {
         const customer = await createProvisionalCustomer({
           businessId,
@@ -408,9 +412,11 @@ export async function customerRoutes(app: FastifyInstance) {
       const result = await findOrCreateCustomerByPhone({
         name: body.name || '',
         phone: body.phone || '',
-        email: body.email,
-        businessId
+        email: basicCreation ? undefined : body.email,
+        businessId,
+        preserveExisting: basicCreation
       })
+      if (basicCreation) return { id: result.customer.id, name: body.name.trim(), phone: result.canonicalPhone }
       return { ...result.customer, wasExisting: result.wasExisting, nameConflict: result.nameConflict }
     } catch (error) {
       if (error instanceof CustomerBusinessScopeError) return reply.status(403).send({ message: error.message })

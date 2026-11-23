@@ -108,7 +108,7 @@ const custom = user({
 })
 assert.equal(custom.canReplyConversations, false, 'responder requiere ver conversaciones')
 assert.equal(custom.canManageDeposits, false, 'señas requieren ver conversaciones')
-assert.equal(custom.canCreateCustomers, false, 'crear clientes requiere ver clientes')
+assert.equal(custom.canCreateCustomers, true, 'crear clientes es independiente de ver la cartera')
 assert.equal(custom.canViewFinancialAmounts, false, 'importes requieren reportes')
 
 assert.deepEqual(staffVisibleSections(readOnly), ['agenda', 'customers'])

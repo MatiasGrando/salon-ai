@@ -19,6 +19,7 @@ type FindOrCreateCustomerInput = {
   businessId: string
   defaultAreaCode?: string | null | undefined
   registerMarketingPreference?: boolean
+  preserveExisting?: boolean
 }
 
 type CreateProvisionalCustomerInput = {
@@ -121,6 +122,9 @@ export async function findOrCreateCustomerByPhone(input: FindOrCreateCustomerInp
     }
 
     const wasExisting = Boolean(customer)
+    if (customer && input.preserveExisting) {
+      return { customer, wasExisting: true, nameConflict: null, canonicalPhone }
+    }
     const nameConflict = customer && customerNamesDiffer(customer.name, name)
       ? { existingName: customer.name, requestedName: name }
       : null
