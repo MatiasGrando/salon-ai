@@ -17,7 +17,7 @@ function functions(source: string, names: string[]) {
   visit(ast)
   return names.map((name) => { assert.ok(found.has(name), 'Production function required: ' + name); return found.get(name) }).join('\n')
 }
-const navFunctions = functions(mainScript, ['staffVisibleSections', 'staffSettlementsLabel', 'staffPermissionFields', 'syncStaffProfileFields'])
+const navFunctions = functions(mainScript, ['staffVisibleSections', 'staffSettlementsLabel', 'staffPermissionFields', 'syncStaffProfileFields', 'syncStaffPermissionOverview'])
 const cashFunctions = functions(cashRegisterScript, ['canUseCashPermission', 'cashScoped', 'isCashBusinessScopedRole', 'loadProfessionalSettlements', 'renderProfessionalSettlementFilter', 'loadStaffSettlements', 'setCashView', 'startCashRealtimeEvents', 'stopCashRealtimeEvents'])
 
 function element() {

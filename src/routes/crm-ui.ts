@@ -9331,47 +9331,292 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       grid-column: 1 / -1;
     }
 
-    .staff-permissions {
-      grid-column: 1 / -1;
-      padding: 12px;
-      border: 1px solid #e4e8f0;
-      border-radius: 8px;
-      display: grid;
-      gap: 10px;
-      background: #f8fafc;
+    #staff-user-form {
+      container-type: inline-size;
+      container-name: staff-access;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     }
-
-    .staff-permissions > strong {
+    #staff-user-form .settings-field {
+      min-width: 0;
+    }
+    #staff-user-form .staff-account-grid {
+      gap: 16px;
+    }
+    .staff-template, .staff-permissions, .staff-access-summary, .staff-access-note {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid #dce5f3;
+      border-radius: 12px;
+      background: #fff;
+    }
+    .staff-template {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, .7fr);
+      align-items: center;
+      gap: 16px;
+    }
+    .staff-template p, .staff-access-sidebar p {
+      margin: 6px 0 0;
+      color: #52627a;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .staff-template .settings-field {
+      margin: 0;
+    }
+    .staff-access-layout {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 16px;
+      align-items: start;
+    }
+    .staff-access-sidebar {
+      display: grid;
+      gap: 12px;
+    }
+    .staff-access-summary strong, .staff-access-note strong {
+      display: block;
+      color: #17213c;
+      font-size: 14px;
+    }
+    .staff-access-summary hr {
+      margin: 16px 0;
+      border: 0;
+      border-top: 1px solid #dce5f3;
+    }
+    .staff-access-note {
+      background: #fff;
+    }
+    .staff-permissions-heading {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .staff-permissions-heading > strong {
+      flex: 1;
+      color: #17213c;
+      font-size: 15px;
+    }
+    .staff-permissions-heading .field {
+      width: 100%;
+      min-width: 0;
+    }
+    .staff-permission-search-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .staff-permission-count, .staff-permission-badge {
+      padding: 4px 9px; border-radius: 20px; color: #1d4ed8; background: #e7efff; font-size: 11px; font-weight: 700; white-space: nowrap;
+    }
+    .staff-permission-group {
+      margin-top: 8px;
+      border: 1px solid #dce5f3;
+      border-radius: 9px;
+      background: #fff;
+    }
+    .staff-permission-group > summary {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      cursor: pointer;
+      list-style: none;
+    }
+    .staff-permission-group > summary::-webkit-details-marker {
+      display: none;
+    }
+    .staff-permission-group > summary::after {
+      content: '';
+      width: 7px;
+      height: 7px;
+      border-right: 1.5px solid #52627a;
+      border-bottom: 1.5px solid #52627a;
+      transform: rotate(45deg);
+      margin: 0 4px 4px 2px;
+      flex-shrink: 0;
+    }
+    .staff-permission-group[open] > summary::after {
+      transform: rotate(225deg);
+      margin-top: 6px;
+    }
+    .staff-permission-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 8px;
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .staff-permission-icon svg {
+      width: 21px;
+      height: 21px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .staff-permission-group-title {
+      flex: 1;
+      min-width: 0;
+    }
+    .staff-permission-group-title strong {
+      display: block;
       color: #17213c;
       font-size: 13px;
     }
-
+    .staff-permission-group-title strong {
+      overflow-wrap: anywhere;
+    }
+    .staff-permission-group-title small {
+      display: block;
+      margin-top: 2px;
+      color: #66758b;
+      font-size: 11px;
+      line-height: 1.4;
+    }
     .staff-permission-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
+      padding: 0 10px 10px;
     }
-
     .staff-permission-grid label {
-      min-height: 36px;
-      padding: 7px 9px;
-      border: 1px solid #dbe3ef;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       display: flex;
-      align-items: center;
-      gap: 8px;
+      align-items: flex-start;
+      gap: 9px;
       color: #344054;
       background: #fff;
+      cursor: pointer;
+    }
+    .staff-permission-grid label:has(input:checked) {
+      border-color: #bfd2fa;
+      background: #f8faff;
+    }
+    #staff-user-form .staff-permission-grid input {
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      padding: 0;
+      margin: 2px 0 0;
+      flex: 0 0 16px;
+      accent-color: var(--accent);
+    }
+    .staff-permission-grid label > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .staff-permission-grid label strong {
+      display: block;
       font-size: 12px;
-      font-weight: 700;
+      line-height: 1.4;
+      color: #17213c;
     }
-
-    .staff-permission-grid label[hidden] {
-      display: none;
+    .staff-permission-grid label small {
+      display: block;
+      margin-top: 3px;
+      color: #66758b;
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.45;
     }
-
-    .staff-permission-grid input {
-      width: auto;
+    .staff-permission-badge {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 10px;
+    }
+    #staff-user-form :is(input, select, button, summary):focus-visible {
+      outline: 3px solid #93b8fb;
+      outline-offset: 3px;
+    }
+    #staff-permission-results, #staff-permission-empty {
+      margin: 8px 0 0;
+      color: #66758b;
+      font-size: 12px;
+    }
+    #staff-user-form > .settings-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      margin-top: 18px;
+      padding: 14px 0 0;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }
+    @container staff-access (max-width: 850px) {
+      .staff-access-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-access-sidebar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 1100px) {
+      .staff-access-layout {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-access-sidebar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 640px) {
+      #staff-accounts-panel {
+        padding: 14px;
+      }
+      #staff-accounts-panel .landing-settings-collapsible-content {
+        padding: 12px;
+      }
+      #staff-user-form {
+        padding: 12px;
+      }
+      #staff-user-form .staff-account-grid, .staff-template, .staff-permission-grid, .staff-access-sidebar {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .staff-template, .staff-permissions, .staff-access-summary, .staff-access-note {
+        padding: 12px;
+      }
+      .staff-permission-group-title small {
+        display: none;
+      }
+      .staff-permission-group > summary {
+        gap: 6px;
+      }
+      .staff-permission-group-title strong {
+        font-size: 12px;
+      }
+      .staff-permission-icon {
+        width: 28px;
+        height: 28px;
+      }
+      #staff-user-form > .settings-actions {
+        padding-bottom: 8px;
+      }
+      #staff-user-form > .settings-actions {
+        flex-wrap: wrap;
+      }
+      #staff-user-form > .settings-actions button {
+        min-width: 0;
+        flex: 1 1 100%;
+      }
     }
 
     .staff-account-list {
@@ -19167,10 +19412,6 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <option value="SECRETARY">Secretaria</option>
                 </select>
               </div>
-              <div class="settings-field">
-                <label for="staff-user-preset">Preset de permisos</label>
-                <select class="field" id="staff-user-preset"></select>
-              </div>
               <div class="settings-field" id="staff-professional-field">
                 <label for="staff-user-professional">Profesional asignado</label>
                 <select class="field" id="staff-user-professional"></select>
@@ -19182,42 +19423,144 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <option value="inactive">Inactivo</option>
                 </select>
               </div>
-              <div class="staff-permissions full">
-                <strong id="staff-preset-title">Detalle del preset</strong>
-                <p id="staff-preset-description"></p>
-              </div>
-              <div class="staff-permissions full">
-                <strong id="staff-permissions-title">Permisos de agenda</strong>
-                <div class="staff-permission-grid">
-                  <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
-                  <label><input id="staff-can-complete-appointments" type="checkbox"> Marcar como completado</label>
-                  <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
-                  <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
-                  <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
-                  <label><input id="staff-can-force-appointments" type="checkbox"> Forzar horarios, bloqueos o superposiciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"> Ver clientes</label>
-                  <label><input id="staff-can-create-customers" type="checkbox"> Crear clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"> Editar clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"> Gestionar notas de clientes</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"> Preferencias de promociones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-conversations" type="checkbox"> Ver conversaciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-reply-conversations" type="checkbox"> Responder conversaciones</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"> Aprobar o rechazar se&ntilde;as</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"> Ver Caja</label>
-                  <label><input id="staff-can-record-appointment-payments" type="checkbox"> <span id="staff-payments-permission-label">Registrar pagos de sus turnos</span></label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"> Aplicar descuentos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"> Registrar ingresos y egresos de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"> Abrir, cerrar y cambiar responsable de Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"> Ver trabajo y facturaci&oacute;n de profesionales de hoy (sin saldos ni pagos)</label>
-                  <label><input id="staff-can-view-professional-settlements" type="checkbox"> <span id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</span></label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"> Ver productos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"> Vender productos</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"> Administrar cat&aacute;logo</label>
+              <div class="staff-template">
+                <div>
+                  <strong id="staff-preset-title">Plantilla de permisos</strong>
+                  <p id="staff-preset-description"></p>
                 </div>
-                <small id="staff-permissions-help">El profesional solo accede a su propia agenda.</small>
+                <div class="settings-field">
+                  <label for="staff-user-preset">Plantilla de permisos</label>
+                  <select class="field" id="staff-user-preset"></select>
+                </div>
+              </div>
+              <div class="staff-access-layout">
+                <div class="staff-permissions">
+                  <div class="staff-permissions-heading">
+                    <strong id="staff-permissions-title">Permisos por &aacute;rea</strong>
+                    <span class="staff-permission-count" id="staff-permission-count" role="status" aria-live="polite"></span>
+                    <label class="staff-permission-search-label" for="staff-permission-search">Buscar permiso</label>
+                    <input class="field" id="staff-permission-search" type="search" placeholder="Buscar permiso..." autocomplete="off" aria-controls="staff-permission-groups">
+                  </div>
+                  <div id="staff-permission-groups">
+                    <details class="staff-permission-group" data-staff-permission-group="agenda" open>
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Agenda</strong><small>Turnos y disponibilidad.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label><input id="staff-can-create-appointments" type="checkbox" checked><span><strong>Cargar turnos</strong><small>Crear turnos nuevos.</small></span></label>
+                        <label><input id="staff-can-edit-appointments" type="checkbox" checked><span><strong>Editar turnos</strong><small>Modificar y reprogramar.</small></span></label>
+                        <label><input id="staff-can-complete-appointments" type="checkbox"><span><strong>Marcar como completado</strong><small>Registrar el servicio realizado.</small></span></label>
+                        <label><input id="staff-can-cancel-appointments" type="checkbox" checked><span><strong>Cancelar turnos</strong><small>Cancelar un turno de la agenda.</small></span></label>
+                        <label><input id="staff-can-manage-blocks" type="checkbox" checked><span><strong>Bloquear agenda</strong><small>Crear y quitar bloqueos.</small></span></label>
+                        <label><input id="staff-can-force-appointments" type="checkbox"><span><strong>Forzar horarios, bloqueos o superposiciones</strong><small>Permitir excepciones al agendar.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="customers">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 4v3"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Clientes</strong><small>Datos, notas y preferencias.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-customers" type="checkbox"><span><strong>Ver clientes</strong><small>Consultar la cartera y buscar fichas.</small></span></label>
+                        <label><input id="staff-can-create-customers" type="checkbox"><span><strong>Crear clientes</strong><small>Dar de alta desde Agenda con nombre y tel&eacute;fono, sin habilitar la cartera.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-edit-customers" type="checkbox"><span><strong>Editar clientes</strong><small>Modificar datos de fichas visibles.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-notes" type="checkbox"><span><strong>Gestionar notas de clientes</strong><small>Actualizar notas y ficha t&eacute;cnica.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-marketing" type="checkbox"><span><strong>Preferencias de promociones</strong><small>Gestionar el consentimiento de contacto.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="conversations">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 11a9 9 0 0 1-9 9H4l-3 2 2-6a9 9 0 1 1 18-5Z"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Conversaciones y se&ntilde;as</strong><small>Mensajes y comprobantes.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-conversations" type="checkbox"><span><strong>Ver conversaciones</strong><small>Consultar los mensajes del negocio.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-reply-conversations" type="checkbox"><span><strong>Responder conversaciones</strong><small>Enviar respuestas a los clientes.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-deposits" type="checkbox"><span><strong>Aprobar o rechazar se&ntilde;as</strong><small>Revisar los comprobantes recibidos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="payments">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20M6 15h4"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Cobros de turnos</strong><small>Pagos y descuentos.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label><input id="staff-can-record-appointment-payments" type="checkbox"><span><strong id="staff-payments-permission-label">Registrar pagos de sus turnos</strong><small>Cobrar sin habilitar la administraci&oacute;n de Caja.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"><span><strong>Aplicar descuentos</strong><small>Descontar importes en los turnos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="cash">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 7V3h14v4M3 9h18v12H3zM7 13h2m3 0h2m3 0h1M7 17h2m3 0h2m3 0h1"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Caja</strong><small>Consulta, movimientos y sesiones.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"><span><strong>Ver Caja</strong><small>Consultar movimientos y saldos.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"><span><strong>Registrar ingresos y egresos de Caja</strong><small>Registrar movimientos manuales.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"><span><strong>Ajustar diferencias de Caja</strong><small>Corregir diferencias de saldo.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-sessions" type="checkbox"><span><strong>Abrir, cerrar y cambiar responsable de Caja</strong><small>Administrar las sesiones de trabajo.</small><span class="staff-permission-badge">Avanzado</span></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="professionals">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Profesionales</strong><small>Actividad de hoy y liquidaciones.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-today-professional-production" type="checkbox"><span><strong>Ver trabajo y facturaci&oacute;n de profesionales de hoy</strong><small>Solo el d&iacute;a actual, sin saldos ni pagos.</small></span></label>
+                        <label><input id="staff-can-view-professional-settlements" type="checkbox"><span><strong id="staff-settlements-permission-label">Ver liquidaciones propias (solo consulta)</strong><small>Consultar trabajos, comisiones y pagos, sin administrarlos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="products">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7Zm0 10 9-5M12 12 3 7m9 5v10M7 4.7l10 5.6"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Productos</strong><small>Consulta, ventas y cat&aacute;logo.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-products" type="checkbox"><span><strong>Ver productos</strong><small>Consultar el cat&aacute;logo disponible.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-sell-products" type="checkbox"><span><strong>Vender productos</strong><small>Registrar ventas del cat&aacute;logo.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-products" type="checkbox"><span><strong>Administrar cat&aacute;logo</strong><small>Crear y actualizar productos.</small></span></label>
+                      </div>
+                    </details>
+                    <details class="staff-permission-group" data-staff-permission-group="reports">
+                      <summary>
+                        <span class="staff-permission-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 3v18h17M8 16v-4m5 4V7m5 9V4"/></svg></span>
+                        <span class="staff-permission-group-title"><strong>Reportes</strong><small>Actividad e importes financieros.</small></span>
+                        <span class="staff-permission-count" data-staff-group-count></span>
+                      </summary>
+                      <div class="staff-permission-grid">
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"><span><strong>Ver reportes operativos</strong><small>Consultar indicadores del negocio.</small></span></label>
+                        <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"><span><strong>Ver importes financieros</strong><small>Mostrar montos en los reportes.</small></span></label>
+                      </div>
+                    </details>
+                  </div>
+                  <p id="staff-permission-results" role="status" aria-live="polite" hidden></p>
+                  <p id="staff-permission-empty" hidden>No hay permisos que coincidan con la b&uacute;squeda.</p>
+                </div>
+                <aside class="staff-access-sidebar" aria-label="Resumen del acceso">
+                  <div class="staff-access-summary">
+                    <strong>Resumen del acceso</strong>
+                    <p id="staff-access-profile"></p>
+                    <p id="staff-access-scope"></p>
+                    <hr>
+                    <strong id="staff-access-template"></strong>
+                    <p id="staff-access-counts"></p>
+                    <p id="staff-permissions-help">El profesional solo accede a su propia agenda.</p>
+                  </div>
+                  <div class="staff-access-note">
+                    <strong>Cobrar no es administrar Caja</strong>
+                    <p>Registrar pagos no habilita abrir, cerrar ni ajustar la caja.</p>
+                    <p>Para responder conversaciones o editar clientes, primero debe poder verlos. Crear clientes es independiente de ver la cartera.</p>
+                  </div>
+                </aside>
               </div>
             </div>
             <div class="settings-actions">
@@ -20787,6 +21130,14 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffPresetDescription: document.getElementById('staff-preset-description'),
       staffPermissionsTitle: document.getElementById('staff-permissions-title'),
       staffPermissionsHelp: document.getElementById('staff-permissions-help'),
+      staffPermissionSearch: document.getElementById('staff-permission-search'),
+      staffPermissionCount: document.getElementById('staff-permission-count'),
+      staffPermissionResults: document.getElementById('staff-permission-results'),
+      staffPermissionEmpty: document.getElementById('staff-permission-empty'),
+      staffAccessProfile: document.getElementById('staff-access-profile'),
+      staffAccessScope: document.getElementById('staff-access-scope'),
+      staffAccessTemplate: document.getElementById('staff-access-template'),
+      staffAccessCounts: document.getElementById('staff-access-counts'),
       staffUserCancel: document.getElementById('staff-user-cancel'),
       staffUserSubmit: document.getElementById('staff-user-submit'),
       staffUserFeedback: document.getElementById('staff-user-feedback'),
@@ -23849,6 +24200,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     }
 
     function resetStaffUserForm() {
+      els.staffPermissionSearch.value = ''
       els.staffUserId.value = ''
       els.staffUserName.value = ''
       els.staffUserEmail.value = ''
@@ -23919,6 +24271,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
         for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = preset.permissions[key] === true
       }
       renderStaffPresetDescription()
+      syncStaffPermissionOverview()
     }
 
     function syncStaffProfileFields() {
@@ -23936,11 +24289,55 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.staffPermissionsHelp.textContent = isSecretary
         ? 'Secretaría siempre ve la agenda completa. Profesionales y servicios son de solo lectura; ajustes, marketing masivo y cuentas quedan reservados al administrador.'
         : 'El profesional accede a su propia agenda. Si habilitás liquidaciones, puede consultar sus trabajos, comisiones, pagos recibidos y saldo. No administra pagos ni porcentajes.'
+      syncStaffPermissionOverview()
+    }
+
+    function normalizeStaffPermissionSearch(value) {
+      return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    }
+
+    function syncStaffPermissionOverview() {
+      if (!els.staffPermissionSearch) return
+      const isSecretary = els.staffUserProfile.value === 'SECRETARY'
+      const query = normalizeStaffPermissionSearch(els.staffPermissionSearch.value.trim())
+      let total = 0
+      let enabled = 0
+      let matches = 0
+      for (const group of els.staffUserForm.querySelectorAll('[data-staff-permission-group]')) {
+        const groupMatches = normalizeStaffPermissionSearch(group.querySelector('.staff-permission-group-title').textContent).includes(query)
+        let visible = 0
+        let active = 0
+        for (const label of group.querySelectorAll('label')) {
+          const available = isSecretary || label.dataset.staffPermissionScope !== 'SECRETARY'
+          const checked = label.querySelector('input').checked
+          if (available) { total += 1; if (checked) enabled += 1 }
+          label.hidden = !available || Boolean(query && !groupMatches && !normalizeStaffPermissionSearch(label.textContent).includes(query))
+          if (!label.hidden) { visible += 1; if (checked) active += 1 }
+        }
+        group.hidden = visible === 0
+        group.querySelector('[data-staff-group-count]').textContent = active + ' de ' + visible
+        if (query && visible) group.open = true
+        matches += visible
+      }
+      els.staffPermissionCount.textContent = enabled + ' de ' + total + ' activos'
+      els.staffPermissionResults.hidden = !query
+      els.staffPermissionResults.textContent = matches + ' permisos encontrados'
+      els.staffPermissionEmpty.hidden = !query || matches > 0
+      els.staffAccessProfile.textContent = isSecretary ? 'Secretaría' : 'Profesional'
+      els.staffAccessScope.textContent = isSecretary ? 'Puede ver la agenda completa.' : 'Puede acceder solo a su propia agenda.'
+      els.staffAccessTemplate.textContent = els.staffUserPreset.value === 'CUSTOM' ? 'Permisos personalizados' : els.staffPresetTitle.textContent
+      els.staffAccessCounts.textContent = enabled + ' habilitados · ' + (total - enabled) + ' deshabilitados'
+      els.staffPermissionsHelp.textContent = isSecretary
+        ? 'Profesionales y servicios son de solo lectura. Los ajustes y las cuentas quedan reservados al administrador.'
+        : els.staffCanCreateCustomers.checked
+          ? 'Puede crear clientes con nombre y teléfono desde Agenda. No accede a la cartera ni a la búsqueda de clientes.'
+          : 'Para cargar turnos, usa el teléfono de un cliente registrado. Las liquidaciones habilitadas son de consulta y solo propias.'
     }
 
     function markStaffPermissionsCustom() {
       if (els.staffUserPreset.value !== 'CUSTOM') els.staffUserPreset.value = 'CUSTOM'
       renderStaffPresetDescription()
+      syncStaffPermissionOverview()
     }
 
     function renderStaffProfessionalOptions() {
@@ -24091,6 +24488,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const user = state.staffUsers.find((item) => item.id === id)
       if (!user) return
       clearStaffUserFeedback()
+      els.staffPermissionSearch.value = ''
       els.staffUserId.value = user.id
       els.staffUserName.value = user.name || ''
       els.staffUserEmail.value = user.email || ''
@@ -24106,6 +24504,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.staffCanCancelAppointments.checked = user.canCancelAppointments !== false
       els.staffCanManageBlocks.checked = user.canManageScheduleBlocks !== false
       for (const [key, field] of Object.entries(staffPermissionFields())) field.checked = user[key] === true
+      syncStaffPermissionOverview()
       els.staffUserSubmit.textContent = 'Guardar cambios'
       els.staffUserCancel.hidden = false
       if (els.staffCreateCollapsible) els.staffCreateCollapsible.open = true
@@ -39697,6 +40096,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       syncStaffProfileFields()
     })
     els.staffUserPreset?.addEventListener('change', () => applyStaffPreset(els.staffUserPreset.value))
+    els.staffPermissionSearch?.addEventListener('input', syncStaffPermissionOverview)
     for (const field of Object.values(staffPermissionFields())) field?.addEventListener('change', markStaffPermissionsCustom)
     els.staffUserList?.addEventListener('click', (event) => {
       const editButton = event.target.closest('[data-edit-staff-user]')
