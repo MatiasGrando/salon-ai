@@ -368,6 +368,7 @@ export class CashService {
   async setEstimatedAppointmentTotal(input: {
     businessId: string
     appointmentId: string
+    allowedProfessionalId?: string
     agreedAmount: number
     actorUserId?: string | null
     actorName?: string
@@ -376,6 +377,9 @@ export class CashService {
     const agreedAmount = assertMoney(input.agreedAmount)
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
+        throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.pricingMode !== 'ESTIMATED') throw new CashServiceError('FIXED_PRICE_IMMUTABLE')
       if (account.agreedAmount === agreedAmount) return account
@@ -392,6 +396,7 @@ export class CashService {
   async adjustAppointmentTotal(input: {
     businessId: string
     appointmentId: string
+    allowedProfessionalId?: string
     newAmount: number
     reason: string
     actorUserId: string
@@ -401,6 +406,9 @@ export class CashService {
     if (!reason || reason.length > 300) throw new CashServiceError('TOTAL_ADJUSTMENT_REASON_REQUIRED')
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
+        throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       return adjustAppointmentTotalInTransaction(transaction, account, {
         businessId: input.businessId,
@@ -587,12 +595,16 @@ export class CashService {
   async setAppointmentDiscount(input: {
     businessId: string
     appointmentId: string
+    allowedProfessionalId?: string
     discountAmount?: number
     discountType?: 'AMOUNT' | 'PERCENTAGE'
     discountValue?: number
   }) {
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
+        throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
       const account = await ensureAppointmentAccountForPayment(transaction, input.businessId, input.appointmentId)
       if (account.agreedAmount === null) throw new CashServiceError('ESTIMATED_TOTAL_REQUIRED')
       const discountAmount = input.discountAmount !== undefined
@@ -611,6 +623,7 @@ export class CashService {
   async recordAppointmentPayment(input: {
     businessId: string
     appointmentId: string
+    allowedProfessionalId?: string
     cashSessionId: string
     origin: 'AGENDA' | 'CASH_REGISTER'
     lines: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
@@ -633,6 +646,9 @@ export class CashService {
       const context = await transaction.lockBusiness(input.businessId)
       markTiming?.('cash-lock')
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
+        throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
       for (const line of lines) {
         if (!line.paymentMethodId) continue

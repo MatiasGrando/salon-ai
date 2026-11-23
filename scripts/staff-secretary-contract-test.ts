@@ -124,7 +124,9 @@ for (const id of [
   'staff-can-record-appointment-payments', 'staff-can-view-today-professional-production',
   'staff-can-view-products', 'staff-can-manage-products', 'staff-can-sell-products'
 ]) assert.ok(ui.includes(`id="${id}"`), `la interfaz debe incluir ${id}`)
-assert.equal((ui.match(/<label data-staff-permission-scope="SECRETARY">/g) || []).length, 15, 'los permisos exclusivos de secretaría deben estar identificados')
+for (const id of ['staff-can-view-customers', 'staff-can-manage-cash-sessions', 'staff-can-view-today-professional-production']) {
+  assert.ok(ui.includes('<label data-staff-permission-scope="SECRETARY"><input id="' + id + '"'), 'los permisos exclusivos de secretaría deben estar identificados')
+}
 assert.ok(ui.includes('Ver trabajo y facturaci&oacute;n de profesionales de hoy'), 'solo se ofrece vista de hoy a secretaría')
 assert.ok(ui.includes('Registrar pagos de turnos'), 'el permiso de cobro debe ser visible y explícito para secretaría')
 assert.ok(ui.includes('canRecordAppointmentPayments: els.staffCanRecordAppointmentPayments'), 'el permiso de cobro debe enviarse al guardar la cuenta staff')

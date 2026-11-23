@@ -369,6 +369,9 @@ export async function cashRegisterRoutes(app: FastifyInstance, options: CashRegi
     const params = request.params as { id: string }
     const body = request.body as { businessId?: string; cashSessionId?: string; observation?: string | null }
     const user = request.auth?.user
+    if (user?.role === 'STAFF' && user.staffProfile !== 'SECRETARY') {
+      return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para revertir pagos' })
+    }
     const allowedTypes = cashReversalTypes(user)
     const access = await cashAccess(user, cashReversalPermission(user), body)
     if (!access.ok) return cashAccessFailure(reply, access)

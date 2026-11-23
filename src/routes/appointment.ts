@@ -7,7 +7,7 @@ import { authorizedAppointmentWhere } from '../services/tenant-resource-authoriz
 import { requireAuthorizedBusiness } from '../services/business-authorization.js'
 import { PrismaCashRepository } from '../repositories/prisma-cash-repository.js'
 import { CashService, CashServiceError } from '../services/cash-service.js'
-import { hasCashPermission, type CashPermission } from '../services/staff-permission-service.js'
+import { hasCashPermission, type CashPermission, type StaffAuthorizationUser } from '../services/staff-permission-service.js'
 import { sendCashError } from './cash-register.js'
 import {
   buildAppointmentFinanceSummaries,
@@ -415,7 +415,7 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
     const permission = body.status === 'CANCELLED' || body.status === 'NO_SHOW'
       ? 'canCancelAppointments'
-      : 'canEditAppointments'
+      : body.status === 'COMPLETED' ? 'canCompleteAppointments' : 'canEditAppointments'
     if (!hasAgendaPermission(request.auth, permission)) {
       return reply.status(403).send({ message: 'No tenes permiso para cambiar el estado del turno' })
     }
@@ -508,6 +508,9 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     if (!businessId || !hasAnyCashPermission(request.auth?.user, ['canRecordAppointmentPayments', 'canApplyDiscounts'])) {
       return reply.status(403).send({ code: 'CASH_PERMISSION_REQUIRED', message: 'No tenés permiso para consultar pagos del turno' })
     }
+    if (!await canAccessAppointmentFinance(request.auth?.user, params.id, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     try {
       const finance = await cashService.getAppointmentFinance({ businessId, appointmentId: params.id })
       if (request.auth?.user.role !== 'STAFF') return finance
@@ -530,10 +533,14 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
     if (body.agreedAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Total requerido' })
     if (!body.reason?.trim()) return reply.status(400).send({ code: 'VALIDATION', message: 'Motivo del ajuste requerido' })
+    if (!await canAccessAppointmentFinance(request.auth?.user, params.id, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     try {
       return await cashService.setEstimatedAppointmentTotal({
         businessId,
         appointmentId: params.id,
+        ...appointmentFinanceProfessionalScope(request.auth?.user),
         agreedAmount: body.agreedAmount,
         actorUserId: authUser.id,
         actorName: authUser.name,
@@ -554,10 +561,14 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     }
     if (body.newAmount === undefined) return reply.status(400).send({ code: 'VALIDATION', message: 'Total final requerido' })
     if (!body.reason?.trim()) return reply.status(400).send({ code: 'VALIDATION', message: 'Motivo del ajuste requerido' })
+    if (!await canAccessAppointmentFinance(request.auth?.user, params.id, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     try {
       return await cashService.adjustAppointmentTotal({
         businessId,
         appointmentId: params.id,
+        ...appointmentFinanceProfessionalScope(request.auth?.user),
         newAmount: body.newAmount,
         reason: body.reason,
         actorUserId: authUser.id,
@@ -599,10 +610,14 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
         return reply.status(400).send({ code: 'VALIDATION', message: 'El monto debe ser un entero mayor o igual a 0' })
       }
     }
+    if (!await canAccessAppointmentFinance(request.auth?.user, params.id, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
+    }
     try {
       return await cashService.setAppointmentDiscount({
         businessId,
         appointmentId: params.id,
+        ...appointmentFinanceProfessionalScope(request.auth?.user),
         ...(usesLegacyAmount
           ? { discountAmount: body.discountAmount }
           : { discountType: body.discountType, discountValue: body.discountValue })
@@ -631,14 +646,18 @@ export async function appointmentRoutes(app: FastifyInstance, options: { cashSer
     if (body.completeAppointment !== undefined && typeof body.completeAppointment !== 'boolean') {
       return reply.status(400).send({ code: 'VALIDATION', message: 'La confirmación de servicio realizado es inválida' })
     }
-    if (body.completeAppointment && !hasAgendaPermission(request.auth, 'canEditAppointments')) {
+    if (body.completeAppointment && !hasAgendaPermission(request.auth, 'canCompleteAppointments')) {
       return reply.status(403).send({ code: 'AGENDA_PERMISSION_REQUIRED', message: 'No tenés permiso para marcar el turno como realizado' })
+    }
+    if (!await canAccessAppointmentFinance(request.auth?.user, params.id, businessId)) {
+      return sendAuthorizationFailure(reply, 'notFound')
     }
     const timing = startAppointmentActionTiming(reply)
     try {
       return await cashService.recordAppointmentPayment({
         businessId,
         appointmentId: params.id,
+        ...appointmentFinanceProfessionalScope(request.auth?.user),
         cashSessionId: body.cashSessionId.trim(),
         origin: 'AGENDA',
         lines: body.lines,
@@ -792,10 +811,27 @@ function omitKey<T extends object, K extends keyof T>(value: T, key: K): Omit<T,
 }
 
 function hasAgendaPermission(
-  auth: { user: { role: string; canCreateAppointments?: boolean; canEditAppointments?: boolean; canCancelAppointments?: boolean } } | undefined,
-  permission: 'canCreateAppointments' | 'canEditAppointments' | 'canCancelAppointments'
+  auth: { user: { role: string; canCreateAppointments?: boolean; canEditAppointments?: boolean; canCompleteAppointments?: boolean; canCancelAppointments?: boolean } } | undefined,
+  permission: 'canCreateAppointments' | 'canEditAppointments' | 'canCompleteAppointments' | 'canCancelAppointments'
 ) {
   if (!auth) return false
   if (auth.user.role !== 'STAFF') return true
-  return auth.user[permission] !== false
+  return permission === 'canCompleteAppointments' ? auth.user[permission] === true : auth.user[permission] !== false
+}
+
+// Payment permission exposes only the professional's own appointments, including direct ID requests.
+async function canAccessAppointmentFinance(user: StaffAuthorizationUser | undefined, appointmentId: string, businessId: string) {
+  if (!user) return false
+  if (user.role !== 'STAFF' || user.staffProfile === 'SECRETARY' && user.agendaScope === 'ALL') return true
+  if (!user.professionalId || user.businessId !== businessId) return false
+  const appointment = await prisma.appointment.findFirst({
+    where: { id: appointmentId, professionalId: user.professionalId, professional: { businessId } },
+    select: { professionalId: true, professional: { select: { businessId: true } } }
+  })
+  return Boolean(appointment && appointment.professionalId === user.professionalId && appointment.professional.businessId === businessId)
+}
+
+function appointmentFinanceProfessionalScope(user: StaffAuthorizationUser | undefined) {
+  return user?.role === 'STAFF' && (user.staffProfile !== 'SECRETARY' || user.agendaScope !== 'ALL')
+    ? { allowedProfessionalId: user.professionalId ?? '' } : {}
 }

@@ -19190,6 +19190,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                 <strong id="staff-permissions-title">Permisos de agenda</strong>
                 <div class="staff-permission-grid">
                   <label><input id="staff-can-create-appointments" type="checkbox" checked> Cargar turnos</label>
+                  <label><input id="staff-can-complete-appointments" type="checkbox"> Marcar como completado</label>
                   <label><input id="staff-can-edit-appointments" type="checkbox" checked> Editar turnos</label>
                   <label><input id="staff-can-cancel-appointments" type="checkbox" checked> Cancelar turnos</label>
                   <label><input id="staff-can-manage-blocks" type="checkbox" checked> Bloquear agenda</label>
@@ -19205,7 +19206,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-reports" type="checkbox"> Ver reportes operativos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-financial" type="checkbox"> Ver importes financieros</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-view-cash-register" type="checkbox"> Ver Caja</label>
-                  <label data-staff-permission-scope="SECRETARY"><input id="staff-can-record-appointment-payments" type="checkbox"> Registrar pagos de turnos</label>
+                  <label><input id="staff-can-record-appointment-payments" type="checkbox"> <span id="staff-payments-permission-label">Registrar pagos de sus turnos</span></label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-apply-discounts" type="checkbox"> Aplicar descuentos</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-manage-cash-operations" type="checkbox"> Registrar ingresos y egresos de Caja</label>
                   <label data-staff-permission-scope="SECRETARY"><input id="staff-can-adjust-cash" type="checkbox"> Ajustar diferencias de Caja</label>
@@ -20755,6 +20756,8 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       staffUserStatus: document.getElementById('staff-user-status'),
       staffCanCreateAppointments: document.getElementById('staff-can-create-appointments'),
       staffCanEditAppointments: document.getElementById('staff-can-edit-appointments'),
+      staffCanCompleteAppointments: document.getElementById('staff-can-complete-appointments'),
+      staffPaymentsPermissionLabel: document.getElementById('staff-payments-permission-label'),
       staffCanCancelAppointments: document.getElementById('staff-can-cancel-appointments'),
       staffCanManageBlocks: document.getElementById('staff-can-manage-blocks'),
       staffCanForceAppointments: document.getElementById('staff-can-force-appointments'),
@@ -23132,6 +23135,10 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return hasAgendaPermission('canCreateAppointments')
     }
 
+    function canCompleteAppointments() {
+      return state.currentUser?.role !== 'STAFF' || state.currentUser?.canCompleteAppointments === true
+    }
+
     function canEditAppointments() {
       return hasAgendaPermission('canEditAppointments')
     }
@@ -23178,7 +23185,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       if (completedReadOnly) els.appointmentDelete.hidden = true
       if (els.appointmentAddServiceOpen) els.appointmentAddServiceOpen.disabled = !canCreateAppointments() || !canEditAppointments()
       if (els.appointmentDelete) els.appointmentDelete.disabled = !canCancelAppointments()
-      if (els.appointmentComplete) els.appointmentComplete.disabled = !canEditAppointments()
+      if (els.appointmentComplete) els.appointmentComplete.disabled = !canCompleteAppointments()
       if (els.appointmentNoShow) els.appointmentNoShow.disabled = !canCancelAppointments()
       if (els.blockForm) {
         for (const control of els.blockForm.querySelectorAll('input, select, button')) {
@@ -23862,6 +23869,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       return {
         canCreateAppointments: els.staffCanCreateAppointments,
         canEditAppointments: els.staffCanEditAppointments,
+        canCompleteAppointments: els.staffCanCompleteAppointments,
         canCancelAppointments: els.staffCanCancelAppointments,
         canManageScheduleBlocks: els.staffCanManageBlocks,
         canForceAppointments: els.staffCanForceAppointments,
@@ -23920,6 +23928,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       for (const field of els.staffUserForm.querySelectorAll('[data-staff-permission-scope="SECRETARY"]')) {
         field.hidden = !isSecretary
       }
+      els.staffPaymentsPermissionLabel.textContent = isSecretary ? 'Registrar pagos de turnos' : 'Registrar pagos de sus turnos'
       els.staffPermissionsTitle.textContent = isSecretary ? 'Permisos de secretaría' : 'Permisos del profesional'
       els.staffSettlementsPermissionLabel.textContent = isSecretary
         ? 'Ver liquidaciones de profesionales (solo consulta)'
@@ -23985,6 +23994,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       const labels = []
       if (user.canCreateAppointments !== false) labels.push('Carga turnos')
       if (user.canEditAppointments !== false) labels.push('Edita turnos')
+      if (user.canCompleteAppointments === true) labels.push('Completa turnos')
       if (user.canCancelAppointments !== false) labels.push('Cancela turnos')
       if (user.canManageScheduleBlocks !== false) labels.push('Bloquea agenda')
       if (user.canViewCustomers) labels.push('Clientes')
@@ -34430,7 +34440,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
       els.appointmentDelete.hidden = !appointment
       const canMarkCompleted = Boolean(
         appointment &&
-        canEditAppointments() &&
+        canCompleteAppointments() &&
         !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
         new Date(appointment.startAt).getTime() <= Date.now()
       )
@@ -35121,7 +35131,7 @@ export function renderCrmHtml(options: CrmUiRoutesOptions) {
     async function completeManualAppointment() {
       const appointmentId = state.editingAppointmentId
       if (!appointmentId) return
-      if (!canEditAppointments()) {
+      if (!canCompleteAppointments()) {
         els.appointmentFeedback.textContent = 'No tenés permiso para marcar turnos como realizados.'
         return
       }

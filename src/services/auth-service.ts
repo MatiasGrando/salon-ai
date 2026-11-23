@@ -20,6 +20,7 @@ export type AuthUser = {
   agendaScope: 'OWN' | 'ALL'
   canCreateAppointments: boolean
   canEditAppointments: boolean
+  canCompleteAppointments: boolean
   canCancelAppointments: boolean
   canManageScheduleBlocks: boolean
   canForceAppointments: boolean
@@ -120,6 +121,7 @@ export async function getAuthFromRequest(request: FastifyRequest): Promise<AuthC
       agendaScope: session.user.agendaScope === 'ALL' ? 'ALL' : 'OWN',
       canCreateAppointments: session.user.canCreateAppointments,
       canEditAppointments: session.user.canEditAppointments,
+      canCompleteAppointments: session.user.canCompleteAppointments,
       canCancelAppointments: session.user.canCancelAppointments,
       canManageScheduleBlocks: session.user.canManageScheduleBlocks,
       canForceAppointments: session.user.canForceAppointments,

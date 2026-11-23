@@ -3570,7 +3570,7 @@ export const cashRegisterScript = `
       const appointment = editingAgendaAppointment()
       const canCompleteWithPayment = Boolean(
         appointment &&
-        canEditAppointments() &&
+        canCompleteAppointments() &&
         !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
         new Date(appointment.startAt).getTime() <= Date.now()
       )
@@ -4392,7 +4392,7 @@ export const cashRegisterScript = `
         const appointment = editingAgendaAppointment()
         cashUi.paymentComplete.checked = Boolean(
           appointment &&
-          canEditAppointments() &&
+          canCompleteAppointments() &&
           !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(appointment.status) &&
           new Date(appointment.startAt).getTime() <= Date.now()
         )
