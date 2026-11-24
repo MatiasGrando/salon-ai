@@ -9,7 +9,7 @@ Rama actual codex/instagram-pantalla-principal cc31c30, main3229b9a en C:/Users/
 ## Tareas
 - [x] M1 Inventario de commits, equivalencias y cambios completos restantes en ramas/worktrees; comprobar Staff y preservar main actual.
 - [x] M2 Guardar la evidencia de verificación local pendiente y este documento en la rama actual; conservar código, datos y temporales sin incluirlos por accidente.
-- [ ] M3 Integrar en el main existente todos los commits actuales no equivalentes, resolviendo únicamente conflictos necesarios y conservando ambas historias.
+- [x] M3 Integrar en el main existente todos los commits actuales no equivalentes, resolviendo únicamente conflictos necesarios y conservando ambas historias.
 - [x] M4 Recuperar1127f0a Staff de Agenda sobre la versión consolidada, sin perder cargas incrementales, bloqueos ni permisos.
 - [x] M5 Incorporar otros bloques implementados pendientes si el inventario demuestra una omisión real; preservar WIP ajeno y documentar cualquier decisión de alcance pendiente.
 - [ ] M6 Ejecutar checks pertinentes sobre main, verificar inclusión de bloques/commits y estado final; registrar identidad de integración y decisión nativa de revisión correspondiente.
@@ -50,3 +50,11 @@ Verificación final M3/M6 observada enmainpreparado: PrismaClient7.8.0 generado 
 REDdragbrowser320 encontrado enfixture: isOwnAgendaScopeundefined impedía render, yfaltaba contexto del guardadooptimista. Se corrigió SOLOscripts/agenda-drag-lock-test.ts incluyendohelpersreales/contextoexistenteVM yfailfastpageerrors, sin tocar producto/CSS ni debilitaraseveraciones. GREENVM+Chrome320/390/768/1440 incluyecheckbox,foco,mouse/touch,scroll,persistencia. UTF8ydiffcheckPASSdespuésdelajuste. Sinconflictos/marcadores. Producto/schema/deps delmainpreparado idénticos8f26676; únicaevolucióntécnicacontra8f esfixture de integración, ademásdoc.
 
 Límites: suiteconversational-bot-turn-plan-ai-test siguefallando exactamenteigualenbaseline(genericevidence/cut-private-id) despuésdepasarlasdosassertionsañadidas; no hayIAreal ni reparaciónajena. TypecheckglobalanteriorOOM no repetido a ciegas; no seafirmaPASSglobal. No producción/migraciones nuevas/servidores tocados durantechecks. Engrammirrorpendiente. Commitfinalmain acontinuación; revisiónnativa deconsolidación seconsultará sobreelcandidatoreal.
+
+
+## Integración observada en main
+Commit44ad43bfebf2185e3f167e2be28991c8bb711578 (52archivos,5151líneas), padres3229b9ae21b9ba27df35b1d2204ca0378cf7d78e y8f26676844a24434eda889ddd20593dfe588e534. Ancestro8f26676verificado, todoelcódigoactualyStaffrecuperadoincluidos. Mainquedólimpio traselmerge, sin sourcependiente. Evaluación nativa main3229..44ad: high/auth, review_due high_risk; STATUS canónico listo para target sha256:d3d12f6763a3e35a2672c6de181a990bd67c63f86da448f39a3286beecef94fd,lineage review-238afc8f9ce0a5d6. Pregunta explícita enviada para revisión de esta consolidación; noejecutar revisores hastarespuesta ni reutilizaromisiónpermisos anterior.
+
+Esta carpeta barber-reply-recovery ahoraestáenmain por preferencia de trabajar enelmainprincipal. Se liberó el checkoutauxiliar limpio manteniéndolo en44ad43b detached, sin cambiarsucontenido; preservaexactamenteelcandidato nativo pendiente. El documento canónico actualizado está aquíenodd/tasks/main-consolidation-20261123.md; copiaauxiliarcongelada44ad permanecepara laconsultade revisión.
+
+M6 comprobaciones funcionales/visuales/inclusión cerradas; resta únicamente decisión nativa de revisión, ya consultada. También se pidió autorización explícita para publicar main en https://github.com/MatiasGrando/salon-ai.git usando sesiónGitconfigurada, conforme reglaremota. No secontactóremoto ni sepublicó. Pendientes honestos: decisiónrevisión, autorizaciónpush, espejoEngram no disponible, typecheckglobalOOM previo yfalloAIheredado ya documentados. Solo se agrega este cierredocumental despuésdelmerge; no cambia producto ni invalida pruebas observadas.
