@@ -31,3 +31,6 @@ A1 completada: una línea de filtro exclusivamente en renderAgendaMobileDayColum
 
 
 A2 completada: padre inspeccionó el diff de una línea de producto y regresiones; sintaxis CRM, UTF-8 y diff --check sin errores. Local 3000 reiniciado una sola vez y respuesta /crm HTTP 200 con el filtro nuevo confirmado. Unidad de comportamiento y pruebas terminada; no hay checks funcionales pendientes. Engram continúa no disponible.
+
+
+A1/A2 commit 4d5a023 (fix(agenda): hide personal blocks in multiday views), 72 líneas autoradas con prueba y documento. Evaluación nativa del candidato 9854c79..4d5a023: riesgo medio por regresión ejecutable, review_due:false, under_budget. No requiere nueva decisión ni revisor para esta unidad; el límite de su slice permanece en 9854c79. No se marca como revisado el bloque de Caja pendiente. Resultado funcional y local verificados; registro de identidad guardado localmente. Espejo Engram sigue pendiente por herramienta no disponible.
