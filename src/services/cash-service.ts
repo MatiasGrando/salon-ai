@@ -9,9 +9,11 @@ import {
   signedAmount,
   summarizeCashRegister
 } from './cash-domain.js'
+import { normalizeAppointmentRequestId, appointmentRequestFingerprint, assertAppointmentMutationReplay } from './appointment-mutation-request.js'
 import { calculateCompletedServiceCorrection } from './completed-service-correction.js'
 import type {
   AppointmentBackfillEvidence,
+  AppointmentCompletionRecord,
   CashEntryForSummary,
   CashRepository,
   CashRegisterDayRecord,
@@ -42,6 +44,12 @@ export function normalizeCashPeriodRange(from: string, to: string) {
   if (days < 1) throw new CashServiceError('INVALID_CASH_PERIOD')
   if (days > 31) throw new CashServiceError('CASH_PERIOD_TOO_LONG')
   return { from, to, days }
+}
+
+type AppointmentPaymentResult = {
+  entries: Array<{ id: string; amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; effectiveAt: Date }>
+  completion: AppointmentCompletionRecord | null
+  finance: ReturnType<typeof calculateAccountTotals>
 }
 
 export class CashService {
@@ -357,6 +365,56 @@ export class CashService {
     })
   }
 
+  async getAppointmentFinanceSummary(input: { businessId: string; appointmentId: string; allowedProfessionalId?: string }) {
+    return this.repository.transaction(async (transaction) => {
+      if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
+      if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
+        throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
+      const account = await transaction.resolveAppointmentAccount(input.businessId, input.appointmentId)
+      let appointmentIds: string[]
+      let paidAmount: number
+      let productSubtotal = 0
+      let financial: { pricingMode: 'FIXED' | 'ESTIMATED'; agreedAmount: number | null; originalAmount: number | null; minimumAmount: number; discountAmount: number }
+      if (account) {
+        const [rows, ids, products] = await Promise.all([
+          transaction.listAppointmentFinanceSummaryRows(input.businessId, [input.appointmentId]),
+          transaction.listAccountAppointmentIds(input.businessId, account.id),
+          transaction.resolveAccountProductSubtotal(input.businessId, account.id)
+        ])
+        financial = account
+        appointmentIds = ids
+        paidAmount = rows[0]?.paidAmount ?? 0
+        productSubtotal = products
+      } else {
+        const plan = buildAppointmentAccountBackfillPlan(await transaction.loadAppointmentBackfillGroup(input.businessId, input.appointmentId))
+        if (!plan.ok) throw new CashServiceError(plan.code)
+        financial = { ...plan, discountAmount: 0 }
+        appointmentIds = plan.appointmentIds
+        paidAmount = plan.legacyPayments.reduce((sum, payment) => sum + payment.amount, 0)
+      }
+      const visibleIds = input.allowedProfessionalId === undefined ? appointmentIds
+        : await transaction.listVisibleAppointmentIds(input.businessId, appointmentIds, input.allowedProfessionalId)
+      if (!visibleIds.includes(input.appointmentId)) throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      const totals = financial.agreedAmount === null
+        ? { agreedAmount: null, discountAmount: financial.discountAmount, finalAmount: null, paidAmount, balanceAmount: null }
+        : calculateAccountTotals({ agreedAmount: financial.agreedAmount, discountAmount: financial.discountAmount,
+            entries: paidAmount > 0 ? [{ type: 'PAYMENT', direction: 'INFLOW', amount: paidAmount }] : [] })
+      return {
+        appointmentId: input.appointmentId,
+        accountId: account?.id ?? null,
+        appointmentIds: visibleIds,
+        pricingMode: financial.pricingMode,
+        originalAmount: financial.originalAmount,
+        minimumAmount: financial.minimumAmount,
+        serviceSubtotal: financial.agreedAmount === null ? null : financial.agreedAmount - productSubtotal,
+        productSubtotal,
+        ...totals,
+        paymentStatus: totals.balanceAmount === null ? 'UNDEFINED' : totals.balanceAmount === 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'
+      }
+    })
+  }
+
   async getAppointmentFinance(input: { businessId: string; appointmentId: string }) {
     return this.repository.transaction(async (transaction) => {
       if (!await transaction.lockBusiness(input.businessId)) throw new CashServiceError('BUSINESS_NOT_FOUND')
@@ -628,6 +686,9 @@ export class CashService {
     origin: 'AGENDA' | 'CASH_REGISTER'
     lines: Array<{ amount: number; method: 'CASH' | 'TRANSFER' | 'CARD'; paymentMethodId?: string }>
     observation?: string | null
+    authorizedBusinessIdOverride?: string
+    requestId?: string
+    expectedBalance?: number
     completeAppointment?: boolean
     actorUserId?: string
     actorName?: string
@@ -640,14 +701,35 @@ export class CashService {
     if (lines.some((line) => !['CASH', 'TRANSFER', 'CARD'].includes(line.method))) {
       throw new CashServiceError('INVALID_PAYMENT_METHOD')
     }
+    const requestId = input.requestId === undefined ? null : normalizeAppointmentRequestId(input.requestId)
+    if (requestId && !input.actorUserId?.trim()) throw new CashServiceError('APPOINTMENT_PAYMENT_ACTOR_REQUIRED')
+    const expectedBalance = input.expectedBalance === undefined ? undefined : assertMoney(input.expectedBalance)
+    const requestFingerprint = appointmentRequestFingerprint({ version: 1, appointmentId: input.appointmentId,
+      cashSessionId: input.cashSessionId, origin: input.origin, lines,
+      observation: input.observation?.trim() || null, completeAppointment: input.completeAppointment === true,
+      expectedBalance })
     markTiming?.('precheck')
     return this.repository.transaction(async (transaction) => {
       markTiming?.('transaction-start')
+      if (requestId) await transaction.lockAppointmentMutationRequest(input.businessId, requestId)
       const context = await transaction.lockBusiness(input.businessId)
       markTiming?.('cash-lock')
       if (!context) throw new CashServiceError('BUSINESS_NOT_FOUND')
       if (input.allowedProfessionalId !== undefined && !await transaction.lockAppointmentForProfessional(input.businessId, input.appointmentId, input.allowedProfessionalId)) {
         throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+      }
+      if (requestId) {
+        if (!await transaction.authorizeAppointmentPaymentActor({ businessId: input.businessId, actorUserId: input.actorUserId!,
+          operation: 'PAYMENT', appointmentId: input.appointmentId, completeAppointment: input.completeAppointment,
+          authorizedBusinessIdOverride: input.authorizedBusinessIdOverride })) throw new CashServiceError('CASH_PERMISSION_REQUIRED')
+        if (!await transaction.lockPaymentAppointment(input.businessId, input.appointmentId)) throw new CashServiceError('APPOINTMENT_ACCOUNT_NOT_FOUND')
+        const replay = await transaction.findAppointmentMutationRequest(input.businessId, requestId)
+        if (replay) {
+          assertAppointmentMutationReplay(replay, { operation: 'PAYMENT', actorUserId: input.actorUserId!.trim(), appointmentId: input.appointmentId, requestFingerprint })
+          const result = replay.result as AppointmentPaymentResult
+          return { ...result, replayed: true, entries: result.entries.map(entry => ({ ...entry, effectiveAt: new Date(entry.effectiveAt) })),
+            completion: result.completion ? { ...result.completion, completedAt: new Date(result.completion.completedAt) } : null }
+        }
       }
       const { day, session } = await requireCurrentState(transaction, input.businessId, input.cashSessionId)
       for (const line of lines) {
@@ -661,6 +743,7 @@ export class CashService {
       const currentEntries = await transaction.listAccountEntries(input.businessId, account.id)
       const paymentTotal = lines.reduce((total, line) => total + line.amount, 0)
       const current = calculateAccountTotals({ agreedAmount: account.agreedAmount, discountAmount: account.discountAmount, entries: currentEntries })
+      if (expectedBalance !== undefined && expectedBalance !== current.balanceAmount) throw new CashServiceError('APPOINTMENT_BALANCE_CHANGED')
       if (paymentTotal > current.balanceAmount) throw new CashServiceError('OVERPAYMENT')
       if (input.completeAppointment && paymentTotal !== current.balanceAmount) {
         throw new CashServiceError('APPOINTMENT_COMPLETION_REQUIRES_FULL_PAYMENT')
@@ -688,7 +771,7 @@ export class CashService {
         : null
       if (input.completeAppointment && !completion) throw new CashServiceError('APPOINTMENT_COMPLETION_NOT_ALLOWED')
       markTiming?.('write')
-      return {
+      const result = {
         entries: entries.map((entry) => ({ ...entry, effectiveAt: context.dbNow })),
         completion,
         finance: calculateAccountTotals({
@@ -697,6 +780,9 @@ export class CashService {
           entries: [...currentEntries, ...lines.map((line) => ({ ...line, type: 'PAYMENT' as const, direction: 'INFLOW' as const }))]
         })
       }
+      if (requestId) await transaction.createAppointmentMutationRequest({ businessId: input.businessId, requestId,
+        operation: 'PAYMENT', appointmentId: input.appointmentId, actorUserId: input.actorUserId!.trim(), requestFingerprint, result })
+      return result
     })
   }
 
