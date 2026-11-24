@@ -7,7 +7,7 @@ const [schema, migration, route, service, ui] = await Promise.all([
   readFile(new URL('../prisma/migrations/20260904150000_add_appointment_attention_color/migration.sql', import.meta.url), 'utf8'),
   readFile(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/appointment-service.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8'))
 ])
 
 assert.match(schema, /enum AppointmentAttentionColor\s*{[\s\S]*NONE[\s\S]*YELLOW[\s\S]*ORANGE[\s\S]*}/)

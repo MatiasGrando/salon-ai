@@ -7,7 +7,7 @@ const cashRepository = await readFile(new URL('../src/repositories/prisma-cash-r
 const cashService = await readFile(new URL('../src/services/cash-service.ts', import.meta.url), 'utf8')
 const cashRoutes = await readFile(new URL('../src/routes/cash-register.ts', import.meta.url), 'utf8')
 const staffPermissions = await readFile(new URL('../src/services/staff-permission-service.ts', import.meta.url), 'utf8')
-const crmUi = await readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+const crmUi = await readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8'))
 const cashUi = await readFile(new URL('../src/routes/crm-ui/cash-register.ts', import.meta.url), 'utf8')
 
 assert.match(route, /payment\?:\s*\{[\s\S]*cashSessionId\?: string[\s\S]*lines\?: Array<\{ amount: number; method: 'CASH' \| 'TRANSFER' \| 'CARD'; paymentMethodId\?: string \}>[\s\S]*discountType\?: 'AMOUNT' \| 'PERCENTAGE'[\s\S]*discountValue\?: number/)

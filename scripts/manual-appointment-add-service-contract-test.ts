@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 const [routes, ui, cash] = await Promise.all([
   readFile(new URL('../src/routes/appointment.ts', import.meta.url), 'utf8'),
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8')),
   readFile(new URL('../src/services/cash-service.ts', import.meta.url), 'utf8')
 ])
 

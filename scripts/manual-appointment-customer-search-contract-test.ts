@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const ui = readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8')
+const ui = (readFileSync(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8'))
 const route = readFileSync(new URL('../src/routes/customer.ts', import.meta.url), 'utf8')
 
 assert.ok(ui.includes('id="appointment-customer-search"'), 'el turno manual debe tener una barra de búsqueda')
-assert.ok(ui.includes('placeholder="Escrib&iacute; nombre o tel&eacute;fono"'), 'el texto del buscador debe conservar sus acentos')
-assert.ok(ui.includes('<label for="appointment-customer-phone">Tel&eacute;fono</label>'), 'el campo de teléfono debe mostrarse sin texto redundante')
+assert.ok(ui.includes('placeholder="Buscar por nombre o tel&eacute;fono"'), 'el texto del buscador debe conservar sus acentos')
+assert.ok(/for="appointment-customer-phone">Tel&eacute;fono<input/.test(ui), 'el campo de teléfono debe mostrarse sin texto redundante')
 assert.ok(ui.includes('role="combobox"'), 'la búsqueda debe anunciarse como autocomplete accesible')
 assert.ok(ui.includes('id="appointment-customer-results"'), 'los resultados deben mostrarse dentro del CRM')
 assert.equal(ui.includes('<select id="appointment-customer">'), false, 'no debe renderizarse el select nativo con todos los clientes')

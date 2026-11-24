@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { canStaffAccessRoute } from '../src/services/staff-permission-service.js'
 
 const [ui, customerRoute, permissions, schema, migration] = await Promise.all([
-  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../src/routes/crm-ui.ts', import.meta.url), 'utf8').then(async (source) => source + '\n' + await readFile(new URL('../src/routes/crm-ui/appointment-dialog.ts', import.meta.url), 'utf8')),
   readFile(new URL('../src/routes/customer.ts', import.meta.url), 'utf8'),
   readFile(new URL('../src/services/staff-permission-service.ts', import.meta.url), 'utf8'),
   readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8'),
@@ -28,7 +28,7 @@ assert.match(ui, />Ficha t&eacute;cnica del cliente</)
 assert.match(ui, /id="appointment-customer-technical-profile-edit"[^>]*>Editar</)
 assert.match(ui, /id="appointment-customer-technical-profile-add"[^>]*>\+ Agregar dato importante</)
 assert.match(ui, /id="appointment-customer-technical-profile-input"[^>]*maxlength="1000"/)
-assert.match(ui, /for="appointment-notes">Observaci&oacute;n de este turno</)
+assert.match(ui, /for="appointment-notes">Observaci&oacute;n de este turno<textarea/)
 assert.match(ui, /function loadAppointmentCustomerTechnicalProfile\(/)
 assert.match(ui, /function saveAppointmentCustomerTechnicalProfile\(/)
 assert.match(ui, /canManageAppointmentCustomerTechnicalProfile\(\)/)

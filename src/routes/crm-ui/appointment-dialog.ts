@@ -159,7 +159,7 @@ export const appointmentDialogStyles = `
   #appointment-dialog .ap-close { min-width: 24px; }
   #appointment-checkout .ap-radio { display: flex; align-items: center; gap: 9px; border: 1px solid var(--ap-line); padding: 10px; border-radius: 8px; margin: 0 0 7px; font-weight: 400; }
   #appointment-checkout .ap-radio:has(input:checked) { border-color: var(--ap-blue); background: #f5f8ff; }
-  #appointment-checkout :is(.ap-radio, .ap-check) input { accent-color: var(--ap-blue); width: auto; flex: 0 0 auto; margin: 3px 0 0; }
+  #appointment-checkout :is(.ap-radio, .ap-check) input { accent-color: var(--ap-blue); width: 16px; min-width: 16px; max-width: 16px; height: 16px; min-height: 0; padding: 0; flex: 0 0 16px; margin: 3px 0 0; }
   #appointment-checkout .ap-check { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; }
   #appointment-checkout .ap-note { font-size: 12px; color: var(--ap-muted); margin: 12px 0; }
   #appointment-checkout .ap-info { background: var(--ap-soft); border-radius: 8px; padding: 11px; font-size: 12px; color: var(--ap-muted); margin-bottom: 12px; }
@@ -253,7 +253,7 @@ export function renderAppointmentDialogMarkup(options: AppointmentDialogMarkupOp
                     <div class="appointment-visit-services-header"><h4>Servicios de la visita</h4></div>
                     <details id="appointment-service-edit-slot"><summary>Cambiar servicio de este turno</summary></details>
                     <div class="appointment-visit-services-list" id="appointment-visit-services-list"></div>
-                    <button class="ap-btn ap-link" id="appointment-add-service-open" type="button" aria-expanded="false" aria-controls="appointment-add-service-panel">+ Agregar servicio</button>
+                    <button class="ap-btn ap-link" id="appointment-add-service-open" type="button" aria-label="Agregar servicio a esta visita" aria-expanded="false" aria-controls="appointment-add-service-panel">+ Agregar servicio</button>
                     <div class="appointment-add-service-panel" id="appointment-add-service-panel" hidden>
                       <div class="appointment-add-service-grid">
                         <label class="ap-field" for="appointment-add-service-service">Servicio<select id="appointment-add-service-service"></select></label>
@@ -285,7 +285,7 @@ export function renderAppointmentDialogMarkup(options: AppointmentDialogMarkupOp
                   </details>
                   <details class="appointment-additional ap-panel ap-compact ap-additional-slot" id="appointment-additional">
                     <summary>Informaci&oacute;n adicional</summary>
-                    <div class="appointment-additional-content"><label class="ap-field" for="appointment-notes">Observaci&oacute;n<textarea class="field" id="appointment-notes" maxlength="2000" rows="2"></textarea></label><div class="appointment-deposit-option" ${cashRegisterEnabled ? 'hidden' : ''}><label><input id="appointment-deposit-paid" type="checkbox">Dej&oacute; se&ntilde;a</label><label class="ap-field appointment-deposit-amount" id="appointment-deposit-amount-row" for="appointment-deposit-amount" hidden>Monto de la se&ntilde;a<input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric"></label></div></div>
+                    <div class="appointment-additional-content"><label class="ap-field" for="appointment-notes">Observaci&oacute;n de este turno<textarea class="field" id="appointment-notes" maxlength="2000" rows="2"></textarea></label><div class="appointment-deposit-option" ${cashRegisterEnabled ? 'hidden' : ''}><label><input id="appointment-deposit-paid" type="checkbox">Dej&oacute; se&ntilde;a</label><label class="ap-field appointment-deposit-amount" id="appointment-deposit-amount-row" for="appointment-deposit-amount" hidden>Monto de la se&ntilde;a<input class="field" id="appointment-deposit-amount" type="number" min="1" step="1" inputmode="numeric"></label></div></div>
                   </details>
                   ${cashRegisterEnabled ? '<div class="ap-initial-finance-slot ap-new-only">' + financeCreateMarkup + '</div>' : ''}
                 </section>
